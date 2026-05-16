@@ -29,3 +29,12 @@
 #ifndef MYNAH_PTT_ARM_MS
 #define MYNAH_PTT_ARM_MS 400
 #endif
+
+/** 1 = swipe/gesture debug banners on clock faces; 0 = production. */
+#ifndef MYNAH_DEBUG_GESTURES
+#define MYNAH_DEBUG_GESTURES 0
+#endif
+
+#ifndef MYNAH_CALCIFER_POLL_MS
+#define MYNAH_CALCIFER_POLL_MS 45000u
+#endif

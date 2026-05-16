@@ -24,6 +24,7 @@
 #include "pm_birth_nvs.h"
 #include "pm_transit.h"
 #include "pm_castalia_auth.h"
+#include "pm_calcifer.h"
 #include "pm_astro_highlight.h"
 
 Arduino_DataBus *bus = new Arduino_ESP32QSPI(
@@ -42,6 +43,7 @@ static bool g_voice_use_message = false;
 static constexpr uint8_t k_tv_none = 0;
 static constexpr uint8_t k_tv_astro = 1;
 static uint8_t g_text_voice_route = k_tv_none;
+static bool g_calcifer_briefing = false;
 static char g_astrology_voice_msg[2200] = "";
 static char g_astrology_sys_prompt[2800] = "";
 static bool s_rec_mic_on = false;
@@ -69,6 +71,8 @@ enum class ClockFace : uint8_t {
   DigitalLocal,
   Spotify,
   Astrology,
+  /** CalDAV block countdown via `calcifer-status`. */
+  CalciferCountdown,
   /** QR → castalia.institute Google sign-in; tokens stored on watch for Edge Functions. */
   Castalia,
   kNumFaces,
@@ -86,6 +90,10 @@ static void cycle_clock_face(int delta) {
 static PmSpotifyStatus g_spotify_ui = {};
 static bool s_spotify_have_data = false;
 static uint32_t s_last_spotify_poll_ms = 0;
+
+static PmCalciferStatus g_calcifer_ui = {};
+static bool s_calcifer_have_data = false;
+static uint32_t s_last_calcifer_poll_ms = 0;
 
 #ifndef MYNAH_SPOTIFY_POLL_MS
 #define MYNAH_SPOTIFY_POLL_MS 25000u
@@ -319,7 +327,7 @@ static void draw_hand_radial(int cx, int cy, float ang, int len, uint16_t col, i
 }
 
 static constexpr int kAnalogCx = LCD_WIDTH / 2;
-static constexpr int kAnalogCy = LCD_HEIGHT / 2 + 6;
+static constexpr int kAnalogCy = LCD_HEIGHT / 2;
 static constexpr int kAnalogR = 138;
 static constexpr int kAnalogSecLen = kAnalogR - 10;
 
@@ -487,6 +495,66 @@ static void draw_digital_local_face(const struct tm *tm, bool valid) {
     snprintf(line1, sizeof(line1), "--:--");
   }
   drawCenteredLine(line1, 210, RGB565_WHITE, 5, 5);
+}
+
+static void format_calcifer_countdown(int64_t end_unix, char *out, size_t cap) {
+  const time_t now = time(nullptr);
+  int64_t left = end_unix - static_cast<int64_t>(now);
+  if (left < 0) {
+    left = 0;
+  }
+  const int h = static_cast<int>(left / 3600);
+  const int m = static_cast<int>((left % 3600) / 60);
+  const int s = static_cast<int>(left % 60);
+  if (h > 0) {
+    snprintf(out, cap, "%d:%02d:%02d", h, m, s);
+  } else {
+    snprintf(out, cap, "%02d:%02d", m, s);
+  }
+}
+
+static void draw_calcifer_face() {
+  const uint16_t c_title = gfx->color565(255, 190, 110);
+  const uint16_t c_big = RGB565_WHITE;
+  const uint16_t c_dim = gfx->color565(130, 140, 155);
+  drawCenteredLine("schedule", 52, c_title, 1, 1);
+
+  if (!pm_wifi_connected()) {
+    drawCenteredLine("need WiFi", 220, c_dim, 2, 2);
+    return;
+  }
+  if (!pm_time_valid()) {
+    drawCenteredLine("need time", 220, c_dim, 2, 2);
+    return;
+  }
+  if (!s_calcifer_have_data) {
+    drawCenteredLine("loading…", 220, c_dim, 2, 2);
+    return;
+  }
+  if (!g_calcifer_ui.ok) {
+    drawCenteredLine(g_calcifer_ui.error[0] ? g_calcifer_ui.error : "unavailable", 220,
+                     gfx->color565(255, 110, 110), 1, 1);
+    return;
+  }
+  if (!g_calcifer_ui.configured) {
+    drawCenteredLine("CalDAV not set", 210, c_dim, 1, 1);
+    drawCenteredLine("on server", 240, c_dim, 1, 1);
+    return;
+  }
+
+  char line[96];
+  if (g_calcifer_ui.current.valid) {
+    drawCenteredLine(g_calcifer_ui.current.summary, 150, c_dim, 1, 1);
+    format_calcifer_countdown(g_calcifer_ui.current.end_unix, line, sizeof(line));
+    drawCenteredLine(line, 220, c_big, 3, 3);
+    drawCenteredLine("left in block", 286, c_dim, 1, 1);
+  } else {
+    drawCenteredLine("free", 200, c_big, 2, 2);
+    if (g_calcifer_ui.next.valid) {
+      snprintf(line, sizeof(line), "next: %s", g_calcifer_ui.next.summary);
+      drawCenteredLine(line, 260, c_dim, 1, 1);
+    }
+  }
 }
 
 static const char *zodiac_abbr_from_lon(double lon_deg) {
@@ -835,6 +903,9 @@ static void draw_clock_face(float thinking_progress = -1.f) {
     case ClockFace::Astrology:
       draw_astrology_face(&tm, pm_time_valid(), -1, -1, false);
       break;
+    case ClockFace::CalciferCountdown:
+      draw_calcifer_face();
+      break;
     case ClockFace::Castalia:
       draw_castalia_face();
       break;
@@ -843,10 +914,11 @@ static void draw_clock_face(float thinking_progress = -1.f) {
   }
 
   const int banner_y = (g_clock_face == ClockFace::Apocalypso || g_clock_face == ClockFace::Spotify ||
-                        g_clock_face == ClockFace::Astrology || g_clock_face == ClockFace::Castalia)
+                        g_clock_face == ClockFace::Astrology || g_clock_face == ClockFace::CalciferCountdown ||
+                        g_clock_face == ClockFace::Castalia)
                            ? 352
                            : 320;
-  if (g_gesture_banner[0] != '\0') {
+  if (MYNAH_DEBUG_GESTURES && g_gesture_banner[0] != '\0') {
     drawCenteredLine(g_gesture_banner, banner_y, gfx->color565(255, 220, 160), 1, 1);
   }
 
@@ -1134,6 +1206,23 @@ void loop() {
   const bool ptt_armed =
       ptt_hold && s_ptt_press_ms != 0 && (now - s_ptt_press_ms >= MYNAH_PTT_ARM_MS);
 
+  static uint32_t s_last_clock_boot_brief_ms = 0;
+  if (g_state == AppState::kClock && (side_ev & PM_SIDE_BTN_BOOT)) {
+    const bool want_calcifer = (g_clock_face == ClockFace::ClassicAnalog ||
+                                g_clock_face == ClockFace::DigitalLocal ||
+                                g_clock_face == ClockFace::CalciferCountdown);
+    if (want_calcifer && pm_wifi_connected() && pm_time_valid() &&
+        (now - s_last_clock_boot_brief_ms >= 3500u)) {
+      s_last_clock_boot_brief_ms = now;
+      pm_voice_result_free(&g_voice_result);
+      g_voice_use_message = false;
+      g_calcifer_briefing = true;
+      g_astro_voice_active = false;
+      g_astro_voice_pcm = false;
+      g_state = AppState::kThinking;
+    }
+  }
+
   switch (g_state) {
     case AppState::kClock: {
       static bool s_clock_paint_inited = false;
@@ -1187,10 +1276,17 @@ void loop() {
       if (g_clock_face != ClockFace::Spotify) {
         s_spotify_have_data = false;
       }
+      if (g_clock_face != ClockFace::CalciferCountdown) {
+        s_calcifer_have_data = false;
+      }
 
       const bool spotify_stale =
           g_clock_face == ClockFace::Spotify && pm_wifi_connected() && s_spotify_have_data &&
           (now - s_last_spotify_poll_ms >= MYNAH_SPOTIFY_POLL_MS);
+
+      const bool calcifer_stale =
+          g_clock_face == ClockFace::CalciferCountdown && pm_wifi_connected() && valid &&
+          (!s_calcifer_have_data || (now - s_last_calcifer_poll_ms >= MYNAH_CALCIFER_POLL_MS));
 
       static time_t s_prev_astro_epoch_min = -1;
       const time_t epoch_min_bucket = valid ? (epoch / 60) : -1;
@@ -1198,10 +1294,12 @@ void loop() {
           g_clock_face == ClockFace::Astrology && valid && epoch_min_bucket != s_prev_astro_epoch_min;
 
       const bool sec_tick_paint =
-          sec_tick && g_clock_face != ClockFace::Castalia;
+          sec_tick && g_clock_face != ClockFace::Castalia && g_clock_face != ClockFace::CalciferCountdown;
+      const bool calcifer_sec =
+          g_clock_face == ClockFace::CalciferCountdown && valid && sec_tick;
       const bool full_paint = !s_clock_paint_inited || slow_no_time || banner_chg || wifi_chg ||
-                              g_clock_repaint_pending || local_hm_chg || spotify_stale || sec_tick_paint ||
-                              astro_repaint;
+                              g_clock_repaint_pending || local_hm_chg || spotify_stale || calcifer_stale ||
+                              sec_tick_paint || calcifer_sec || astro_repaint;
 
       if (full_paint) {
         s_clock_paint_inited = true;
@@ -1222,6 +1320,13 @@ void loop() {
             pm_spotify_refresh(&g_spotify_ui);
             s_last_spotify_poll_ms = now;
             s_spotify_have_data = true;
+          }
+        }
+        if (g_clock_face == ClockFace::CalciferCountdown && pm_wifi_connected() && valid) {
+          if (!s_calcifer_have_data || calcifer_stale) {
+            (void)pm_calcifer_fetch(&g_calcifer_ui, epoch);
+            s_last_calcifer_poll_ms = now;
+            s_calcifer_have_data = true;
           }
         }
         draw_clock_face();
@@ -1324,7 +1429,9 @@ void loop() {
         s_voice_wait_t0 = now;
         pm_voice_result_free(&g_voice_result);
         bool started = false;
-        if (g_astro_voice_active && !g_astro_voice_pcm) {
+        if (g_calcifer_briefing) {
+          started = pm_voice_begin_clock_agenda(&g_voice_result);
+        } else if (g_astro_voice_active && !g_astro_voice_pcm) {
           started = pm_voice_begin_message(g_astrology_voice_msg, kAstroVoiceSys, &g_voice_result);
         } else {
           const char *sys = nullptr;
@@ -1372,6 +1479,7 @@ void loop() {
       thinking_progress_end();
       g_voice_use_message = false;
       g_text_voice_route = k_tv_none;
+      g_calcifer_briefing = false;
       if (vs != PmVoiceStatus::DoneOk) {
         if (g_astro_voice_active) {
           draw_astro_voice_screen(pm_voice_last_error(), -1, -1, false);
@@ -1392,14 +1500,24 @@ void loop() {
       if (!g_voice_result.mp3 || g_voice_result.mp3_len < 64) {
         if (g_astro_voice_active) {
           draw_astro_voice_screen("no audio reply", -1, -1, false);
+          delay(1500);
+          pm_voice_result_free(&g_voice_result);
+          g_astro_voice_active = false;
+          g_astro_voice_pcm = false;
+          g_state = AppState::kClock;
+          g_clock_repaint_pending = true;
+          break;
         }
-        delay(1500);
-        pm_voice_result_free(&g_voice_result);
-        g_astro_voice_active = false;
-        g_astro_voice_pcm = false;
-        g_state = AppState::kClock;
-        g_clock_repaint_pending = true;
-        break;
+        if (g_voice_result.reply[0] == '\0' && g_voice_result.transcript[0] == '\0') {
+          gfx->fillScreen(RGB565_BLACK);
+          drawCenteredLine("no reply", 220, RGB565_RED, 2, 2);
+          gfx->flush();
+          delay(1200);
+          pm_voice_result_free(&g_voice_result);
+          g_state = AppState::kClock;
+          g_clock_repaint_pending = true;
+          break;
+        }
       }
       if (g_astro_voice_active) {
         pm_astro_highlight_build(g_voice_result.reply, &g_astro_highlight_plan);
@@ -1454,6 +1572,20 @@ void loop() {
         gfx->flush();
         s_play_ui = true;
         s_play_armed = false;
+      }
+      if (!g_voice_result.mp3 || g_voice_result.mp3_len < 64) {
+        gfx->fillScreen(gfx->color565(18, 28, 42));
+        const char *txt = g_voice_result.reply[0] ? g_voice_result.reply : g_voice_result.transcript;
+        drawCenteredLine(txt, 210, RGB565_WHITE, 1, 1);
+        gfx->flush();
+        delay(4500);
+        pm_voice_result_free(&g_voice_result);
+        s_play_ui = false;
+        s_play_armed = false;
+        s_play_wait_t0 = 0;
+        g_state = AppState::kClock;
+        g_clock_repaint_pending = true;
+        break;
       }
       if (!s_play_armed) {
         pm_speaker_play_begin(g_voice_result.mp3, g_voice_result.mp3_len);

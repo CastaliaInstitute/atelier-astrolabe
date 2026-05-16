@@ -89,24 +89,40 @@ static bool extract_json_string_field(const char *json, const char *key, char *o
   return true;
 }
 
-/** True when JSON contains a closed audioBase64 string (not truncated mid-field). */
+/** True when the voice-pipeline JSON body looks complete (not truncated mid-field). */
 static bool voice_response_json_complete(const char *buf, size_t len) {
-  if (!buf || len < 24) {
-    return false;
-  }
-  if (buf[0] != '{') {
+  if (!buf || len < 8 || buf[0] != '{') {
     return false;
   }
   const char *k = "\"audioBase64\":\"";
   const char *p = strstr(buf, k);
-  if (!p) {
+  if (p) {
+    p += strlen(k);
+    while (p < buf + len && *p != '"') {
+      ++p;
+    }
+    return p < buf + len && *p == '"';
+  }
+  for (size_t i = len; i > 0; --i) {
+    const char c = buf[i - 1];
+    if (c == '}') {
+      return true;
+    }
+    if (c != ' ' && c != '\n' && c != '\r' && c != '\t') {
+      break;
+    }
+  }
+  return false;
+}
+
+static bool voice_result_ok(PmVoiceResult *r) {
+  if (!r) {
     return false;
   }
-  p += strlen(k);
-  while (p < buf + len && *p != '"') {
-    ++p;
+  if (r->mp3 && r->mp3_len >= 64) {
+    return true;
   }
-  return p < buf + len && *p == '"';
+  return r->reply[0] != '\0' || r->transcript[0] != '\0';
 }
 
 static bool extract_audio_base64(const char *json, uint8_t **out_bin, size_t *out_len) {
@@ -369,15 +385,17 @@ static bool voice_post_message_inner(const char *message, const char *system_ins
   extract_json_string_field(resp, "transcript", r->transcript, sizeof(r->transcript));
   extract_json_string_field(resp, "reply", r->reply, sizeof(r->reply));
   if (!extract_audio_base64(resp, &r->mp3, &r->mp3_len)) {
-    ESP_LOGW(TAG, "voice-pipeline (message) missing audioBase64");
-    voice_set_error("no audio");
-    free(resp);
+    ESP_LOGI(TAG, "voice (message) text-only (no audioBase64)");
+  } else {
+    ESP_LOGI(TAG, "voice (message) mp3 %u bytes", static_cast<unsigned>(r->mp3_len));
+  }
+  free(resp);
+  if (!voice_result_ok(r)) {
+    voice_set_error("empty reply");
     return false;
   }
-  ESP_LOGI(TAG, "voice (message) mp3 %u bytes", static_cast<unsigned>(r->mp3_len));
-  free(resp);
   voice_set_error(nullptr);
-  return r->mp3_len > 0;
+  return true;
 }
 
 static bool voice_post_pcm_inner(const uint8_t *pcm, size_t pcm_len, const char *system_instruction,
@@ -502,15 +520,91 @@ static bool voice_post_pcm_inner(const uint8_t *pcm, size_t pcm_len, const char 
   extract_json_string_field(resp, "transcript", r->transcript, sizeof(r->transcript));
   extract_json_string_field(resp, "reply", r->reply, sizeof(r->reply));
   if (!extract_audio_base64(resp, &r->mp3, &r->mp3_len)) {
-    ESP_LOGW(TAG, "voice-pipeline missing audioBase64");
-    voice_set_error("no audio");
-    free(resp);
+    ESP_LOGI(TAG, "voice (pcm) text-only (no audioBase64)");
+  } else {
+    ESP_LOGI(TAG, "voice (pcm) mp3 %u bytes", static_cast<unsigned>(r->mp3_len));
+  }
+  free(resp);
+  if (!voice_result_ok(r)) {
+    voice_set_error("empty reply");
     return false;
   }
-  ESP_LOGI(TAG, "voice (pcm) mp3 %u bytes", static_cast<unsigned>(r->mp3_len));
-  free(resp);
   voice_set_error(nullptr);
-  return r->mp3_len > 0;
+  return true;
+}
+
+static bool voice_post_clock_agenda_inner(PmVoiceResult *r) {
+  if (!r) {
+    voice_set_error("no result");
+    return false;
+  }
+  memset(r->transcript, 0, sizeof(r->transcript));
+  memset(r->reply, 0, sizeof(r->reply));
+  r->mp3 = nullptr;
+  r->mp3_len = 0;
+
+  if (strlen(MYNAH_SUPABASE_URL) == 0 || strlen(MYNAH_SUPABASE_ANON_KEY) == 0) {
+    voice_set_error("no supabase config");
+    return false;
+  }
+  (void)pm_castalia_auth_prepare_for_voice();
+
+  char base[160];
+  strncpy(base, MYNAH_SUPABASE_URL, sizeof(base) - 1);
+  base[sizeof(base) - 1] = '\0';
+  trim_supabase_url(base, sizeof(base));
+
+  char url[224];
+  snprintf(url, sizeof(url), "%s/functions/v1/voice-pipeline", base);
+
+  const time_t epoch = time(nullptr);
+  char body[120];
+  snprintf(body, sizeof(body),
+           "{\"face\":\"clock_agenda\",\"epochSeconds\":%lld,\"skipLlm\":true}",
+           static_cast<long long>(epoch));
+
+  WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient http;
+  http.setTimeout(static_cast<uint16_t>(kVoiceHttpTimeoutMs > 60000u ? 60000u : kVoiceHttpTimeoutMs));
+  if (!http.begin(client, url)) {
+    voice_set_error("http begin");
+    return false;
+  }
+  http.addHeader("Content-Type", "application/json");
+  pm_castalia_auth_apply_headers(&http);
+
+  const int code = http.POST(reinterpret_cast<uint8_t *>(body), strlen(body));
+  if (code != 200) {
+    ESP_LOGW(TAG, "voice-pipeline (clock_agenda) HTTP %d", code);
+    voice_set_error(code == 401 ? "sign in on Castalia face" : "HTTP error");
+    http.end();
+    return false;
+  }
+
+  const size_t resp_cap = kVoiceRespMaxBytes;
+  char *resp = nullptr;
+  if (!read_http_json_body(&http, &resp, resp_cap)) {
+    voice_set_error("bad response");
+    http.end();
+    return false;
+  }
+  http.end();
+
+  extract_json_string_field(resp, "transcript", r->transcript, sizeof(r->transcript));
+  extract_json_string_field(resp, "reply", r->reply, sizeof(r->reply));
+  if (!extract_audio_base64(resp, &r->mp3, &r->mp3_len)) {
+    ESP_LOGI(TAG, "voice (clock_agenda) text-only");
+  } else {
+    ESP_LOGI(TAG, "voice (clock_agenda) mp3 %u bytes", static_cast<unsigned>(r->mp3_len));
+  }
+  free(resp);
+  if (!voice_result_ok(r)) {
+    voice_set_error("empty agenda");
+    return false;
+  }
+  voice_set_error(nullptr);
+  return true;
 }
 
 static void voice_net_task(void *arg) {
@@ -522,6 +616,8 @@ static void voice_net_task(void *arg) {
       s_voice_ok = voice_post_message_inner(s_req_message, s_req_system, s_req_result);
     } else if (op == 2) {
       s_voice_ok = voice_post_pcm_inner(s_req_pcm, s_req_pcm_len, s_req_system, s_req_result);
+    } else if (op == 3) {
+      s_voice_ok = voice_post_clock_agenda_inner(s_req_result);
     } else {
       s_voice_ok = false;
     }
@@ -593,6 +689,11 @@ bool pm_voice_begin_pcm(const uint8_t *pcm, size_t pcm_len, const char *system_i
   s_req_system = system_instruction;
   s_req_result = r;
   return voice_net_begin(2);
+}
+
+bool pm_voice_begin_clock_agenda(PmVoiceResult *r) {
+  s_req_result = r;
+  return voice_net_begin(3);
 }
 
 PmVoiceStatus pm_voice_poll(void) {
