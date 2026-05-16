@@ -750,7 +750,8 @@ static const char kAstroVoiceSys[] =
     "Given approximate geocentric ecliptic longitudes (degrees) for the user, give ONE flowing mini-reading "
     "(under 90 seconds spoken) about today's transits versus their natal Sun and anything else notable. "
     "No medical or legal advice; reflective insight only, not deterministic fate. "
-    "Do not claim arc-minute precision from the numbers.";
+    "Do not claim arc-minute precision from the numbers. "
+    "Do not use asterisk stage directions or emotes (e.g. *smiles*); output only words to be spoken aloud.";
 
 static bool build_astrology_voice_message(char *buf, size_t cap) {
   if (!buf || cap < 200) {
@@ -1145,7 +1146,8 @@ void loop() {
       g_text_voice_route = k_tv_none;
       if (!ok) {
         gfx->fillScreen(RGB565_BLACK);
-        drawCenteredLine("voice error", 220, RGB565_RED, 2, 2);
+        drawCenteredLine("voice error", 200, RGB565_RED, 2, 2);
+        drawCenteredLine(pm_voice_last_error(), 232, gfx->color565(180, 120, 120), 1, 1);
         gfx->flush();
         delay(1500);
         g_state = AppState::kClock;
@@ -1156,11 +1158,32 @@ void loop() {
       break;
     }
     case AppState::kPlaying: {
-      gfx->fillScreen(gfx->color565(20, 40, 30));
-      drawCenteredLine("speaking", 200, RGB565_WHITE, 2, 2);
-      gfx->flush();
-      (void)pm_speaker_play_mp3(g_voice_result.mp3, g_voice_result.mp3_len);
+      static bool s_play_ui = false;
+      static bool s_play_armed = false;
+      if (!s_play_ui) {
+        gfx->fillScreen(gfx->color565(20, 40, 30));
+        drawCenteredLine("speaking", 200, RGB565_WHITE, 2, 2);
+        gfx->flush();
+        s_play_ui = true;
+        s_play_armed = false;
+      }
+      if (!s_play_armed) {
+        pm_speaker_play_begin(g_voice_result.mp3, g_voice_result.mp3_len);
+        s_play_armed = true;
+      }
+      const PmSpeakerStatus spk = pm_speaker_poll();
+      if (spk == PmSpeakerStatus::Playing) {
+        break;
+      }
+      if (spk == PmSpeakerStatus::DoneFail) {
+        gfx->fillScreen(RGB565_BLACK);
+        drawCenteredLine("playback failed", 210, RGB565_RED, 2, 2);
+        gfx->flush();
+        delay(1200);
+      }
       pm_voice_result_free(&g_voice_result);
+      s_play_ui = false;
+      s_play_armed = false;
       g_state = AppState::kClock;
       g_clock_repaint_pending = true;
       break;

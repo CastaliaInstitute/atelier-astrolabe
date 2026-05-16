@@ -6,22 +6,34 @@
 #include "driver/i2c.h"
 #include "driver/i2s.h"
 #include "esp_check.h"
-#include "esp_heap_caps.h"
 #include "esp_log.h"
-#include "minimp3_ex.h"
+#include "esp_task_wdt.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "minimp3.h"
 
 extern "C" {
 #include "es8311.h"
 }
 
 #include "pin_config.h"
+#include "pm_mic.h"
 
 static const char *TAG = "pm_speaker";
 
 #define I2S_TX I2S_NUM_0
+static constexpr uint32_t kSpeakerTaskStack = 49152;
+static constexpr int kSpeakerVolume = 48;
+static constexpr uint32_t kMaxPlaySeconds = 90u;
 
 static es8311_handle_t s_es = nullptr;
 static bool s_es_inited = false;
+
+static TaskHandle_t s_speaker_task = nullptr;
+static volatile bool s_speaker_ok = false;
+static volatile PmSpeakerStatus s_speaker_status = PmSpeakerStatus::Idle;
+static const uint8_t *s_play_mp3 = nullptr;
+static size_t s_play_mp3_len = 0;
 
 static esp_err_t es8311_board_init(int sample_hz) {
   if (!s_es) {
@@ -40,7 +52,7 @@ static esp_err_t es8311_board_init(int sample_hz) {
     ESP_RETURN_ON_ERROR(
         es8311_sample_frequency_config(s_es, clk.mclk_frequency, clk.sample_frequency), TAG, "sf");
     ESP_RETURN_ON_ERROR(es8311_microphone_config(s_es, false), TAG, "mic off");
-    ESP_RETURN_ON_ERROR(es8311_voice_volume_set(s_es, 85, nullptr), TAG, "vol");
+    ESP_RETURN_ON_ERROR(es8311_voice_volume_set(s_es, kSpeakerVolume, nullptr), TAG, "vol");
     ESP_RETURN_ON_ERROR(es8311_microphone_gain_set(s_es, ES8311_MIC_GAIN_6DB), TAG, "mg");
     ESP_RETURN_ON_ERROR(gpio_set_direction((gpio_num_t)PA, GPIO_MODE_OUTPUT), TAG, "pa dir");
     ESP_RETURN_ON_ERROR(gpio_set_level((gpio_num_t)PA, 1), TAG, "pa on");
@@ -89,65 +101,170 @@ static esp_err_t i2s_write_all(const int16_t *pcm, size_t total_s16) {
   const uint8_t *p = reinterpret_cast<const uint8_t *>(pcm);
   size_t remain = total_s16 * sizeof(int16_t);
   while (remain > 0) {
+    esp_task_wdt_reset();
     size_t wrote = 0;
     if (i2s_write(I2S_TX, p, remain, &wrote, portMAX_DELAY) != ESP_OK) {
       return ESP_FAIL;
     }
     p += wrote;
     remain -= wrote;
+    vTaskDelay(1);
   }
   return ESP_OK;
 }
 
-bool pm_speaker_play_mp3(const uint8_t *mp3, size_t mp3_len) {
+static bool play_mp3_streaming(const uint8_t *mp3, size_t mp3_len) {
   if (!mp3 || mp3_len == 0) {
     return false;
   }
-  mp3dec_t dec = {};
+
+  pm_mic_stop();
+
+  mp3dec_t dec;
   mp3dec_init(&dec);
-  mp3dec_file_info_t fi = {};
-  const int ld = mp3dec_load_buf(&dec, mp3, mp3_len, &fi, nullptr, nullptr);
-  if (ld != 0 || !fi.buffer || fi.samples == 0) {
-    free(fi.buffer);
-    ESP_LOGW(TAG, "mp3dec_load_buf ret=%d samples=%zu", ld, (size_t)fi.samples);
-    return false;
-  }
 
-  if (es8311_board_init(fi.hz) != ESP_OK) {
-    free(fi.buffer);
-    return false;
-  }
-  const int out_ch = (fi.channels == 1) ? 2 : fi.channels;
-  if (i2s_tx_begin(fi.hz, out_ch) != ESP_OK) {
-    free(fi.buffer);
-    return false;
-  }
+  const uint8_t *buf = mp3;
+  int bytes_left = static_cast<int>(mp3_len);
+  bool i2s_ready = false;
+  int out_hz = 0;
+  int out_channels = 0;
+  uint32_t pcm_frames_at_hz = 0;
 
-  if (fi.channels == 1) {
-    const size_t n = fi.samples;
-    int16_t *st = static_cast<int16_t *>(
-        heap_caps_malloc(n * 2 * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-    if (!st) {
-      st = static_cast<int16_t *>(malloc(n * 2 * sizeof(int16_t)));
+  static int16_t pcm[MINIMP3_MAX_SAMPLES_PER_FRAME];
+  static int16_t stereo_up[MINIMP3_MAX_SAMPLES_PER_FRAME];
+
+  while (bytes_left > 0) {
+    esp_task_wdt_reset();
+
+    mp3dec_frame_info_t info = {};
+    const int samples_per_ch = mp3dec_decode_frame(&dec, buf, bytes_left, pcm, &info);
+    if (info.frame_bytes <= 0) {
+      break;
     }
-    if (!st) {
-      free(fi.buffer);
+    buf += info.frame_bytes;
+    bytes_left -= info.frame_bytes;
+
+    if (samples_per_ch <= 0) {
+      continue;
+    }
+
+    if (!i2s_ready) {
+      if (info.hz <= 0 || info.channels <= 0) {
+        continue;
+      }
+      out_hz = info.hz;
+      out_channels = info.channels;
+      if (es8311_board_init(out_hz) != ESP_OK) {
+        ESP_LOGW(TAG, "es8311 init failed");
+        return false;
+      }
+      const int i2s_ch = (out_channels == 1) ? 2 : out_channels;
+      if (i2s_tx_begin(out_hz, i2s_ch) != ESP_OK) {
+        ESP_LOGW(TAG, "i2s begin failed");
+        return false;
+      }
+      i2s_ready = true;
+    } else if (info.hz != out_hz || info.channels != out_channels) {
+      ESP_LOGW(TAG, "mp3 format change mid-stream");
+      break;
+    }
+
+    const int nch = info.channels;
+    pcm_frames_at_hz += static_cast<uint32_t>(samples_per_ch);
+    if (out_hz > 0 && pcm_frames_at_hz / static_cast<uint32_t>(out_hz) > kMaxPlaySeconds) {
+      ESP_LOGW(TAG, "playback capped at %us", static_cast<unsigned>(kMaxPlaySeconds));
+      break;
+    }
+
+    if (nch == 1) {
+      const size_t n = static_cast<size_t>(samples_per_ch);
+      if (n * 2 > MINIMP3_MAX_SAMPLES_PER_FRAME) {
+        ESP_LOGW(TAG, "mono frame too large");
+        break;
+      }
+      for (size_t i = 0; i < n; ++i) {
+        const int16_t s = pcm[i];
+        stereo_up[2 * i] = s;
+        stereo_up[2 * i + 1] = s;
+      }
+      if (i2s_write_all(stereo_up, n * 2) != ESP_OK) {
+        i2s_tx_stop();
+        return false;
+      }
+    } else {
+      const size_t pcm_s16 = static_cast<size_t>(samples_per_ch) * static_cast<size_t>(nch);
+      if (pcm_s16 > MINIMP3_MAX_SAMPLES_PER_FRAME) {
+        ESP_LOGW(TAG, "stereo frame too large");
+        break;
+      }
+      if (i2s_write_all(pcm, pcm_s16) != ESP_OK) {
+        i2s_tx_stop();
+        return false;
+      }
+    }
+  }
+
+  if (i2s_ready) {
+    i2s_tx_stop();
+  }
+  return i2s_ready;
+}
+
+static void speaker_play_task(void *arg) {
+  (void)arg;
+  for (;;) {
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    s_speaker_ok = play_mp3_streaming(s_play_mp3, s_play_mp3_len);
+    s_speaker_status = s_speaker_ok ? PmSpeakerStatus::DoneOk : PmSpeakerStatus::DoneFail;
+  }
+}
+
+static void speaker_task_ensure() {
+  if (s_speaker_task) {
+    return;
+  }
+  xTaskCreatePinnedToCore(speaker_play_task, "spk_play", kSpeakerTaskStack, nullptr, 1, &s_speaker_task, 1);
+}
+
+void pm_speaker_play_begin(const uint8_t *mp3, size_t mp3_len) {
+  speaker_task_ensure();
+  if (!s_speaker_task || !mp3 || mp3_len == 0) {
+    s_speaker_status = PmSpeakerStatus::DoneFail;
+    return;
+  }
+  if (s_speaker_status == PmSpeakerStatus::Playing) {
+    ESP_LOGW(TAG, "play_begin while busy");
+    return;
+  }
+  s_play_mp3 = mp3;
+  s_play_mp3_len = mp3_len;
+  s_speaker_ok = false;
+  s_speaker_status = PmSpeakerStatus::Playing;
+  xTaskNotify(s_speaker_task, 1, eSetBits);
+}
+
+PmSpeakerStatus pm_speaker_poll() {
+  return s_speaker_status;
+}
+
+bool pm_speaker_play_mp3(const uint8_t *mp3, size_t mp3_len) {
+  pm_speaker_play_begin(mp3, mp3_len);
+  const uint32_t timeout_ms =
+      kMaxPlaySeconds * 1000u + 15000u + static_cast<uint32_t>((mp3_len / 4000u) * 1000u);
+  const uint32_t deadline = millis() + timeout_ms;
+  for (;;) {
+    const PmSpeakerStatus st = pm_speaker_poll();
+    if (st == PmSpeakerStatus::DoneOk) {
+      return true;
+    }
+    if (st == PmSpeakerStatus::DoneFail) {
       return false;
     }
-    for (size_t i = 0; i < n; i++) {
-      const int16_t s = fi.buffer[i];
-      st[2 * i] = s;
-      st[2 * i + 1] = s;
+    if (static_cast<int32_t>(millis() - deadline) >= 0) {
+      ESP_LOGW(TAG, "speaker play timeout");
+      return false;
     }
-    const esp_err_t w = i2s_write_all(st, n * 2);
-    free(st);
-    free(fi.buffer);
-    i2s_tx_stop();
-    return w == ESP_OK;
+    delay(10);
+    esp_task_wdt_reset();
   }
-
-  const esp_err_t w = i2s_write_all(fi.buffer, fi.samples);
-  free(fi.buffer);
-  i2s_tx_stop();
-  return w == ESP_OK;
 }

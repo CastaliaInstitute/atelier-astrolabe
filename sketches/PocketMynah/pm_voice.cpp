@@ -7,10 +7,43 @@
 
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "pm_config.h"
 #include "pm_castalia_auth.h"
 
 static const char *TAG = "pm_voice";
+
+static constexpr uint32_t kVoiceNetTaskStack = 32768;
+static constexpr uint32_t kVoiceHttpTimeoutMs = 120000;
+
+static TaskHandle_t s_voice_task = nullptr;
+static volatile bool s_voice_done = false;
+static volatile bool s_voice_ok = false;
+static volatile uint8_t s_voice_op = 0; /** 1 = message, 2 = pcm */
+
+static const char *s_req_message = nullptr;
+static const char *s_req_system = nullptr;
+static const uint8_t *s_req_pcm = nullptr;
+static size_t s_req_pcm_len = 0;
+static PmVoiceResult *s_req_result = nullptr;
+
+static char s_esc_msg[2048];
+static char s_esc_sys[768];
+static char s_last_error[80] = "";
+
+static void voice_set_error(const char *msg) {
+  if (!msg) {
+    s_last_error[0] = '\0';
+    return;
+  }
+  strncpy(s_last_error, msg, sizeof(s_last_error) - 1);
+  s_last_error[sizeof(s_last_error) - 1] = '\0';
+}
+
+const char *pm_voice_last_error() {
+  return s_last_error[0] != '\0' ? s_last_error : "voice failed";
+}
 
 void pm_voice_result_free(PmVoiceResult *r) {
   if (!r) {
@@ -105,8 +138,8 @@ static bool read_http_json_body(HTTPClient *http, char **out_resp, size_t max_ca
   }
 
   size_t rd = 0;
+  const uint32_t deadline = millis() + kVoiceHttpTimeoutMs;
   if (declared > 0 && static_cast<size_t>(declared) <= max_cap) {
-    const uint32_t deadline = millis() + 120000;
     while (rd < static_cast<size_t>(declared)) {
       const int n = stream->readBytes(buf + rd, static_cast<size_t>(declared) - rd);
       if (n > 0) {
@@ -122,7 +155,6 @@ static bool read_http_json_body(HTTPClient *http, char **out_resp, size_t max_ca
       delay(1);
     }
   } else {
-    const uint32_t deadline = millis() + 120000;
     for (;;) {
       const int avail = stream->available();
       if (avail > 0) {
@@ -187,8 +219,9 @@ static size_t json_escape_string(const char *in, char *out, size_t out_cap) {
   return j;
 }
 
-bool pm_voice_post_message(const char *message, const char *system_instruction, PmVoiceResult *r) {
+static bool voice_post_message_inner(const char *message, const char *system_instruction, PmVoiceResult *r) {
   if (!r || !message || message[0] == '\0') {
+    voice_set_error("empty message");
     return false;
   }
   memset(r->transcript, 0, sizeof(r->transcript));
@@ -197,6 +230,7 @@ bool pm_voice_post_message(const char *message, const char *system_instruction, 
   r->mp3_len = 0;
 
   if (strlen(MYNAH_SUPABASE_URL) == 0 || strlen(MYNAH_SUPABASE_ANON_KEY) == 0) {
+    voice_set_error("no supabase config");
     ESP_LOGW(TAG, "Supabase URL or anon key empty");
     return false;
   }
@@ -209,22 +243,21 @@ bool pm_voice_post_message(const char *message, const char *system_instruction, 
   char url[224];
   snprintf(url, sizeof(url), "%s/functions/v1/voice-pipeline", base);
 
-  char esc_msg[2048];
-  json_escape_string(message, esc_msg, sizeof(esc_msg));
-  char esc_sys[768];
-  esc_sys[0] = '\0';
+  json_escape_string(message, s_esc_msg, sizeof(s_esc_msg));
+  s_esc_sys[0] = '\0';
   if (system_instruction && system_instruction[0] != '\0') {
-    json_escape_string(system_instruction, esc_sys, sizeof(esc_sys));
+    json_escape_string(system_instruction, s_esc_sys, sizeof(s_esc_sys));
   }
 
-  const bool have_sys = esc_sys[0] != '\0';
-  const size_t body_cap = sizeof(esc_msg) + sizeof(esc_sys) + 160;
+  const bool have_sys = s_esc_sys[0] != '\0';
+  const size_t body_cap = sizeof(s_esc_msg) + sizeof(s_esc_sys) + 160;
   char *body = static_cast<char *>(
       heap_caps_malloc(body_cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
   if (!body) {
     body = static_cast<char *>(malloc(body_cap));
   }
   if (!body) {
+    voice_set_error("oom body");
     return false;
   }
 
@@ -232,21 +265,23 @@ bool pm_voice_post_message(const char *message, const char *system_instruction, 
   if (have_sys) {
     n = snprintf(body, body_cap,
                  "{\"languageCode\":\"en-US\",\"message\":\"%s\",\"systemInstruction\":\"%s\"}",
-                 esc_msg, esc_sys);
+                 s_esc_msg, s_esc_sys);
   } else {
-    n = snprintf(body, body_cap, "{\"languageCode\":\"en-US\",\"message\":\"%s\"}", esc_msg);
+    n = snprintf(body, body_cap, "{\"languageCode\":\"en-US\",\"message\":\"%s\"}", s_esc_msg);
   }
   if (n <= 0 || static_cast<size_t>(n) >= body_cap) {
     free(body);
+    voice_set_error("body too large");
     return false;
   }
 
   WiFiClientSecure client;
   client.setInsecure();
   HTTPClient http;
-  http.setTimeout(60000);
+  http.setTimeout(kVoiceHttpTimeoutMs);
   if (!http.begin(client, url)) {
     free(body);
+    voice_set_error("http begin");
     return false;
   }
   http.addHeader("Content-Type", "application/json");
@@ -257,6 +292,7 @@ bool pm_voice_post_message(const char *message, const char *system_instruction, 
 
   if (code != 200) {
     ESP_LOGW(TAG, "voice-pipeline HTTP %d (message)", code);
+    snprintf(s_last_error, sizeof(s_last_error), "HTTP %d", code);
     http.end();
     return false;
   }
@@ -266,6 +302,7 @@ bool pm_voice_post_message(const char *message, const char *system_instruction, 
   char *resp = nullptr;
   if (!read_http_json_body(&http, &resp, resp_cap)) {
     ESP_LOGW(TAG, "voice-pipeline (message) empty body (declared len %d)", declared_sz);
+    voice_set_error("empty response");
     http.end();
     return false;
   }
@@ -275,15 +312,18 @@ bool pm_voice_post_message(const char *message, const char *system_instruction, 
   extract_json_string_field(resp, "reply", r->reply, sizeof(r->reply));
   if (!extract_audio_base64(resp, &r->mp3, &r->mp3_len)) {
     ESP_LOGW(TAG, "voice-pipeline (message) missing audioBase64");
+    voice_set_error("no audio");
     free(resp);
     return false;
   }
   free(resp);
+  voice_set_error(nullptr);
   return r->mp3_len > 0;
 }
 
-bool pm_voice_post_pcm(const uint8_t *pcm, size_t pcm_len, PmVoiceResult *r) {
+static bool voice_post_pcm_inner(const uint8_t *pcm, size_t pcm_len, PmVoiceResult *r) {
   if (!r || !pcm || pcm_len == 0) {
+    voice_set_error("empty pcm");
     return false;
   }
   memset(r->transcript, 0, sizeof(r->transcript));
@@ -292,6 +332,7 @@ bool pm_voice_post_pcm(const uint8_t *pcm, size_t pcm_len, PmVoiceResult *r) {
   r->mp3_len = 0;
 
   if (strlen(MYNAH_SUPABASE_URL) == 0 || strlen(MYNAH_SUPABASE_ANON_KEY) == 0) {
+    voice_set_error("no supabase config");
     ESP_LOGW(TAG, "Supabase URL or anon key empty");
     return false;
   }
@@ -315,6 +356,7 @@ bool pm_voice_post_pcm(const uint8_t *pcm, size_t pcm_len, PmVoiceResult *r) {
     body = static_cast<uint8_t *>(malloc(body_cap));
   }
   if (!body) {
+    voice_set_error("oom body");
     return false;
   }
   memcpy(body, kPrefix, sizeof(kPrefix) - 1);
@@ -326,6 +368,7 @@ bool pm_voice_post_pcm(const uint8_t *pcm, size_t pcm_len, PmVoiceResult *r) {
           pcm,
           pcm_len) != 0) {
     free(body);
+    voice_set_error("b64 encode");
     return false;
   }
   memcpy(body + sizeof(kPrefix) - 1 + nout, kSuffix, sizeof(kSuffix));
@@ -334,9 +377,10 @@ bool pm_voice_post_pcm(const uint8_t *pcm, size_t pcm_len, PmVoiceResult *r) {
   WiFiClientSecure client;
   client.setInsecure();
   HTTPClient http;
-  http.setTimeout(60000);
+  http.setTimeout(kVoiceHttpTimeoutMs);
   if (!http.begin(client, url)) {
     free(body);
+    voice_set_error("http begin");
     return false;
   }
   http.addHeader("Content-Type", "application/json");
@@ -347,6 +391,7 @@ bool pm_voice_post_pcm(const uint8_t *pcm, size_t pcm_len, PmVoiceResult *r) {
 
   if (code != 200) {
     ESP_LOGW(TAG, "voice-pipeline HTTP %d", code);
+    snprintf(s_last_error, sizeof(s_last_error), "HTTP %d", code);
     http.end();
     return false;
   }
@@ -356,6 +401,7 @@ bool pm_voice_post_pcm(const uint8_t *pcm, size_t pcm_len, PmVoiceResult *r) {
   char *resp = nullptr;
   if (!read_http_json_body(&http, &resp, resp_cap)) {
     ESP_LOGW(TAG, "voice-pipeline empty body (declared len %d)", declared_sz);
+    voice_set_error("empty response");
     http.end();
     return false;
   }
@@ -365,9 +411,68 @@ bool pm_voice_post_pcm(const uint8_t *pcm, size_t pcm_len, PmVoiceResult *r) {
   extract_json_string_field(resp, "reply", r->reply, sizeof(r->reply));
   if (!extract_audio_base64(resp, &r->mp3, &r->mp3_len)) {
     ESP_LOGW(TAG, "voice-pipeline missing audioBase64");
+    voice_set_error("no audio");
     free(resp);
     return false;
   }
   free(resp);
+  voice_set_error(nullptr);
   return r->mp3_len > 0;
+}
+
+static void voice_net_task(void *arg) {
+  (void)arg;
+  for (;;) {
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    const uint8_t op = s_voice_op;
+    if (op == 1) {
+      s_voice_ok = voice_post_message_inner(s_req_message, s_req_system, s_req_result);
+    } else if (op == 2) {
+      s_voice_ok = voice_post_pcm_inner(s_req_pcm, s_req_pcm_len, s_req_result);
+    } else {
+      s_voice_ok = false;
+    }
+    s_voice_done = true;
+  }
+}
+
+static void voice_net_task_ensure() {
+  if (s_voice_task) {
+    return;
+  }
+  xTaskCreatePinnedToCore(voice_net_task, "voice_net", kVoiceNetTaskStack, nullptr, 1, &s_voice_task, 1);
+}
+
+static bool voice_net_run(uint8_t op, uint32_t timeout_ms) {
+  voice_net_task_ensure();
+  if (!s_voice_task) {
+    return false;
+  }
+  s_voice_op = op;
+  s_voice_done = false;
+  xTaskNotify(s_voice_task, 1, eSetBits);
+  const uint32_t deadline = millis() + timeout_ms;
+  while (!s_voice_done) {
+    delay(10);
+    if (static_cast<int32_t>(millis() - deadline) >= 0) {
+      voice_set_error("timeout");
+      ESP_LOGW(TAG, "voice op %u timeout", static_cast<unsigned>(op));
+      return false;
+    }
+  }
+  return s_voice_ok;
+}
+
+bool pm_voice_post_message(const char *message, const char *system_instruction, PmVoiceResult *r) {
+  s_req_message = message;
+  s_req_system = system_instruction;
+  s_req_result = r;
+  return voice_net_run(1, kVoiceHttpTimeoutMs + 5000u);
+}
+
+bool pm_voice_post_pcm(const uint8_t *pcm, size_t pcm_len, PmVoiceResult *r) {
+  s_req_pcm = pcm;
+  s_req_pcm_len = pcm_len;
+  s_req_result = r;
+  return voice_net_run(2, kVoiceHttpTimeoutMs + 5000u);
 }

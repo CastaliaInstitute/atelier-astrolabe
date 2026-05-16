@@ -323,11 +323,13 @@ void pm_castalia_auth_bearer(char *out, size_t out_cap) {
   if (strlen(MYNAH_SUPABASE_ANON_KEY) == 0) {
     return;
   }
-  if (s_access[0] != '\0' && s_refresh[0] != '\0' && access_token_stale()) {
-    refresh_session_http();
-  }
-  /* Without valid NTP, do not send a stored JWT (often expired); use anon until time is set. */
+  /* Do not refresh synchronously here — nested TLS on the Arduino loop stack crashes astro TTS. */
   if (s_access[0] != '\0' && wall_time_ok() && !access_token_dead()) {
+    strncpy(out, s_access, out_cap - 1);
+    out[out_cap - 1] = '\0';
+    return;
+  }
+  if (s_access[0] != '\0' && !wall_time_ok()) {
     strncpy(out, s_access, out_cap - 1);
     out[out_cap - 1] = '\0';
     return;
@@ -336,13 +338,14 @@ void pm_castalia_auth_bearer(char *out, size_t out_cap) {
   out[out_cap - 1] = '\0';
 }
 
+static char s_auth_bearer_buf[1536];
+
 void pm_castalia_auth_apply_headers(HTTPClient *http) {
   if (!http) {
     return;
   }
-  char tok[1536];
-  pm_castalia_auth_bearer(tok, sizeof(tok));
-  http->addHeader("Authorization", String("Bearer ") + tok);
+  pm_castalia_auth_bearer(s_auth_bearer_buf, sizeof(s_auth_bearer_buf));
+  http->addHeader("Authorization", String("Bearer ") + s_auth_bearer_buf);
   http->addHeader("apikey", MYNAH_SUPABASE_ANON_KEY);
 }
 
