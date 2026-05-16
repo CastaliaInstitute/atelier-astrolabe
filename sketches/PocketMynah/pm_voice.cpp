@@ -82,6 +82,206 @@ static bool extract_audio_base64(const char *json, uint8_t **out_bin, size_t *ou
   return true;
 }
 
+static bool read_http_json_body(HTTPClient *http, char **out_resp, size_t max_cap) {
+  if (!http || !out_resp || max_cap < 64) {
+    return false;
+  }
+  *out_resp = nullptr;
+
+  const int declared = http->getSize();
+  WiFiClient *stream = http->getStreamPtr();
+  if (!stream) {
+    return false;
+  }
+
+  char *buf = static_cast<char *>(
+      heap_caps_malloc(max_cap + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  if (!buf) {
+    buf = static_cast<char *>(malloc(max_cap + 1));
+  }
+  if (!buf) {
+    return false;
+  }
+
+  size_t rd = 0;
+  if (declared > 0 && static_cast<size_t>(declared) <= max_cap) {
+    const uint32_t deadline = millis() + 120000;
+    while (rd < static_cast<size_t>(declared)) {
+      const int n = stream->readBytes(buf + rd, static_cast<size_t>(declared) - rd);
+      if (n > 0) {
+        rd += static_cast<size_t>(n);
+        continue;
+      }
+      if (!http->connected() && stream->available() == 0) {
+        break;
+      }
+      if (static_cast<int32_t>(millis() - deadline) >= 0) {
+        break;
+      }
+      delay(1);
+    }
+  } else {
+    const uint32_t deadline = millis() + 120000;
+    for (;;) {
+      const int avail = stream->available();
+      if (avail > 0) {
+        const size_t take =
+            static_cast<size_t>(avail) < (max_cap - rd) ? static_cast<size_t>(avail) : (max_cap - rd);
+        if (take == 0) {
+          break;
+        }
+        const int n = stream->readBytes(buf + rd, take);
+        if (n > 0) {
+          rd += static_cast<size_t>(n);
+          if (rd >= max_cap) {
+            break;
+          }
+          continue;
+        }
+      }
+      if (!http->connected() && stream->available() == 0) {
+        break;
+      }
+      if (static_cast<int32_t>(millis() - deadline) >= 0) {
+        break;
+      }
+      delay(2);
+    }
+  }
+
+  buf[rd] = '\0';
+  if (rd == 0) {
+    free(buf);
+    return false;
+  }
+  *out_resp = buf;
+  return true;
+}
+
+static size_t json_escape_string(const char *in, char *out, size_t out_cap) {
+  if (!in || !out || out_cap < 4) {
+    if (out && out_cap) {
+      out[0] = '\0';
+    }
+    return 0;
+  }
+  size_t j = 0;
+  for (size_t i = 0; in[i] != '\0' && j + 2 < out_cap; ++i) {
+    const unsigned char c = static_cast<unsigned char>(in[i]);
+    if (c == '"' || c == '\\') {
+      out[j++] = '\\';
+      out[j++] = static_cast<char>(c);
+      continue;
+    }
+    if (c == '\n' || c == '\r' || c == '\t') {
+      out[j++] = ' ';
+      continue;
+    }
+    if (c < 32) {
+      continue;
+    }
+    out[j++] = static_cast<char>(c);
+  }
+  out[j] = '\0';
+  return j;
+}
+
+bool pm_voice_post_message(const char *message, const char *system_instruction, PmVoiceResult *r) {
+  if (!r || !message || message[0] == '\0') {
+    return false;
+  }
+  memset(r->transcript, 0, sizeof(r->transcript));
+  memset(r->reply, 0, sizeof(r->reply));
+  r->mp3 = nullptr;
+  r->mp3_len = 0;
+
+  if (strlen(MYNAH_SUPABASE_URL) == 0 || strlen(MYNAH_SUPABASE_ANON_KEY) == 0) {
+    ESP_LOGW(TAG, "Supabase URL or anon key empty");
+    return false;
+  }
+
+  char base[160];
+  strncpy(base, MYNAH_SUPABASE_URL, sizeof(base) - 1);
+  base[sizeof(base) - 1] = '\0';
+  trim_supabase_url(base, sizeof(base));
+
+  char url[224];
+  snprintf(url, sizeof(url), "%s/functions/v1/voice-pipeline", base);
+
+  char esc_msg[2048];
+  json_escape_string(message, esc_msg, sizeof(esc_msg));
+  char esc_sys[768];
+  esc_sys[0] = '\0';
+  if (system_instruction && system_instruction[0] != '\0') {
+    json_escape_string(system_instruction, esc_sys, sizeof(esc_sys));
+  }
+
+  const bool have_sys = esc_sys[0] != '\0';
+  const size_t body_cap = sizeof(esc_msg) + sizeof(esc_sys) + 160;
+  char *body = static_cast<char *>(
+      heap_caps_malloc(body_cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  if (!body) {
+    body = static_cast<char *>(malloc(body_cap));
+  }
+  if (!body) {
+    return false;
+  }
+
+  int n;
+  if (have_sys) {
+    n = snprintf(body, body_cap,
+                 "{\"languageCode\":\"en-US\",\"message\":\"%s\",\"systemInstruction\":\"%s\"}",
+                 esc_msg, esc_sys);
+  } else {
+    n = snprintf(body, body_cap, "{\"languageCode\":\"en-US\",\"message\":\"%s\"}", esc_msg);
+  }
+  if (n <= 0 || static_cast<size_t>(n) >= body_cap) {
+    free(body);
+    return false;
+  }
+
+  WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient http;
+  http.setTimeout(60000);
+  if (!http.begin(client, url)) {
+    free(body);
+    return false;
+  }
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("Authorization", String("Bearer ") + MYNAH_SUPABASE_ANON_KEY);
+  http.addHeader("apikey", MYNAH_SUPABASE_ANON_KEY);
+
+  const int code = http.POST(reinterpret_cast<uint8_t *>(body), static_cast<size_t>(n));
+  free(body);
+
+  if (code != 200) {
+    ESP_LOGW(TAG, "voice-pipeline HTTP %d (message)", code);
+    http.end();
+    return false;
+  }
+
+  const size_t resp_cap = 512 * 1024;
+  const int declared_sz = http.getSize();
+  char *resp = nullptr;
+  if (!read_http_json_body(&http, &resp, resp_cap)) {
+    ESP_LOGW(TAG, "voice-pipeline (message) empty body (declared len %d)", declared_sz);
+    http.end();
+    return false;
+  }
+  http.end();
+
+  extract_json_string_field(resp, "transcript", r->transcript, sizeof(r->transcript));
+  extract_json_string_field(resp, "reply", r->reply, sizeof(r->reply));
+  if (!extract_audio_base64(resp, &r->mp3, &r->mp3_len)) {
+    ESP_LOGW(TAG, "voice-pipeline (message) missing audioBase64");
+    free(resp);
+    return false;
+  }
+  free(resp);
+  return r->mp3_len > 0;
+}
+
 bool pm_voice_post_pcm(const uint8_t *pcm, size_t pcm_len, PmVoiceResult *r) {
   if (!r || !pcm || pcm_len == 0) {
     return false;

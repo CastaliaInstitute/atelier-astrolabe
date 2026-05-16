@@ -15,3 +15,9 @@ void pm_voice_result_free(PmVoiceResult *r);
 
 /** POST mono LINEAR16 PCM @ 16 kHz to Supabase `voice-pipeline`. Allocates r->mp3 on success. */
 bool pm_voice_post_pcm(const uint8_t *pcm, size_t pcm_len, PmVoiceResult *r);
+
+/**
+ * Text-only turn: POST JSON { message, languageCode, optional systemInstruction }.
+ * Escapes message for JSON; `system_instruction` may be null.
+ */
+bool pm_voice_post_message(const char *message, const char *system_instruction, PmVoiceResult *r);

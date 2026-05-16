@@ -21,6 +21,8 @@
 #include "pm_voice.h"
 #include "pm_wifi_ntp.h"
 #include "pm_screen_http.h"
+#include "pm_birth_nvs.h"
+#include "pm_transit.h"
 
 Arduino_DataBus *bus = new Arduino_ESP32QSPI(
     LCD_CS, LCD_SCLK, LCD_SDIO0, LCD_SDIO1, LCD_SDIO2, LCD_SDIO3);
@@ -33,6 +35,12 @@ Arduino_Canvas *gfx = new Arduino_Canvas(LCD_WIDTH, LCD_HEIGHT, tft);
 enum class AppState { kClock, kRecording, kThinking, kPlaying };
 
 static AppState g_state = AppState::kClock;
+/** When true, `kThinking` calls `pm_voice_post_message` instead of PCM STT. */
+static bool g_voice_use_message = false;
+static constexpr uint8_t k_tv_none = 0;
+static constexpr uint8_t k_tv_astro = 1;
+static uint8_t g_text_voice_route = k_tv_none;
+static char g_astrology_voice_msg[2200] = "";
 /** Set when entering clock UI so the face repaints after voice/recording states. */
 static bool g_clock_repaint_pending = true;
 static uint8_t *g_pcm = nullptr;
@@ -49,6 +57,7 @@ enum class ClockFace : uint8_t {
   Apocalypso,
   DigitalLocal,
   Spotify,
+  Astrology,
   kNumFaces,
 };
 
@@ -468,6 +477,116 @@ static void draw_digital_local_face(const struct tm *tm, bool valid) {
   drawCenteredLine("local time", 330, gfx->color565(180, 190, 210), 1, 1);
 }
 
+static const char *zodiac_abbr_from_lon(double lon_deg) {
+  static const char *const kZ[12] = {"Ar", "Ta", "Ge", "Cn", "Le", "Vi",
+                                     "Li", "Sc", "Sg", "Cp", "Aq", "Pi"};
+  double x = fmod(lon_deg, 360.0);
+  if (x < 0) {
+    x += 360.0;
+  }
+  const int idx = static_cast<int>(x / 30.0) % 12;
+  return kZ[idx];
+}
+
+static void draw_astrology_face(const struct tm *tm_local, bool valid_local) {
+  const uint16_t c_title = gfx->color565(220, 200, 255);
+  const uint16_t c_dim = gfx->color565(130, 140, 158);
+  const uint16_t c_ring = gfx->color565(55, 62, 78);
+  const uint16_t c_spoke = gfx->color565(78, 88, 108);
+  const uint16_t c_lbl = gfx->color565(170, 178, 195);
+
+  drawCenteredLine("TRANSITS", 58, c_title, 2, 2);
+
+  char sub[40];
+  if (valid_local) {
+    snprintf(sub, sizeof(sub), "%04d-%02d-%02d  %02d:%02d", tm_local->tm_year + 1900,
+             tm_local->tm_mon + 1, tm_local->tm_mday, tm_local->tm_hour, tm_local->tm_min);
+  } else {
+    snprintf(sub, sizeof(sub), "%s", "no time — NTP?");
+  }
+  drawCenteredLine(sub, 86, c_dim, 1, 1);
+
+  struct tm utc = {};
+  PmTransitPositions tp = {};
+  if (valid_local) {
+    pm_time_utc(&utc);
+    pm_transit_compute_utc(&utc, &tp);
+  }
+
+  PmBirthSpec birth = {};
+  (void)pm_birth_load(&birth);
+
+  const int cx = LCD_WIDTH / 2;
+  const int cy = LCD_HEIGHT / 2 + 8;
+  const int r_outer = 118;
+  const int r_in = 44;
+  const int r_lab = r_outer + 18;
+
+  if (!tp.ok) {
+    drawCenteredLine("ephemeris needs", 200, c_dim, 1, 1);
+    drawCenteredLine("valid UTC time", 222, c_dim, 1, 1);
+  } else {
+    for (int s = 0; s < 12; ++s) {
+      const float a0 = static_cast<float>(s) * (kTwoPi / 12.f) - kPi * 0.5f;
+      const float a1 = static_cast<float>(s + 1) * (kTwoPi / 12.f) - kPi * 0.5f;
+      const int x0 = cx + static_cast<int>(lrintf(cosf(a0) * static_cast<float>(r_outer)));
+      const int y0 = cy + static_cast<int>(lrintf(sinf(a0) * static_cast<float>(r_outer)));
+      const int x1 = cx + static_cast<int>(lrintf(cosf(a1) * static_cast<float>(r_outer)));
+      const int y1 = cy + static_cast<int>(lrintf(sinf(a1) * static_cast<float>(r_outer)));
+      gfx->drawLine(x0, y0, x1, y1, c_spoke);
+      gfx->drawLine(cx, cy, x0, y0, c_ring);
+    }
+    gfx->drawCircle(cx, cy, r_outer, c_ring);
+    gfx->drawCircle(cx, cy, r_in, c_ring);
+
+    static const uint16_t k_body_col[kPmBodyCount] = {
+        gfx->color565(255, 210, 90),  gfx->color565(200, 210, 230), gfx->color565(180, 180, 190),
+        gfx->color565(255, 190, 140), gfx->color565(230, 90, 70),   gfx->color565(220, 180, 120),
+        gfx->color565(190, 170, 140),
+    };
+    const int r_dot = r_outer - 14;
+    for (int bi = 0; bi < kPmBodyCount; ++bi) {
+      const double lon = tp.lon[bi];
+      const float ang = static_cast<float>(kPi + lon * (kPi / 180.0f));
+      const int px = cx + static_cast<int>(lrintf(cosf(ang) * static_cast<float>(r_dot)));
+      const int py = cy + static_cast<int>(lrintf(sinf(ang) * static_cast<float>(r_dot)));
+      const int rr = (bi == kPmBodySun) ? 6 : (bi == kPmBodyMoon ? 5 : 4);
+      gfx->fillCircle(px, py, rr, k_body_col[bi]);
+      gfx->drawCircle(px, py, rr, RGB565_WHITE);
+    }
+
+    static const char *const kZlab[12] = {"ARI", "TAU", "GEM", "CAN", "LEO", "VIR",
+                                          "LIB", "SCO", "SAG", "CAP", "AQU", "PIS"};
+    for (int s = 0; s < 12; ++s) {
+      const float amid = (static_cast<float>(s) + 0.5f) * (kTwoPi / 12.f) - kPi * 0.5f;
+      draw_label_at_polar(cx, cy, r_lab, amid, kZlab[s], c_lbl);
+    }
+    double natal_sun = 0;
+    if (birth.valid && pm_transit_natal_sun_lon(&birth, &natal_sun)) {
+      const float angn = static_cast<float>(kPi + natal_sun * (kPi / 180.0f));
+      const int qx = cx + static_cast<int>(lrintf(cosf(angn) * static_cast<float>(r_in - 6)));
+      const int qy = cy + static_cast<int>(lrintf(sinf(angn) * static_cast<float>(r_in - 6)));
+      const int q2x = cx + static_cast<int>(lrintf(cosf(angn + 0.35f) * static_cast<float>(r_in - 18)));
+      const int q2y = cy + static_cast<int>(lrintf(sinf(angn + 0.35f) * static_cast<float>(r_in - 18)));
+      const int q3x = cx + static_cast<int>(lrintf(cosf(angn - 0.35f) * static_cast<float>(r_in - 18)));
+      const int q3y = cy + static_cast<int>(lrintf(sinf(angn - 0.35f) * static_cast<float>(r_in - 18)));
+      gfx->fillTriangle(qx, qy, q2x, q2y, q3x, q3y, gfx->color565(120, 200, 255));
+    }
+  }
+
+  drawCenteredLine("PWR or BOOT tap", 318, c_dim, 1, 1);
+  drawCenteredLine("= reading", 334, c_dim, 1, 1);
+  if (!birth.valid) {
+    drawCenteredLine("birth: serial", 348, gfx->color565(255, 180, 120), 1, 1);
+    drawCenteredLine("birth Y M D H MI", 364, gfx->color565(255, 180, 120), 1, 1);
+  } else {
+    char nb[48];
+    snprintf(nb, sizeof(nb), "natal %04u-%02u-%02u %02u:%02u", birth.year, birth.month, birth.day,
+             birth.hour, birth.minute);
+    drawCenteredLine(nb, 356, c_dim, 1, 1);
+  }
+}
+
 static void draw_radial_annulus_slice(int cx, int cy, float ang, int r0, int r1, uint16_t col, int half_w) {
   if (r1 <= r0 || half_w < 0) {
     return;
@@ -554,11 +673,15 @@ static void draw_clock_face() {
     case ClockFace::Spotify:
       draw_spotify_face();
       break;
+    case ClockFace::Astrology:
+      draw_astrology_face(&tm, pm_time_valid());
+      break;
     default:
       break;
   }
 
-  const int banner_y = (g_clock_face == ClockFace::Apocalypso || g_clock_face == ClockFace::Spotify)
+  const int banner_y = (g_clock_face == ClockFace::Apocalypso || g_clock_face == ClockFace::Spotify ||
+                        g_clock_face == ClockFace::Astrology)
                            ? 352
                            : 320;
   if (g_gesture_banner[0] != '\0') {
@@ -588,6 +711,115 @@ static void ensure_pcm_buffer() {
 
 static void reset_recording_buffer() {
   g_pcm_len = 0;
+}
+
+static const char kAstroVoiceSys[] =
+    "You are a warm, articulate astrologer speaking aloud for a tiny round watch. Use tropical zodiac. "
+    "Given approximate geocentric ecliptic longitudes (degrees) for the user, give ONE flowing mini-reading "
+    "(under 90 seconds spoken) about today's transits versus their natal Sun and anything else notable. "
+    "No medical or legal advice; reflective insight only, not deterministic fate. "
+    "Do not claim arc-minute precision from the numbers.";
+
+static bool build_astrology_voice_message(char *buf, size_t cap) {
+  if (!buf || cap < 200) {
+    return false;
+  }
+  if (!pm_wifi_connected() || !pm_time_valid()) {
+    return false;
+  }
+  struct tm utc = {};
+  struct tm loc = {};
+  pm_time_local(&loc);
+  pm_time_utc(&utc);
+  PmTransitPositions tp = {};
+  pm_transit_compute_utc(&utc, &tp);
+  if (!tp.ok) {
+    return false;
+  }
+  PmBirthSpec b = {};
+  (void)pm_birth_load(&b);
+  double nslon = 0;
+  const bool has_natal = b.valid && pm_transit_natal_sun_lon(&b, &nslon);
+
+  int n = snprintf(
+      buf, cap,
+      "Pocket Mynah transit snapshot for %04d-%02d-%02d %02d:%02d local. Tropical longitudes (approx deg): ",
+      loc.tm_year + 1900, loc.tm_mon + 1, loc.tm_mday, loc.tm_hour, loc.tm_min);
+  if (n < 0 || static_cast<size_t>(n) >= cap) {
+    return false;
+  }
+  size_t off = static_cast<size_t>(n);
+  for (int i = 0; i < kPmBodyCount && off + 40 < cap; ++i) {
+    const int m = snprintf(buf + off, cap - off, "%s %.1f; ", pm_ephem_body_label(static_cast<PmEphemBody>(i)),
+                           tp.lon[i]);
+    if (m < 0) {
+      return false;
+    }
+    off += static_cast<size_t>(m);
+  }
+  if (has_natal && off + 120 < cap) {
+    snprintf(buf + off, cap - off,
+             "Natal (local civil on this device TZ): %04u-%02u-%02u %02u:%02u — Sun ~%.1f deg (%s). ",
+             b.year, b.month, b.day, b.hour, b.minute, nslon, zodiac_abbr_from_lon(nslon));
+  } else if (off + 80 < cap) {
+    snprintf(buf + off, cap - off, "Natal birth not stored; describe transits in general. ");
+  }
+  off = strlen(buf);
+  if (off + 80 < cap) {
+    snprintf(buf + off, cap - off, "Please deliver the spoken reading now.");
+  }
+  return strlen(buf) > 0;
+}
+
+static void poll_serial_birth_commands() {
+  static char line[100];
+  static size_t li = 0;
+  while (Serial.available() > 0) {
+    const int c = Serial.read();
+    if (c < 0) {
+      break;
+    }
+    if (c == '\r') {
+      continue;
+    }
+    if (c == '\n') {
+      line[li] = '\0';
+      li = 0;
+      if (strncmp(line, "birth ", 6) == 0) {
+        const char *p = line + 6;
+        while (*p == ' ') {
+          ++p;
+        }
+        if (strncmp(p, "clear", 5) == 0 && (p[5] == '\0' || p[5] == ' ')) {
+          pm_birth_clear();
+          Serial.println("birth: cleared (NVS)");
+        } else {
+          unsigned y = 0, mo = 0, d = 0, h = 0, mi = 0;
+          if (sscanf(p, "%u %u %u %u %u", &y, &mo, &d, &h, &mi) == 5 && y >= 1900 && y <= 2100 && mo >= 1 &&
+              mo <= 12 && d >= 1 && d <= 31 && h <= 23 && mi <= 59) {
+            PmBirthSpec bb = {};
+            bb.year = static_cast<uint16_t>(y);
+            bb.month = static_cast<uint8_t>(mo);
+            bb.day = static_cast<uint8_t>(d);
+            bb.hour = static_cast<uint8_t>(h);
+            bb.minute = static_cast<uint8_t>(mi);
+            bb.valid = true;
+            pm_birth_save(&bb);
+            Serial.printf("birth: saved %u-%02u-%02u %02u:%02u local (NVS)\n", y, mo, d, h, mi);
+          } else {
+            Serial.println("birth: usage: birth YYYY MM DD HH MI   |   birth clear");
+          }
+        }
+        g_clock_repaint_pending = true;
+      }
+      continue;
+    }
+    if (li + 1 < sizeof(line)) {
+      line[li++] = static_cast<char>(c);
+    } else {
+      li = 0;
+    }
+  }
 }
 
 void setup() {
@@ -623,7 +855,8 @@ void setup() {
 void loop() {
   pm_screen_http_loop();
   const uint32_t now = millis();
-  (void)pm_side_buttons_poll(now);
+  poll_serial_birth_commands();
+  const uint8_t side_ev = pm_side_buttons_poll(now);
 
   pm_gesture_poll(now);
 
@@ -684,6 +917,25 @@ void loop() {
     Serial.printf("[gesture] %s @ %d,%d\n", g_gesture_banner, static_cast<int>(ge.x), static_cast<int>(ge.y));
   }
 
+  if (g_state == AppState::kClock && g_clock_face == ClockFace::Astrology &&
+      ((side_ev & PM_SIDE_BTN_PWR) != 0 || (side_ev & PM_SIDE_BTN_BOOT) != 0)) {
+    if (!pm_wifi_connected()) {
+      snprintf(g_gesture_banner, sizeof(g_gesture_banner), "astro: need WiFi");
+      g_clock_repaint_pending = true;
+    } else if (!pm_time_valid()) {
+      snprintf(g_gesture_banner, sizeof(g_gesture_banner), "astro: need time");
+      g_clock_repaint_pending = true;
+    } else if (!build_astrology_voice_message(g_astrology_voice_msg, sizeof(g_astrology_voice_msg))) {
+      snprintf(g_gesture_banner, sizeof(g_gesture_banner), "astro: build msg fail");
+      g_clock_repaint_pending = true;
+    } else {
+      pm_voice_result_free(&g_voice_result);
+      g_voice_use_message = true;
+      g_text_voice_route = k_tv_astro;
+      g_state = AppState::kThinking;
+    }
+  }
+
   static uint32_t s_ptt_press_ms = 0;
   const bool ptt_hold = pm_ptt_button_held();
   if (g_state == AppState::kClock) {
@@ -740,15 +992,23 @@ void loop() {
           g_clock_face == ClockFace::Spotify && pm_wifi_connected() && s_spotify_have_data &&
           (now - s_last_spotify_poll_ms >= MYNAH_SPOTIFY_POLL_MS);
 
+      static time_t s_prev_astro_epoch_min = -1;
+      const time_t epoch_min_bucket = valid ? (epoch / 60) : -1;
+      const bool astro_repaint =
+          g_clock_face == ClockFace::Astrology && valid && epoch_min_bucket != s_prev_astro_epoch_min;
+
       const bool full_paint = !s_clock_paint_inited || slow_no_time || banner_chg || wifi_chg ||
                               g_clock_repaint_pending || local_hm_chg || spotify_stale ||
-                              (valid && sec_tick);
+                              (valid && sec_tick) || astro_repaint;
 
       if (full_paint) {
         s_clock_paint_inited = true;
         g_clock_repaint_pending = false;
         if (valid) {
           s_prev_epoch = epoch;
+        }
+        if (g_clock_face == ClockFace::Astrology && valid) {
+          s_prev_astro_epoch_min = epoch_min_bucket;
         }
         if (banner_chg) {
           strncpy(s_prev_banner, g_gesture_banner, sizeof(s_prev_banner));
@@ -811,14 +1071,27 @@ void loop() {
         break;
       }
       pm_voice_result_free(&g_voice_result);
+      g_voice_use_message = false;
+      g_text_voice_route = k_tv_none;
       g_state = AppState::kThinking;
       break;
     }
     case AppState::kThinking: {
       gfx->fillScreen(gfx->color565(30, 30, 60));
-      drawCenteredLine("thinking", 220, RGB565_WHITE, 2, 2);
+      const char *thinking_label = "thinking";
+      if (g_voice_use_message && g_text_voice_route == k_tv_astro) {
+        thinking_label = "stars…";
+      }
+      drawCenteredLine(thinking_label, 220, RGB565_WHITE, 2, 2);
       gfx->flush();
-      const bool ok = pm_voice_post_pcm(g_pcm, g_pcm_len, &g_voice_result);
+      bool ok = false;
+      if (g_voice_use_message && g_text_voice_route == k_tv_astro) {
+        ok = pm_voice_post_message(g_astrology_voice_msg, kAstroVoiceSys, &g_voice_result);
+      } else {
+        ok = pm_voice_post_pcm(g_pcm, g_pcm_len, &g_voice_result);
+      }
+      g_voice_use_message = false;
+      g_text_voice_route = k_tv_none;
       if (!ok) {
         gfx->fillScreen(RGB565_BLACK);
         drawCenteredLine("voice error", 220, RGB565_RED, 2, 2);
