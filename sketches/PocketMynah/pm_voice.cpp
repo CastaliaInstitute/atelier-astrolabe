@@ -8,6 +8,7 @@
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "pm_config.h"
+#include "pm_castalia_auth.h"
 
 static const char *TAG = "pm_voice";
 
@@ -249,8 +250,7 @@ bool pm_voice_post_message(const char *message, const char *system_instruction, 
     return false;
   }
   http.addHeader("Content-Type", "application/json");
-  http.addHeader("Authorization", String("Bearer ") + MYNAH_SUPABASE_ANON_KEY);
-  http.addHeader("apikey", MYNAH_SUPABASE_ANON_KEY);
+  pm_castalia_auth_apply_headers(&http);
 
   const int code = http.POST(reinterpret_cast<uint8_t *>(body), static_cast<size_t>(n));
   free(body);
@@ -340,8 +340,7 @@ bool pm_voice_post_pcm(const uint8_t *pcm, size_t pcm_len, PmVoiceResult *r) {
     return false;
   }
   http.addHeader("Content-Type", "application/json");
-  http.addHeader("Authorization", String("Bearer ") + MYNAH_SUPABASE_ANON_KEY);
-  http.addHeader("apikey", MYNAH_SUPABASE_ANON_KEY);
+  pm_castalia_auth_apply_headers(&http);
 
   const int code = http.POST(body, body_len);
   free(body);
@@ -353,37 +352,19 @@ bool pm_voice_post_pcm(const uint8_t *pcm, size_t pcm_len, PmVoiceResult *r) {
   }
 
   const size_t resp_cap = 512 * 1024;
-  int respLen = http.getSize();
-  if (respLen <= 0 || static_cast<size_t>(respLen) > resp_cap) {
-    ESP_LOGW(TAG, "bad content-length %d", respLen);
+  const int declared_sz = http.getSize();
+  char *resp = nullptr;
+  if (!read_http_json_body(&http, &resp, resp_cap)) {
+    ESP_LOGW(TAG, "voice-pipeline empty body (declared len %d)", declared_sz);
     http.end();
     return false;
   }
-
-  char *resp = static_cast<char *>(
-      heap_caps_malloc(static_cast<size_t>(respLen) + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-  if (!resp) {
-    resp = static_cast<char *>(malloc(static_cast<size_t>(respLen) + 1));
-  }
-  if (!resp) {
-    http.end();
-    return false;
-  }
-  WiFiClient *s = http.getStreamPtr();
-  size_t rd = 0;
-  while (rd < static_cast<size_t>(respLen) && s->connected()) {
-    const int n = s->readBytes(resp + rd, static_cast<size_t>(respLen) - rd);
-    if (n <= 0) {
-      break;
-    }
-    rd += static_cast<size_t>(n);
-  }
-  resp[rd] = '\0';
   http.end();
 
   extract_json_string_field(resp, "transcript", r->transcript, sizeof(r->transcript));
   extract_json_string_field(resp, "reply", r->reply, sizeof(r->reply));
   if (!extract_audio_base64(resp, &r->mp3, &r->mp3_len)) {
+    ESP_LOGW(TAG, "voice-pipeline missing audioBase64");
     free(resp);
     return false;
   }

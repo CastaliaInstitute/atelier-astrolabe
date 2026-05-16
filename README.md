@@ -6,7 +6,7 @@ PlatformIO firmware for the Waveshare **[ESP32-S3-Touch-AMOLED-1.75C](https://gi
 
 | Path | Role |
 |------|------|
-| [`sketches/PocketMynah/`](sketches/PocketMynah/) | **WiFi** + **NTP** **hue clock** faces (analog, Apocalypso, digital local, Spotify, **Astrology** transits); **PTT** hold → **voice-pipeline**; **Astrology**: PWR/BOOT tap for spoken transit reading; serial `birth YYYY MM DD HH MI` for natal Sun. **Gestures**: swipe to change face, etc. |
+| [`sketches/PocketMynah/`](sketches/PocketMynah/) | **WiFi** + **NTP** **hue clock** faces (analog, Apocalypso, digital local, Spotify, **Astrology**, **Castalia** QR sign-in); **PTT** → **voice-pipeline** (JWT after Castalia sign-in); **Astrology**: PWR/BOOT tap + serial `birth YYYY MM DD HH MI`. **Gestures**: swipe to change face. |
 | [`sketches/01_HelloWorld/`](sketches/01_HelloWorld/) | Minimal display sanity check; set `src_dir` in [`platformio.ini`](platformio.ini) to switch back. |
 | [`lib/waveshare_board_audio/`](lib/waveshare_board_audio/) | Vendor **ES7210** / **ES8311** sources from the Waveshare tree (MIT / Apache-2.0). |
 | [`lib/minimp3/`](lib/minimp3/) | [lieff/minimp3](https://github.com/lieff/minimp3) (public domain) for decoding TTS MP3. |

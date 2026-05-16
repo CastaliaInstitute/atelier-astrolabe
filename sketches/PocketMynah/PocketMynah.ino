@@ -23,6 +23,7 @@
 #include "pm_screen_http.h"
 #include "pm_birth_nvs.h"
 #include "pm_transit.h"
+#include "pm_castalia_auth.h"
 
 Arduino_DataBus *bus = new Arduino_ESP32QSPI(
     LCD_CS, LCD_SCLK, LCD_SDIO0, LCD_SDIO1, LCD_SDIO2, LCD_SDIO3);
@@ -58,6 +59,8 @@ enum class ClockFace : uint8_t {
   DigitalLocal,
   Spotify,
   Astrology,
+  /** QR → castalia.institute Google sign-in; tokens stored on watch for Edge Functions. */
+  Castalia,
   kNumFaces,
 };
 
@@ -474,7 +477,6 @@ static void draw_digital_local_face(const struct tm *tm, bool valid) {
     snprintf(line1, sizeof(line1), "--:--");
   }
   drawCenteredLine(line1, 210, RGB565_WHITE, 5, 5);
-  drawCenteredLine("local time", 330, gfx->color565(180, 190, 210), 1, 1);
 }
 
 static const char *zodiac_abbr_from_lon(double lon_deg) {
@@ -646,6 +648,31 @@ static void draw_circumference_rainbow_24h(bool valid) {
   }
 }
 
+static void draw_castalia_face() {
+  const uint16_t c_hi = gfx->color565(210, 215, 235);
+  const uint16_t c_dim = gfx->color565(120, 128, 145);
+  drawCenteredLine("CASTALIA", 40, c_hi, 2, 2);
+  if (!pm_wifi_connected()) {
+    drawCenteredLine("WiFi needed", 130, c_dim, 2, 2);
+    return;
+  }
+  drawCenteredLine(pm_castalia_status_line(), 78, c_dim, 1, 1);
+  if (pm_castalia_has_session()) {
+    drawCenteredLine("Signed in", 200, c_hi, 1, 2);
+    drawCenteredLine("voice / Spotify use JWT", 232, c_dim, 1, 1);
+    return;
+  }
+  if (pm_castalia_signin_url_for_qr()[0] != '\0') {
+    if (!pm_castalia_draw_qr(gfx, LCD_WIDTH / 2, 238, 240)) {
+      drawCenteredLine("QR encode fail", 220, c_dim, 1, 1);
+    } else {
+      drawCenteredLine("scan phone", 392, c_dim, 1, 1);
+    }
+  } else {
+    drawCenteredLine("pairing...", 220, c_dim, 1, 1);
+  }
+}
+
 static void draw_clock_face() {
   struct tm tm = {};
   int sec_of_day_for_hue = 0;
@@ -676,20 +703,25 @@ static void draw_clock_face() {
     case ClockFace::Astrology:
       draw_astrology_face(&tm, pm_time_valid());
       break;
+    case ClockFace::Castalia:
+      draw_castalia_face();
+      break;
     default:
       break;
   }
 
   const int banner_y = (g_clock_face == ClockFace::Apocalypso || g_clock_face == ClockFace::Spotify ||
-                        g_clock_face == ClockFace::Astrology)
+                        g_clock_face == ClockFace::Astrology || g_clock_face == ClockFace::Castalia)
                            ? 352
                            : 320;
   if (g_gesture_banner[0] != '\0') {
     drawCenteredLine(g_gesture_banner, banner_y, gfx->color565(255, 220, 160), 1, 1);
   }
 
-  /** Rainbow annulus last so the gesture banner does not paint over it. */
-  draw_circumference_rainbow_24h(pm_time_valid());
+  /** Rainbow annulus last (skip on Castalia — full repaint + rim after QR was tripping WDT/stack). */
+  if (g_clock_face != ClockFace::Castalia) {
+    draw_circumference_rainbow_24h(pm_time_valid());
+  }
   g_clock_bg565 = bg;
   if (pm_time_valid()) {
     g_analog_saved_local_h = tm.tm_hour;
@@ -844,6 +876,7 @@ void setup() {
 
   if (pm_wifi_begin()) {
     pm_ntp_sync_blocking();
+    pm_castalia_warmup_after_wifi();
   }
   pm_screen_http_begin(gfx);
 
@@ -876,10 +909,8 @@ void loop() {
         snprintf(g_gesture_banner, sizeof(g_gesture_banner), "spotify: no wifi");
       } else if (ge.kind == PmGestureKind::SwipeUp) {
         pm_spotify_command("next", &g_spotify_ui);
-        snprintf(g_gesture_banner, sizeof(g_gesture_banner), "spotify: next");
       } else if (ge.kind == PmGestureKind::SwipeDown) {
         pm_spotify_command("previous", &g_spotify_ui);
-        snprintf(g_gesture_banner, sizeof(g_gesture_banner), "spotify: prev");
       } else if (ge.kind == PmGestureKind::Tap) {
         int z = -1;
         if (spotify_hit_transport_bar(ge.x, ge.y, &z)) {
@@ -911,10 +942,10 @@ void loop() {
         snprintf(g_gesture_banner, sizeof(g_gesture_banner), "spotify: refresh");
       }
       g_clock_repaint_pending = true;
-    } else {
+    } else if (ge.kind != PmGestureKind::SwipeUp && ge.kind != PmGestureKind::SwipeDown) {
       snprintf(g_gesture_banner, sizeof(g_gesture_banner), "%s", gesture_label(ge.kind));
+      Serial.printf("[gesture] %s @ %d,%d\n", g_gesture_banner, static_cast<int>(ge.x), static_cast<int>(ge.y));
     }
-    Serial.printf("[gesture] %s @ %d,%d\n", g_gesture_banner, static_cast<int>(ge.x), static_cast<int>(ge.y));
   }
 
   if (g_state == AppState::kClock && g_clock_face == ClockFace::Astrology &&
@@ -975,14 +1006,28 @@ void loop() {
         pm_ntp_retry_if_stale();
       }
 
+      static ClockFace s_prev_dial_face = ClockFace::kNumFaces;
+      if (g_clock_face != s_prev_dial_face) {
+        if (g_clock_face == ClockFace::Castalia) {
+          pm_castalia_on_face_enter();
+          g_clock_repaint_pending = true;
+        }
+        s_prev_dial_face = g_clock_face;
+      }
+
+      if (g_clock_face == ClockFace::Castalia && wifi && pm_castalia_tick_pair_start()) {
+        g_clock_repaint_pending = true;
+      }
+
       const bool sec_tick = valid && (epoch != s_prev_epoch);
       const bool slow_no_time =
           !valid && s_clock_paint_inited && (now - s_last_no_time_redraw >= 12000);
       const bool banner_chg = strcmp(g_gesture_banner, s_prev_banner) != 0;
       const bool wifi_chg = (wifi != s_prev_wifi);
       const bool local_hm_chg =
-          valid && (g_analog_saved_local_h < 0 || tm_now.tm_hour != g_analog_saved_local_h ||
-                    tm_now.tm_min != g_analog_saved_local_m);
+          valid && g_clock_face != ClockFace::Castalia &&
+          (g_analog_saved_local_h < 0 || tm_now.tm_hour != g_analog_saved_local_h ||
+           tm_now.tm_min != g_analog_saved_local_m);
 
       if (g_clock_face != ClockFace::Spotify) {
         s_spotify_have_data = false;
@@ -997,9 +1042,11 @@ void loop() {
       const bool astro_repaint =
           g_clock_face == ClockFace::Astrology && valid && epoch_min_bucket != s_prev_astro_epoch_min;
 
+      const bool sec_tick_paint =
+          sec_tick && g_clock_face != ClockFace::Castalia;
       const bool full_paint = !s_clock_paint_inited || slow_no_time || banner_chg || wifi_chg ||
-                              g_clock_repaint_pending || local_hm_chg || spotify_stale ||
-                              (valid && sec_tick) || astro_repaint;
+                              g_clock_repaint_pending || local_hm_chg || spotify_stale || sec_tick_paint ||
+                              astro_repaint;
 
       if (full_paint) {
         s_clock_paint_inited = true;
@@ -1026,6 +1073,10 @@ void loop() {
         if (!valid) {
           s_last_no_time_redraw = now;
         }
+      }
+
+      if (g_clock_face == ClockFace::Castalia && wifi && !full_paint && pm_castalia_tick_poll()) {
+        g_clock_repaint_pending = true;
       }
 
       if (ptt_armed && g_pcm) {

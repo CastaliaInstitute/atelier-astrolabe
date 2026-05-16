@@ -13,6 +13,9 @@ struct PmVoiceResult {
 
 void pm_voice_result_free(PmVoiceResult *r);
 
+/** Short reason after a failed voice call (for UI / Serial). */
+const char *pm_voice_last_error(void);
+
 /** POST mono LINEAR16 PCM @ 16 kHz to Supabase `voice-pipeline`. Allocates r->mp3 on success. */
 bool pm_voice_post_pcm(const uint8_t *pcm, size_t pcm_len, PmVoiceResult *r);
 

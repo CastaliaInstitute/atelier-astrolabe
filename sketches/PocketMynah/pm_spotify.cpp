@@ -8,6 +8,7 @@
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "pm_config.h"
+#include "pm_castalia_auth.h"
 
 static const char *TAG = "pm_spotify";
 
@@ -97,8 +98,7 @@ static bool post_action(const char *action, PmSpotifyStatus *out) {
     return false;
   }
   http.addHeader("Content-Type", "application/json");
-  http.addHeader("Authorization", String("Bearer ") + MYNAH_SUPABASE_ANON_KEY);
-  http.addHeader("apikey", MYNAH_SUPABASE_ANON_KEY);
+  pm_castalia_auth_apply_headers(&http);
 
   const int code = http.POST(reinterpret_cast<uint8_t *>(body), strlen(body));
 

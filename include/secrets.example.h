@@ -9,6 +9,11 @@
 #define MYNAH_SUPABASE_URL ""
 #define MYNAH_SUPABASE_ANON_KEY ""
 
+/** castalia.institute origin for QR sign-in (Google → /auth/mynah-device/ handoff). */
+#ifndef MYNAH_CASTALIA_WEB_ORIGIN
+#define MYNAH_CASTALIA_WEB_ORIGIN "https://castalia.institute"
+#endif
+
 /* Spotify Connect (watch): deploy `mynah-spotify` and set Supabase secrets
  * SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET, SPOTIFY_REFRESH_TOKEN.
  * Refresh token must include scopes: user-read-playback-state, user-modify-playback-state
