@@ -1,8 +1,6 @@
-# Astrolabe (Castalia PocketMynah firmware)
+# Mynah Pocketwatch (firmware)
 
-PlatformIO firmware for the Waveshare **[ESP32-S3-Touch-AMOLED-1.75C](https://github.com/waveshareteam/ESP32-S3-Touch-AMOLED-1.75C)** round AMOLED watch (**PocketMynah** sketch). Initial tree exported from [mynah](https://github.com/CastaliaInstitute/mynah) at **`132f889a3fff927499f3a8625bdffa159da39ec9`** (`git archive HEAD pocketwatch`). Android app and Supabase functions remain in **mynah**.
-
-Product / architecture: [`docs/pocketwatch.md`](docs/pocketwatch.md).
+PlatformIO firmware for the Waveshare **[ESP32-S3-Touch-AMOLED-1.75C](https://github.com/waveshareteam/ESP32-S3-Touch-AMOLED-1.75C)** class board. Product notes: [`docs/design/pocketwatch.md`](../docs/design/pocketwatch.md).
 
 ## Default sketch: PocketMynah MVP
 
@@ -26,7 +24,7 @@ git clone --depth 1 https://github.com/waveshareteam/ESP32-S3-Touch-AMOLED-1.75C
 ## Build & upload
 
 ```bash
-cd astrolabe   # this repo root
+cd pocketwatch
 pio run -e waveshare_s3_175
 pio run -e waveshare_s3_175 -t upload
 pio device monitor -e waveshare_s3_175
@@ -37,7 +35,7 @@ Pick the **Espressif CDC** serial device (e.g. macOS `/dev/cu.usbmodem…`, USB 
 ## Secrets
 
 1. Copy [`include/secrets.example.h`](include/secrets.example.h) to **`include/secrets.local.h`** (gitignored).
-2. Set **`MYNAH_WIFI_SSID`**, **`MYNAH_WIFI_PASSWORD`**, **`MYNAH_SUPABASE_URL`**, **`MYNAH_SUPABASE_ANON_KEY`** (same model as Android [VoicePipelineClient.kt](https://github.com/CastaliaInstitute/mynah/blob/main/android/app/src/main/java/institute/castalia/mynah/voice/VoicePipelineClient.kt): `Authorization: Bearer <anon>` + `apikey`).
+2. Set **`MYNAH_WIFI_SSID`**, **`MYNAH_WIFI_PASSWORD`**, **`MYNAH_SUPABASE_URL`**, **`MYNAH_SUPABASE_ANON_KEY`** (same model as Android [`VoicePipelineClient.kt`](../android/app/src/main/java/institute/castalia/mynah/voice/VoicePipelineClient.kt): `Authorization: Bearer <anon>` + `apikey`).
 
 If `secrets.local.h` is missing, the build uses the example file (empty strings): WiFi and voice calls will not work until you add a local secrets file.
 

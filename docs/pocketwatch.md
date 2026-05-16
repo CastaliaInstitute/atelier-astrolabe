@@ -72,4 +72,4 @@ Firmware source lives at this **repository root** (**PlatformIO** + **Arduino**)
 
 | Date | Change |
 |------|--------|
-| 2026-05-15 | Repo split: firmware lives in **astrolabe**; links in this file point at mynah `132f889` where needed. |
+| 2026-05-15 | Synced firmware from mynah `pocketwatch/` at [`132f889`](https://github.com/CastaliaInstitute/mynah/commit/132f889a3fff927499f3a8625bdffa159da39ec9); astrolabe doc links use that SHA. |
