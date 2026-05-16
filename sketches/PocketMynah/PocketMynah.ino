@@ -42,8 +42,17 @@ static AppState g_state = AppState::kClock;
 static bool g_voice_use_message = false;
 static constexpr uint8_t k_tv_none = 0;
 static constexpr uint8_t k_tv_astro = 1;
+static constexpr uint8_t k_tv_moon = 2;
 static uint8_t g_text_voice_route = k_tv_none;
 static bool g_calcifer_briefing = false;
+static char g_moon_voice_msg[2200] = "";
+static char g_moon_sys_prompt[640] = "";
+static bool g_moon_voice_pcm = false;
+/** Cached last TTS MP3 for BOOT replay (PSRAM). */
+static uint8_t *g_last_play_mp3 = nullptr;
+static size_t g_last_play_mp3_len = 0;
+/** Reset [kPlaying] static arm state on next entry. */
+static bool g_voice_play_reset = false;
 static char g_astrology_voice_msg[2200] = "";
 static char g_astrology_sys_prompt[2800] = "";
 static bool s_rec_mic_on = false;
@@ -71,6 +80,8 @@ enum class ClockFace : uint8_t {
   DigitalLocal,
   Spotify,
   Astrology,
+  /** Lunar phase disk; PWR hold = ask, BOOT = spoken phase brief. */
+  Moon,
   /** CalDAV block countdown via `calcifer-status`. */
   CalciferCountdown,
   /** QR → castalia.institute Google sign-in; tokens stored on watch for Edge Functions. */
@@ -544,10 +555,13 @@ static void draw_calcifer_face() {
 
   char line[96];
   if (g_calcifer_ui.current.valid) {
+    const time_t now_sec = time(nullptr);
+    const int64_t left = g_calcifer_ui.current.end_unix - static_cast<int64_t>(now_sec);
+    const bool urgent = left > 0 && left < 300;
     drawCenteredLine(g_calcifer_ui.current.summary, 150, c_dim, 1, 1);
     format_calcifer_countdown(g_calcifer_ui.current.end_unix, line, sizeof(line));
-    drawCenteredLine(line, 220, c_big, 3, 3);
-    drawCenteredLine("left in block", 286, c_dim, 1, 1);
+    drawCenteredLine(line, 220, urgent ? gfx->color565(255, 95, 85) : c_big, 3, 3);
+    drawCenteredLine(urgent ? "ending soon" : "left in block", 286, urgent ? gfx->color565(255, 150, 100) : c_dim, 1, 1);
   } else {
     drawCenteredLine("free", 200, c_big, 2, 2);
     if (g_calcifer_ui.next.valid) {
@@ -555,6 +569,150 @@ static void draw_calcifer_face() {
       drawCenteredLine(line, 260, c_dim, 1, 1);
     }
   }
+}
+
+static const char *moon_phase_name_from_elong_deg(double el_deg) {
+  int oct = static_cast<int>(el_deg / 45.0) % 8;
+  if (oct < 0) {
+    oct += 8;
+  }
+  static const char *const k[] = {"New moon",      "Waxing crescent", "First quarter", "Waxing gibbous",
+                                  "Full moon",     "Waning gibbous",  "Last quarter",  "Waning crescent"};
+  return k[oct];
+}
+
+static bool moon_illum_waxing_from_tp(const PmTransitPositions *tp, float *illum, bool *waxing) {
+  if (!tp || !tp->ok || !illum || !waxing) {
+    return false;
+  }
+  double el = tp->lon[kPmBodyMoon] - tp->lon[kPmBodySun];
+  while (el < 0) {
+    el += 360.0;
+  }
+  while (el >= 360.0) {
+    el -= 360.0;
+  }
+  *waxing = el < 180.0;
+  const float rad = static_cast<float>(el * (static_cast<double>(kPi) / 180.0));
+  *illum = (1.f - cosf(rad)) * 0.5f;
+  return true;
+}
+
+static void draw_moon_disk(int cx, int cy, int r, float illum, bool waxing) {
+  const uint16_t c_dark = gfx->color565(42, 48, 62);
+  const uint16_t c_lit = gfx->color565(210, 216, 228);
+  gfx->fillCircle(cx, cy, r, c_dark);
+  const float t = (1.f - 2.f * illum) * static_cast<float>(r);
+  for (int dy = -r; dy <= r; ++dy) {
+    for (int dx = -r; dx <= r; dx += 2) {
+      if (dx * dx + dy * dy > r * r) {
+        continue;
+      }
+      const bool lit = waxing ? (dx > t) : (dx < t);
+      if (lit) {
+        gfx->drawPixel(cx + dx, cy + dy, c_lit);
+      }
+    }
+  }
+  gfx->drawCircle(cx, cy, r, gfx->color565(88, 98, 118));
+}
+
+static void draw_moon_face(const struct tm *tm_local, bool valid_local) {
+  const uint16_t c_dim = gfx->color565(150, 160, 178);
+  drawCenteredLine("MOON", 58, gfx->color565(210, 215, 235), 2, 2);
+  if (!valid_local) {
+    drawCenteredLine("need NTP time", 200, c_dim, 2, 2);
+    return;
+  }
+  struct tm utc = {};
+  pm_time_utc(&utc);
+  PmTransitPositions tp = {};
+  pm_transit_compute_utc(&utc, &tp);
+  float illum = 0.5f;
+  bool waxing = true;
+  if (!moon_illum_waxing_from_tp(&tp, &illum, &waxing)) {
+    drawCenteredLine("ephemeris", 200, c_dim, 2, 2);
+    return;
+  }
+  double el = tp.lon[kPmBodyMoon] - tp.lon[kPmBodySun];
+  while (el < 0) {
+    el += 360.0;
+  }
+  while (el >= 360.0) {
+    el -= 360.0;
+  }
+  const char *nm = moon_phase_name_from_elong_deg(el);
+  char line[56];
+  snprintf(line, sizeof(line), "%s  %d%%", nm, static_cast<int>(lrintf(illum * 100.f)));
+  drawCenteredLine(line, 92, c_dim, 1, 1);
+  char tbuf[40];
+  snprintf(tbuf, sizeof(tbuf), "%02d:%02d local", tm_local->tm_hour, tm_local->tm_min);
+  drawCenteredLine(tbuf, 118, c_dim, 1, 1);
+  const int cx = LCD_WIDTH / 2;
+  const int cy = LCD_HEIGHT / 2 + 14;
+  const int r = 108;
+  draw_moon_disk(cx, cy, r, illum, waxing);
+  drawCenteredLine("PWR: ask  BOOT: brief", 318, c_dim, 1, 1);
+}
+
+static bool build_moon_voice_message(char *buf, size_t cap) {
+  if (!buf || cap < 200 || !pm_wifi_connected() || !pm_time_valid()) {
+    return false;
+  }
+  struct tm loc = {};
+  pm_time_local(&loc);
+  struct tm utc = {};
+  pm_time_utc(&utc);
+  PmTransitPositions tp = {};
+  pm_transit_compute_utc(&utc, &tp);
+  float illum = 0.5f;
+  bool wax = true;
+  if (!moon_illum_waxing_from_tp(&tp, &illum, &wax)) {
+    return false;
+  }
+  double el = tp.lon[kPmBodyMoon] - tp.lon[kPmBodySun];
+  while (el < 0) {
+    el += 360.0;
+  }
+  while (el >= 360.0) {
+    el -= 360.0;
+  }
+  const char *nm = moon_phase_name_from_elong_deg(el);
+  const int n = snprintf(
+      buf, cap,
+      "Pocket Mynah round watch. Local %04d-%02d-%02d %02d:%02d. Sun-Moon elongation ~%.0f deg "
+      "(illum ~%d%%, %s). Phase: \"%s\". In 3-5 short spoken sentences: name the phase, brief geometry, "
+      "a poetic note. No medical, legal, or fortune-telling advice.",
+      loc.tm_year + 1900, loc.tm_mon + 1, loc.tm_mday, loc.tm_hour, loc.tm_min, el,
+      static_cast<int>(lrintf(illum * 100.f)), wax ? "waxing" : "waning", nm);
+  return n > 80 && static_cast<size_t>(n) < cap;
+}
+
+static bool build_moon_system_prompt() {
+  if (!pm_time_valid()) {
+    return false;
+  }
+  struct tm utc = {};
+  pm_time_utc(&utc);
+  PmTransitPositions tp = {};
+  pm_transit_compute_utc(&utc, &tp);
+  float illum = 0.5f;
+  bool wax = true;
+  if (!moon_illum_waxing_from_tp(&tp, &illum, &wax)) {
+    return false;
+  }
+  double el = tp.lon[kPmBodyMoon] - tp.lon[kPmBodySun];
+  while (el < 0) {
+    el += 360.0;
+  }
+  while (el >= 360.0) {
+    el -= 360.0;
+  }
+  const char *nm = moon_phase_name_from_elong_deg(el);
+  snprintf(g_moon_sys_prompt, sizeof(g_moon_sys_prompt),
+           "Moon context: %s, %d%% illuminated, %s. Answer the user's spoken question briefly for audio.",
+           nm, static_cast<int>(lrintf(illum * 100.f)), wax ? "waxing" : "waning");
+  return g_moon_sys_prompt[0] != '\0';
 }
 
 static const char *zodiac_abbr_from_lon(double lon_deg) {
@@ -848,6 +1006,90 @@ static void draw_circumference_rainbow_24h(bool valid) {
   }
 }
 
+static void voice_last_play_clear() {
+  if (g_last_play_mp3) {
+    free(g_last_play_mp3);
+    g_last_play_mp3 = nullptr;
+  }
+  g_last_play_mp3_len = 0;
+}
+
+static void voice_last_play_save(const uint8_t *mp3, size_t len) {
+  voice_last_play_clear();
+  if (!mp3 || len < 64) {
+    return;
+  }
+  uint8_t *buf = static_cast<uint8_t *>(heap_caps_malloc(len, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  if (!buf) {
+    buf = static_cast<uint8_t *>(malloc(len));
+  }
+  if (!buf) {
+    return;
+  }
+  memcpy(buf, mp3, len);
+  g_last_play_mp3 = buf;
+  g_last_play_mp3_len = len;
+}
+
+/** Copies cached MP3 into [g_voice_result] and enters [kPlaying]. */
+static bool voice_last_play_begin() {
+  if (!g_last_play_mp3 || g_last_play_mp3_len < 64) {
+    return false;
+  }
+  pm_voice_result_free(&g_voice_result);
+  uint8_t *copy = static_cast<uint8_t *>(
+      heap_caps_malloc(g_last_play_mp3_len, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  if (!copy) {
+    copy = static_cast<uint8_t *>(malloc(g_last_play_mp3_len));
+  }
+  if (!copy) {
+    return false;
+  }
+  memcpy(copy, g_last_play_mp3, g_last_play_mp3_len);
+  g_voice_result.mp3 = copy;
+  g_voice_result.mp3_len = g_last_play_mp3_len;
+  g_astro_voice_active = false;
+  g_moon_voice_pcm = false;
+  g_calcifer_briefing = false;
+  g_voice_play_reset = true;
+  g_state = AppState::kPlaying;
+  return true;
+}
+
+/** `outward`: false = listening waves rim→center; true = speaking waves center→rim. */
+static void draw_voice_waves_overlay(bool outward, uint32_t t_ms) {
+  const int cx = LCD_WIDTH / 2;
+  const int cy = LCD_HEIGHT / 2;
+  const int R = min(LCD_WIDTH, LCD_HEIGHT) / 2 - 18;
+  const float phase = fmodf(static_cast<float>(t_ms) * 0.0045f, 1.f);
+  constexpr int k_n = 7;
+  for (int i = 0; i < k_n; ++i) {
+    float t = phase + static_cast<float>(i) / static_cast<float>(k_n);
+    t -= floorf(t);
+    const float u = outward ? t : (1.f - t);
+    const int r = 22 + static_cast<int>(u * static_cast<float>(R - 22));
+    const uint8_t b = static_cast<uint8_t>(70 + u * 150.f);
+    const uint16_t col = gfx->color565(static_cast<uint8_t>(b * 0.55f), b, static_cast<uint8_t>(160 + u * 70.f));
+    gfx->drawCircle(cx, cy, r, col);
+    if (r > 3) {
+      gfx->drawCircle(cx, cy, r - 2, col);
+    }
+  }
+}
+
+static void draw_voice_wave_screen(bool outward, uint32_t t_ms, const char *label) {
+  gfx->fillScreen(gfx->color565(8, 10, 18));
+  if (pm_time_valid()) {
+    draw_circumference_rainbow_24h(true);
+  }
+  draw_voice_waves_overlay(outward, t_ms);
+  if (label && label[0] != '\0') {
+    gfx->fillRect(0, 0, LCD_WIDTH, 40, gfx->color565(10, 12, 22));
+    drawCenteredLine(label, 12, gfx->color565(215, 205, 255), 1, 1);
+  }
+  gfx->flush();
+}
+
 static void draw_castalia_face() {
   const uint16_t c_hi = gfx->color565(210, 215, 235);
   const uint16_t c_dim = gfx->color565(120, 128, 145);
@@ -903,6 +1145,9 @@ static void draw_clock_face(float thinking_progress = -1.f) {
     case ClockFace::Astrology:
       draw_astrology_face(&tm, pm_time_valid(), -1, -1, false);
       break;
+    case ClockFace::Moon:
+      draw_moon_face(&tm, pm_time_valid());
+      break;
     case ClockFace::CalciferCountdown:
       draw_calcifer_face();
       break;
@@ -914,8 +1159,8 @@ static void draw_clock_face(float thinking_progress = -1.f) {
   }
 
   const int banner_y = (g_clock_face == ClockFace::Apocalypso || g_clock_face == ClockFace::Spotify ||
-                        g_clock_face == ClockFace::Astrology || g_clock_face == ClockFace::CalciferCountdown ||
-                        g_clock_face == ClockFace::Castalia)
+                        g_clock_face == ClockFace::Astrology || g_clock_face == ClockFace::Moon ||
+                        g_clock_face == ClockFace::CalciferCountdown || g_clock_face == ClockFace::Castalia)
                            ? 352
                            : 320;
   if (MYNAH_DEBUG_GESTURES && g_gesture_banner[0] != '\0') {
@@ -1166,6 +1411,25 @@ void loop() {
     }
   }
 
+  if (g_state == AppState::kClock && g_clock_face == ClockFace::Moon &&
+      (side_ev & PM_SIDE_BTN_BOOT) != 0) {
+    if (!pm_wifi_connected()) {
+      g_clock_repaint_pending = true;
+    } else if (!pm_time_valid()) {
+      g_clock_repaint_pending = true;
+    } else if (!build_moon_voice_message(g_moon_voice_msg, sizeof(g_moon_voice_msg))) {
+      g_clock_repaint_pending = true;
+    } else {
+      pm_voice_result_free(&g_voice_result);
+      g_voice_use_message = true;
+      g_text_voice_route = k_tv_moon;
+      g_astro_voice_active = false;
+      g_moon_voice_pcm = false;
+      g_calcifer_briefing = false;
+      g_state = AppState::kThinking;
+    }
+  }
+
   if (g_state == AppState::kClock && g_clock_face == ClockFace::Astrology &&
       (side_ev & PM_SIDE_BTN_BOOT) != 0) {
     if (!pm_wifi_connected()) {
@@ -1207,19 +1471,25 @@ void loop() {
       ptt_hold && s_ptt_press_ms != 0 && (now - s_ptt_press_ms >= MYNAH_PTT_ARM_MS);
 
   static uint32_t s_last_clock_boot_brief_ms = 0;
-  if (g_state == AppState::kClock && (side_ev & PM_SIDE_BTN_BOOT)) {
-    const bool want_calcifer = (g_clock_face == ClockFace::ClassicAnalog ||
-                                g_clock_face == ClockFace::DigitalLocal ||
-                                g_clock_face == ClockFace::CalciferCountdown);
-    if (want_calcifer && pm_wifi_connected() && pm_time_valid() &&
-        (now - s_last_clock_boot_brief_ms >= 3500u)) {
-      s_last_clock_boot_brief_ms = now;
-      pm_voice_result_free(&g_voice_result);
-      g_voice_use_message = false;
-      g_calcifer_briefing = true;
-      g_astro_voice_active = false;
-      g_astro_voice_pcm = false;
-      g_state = AppState::kThinking;
+  if (g_state == AppState::kClock && (side_ev & PM_SIDE_BTN_BOOT) &&
+      g_clock_face != ClockFace::Astrology && g_clock_face != ClockFace::Moon) {
+    if (voice_last_play_begin()) {
+      /* BOOT replay last TTS */
+    } else {
+      const bool want_calcifer = (g_clock_face == ClockFace::ClassicAnalog ||
+                                  g_clock_face == ClockFace::DigitalLocal ||
+                                  g_clock_face == ClockFace::CalciferCountdown);
+      if (want_calcifer && pm_wifi_connected() && pm_time_valid() &&
+          (now - s_last_clock_boot_brief_ms >= 3500u)) {
+        s_last_clock_boot_brief_ms = now;
+        pm_voice_result_free(&g_voice_result);
+        g_voice_use_message = false;
+        g_calcifer_briefing = true;
+        g_astro_voice_active = false;
+        g_astro_voice_pcm = false;
+        g_moon_voice_pcm = false;
+        g_state = AppState::kThinking;
+      }
     }
   }
 
@@ -1353,12 +1623,24 @@ void loop() {
           }
           g_astro_voice_active = true;
           g_astro_voice_pcm = true;
+          g_moon_voice_pcm = false;
           s_astro_voice_armed = false;
           s_astro_play_armed = false;
           memset(&g_astro_highlight_plan, 0, sizeof(g_astro_highlight_plan));
+        } else if (g_clock_face == ClockFace::Moon) {
+          if (!pm_wifi_connected() || !pm_time_valid()) {
+            g_clock_repaint_pending = true;
+            break;
+          }
+          g_astro_voice_active = true;
+          g_astro_voice_pcm = true;
+          g_moon_voice_pcm = true;
+          s_astro_voice_armed = false;
+          s_astro_play_armed = false;
         } else {
           g_astro_voice_active = false;
           g_astro_voice_pcm = false;
+          g_moon_voice_pcm = false;
         }
         reset_recording_buffer();
         if (pm_mic_begin()) {
@@ -1395,12 +1677,21 @@ void loop() {
         }
       }
       if (g_astro_voice_active) {
-        draw_astro_voice_screen(nullptr, -1, -1, false, recording_progress_now());
-      } else {
-        draw_clock_face(recording_progress_now());
-        gfx->fillRect(0, 0, LCD_WIDTH, 46, gfx->color565(18, 20, 34));
-        drawCenteredLine("listening", 14, gfx->color565(220, 200, 255), 2, 2);
+        struct tm tm = {};
+        if (pm_time_valid()) {
+          pm_time_local(&tm);
+        }
+        gfx->fillScreen(gfx->color565(12, 14, 22));
+        draw_astrology_face(&tm, pm_time_valid(), -1, -1, false);
+        if (pm_time_valid()) {
+          draw_circumference_rainbow_24h(true);
+        }
+        draw_voice_waves_overlay(false, now);
+        gfx->fillRect(0, 0, LCD_WIDTH, 40, gfx->color565(12, 14, 24));
+        drawCenteredLine("listening", 12, gfx->color565(220, 200, 255), 1, 1);
         gfx->flush();
+      } else {
+        draw_voice_wave_screen(false, now, "listening");
       }
       const bool held = pm_ptt_button_held();
       const bool full = g_pcm_len + frame_bytes > MYNAH_VOICE_MAX_PCM_BYTES;
@@ -1431,11 +1722,24 @@ void loop() {
         bool started = false;
         if (g_calcifer_briefing) {
           started = pm_voice_begin_clock_agenda(&g_voice_result);
+        } else if (g_text_voice_route == k_tv_moon) {
+          started = pm_voice_begin_message(g_moon_voice_msg, nullptr, &g_voice_result);
         } else if (g_astro_voice_active && !g_astro_voice_pcm) {
           started = pm_voice_begin_message(g_astrology_voice_msg, kAstroVoiceSys, &g_voice_result);
         } else {
           const char *sys = nullptr;
-          if (g_astro_voice_active) {
+          if (g_moon_voice_pcm) {
+            if (!build_moon_system_prompt()) {
+              draw_voice_wave_screen(false, now, "moon data fail");
+              delay(1200);
+              g_astro_voice_active = false;
+              g_moon_voice_pcm = false;
+              g_state = AppState::kClock;
+              g_clock_repaint_pending = true;
+              break;
+            }
+            sys = g_moon_sys_prompt;
+          } else if (g_astro_voice_active) {
             if (!build_astrology_system_prompt()) {
               draw_astro_voice_screen("chart data fail", -1, -1, false);
               delay(1200);
@@ -1455,6 +1759,7 @@ void loop() {
           }
           g_astro_voice_active = false;
           g_astro_voice_pcm = false;
+          g_moon_voice_pcm = false;
           g_state = AppState::kClock;
           g_clock_repaint_pending = true;
           break;
@@ -1464,6 +1769,19 @@ void loop() {
       }
       if (g_astro_voice_active) {
         draw_astro_voice_screen(nullptr, -1, -1, false, thinking_progress_now());
+      } else if (g_text_voice_route == k_tv_moon) {
+        struct tm tm_moon = {};
+        const bool valid_moon = pm_time_valid();
+        if (valid_moon) {
+          pm_time_local(&tm_moon);
+        }
+        gfx->fillScreen(gfx->color565(10, 12, 20));
+        draw_moon_face(&tm_moon, valid_moon);
+        if (thinking_progress_now() >= 0.f) {
+          draw_circumference_rainbow_24h(valid_moon);
+          draw_thinking_progress_ring(thinking_progress_now());
+        }
+        gfx->flush();
       } else {
         draw_clock_face(thinking_progress_now());
       }
@@ -1522,12 +1840,23 @@ void loop() {
       if (g_astro_voice_active) {
         pm_astro_highlight_build(g_voice_result.reply, &g_astro_highlight_plan);
       }
+      if (g_voice_result.mp3 && g_voice_result.mp3_len >= 64) {
+        voice_last_play_save(g_voice_result.mp3, g_voice_result.mp3_len);
+      }
       g_astro_voice_pcm = false;
+      g_moon_voice_pcm = false;
+      g_voice_play_reset = true;
       g_state = AppState::kPlaying;
       break;
     }
     case AppState::kPlaying: {
       static uint32_t s_play_wait_t0 = 0;
+      static bool s_play_armed = false;
+      if (g_voice_play_reset) {
+        g_voice_play_reset = false;
+        s_play_wait_t0 = 0;
+        s_play_armed = false;
+      }
       if (s_play_wait_t0 == 0) {
         s_play_wait_t0 = now;
       }
@@ -1564,15 +1893,6 @@ void loop() {
         g_clock_repaint_pending = true;
         break;
       }
-      static bool s_play_ui = false;
-      static bool s_play_armed = false;
-      if (!s_play_ui) {
-        gfx->fillScreen(gfx->color565(20, 40, 30));
-        drawCenteredLine("speaking", 200, RGB565_WHITE, 2, 2);
-        gfx->flush();
-        s_play_ui = true;
-        s_play_armed = false;
-      }
       if (!g_voice_result.mp3 || g_voice_result.mp3_len < 64) {
         gfx->fillScreen(gfx->color565(18, 28, 42));
         const char *txt = g_voice_result.reply[0] ? g_voice_result.reply : g_voice_result.transcript;
@@ -1580,7 +1900,6 @@ void loop() {
         gfx->flush();
         delay(4500);
         pm_voice_result_free(&g_voice_result);
-        s_play_ui = false;
         s_play_armed = false;
         s_play_wait_t0 = 0;
         g_state = AppState::kClock;
@@ -1591,6 +1910,7 @@ void loop() {
         pm_speaker_play_begin(g_voice_result.mp3, g_voice_result.mp3_len);
         s_play_armed = true;
       }
+      draw_voice_wave_screen(true, now, "speaking");
       PmSpeakerStatus spk = pm_speaker_poll();
       if (spk == PmSpeakerStatus::Playing) {
         const uint32_t est_ms = static_cast<uint32_t>((g_voice_result.mp3_len * 8u * 1000u) / 96000u) + 30000u;
@@ -1605,13 +1925,10 @@ void loop() {
         break;
       }
       if (spk == PmSpeakerStatus::DoneFail) {
-        gfx->fillScreen(RGB565_BLACK);
-        drawCenteredLine("playback failed", 210, RGB565_RED, 2, 2);
-        gfx->flush();
+        draw_voice_wave_screen(true, now, "playback failed");
         delay(1200);
       }
       pm_voice_result_free(&g_voice_result);
-      s_play_ui = false;
       s_play_armed = false;
       s_play_wait_t0 = 0;
       g_state = AppState::kClock;

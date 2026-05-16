@@ -6,7 +6,7 @@ PlatformIO firmware for the Waveshare **[ESP32-S3-Touch-AMOLED-1.75C](https://gi
 
 | Path | Role |
 |------|------|
-| [`sketches/PocketMynah/`](sketches/PocketMynah/) | **WiFi** + **NTP** **hue clock** faces (analog, Apocalypso, digital local, Spotify, **Astrology**, **Castalia** QR sign-in); **PTT** → **voice-pipeline** (JWT after Castalia sign-in); **Astrology**: PWR/BOOT tap + serial `birth YYYY MM DD HH MI`. **Gestures**: swipe to change face. |
+| [`sketches/PocketMynah/`](sketches/PocketMynah/) | **WiFi** + **NTP** hue clock faces (analog, Apocalypso, digital, Spotify, **Astrology**, **Moon**, **schedule** countdown, **Castalia** QR); **PWR hold** = STT, **BOOT** = replay last TTS (or CalDAV agenda on analog/digital/schedule); **voice-pipeline** with Castalia JWT. **Gestures**: swipe to change face. |
 | [`sketches/01_HelloWorld/`](sketches/01_HelloWorld/) | Minimal display sanity check; set `src_dir` in [`platformio.ini`](platformio.ini) to switch back. |
 | [`lib/waveshare_board_audio/`](lib/waveshare_board_audio/) | Vendor **ES7210** / **ES8311** sources from the Waveshare tree (MIT / Apache-2.0). |
 | [`lib/minimp3/`](lib/minimp3/) | [lieff/minimp3](https://github.com/lieff/minimp3) (public domain) for decoding TTS MP3. |
@@ -24,13 +24,18 @@ git clone --depth 1 https://github.com/waveshareteam/ESP32-S3-Touch-AMOLED-1.75C
 ## Build & upload
 
 ```bash
-cd pocketwatch
 pio run -e waveshare_s3_175
 pio run -e waveshare_s3_175 -t upload
 pio device monitor -e waveshare_s3_175
 ```
 
-Pick the **Espressif CDC** serial device (e.g. macOS `/dev/cu.usbmodem…`, USB **VID 303A**), or set `upload_port` under `[env:waveshare_s3_175]`.
+Pick the **Espressif CDC** serial device (e.g. macOS `/dev/cu.usbmodem1101`, USB **VID 303A** / **PID 1001**), or set `upload_port` / `monitor_port` in [`platformio.ini`](platformio.ini). Baud **115200**; `monitor_filters` include `esp32_exception_decoder` for backtraces.
+
+### Serial debug bring-up
+
+- Boot banners and `ESP_LOG*` tags print on the USB CDC port (`Serial` at 115200).
+- Raise verbosity: add `-DCORE_DEBUG_LEVEL=4` (or `5`) to `build_flags` in `platformio.ini`.
+- **JTAG**: same USB cable exposes ESP32-S3 native USB-JTAG/serial (303A:1001). Use `pio debug -e waveshare_s3_175` or OpenOCD + GDB from VS Code/Cursor; `debug_init_break = tbreak setup` is supported by the PlatformIO ESP32 debug target.
 
 ## Secrets
 
@@ -42,6 +47,6 @@ If `secrets.local.h` is missing, the build uses the example file (empty strings)
 ## Limits (MVP)
 
 - **HTTPS**: `WiFiClientSecure::setInsecure()` (no CA pin yet).
-- **Voice response**: assumes `voice-pipeline` JSON with `audioBase64` (plain `ask-faculty`-only responses are not handled here).
-- **HTTP body / response**: capped (see `pm_voice.cpp`); very long TTS may fail.
+- **Voice response**: prefers `audioBase64` MP3; text-only `reply` is shown on screen when audio is absent.
+- **HTTP body / response**: capped at ~1.5 MiB in `pm_voice.cpp`; very long TTS may fail.
 - **Time**: UTC only on the watch face.

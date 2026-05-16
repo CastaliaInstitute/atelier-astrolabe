@@ -18,7 +18,7 @@ Edit this file when you start or finish work. Keep **In progress** to 1–3 item
 
 ## In progress
 
-- [~] **P1** Clock faces: Spotify, Astrology, Castalia — integrate and QA on hardware
+- [~] **P1** Astrology / transits face: full-screen chart + planet/sign icons
 
 ---
 
@@ -26,7 +26,7 @@ Edit this file when you start or finish work. Keep **In progress** to 1–3 item
 
 ### Voice UX (side buttons + visuals)
 
-- [ ] **P1** **STT on PWR, TTS on BOOT** — remap voice controls from today’s BOOT-only hold-to-talk (`pm_ptt_button_held`, `MYNAH_PTT_ARM_MS`). **PWR**: hold (or press) → STT / `kRecording` → `voice-pipeline` PCM path; while active, animate **dynamic waves inward** (circumference → center) on the round display. **BOOT**: trigger TTS playback / replay last reply (or equivalent); while active, animate **dynamic waves outward** (center → circumference) during `kPlaying`. Replace solid-color “listening” / “speaking” screens with radial wave animation (`draw_circumference_rainbow_24h`-style annulus slices or similar). Reconcile Astrology face “PWR or BOOT tap” reading flow so it does not conflict with voice bindings.
+- [x] **P1** **STT on PWR, TTS on BOOT** — PWR hold → STT + inward wave UI; BOOT → replay last TTS (outward waves) or CalDAV agenda when no cache; Astrology BOOT = text reading, PWR hold = PCM; Moon PWR/BOOT split.
 
 ### Sky / astrology faces
 
@@ -36,11 +36,11 @@ Edit this file when you start or finish work. Keep **In progress** to 1–3 item
 
 - [ ] **P1** **Natal chart face** — dedicated `ClockFace` (or mode on Astrology face): full **natal wheel** from birth data in NVS (`pm_birth_nvs`, serial `birth Y M D H MI`) — all major bodies + Asc/MC when ephemeris server supports houses; static chart for birth moment vs live **transits** overlay optional. Same round layout language as transits face (signs, houses, aspect lines TBD); planet/sign **icons** not abbreviations. Requires stored birth + accurate **Castalia ephemeris server**; distinct from transit-only view in `draw_astrology_face` (today: natal Sun marker only).
 
-- [ ] **P1** **Moon phase face** — new `ClockFace`: render **current moon phase** (illumination + wax/wane; port math from mynah [`MoonPhaseMath.kt`](https://github.com/CastaliaInstitute/mynah/blob/main/android/app/src/main/java/institute/castalia/mynah/glow/MoonPhaseMath.kt) or ephemeris server when available). **STT** user question (PWR) → `voice-pipeline` / LLM with **moon-phase context** in system prompt or structured fields (`phase`, `illumination`, `age_days`, optional sign) → **TTS** spoken “fortune” / interpretation reply. UI: phase disk on round display; optional tap/hold to ask; reuse `pm_voice_post_message` or new `face=moon_fortune` contract. Depends on NTP; better accuracy once **Castalia ephemeris server** lands.
+- [x] **P1** **Moon phase face** — `ClockFace::Moon` with `pm_transit` illumination disk; PWR hold STT + moon system prompt; BOOT spoken phase brief via `pm_voice_post_message`.
 
 ### Schedule / accessibility (Calcifer CalDAV)
 
-- [~] **P1** **Autism countdown face** — glanceable timer for time left in the **current** CalDAV event (transition support). Poll Castalia `calcifer-status` Edge Function (`current` / `next` with `startUnix` / `endUnix`); CalDAV credentials stay server-side ([mynah `calcifer-status`](https://github.com/CastaliaInstitute/mynah/blob/main/supabase/functions/calcifer-status/index.ts), shared [`calciferClockBrief.ts`](https://github.com/CastaliaInstitute/mynah/blob/main/supabase/functions/_shared/calciferClockBrief.ts)). New clock face or dedicated mode; refresh on interval when Wi‑Fi + NTP valid; show event title + `MM:SS` (or `H:MM`) until `endUnix`. Optional: haptic/visual cue in last N minutes. Depends on Castalia JWT or anon + deployed `calcifer-status` on same Supabase project.
+- [x] **P1** **Autism countdown face** — `CalciferCountdown` face + `pm_calcifer`; 5‑minute “ending soon” visual cue; BOOT agenda when no replay cache.
 
 ### Phase 2 (round UI + voice parity)
 
@@ -68,8 +68,8 @@ Edit this file when you start or finish work. Keep **In progress** to 1–3 item
 
 Derived from [README limits](../README.md#limits-mvp) and [open questions](pocketwatch.md#open-questions).
 
-- [ ] **P0** Setup debugging to console — reliable serial logging for bring-up (`pio device monitor`, `ESP_LOG*` levels/tags, boot banners, optional `CORE_DEBUG_LEVEL` / PlatformIO `monitor_filters`); document port and baud in README
-- [ ] **P0** Setup JTAG over USB — ESP32-S3 native USB-JTAG/serial (VID **303A** / PID **1001** per [`platformio.ini`](../platformio.ini)); OpenOCD + GDB breakpoints in VS Code/Cursor or `pio debug`, `debug_init_break`, flash via debug adapter; document macOS device node and any board strap / driver steps in README
+- [x] **P0** Setup debugging to console — documented in README (`pio device monitor`, 115200, `CORE_DEBUG_LEVEL`, exception decoder)
+- [x] **P0** Setup JTAG over USB — documented in README (303A:1001, `pio debug`)
 
 - [ ] **P1** TLS: replace `WiFiClientSecure::setInsecure()` with CA pinning / bundle
 - [x] **P1** Voice: handle `voice-pipeline` responses without `audioBase64` (plain `ask-faculty`-only)
@@ -88,6 +88,8 @@ Derived from [README limits](../README.md#limits-mvp) and [open questions](pocke
 
 ## Done
 
+- [x] **2026-05-16** Voice UX: PWR STT + inward waves; BOOT TTS replay + outward waves; last-reply cache
+- [x] **2026-05-16** Moon phase clock face; README serial/JTAG bring-up notes
 - [x] **2026-05-16** Castalia QR sign-in + NVS session JWT; voice/Spotify use `pm_castalia_auth_apply_headers`
 - [x] **2026-05-16** Voice: 1.5 MiB response cap, JSON completeness check, TTS playback drain/abort, text-only pipeline replies
 - [x] **2026-05-16** `pm_calcifer` + **CalciferCountdown** clock face; BOOT spoken agenda via `pm_voice_begin_clock_agenda`
