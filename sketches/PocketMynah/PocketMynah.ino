@@ -1856,13 +1856,14 @@ void loop() {
         g_voice_play_reset = false;
         s_play_wait_t0 = 0;
         s_play_armed = false;
+        s_astro_play_armed = false;
       }
       if (s_play_wait_t0 == 0) {
         s_play_wait_t0 = now;
       }
       if (g_astro_voice_active) {
         if (!s_astro_play_armed) {
-          if (!g_voice_result.mp3 || g_voice_result.mp3_len == 0) {
+          if (!g_voice_result.mp3 || g_voice_result.mp3_len < 64) {
             draw_astro_voice_screen("no audio", -1, -1, false);
             delay(1200);
             pm_voice_result_free(&g_voice_result);
@@ -1871,8 +1872,17 @@ void loop() {
             g_clock_repaint_pending = true;
             break;
           }
-          pm_speaker_play_begin(g_voice_result.mp3, g_voice_result.mp3_len);
+          if (!pm_speaker_play_begin(g_voice_result.mp3, g_voice_result.mp3_len)) {
+            draw_astro_voice_screen("speaker busy", -1, -1, false);
+            delay(1200);
+            pm_voice_result_free(&g_voice_result);
+            g_astro_voice_active = false;
+            g_state = AppState::kClock;
+            g_clock_repaint_pending = true;
+            break;
+          }
           s_astro_play_armed = true;
+          s_play_wait_t0 = now;
         }
         int hi_body = -1;
         int hi_sign = -1;
@@ -1880,7 +1890,13 @@ void loop() {
         draw_astro_voice_screen(nullptr, hi_body, hi_sign, false);
         const PmSpeakerStatus spk = pm_speaker_poll();
         if (spk == PmSpeakerStatus::Playing) {
-          break;
+          const uint32_t est_ms =
+              static_cast<uint32_t>((g_voice_result.mp3_len * 8u * 1000u) / 96000u) + 45000u;
+          if (s_play_wait_t0 != 0 && (now - s_play_wait_t0) > est_ms) {
+            pm_speaker_abort();
+          } else {
+            break;
+          }
         }
         if (spk == PmSpeakerStatus::DoneFail) {
           draw_astro_voice_screen("playback failed", -1, -1, false);
@@ -1907,7 +1923,16 @@ void loop() {
         break;
       }
       if (!s_play_armed) {
-        pm_speaker_play_begin(g_voice_result.mp3, g_voice_result.mp3_len);
+        if (!pm_speaker_play_begin(g_voice_result.mp3, g_voice_result.mp3_len)) {
+          draw_voice_wave_screen(true, now, "speaker busy");
+          delay(1200);
+          pm_voice_result_free(&g_voice_result);
+          s_play_armed = false;
+          s_play_wait_t0 = 0;
+          g_state = AppState::kClock;
+          g_clock_repaint_pending = true;
+          break;
+        }
         s_play_armed = true;
       }
       draw_voice_wave_screen(true, now, "speaking");

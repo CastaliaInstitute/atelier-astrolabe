@@ -30,6 +30,7 @@ static es8311_handle_t s_es = nullptr;
 static bool s_es_inited = false;
 
 static TaskHandle_t s_speaker_task = nullptr;
+static volatile bool s_spk_task_busy = false;
 static volatile bool s_speaker_ok = false;
 static volatile PmSpeakerStatus s_speaker_status = PmSpeakerStatus::Idle;
 static const uint8_t *s_play_mp3 = nullptr;
@@ -273,12 +274,28 @@ static bool play_mp3_streaming(const uint8_t *mp3, size_t mp3_len) {
   return i2s_ready;
 }
 
+static bool speaker_wait_idle(uint32_t timeout_ms) {
+  const uint32_t deadline = millis() + timeout_ms;
+  while (s_spk_task_busy) {
+    if (static_cast<int32_t>(millis() - deadline) >= 0) {
+      ESP_LOGW(TAG, "speaker_wait_idle timeout");
+      return false;
+    }
+    delay(5);
+    esp_task_wdt_reset();
+  }
+  return true;
+}
+
 static void speaker_play_task(void *arg) {
   (void)arg;
   for (;;) {
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    s_spk_task_busy = true;
+    s_speaker_status = PmSpeakerStatus::Playing;
     s_speaker_ok = play_mp3_streaming(s_play_mp3, s_play_mp3_len);
     s_speaker_status = s_speaker_ok ? PmSpeakerStatus::DoneOk : PmSpeakerStatus::DoneFail;
+    s_spk_task_busy = false;
   }
 }
 
@@ -304,19 +321,15 @@ static void speaker_task_ensure() {
   xTaskCreatePinnedToCore(speaker_play_task, "spk_play", kSpeakerTaskStack, nullptr, 1, &s_speaker_task, 1);
 }
 
-void pm_speaker_play_begin(const uint8_t *mp3, size_t mp3_len) {
+bool pm_speaker_play_begin(const uint8_t *mp3, size_t mp3_len) {
   speaker_task_ensure();
   if (!s_speaker_task || !mp3 || mp3_len == 0) {
     s_speaker_status = PmSpeakerStatus::DoneFail;
-    return;
+    return false;
   }
-  if (s_speaker_status == PmSpeakerStatus::Playing) {
-    ESP_LOGW(TAG, "play_begin while busy");
-    return;
-  }
-  if (s_speaker_status != PmSpeakerStatus::Idle && s_speaker_status != PmSpeakerStatus::DoneFail &&
-      s_speaker_status != PmSpeakerStatus::DoneOk) {
-    ESP_LOGW(TAG, "play_begin odd state %d", static_cast<int>(s_speaker_status));
+  if (!speaker_wait_idle(8000)) {
+    s_speaker_status = PmSpeakerStatus::DoneFail;
+    return false;
   }
   s_play_mp3 = mp3;
   s_play_mp3_len = mp3_len;
@@ -327,6 +340,7 @@ void pm_speaker_play_begin(const uint8_t *mp3, size_t mp3_len) {
   s_speaker_ok = false;
   s_speaker_status = PmSpeakerStatus::Playing;
   xTaskNotify(s_speaker_task, 1, eSetBits);
+  return true;
 }
 
 PmSpeakerStatus pm_speaker_poll() {
@@ -334,9 +348,10 @@ PmSpeakerStatus pm_speaker_poll() {
 }
 
 void pm_speaker_abort(void) {
-  if (s_speaker_status == PmSpeakerStatus::Playing) {
-    ESP_LOGW(TAG, "playback aborted");
+  if (s_speaker_status == PmSpeakerStatus::Playing || s_spk_task_busy) {
+    ESP_LOGW(TAG, "playback aborted (waiting for speaker task)");
     s_speaker_status = PmSpeakerStatus::DoneFail;
+    (void)speaker_wait_idle(3000);
   }
 }
 
@@ -369,7 +384,9 @@ float pm_speaker_play_progress(void) {
 }
 
 bool pm_speaker_play_mp3(const uint8_t *mp3, size_t mp3_len) {
-  pm_speaker_play_begin(mp3, mp3_len);
+  if (!pm_speaker_play_begin(mp3, mp3_len)) {
+    return false;
+  }
   const uint32_t timeout_ms =
       kMaxPlaySeconds * 1000u + 15000u + static_cast<uint32_t>((mp3_len / 4000u) * 1000u);
   const uint32_t deadline = millis() + timeout_ms;
