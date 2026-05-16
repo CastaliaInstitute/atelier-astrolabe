@@ -1,0 +1,12 @@
+.DS_Store
+.env
+.env.*
+
+include/secrets.local.h
+include/secrets.h
+
+.pio/
+.pio-build-w175/
+firmware-bare/.pio/
+
+vendor/

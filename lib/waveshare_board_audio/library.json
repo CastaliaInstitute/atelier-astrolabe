@@ -1,0 +1,6 @@
+{
+  "name": "waveshare_board_audio",
+  "version": "1.0.0",
+  "description": "Waveshare ESP32-S3-Touch-AMOLED-1.75C ES7210/ES8311 vendor drivers (MIT / Apache-2.0)",
+  "build": { "includeDir": "." }
+}

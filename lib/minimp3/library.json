@@ -1,0 +1,6 @@
+{
+  "name": "minimp3",
+  "version": "0.1.0",
+  "description": "Public domain MP3 decoder (lieff/minimp3)",
+  "build": { "includeDir": "." }
+}
