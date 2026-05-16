@@ -20,6 +20,7 @@ static constexpr uint32_t kVoiceHttpTimeoutMs = 120000;
 static TaskHandle_t s_voice_task = nullptr;
 static volatile bool s_voice_done = false;
 static volatile bool s_voice_ok = false;
+static volatile PmVoiceStatus s_voice_status = PmVoiceStatus::Idle;
 static volatile uint8_t s_voice_op = 0; /** 1 = message, 2 = pcm */
 
 static const char *s_req_message = nullptr;
@@ -30,6 +31,7 @@ static PmVoiceResult *s_req_result = nullptr;
 
 static char s_esc_msg[2048];
 static char s_esc_sys[768];
+static char s_esc_sys_pcm[3072];
 static char s_last_error[80] = "";
 
 static void voice_set_error(const char *msg) {
@@ -234,6 +236,7 @@ static bool voice_post_message_inner(const char *message, const char *system_ins
     ESP_LOGW(TAG, "Supabase URL or anon key empty");
     return false;
   }
+  (void)pm_castalia_auth_prepare_for_voice();
 
   char base[160];
   strncpy(base, MYNAH_SUPABASE_URL, sizeof(base) - 1);
@@ -278,7 +281,7 @@ static bool voice_post_message_inner(const char *message, const char *system_ins
   WiFiClientSecure client;
   client.setInsecure();
   HTTPClient http;
-  http.setTimeout(kVoiceHttpTimeoutMs);
+  http.setTimeout(static_cast<uint16_t>(kVoiceHttpTimeoutMs > 60000u ? 60000u : kVoiceHttpTimeoutMs));
   if (!http.begin(client, url)) {
     free(body);
     voice_set_error("http begin");
@@ -292,7 +295,11 @@ static bool voice_post_message_inner(const char *message, const char *system_ins
 
   if (code != 200) {
     ESP_LOGW(TAG, "voice-pipeline HTTP %d (message)", code);
-    snprintf(s_last_error, sizeof(s_last_error), "HTTP %d", code);
+    if (code == 401) {
+      voice_set_error("sign in on Castalia face");
+    } else {
+      snprintf(s_last_error, sizeof(s_last_error), "HTTP %d", code);
+    }
     http.end();
     return false;
   }
@@ -321,7 +328,8 @@ static bool voice_post_message_inner(const char *message, const char *system_ins
   return r->mp3_len > 0;
 }
 
-static bool voice_post_pcm_inner(const uint8_t *pcm, size_t pcm_len, PmVoiceResult *r) {
+static bool voice_post_pcm_inner(const uint8_t *pcm, size_t pcm_len, const char *system_instruction,
+                                 PmVoiceResult *r) {
   if (!r || !pcm || pcm_len == 0) {
     voice_set_error("empty pcm");
     return false;
@@ -336,6 +344,7 @@ static bool voice_post_pcm_inner(const uint8_t *pcm, size_t pcm_len, PmVoiceResu
     ESP_LOGW(TAG, "Supabase URL or anon key empty");
     return false;
   }
+  (void)pm_castalia_auth_prepare_for_voice();
 
   char base[160];
   strncpy(base, MYNAH_SUPABASE_URL, sizeof(base) - 1);
@@ -347,9 +356,15 @@ static bool voice_post_pcm_inner(const uint8_t *pcm, size_t pcm_len, PmVoiceResu
 
   static const char kPrefix[] =
       "{\"languageCode\":\"en-US\",\"sampleRateHertz\":16000,\"audioBase64\":\"";
-  static const char kSuffix[] = "\"}";
+  s_esc_sys_pcm[0] = '\0';
+  const bool have_sys = system_instruction && system_instruction[0] != '\0';
+  if (have_sys) {
+    json_escape_string(system_instruction, s_esc_sys_pcm, sizeof(s_esc_sys_pcm));
+  }
+
   const size_t b64max = ((pcm_len + 2) / 3) * 4 + 4;
-  const size_t body_cap = sizeof(kPrefix) - 1 + b64max + sizeof(kSuffix) - 1;
+  const size_t sys_extra = have_sys ? (24 + strlen(s_esc_sys_pcm)) : 0;
+  const size_t body_cap = sizeof(kPrefix) - 1 + b64max + sys_extra + 4;
   uint8_t *body = static_cast<uint8_t *>(
       heap_caps_malloc(body_cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
   if (!body) {
@@ -371,13 +386,34 @@ static bool voice_post_pcm_inner(const uint8_t *pcm, size_t pcm_len, PmVoiceResu
     voice_set_error("b64 encode");
     return false;
   }
-  memcpy(body + sizeof(kPrefix) - 1 + nout, kSuffix, sizeof(kSuffix));
-  const size_t body_len = (sizeof(kPrefix) - 1) + nout + (sizeof(kSuffix) - 1);
+  size_t body_len = (sizeof(kPrefix) - 1) + nout;
+  if (body_len + 2 > body_cap) {
+    free(body);
+    voice_set_error("body too large");
+    return false;
+  }
+  body[body_len++] = '"';
+  if (have_sys) {
+    const int n = snprintf(reinterpret_cast<char *>(body + body_len), body_cap - body_len,
+                           ",\"systemInstruction\":\"%s\"", s_esc_sys_pcm);
+    if (n <= 0 || static_cast<size_t>(n) >= body_cap - body_len) {
+      free(body);
+      voice_set_error("body too large");
+      return false;
+    }
+    body_len += static_cast<size_t>(n);
+  }
+  if (body_len + 1 > body_cap) {
+    free(body);
+    voice_set_error("body too large");
+    return false;
+  }
+  body[body_len++] = '}';
 
   WiFiClientSecure client;
   client.setInsecure();
   HTTPClient http;
-  http.setTimeout(kVoiceHttpTimeoutMs);
+  http.setTimeout(static_cast<uint16_t>(kVoiceHttpTimeoutMs > 60000u ? 60000u : kVoiceHttpTimeoutMs));
   if (!http.begin(client, url)) {
     free(body);
     voice_set_error("http begin");
@@ -391,7 +427,11 @@ static bool voice_post_pcm_inner(const uint8_t *pcm, size_t pcm_len, PmVoiceResu
 
   if (code != 200) {
     ESP_LOGW(TAG, "voice-pipeline HTTP %d", code);
-    snprintf(s_last_error, sizeof(s_last_error), "HTTP %d", code);
+    if (code == 401) {
+      voice_set_error("sign in on Castalia face");
+    } else {
+      snprintf(s_last_error, sizeof(s_last_error), "HTTP %d", code);
+    }
     http.end();
     return false;
   }
@@ -428,10 +468,11 @@ static void voice_net_task(void *arg) {
     if (op == 1) {
       s_voice_ok = voice_post_message_inner(s_req_message, s_req_system, s_req_result);
     } else if (op == 2) {
-      s_voice_ok = voice_post_pcm_inner(s_req_pcm, s_req_pcm_len, s_req_result);
+      s_voice_ok = voice_post_pcm_inner(s_req_pcm, s_req_pcm_len, s_req_system, s_req_result);
     } else {
       s_voice_ok = false;
     }
+    s_voice_status = s_voice_ok ? PmVoiceStatus::DoneOk : PmVoiceStatus::DoneFail;
     s_voice_done = true;
   }
 }
@@ -443,36 +484,67 @@ static void voice_net_task_ensure() {
   xTaskCreatePinnedToCore(voice_net_task, "voice_net", kVoiceNetTaskStack, nullptr, 1, &s_voice_task, 1);
 }
 
-static bool voice_net_run(uint8_t op, uint32_t timeout_ms) {
+static bool voice_net_begin(uint8_t op) {
   voice_net_task_ensure();
   if (!s_voice_task) {
     return false;
   }
+  if (s_voice_status == PmVoiceStatus::Working) {
+    ESP_LOGW(TAG, "voice_begin while busy");
+    return false;
+  }
   s_voice_op = op;
   s_voice_done = false;
+  s_voice_ok = false;
+  s_voice_status = PmVoiceStatus::Working;
   xTaskNotify(s_voice_task, 1, eSetBits);
+  return true;
+}
+
+static bool voice_net_run(uint8_t op, uint32_t timeout_ms) {
+  if (!voice_net_begin(op)) {
+    return false;
+  }
   const uint32_t deadline = millis() + timeout_ms;
-  while (!s_voice_done) {
+  while (pm_voice_poll() == PmVoiceStatus::Working) {
     delay(10);
     if (static_cast<int32_t>(millis() - deadline) >= 0) {
       voice_set_error("timeout");
       ESP_LOGW(TAG, "voice op %u timeout", static_cast<unsigned>(op));
+      s_voice_status = PmVoiceStatus::DoneFail;
       return false;
     }
   }
-  return s_voice_ok;
+  return s_voice_status == PmVoiceStatus::DoneOk;
 }
 
-bool pm_voice_post_message(const char *message, const char *system_instruction, PmVoiceResult *r) {
+bool pm_voice_begin_message(const char *message, const char *system_instruction, PmVoiceResult *r) {
   s_req_message = message;
   s_req_system = system_instruction;
   s_req_result = r;
+  return voice_net_begin(1);
+}
+
+bool pm_voice_begin_pcm(const uint8_t *pcm, size_t pcm_len, const char *system_instruction, PmVoiceResult *r) {
+  s_req_pcm = pcm;
+  s_req_pcm_len = pcm_len;
+  s_req_system = system_instruction;
+  s_req_result = r;
+  return voice_net_begin(2);
+}
+
+PmVoiceStatus pm_voice_poll(void) {
+  return s_voice_status;
+}
+
+bool pm_voice_post_message(const char *message, const char *system_instruction, PmVoiceResult *r) {
   return voice_net_run(1, kVoiceHttpTimeoutMs + 5000u);
 }
 
-bool pm_voice_post_pcm(const uint8_t *pcm, size_t pcm_len, PmVoiceResult *r) {
+bool pm_voice_post_pcm(const uint8_t *pcm, size_t pcm_len, const char *system_instruction, PmVoiceResult *r) {
   s_req_pcm = pcm;
   s_req_pcm_len = pcm_len;
+  s_req_system = system_instruction;
   s_req_result = r;
   return voice_net_run(2, kVoiceHttpTimeoutMs + 5000u);
 }

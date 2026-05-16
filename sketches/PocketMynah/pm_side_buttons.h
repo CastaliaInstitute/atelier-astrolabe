@@ -14,5 +14,5 @@ bool pm_side_buttons_begin();
  */
 uint8_t pm_side_buttons_poll(uint32_t now_ms);
 
-/** True while the BOOT strap button is held (LOW). Used for hold-to-talk PTT after begin(). */
+/** True while the AXP2101 PWR key is held (PEK latched). Hold-to-talk on the astrology face. */
 bool pm_ptt_button_held(void);

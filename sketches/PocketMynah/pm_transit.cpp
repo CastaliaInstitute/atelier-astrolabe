@@ -202,16 +202,8 @@ bool pm_transit_natal_sun_lon(const PmBirthSpec *birth, double *lon_deg_out) {
   if (!birth || !birth->valid || !lon_deg_out) {
     return false;
   }
-  struct tm local_tm = {};
-  local_tm.tm_year = static_cast<int>(birth->year) - 1900;
-  local_tm.tm_mon = static_cast<int>(birth->month) - 1;
-  local_tm.tm_mday = static_cast<int>(birth->day);
-  local_tm.tm_hour = static_cast<int>(birth->hour);
-  local_tm.tm_min = static_cast<int>(birth->minute);
-  local_tm.tm_sec = 0;
-  local_tm.tm_isdst = -1;
-  const time_t epoch = mktime(&local_tm);
-  if (epoch == static_cast<time_t>(-1)) {
+  time_t epoch = 0;
+  if (!pm_birth_to_utc_epoch(birth, &epoch)) {
     return false;
   }
   struct tm utc = {};

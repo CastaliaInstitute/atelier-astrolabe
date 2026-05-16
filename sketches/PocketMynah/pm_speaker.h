@@ -12,5 +12,8 @@ void pm_speaker_play_begin(const uint8_t *mp3, size_t mp3_len);
 /** Poll playback; call from loop() while Playing. */
 PmSpeakerStatus pm_speaker_poll();
 
+/** Estimated playback progress 0..1 while Playing (char-timed fallback). */
+float pm_speaker_play_progress(void);
+
 /** Block until playback finishes or times out. */
 bool pm_speaker_play_mp3(const uint8_t *mp3, size_t mp3_len);

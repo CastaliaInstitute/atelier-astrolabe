@@ -55,7 +55,7 @@ static constexpr uint32_t kCastaliaNetTaskStack = 32768;
 static TaskHandle_t s_net_task = nullptr;
 static volatile bool s_net_done = false;
 static volatile bool s_net_ok = false;
-static volatile uint8_t s_net_op = 0; /** 1 = pair start, 2 = poll */
+static volatile uint8_t s_net_op = 0; /** 1 = pair start, 2 = poll, 3 = refresh session */
 
 static char s_poll_enc_id[80];
 static char s_poll_enc_sec[160];
@@ -209,16 +209,19 @@ static bool wall_time_ok() {
   return time(nullptr) > 100000;
 }
 
-/** True when access token is past expiry (requires valid NTP). */
+static uint64_t auth_now_ms() {
+  if (wall_time_ok()) {
+    return static_cast<uint64_t>(time(nullptr)) * 1000ULL;
+  }
+  return static_cast<uint64_t>(millis());
+}
+
+/** True when access token is past expiry. */
 static bool access_token_dead() {
   if (s_access[0] == '\0' || s_expires_at_ms == 0) {
     return true;
   }
-  if (!wall_time_ok()) {
-    return false;
-  }
-  const uint64_t wall_ms = static_cast<uint64_t>(time(nullptr)) * 1000ULL;
-  return wall_ms >= s_expires_at_ms;
+  return auth_now_ms() >= s_expires_at_ms;
 }
 
 /** True when access token should be refreshed (before hard expiry). */
@@ -226,11 +229,7 @@ static bool access_token_stale() {
   if (s_access[0] == '\0' || s_expires_at_ms == 0) {
     return true;
   }
-  if (!wall_time_ok()) {
-    return false;
-  }
-  const uint64_t wall_ms = static_cast<uint64_t>(time(nullptr)) * 1000ULL;
-  return wall_ms + 120000ULL >= s_expires_at_ms;
+  return auth_now_ms() + 120000ULL >= s_expires_at_ms;
 }
 
 static bool refresh_session_http() {
@@ -323,19 +322,24 @@ void pm_castalia_auth_bearer(char *out, size_t out_cap) {
   if (strlen(MYNAH_SUPABASE_ANON_KEY) == 0) {
     return;
   }
-  /* Do not refresh synchronously here — nested TLS on the Arduino loop stack crashes astro TTS. */
-  if (s_access[0] != '\0' && wall_time_ok() && !access_token_dead()) {
-    strncpy(out, s_access, out_cap - 1);
-    out[out_cap - 1] = '\0';
-    return;
-  }
-  if (s_access[0] != '\0' && !wall_time_ok()) {
+  if (s_access[0] != '\0' && !access_token_dead()) {
     strncpy(out, s_access, out_cap - 1);
     out[out_cap - 1] = '\0';
     return;
   }
   strncpy(out, MYNAH_SUPABASE_ANON_KEY, out_cap - 1);
   out[out_cap - 1] = '\0';
+}
+
+bool pm_castalia_auth_prepare_for_voice() {
+  pm_castalia_auth_init();
+  if (s_refresh[0] != '\0' && (access_token_stale() || access_token_dead())) {
+    if (!refresh_session_http()) {
+      ESP_LOGW(TAG, "session refresh failed; trying anon for voice");
+      s_access[0] = '\0';
+    }
+  }
+  return true;
 }
 
 static char s_auth_bearer_buf[1536];
@@ -388,6 +392,9 @@ static void castalia_net_task(void *arg) {
       s_net_ok = castalia_pair_start_http();
     } else if (op == 2) {
       s_net_ok = pm_castalia_poll_pairing();
+    } else if (op == 3) {
+      pm_castalia_auth_init();
+      s_net_ok = refresh_session_http();
     } else {
       s_net_ok = false;
     }
@@ -419,6 +426,17 @@ static bool castalia_net_run(uint8_t op, uint32_t timeout_ms) {
     }
   }
   return s_net_ok;
+}
+
+bool pm_castalia_tick_refresh_session() {
+  pm_castalia_auth_init();
+  if (!pm_wifi_connected() || s_refresh[0] == '\0') {
+    return false;
+  }
+  if (!access_token_stale() && !access_token_dead()) {
+    return false;
+  }
+  return castalia_net_run(3, kCastaliaHttpTimeoutMs + 4000u);
 }
 
 static void build_signin_url() {

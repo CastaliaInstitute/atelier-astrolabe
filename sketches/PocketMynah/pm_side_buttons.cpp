@@ -9,6 +9,8 @@
 static XPowersPMU s_pmu;
 static bool s_pmu_ok = false;
 static uint32_t s_last_pmu_scan = 0;
+/** Latched from AXP2101 PEK negative/positive edge IRQs (true while user is holding PWR). */
+static bool s_pek_pressed = false;
 
 bool pm_side_buttons_begin() {
   pinMode(MYNAH_BOOT_BUTTON_GPIO, INPUT_PULLUP);
@@ -17,7 +19,8 @@ bool pm_side_buttons_begin() {
   if (s_pmu_ok) {
     s_pmu.disableIRQ(XPOWERS_AXP2101_ALL_IRQ);
     s_pmu.clearIrqStatus();
-    s_pmu.enableIRQ(XPOWERS_AXP2101_PKEY_SHORT_IRQ);
+    s_pmu.enableIRQ(XPOWERS_AXP2101_PKEY_SHORT_IRQ | XPOWERS_AXP2101_PKEY_NEGATIVE_IRQ |
+                     XPOWERS_AXP2101_PKEY_POSITIVE_IRQ);
   }
   return true;
 }
@@ -43,8 +46,20 @@ uint8_t pm_side_buttons_poll(uint32_t now_ms) {
   if (s_pmu_ok && (now_ms - s_last_pmu_scan >= 35)) {
     s_last_pmu_scan = now_ms;
     (void)s_pmu.getIrqStatus();
+    bool pek_irq = false;
+    if (s_pmu.isPekeyNegativeIrq()) {
+      s_pek_pressed = true;
+      pek_irq = true;
+    }
+    if (s_pmu.isPekeyPositiveIrq()) {
+      s_pek_pressed = false;
+      pek_irq = true;
+    }
     if (s_pmu.isPekeyShortPressIrq()) {
       ev |= PM_SIDE_BTN_PWR;
+      pek_irq = true;
+    }
+    if (pek_irq) {
       s_pmu.clearIrqStatus();
     }
   }
@@ -60,5 +75,8 @@ uint8_t pm_side_buttons_poll(uint32_t now_ms) {
 }
 
 bool pm_ptt_button_held(void) {
-  return digitalRead(MYNAH_BOOT_BUTTON_GPIO) == LOW;
+  if (!s_pmu_ok) {
+    return false;
+  }
+  return s_pek_pressed;
 }

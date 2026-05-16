@@ -24,6 +24,7 @@
 #include "pm_birth_nvs.h"
 #include "pm_transit.h"
 #include "pm_castalia_auth.h"
+#include "pm_astro_highlight.h"
 
 Arduino_DataBus *bus = new Arduino_ESP32QSPI(
     LCD_CS, LCD_SCLK, LCD_SDIO0, LCD_SDIO1, LCD_SDIO2, LCD_SDIO3);
@@ -42,6 +43,15 @@ static constexpr uint8_t k_tv_none = 0;
 static constexpr uint8_t k_tv_astro = 1;
 static uint8_t g_text_voice_route = k_tv_none;
 static char g_astrology_voice_msg[2200] = "";
+static char g_astrology_sys_prompt[2800] = "";
+static bool s_rec_mic_on = false;
+/** Astrology voice: stay on chart during record/think/speak + highlight mentions. */
+static bool g_astro_voice_active = false;
+/** True when astro turn uses recorded PCM (PWR hold); false for BOOT tap text reading. */
+static bool g_astro_voice_pcm = false;
+static bool s_astro_voice_armed = false;
+static bool s_astro_play_armed = false;
+static PmAstroHighlightPlan g_astro_highlight_plan = {};
 /** Set when entering clock UI so the face repaints after voice/recording states. */
 static bool g_clock_repaint_pending = true;
 static uint8_t *g_pcm = nullptr;
@@ -490,23 +500,12 @@ static const char *zodiac_abbr_from_lon(double lon_deg) {
   return kZ[idx];
 }
 
-static void draw_astrology_face(const struct tm *tm_local, bool valid_local) {
-  const uint16_t c_title = gfx->color565(220, 200, 255);
+static void draw_astrology_face(const struct tm *tm_local, bool valid_local, int highlight_body,
+                                int highlight_sign, bool pulse_chart) {
   const uint16_t c_dim = gfx->color565(130, 140, 158);
   const uint16_t c_ring = gfx->color565(55, 62, 78);
   const uint16_t c_spoke = gfx->color565(78, 88, 108);
   const uint16_t c_lbl = gfx->color565(170, 178, 195);
-
-  drawCenteredLine("TRANSITS", 58, c_title, 2, 2);
-
-  char sub[40];
-  if (valid_local) {
-    snprintf(sub, sizeof(sub), "%04d-%02d-%02d  %02d:%02d", tm_local->tm_year + 1900,
-             tm_local->tm_mon + 1, tm_local->tm_mday, tm_local->tm_hour, tm_local->tm_min);
-  } else {
-    snprintf(sub, sizeof(sub), "%s", "no time — NTP?");
-  }
-  drawCenteredLine(sub, 86, c_dim, 1, 1);
 
   struct tm utc = {};
   PmTransitPositions tp = {};
@@ -519,10 +518,12 @@ static void draw_astrology_face(const struct tm *tm_local, bool valid_local) {
   (void)pm_birth_load(&birth);
 
   const int cx = LCD_WIDTH / 2;
-  const int cy = LCD_HEIGHT / 2 + 8;
-  const int r_outer = 118;
-  const int r_in = 44;
-  const int r_lab = r_outer + 18;
+  const int cy = LCD_HEIGHT / 2;
+  const int R = min(LCD_WIDTH, LCD_HEIGHT) / 2;
+  /** Chart fills the dial inside the 24h rainbow rim (rainbow inner ≈ R−9). */
+  const int r_outer = R - 14;
+  const int r_in = r_outer * 44 / 118;
+  const int r_lab = r_outer - 20;
 
   if (!tp.ok) {
     drawCenteredLine("ephemeris needs", 200, c_dim, 1, 1);
@@ -541,27 +542,62 @@ static void draw_astrology_face(const struct tm *tm_local, bool valid_local) {
     gfx->drawCircle(cx, cy, r_outer, c_ring);
     gfx->drawCircle(cx, cy, r_in, c_ring);
 
+    if (highlight_sign >= 0 && highlight_sign < 12) {
+      const uint16_t c_hi = gfx->color565(72, 82, 118);
+      const float a0 = static_cast<float>(highlight_sign) * (kTwoPi / 12.f) - kPi * 0.5f;
+      const float a1 = static_cast<float>(highlight_sign + 1) * (kTwoPi / 12.f) - kPi * 0.5f;
+      constexpr int k_fan = 10;
+      for (int step = 0; step < k_fan; ++step) {
+        const float t0 = a0 + (a1 - a0) * (static_cast<float>(step) / static_cast<float>(k_fan));
+        const float t1 = a0 + (a1 - a0) * (static_cast<float>(step + 1) / static_cast<float>(k_fan));
+        const int x0 = cx + static_cast<int>(lrintf(cosf(t0) * static_cast<float>(r_outer)));
+        const int y0 = cy + static_cast<int>(lrintf(sinf(t0) * static_cast<float>(r_outer)));
+        const int x1 = cx + static_cast<int>(lrintf(cosf(t1) * static_cast<float>(r_outer)));
+        const int y1 = cy + static_cast<int>(lrintf(sinf(t1) * static_cast<float>(r_outer)));
+        gfx->fillTriangle(cx, cy, x0, y0, x1, y1, c_hi);
+      }
+      gfx->drawLine(cx, cy, cx + static_cast<int>(lrintf(cosf(a0) * static_cast<float>(r_outer))),
+                    cy + static_cast<int>(lrintf(sinf(a0) * static_cast<float>(r_outer))),
+                    gfx->color565(200, 210, 240));
+      gfx->drawLine(cx, cy, cx + static_cast<int>(lrintf(cosf(a1) * static_cast<float>(r_outer))),
+                    cy + static_cast<int>(lrintf(sinf(a1) * static_cast<float>(r_outer))),
+                    gfx->color565(200, 210, 240));
+    }
+
     static const uint16_t k_body_col[kPmBodyCount] = {
         gfx->color565(255, 210, 90),  gfx->color565(200, 210, 230), gfx->color565(180, 180, 190),
         gfx->color565(255, 190, 140), gfx->color565(230, 90, 70),   gfx->color565(220, 180, 120),
         gfx->color565(190, 170, 140),
     };
     const int r_dot = r_outer - 14;
+    const bool pulse_on = pulse_chart && ((millis() / 500u) % 2u) == 0u;
     for (int bi = 0; bi < kPmBodyCount; ++bi) {
       const double lon = tp.lon[bi];
       const float ang = static_cast<float>(kPi + lon * (kPi / 180.0f));
       const int px = cx + static_cast<int>(lrintf(cosf(ang) * static_cast<float>(r_dot)));
       const int py = cy + static_cast<int>(lrintf(sinf(ang) * static_cast<float>(r_dot)));
-      const int rr = (bi == kPmBodySun) ? 6 : (bi == kPmBodyMoon ? 5 : 4);
-      gfx->fillCircle(px, py, rr, k_body_col[bi]);
-      gfx->drawCircle(px, py, rr, RGB565_WHITE);
+      int rr = (bi == kPmBodySun) ? 6 : (bi == kPmBodyMoon ? 5 : 4);
+      const bool hi = (highlight_body == bi);
+      if (hi) {
+        rr += 3;
+      } else if (pulse_on) {
+        rr += 1;
+      }
+      const uint16_t col = hi ? gfx->color565(255, 245, 170) : k_body_col[bi];
+      gfx->fillCircle(px, py, rr, col);
+      gfx->drawCircle(px, py, rr, hi ? gfx->color565(255, 255, 255) : RGB565_WHITE);
+      if (hi) {
+        gfx->drawCircle(px, py, rr + 4, gfx->color565(255, 255, 255));
+      }
     }
 
     static const char *const kZlab[12] = {"ARI", "TAU", "GEM", "CAN", "LEO", "VIR",
                                           "LIB", "SCO", "SAG", "CAP", "AQU", "PIS"};
     for (int s = 0; s < 12; ++s) {
       const float amid = (static_cast<float>(s) + 0.5f) * (kTwoPi / 12.f) - kPi * 0.5f;
-      draw_label_at_polar(cx, cy, r_lab, amid, kZlab[s], c_lbl);
+      const uint16_t lbl_col =
+          (highlight_sign == s) ? gfx->color565(255, 250, 200) : c_lbl;
+      draw_label_at_polar(cx, cy, r_lab, amid, kZlab[s], lbl_col);
     }
     double natal_sun = 0;
     if (birth.valid && pm_transit_natal_sun_lon(&birth, &natal_sun)) {
@@ -575,18 +611,114 @@ static void draw_astrology_face(const struct tm *tm_local, bool valid_local) {
       gfx->fillTriangle(qx, qy, q2x, q2y, q3x, q3y, gfx->color565(120, 200, 255));
     }
   }
+}
 
-  drawCenteredLine("PWR or BOOT tap", 318, c_dim, 1, 1);
-  drawCenteredLine("= reading", 334, c_dim, 1, 1);
-  if (!birth.valid) {
-    drawCenteredLine("birth: serial", 348, gfx->color565(255, 180, 120), 1, 1);
-    drawCenteredLine("birth Y M D H MI", 364, gfx->color565(255, 180, 120), 1, 1);
-  } else {
-    char nb[48];
-    snprintf(nb, sizeof(nb), "natal %04u-%02u-%02u %02u:%02u", birth.year, birth.month, birth.day,
-             birth.hour, birth.minute);
-    drawCenteredLine(nb, 356, c_dim, 1, 1);
+static uint32_t s_thinking_t0_ms = 0;
+static uint32_t s_thinking_est_ms = 1;
+
+static void thinking_progress_begin(uint32_t est_ms) {
+  s_thinking_t0_ms = millis();
+  s_thinking_est_ms = est_ms < 4000u ? 4000u : est_ms;
+}
+
+static void thinking_progress_end() {
+  s_thinking_t0_ms = 0;
+}
+
+static float thinking_progress_now() {
+  if (s_thinking_t0_ms == 0) {
+    return -1.f;
   }
+  const uint32_t el = millis() - s_thinking_t0_ms;
+  float p = static_cast<float>(el) / static_cast<float>(s_thinking_est_ms);
+  if (p > 0.96f) {
+    p = 0.96f;
+  }
+  return p;
+}
+
+static void recording_progress_begin() {
+  thinking_progress_begin(5000u);
+}
+
+static void recording_progress_end() {
+  thinking_progress_end();
+}
+
+static float recording_progress_now() {
+  if (s_thinking_t0_ms == 0) {
+    return -1.f;
+  }
+  float p = thinking_progress_now();
+  const float by_fill =
+      static_cast<float>(g_pcm_len) / static_cast<float>(MYNAH_VOICE_MAX_PCM_BYTES);
+  if (by_fill > p) {
+    p = by_fill;
+  }
+  if (p > 0.96f) {
+    p = 0.96f;
+  }
+  return p;
+}
+
+/** 1 px ring just inside the 24h rainbow; `progress` 0..1 fills clockwise from top. */
+static void draw_thinking_progress_ring(float progress) {
+  if (progress < 0.f) {
+    progress = 0.f;
+  }
+  if (progress > 1.f) {
+    progress = 1.f;
+  }
+  const int cx = LCD_WIDTH / 2;
+  const int cy = LCD_HEIGHT / 2;
+  const int R = min(LCD_WIDTH, LCD_HEIGHT) / 2;
+  const int r_ring = R - 10;
+  const uint16_t c_track = gfx->color565(36, 40, 52);
+  const uint16_t c_arc = gfx->color565(200, 215, 255);
+
+  gfx->drawCircle(cx, cy, r_ring, c_track);
+
+  if (progress <= 0.f) {
+    return;
+  }
+  const float a0 = -kPi * 0.5f;
+  const float span = kTwoPi * progress;
+  const int steps = static_cast<int>(lrintf(span * static_cast<float>(r_ring) / 2.f));
+  const int n = steps < 24 ? 24 : (steps > 360 ? 360 : steps);
+  int px0 = 0;
+  int py0 = 0;
+  bool have0 = false;
+  for (int i = 0; i <= n; ++i) {
+    const float a = a0 + span * (static_cast<float>(i) / static_cast<float>(n));
+    const int px = cx + static_cast<int>(lrintf(cosf(a) * static_cast<float>(r_ring)));
+    const int py = cy + static_cast<int>(lrintf(sinf(a) * static_cast<float>(r_ring)));
+    gfx->drawPixel(px, py, c_arc);
+    if (have0) {
+      gfx->drawLine(px0, py0, px, py, c_arc);
+    }
+    px0 = px;
+    py0 = py;
+    have0 = true;
+  }
+}
+
+static void draw_astro_voice_screen(const char *status, int highlight_body, int highlight_sign,
+                                    bool pulse_chart, float thinking_progress = -1.f) {
+  struct tm tm = {};
+  const bool valid = pm_time_valid();
+  if (valid) {
+    pm_time_local(&tm);
+  }
+  gfx->fillScreen(gfx->color565(12, 14, 22));
+  draw_astrology_face(&tm, valid, highlight_body, highlight_sign, pulse_chart);
+  if (thinking_progress >= 0.f) {
+    draw_circumference_rainbow_24h(valid);
+    draw_thinking_progress_ring(thinking_progress);
+  } else if (status && status[0] != '\0') {
+    gfx->fillRect(0, 0, LCD_WIDTH, 46, gfx->color565(18, 20, 34));
+    drawCenteredLine(status, 14, gfx->color565(220, 200, 255), 2, 2);
+  }
+  gfx->flush();
 }
 
 static void draw_radial_annulus_slice(int cx, int cy, float ang, int r0, int r1, uint16_t col, int half_w) {
@@ -673,7 +805,7 @@ static void draw_castalia_face() {
   }
 }
 
-static void draw_clock_face() {
+static void draw_clock_face(float thinking_progress = -1.f) {
   struct tm tm = {};
   int sec_of_day_for_hue = 0;
   if (pm_time_valid()) {
@@ -701,7 +833,7 @@ static void draw_clock_face() {
       draw_spotify_face();
       break;
     case ClockFace::Astrology:
-      draw_astrology_face(&tm, pm_time_valid());
+      draw_astrology_face(&tm, pm_time_valid(), -1, -1, false);
       break;
     case ClockFace::Castalia:
       draw_castalia_face();
@@ -721,6 +853,9 @@ static void draw_clock_face() {
   /** Rainbow annulus last (skip on Castalia — full repaint + rim after QR was tripping WDT/stack). */
   if (g_clock_face != ClockFace::Castalia) {
     draw_circumference_rainbow_24h(pm_time_valid());
+    if (thinking_progress >= 0.f) {
+      draw_thinking_progress_ring(thinking_progress);
+    }
   }
   g_clock_bg565 = bg;
   if (pm_time_valid()) {
@@ -747,8 +882,9 @@ static void reset_recording_buffer() {
 
 static const char kAstroVoiceSys[] =
     "You are a warm, articulate astrologer speaking aloud for a tiny round watch. Use tropical zodiac. "
-    "Given approximate geocentric ecliptic longitudes (degrees) for the user, give ONE flowing mini-reading "
-    "(under 90 seconds spoken) about today's transits versus their natal Sun and anything else notable. "
+    "Chart snapshot data is provided below. If the user asks a question, answer it using those positions; "
+    "if they did not ask a question, give ONE flowing mini-reading (under 90 seconds spoken) about today's "
+    "transits versus their natal Sun and anything else notable. "
     "No medical or legal advice; reflective insight only, not deterministic fate. "
     "Do not claim arc-minute precision from the numbers. "
     "Do not use asterisk stage directions or emotes (e.g. *smiles*); output only words to be spoken aloud.";
@@ -802,6 +938,15 @@ static bool build_astrology_voice_message(char *buf, size_t cap) {
     snprintf(buf + off, cap - off, "Please deliver the spoken reading now.");
   }
   return strlen(buf) > 0;
+}
+
+static bool build_astrology_system_prompt() {
+  if (!build_astrology_voice_message(g_astrology_voice_msg, sizeof(g_astrology_voice_msg))) {
+    return false;
+  }
+  const int n = snprintf(g_astrology_sys_prompt, sizeof(g_astrology_sys_prompt),
+                         "%s\n\nChart snapshot:\n%s", kAstroVoiceSys, g_astrology_voice_msg);
+  return n > 0 && static_cast<size_t>(n) < sizeof(g_astrology_sys_prompt);
 }
 
 static void poll_serial_birth_commands() {
@@ -950,7 +1095,7 @@ void loop() {
   }
 
   if (g_state == AppState::kClock && g_clock_face == ClockFace::Astrology &&
-      ((side_ev & PM_SIDE_BTN_PWR) != 0 || (side_ev & PM_SIDE_BTN_BOOT) != 0)) {
+      (side_ev & PM_SIDE_BTN_BOOT) != 0) {
     if (!pm_wifi_connected()) {
       snprintf(g_gesture_banner, sizeof(g_gesture_banner), "astro: need WiFi");
       g_clock_repaint_pending = true;
@@ -964,6 +1109,11 @@ void loop() {
       pm_voice_result_free(&g_voice_result);
       g_voice_use_message = true;
       g_text_voice_route = k_tv_astro;
+      g_astro_voice_active = true;
+      g_astro_voice_pcm = false;
+      s_astro_voice_armed = false;
+      s_astro_play_armed = false;
+      memset(&g_astro_highlight_plan, 0, sizeof(g_astro_highlight_plan));
       g_state = AppState::kThinking;
     }
   }
@@ -1018,6 +1168,10 @@ void loop() {
 
       if (g_clock_face == ClockFace::Castalia && wifi && pm_castalia_tick_pair_start()) {
         g_clock_repaint_pending = true;
+      }
+
+      if (wifi && pm_castalia_has_session()) {
+        (void)pm_castalia_tick_refresh_session();
       }
 
       const bool sec_tick = valid && (epoch != s_prev_epoch);
@@ -1081,43 +1235,78 @@ void loop() {
       }
 
       if (ptt_armed && g_pcm) {
+        if (g_clock_face == ClockFace::Astrology) {
+          if (!pm_wifi_connected()) {
+            snprintf(g_gesture_banner, sizeof(g_gesture_banner), "astro: need WiFi");
+            g_clock_repaint_pending = true;
+            break;
+          }
+          if (!pm_time_valid()) {
+            snprintf(g_gesture_banner, sizeof(g_gesture_banner), "astro: need time");
+            g_clock_repaint_pending = true;
+            break;
+          }
+          g_astro_voice_active = true;
+          g_astro_voice_pcm = true;
+          s_astro_voice_armed = false;
+          s_astro_play_armed = false;
+          memset(&g_astro_highlight_plan, 0, sizeof(g_astro_highlight_plan));
+        } else {
+          g_astro_voice_active = false;
+          g_astro_voice_pcm = false;
+        }
         reset_recording_buffer();
         if (pm_mic_begin()) {
           pm_gesture_reset();
           s_ptt_press_ms = 0;
+          s_rec_mic_on = false;
           g_state = AppState::kRecording;
         }
       }
       break;
     }
     case AppState::kRecording: {
-      gfx->fillScreen(RGB565_RED);
-      drawCenteredLine("listening", 220, RGB565_WHITE, 2, 2);
-      gfx->flush();
       const size_t frame_bytes = pm_mic_frame_samples() * sizeof(int16_t);
       int16_t frame[512];
-      if (pm_mic_frame_samples() > sizeof(frame) / sizeof(frame[0])) {
+      if (pm_mic_frame_samples() > sizeof(frame) / sizeof(frame[0]) || frame_bytes == 0) {
+        pm_mic_stop();
+        s_rec_mic_on = false;
+        recording_progress_end();
+        g_astro_voice_active = false;
         g_state = AppState::kClock;
         g_clock_repaint_pending = true;
-        pm_mic_stop();
         break;
       }
-      for (;;) {
+      if (!s_rec_mic_on) {
+        recording_progress_begin();
+        s_rec_mic_on = true;
+      }
+      if (pm_ptt_button_held()) {
         size_t br = 0;
-        if (!pm_mic_read_frame(frame, pm_mic_frame_samples(), &br)) {
-          break;
-        }
-        if (g_pcm_len + frame_bytes > MYNAH_VOICE_MAX_PCM_BYTES) {
-          break;
-        }
-        memcpy(g_pcm + g_pcm_len, frame, frame_bytes);
-        g_pcm_len += frame_bytes;
-        if (!pm_ptt_button_held()) {
-          break;
+        if (pm_mic_read_frame(frame, pm_mic_frame_samples(), &br) && br > 0 &&
+            g_pcm_len + frame_bytes <= MYNAH_VOICE_MAX_PCM_BYTES) {
+          memcpy(g_pcm + g_pcm_len, frame, frame_bytes);
+          g_pcm_len += frame_bytes;
         }
       }
+      if (g_astro_voice_active) {
+        draw_astro_voice_screen(nullptr, -1, -1, false, recording_progress_now());
+      } else {
+        draw_clock_face(recording_progress_now());
+        gfx->fillRect(0, 0, LCD_WIDTH, 46, gfx->color565(18, 20, 34));
+        drawCenteredLine("listening", 14, gfx->color565(220, 200, 255), 2, 2);
+        gfx->flush();
+      }
+      const bool held = pm_ptt_button_held();
+      const bool full = g_pcm_len + frame_bytes > MYNAH_VOICE_MAX_PCM_BYTES;
+      if (held && !full) {
+        break;
+      }
       pm_mic_stop();
+      s_rec_mic_on = false;
+      recording_progress_end();
       if (g_pcm_len < frame_bytes * 2) {
+        g_astro_voice_active = false;
         g_state = AppState::kClock;
         g_clock_repaint_pending = true;
         break;
@@ -1129,35 +1318,124 @@ void loop() {
       break;
     }
     case AppState::kThinking: {
-      gfx->fillScreen(gfx->color565(30, 30, 60));
-      const char *thinking_label = "thinking";
-      if (g_voice_use_message && g_text_voice_route == k_tv_astro) {
-        thinking_label = "stars…";
+      static bool s_voice_job_armed = false;
+      if (!s_voice_job_armed) {
+        pm_voice_result_free(&g_voice_result);
+        bool started = false;
+        if (g_astro_voice_active && !g_astro_voice_pcm) {
+          started = pm_voice_begin_message(g_astrology_voice_msg, kAstroVoiceSys, &g_voice_result);
+        } else {
+          const char *sys = nullptr;
+          if (g_astro_voice_active) {
+            if (!build_astrology_system_prompt()) {
+              draw_astro_voice_screen("chart data fail", -1, -1, false);
+              delay(1200);
+              g_astro_voice_active = false;
+              g_astro_voice_pcm = false;
+              g_state = AppState::kClock;
+              g_clock_repaint_pending = true;
+              break;
+            }
+            sys = g_astrology_sys_prompt;
+          }
+          started = pm_voice_begin_pcm(g_pcm, g_pcm_len, sys, &g_voice_result);
+        }
+        if (!started) {
+          if (g_astro_voice_active) {
+            draw_astro_voice_screen("voice start fail", -1, -1, false);
+          }
+          g_astro_voice_active = false;
+          g_astro_voice_pcm = false;
+          g_state = AppState::kClock;
+          g_clock_repaint_pending = true;
+          break;
+        }
+        thinking_progress_begin(45000u);
+        s_voice_job_armed = true;
       }
-      drawCenteredLine(thinking_label, 220, RGB565_WHITE, 2, 2);
-      gfx->flush();
-      bool ok = false;
-      if (g_voice_use_message && g_text_voice_route == k_tv_astro) {
-        ok = pm_voice_post_message(g_astrology_voice_msg, kAstroVoiceSys, &g_voice_result);
+      if (g_astro_voice_active) {
+        draw_astro_voice_screen(nullptr, -1, -1, false, thinking_progress_now());
       } else {
-        ok = pm_voice_post_pcm(g_pcm, g_pcm_len, &g_voice_result);
+        draw_clock_face(thinking_progress_now());
       }
+      const PmVoiceStatus vs = pm_voice_poll();
+      if (vs == PmVoiceStatus::Working) {
+        break;
+      }
+      s_voice_job_armed = false;
+      thinking_progress_end();
       g_voice_use_message = false;
       g_text_voice_route = k_tv_none;
-      if (!ok) {
-        gfx->fillScreen(RGB565_BLACK);
-        drawCenteredLine("voice error", 200, RGB565_RED, 2, 2);
-        drawCenteredLine(pm_voice_last_error(), 232, gfx->color565(180, 120, 120), 1, 1);
-        gfx->flush();
+      if (vs != PmVoiceStatus::DoneOk) {
+        if (g_astro_voice_active) {
+          draw_astro_voice_screen(pm_voice_last_error(), -1, -1, false);
+        } else {
+          gfx->fillScreen(RGB565_BLACK);
+          drawCenteredLine("voice error", 200, RGB565_RED, 2, 2);
+          drawCenteredLine(pm_voice_last_error(), 232, gfx->color565(180, 120, 120), 1, 1);
+          gfx->flush();
+        }
         delay(1500);
+        pm_voice_result_free(&g_voice_result);
+        g_astro_voice_active = false;
+        g_astro_voice_pcm = false;
         g_state = AppState::kClock;
         g_clock_repaint_pending = true;
         break;
       }
+      if (!g_voice_result.mp3 || g_voice_result.mp3_len < 64) {
+        if (g_astro_voice_active) {
+          draw_astro_voice_screen("no audio reply", -1, -1, false);
+        }
+        delay(1500);
+        pm_voice_result_free(&g_voice_result);
+        g_astro_voice_active = false;
+        g_astro_voice_pcm = false;
+        g_state = AppState::kClock;
+        g_clock_repaint_pending = true;
+        break;
+      }
+      if (g_astro_voice_active) {
+        pm_astro_highlight_build(g_voice_result.reply, &g_astro_highlight_plan);
+      }
+      g_astro_voice_pcm = false;
       g_state = AppState::kPlaying;
       break;
     }
     case AppState::kPlaying: {
+      if (g_astro_voice_active) {
+        if (!s_astro_play_armed) {
+          if (!g_voice_result.mp3 || g_voice_result.mp3_len == 0) {
+            draw_astro_voice_screen("no audio", -1, -1, false);
+            delay(1200);
+            pm_voice_result_free(&g_voice_result);
+            g_astro_voice_active = false;
+            g_state = AppState::kClock;
+            g_clock_repaint_pending = true;
+            break;
+          }
+          pm_speaker_play_begin(g_voice_result.mp3, g_voice_result.mp3_len);
+          s_astro_play_armed = true;
+        }
+        int hi_body = -1;
+        int hi_sign = -1;
+        pm_astro_highlight_at_progress(&g_astro_highlight_plan, pm_speaker_play_progress(), &hi_body, &hi_sign);
+        draw_astro_voice_screen(nullptr, hi_body, hi_sign, false);
+        const PmSpeakerStatus spk = pm_speaker_poll();
+        if (spk == PmSpeakerStatus::Playing) {
+          break;
+        }
+        if (spk == PmSpeakerStatus::DoneFail) {
+          draw_astro_voice_screen("playback failed", -1, -1, false);
+          delay(1200);
+        }
+        pm_voice_result_free(&g_voice_result);
+        s_astro_play_armed = false;
+        g_astro_voice_active = false;
+        g_state = AppState::kClock;
+        g_clock_repaint_pending = true;
+        break;
+      }
       static bool s_play_ui = false;
       static bool s_play_armed = false;
       if (!s_play_ui) {

@@ -23,7 +23,7 @@ static const char *TAG = "pm_speaker";
 
 #define I2S_TX I2S_NUM_0
 static constexpr uint32_t kSpeakerTaskStack = 49152;
-static constexpr int kSpeakerVolume = 48;
+static constexpr int kSpeakerVolume = 70;
 static constexpr uint32_t kMaxPlaySeconds = 90u;
 
 static es8311_handle_t s_es = nullptr;
@@ -34,6 +34,10 @@ static volatile bool s_speaker_ok = false;
 static volatile PmSpeakerStatus s_speaker_status = PmSpeakerStatus::Idle;
 static const uint8_t *s_play_mp3 = nullptr;
 static size_t s_play_mp3_len = 0;
+static uint32_t s_play_start_ms = 0;
+static uint32_t s_play_est_ms = 1;
+static volatile uint32_t s_play_pcm_frames = 0;
+static volatile uint32_t s_play_pcm_hz = 0;
 
 static esp_err_t es8311_board_init(int sample_hz) {
   if (!s_es) {
@@ -139,6 +143,21 @@ static bool play_mp3_streaming(const uint8_t *mp3, size_t mp3_len) {
     mp3dec_frame_info_t info = {};
     const int samples_per_ch = mp3dec_decode_frame(&dec, buf, bytes_left, pcm, &info);
     if (info.frame_bytes <= 0) {
+      if (bytes_left > 0) {
+        int skip = 1;
+        if (bytes_left >= 10 && buf[0] == 'I' && buf[1] == 'D' && buf[2] == '3') {
+          skip = ((buf[6] & 0x7f) << 21) | ((buf[7] & 0x7f) << 14) | ((buf[8] & 0x7f) << 7) | (buf[9] & 0x7f);
+          if (skip < 10) {
+            skip = 10;
+          }
+          if (skip > bytes_left) {
+            skip = bytes_left;
+          }
+        }
+        buf += skip;
+        bytes_left -= skip;
+        continue;
+      }
       break;
     }
     buf += info.frame_bytes;
@@ -164,6 +183,7 @@ static bool play_mp3_streaming(const uint8_t *mp3, size_t mp3_len) {
         return false;
       }
       i2s_ready = true;
+      s_play_pcm_hz = static_cast<uint32_t>(out_hz);
     } else if (info.hz != out_hz || info.channels != out_channels) {
       ESP_LOGW(TAG, "mp3 format change mid-stream");
       break;
@@ -171,6 +191,7 @@ static bool play_mp3_streaming(const uint8_t *mp3, size_t mp3_len) {
 
     const int nch = info.channels;
     pcm_frames_at_hz += static_cast<uint32_t>(samples_per_ch);
+    s_play_pcm_frames = pcm_frames_at_hz;
     if (out_hz > 0 && pcm_frames_at_hz / static_cast<uint32_t>(out_hz) > kMaxPlaySeconds) {
       ESP_LOGW(TAG, "playback capped at %us", static_cast<unsigned>(kMaxPlaySeconds));
       break;
@@ -204,7 +225,17 @@ static bool play_mp3_streaming(const uint8_t *mp3, size_t mp3_len) {
     }
   }
 
-  if (i2s_ready) {
+  if (i2s_ready && out_hz > 0) {
+    const int i2s_ch = (out_channels == 1) ? 2 : out_channels;
+    const uint32_t dma_samples = 8u * 256u * static_cast<uint32_t>(i2s_ch);
+    uint32_t drain_ms = (dma_samples * 1000u) / static_cast<uint32_t>(out_hz) + 150u;
+    if (drain_ms > 800u) {
+      drain_ms = 800u;
+    }
+    vTaskDelay(pdMS_TO_TICKS(drain_ms));
+    if (s_play_pcm_hz > 0 && pcm_frames_at_hz > 0) {
+      s_play_est_ms = (pcm_frames_at_hz * 1000u) / s_play_pcm_hz + 80u;
+    }
     i2s_tx_stop();
   }
   return i2s_ready;
@@ -217,6 +248,21 @@ static void speaker_play_task(void *arg) {
     s_speaker_ok = play_mp3_streaming(s_play_mp3, s_play_mp3_len);
     s_speaker_status = s_speaker_ok ? PmSpeakerStatus::DoneOk : PmSpeakerStatus::DoneFail;
   }
+}
+
+static uint32_t estimate_mp3_duration_ms(size_t mp3_len) {
+  if (mp3_len == 0) {
+    return 1000u;
+  }
+  /** ~64 kbps mono MP3 (Google TTS-ish). */
+  const uint32_t ms = static_cast<uint32_t>((mp3_len * 8ULL * 1000ULL) / 64000ULL);
+  if (ms < 2000u) {
+    return 2000u;
+  }
+  if (ms > kMaxPlaySeconds * 1000u) {
+    return kMaxPlaySeconds * 1000u;
+  }
+  return ms;
 }
 
 static void speaker_task_ensure() {
@@ -236,8 +282,16 @@ void pm_speaker_play_begin(const uint8_t *mp3, size_t mp3_len) {
     ESP_LOGW(TAG, "play_begin while busy");
     return;
   }
+  if (s_speaker_status != PmSpeakerStatus::Idle && s_speaker_status != PmSpeakerStatus::DoneFail &&
+      s_speaker_status != PmSpeakerStatus::DoneOk) {
+    ESP_LOGW(TAG, "play_begin odd state %d", static_cast<int>(s_speaker_status));
+  }
   s_play_mp3 = mp3;
   s_play_mp3_len = mp3_len;
+  s_play_start_ms = millis();
+  s_play_est_ms = estimate_mp3_duration_ms(mp3_len);
+  s_play_pcm_frames = 0;
+  s_play_pcm_hz = 0;
   s_speaker_ok = false;
   s_speaker_status = PmSpeakerStatus::Playing;
   xTaskNotify(s_speaker_task, 1, eSetBits);
@@ -245,6 +299,34 @@ void pm_speaker_play_begin(const uint8_t *mp3, size_t mp3_len) {
 
 PmSpeakerStatus pm_speaker_poll() {
   return s_speaker_status;
+}
+
+float pm_speaker_play_progress(void) {
+  if (s_speaker_status == PmSpeakerStatus::DoneOk) {
+    return 1.f;
+  }
+  if (s_speaker_status != PmSpeakerStatus::Playing) {
+    return 0.f;
+  }
+  if (s_play_pcm_hz > 0 && s_play_pcm_frames > 0) {
+    const uint32_t played_ms = (s_play_pcm_frames * 1000u) / s_play_pcm_hz;
+    const uint32_t elapsed = millis() - s_play_start_ms;
+    const uint32_t est = s_play_est_ms > played_ms ? s_play_est_ms : played_ms + 80u;
+    float p = static_cast<float>(elapsed) / static_cast<float>(est);
+    if (p > 0.98f) {
+      p = 0.98f;
+    }
+    return p;
+  }
+  const uint32_t elapsed = millis() - s_play_start_ms;
+  if (s_play_est_ms == 0) {
+    return 0.f;
+  }
+  float p = static_cast<float>(elapsed) / static_cast<float>(s_play_est_ms);
+  if (p > 0.98f) {
+    p = 0.98f;
+  }
+  return p;
 }
 
 bool pm_speaker_play_mp3(const uint8_t *mp3, size_t mp3_len) {

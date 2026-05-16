@@ -13,9 +13,18 @@ bool pm_castalia_has_session();
 
 /**
  * Fills `out` with JWT or anon key for `Authorization: Bearer …` (no "Bearer " prefix).
- * May refresh synchronously when expired.
+ * Does not refresh (call [pm_castalia_auth_prepare_for_voice] on a worker task first).
  */
 void pm_castalia_auth_bearer(char *out, size_t out_cap);
+
+/**
+ * Refresh access token when stale/expired. Call only from `voice_net` / `castalia_net` tasks
+ * (TLS needs a large stack). Returns false if refresh was required and failed.
+ */
+bool pm_castalia_auth_prepare_for_voice(void);
+
+/** Background refresh when signed in (non-blocking; castalia_net task). */
+bool pm_castalia_tick_refresh_session(void);
 
 /** Sets Supabase `Authorization` + `apikey` headers (anon apikey always). */
 void pm_castalia_auth_apply_headers(HTTPClient *http);
