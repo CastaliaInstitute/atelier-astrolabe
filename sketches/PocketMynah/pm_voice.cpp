@@ -7,6 +7,7 @@
 
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_task_wdt.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "pm_config.h"
@@ -16,12 +17,16 @@ static const char *TAG = "pm_voice";
 
 static constexpr uint32_t kVoiceNetTaskStack = 32768;
 static constexpr uint32_t kVoiceHttpTimeoutMs = 120000;
+/** voice-pipeline JSON + base64 MP3; long TTS replies exceed 512 KiB. */
+static constexpr size_t kVoiceRespMaxBytes = 1536u * 1024u;
 
 static TaskHandle_t s_voice_task = nullptr;
 static volatile bool s_voice_done = false;
 static volatile bool s_voice_ok = false;
 static volatile PmVoiceStatus s_voice_status = PmVoiceStatus::Idle;
 static volatile uint8_t s_voice_op = 0; /** 1 = message, 2 = pcm */
+static volatile bool s_voice_cancel = false;
+static uint32_t s_voice_started_ms = 0;
 
 static const char *s_req_message = nullptr;
 static const char *s_req_system = nullptr;
@@ -84,6 +89,26 @@ static bool extract_json_string_field(const char *json, const char *key, char *o
   return true;
 }
 
+/** True when JSON contains a closed audioBase64 string (not truncated mid-field). */
+static bool voice_response_json_complete(const char *buf, size_t len) {
+  if (!buf || len < 24) {
+    return false;
+  }
+  if (buf[0] != '{') {
+    return false;
+  }
+  const char *k = "\"audioBase64\":\"";
+  const char *p = strstr(buf, k);
+  if (!p) {
+    return false;
+  }
+  p += strlen(k);
+  while (p < buf + len && *p != '"') {
+    ++p;
+  }
+  return p < buf + len && *p == '"';
+}
+
 static bool extract_audio_base64(const char *json, uint8_t **out_bin, size_t *out_len) {
   const char *k = "\"audioBase64\":\"";
   const char *p = strstr(json, k);
@@ -129,66 +154,92 @@ static bool read_http_json_body(HTTPClient *http, char **out_resp, size_t max_ca
   if (!stream) {
     return false;
   }
+  if (declared > 0 && static_cast<size_t>(declared) > max_cap) {
+    ESP_LOGW(TAG, "HTTP Content-Length %d exceeds cap %u", declared, static_cast<unsigned>(max_cap));
+    return false;
+  }
 
   char *buf = static_cast<char *>(
-      heap_caps_malloc(max_cap + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+      heap_caps_malloc(max_cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
   if (!buf) {
-    buf = static_cast<char *>(malloc(max_cap + 1));
+    buf = static_cast<char *>(malloc(max_cap));
   }
   if (!buf) {
+    ESP_LOGE(TAG, "OOM for HTTP body alloc %u", static_cast<unsigned>(max_cap));
     return false;
   }
 
   size_t rd = 0;
-  const uint32_t deadline = millis() + kVoiceHttpTimeoutMs;
-  if (declared > 0 && static_cast<size_t>(declared) <= max_cap) {
-    while (rd < static_cast<size_t>(declared)) {
-      const int n = stream->readBytes(buf + rd, static_cast<size_t>(declared) - rd);
+  const size_t read_cap = max_cap - 1u;
+  const uint32_t deadline = millis() + 90000u;
+  uint32_t last_rx_ms = 0;
+
+  for (;;) {
+    esp_task_wdt_reset();
+    if (s_voice_cancel) {
+      free(buf);
+      return false;
+    }
+    if (static_cast<int32_t>(millis() - deadline) >= 0) {
+      ESP_LOGW(TAG, "HTTP body read timeout (%u bytes)", static_cast<unsigned>(rd));
+      break;
+    }
+
+    const int avail = stream->available();
+    if (avail > 0) {
+      const size_t take =
+          static_cast<size_t>(avail) < (read_cap - rd) ? static_cast<size_t>(avail) : (read_cap - rd);
+      if (take == 0) {
+        break;
+      }
+      const int n = stream->readBytes(buf + rd, take);
       if (n > 0) {
         rd += static_cast<size_t>(n);
-        continue;
-      }
-      if (!http->connected() && stream->available() == 0) {
-        break;
-      }
-      if (static_cast<int32_t>(millis() - deadline) >= 0) {
-        break;
-      }
-      delay(1);
-    }
-  } else {
-    for (;;) {
-      const int avail = stream->available();
-      if (avail > 0) {
-        const size_t take =
-            static_cast<size_t>(avail) < (max_cap - rd) ? static_cast<size_t>(avail) : (max_cap - rd);
-        if (take == 0) {
+        last_rx_ms = millis();
+        buf[rd] = '\0';
+        if (voice_response_json_complete(buf, rd)) {
+          ESP_LOGI(TAG, "HTTP body complete at %u bytes (declared %d)", static_cast<unsigned>(rd), declared);
           break;
         }
-        const int n = stream->readBytes(buf + rd, take);
-        if (n > 0) {
-          rd += static_cast<size_t>(n);
-          if (rd >= max_cap) {
-            break;
-          }
-          continue;
+        if (rd >= read_cap) {
+          break;
         }
+        continue;
       }
-      if (!http->connected() && stream->available() == 0) {
-        break;
-      }
-      if (static_cast<int32_t>(millis() - deadline) >= 0) {
-        break;
-      }
-      delay(2);
     }
+
+    if (rd > 0) {
+      buf[rd] = '\0';
+      if (voice_response_json_complete(buf, rd)) {
+        break;
+      }
+      if (last_rx_ms != 0 && (millis() - last_rx_ms) > 2500u) {
+        ESP_LOGW(TAG, "HTTP idle after %u bytes", static_cast<unsigned>(rd));
+        break;
+      }
+    }
+
+    if (!http->connected() && avail == 0) {
+      break;
+    }
+    delay(5);
   }
 
   buf[rd] = '\0';
   if (rd == 0) {
+    ESP_LOGW(TAG, "HTTP body empty (declared %d)", declared);
     free(buf);
     return false;
   }
+
+  if (!voice_response_json_complete(buf, rd)) {
+    const int extra = stream->available();
+    ESP_LOGW(TAG, "HTTP incomplete JSON %u bytes (declared %d, +%d pending)", static_cast<unsigned>(rd), declared,
+             extra);
+    free(buf);
+    return false;
+  }
+
   *out_resp = buf;
   return true;
 }
@@ -304,12 +355,12 @@ static bool voice_post_message_inner(const char *message, const char *system_ins
     return false;
   }
 
-  const size_t resp_cap = 512 * 1024;
+  const size_t resp_cap = kVoiceRespMaxBytes;
   const int declared_sz = http.getSize();
   char *resp = nullptr;
   if (!read_http_json_body(&http, &resp, resp_cap)) {
-    ESP_LOGW(TAG, "voice-pipeline (message) empty body (declared len %d)", declared_sz);
-    voice_set_error("empty response");
+    ESP_LOGW(TAG, "voice-pipeline (message) body read fail (declared len %d)", declared_sz);
+    voice_set_error(declared_sz > static_cast<int>(resp_cap) ? "reply too large" : "bad response");
     http.end();
     return false;
   }
@@ -323,6 +374,7 @@ static bool voice_post_message_inner(const char *message, const char *system_ins
     free(resp);
     return false;
   }
+  ESP_LOGI(TAG, "voice (message) mp3 %u bytes", static_cast<unsigned>(r->mp3_len));
   free(resp);
   voice_set_error(nullptr);
   return r->mp3_len > 0;
@@ -436,12 +488,12 @@ static bool voice_post_pcm_inner(const uint8_t *pcm, size_t pcm_len, const char 
     return false;
   }
 
-  const size_t resp_cap = 512 * 1024;
+  const size_t resp_cap = kVoiceRespMaxBytes;
   const int declared_sz = http.getSize();
   char *resp = nullptr;
   if (!read_http_json_body(&http, &resp, resp_cap)) {
-    ESP_LOGW(TAG, "voice-pipeline empty body (declared len %d)", declared_sz);
-    voice_set_error("empty response");
+    ESP_LOGW(TAG, "voice-pipeline body read fail (declared len %d)", declared_sz);
+    voice_set_error(declared_sz > static_cast<int>(resp_cap) ? "reply too large" : "bad response");
     http.end();
     return false;
   }
@@ -455,6 +507,7 @@ static bool voice_post_pcm_inner(const uint8_t *pcm, size_t pcm_len, const char 
     free(resp);
     return false;
   }
+  ESP_LOGI(TAG, "voice (pcm) mp3 %u bytes", static_cast<unsigned>(r->mp3_len));
   free(resp);
   voice_set_error(nullptr);
   return r->mp3_len > 0;
@@ -472,8 +525,15 @@ static void voice_net_task(void *arg) {
     } else {
       s_voice_ok = false;
     }
+    if (s_voice_cancel) {
+      s_voice_ok = false;
+      if (s_req_result) {
+        pm_voice_result_free(s_req_result);
+      }
+    }
     s_voice_status = s_voice_ok ? PmVoiceStatus::DoneOk : PmVoiceStatus::DoneFail;
     s_voice_done = true;
+    s_voice_cancel = false;
   }
 }
 
@@ -493,6 +553,8 @@ static bool voice_net_begin(uint8_t op) {
     ESP_LOGW(TAG, "voice_begin while busy");
     return false;
   }
+  s_voice_cancel = false;
+  s_voice_started_ms = millis();
   s_voice_op = op;
   s_voice_done = false;
   s_voice_ok = false;
@@ -535,6 +597,13 @@ bool pm_voice_begin_pcm(const uint8_t *pcm, size_t pcm_len, const char *system_i
 
 PmVoiceStatus pm_voice_poll(void) {
   return s_voice_status;
+}
+
+void pm_voice_abort(void) {
+  s_voice_cancel = true;
+  voice_set_error("timeout");
+  s_voice_status = PmVoiceStatus::DoneFail;
+  s_voice_done = true;
 }
 
 bool pm_voice_post_message(const char *message, const char *system_instruction, PmVoiceResult *r) {

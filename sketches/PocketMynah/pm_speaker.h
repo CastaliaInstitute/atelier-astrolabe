@@ -17,3 +17,6 @@ float pm_speaker_play_progress(void);
 
 /** Block until playback finishes or times out. */
 bool pm_speaker_play_mp3(const uint8_t *mp3, size_t mp3_len);
+
+/** Force poll() to leave Playing (does not stop the speaker task immediately). */
+void pm_speaker_abort(void);

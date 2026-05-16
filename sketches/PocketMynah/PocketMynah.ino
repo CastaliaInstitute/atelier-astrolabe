@@ -1319,7 +1319,9 @@ void loop() {
     }
     case AppState::kThinking: {
       static bool s_voice_job_armed = false;
+      static uint32_t s_voice_wait_t0 = 0;
       if (!s_voice_job_armed) {
+        s_voice_wait_t0 = now;
         pm_voice_result_free(&g_voice_result);
         bool started = false;
         if (g_astro_voice_active && !g_astro_voice_pcm) {
@@ -1360,7 +1362,11 @@ void loop() {
       }
       const PmVoiceStatus vs = pm_voice_poll();
       if (vs == PmVoiceStatus::Working) {
-        break;
+        if (s_voice_wait_t0 != 0 && (now - s_voice_wait_t0) > 100000u) {
+          pm_voice_abort();
+        } else {
+          break;
+        }
       }
       s_voice_job_armed = false;
       thinking_progress_end();
@@ -1403,6 +1409,10 @@ void loop() {
       break;
     }
     case AppState::kPlaying: {
+      static uint32_t s_play_wait_t0 = 0;
+      if (s_play_wait_t0 == 0) {
+        s_play_wait_t0 = now;
+      }
       if (g_astro_voice_active) {
         if (!s_astro_play_armed) {
           if (!g_voice_result.mp3 || g_voice_result.mp3_len == 0) {
@@ -1449,7 +1459,16 @@ void loop() {
         pm_speaker_play_begin(g_voice_result.mp3, g_voice_result.mp3_len);
         s_play_armed = true;
       }
-      const PmSpeakerStatus spk = pm_speaker_poll();
+      PmSpeakerStatus spk = pm_speaker_poll();
+      if (spk == PmSpeakerStatus::Playing) {
+        const uint32_t est_ms = static_cast<uint32_t>((g_voice_result.mp3_len * 8u * 1000u) / 96000u) + 30000u;
+        if (s_play_wait_t0 != 0 && (now - s_play_wait_t0) > est_ms) {
+          pm_speaker_abort();
+          spk = pm_speaker_poll();
+        } else {
+          break;
+        }
+      }
       if (spk == PmSpeakerStatus::Playing) {
         break;
       }
@@ -1462,6 +1481,7 @@ void loop() {
       pm_voice_result_free(&g_voice_result);
       s_play_ui = false;
       s_play_armed = false;
+      s_play_wait_t0 = 0;
       g_state = AppState::kClock;
       g_clock_repaint_pending = true;
       break;

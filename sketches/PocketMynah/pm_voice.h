@@ -31,3 +31,6 @@ enum class PmVoiceStatus : int8_t { Idle = 0, Working = 1, DoneOk = 2, DoneFail 
 bool pm_voice_begin_message(const char *message, const char *system_instruction, PmVoiceResult *r);
 bool pm_voice_begin_pcm(const uint8_t *pcm, size_t pcm_len, const char *system_instruction, PmVoiceResult *r);
 PmVoiceStatus pm_voice_poll(void);
+
+/** Unblock UI if voice_net is stuck (HTTP still runs until it finishes). */
+void pm_voice_abort(void);

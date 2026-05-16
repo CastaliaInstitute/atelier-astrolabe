@@ -24,7 +24,7 @@ static const char *TAG = "pm_speaker";
 #define I2S_TX I2S_NUM_0
 static constexpr uint32_t kSpeakerTaskStack = 49152;
 static constexpr int kSpeakerVolume = 70;
-static constexpr uint32_t kMaxPlaySeconds = 90u;
+static constexpr uint32_t kMaxPlaySeconds = 180u;
 
 static es8311_handle_t s_es = nullptr;
 static bool s_es_inited = false;
@@ -117,6 +117,33 @@ static esp_err_t i2s_write_all(const int16_t *pcm, size_t total_s16) {
   return ESP_OK;
 }
 
+static int mp3_scan_sync(const uint8_t *buf, int bytes_left) {
+  for (int i = 0; i + 1 < bytes_left; ++i) {
+    if (buf[i] == 0xFF && (buf[i + 1] & 0xE0) == 0xE0) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+static void i2s_drain_and_stop(int out_hz, int out_channels) {
+  if (out_hz <= 0) {
+    return;
+  }
+  const int i2s_ch = (out_channels == 1) ? 2 : out_channels;
+  static int16_t silence[512 * 2];
+  memset(silence, 0, sizeof(silence));
+  for (int i = 0; i < 6; ++i) {
+    (void)i2s_write_all(silence, 512u * static_cast<size_t>(i2s_ch));
+  }
+  const uint32_t dma_ms =
+      (8u * 256u * static_cast<uint32_t>(i2s_ch) * 1000u) / static_cast<uint32_t>(out_hz) + 250u;
+  vTaskDelay(pdMS_TO_TICKS(dma_ms > 1200u ? 1200u : dma_ms));
+  i2s_stop(I2S_TX);
+  vTaskDelay(pdMS_TO_TICKS(20));
+  i2s_tx_stop();
+}
+
 static bool play_mp3_streaming(const uint8_t *mp3, size_t mp3_len) {
   if (!mp3 || mp3_len == 0) {
     return false;
@@ -184,9 +211,15 @@ static bool play_mp3_streaming(const uint8_t *mp3, size_t mp3_len) {
       }
       i2s_ready = true;
       s_play_pcm_hz = static_cast<uint32_t>(out_hz);
-    } else if (info.hz != out_hz || info.channels != out_channels) {
-      ESP_LOGW(TAG, "mp3 format change mid-stream");
+    } else if (info.channels > 0 && info.channels != out_channels) {
+      ESP_LOGW(TAG, "mp3 channel change %d -> %d", out_channels, info.channels);
       break;
+    } else if (info.hz > 0 && info.hz != out_hz) {
+      const int diff = info.hz > out_hz ? info.hz - out_hz : out_hz - info.hz;
+      if (diff > 200) {
+        ESP_LOGW(TAG, "mp3 rate change %d -> %d", out_hz, info.hz);
+        break;
+      }
     }
 
     const int nch = info.channels;
@@ -225,18 +258,17 @@ static bool play_mp3_streaming(const uint8_t *mp3, size_t mp3_len) {
     }
   }
 
+  if (bytes_left > 32) {
+    ESP_LOGW(TAG, "mp3 decode stopped early: %d bytes undecoded of %u", bytes_left,
+             static_cast<unsigned>(mp3_len));
+  }
+
   if (i2s_ready && out_hz > 0) {
-    const int i2s_ch = (out_channels == 1) ? 2 : out_channels;
-    const uint32_t dma_samples = 8u * 256u * static_cast<uint32_t>(i2s_ch);
-    uint32_t drain_ms = (dma_samples * 1000u) / static_cast<uint32_t>(out_hz) + 150u;
-    if (drain_ms > 800u) {
-      drain_ms = 800u;
+    if (pcm_frames_at_hz > 0) {
+      s_play_est_ms = (pcm_frames_at_hz * 1000u) / static_cast<uint32_t>(out_hz) + 120u;
     }
-    vTaskDelay(pdMS_TO_TICKS(drain_ms));
-    if (s_play_pcm_hz > 0 && pcm_frames_at_hz > 0) {
-      s_play_est_ms = (pcm_frames_at_hz * 1000u) / s_play_pcm_hz + 80u;
-    }
-    i2s_tx_stop();
+    i2s_drain_and_stop(out_hz, out_channels);
+    ESP_LOGI(TAG, "played ~%u ms (%u PCM frames @ %d Hz)", s_play_est_ms, pcm_frames_at_hz, out_hz);
   }
   return i2s_ready;
 }
@@ -254,8 +286,8 @@ static uint32_t estimate_mp3_duration_ms(size_t mp3_len) {
   if (mp3_len == 0) {
     return 1000u;
   }
-  /** ~64 kbps mono MP3 (Google TTS-ish). */
-  const uint32_t ms = static_cast<uint32_t>((mp3_len * 8ULL * 1000ULL) / 64000ULL);
+  /** ~96 kbps mono MP3 (Google TTS often a bit higher than 64k). */
+  const uint32_t ms = static_cast<uint32_t>((mp3_len * 8ULL * 1000ULL) / 96000ULL);
   if (ms < 2000u) {
     return 2000u;
   }
@@ -299,6 +331,13 @@ void pm_speaker_play_begin(const uint8_t *mp3, size_t mp3_len) {
 
 PmSpeakerStatus pm_speaker_poll() {
   return s_speaker_status;
+}
+
+void pm_speaker_abort(void) {
+  if (s_speaker_status == PmSpeakerStatus::Playing) {
+    ESP_LOGW(TAG, "playback aborted");
+    s_speaker_status = PmSpeakerStatus::DoneFail;
+  }
 }
 
 float pm_speaker_play_progress(void) {
