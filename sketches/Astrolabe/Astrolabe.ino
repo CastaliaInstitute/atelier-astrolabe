@@ -359,7 +359,8 @@ static void poll_serial_birth_commands() {
         }
         if (strcmp(p, "astro") == 0 || strcmp(p, "astrology") == 0) {
           idx = static_cast<int>(ClockFace::Astrology);
-        } else if (strcmp(p, "rocket") == 0 || strcmp(p, "launch") == 0) {
+        } else if (strcmp(p, "rocket") == 0 || strcmp(p, "launch") == 0 ||
+                   strcmp(p, "launchclock") == 0) {
           idx = static_cast<int>(ClockFace::Rocket);
         } else if (sscanf(p, "%d", &idx) == 1 && idx >= 0 &&
                    idx < static_cast<int>(ClockFace::kNumFaces)) {

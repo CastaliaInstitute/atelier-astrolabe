@@ -13,7 +13,9 @@
 static const char *TAG = "pm_rocket";
 
 static const char *kLl2UpcomingUrl =
-    "https://ll.thespacedevs.com/2.2.0/launch/upcoming/?limit=12";
+    "https://ll.thespacedevs.com/2.2.0/launch/upcoming/?limit=20";
+
+static constexpr int64_t kHorizonSec = 14 * 24 * 3600;
 
 static bool extract_json_string_field(const char *json, const char *key, char *out, size_t out_cap) {
   char pat[48];
@@ -190,27 +192,70 @@ static bool parse_launch_block(const char *block, size_t block_len, time_t now_e
   return true;
 }
 
-static bool pick_next_launch(const char *json, PmRocketLaunch *out) {
+static void insert_launch_sorted(PmRocketLaunch *list, int *count, const PmRocketLaunch *launch) {
+  if (!launch || !launch->valid) {
+    return;
+  }
+  int slot = *count;
+  for (int i = 0; i < *count; ++i) {
+    if (launch->net_unix < list[i].net_unix) {
+      slot = i;
+      break;
+    }
+  }
+  if (*count < kPmRocketMaxLaunches) {
+    for (int i = *count; i > slot; --i) {
+      list[i] = list[i - 1];
+    }
+    (*count)++;
+    list[slot] = *launch;
+    return;
+  }
+  if (slot >= kPmRocketMaxLaunches) {
+    return;
+  }
+  for (int i = kPmRocketMaxLaunches - 1; i > slot; --i) {
+    list[i] = list[i - 1];
+  }
+  list[slot] = *launch;
+}
+
+static int collect_upcoming_launches(const char *json, PmRocketLaunch *list, int list_cap) {
   const char *results = strstr(json, "\"results\":");
-  if (!results) {
-    return false;
+  if (!results || list_cap <= 0) {
+    return 0;
   }
   const time_t now_epoch = time(nullptr);
+  const int64_t horizon = static_cast<int64_t>(now_epoch) + kHorizonSec;
+  int count = 0;
 
   const char *p = results;
   while ((p = strstr(p, "{\"id\":")) != nullptr) {
     const char *next = strstr(p + 8, "{\"id\":");
     const char *end = next ? next : json + strlen(json);
     const size_t n = static_cast<size_t>(end - p);
-    if (parse_launch_block(p, n, now_epoch, out)) {
-      return true;
+    PmRocketLaunch scratch = {};
+    if (parse_launch_block(p, n, now_epoch, &scratch) && scratch.net_unix <= horizon) {
+      insert_launch_sorted(list, &count, &scratch);
     }
     if (!next) {
       break;
     }
     p = next;
   }
-  return false;
+  return count;
+}
+
+const PmRocketLaunch *pm_rocket_next(const PmRocketStatus *status) {
+  if (!status || !status->ok || status->count <= 0) {
+    return nullptr;
+  }
+  for (int i = 0; i < status->count; ++i) {
+    if (status->launches[i].valid) {
+      return &status->launches[i];
+    }
+  }
+  return nullptr;
 }
 
 bool pm_rocket_fetch(PmRocketStatus *out) {
@@ -273,10 +318,11 @@ bool pm_rocket_fetch(PmRocketStatus *out) {
     return false;
   }
 
-  if (pick_next_launch(resp, &out->upcoming)) {
+  out->count = collect_upcoming_launches(resp, out->launches, kPmRocketMaxLaunches);
+  if (out->count > 0) {
     out->ok = true;
-    ESP_LOGI(TAG, "next launch: %s @ %lld (%s)", out->upcoming.name,
-             static_cast<long long>(out->upcoming.net_unix), out->upcoming.status_abbrev);
+    ESP_LOGI(TAG, "launch clock: %d upcoming (next %s @ %lld)", out->count, out->launches[0].name,
+             static_cast<long long>(out->launches[0].net_unix));
   } else {
     snprintf(out->error, sizeof(out->error), "no upcoming launch");
   }

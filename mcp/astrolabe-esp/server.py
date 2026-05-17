@@ -48,6 +48,7 @@ FACE_BY_NAME = {
     "castalia": 7,
     "rocket": 8,
     "launch": 8,
+    "launchclock": 8,
 }
 FACE_LABELS = (
     "ClassicAnalog",
@@ -58,7 +59,7 @@ FACE_LABELS = (
     "Moon",
     "CalciferCountdown",
     "Castalia",
-    "Rocket",
+    "LaunchClock",
 )
 
 
