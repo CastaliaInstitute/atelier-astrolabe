@@ -29,6 +29,7 @@
 #include "pm_astro_highlight.h"
 #include "pm_circadian_hue.h"
 #include "pm_cycle_nvs.h"
+#include "pm_moon.h"
 
 Arduino_DataBus *bus = new Arduino_ESP32QSPI(
     LCD_CS, LCD_SCLK, LCD_SDIO0, LCD_SDIO1, LCD_SDIO2, LCD_SDIO3);
@@ -751,25 +752,6 @@ static bool moon_illum_waxing_from_tp(const PmTransitPositions *tp, float *illum
   return true;
 }
 
-static void draw_moon_disk(int cx, int cy, int r, float illum, bool waxing) {
-  const uint16_t c_dark = gfx->color565(42, 48, 62);
-  const uint16_t c_lit = gfx->color565(210, 216, 228);
-  gfx->fillCircle(cx, cy, r, c_dark);
-  const float t = (1.f - 2.f * illum) * static_cast<float>(r);
-  for (int dy = -r; dy <= r; ++dy) {
-    for (int dx = -r; dx <= r; dx += 2) {
-      if (dx * dx + dy * dy > r * r) {
-        continue;
-      }
-      const bool lit = waxing ? (dx > t) : (dx < t);
-      if (lit) {
-        gfx->drawPixel(cx + dx, cy + dy, c_lit);
-      }
-    }
-  }
-  gfx->drawCircle(cx, cy, r, gfx->color565(88, 98, 118));
-}
-
 static void draw_moon_face(const struct tm *tm_local, bool valid_local) {
   const uint16_t c_dim = gfx->color565(150, 160, 178);
   if (!valid_local) {
@@ -790,7 +772,7 @@ static void draw_moon_face(const struct tm *tm_local, bool valid_local) {
   const int cy = LCD_HEIGHT / 2;
   const int R = min(LCD_WIDTH, LCD_HEIGHT) / 2;
   const int r = R - 14;
-  draw_moon_disk(cx, cy, r, illum, waxing);
+  pm_moon_draw_disk(gfx, cx, cy, r, illum, waxing);
   (void)tm_local;
 }
 
