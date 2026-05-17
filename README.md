@@ -79,6 +79,7 @@ Current service expectations:
 
 ```bash
 ./scripts/cloud-agent.sh <issue#>              # Cloud agent → PR to integration
+./scripts/ci-flash.sh                          # build + USB flash (self-hosted CI / local)
 ./scripts/promote-integration.sh --flash-ok    # integration → main after flash QA
 ```
 

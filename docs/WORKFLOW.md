@@ -114,7 +114,26 @@ After the PR merges to **`integration`**, run **hardware QA** on **`integration`
 
 ### CI
 
-[`.github/workflows/firmware-build.yml`](../.github/workflows/firmware-build.yml) runs `./scripts/build.sh` on PRs to **`integration`** and on pushes to **`integration`** / **`main`**.
+| Workflow | Runner | What |
+|----------|--------|------|
+| [Firmware build](../.github/workflows/firmware-build.yml) | `ubuntu-latest` | `./scripts/build.sh`; uploads `firmware.bin` artifact |
+| [Firmware flash](../.github/workflows/firmware-flash.yml) | **`self-hosted` + `astrolabe-watch`** | `./scripts/ci-flash.sh` to the USB watch |
+
+GitHub **cloud** runners cannot see USB. To flash in CI, register a [self-hosted runner](https://docs.github.com/en/actions/hosting-your-own-runners/managing-self-hosted-runners/adding-self-hosted-runners) on the Mac where the watch is plugged in.
+
+**One-time runner setup**
+
+1. Repo → **Settings → Actions → Runners → New self-hosted runner** (macOS).
+2. Install and start the runner on that Mac; add labels: `self-hosted`, `astrolabe-watch`.
+3. Create environment **astrolabe-watch** (Settings → Environments) if you want approval gates before flash.
+4. Plug in the watch (Espressif **303A:1001**); optional fixed port: set runner env `ASTROLABE_UPLOAD_PORT=/dev/cu.usbmodem1101`.
+
+**Run a flash**
+
+- **Actions → Firmware flash → Run workflow** (pick branch, default `integration`).
+- **Auto after build:** set repo variable `ENABLE_INTEGRATION_FLASH` = `true` to flash on every successful [Firmware build](https://github.com/CastaliaInstitute/astrolabe/actions/workflows/firmware-build.yml) on `integration`.
+
+Local equivalent: `./scripts/ci-flash.sh`
 
 ### Suggested labels (optional)
 

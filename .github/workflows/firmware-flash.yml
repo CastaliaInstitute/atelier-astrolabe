@@ -1,0 +1,85 @@
+# Flash to a physical watch via a self-hosted runner (USB). GitHub-hosted runners cannot upload.
+#
+# Setup: register a self-hosted runner on the Mac with the watch plugged in, labels:
+#   self-hosted, astrolabe-watch
+# Optional repo variable ENABLE_INTEGRATION_FLASH=true to flash on every green push to integration.
+#
+name: Firmware flash
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref to build and flash (branch or SHA)
+        required: false
+        default: integration
+      upload_only:
+        description: Skip rebuild if firmware.bin already present on runner
+        type: boolean
+        default: false
+  workflow_run:
+    workflows: [Firmware build]
+    types: [completed]
+    branches: [integration]
+
+concurrency:
+  group: firmware-flash-${{ github.event.workflow_run.head_branch || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  flash:
+    name: Flash watch
+    # Requires a machine with the Waveshare ESP32-S3 watch on USB (303A:1001).
+    runs-on: [self-hosted, astrolabe-watch]
+    environment: astrolabe-watch
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event_name == 'workflow_run' &&
+        github.event.workflow_run.conclusion == 'success' &&
+        vars.ENABLE_INTEGRATION_FLASH == 'true'
+      )
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.event.workflow_run.head_sha }}
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            /tmp/astrolabe-pio-build
+          key: pio-flash-${{ runner.os }}-${{ hashFiles('platformio.ini', 'scripts/build.sh') }}
+          restore-keys: |
+            pio-flash-${{ runner.os }}-
+
+      - name: Install PlatformIO
+        run: pip install platformio
+
+      - name: Detect upload port
+        id: port
+        run: |
+          PORT="$(./scripts/detect_upload_port.sh)"
+          echo "port=${PORT}" >> "$GITHUB_OUTPUT"
+          echo "Using ${PORT}"
+
+      - name: Build and flash
+        env:
+          ASTROLABE_UPLOAD_PORT: ${{ steps.port.outputs.port }}
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.upload_only }}" == "true" ]]; then
+            ./scripts/ci-flash.sh --upload-only
+          else
+            ./scripts/ci-flash.sh
+          fi
+
+      - name: Upload flash log artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flash-log-${{ github.run_id }}
+          path: /tmp/astrolabe-pio-build/
+          retention-days: 7
+          if-no-files-found: ignore

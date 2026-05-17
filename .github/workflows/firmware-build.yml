@@ -32,3 +32,10 @@ jobs:
 
       - name: Build firmware
         run: ./scripts/build.sh
+
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-waveshare_s3_175
+          path: /tmp/astrolabe-pio-build/waveshare_s3_175/firmware.bin
+          if-no-files-found: error
