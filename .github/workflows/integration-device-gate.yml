@@ -50,7 +50,7 @@ jobs:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.event.workflow_run.head_sha }}
 
       - name: Preflight (USB watch)
-        run: ./scripts/preflight-watch.sh
+        run: bash ./scripts/preflight-watch.sh
 
       - name: Cache PlatformIO
         uses: actions/cache@v4
@@ -71,7 +71,7 @@ jobs:
           MYNAH_WIFI_PASSWORD: ${{ secrets.MYNAH_WIFI_PASSWORD }}
           MYNAH_SUPABASE_URL: ${{ secrets.MYNAH_SUPABASE_URL }}
           MYNAH_SUPABASE_ANON_KEY: ${{ secrets.MYNAH_SUPABASE_ANON_KEY }}
-        run: ./scripts/ensure-device-secrets.sh
+        run: bash ./scripts/ensure-device-secrets.sh
 
       - name: Flash firmware
         run: ./scripts/ci-flash.sh
