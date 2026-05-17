@@ -9,8 +9,22 @@
 static XPowersPMU s_pmu;
 static bool s_pmu_ok = false;
 static uint32_t s_last_pmu_scan = 0;
+static uint32_t s_last_charge_scan = 0;
 /** Latched from AXP2101 PEK negative/positive edge IRQs (true while user is holding PWR). */
 static bool s_pek_pressed = false;
+static bool s_pmu_charging = false;
+
+static void pm_side_buttons_update_charge_state(uint32_t now_ms, bool force) {
+  if (!s_pmu_ok) {
+    s_pmu_charging = false;
+    return;
+  }
+  if (!force && (now_ms - s_last_charge_scan < 750u)) {
+    return;
+  }
+  s_last_charge_scan = now_ms;
+  s_pmu_charging = s_pmu.isVbusIn() && s_pmu.isCharging();
+}
 
 bool pm_side_buttons_begin() {
   pinMode(MYNAH_BOOT_BUTTON_GPIO, INPUT_PULLUP);
@@ -21,6 +35,7 @@ bool pm_side_buttons_begin() {
     s_pmu.clearIrqStatus();
     s_pmu.enableIRQ(XPOWERS_AXP2101_PKEY_SHORT_IRQ | XPOWERS_AXP2101_PKEY_NEGATIVE_IRQ |
                      XPOWERS_AXP2101_PKEY_POSITIVE_IRQ);
+    pm_side_buttons_update_charge_state(millis(), true);
   }
   return true;
 }
@@ -63,6 +78,7 @@ uint8_t pm_side_buttons_poll(uint32_t now_ms) {
       s_pmu.clearIrqStatus();
     }
   }
+  pm_side_buttons_update_charge_state(now_ms, false);
 
   static uint32_t s_last_emit = 0;
   if (ev != 0 && (now_ms - s_last_emit < 350)) {
@@ -79,4 +95,8 @@ bool pm_ptt_button_held(void) {
     return false;
   }
   return s_pek_pressed;
+}
+
+bool pm_pmu_charging(void) {
+  return s_pmu_charging;
 }

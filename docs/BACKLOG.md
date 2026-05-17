@@ -19,6 +19,7 @@ Edit this file when you start or finish work. Keep **In progress** to 1–3 item
 ## In progress
 
 - [~] **P1** Astrology / transits face: full-screen chart + planet/sign icons
+- [~] **P1** Charging ripples on rainbow rim when USB-C (#4)
 
 ---
 

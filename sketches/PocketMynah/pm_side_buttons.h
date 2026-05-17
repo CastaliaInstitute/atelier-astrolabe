@@ -16,3 +16,6 @@ uint8_t pm_side_buttons_poll(uint32_t now_ms);
 
 /** True while the AXP2101 PWR key is held (PEK latched). Hold-to-talk on the astrology face. */
 bool pm_ptt_button_held(void);
+
+/** True when the AXP2101 reports active USB/VBUS battery charging. */
+bool pm_pmu_charging(void);
