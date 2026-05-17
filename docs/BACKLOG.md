@@ -26,7 +26,7 @@ Edit this file when you start or finish work. Keep **In progress** to 1–3 item
 
 ## In progress
 
-_(none — cloud agent batch merged to `integration` 2026-05-17)_
+- [~] **P2** **Menstrual cycle face** — ring maps to full cycle; you-are-here marker; fertile bands. Issue: [#11](https://github.com/CastaliaInstitute/astrolabe/issues/11)
 
 ---
 

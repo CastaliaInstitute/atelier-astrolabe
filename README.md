@@ -70,6 +70,28 @@ Current service expectations:
 | **Commonplace** | Use only for public or anonymous flows. Do not write user-owned commonplace data with the anon bearer. | Required for user-owned commonplace reads/writes so Castalia can attach entries to the signed-in account. |
 | **Calcifer** (`calcifer-status` / CalDAV agenda) | Can reach the function but has no user CalDAV configuration; expect unavailable, unconfigured, or `401` responses. | Required for personalized CalDAV countdowns and BOOT spoken agenda briefs. |
 
+## Cycle face
+
+The `Cycle` clock face is an on-device menstrual cycle wellness glance. The full ring maps to
+one configured cycle: day 1 starts at the top anchor, colored bands mark the period estimate,
+fertile/ovulation window, and luteal phase, and the bright marker shows today's position.
+
+Setup stays local in NVS only; there is no cloud sync for cycle data. This is calendar math for
+personal tracking, not a medical device or medical advice.
+
+- Tap the face to log "period started today" from the watch's local date.
+- Swipe up/down on the face to step through cycle length presets (default 28 days).
+- Serial commands:
+  - `cycle` or `cycle status`
+  - `cycle YYYY MM DD`
+  - `cycle today`
+  - `cycle length N`
+  - `cycle period N`
+  - `cycle clear`
+
+Partner profiles are intentionally out of scope for this first face revision; a later NVS profile
+toggle can reuse the same circular mapping.
+
 ## Development
 
 | Doc | Purpose |
