@@ -437,6 +437,26 @@ static void poll_serial_birth_commands() {
         pm_chart_profiles_ensure_demo_seed();
         Serial.printf("profiles: %d saved\n", pm_chart_profile_count());
         g_clock_repaint_pending = true;
+      } else if (strcmp(line, "profiles list") == 0) {
+        Serial.println("profiles:");
+        for (int i = 0; i < kPmChartProfileSlots; ++i) {
+          PmChartProfile profile = {};
+          if (!pm_chart_profile_get(i, &profile)) {
+            continue;
+          }
+          Serial.printf("  %d%s: %s (%s) %04u-%02u-%02u %02u:%02u %s\n", i,
+                        i == pm_chart_profiles_active_slot() ? "*" : "", profile.name,
+                        pm_chart_role_label(profile.role), profile.year, profile.month, profile.day,
+                        profile.hour, profile.minute, profile.place);
+        }
+      } else if (strncmp(line, "profile use ", 12) == 0) {
+        int slot = -1;
+        if (sscanf(line + 12, "%d", &slot) == 1 && pm_chart_profiles_set_active_slot(slot)) {
+          Serial.printf("profile: active slot %d\n", slot);
+        } else {
+          Serial.println("profile: invalid slot");
+        }
+        g_clock_repaint_pending = true;
       } else if (strcmp(line, "profile next") == 0 || strcmp(line, "profile prev") == 0) {
         const int delta = strcmp(line, "profile next") == 0 ? 1 : -1;
         PmChartProfile profile = {};
@@ -477,6 +497,7 @@ void setup() {
   (void)pm_touch_begin();
   pm_gesture_reset();
   (void)pm_side_buttons_begin();
+  pm_birth_ensure_demo();
   pm_chart_profiles_ensure_demo_seed();
 
   if (pm_wifi_begin()) {

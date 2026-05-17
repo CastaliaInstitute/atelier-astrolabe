@@ -10,7 +10,8 @@ static constexpr const char *kKeyActive = "ch_active";
 
 static bool profile_fields_sane(const PmChartProfile *p) {
   return p && p->name[0] != '\0' && p->year >= 1900 && p->year <= 2100 && p->month >= 1 &&
-         p->month <= 12 && p->day >= 1 && p->day <= 31 && p->hour <= 23 && p->minute <= 59;
+         p->month <= 12 && p->day >= 1 && p->day <= 31 && p->hour <= 23 && p->minute <= 59 &&
+         p->lat_deg >= -90.f && p->lat_deg <= 90.f && p->lon_deg >= -180.f && p->lon_deg <= 180.f;
 }
 
 static void key_for_slot(char *out, size_t cap, int slot, const char *suffix) {
