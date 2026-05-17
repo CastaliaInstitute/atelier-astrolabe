@@ -26,11 +26,23 @@ Edit this file when you start or finish work. Keep **In progress** to 1–3 item
 
 ## In progress
 
-_(none)_
+- [~] **P1** Modular OTA (runtime + face-pack A/B, 32 MB) — Issue: #60, branch `feature/60-modular-ota`, [`docs/design/modular-ota.md`](design/modular-ota.md)
+- [~] **P1** Castalian Rhythms docs (on-device V0) — Issue: [#61](https://github.com/CastaliaInstitute/astrolabe/issues/61), branch `feature/61-castalian-rhythms-docs`
 
 ---
 
 ## Features
+
+### Castalian Rhythms V0 (on-device) — **P1**
+
+- [~] **P1** **Rhythms design doc + BACKLOG epic** — Issue [#61](https://github.com/CastaliaInstitute/astrolabe/issues/61); `docs/castalian-rhythms.md`; on-device architecture.
+- [ ] **P1** **On-device natal, houses, transit aspects** — Issue [#62](https://github.com/CastaliaInstitute/astrolabe/issues/62); extend `pm_transit` / `pm_birth_nvs`.
+- [ ] **P1** **Embedded interpretation KB v0** — Issue [#63](https://github.com/CastaliaInstitute/astrolabe/issues/63); `rhythms_kb/` + `embed_rhythms_kb.py`.
+- [ ] **P1** **On-device fusion + compact daily card** — Issue [#64](https://github.com/CastaliaInstitute/astrolabe/issues/64); `pm_rhythms`; template card (no LLM).
+- [ ] **P1** **Rhythms clock face + Astrology BOOT** — Issue [#65](https://github.com/CastaliaInstitute/astrolabe/issues/65); hardware QA.
+
+_Server optional (V0.1):_ mynah Rhythms API, LunaSay, partner share. **Castalia ephemeris server** (below) is an **accuracy upgrade**, not a V0 blocker for the watch compact card.
+
 
 ### Commonplace (Directus journal) — **P0 priority**
 
@@ -75,7 +87,8 @@ _(none)_
 ### Phase 3 (satellite link + updates)
 
 - [ ] **P2** BLE or LAN presence with home Mynah — [pocketwatch.md § Phased delivery](pocketwatch.md#phased-delivery)
-- [ ] **P2** OTA firmware updates (GitHub or custom bucket TBD)
+- [~] **P1** Modular OTA Phase 0–3 — partitions, safe face, runtime OTA, face-pack OTA — Issue: #60, [`docs/design/modular-ota.md`](design/modular-ota.md)
+- [ ] **P2** OTA signed channels + `updates.castalia.institute` — Issue: #60 follow-up (Phase 5)
 
 ### Ambient / delight (low priority)
 
