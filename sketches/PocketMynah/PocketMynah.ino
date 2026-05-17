@@ -31,6 +31,7 @@
 #include "pm_circadian_hue.h"
 #include "pm_cycle_nvs.h"
 #include "pm_moon.h"
+#include "pm_version.h"
 
 Arduino_DataBus *bus = new Arduino_ESP32QSPI(
     LCD_CS, LCD_SCLK, LCD_SDIO0, LCD_SDIO1, LCD_SDIO2, LCD_SDIO3);
@@ -96,6 +97,8 @@ enum class ClockFace : uint8_t {
   Castalia,
   /** QR → on-device LAN settings page (`/settings`). */
   Settings,
+  /** Build branch/SHA + QR → GitHub commit baked in at compile time. */
+  Version,
   kNumFaces,
 };
 
@@ -1534,6 +1537,14 @@ static void draw_settings_face() {
   }
 }
 
+static void version_face_draw_centered(const char *text, int y, uint16_t fg, uint8_t sx, uint8_t sy) {
+  drawCenteredLine(text, y, fg, sx, sy);
+}
+
+static void draw_version_face() {
+  pm_version_draw(gfx, version_face_draw_centered);
+}
+
 static void draw_castalia_face() {
   const uint16_t c_hi = gfx->color565(210, 215, 235);
   const uint16_t c_dim = gfx->color565(120, 128, 145);
@@ -1610,6 +1621,9 @@ static void draw_clock_face(float thinking_progress = -1.f) {
     case ClockFace::Settings:
       draw_settings_face();
       break;
+    case ClockFace::Version:
+      draw_version_face();
+      break;
     default:
       break;
   }
@@ -1617,15 +1631,17 @@ static void draw_clock_face(float thinking_progress = -1.f) {
   const int banner_y = (g_clock_face == ClockFace::Apocalypso || g_clock_face == ClockFace::Spotify ||
                         g_clock_face == ClockFace::Astrology || g_clock_face == ClockFace::Moon ||
                         g_clock_face == ClockFace::CalciferCountdown || g_clock_face == ClockFace::Cycle ||
-                        g_clock_face == ClockFace::Castalia || g_clock_face == ClockFace::Settings)
+                        g_clock_face == ClockFace::Castalia || g_clock_face == ClockFace::Settings ||
+                        g_clock_face == ClockFace::Version)
                            ? 352
                            : 320;
   if (MYNAH_DEBUG_GESTURES && g_gesture_banner[0] != '\0') {
     drawCenteredLine(g_gesture_banner, banner_y, gfx->color565(255, 220, 160), 1, 1);
   }
 
-  /** Rainbow annulus last (skip on Castalia/Settings — QR + rim was tripping WDT/stack). */
-  if (g_clock_face != ClockFace::Castalia && g_clock_face != ClockFace::Settings) {
+  /** Rainbow annulus last (skip on QR faces — full repaint + rim after QR was tripping WDT/stack). */
+  if (g_clock_face != ClockFace::Castalia && g_clock_face != ClockFace::Settings &&
+      g_clock_face != ClockFace::Version) {
     draw_circumference_rainbow_24h(pm_time_valid());
     if (thinking_progress >= 0.f) {
       draw_thinking_progress_ring(thinking_progress);
@@ -1735,7 +1751,13 @@ static bool face_index_from_name(const char *name, int *out) {
   } k[] = {{"classic", 0}, {"hue", 0},     {"analog", 0},    {"apocalypso", 1},
            {"digital", 2}, {"spotify", 3}, {"astro", 4},       {"astrology", 4},
            {"moon", 5},    {"calcifer", 6}, {"schedule", 6},  {"cycle", 7},
-           {"menstrual", 7}, {"castalia", 8}, {"settings", 9}, {"config", 9}};
+           {"menstrual", 7},
+           {"castalia", 8},
+           {"settings", 9},
+           {"config", 9},
+           {"version", 10},
+           {"about", 10},
+           {"build", 10}};
   for (const auto &e : k) {
     if (strcasecmp(name, e.n) == 0) {
       *out = e.idx;
@@ -1883,7 +1905,7 @@ static void poll_serial_birth_commands() {
           g_clock_repaint_pending = true;
           Serial.printf("face: %d\n", idx);
         } else {
-          Serial.println("face: usage: face <0-9|name>");
+          Serial.println("face: usage: face <0-10|name>");
         }
       }
       continue;
@@ -2160,6 +2182,7 @@ void loop() {
       const bool wifi_chg = (wifi != s_prev_wifi);
       const bool local_hm_chg =
           valid && g_clock_face != ClockFace::Castalia && g_clock_face != ClockFace::Settings &&
+          g_clock_face != ClockFace::Version &&
           (g_analog_saved_local_h < 0 || tm_now.tm_hour != g_analog_saved_local_h ||
            tm_now.tm_min != g_analog_saved_local_m);
 
@@ -2186,11 +2209,11 @@ void loop() {
 
       const bool sec_tick_paint =
           sec_tick && g_clock_face != ClockFace::Castalia && g_clock_face != ClockFace::Settings &&
-              g_clock_face != ClockFace::CalciferCountdown;
+          g_clock_face != ClockFace::Version && g_clock_face != ClockFace::CalciferCountdown;
       const bool calcifer_sec =
           g_clock_face == ClockFace::CalciferCountdown && valid && sec_tick;
-      const bool face_has_rim =
-          g_clock_face != ClockFace::Castalia && g_clock_face != ClockFace::Settings;
+      const bool face_has_rim = g_clock_face != ClockFace::Castalia && g_clock_face != ClockFace::Settings &&
+                                g_clock_face != ClockFace::Version;
       const bool charging_ripple_frame =
           charging && face_has_rim && (now - s_last_charge_ripple_paint >= 160u);
       const bool cycle_confirm_frame =
