@@ -26,7 +26,7 @@ Edit this file when you start or finish work. Keep **In progress** to 1–3 item
 
 ## In progress
 
-_(none — issue #11 ready for integration review 2026-05-17)_
+- [~] **P1** **Version clock face** — branch + commit SHA + build date + QR → GitHub commit at compile time. Issue: #58
 
 ---
 
@@ -61,6 +61,8 @@ _(none — issue #11 ready for integration review 2026-05-17)_
 - [x] **P1** **Autism countdown face** — `CalciferCountdown` face + `pm_calcifer`; 5‑minute “ending soon” visual cue; BOOT agenda when no replay cache.
 
 ### Glance / utility faces
+
+- [~] **P1** **Version / build info face** — `ClockFace::Version`: git branch, short SHA, build date, QR to exact commit (`pm_build_info.h` from PlatformIO pre-script). Issue: #58
 
 - [ ] **P1** **Weather face** — new `ClockFace`: current conditions + short forecast for observer location. **Location:** Wi‑Fi geo / `pm_geo_tz` or NVS lat-lon from mDNS config. **Data:** Castalia Edge Function (API keys server-side, same pattern as `calcifer-status`) — temp, icon/condition, hi/lo, optional hourly strip on round display. Poll on interval when face visible + Wi‑Fi; cache last good response offline. Optional: STT “what’s the weather?” on this face; tie icon art to ambient hue. Depends on Castalia JWT + NTP.
 
