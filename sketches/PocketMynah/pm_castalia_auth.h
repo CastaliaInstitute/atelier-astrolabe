@@ -55,3 +55,18 @@ bool pm_castalia_draw_qr(Arduino_Canvas *gfx, int cx, int cy, int max_px);
 
 /** Call after QR blit so pairing poll is deferred (avoids TLS stack spike while display is hot). */
 void pm_castalia_note_qr_drawn(void);
+
+/** Display name from Supabase user (empty until profile fetch completes). */
+const char *pm_castalia_profile_display_name();
+
+/** Two-letter initials when avatar bitmap is not ready. */
+const char *pm_castalia_profile_initials();
+
+/** Draw circular avatar (JPEG when loaded, else initials) at center (cx, cy), radius r. */
+void pm_castalia_draw_profile_avatar(Arduino_Canvas *gfx, int cx, int cy, int r);
+
+/** Background fetch of `/auth/v1/user` + avatar (castalia_net). Returns true when UI should repaint. */
+bool pm_castalia_tick_fetch_profile();
+
+/** Drop cached profile (sign-out / pair reset). */
+void pm_castalia_profile_clear();
