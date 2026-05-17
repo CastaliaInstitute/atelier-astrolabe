@@ -1,0 +1,30 @@
+---
+description: Use astrolabe-esp MCP for watch serial console, JTAG/GDB, upload, and face screenshots
+globs: sketches/**/*,src/**/*,include/**/*,mcp/astrolabe-esp/**/*
+alwaysApply: false
+---
+
+# Astrolabe ESP MCP
+
+When debugging Astrolabe on hardware:
+
+## Device console
+
+| Need | MCP tool |
+|------|----------|
+| Boot log, `Serial`, ESP_LOG, panics | **`astrolabe_serial_monitor`** (USB CDC 115200) |
+| Serial + confirm JTAG adapter | **`astrolabe_console_monitor`** |
+| OpenOCD link only | **`astrolabe_jtag_openocd`** |
+| Halt, backtrace, inject face | **`astrolabe_jtag_gdb`** / **`astrolabe_debug_gdb`** |
+
+JTAG does **not** stream printf — always pair GDB with **`astrolabe_serial_monitor`** (or `./scripts/monitor_serial.sh` in a second terminal).
+
+1. **`astrolabe_list_ports`** — confirm `/dev/cu.usbmodem*` before upload/monitor.
+2. **`astrolabe_serial_monitor`** — `reset_boot: true` for fresh boot log; logs under `artifacts/monitor/`.
+3. **`astrolabe_upload`** / **`astrolabe_build`** — flash `waveshare_s3_175` (or `_debug` for GDB).
+
+## Clock-face QA
+
+Follow [hardware-qa.mdc](hardware-qa.mdc): upload → show face → `screen.bmp` → evaluate.
+
+Reload MCP if tools are missing (`mcp/astrolabe-esp/setup.sh`, entry in `~/.cursor/mcp.json`).
