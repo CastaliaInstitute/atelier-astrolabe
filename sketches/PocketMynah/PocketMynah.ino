@@ -976,9 +976,9 @@ static void draw_astrology_face(const struct tm *tm_local, bool valid_local, int
   const int r_outer = R - 12;
   const int r_in = r_outer * 42 / 118;
   const int r_lab = r_outer - 18;
-  /** Planet centers sit between aspect chords and sign glyphs (not on the label ring). */
-  const int r_body = r_lab - 30;
   const int r_aspect = r_in + (r_outer - r_in) * 52 / 100;
+  /** Bodies in the annulus between aspect chords and sign glyphs (~10px clearance each side). */
+  const int r_body = r_aspect + (r_lab - r_aspect) * 2 / 5;
 
   if (!tp.ok) {
     drawCenteredLine("ephemeris needs", 200, c_dim, 1, 1);
@@ -1020,6 +1020,15 @@ static void draw_astrology_face(const struct tm *tm_local, bool valid_local, int
                     gfx->color565(200, 210, 240));
     }
 
+    for (int s = 0; s < 12; ++s) {
+      const float amid = (static_cast<float>(s) + 0.5f) * (kTwoPi / 12.f) - kPi * 0.5f;
+      const uint16_t lbl_col =
+          (highlight_sign == s) ? gfx->color565(255, 250, 200) : c_lbl;
+      const int lx = cx + static_cast<int>(lrintf(cosf(amid) * static_cast<float>(r_lab)));
+      const int ly = cy + static_cast<int>(lrintf(sinf(amid) * static_cast<float>(r_lab)));
+      draw_zodiac_glyph(lx, ly, s, lbl_col, gfx->color565(12, 14, 22));
+    }
+
     static const uint16_t k_body_col[kPmBodyCount] = {
         gfx->color565(255, 210, 90),  gfx->color565(200, 210, 230), gfx->color565(180, 180, 190),
         gfx->color565(255, 190, 140), gfx->color565(230, 90, 70),   gfx->color565(220, 180, 120),
@@ -1045,15 +1054,6 @@ static void draw_astrology_face(const struct tm *tm_local, bool valid_local, int
       if (hi) {
         gfx->drawCircle(px, py, rr + 4, gfx->color565(255, 255, 255));
       }
-    }
-
-    for (int s = 0; s < 12; ++s) {
-      const float amid = (static_cast<float>(s) + 0.5f) * (kTwoPi / 12.f) - kPi * 0.5f;
-      const uint16_t lbl_col =
-          (highlight_sign == s) ? gfx->color565(255, 250, 200) : c_lbl;
-      const int lx = cx + static_cast<int>(lrintf(cosf(amid) * static_cast<float>(r_lab)));
-      const int ly = cy + static_cast<int>(lrintf(sinf(amid) * static_cast<float>(r_lab)));
-      draw_zodiac_glyph(lx, ly, s, lbl_col, gfx->color565(12, 14, 22));
     }
     double natal_sun = 0;
     if (birth.valid && pm_transit_natal_sun_lon(&birth, &natal_sun)) {
