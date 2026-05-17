@@ -56,7 +56,7 @@ static double gmst_deg(double jd) {
 }
 
 static bool ascendant_lon_deg(double jd, double lat_deg, double lon_deg, double *out) {
-  if (!out || !isfinite(lat_deg) || !isfinite(lon_deg) || lat_deg < -89.5 || lat_deg > 89.5) {
+  if (!out || !std::isfinite(lat_deg) || !std::isfinite(lon_deg) || lat_deg < -89.5 || lat_deg > 89.5) {
     return false;
   }
   const double lst = deg_to_rad(rev360(gmst_deg(jd) + lon_deg));
@@ -242,7 +242,7 @@ void pm_transit_compute_utc(const struct tm *utc, PmTransitPositions *out) {
 }
 
 uint8_t pm_transit_whole_sign_house(double lon_deg, double asc_lon_deg) {
-  if (!isfinite(lon_deg) || !isfinite(asc_lon_deg)) {
+  if (!std::isfinite(lon_deg) || !std::isfinite(asc_lon_deg)) {
     return 0;
   }
   const int asc_sign = zodiac_sign_index(asc_lon_deg);
@@ -255,7 +255,7 @@ bool pm_transit_build_natal_chart(const PmBirthSpec *birth, PmNatalChart *out) {
     return false;
   }
   memset(out, 0, sizeof(*out));
-  if (!birth || !birth->valid || !isfinite(birth->lat_deg) || !isfinite(birth->lon_deg)) {
+  if (!birth || !birth->valid || !std::isfinite(birth->lat_deg) || !std::isfinite(birth->lon_deg)) {
     return false;
   }
   time_t epoch = 0;
@@ -337,7 +337,7 @@ bool pm_transit_snapshot_from_positions(const PmNatalChart *natal, const PmTrans
       PmTransitAspectKind best_aspect = kPmTransitAspectConjunction;
       double best_orb_delta = 999.0;
       for (size_t oi = 0; oi < orb_count; ++oi) {
-        if (orbs[oi].orb_deg < 0.0 || !isfinite(orbs[oi].orb_deg)) {
+        if (orbs[oi].orb_deg < 0.0 || !std::isfinite(orbs[oi].orb_deg)) {
           continue;
         }
         const double exact = static_cast<double>(static_cast<int>(orbs[oi].aspect));
