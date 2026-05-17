@@ -627,6 +627,48 @@ Firmware path in commonplace-journal issue.
 """,
         "open",
     ),
+    BacklogIssue(
+        "spotify-vinyl-queue-design",
+        "[Feature] Mynah Spotify Face (Vinyl Queue): design doc and epic",
+        ["enhancement"],
+        "P1",
+        """## Summary
+Add canonical **Mynah Spotify Face** (“Vinyl Queue”) design documentation and a BACKLOG epic. Core UX: **swipe explores, tap commits** — vertical album-art stream with center vinyl record; `selected_track` vs `playing_track`; hub-built Music Stream and preprocessed album art.
+
+Replaces the current Astrolabe transport-bar MVP in `pm_face_spotify.cpp` with the full interaction and visual model.
+
+## Design doc
+`docs/mynah-spotify-face.md` (sections 1–30: UX, state machine, payloads, milestones, v1/v2 scope)
+
+## Acceptance criteria
+- [ ] `docs/mynah-spotify-face.md` committed
+- [ ] `docs/BACKLOG.md` — **Music / Spotify face** epic with M1–M5 child items
+- [ ] `./scripts/build.sh` passes (docs-only)
+
+## Implementation milestones (follow-on issues or subtasks)
+| # | Milestone |
+|---|-----------|
+| M1 | Static mock face (layout, fake art, browse vs now-playing visuals) |
+| M2 | Gesture prototype on device |
+| M3 | Hub `spotify_state` + cached art + commands |
+| M4 | Spotify Music Stream + playback integration (mynah hub) |
+| M5 | Polish: hue ring, glint, Commonplace, QA screenshot |
+
+## Priority
+P1
+
+## Backlog reference
+`docs/BACKLOG.md` — Music / Spotify face (“Vinyl Queue”)
+
+## Related code
+- `sketches/Astrolabe/faces/spotify/pm_face_spotify.cpp`
+- `sketches/Astrolabe/pm_spotify.cpp` → Castalia `mynah-spotify`
+
+## Notes
+Parent epic for Vinyl Queue. Horizontal swipe stays reserved for face changes. v1 excludes lyrics, ESP32 OAuth, and browse previews.
+""",
+        "open",
+    ),
 ]
 
 
