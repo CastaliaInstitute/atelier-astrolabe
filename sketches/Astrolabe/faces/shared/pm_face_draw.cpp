@@ -1,4 +1,5 @@
 #include "faces/shared/pm_face_draw.h"
+#include "faces/shared/pm_circadian_hue.h"
 #include <cmath>
 #include "pin_config.h"
 #include "pm_display.h"
@@ -106,6 +107,57 @@ void pm_face_draw_radial_annulus_slice(int cx, int cy, float ang, int r0, int r1
 }
 
 
+
+float pm_face_deg_to_rad(float deg_clockwise_from_top) {
+  return (deg_clockwise_from_top - 90.f) * pm_face_k_pi / 180.f;
+}
+
+void pm_face_draw_annular_wedge(int cx, int cy, int r_inner, int r_outer, float start_deg, float end_deg,
+                                uint16_t fill_col) {
+  if (r_outer <= r_inner || end_deg <= start_deg) {
+    return;
+  }
+  const float span = end_deg - start_deg;
+  const int steps = static_cast<int>(lrintf(span * 0.35f));
+  const int n = steps < 4 ? 4 : (steps > 48 ? 48 : steps);
+  for (int i = 0; i < n; ++i) {
+    const float t0 = start_deg + span * (static_cast<float>(i) / static_cast<float>(n));
+    const float t1 = start_deg + span * (static_cast<float>(i + 1) / static_cast<float>(n));
+    const float a0 = pm_face_deg_to_rad(t0);
+    const float a1 = pm_face_deg_to_rad(t1);
+    const int x0i = cx + static_cast<int>(lrintf(cosf(a0) * static_cast<float>(r_inner)));
+    const int y0i = cy + static_cast<int>(lrintf(sinf(a0) * static_cast<float>(r_inner)));
+    const int x0o = cx + static_cast<int>(lrintf(cosf(a0) * static_cast<float>(r_outer)));
+    const int y0o = cy + static_cast<int>(lrintf(sinf(a0) * static_cast<float>(r_outer)));
+    const int x1o = cx + static_cast<int>(lrintf(cosf(a1) * static_cast<float>(r_outer)));
+    const int y1o = cy + static_cast<int>(lrintf(sinf(a1) * static_cast<float>(r_outer)));
+    const int x1i = cx + static_cast<int>(lrintf(cosf(a1) * static_cast<float>(r_inner)));
+    const int y1i = cy + static_cast<int>(lrintf(sinf(a1) * static_cast<float>(r_inner)));
+    pm_gfx->fillTriangle(x0i, y0i, x0o, y0o, x1o, y1o, fill_col);
+    pm_gfx->fillTriangle(x0i, y0i, x1o, y1o, x1i, y1i, fill_col);
+  }
+}
+
+void pm_face_draw_daywheel_hue_ring_12h(int64_t now_unix, int r_inner, int r_outer) {
+  const int cx = LCD_WIDTH / 2;
+  const int cy = LCD_HEIGHT / 2;
+  constexpr int64_t k_window = 12 * 3600;
+  constexpr int k_seg = 144;
+  for (int s = 0; s < k_seg; ++s) {
+    const float deg0 = static_cast<float>(s) * (360.f / static_cast<float>(k_seg));
+    const float deg1 = static_cast<float>(s + 1) * (360.f / static_cast<float>(k_seg));
+    const int64_t t_mid = now_unix + static_cast<int64_t>((deg0 + deg1) * 0.5f * static_cast<float>(k_window) / 360.f);
+    const uint16_t col = pm_circadian_color565_at_unix(static_cast<time_t>(t_mid));
+    pm_face_draw_annular_wedge(cx, cy, r_inner, r_outer, deg0, deg1, col);
+  }
+}
+
+void pm_face_draw_now_bead(int cx, int cy, int r, uint16_t col) {
+  const int bx = cx;
+  const int by = cy - r;
+  pm_gfx->fillCircle(bx, by, 5, col);
+  pm_gfx->drawCircle(bx, by, 6, pm_gfx->color565(255, 255, 255));
+}
 
 void pm_face_draw_circumference_rainbow_24h(bool valid) {
   const int cx = LCD_WIDTH / 2;
