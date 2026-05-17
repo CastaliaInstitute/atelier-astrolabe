@@ -4,7 +4,7 @@
 
 class Arduino_Canvas;
 
-/** Starts HTTP server on port 80 when WiFi is up (GET / and /screen.bmp). */
+/** Starts HTTP server on port 80 when WiFi is up (GET /settings, /screen.bmp). */
 void pm_screen_http_begin(Arduino_Canvas *canvas);
 
 /** Call from loop(); serves pending clients. */

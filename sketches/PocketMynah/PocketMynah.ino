@@ -21,6 +21,7 @@
 #include "pm_voice.h"
 #include "pm_wifi_ntp.h"
 #include "pm_screen_http.h"
+#include "pm_settings.h"
 #include "pm_birth_nvs.h"
 #include "pm_transit.h"
 #include "pm_ephemeris.h"
@@ -93,6 +94,8 @@ enum class ClockFace : uint8_t {
   Cycle,
   /** QR → castalia.institute Google sign-in; tokens stored on watch for Edge Functions. */
   Castalia,
+  /** QR → on-device LAN settings page (`/settings`). */
+  Settings,
   kNumFaces,
 };
 
@@ -1510,6 +1513,27 @@ static void draw_voice_wave_screen(bool outward, uint32_t t_ms, const char *labe
   gfx->flush();
 }
 
+static void draw_settings_face() {
+  const uint16_t c_hi = gfx->color565(210, 215, 235);
+  const uint16_t c_dim = gfx->color565(120, 128, 145);
+  drawCenteredLine("SETTINGS", 40, c_hi, 2, 2);
+  if (!pm_wifi_connected()) {
+    drawCenteredLine("WiFi needed", 130, c_dim, 2, 2);
+    return;
+  }
+  const char *host = pm_settings_host_label();
+  if (host[0] != '\0') {
+    drawCenteredLine(host, 78, c_dim, 1, 1);
+  }
+  if (pm_settings_url_for_qr()[0] != '\0') {
+    if (!pm_settings_draw_qr(gfx, LCD_WIDTH / 2, 238, 240)) {
+      drawCenteredLine("QR encode fail", 220, c_dim, 1, 1);
+    } else {
+      drawCenteredLine("scan for web settings", 392, c_dim, 1, 1);
+    }
+  }
+}
+
 static void draw_castalia_face() {
   const uint16_t c_hi = gfx->color565(210, 215, 235);
   const uint16_t c_dim = gfx->color565(120, 128, 145);
@@ -1583,6 +1607,9 @@ static void draw_clock_face(float thinking_progress = -1.f) {
     case ClockFace::Castalia:
       draw_castalia_face();
       break;
+    case ClockFace::Settings:
+      draw_settings_face();
+      break;
     default:
       break;
   }
@@ -1590,15 +1617,15 @@ static void draw_clock_face(float thinking_progress = -1.f) {
   const int banner_y = (g_clock_face == ClockFace::Apocalypso || g_clock_face == ClockFace::Spotify ||
                         g_clock_face == ClockFace::Astrology || g_clock_face == ClockFace::Moon ||
                         g_clock_face == ClockFace::CalciferCountdown || g_clock_face == ClockFace::Cycle ||
-                        g_clock_face == ClockFace::Castalia)
+                        g_clock_face == ClockFace::Castalia || g_clock_face == ClockFace::Settings)
                            ? 352
                            : 320;
   if (MYNAH_DEBUG_GESTURES && g_gesture_banner[0] != '\0') {
     drawCenteredLine(g_gesture_banner, banner_y, gfx->color565(255, 220, 160), 1, 1);
   }
 
-  /** Rainbow annulus last (skip on Castalia — full repaint + rim after QR was tripping WDT/stack). */
-  if (g_clock_face != ClockFace::Castalia) {
+  /** Rainbow annulus last (skip on Castalia/Settings — QR + rim was tripping WDT/stack). */
+  if (g_clock_face != ClockFace::Castalia && g_clock_face != ClockFace::Settings) {
     draw_circumference_rainbow_24h(pm_time_valid());
     if (thinking_progress >= 0.f) {
       draw_thinking_progress_ring(thinking_progress);
@@ -1708,7 +1735,7 @@ static bool face_index_from_name(const char *name, int *out) {
   } k[] = {{"classic", 0}, {"hue", 0},     {"analog", 0},    {"apocalypso", 1},
            {"digital", 2}, {"spotify", 3}, {"astro", 4},       {"astrology", 4},
            {"moon", 5},    {"calcifer", 6}, {"schedule", 6},  {"cycle", 7},
-           {"menstrual", 7}, {"castalia", 8}};
+           {"menstrual", 7}, {"castalia", 8}, {"settings", 9}, {"config", 9}};
   for (const auto &e : k) {
     if (strcasecmp(name, e.n) == 0) {
       *out = e.idx;
@@ -1856,7 +1883,7 @@ static void poll_serial_birth_commands() {
           g_clock_repaint_pending = true;
           Serial.printf("face: %d\n", idx);
         } else {
-          Serial.println("face: usage: face <0-8|name>");
+          Serial.println("face: usage: face <0-9|name>");
         }
       }
       continue;
@@ -2108,6 +2135,9 @@ void loop() {
         if (g_clock_face == ClockFace::Castalia) {
           pm_castalia_on_face_enter();
           g_clock_repaint_pending = true;
+        } else if (g_clock_face == ClockFace::Settings) {
+          pm_settings_refresh_url();
+          g_clock_repaint_pending = true;
         }
         s_prev_dial_face = g_clock_face;
       }
@@ -2129,7 +2159,7 @@ void loop() {
       const bool banner_chg = strcmp(g_gesture_banner, s_prev_banner) != 0;
       const bool wifi_chg = (wifi != s_prev_wifi);
       const bool local_hm_chg =
-          valid && g_clock_face != ClockFace::Castalia &&
+          valid && g_clock_face != ClockFace::Castalia && g_clock_face != ClockFace::Settings &&
           (g_analog_saved_local_h < 0 || tm_now.tm_hour != g_analog_saved_local_h ||
            tm_now.tm_min != g_analog_saved_local_m);
 
@@ -2155,10 +2185,12 @@ void loop() {
           g_clock_face == ClockFace::Astrology && valid && epoch_min_bucket != s_prev_astro_epoch_min;
 
       const bool sec_tick_paint =
-          sec_tick && g_clock_face != ClockFace::Castalia && g_clock_face != ClockFace::CalciferCountdown;
+          sec_tick && g_clock_face != ClockFace::Castalia && g_clock_face != ClockFace::Settings &&
+              g_clock_face != ClockFace::CalciferCountdown;
       const bool calcifer_sec =
           g_clock_face == ClockFace::CalciferCountdown && valid && sec_tick;
-      const bool face_has_rim = g_clock_face != ClockFace::Castalia;
+      const bool face_has_rim =
+          g_clock_face != ClockFace::Castalia && g_clock_face != ClockFace::Settings;
       const bool charging_ripple_frame =
           charging && face_has_rim && (now - s_last_charge_ripple_paint >= 160u);
       const bool cycle_confirm_frame =

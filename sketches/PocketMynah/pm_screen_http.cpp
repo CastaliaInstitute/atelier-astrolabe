@@ -8,6 +8,8 @@
 #include "esp_heap_caps.h"
 
 #include "pm_wifi_ntp.h"
+#include "pm_settings.h"
+#include "pm_settings_http.h"
 
 static WebServer s_server(80);
 static Arduino_Canvas *s_canvas = nullptr;
@@ -26,14 +28,8 @@ static void put_le16(uint8_t *p, uint16_t v) {
 }
 
 static void handle_root() {
-  static const char kHtml[] PROGMEM =
-      "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" "
-      "content=\"width=device-width,initial-scale=1\"><title>PocketMynah</title></head>"
-      "<body style=\"margin:0;background:#111;color:#ccc;font-family:system-ui,sans-serif;\">"
-      "<p style=\"padding:10px;\">Frame grab: <a href=\"/screen.bmp\" style=\"color:#8cf\">screen.bmp</a></p>"
-      "<img src=\"/screen.bmp\" style=\"width:100%;max-width:466px;height:auto;display:block;margin:0 auto;\" "
-      "alt=\"screen\"></body></html>";
-  s_server.send_P(200, "text/html", kHtml);
+  s_server.sendHeader("Location", "/settings", true);
+  s_server.send(303, "text/plain", "");
 }
 
 static void handle_screen_bmp() {
@@ -126,11 +122,13 @@ void pm_screen_http_begin(Arduino_Canvas *canvas) {
   if (s_http_started || !canvas || !pm_wifi_connected()) {
     return;
   }
+  pm_settings_refresh_url();
   s_server.on("/", HTTP_GET, handle_root);
   s_server.on("/screen.bmp", HTTP_GET, handle_screen_bmp);
+  pm_settings_http_register(&s_server);
   s_server.begin();
   s_http_started = true;
-  Serial.printf("Screen over WiFi: http://%s/  (GET /screen.bmp)\n", WiFi.localIP().toString().c_str());
+  Serial.printf("Settings: http://%s/settings  (screen: /screen.bmp)\n", WiFi.localIP().toString().c_str());
 }
 
 void pm_screen_http_loop() {
