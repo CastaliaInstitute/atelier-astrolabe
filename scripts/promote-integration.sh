@@ -23,6 +23,7 @@ Merge origin/${INTEGRATION_BRANCH} into ${MAIN_BRANCH} and push (promotion to re
 
 Options:
   --flash-ok          Required: attest you flashed integration on hardware and smoke-tested
+  --skip-functional   Skip functional-test report check (not recommended)
   --dry-run           Show planned merge; do not push
   --skip-build        Skip ./scripts/build.sh (not recommended)
   -h, --help
@@ -35,10 +36,12 @@ EOF
 flash_ok=0
 dry_run=0
 skip_build=0
+skip_functional=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --flash-ok) flash_ok=1; shift ;;
+    --skip-functional) skip_functional=1; shift ;;
     --dry-run) dry_run=1; shift ;;
     --skip-build) skip_build=1; shift ;;
     -h | --help) usage; exit 0 ;;
@@ -63,6 +66,32 @@ fi
 
 echo "→ fetch origin"
 git fetch origin "$INTEGRATION_BRANCH" "$MAIN_BRANCH"
+
+if [[ "$skip_functional" != "1" ]]; then
+  FT_REPORT="${ASTROLABE_FT_REPORT:-$ROOT/artifacts/functional/latest/report.json}"
+  if [[ ! -f "$FT_REPORT" ]]; then
+    echo "error: missing functional test report: ${FT_REPORT}" >&2
+    echo "  Run Integration device gate or: ./scripts/functional_test.py --flash" >&2
+    echo "  Or promote with --skip-functional (not recommended)" >&2
+    exit 1
+  fi
+  integr_sha_pre="$(git rev-parse "origin/${INTEGRATION_BRANCH}")"
+  python3 -c "
+import json, sys
+from pathlib import Path
+r = json.loads(Path('${FT_REPORT}').read_text())
+failed = int(r.get('failed', 0))
+head = r.get('git_head', '')
+want = '${integr_sha_pre}'
+if failed:
+    print(f'error: functional test reported {failed} failed face(s)', file=sys.stderr)
+    sys.exit(1)
+if want and head and not (head.startswith(want[:8]) or want.startswith(head[:8])):
+    print(f'error: report git_head {head[:12]} does not match integration {want[:12]}', file=sys.stderr)
+    sys.exit(1)
+print(f\"→ functional test OK ({r.get('passed', 0)} faces) @ {head[:12] or 'unknown'}\")
+" || exit 1
+fi
 
 if [[ "$skip_build" != "1" ]]; then
   echo "→ build at origin/${INTEGRATION_BRANCH}"

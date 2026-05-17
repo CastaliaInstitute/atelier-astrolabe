@@ -13,8 +13,15 @@ Closes #
 ## Test plan
 
 - [ ] `./scripts/build.sh` (or `pio run -e waveshare_s3_175`)
-- [ ] Flashed / exercised on hardware (if applicable)
-- [ ] **Hardware QA** for clock-face changes: `screen.bmp` captured and reviewed ([`hardware-qa.mdc`](.cursor/rules/hardware-qa.mdc))
+- [ ] **Clock faces / touch / buttons touched?**
+  - [ ] **Integration device gate** green on this SHA, or
+  - [ ] `./scripts/functional_test.py --flash` with `artifacts/functional/latest/report.json` linked below
+- [ ] Flashed / smoke-tested on hardware (if applicable)
+- [ ] Optional visual QA: `screen.bmp` ([`hardware-qa.mdc`](.cursor/rules/hardware-qa.mdc))
+
+## Device gate
+
+<!-- Link workflow run or report path when faces/* changed -->
 
 ## Notes
 

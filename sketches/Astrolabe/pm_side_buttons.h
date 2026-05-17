@@ -16,3 +16,9 @@ uint8_t pm_side_buttons_poll(uint32_t now_ms);
 
 /** True while the AXP2101 PWR key is held (PEK latched). Hold-to-talk on the astrology face. */
 bool pm_ptt_button_held(void);
+
+/** Inject PM_SIDE_BTN_* events (merged on next poll; for CI / qa inject). */
+void pm_side_buttons_inject(uint8_t ev_mask);
+
+/** Simulate PWR key hold state (pm_ptt_button_held). */
+void pm_side_buttons_inject_pek_hold(bool held);

@@ -54,9 +54,9 @@ Start (keep terminal open or use launchd):
 
   cd ${INSTALL_DIR} && ./run.sh
 
-Secrets for hardware QA: copy or symlink
-  include/secrets.local.h
-to this machine (already at ~/GitHub/CastaliaInstitute/astrolabe/include/secrets.local.h).
+Secrets: set ASTROLABE_SECRETS_FILE (default ~/GitHub/astrolabe/include/secrets.local.h)
+Optional: ASTROLABE_UPLOAD_PORT=/dev/cu.usbmodem101 in LaunchAgent (install-runner-launchagent.sh)
 
-Run QA from GitHub: Actions → Firmware hardware QA → issue_number + face
+Enable integration gate: repo variable ENABLE_INTEGRATION_DEVICE_GATE=true
+Remove stale offline runners in GitHub → Settings → Actions → Runners
 EOF

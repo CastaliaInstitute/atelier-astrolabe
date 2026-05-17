@@ -35,6 +35,15 @@ cat >"$PLIST" <<EOF
   </array>
   <key>WorkingDirectory</key>
   <string>${INSTALL_DIR}</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>ASTROLABE_SECRETS_FILE</key>
+    <string>${ASTROLABE_SECRETS_FILE:-$HOME/GitHub/astrolabe/include/secrets.local.h}</string>
+    <key>ASTROLABE_UPLOAD_PORT</key>
+    <string>${ASTROLABE_UPLOAD_PORT:-}</string>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
