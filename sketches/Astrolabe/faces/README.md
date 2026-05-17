@@ -15,6 +15,7 @@ Each face is a self-contained module under `faces/<name>/`. The app shell (`Astr
 | `moon/` | Phase disk, texture, daily fortune |
 | `calcifer/` | Hue Daywheel (rolling 12h hue ring + event wedges + CalDAV) |
 | `castalia/` | Sign-in QR |
+| `synastry/` | Partner/family dual natal wheel + aspect highlights |
 
 ## Public API per face
 

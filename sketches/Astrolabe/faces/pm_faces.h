@@ -16,6 +16,8 @@ enum class ClockFace : uint8_t {
   CalciferCountdown,
   /** QR → castalia.institute Google sign-in; tokens stored on watch for Edge Functions. */
   Castalia,
+  /** Dual natal wheel/aspects for saved partner/family chart profiles. */
+  Synastry,
   kNumFaces,
 };
 

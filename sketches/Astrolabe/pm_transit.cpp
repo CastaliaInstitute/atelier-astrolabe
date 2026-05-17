@@ -211,17 +211,28 @@ bool pm_transit_natal_sun_lon(const PmBirthSpec *birth, double *lon_deg_out) {
   if (!birth || !birth->valid || !lon_deg_out) {
     return false;
   }
+  PmTransitPositions tp = {};
+  if (!pm_transit_birth_positions(birth, &tp)) {
+    return false;
+  }
+  *lon_deg_out = tp.lon[kPmBodySun];
+  return true;
+}
+
+bool pm_transit_birth_positions(const PmBirthSpec *birth, PmTransitPositions *out) {
+  if (!birth || !birth->valid || !out) {
+    return false;
+  }
+  out->ok = false;
   time_t epoch = 0;
   if (!pm_birth_to_utc_epoch(birth, &epoch)) {
     return false;
   }
   struct tm utc = {};
   gmtime_r(&epoch, &utc);
-  PmTransitPositions tp = {};
-  pm_transit_compute_utc(&utc, &tp);
-  if (!tp.ok) {
+  pm_transit_compute_utc(&utc, out);
+  if (!out->ok) {
     return false;
   }
-  *lon_deg_out = tp.lon[kPmBodySun];
   return true;
 }

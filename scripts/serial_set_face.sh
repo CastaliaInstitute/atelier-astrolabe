@@ -35,6 +35,8 @@ NAME_TO_IDX = {
     "calcifer": 6,
     "schedule": 6,
     "castalia": 7,
+    "syn": 8,
+    "synastry": 8,
 }
 
 port, face = sys.argv[1], sys.argv[2].strip().lower()
