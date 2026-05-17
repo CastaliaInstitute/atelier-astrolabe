@@ -23,6 +23,7 @@
 #include "pm_screen_http.h"
 #include "pm_birth_nvs.h"
 #include "pm_transit.h"
+#include "pm_ephemeris.h"
 #include "pm_castalia_auth.h"
 #include "pm_calcifer.h"
 #include "pm_astro_highlight.h"
@@ -105,6 +106,11 @@ static uint32_t s_last_spotify_poll_ms = 0;
 static PmCalciferStatus g_calcifer_ui = {};
 static bool s_calcifer_have_data = false;
 static uint32_t s_last_calcifer_poll_ms = 0;
+
+static PmTransitPositions g_astro_remote_tp = {};
+static bool s_astro_remote_have = false;
+static time_t s_astro_remote_epoch_min = -1;
+static uint32_t s_astro_remote_retry_after_ms = 0;
 
 #ifndef MYNAH_SPOTIFY_POLL_MS
 #define MYNAH_SPOTIFY_POLL_MS 25000u
@@ -400,6 +406,148 @@ static void draw_label_at_polar(int rcx, int rcy, int r, float ang, const char *
   const int ty = rcy + static_cast<int>(lrintf(sinf(ang) * static_cast<float>(r))) - static_cast<int>(h) / 2;
   gfx->setCursor(tx, ty);
   gfx->print(text);
+}
+
+static void draw_glyph_line(int cx, int cy, int x0, int y0, int x1, int y1, uint16_t col) {
+  gfx->drawLine(cx + x0, cy + y0, cx + x1, cy + y1, col);
+}
+
+static void draw_glyph_cross(int cx, int cy, int y0, int y1, uint16_t col) {
+  draw_glyph_line(cx, cy, 0, y0, 0, y1, col);
+  draw_glyph_line(cx, cy, -4, (y0 + y1) / 2, 4, (y0 + y1) / 2, col);
+}
+
+static void draw_zodiac_glyph(int cx, int cy, int sign, uint16_t col, uint16_t bg) {
+  switch (sign) {
+    case 0:  // Aries
+      draw_glyph_line(cx, cy, 0, 7, 0, -6, col);
+      draw_glyph_line(cx, cy, 0, -6, -8, 4, col);
+      draw_glyph_line(cx, cy, 0, -6, 8, 4, col);
+      gfx->drawCircle(cx - 6, cy + 2, 4, col);
+      gfx->drawCircle(cx + 6, cy + 2, 4, col);
+      break;
+    case 1:  // Taurus
+      gfx->drawCircle(cx, cy + 3, 6, col);
+      draw_glyph_line(cx, cy, -8, -6, -3, -1, col);
+      draw_glyph_line(cx, cy, 8, -6, 3, -1, col);
+      break;
+    case 2:  // Gemini
+      draw_glyph_line(cx, cy, -6, -8, -6, 8, col);
+      draw_glyph_line(cx, cy, 6, -8, 6, 8, col);
+      draw_glyph_line(cx, cy, -9, -7, 9, -7, col);
+      draw_glyph_line(cx, cy, -9, 7, 9, 7, col);
+      break;
+    case 3:  // Cancer
+      gfx->drawCircle(cx - 5, cy - 3, 4, col);
+      gfx->drawCircle(cx + 5, cy + 3, 4, col);
+      draw_glyph_line(cx, cy, -1, -6, 9, -6, col);
+      draw_glyph_line(cx, cy, -9, 6, 1, 6, col);
+      break;
+    case 4:  // Leo
+      gfx->drawCircle(cx - 4, cy + 3, 4, col);
+      draw_glyph_line(cx, cy, 0, 1, 4, -7, col);
+      draw_glyph_line(cx, cy, 4, -7, 9, -2, col);
+      draw_glyph_line(cx, cy, 8, -1, 5, 8, col);
+      break;
+    case 5:  // Virgo
+      draw_glyph_line(cx, cy, -8, -7, -8, 7, col);
+      draw_glyph_line(cx, cy, -8, -3, -3, -7, col);
+      draw_glyph_line(cx, cy, -3, -7, -3, 7, col);
+      draw_glyph_line(cx, cy, -3, -3, 2, -7, col);
+      draw_glyph_line(cx, cy, 2, -7, 2, 7, col);
+      gfx->drawCircle(cx + 7, cy + 4, 4, col);
+      break;
+    case 6:  // Libra
+      draw_glyph_line(cx, cy, -9, 7, 9, 7, col);
+      draw_glyph_line(cx, cy, -9, 3, -3, 3, col);
+      draw_glyph_line(cx, cy, 3, 3, 9, 3, col);
+      gfx->drawCircle(cx, cy + 1, 4, col);
+      break;
+    case 7:  // Scorpio
+      draw_glyph_line(cx, cy, -8, -7, -8, 7, col);
+      draw_glyph_line(cx, cy, -8, -3, -3, -7, col);
+      draw_glyph_line(cx, cy, -3, -7, -3, 7, col);
+      draw_glyph_line(cx, cy, -3, -3, 2, -7, col);
+      draw_glyph_line(cx, cy, 2, -7, 2, 6, col);
+      draw_glyph_line(cx, cy, 2, 6, 9, 2, col);
+      draw_glyph_line(cx, cy, 9, 2, 6, 1, col);
+      draw_glyph_line(cx, cy, 9, 2, 8, 5, col);
+      break;
+    case 8:  // Sagittarius
+      draw_glyph_line(cx, cy, -7, 7, 8, -8, col);
+      draw_glyph_line(cx, cy, 8, -8, 7, 1, col);
+      draw_glyph_line(cx, cy, 8, -8, -1, -7, col);
+      draw_glyph_line(cx, cy, -5, -1, 2, 6, col);
+      break;
+    case 9:  // Capricorn
+      draw_glyph_line(cx, cy, -8, -7, -4, 5, col);
+      draw_glyph_line(cx, cy, -4, 5, 0, -7, col);
+      draw_glyph_line(cx, cy, 0, -7, 0, 7, col);
+      gfx->drawCircle(cx + 6, cy + 4, 4, col);
+      break;
+    case 10:  // Aquarius
+      draw_glyph_line(cx, cy, -9, -3, -5, -6, col);
+      draw_glyph_line(cx, cy, -5, -6, -1, -3, col);
+      draw_glyph_line(cx, cy, -1, -3, 3, -6, col);
+      draw_glyph_line(cx, cy, 3, -6, 9, -3, col);
+      draw_glyph_line(cx, cy, -9, 5, -5, 2, col);
+      draw_glyph_line(cx, cy, -5, 2, -1, 5, col);
+      draw_glyph_line(cx, cy, -1, 5, 3, 2, col);
+      draw_glyph_line(cx, cy, 3, 2, 9, 5, col);
+      break;
+    case 11:  // Pisces
+      (void)bg;
+      draw_glyph_line(cx, cy, -8, -8, -4, 0, col);
+      draw_glyph_line(cx, cy, -4, 0, -8, 8, col);
+      draw_glyph_line(cx, cy, 8, -8, 4, 0, col);
+      draw_glyph_line(cx, cy, 4, 0, 8, 8, col);
+      draw_glyph_line(cx, cy, -9, 0, 9, 0, col);
+      break;
+    default:
+      break;
+  }
+}
+
+static void draw_planet_glyph(PmEphemBody body, int cx, int cy, uint16_t col, uint16_t bg) {
+  switch (body) {
+    case kPmBodySun:
+      gfx->drawCircle(cx, cy, 5, col);
+      gfx->fillCircle(cx, cy, 1, col);
+      break;
+    case kPmBodyMoon:
+      gfx->fillCircle(cx - 1, cy, 5, col);
+      gfx->fillCircle(cx + 2, cy, 5, bg);
+      gfx->drawCircle(cx - 1, cy, 5, col);
+      break;
+    case kPmBodyMercury:
+      gfx->drawCircle(cx, cy, 4, col);
+      gfx->drawCircle(cx, cy - 5, 3, col);
+      draw_glyph_cross(cx, cy, 4, 9, col);
+      break;
+    case kPmBodyVenus:
+      gfx->drawCircle(cx, cy - 2, 4, col);
+      draw_glyph_cross(cx, cy, 2, 9, col);
+      break;
+    case kPmBodyMars:
+      gfx->drawCircle(cx - 2, cy + 2, 4, col);
+      draw_glyph_line(cx, cy, 2, -2, 8, -8, col);
+      draw_glyph_line(cx, cy, 8, -8, 7, -2, col);
+      draw_glyph_line(cx, cy, 8, -8, 2, -7, col);
+      break;
+    case kPmBodyJupiter:
+      draw_glyph_line(cx, cy, -5, -4, 2, -4, col);
+      draw_glyph_line(cx, cy, -1, -8, -1, 8, col);
+      draw_glyph_line(cx, cy, -6, 2, 6, 2, col);
+      draw_glyph_line(cx, cy, -5, -4, -7, 1, col);
+      break;
+    case kPmBodySaturn:
+      draw_glyph_line(cx, cy, -3, -8, -3, 8, col);
+      draw_glyph_line(cx, cy, -7, -4, 4, -4, col);
+      gfx->drawCircle(cx + 4, cy + 4, 4, col);
+      break;
+    default:
+      break;
+  }
 }
 
 static void draw_apocalypso_face(const struct tm *tm, bool valid) {
@@ -726,6 +874,91 @@ static const char *zodiac_abbr_from_lon(double lon_deg) {
   return kZ[idx];
 }
 
+static bool astro_remote_positions_for_epoch(time_t epoch, PmTransitPositions *out) {
+  if (!out || !s_astro_remote_have || !g_astro_remote_tp.ok || epoch <= 0) {
+    return false;
+  }
+  if ((epoch / 60) != s_astro_remote_epoch_min) {
+    return false;
+  }
+  *out = g_astro_remote_tp;
+  return true;
+}
+
+static void compute_astrology_positions_utc(const struct tm *utc, time_t epoch, PmTransitPositions *out,
+                                            bool *remote_out) {
+  if (remote_out) {
+    *remote_out = false;
+  }
+  if (!out) {
+    return;
+  }
+  if (astro_remote_positions_for_epoch(epoch, out)) {
+    if (remote_out) {
+      *remote_out = true;
+    }
+    return;
+  }
+  pm_transit_compute_utc(utc, out);
+}
+
+static float astro_angle_from_lon(double lon_deg) {
+  return static_cast<float>(kPi + lon_deg * (kPi / 180.0f));
+}
+
+static double angle_delta_deg(double a, double b) {
+  double d = fabs(a - b);
+  while (d >= 360.0) {
+    d -= 360.0;
+  }
+  if (d > 180.0) {
+    d = 360.0 - d;
+  }
+  return d;
+}
+
+static bool match_aspect(double delta, int *aspect_out) {
+  static const int k_aspects[] = {60, 90, 120, 180};
+  for (unsigned i = 0; i < sizeof(k_aspects) / sizeof(k_aspects[0]); ++i) {
+    if (fabs(delta - static_cast<double>(k_aspects[i])) <= 4.0) {
+      if (aspect_out) {
+        *aspect_out = k_aspects[i];
+      }
+      return true;
+    }
+  }
+  return false;
+}
+
+static void draw_astrology_aspects(const PmTransitPositions *tp, int cx, int cy, int r) {
+  if (!MYNAH_ASTROLOGY_ASPECT_LINES || !tp || !tp->ok) {
+    return;
+  }
+  for (int a = 0; a < kPmBodyCount; ++a) {
+    for (int b = a + 1; b < kPmBodyCount; ++b) {
+      int aspect = 0;
+      if (!match_aspect(angle_delta_deg(tp->lon[a], tp->lon[b]), &aspect)) {
+        continue;
+      }
+      uint16_t col = gfx->color565(68, 92, 120);
+      if (aspect == 90) {
+        col = gfx->color565(110, 72, 92);
+      } else if (aspect == 120) {
+        col = gfx->color565(70, 108, 100);
+      } else if (aspect == 180) {
+        col = gfx->color565(105, 88, 130);
+      }
+      const float aa = astro_angle_from_lon(tp->lon[a]);
+      const float ab = astro_angle_from_lon(tp->lon[b]);
+      const int ax = cx + static_cast<int>(lrintf(cosf(aa) * static_cast<float>(r)));
+      const int ay = cy + static_cast<int>(lrintf(sinf(aa) * static_cast<float>(r)));
+      const int bx = cx + static_cast<int>(lrintf(cosf(ab) * static_cast<float>(r)));
+      const int by = cy + static_cast<int>(lrintf(sinf(ab) * static_cast<float>(r)));
+      gfx->drawLine(ax, ay, bx, by, col);
+    }
+  }
+}
+
 static void draw_astrology_face(const struct tm *tm_local, bool valid_local, int highlight_body,
                                 int highlight_sign, bool pulse_chart) {
   const uint16_t c_dim = gfx->color565(130, 140, 158);
@@ -735,9 +968,11 @@ static void draw_astrology_face(const struct tm *tm_local, bool valid_local, int
 
   struct tm utc = {};
   PmTransitPositions tp = {};
+  bool remote_tp = false;
+  const time_t epoch_now = valid_local ? time(nullptr) : 0;
   if (valid_local) {
     pm_time_utc(&utc);
-    pm_transit_compute_utc(&utc, &tp);
+    compute_astrology_positions_utc(&utc, epoch_now, &tp, &remote_tp);
   }
 
   PmBirthSpec birth = {};
@@ -747,9 +982,10 @@ static void draw_astrology_face(const struct tm *tm_local, bool valid_local, int
   const int cy = LCD_HEIGHT / 2;
   const int R = min(LCD_WIDTH, LCD_HEIGHT) / 2;
   /** Chart fills the dial inside the 24h rainbow rim (rainbow inner ≈ R−9). */
-  const int r_outer = R - 14;
-  const int r_in = r_outer * 44 / 118;
-  const int r_lab = r_outer - 20;
+  const int r_outer = R - 12;
+  const int r_in = r_outer * 42 / 118;
+  const int r_lab = r_outer - 18;
+  const int r_aspect = r_in + (r_outer - r_in) * 52 / 100;
 
   if (!tp.ok) {
     drawCenteredLine("ephemeris needs", 200, c_dim, 1, 1);
@@ -767,6 +1003,7 @@ static void draw_astrology_face(const struct tm *tm_local, bool valid_local, int
     }
     gfx->drawCircle(cx, cy, r_outer, c_ring);
     gfx->drawCircle(cx, cy, r_in, c_ring);
+    draw_astrology_aspects(&tp, cx, cy, r_aspect);
 
     if (highlight_sign >= 0 && highlight_sign < 12) {
       const uint16_t c_hi = gfx->color565(72, 82, 118);
@@ -799,10 +1036,10 @@ static void draw_astrology_face(const struct tm *tm_local, bool valid_local, int
     const bool pulse_on = pulse_chart && ((millis() / 500u) % 2u) == 0u;
     for (int bi = 0; bi < kPmBodyCount; ++bi) {
       const double lon = tp.lon[bi];
-      const float ang = static_cast<float>(kPi + lon * (kPi / 180.0f));
+      const float ang = astro_angle_from_lon(lon);
       const int px = cx + static_cast<int>(lrintf(cosf(ang) * static_cast<float>(r_dot)));
       const int py = cy + static_cast<int>(lrintf(sinf(ang) * static_cast<float>(r_dot)));
-      int rr = (bi == kPmBodySun) ? 6 : (bi == kPmBodyMoon ? 5 : 4);
+      int rr = (bi == kPmBodySun) ? 8 : (bi == kPmBodyMoon ? 7 : 6);
       const bool hi = (highlight_body == bi);
       if (hi) {
         rr += 3;
@@ -812,22 +1049,23 @@ static void draw_astrology_face(const struct tm *tm_local, bool valid_local, int
       const uint16_t col = hi ? gfx->color565(255, 245, 170) : k_body_col[bi];
       gfx->fillCircle(px, py, rr, col);
       gfx->drawCircle(px, py, rr, hi ? gfx->color565(255, 255, 255) : RGB565_WHITE);
+      draw_planet_glyph(static_cast<PmEphemBody>(bi), px, py, RGB565_BLACK, RGB565_BLACK);
       if (hi) {
         gfx->drawCircle(px, py, rr + 4, gfx->color565(255, 255, 255));
       }
     }
 
-    static const char *const kZlab[12] = {"ARI", "TAU", "GEM", "CAN", "LEO", "VIR",
-                                          "LIB", "SCO", "SAG", "CAP", "AQU", "PIS"};
     for (int s = 0; s < 12; ++s) {
       const float amid = (static_cast<float>(s) + 0.5f) * (kTwoPi / 12.f) - kPi * 0.5f;
       const uint16_t lbl_col =
           (highlight_sign == s) ? gfx->color565(255, 250, 200) : c_lbl;
-      draw_label_at_polar(cx, cy, r_lab, amid, kZlab[s], lbl_col);
+      const int lx = cx + static_cast<int>(lrintf(cosf(amid) * static_cast<float>(r_lab)));
+      const int ly = cy + static_cast<int>(lrintf(sinf(amid) * static_cast<float>(r_lab)));
+      draw_zodiac_glyph(lx, ly, s, lbl_col, gfx->color565(12, 14, 22));
     }
     double natal_sun = 0;
     if (birth.valid && pm_transit_natal_sun_lon(&birth, &natal_sun)) {
-      const float angn = static_cast<float>(kPi + natal_sun * (kPi / 180.0f));
+      const float angn = astro_angle_from_lon(natal_sun);
       const int qx = cx + static_cast<int>(lrintf(cosf(angn) * static_cast<float>(r_in - 6)));
       const int qy = cy + static_cast<int>(lrintf(sinf(angn) * static_cast<float>(r_in - 6)));
       const int q2x = cx + static_cast<int>(lrintf(cosf(angn + 0.35f) * static_cast<float>(r_in - 18)));
@@ -836,6 +1074,7 @@ static void draw_astrology_face(const struct tm *tm_local, bool valid_local, int
       const int q3y = cy + static_cast<int>(lrintf(sinf(angn - 0.35f) * static_cast<float>(r_in - 18)));
       gfx->fillTriangle(qx, qy, q2x, q2y, q3x, q3y, gfx->color565(120, 200, 255));
     }
+    (void)remote_tp;
   }
 }
 
@@ -941,8 +1180,18 @@ static void draw_astro_voice_screen(const char *status, int highlight_body, int 
     draw_circumference_rainbow_24h(valid);
     draw_thinking_progress_ring(thinking_progress);
   } else if (status && status[0] != '\0') {
-    gfx->fillRect(0, 0, LCD_WIDTH, 46, gfx->color565(18, 20, 34));
-    drawCenteredLine(status, 14, gfx->color565(220, 200, 255), 2, 2);
+    gfx->setTextSize(1, 1);
+    int16_t x1, y1;
+    uint16_t w, h;
+    gfx->getTextBounds(status, 0, 0, &x1, &y1, &w, &h);
+    const int pad_x = 10;
+    const int pill_w = static_cast<int>(w) + pad_x * 2;
+    const int pill_x = (LCD_WIDTH - pill_w) / 2;
+    gfx->fillRoundRect(pill_x, 10, pill_w, 22, 10, gfx->color565(18, 20, 34));
+    gfx->drawRoundRect(pill_x, 10, pill_w, 22, 10, gfx->color565(78, 82, 118));
+    gfx->setTextColor(gfx->color565(220, 200, 255));
+    gfx->setCursor(pill_x + pad_x, 16);
+    gfx->print(status);
   }
   gfx->flush();
 }
@@ -1218,7 +1467,8 @@ static bool build_astrology_voice_message(char *buf, size_t cap) {
   pm_time_local(&loc);
   pm_time_utc(&utc);
   PmTransitPositions tp = {};
-  pm_transit_compute_utc(&utc, &tp);
+  bool remote_tp = false;
+  compute_astrology_positions_utc(&utc, time(nullptr), &tp, &remote_tp);
   if (!tp.ok) {
     return false;
   }
@@ -1229,8 +1479,9 @@ static bool build_astrology_voice_message(char *buf, size_t cap) {
 
   int n = snprintf(
       buf, cap,
-      "Pocket Mynah transit snapshot for %04d-%02d-%02d %02d:%02d local. Tropical longitudes (approx deg): ",
-      loc.tm_year + 1900, loc.tm_mon + 1, loc.tm_mday, loc.tm_hour, loc.tm_min);
+      "Pocket Mynah transit snapshot for %04d-%02d-%02d %02d:%02d local. Tropical longitudes (%s deg): ",
+      loc.tm_year + 1900, loc.tm_mon + 1, loc.tm_mday, loc.tm_hour, loc.tm_min,
+      remote_tp ? "Castalia ephemeris" : "approx");
   if (n < 0 || static_cast<size_t>(n) >= cap) {
     return false;
   }
@@ -1559,6 +1810,7 @@ void loop() {
           (!s_calcifer_have_data || (now - s_last_calcifer_poll_ms >= MYNAH_CALCIFER_POLL_MS));
 
       static time_t s_prev_astro_epoch_min = -1;
+      static time_t s_astro_remote_attempt_min = -1;
       const time_t epoch_min_bucket = valid ? (epoch / 60) : -1;
       const bool astro_repaint =
           g_clock_face == ClockFace::Astrology && valid && epoch_min_bucket != s_prev_astro_epoch_min;
@@ -1597,6 +1849,24 @@ void loop() {
             (void)pm_calcifer_fetch(&g_calcifer_ui, epoch);
             s_last_calcifer_poll_ms = now;
             s_calcifer_have_data = true;
+          }
+        }
+        if (g_clock_face == ClockFace::Astrology && wifi && valid &&
+            epoch_min_bucket != s_astro_remote_attempt_min) {
+          const bool retry_ready = s_astro_remote_retry_after_ms == 0 ||
+                                   static_cast<int32_t>(now - s_astro_remote_retry_after_ms) >= 0;
+          if (s_astro_remote_have || retry_ready) {
+            char err[40] = "";
+            PmTransitPositions fetched = {};
+            s_astro_remote_attempt_min = epoch_min_bucket;
+            if (pm_ephemeris_fetch(epoch, &fetched, err, sizeof(err))) {
+              g_astro_remote_tp = fetched;
+              s_astro_remote_have = true;
+              s_astro_remote_epoch_min = epoch_min_bucket;
+              s_astro_remote_retry_after_ms = 0;
+            } else if (!s_astro_remote_have) {
+              s_astro_remote_retry_after_ms = now + 600000u;
+            }
           }
         }
         draw_clock_face();
