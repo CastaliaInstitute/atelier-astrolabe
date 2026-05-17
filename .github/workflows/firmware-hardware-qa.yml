@@ -34,6 +34,8 @@ jobs:
     name: JTAG + screenshot → issue
     runs-on: [self-hosted, astrolabe-watch]
     environment: astrolabe-watch
+    env:
+      PLATFORMIO_BUILD_DIR: /tmp/astrolabe-pio-build-${{ github.run_id }}
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (
@@ -50,9 +52,7 @@ jobs:
       - name: Cache PlatformIO
         uses: actions/cache@v4
         with:
-          path: |
-            ~/.platformio
-            /tmp/astrolabe-pio-build
+          path: ~/.platformio
           key: pio-hwqa-${{ runner.os }}-${{ hashFiles('platformio.ini', 'scripts/build.sh') }}
           restore-keys: |
             pio-hwqa-${{ runner.os }}-
