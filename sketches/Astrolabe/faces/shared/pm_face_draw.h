@@ -5,10 +5,18 @@
 
 constexpr float pm_face_k_pi = 3.14159265f;
 constexpr float pm_face_k_two_pi = pm_face_k_pi * 2.f;
-constexpr float pm_face_hsv_s = 0.75f;
-constexpr float pm_face_hsv_v = 0.14f;
+/** Face fill: hsl(hue, 45%, 8%). */
+constexpr float pm_face_hsl_bg_s = 0.45f;
+constexpr float pm_face_hsl_bg_l = 0.08f;
+/** 24h rim: hsl(hue, 70%, 10%). */
+constexpr float pm_face_hsl_rim_s = 0.70f;
+constexpr float pm_face_hsl_rim_l = 0.10f;
+/** Accents / labels: hsl(hue, 90%, 62%). */
+constexpr float pm_face_hsl_accent_s = 0.90f;
+constexpr float pm_face_hsl_accent_l = 0.62f;
 
 uint16_t pm_face_color565_from_hsv(Arduino_GFX *out, float h_deg, float s, float v);
+uint16_t pm_face_color565_from_hsl(Arduino_GFX *out, float h_deg, float s, float l);
 void pm_face_draw_centered_line(const char *text, int y, uint16_t fg, uint8_t textSizeX, uint8_t textSizeY);
 void pm_face_draw_hand_radial(int cx, int cy, float ang, int len, uint16_t col, int half_w);
 void pm_face_draw_label_at_polar(int rcx, int rcy, int r, float ang, const char *text, uint16_t col);

@@ -342,8 +342,9 @@ static void drawCenteredLine(const char *text, int y, uint16_t fg, uint8_t textS
 static constexpr float kPi = 3.14159265f;
 static constexpr float kTwoPi = kPi * 2.f;
 /** Face background `color565FromHsv`; rainbow rim uses same S/V so brightness matches. */
-static constexpr float k_clock_face_hsv_s = 0.75f;
-static constexpr float k_clock_face_hsv_v = 0.14f;
+/** Face fill hsl(hue, 45%, 8%) via HSV helper. */
+static constexpr float k_clock_face_hsv_s = 0.45f;
+static constexpr float k_clock_face_hsv_v = 0.08f;
 
 static void draw_hand_radial(int cx, int cy, float ang, int len, uint16_t col, int half_w) {
   if (len < 1) {

@@ -11,6 +11,7 @@
 #include "faces/classic_analog/pm_face_classic_analog.h"
 #include "faces/digital/pm_face_digital.h"
 #include "faces/moon/pm_face_moon.h"
+#include "faces/shared/pm_circadian_hue.h"
 #include "faces/shared/pm_face_draw.h"
 #include "faces/spotify/pm_face_spotify.h"
 #include "pm_config.h"
@@ -43,10 +44,10 @@ void pm_faces_draw(float thinking_progress) {
     pm_time_local(&tm);
     sec_of_day_for_hue = tm.tm_hour * 3600 + tm.tm_min * 60 + tm.tm_sec;
   }
-  const float hue =
-      pm_time_valid() ? static_cast<float>(sec_of_day_for_hue) * (360.0f / 86400.0f)
-                       : fmodf(static_cast<float>(millis()) * 0.0015f, 360.0f);
-  const uint16_t bg_hsv = pm_face_color565_from_hsv(pm_gfx, hue, pm_face_hsv_s, pm_face_hsv_v);
+  const float hue = pm_time_valid()
+                        ? pm_circadian_hue_from_seconds(static_cast<float>(sec_of_day_for_hue))
+                        : fmodf(static_cast<float>(millis()) * 0.0015f, 360.0f);
+  const uint16_t bg_hsv = pm_face_color565_from_hsl(pm_gfx, hue, pm_face_hsl_bg_s, pm_face_hsl_bg_l);
   const uint16_t bg = bg_hsv;
   if (s_clock_face != ClockFace::CalciferCountdown) {
     pm_gfx->fillScreen(bg);

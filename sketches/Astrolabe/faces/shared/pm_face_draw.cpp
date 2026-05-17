@@ -5,6 +5,41 @@
 #include "pm_display.h"
 #include "pm_wifi_ntp.h"
 
+uint16_t pm_face_color565_from_hsl(Arduino_GFX *out, float h_deg, float s, float l) {
+  h_deg = fmodf(h_deg, 360.0f);
+  if (h_deg < 0) {
+    h_deg += 360.0f;
+  }
+  const float c = (1.0f - fabsf(2.0f * l - 1.0f)) * s;
+  const float hp = h_deg / 60.0f;
+  const float x = c * (1.0f - fabsf(fmodf(hp, 2.0f) - 1.0f));
+  const float m = l - c * 0.5f;
+  float rp = 0, gp = 0, bp = 0;
+  if (h_deg < 60.0f) {
+    rp = c;
+    gp = x;
+  } else if (h_deg < 120.0f) {
+    rp = x;
+    gp = c;
+  } else if (h_deg < 180.0f) {
+    gp = c;
+    bp = x;
+  } else if (h_deg < 240.0f) {
+    gp = x;
+    bp = c;
+  } else if (h_deg < 300.0f) {
+    rp = x;
+    bp = c;
+  } else {
+    rp = c;
+    bp = x;
+  }
+  const uint8_t r = static_cast<uint8_t>((rp + m) * 255.0f);
+  const uint8_t gv = static_cast<uint8_t>((gp + m) * 255.0f);
+  const uint8_t b = static_cast<uint8_t>((bp + m) * 255.0f);
+  return out->color565(r, gv, b);
+}
+
 uint16_t pm_face_color565_from_hsv(Arduino_GFX *out, float h_deg, float s, float v) {
   h_deg = fmodf(h_deg, 360.0f);
   if (h_deg < 0) {
@@ -187,13 +222,13 @@ void pm_face_draw_circumference_rainbow_24h(bool valid) {
     }
     float hue_deg;
     if (valid) {
-      /** `af` = 0 at top → midnight; same mapping as `sec_of_day * (360/86400)` on the face. */
+      /** `af` = 0 at top → midnight; same circadian keyframes as the face fill. */
       const float sec_of_day = af * (86400.f / pm_face_k_two_pi);
-      hue_deg = wrap360(sec_of_day * (360.f / 86400.f));
+      hue_deg = pm_circadian_hue_from_seconds(sec_of_day);
     } else {
       hue_deg = wrap360(af * (360.f / pm_face_k_two_pi) + fmodf(static_cast<float>(millis()) * 0.025f, 360.f));
     }
-    const uint16_t col = pm_face_color565_from_hsv(pm_gfx, hue_deg, pm_face_hsv_s, pm_face_hsv_v);
+    const uint16_t col = pm_face_color565_from_hsl(pm_gfx, hue_deg, pm_face_hsl_rim_s, pm_face_hsl_rim_l);
     pm_face_draw_radial_annulus_slice(cx, cy, amid, r_inner, r_outer, col, k_half_w);
   }
 }
