@@ -4,6 +4,9 @@
 #include <stdint.h>
 #include <time.h>
 
+/** Launches shown on the launch-clock face and dial. */
+static constexpr int kPmRocketMaxLaunches = 6;
+
 struct PmRocketLaunch {
   bool valid = false;
   char name[72];
@@ -17,9 +20,13 @@ struct PmRocketLaunch {
 
 struct PmRocketStatus {
   bool ok = false;
-  PmRocketLaunch upcoming;
+  int count = 0;
+  PmRocketLaunch launches[kPmRocketMaxLaunches];
   char error[96];
 };
 
-/** GET Launch Library 2 upcoming launches; picks the next non-past event. Blocking. */
+/** GET Launch Library 2 upcoming launches (next ~2 weeks). Blocking. */
 bool pm_rocket_fetch(PmRocketStatus *out);
+
+/** First valid launch in `status`, or nullptr. */
+const PmRocketLaunch *pm_rocket_next(const PmRocketStatus *status);
