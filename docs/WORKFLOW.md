@@ -135,6 +135,32 @@ GitHub **cloud** runners cannot see USB. To flash in CI, register a [self-hosted
 
 Local equivalent: `./scripts/ci-flash.sh`
 
+### Hardware QA on this laptop (JTAG + issue screenshot)
+
+Register the Mac as a self-hosted runner (watch on USB, Wi‑Fi secrets on disk):
+
+```bash
+./scripts/setup-self-hosted-runner.sh
+cd ~/actions-runner-astrolabe && ./run.sh
+```
+
+**Actions → Firmware hardware QA** — inputs: `issue_number`, `face` (default `moon`). The job:
+
+1. Builds/uploads **`waveshare_s3_175_debug`**
+2. **JTAG** sets the clock face (`./scripts/jtag_set_face.sh`)
+3. Captures **`http://<watch-ip>/screen.bmp`**
+4. Posts a **PNG** to the issue comment (via public gist)
+
+Local run:
+
+```bash
+ASTROLABE_QA_FACE=moon ASTROLABE_QA_ISSUE=2 ./scripts/ci-hardware-qa.sh
+```
+
+Secrets: `include/secrets.local.h` on the laptop (`ASTROLABE_SECRETS_FILE`) or GitHub Actions secrets `MYNAH_WIFI_*` / `MYNAH_SUPABASE_*`.
+
+Optional repo variables: `ENABLE_INTEGRATION_HW_QA=true`, `ASTROLABE_QA_ISSUE=2`, `ASTROLABE_QA_FACE=moon` for auto QA after build.
+
 ### Suggested labels (optional)
 
 - `cloud-agent` — ready for `@cursor` (criteria complete, branch name in issue body)
