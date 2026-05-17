@@ -9,6 +9,7 @@
 #include "pm_wifi_creds.h"
 
 static constexpr uint32_t kWifiTimeoutMs = 20000;
+static volatile bool s_wifi_reconnect_pending = false;
 
 bool pm_wifi_begin() {
   char ssid[64];
@@ -27,6 +28,18 @@ bool pm_wifi_begin() {
 }
 
 bool pm_wifi_connected() { return WiFi.status() == WL_CONNECTED; }
+
+void pm_wifi_request_reconnect(void) { s_wifi_reconnect_pending = true; }
+
+bool pm_wifi_tick_reconnect(void) {
+  if (!s_wifi_reconnect_pending) {
+    return false;
+  }
+  s_wifi_reconnect_pending = false;
+  WiFi.disconnect(true);
+  delay(100);
+  return pm_wifi_begin();
+}
 
 static void ntp_start() {
   setenv("TZ", "UTC0", 1);

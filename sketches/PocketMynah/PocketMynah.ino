@@ -1960,6 +1960,7 @@ void setup() {
 
 void loop() {
   pm_screen_http_loop();
+  (void)pm_wifi_tick_reconnect();
   const uint32_t now = millis();
   poll_serial_birth_commands();
   const uint8_t side_ev = pm_side_buttons_poll(now);
