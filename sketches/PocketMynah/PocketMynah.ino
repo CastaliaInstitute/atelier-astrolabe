@@ -26,6 +26,7 @@
 #include "pm_castalia_auth.h"
 #include "pm_calcifer.h"
 #include "pm_astro_highlight.h"
+#include "pm_circadian_hue.h"
 
 Arduino_DataBus *bus = new Arduino_ESP32QSPI(
     LCD_CS, LCD_SCLK, LCD_SDIO0, LCD_SDIO1, LCD_SDIO2, LCD_SDIO3);
@@ -952,7 +953,74 @@ static void draw_radial_annulus_slice(int cx, int cy, float ang, int r0, int r1,
   }
 }
 
-/** 24h rim: outermost band; hue(sec of day) matches face fill (same formula as draw_clock_face). */
+static void draw_charging_ripples_on_rainbow_rim(int cx, int cy, int r_inner, int r_outer, bool valid) {
+  if (!pm_pmu_charging()) {
+    return;
+  }
+
+  auto wrap360 = [](float d) {
+    d = fmodf(d, 360.0f);
+    if (d < 0.f) {
+      d += 360.0f;
+    }
+    return d;
+  };
+
+  constexpr int k_steps = 92;
+  constexpr int k_half_w = 3;
+  const float a0 = kPi * 0.5f - 0.82f;
+  const float a1 = kPi * 0.5f + 0.82f;
+  const float phase = fmodf(static_cast<float>(millis()) * 0.00042f, 1.f);
+
+  for (int i = 0; i < k_steps; ++i) {
+    const float u = static_cast<float>(i) / static_cast<float>(k_steps - 1);
+    float envelope = 1.f - fabsf(u - 0.5f) * 1.65f;
+    if (envelope <= 0.f) {
+      continue;
+    }
+    if (envelope > 1.f) {
+      envelope = 1.f;
+    }
+
+    float wave = 0.f;
+    for (int j = 0; j < 3; ++j) {
+      float center = phase + static_cast<float>(j) * 0.34f;
+      center -= floorf(center);
+      float d = fabsf(u - center);
+      if (d > 0.5f) {
+        d = 1.f - d;
+      }
+      float pulse = 1.f - d / 0.095f;
+      if (pulse > wave) {
+        wave = pulse;
+      }
+    }
+
+    const float intensity = wave * envelope;
+    if (intensity < 0.10f) {
+      continue;
+    }
+
+    const float ang = a0 + (a1 - a0) * u;
+    float af = ang + kPi * 0.5f;
+    af = fmodf(af, kTwoPi);
+    if (af < 0.f) {
+      af += kTwoPi;
+    }
+
+    const float hue_deg = valid ? wrap360(af * (360.f / kTwoPi))
+                                : wrap360(af * (360.f / kTwoPi) +
+                                          fmodf(static_cast<float>(millis()) * 0.025f, 360.f));
+    const float sat = 0.58f - intensity * 0.18f;
+    const float val = 0.18f + intensity * 0.20f;
+    const uint16_t col = color565FromHsv(gfx, hue_deg, sat, val);
+    const int radial_wobble =
+        static_cast<int>(lrintf(sinf(static_cast<float>(millis()) * 0.006f + u * kPi * 5.f)));
+    draw_radial_annulus_slice(cx, cy, ang, r_inner - 1 + radial_wobble, r_outer + 1, col, k_half_w);
+  }
+}
+
+/** 24h rim: outermost band; hue(sec of day) matches face fill. */
 static void draw_circumference_rainbow_24h(bool valid) {
   const int cx = LCD_WIDTH / 2;
   const int cy = LCD_HEIGHT / 2;
@@ -981,15 +1049,16 @@ static void draw_circumference_rainbow_24h(bool valid) {
     }
     float hue_deg;
     if (valid) {
-      /** `af` = 0 at top → midnight; same mapping as `sec_of_day * (360/86400)` on the face. */
+      /** `af` = 0 at top → midnight; same circadian keyframes as the face fill. */
       const float sec_of_day = af * (86400.f / kTwoPi);
-      hue_deg = wrap360(sec_of_day * (360.f / 86400.f));
+      hue_deg = pm_circadian_hue_from_seconds(sec_of_day);
     } else {
       hue_deg = wrap360(af * (360.f / kTwoPi) + fmodf(static_cast<float>(millis()) * 0.025f, 360.f));
     }
     const uint16_t col = color565FromHsv(gfx, hue_deg, k_clock_face_hsv_s, k_clock_face_hsv_v);
     draw_radial_annulus_slice(cx, cy, amid, r_inner, r_outer, col, k_half_w);
   }
+  draw_charging_ripples_on_rainbow_rim(cx, cy, r_inner, r_outer, valid);
 }
 
 static void voice_last_play_clear() {
@@ -1108,9 +1177,8 @@ static void draw_clock_face(float thinking_progress = -1.f) {
     pm_time_local(&tm);
     sec_of_day_for_hue = tm.tm_hour * 3600 + tm.tm_min * 60 + tm.tm_sec;
   }
-  const float hue =
-      pm_time_valid() ? static_cast<float>(sec_of_day_for_hue) * (360.0f / 86400.0f)
-                       : fmodf(static_cast<float>(millis()) * 0.0015f, 360.0f);
+  const float hue = pm_time_valid() ? pm_circadian_hue_from_seconds(static_cast<float>(sec_of_day_for_hue))
+                                    : fmodf(static_cast<float>(millis()) * 0.0015f, 360.0f);
   const uint16_t bg_hsv = color565FromHsv(gfx, hue, k_clock_face_hsv_s, k_clock_face_hsv_v);
   const uint16_t bg = bg_hsv;
   gfx->fillScreen(bg);
@@ -1493,10 +1561,15 @@ void loop() {
       static char s_prev_banner[44] = "";
       static uint32_t s_last_ntp_retry_wall = 0;
       static uint32_t s_last_no_time_redraw = 0;
+      static bool s_prev_charging = false;
+      static uint32_t s_last_charge_ripple_paint = 0;
 
       const bool wifi = pm_wifi_connected();
       const bool valid = pm_time_valid();
       const time_t epoch = time(nullptr);
+      const bool charging = pm_pmu_charging();
+      const bool charging_chg = charging != s_prev_charging;
+      s_prev_charging = charging;
 
       struct tm tm_now = {};
       if (valid) {
@@ -1559,13 +1632,20 @@ void loop() {
           sec_tick && g_clock_face != ClockFace::Castalia && g_clock_face != ClockFace::CalciferCountdown;
       const bool calcifer_sec =
           g_clock_face == ClockFace::CalciferCountdown && valid && sec_tick;
+      const bool face_has_rim = g_clock_face != ClockFace::Castalia;
+      const bool charging_ripple_frame =
+          charging && face_has_rim && (now - s_last_charge_ripple_paint >= 160u);
       const bool full_paint = !s_clock_paint_inited || slow_no_time || banner_chg || wifi_chg ||
                               g_clock_repaint_pending || local_hm_chg || spotify_stale || calcifer_stale ||
-                              sec_tick_paint || calcifer_sec || astro_repaint;
+                              sec_tick_paint || calcifer_sec || astro_repaint || charging_chg ||
+                              charging_ripple_frame;
 
       if (full_paint) {
         s_clock_paint_inited = true;
         g_clock_repaint_pending = false;
+        if (charging && face_has_rim) {
+          s_last_charge_ripple_paint = now;
+        }
         if (valid) {
           s_prev_epoch = epoch;
         }

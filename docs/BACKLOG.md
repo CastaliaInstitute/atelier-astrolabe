@@ -132,6 +132,8 @@ Derived from [README limits](../README.md#limits-mvp) and [open questions](pocke
 
 ## Done
 
+- [x] **2026-05-17** Auth docs: README explains anon bearer vs Castalia JWT for voice, commonplace, and Calcifer. Closes [#5](https://github.com/CastaliaInstitute/astrolabe/issues/5)
+- [x] **2026-05-17** Moon face UX: swipe cycles faces; removed phase label and footer hints. Closes [#1](https://github.com/CastaliaInstitute/astrolabe/issues/1)
 - [x] **2026-05-16** Commonplace journal from hue home (PWR hold → `mynah-pocket-journal` via `pm_commonplace`)
 - [x] **2026-05-16** Hue-only home face (`MYNAH_HUE_HOME_ONLY`); astrology planet + zodiac glyphs on chart
 - [x] **2026-05-16** Voice UX: PWR STT + inward waves; BOOT TTS replay + outward waves; last-reply cache
