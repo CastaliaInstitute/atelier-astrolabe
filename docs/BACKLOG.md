@@ -18,8 +18,6 @@ Edit this file when you start or finish work. Keep **In progress** to 1–3 item
 
 ## In progress
 
-- [~] **P1** Astrology / transits face: full-screen chart + planet/sign icons
-
 ---
 
 ## Features
@@ -75,7 +73,7 @@ Derived from [README limits](../README.md#limits-mvp) and [open questions](pocke
 - [x] **P1** Voice: handle `voice-pipeline` responses without `audioBase64` (plain `ask-faculty`-only)
 - [ ] **P1** Auth: document anon-only vs signed-in behavior in README once Castalia flow is stable
 - [x] **P1** Classic analog clock face: center dial on round display and use full-screen safe area (466×466); fix layout/offset in `PocketMynah.ino` analog draw path
-- [ ] **P1** Astrology / transits face (`draw_astrology_face`, `pm_transit`): full-screen chart (maximize wheel on 466×466, trim or relocate title/date/footer chrome); replace text labels (`ARI`…`PIS`, `pm_ephem_body_label` abbreviations) with bitmap icons for zodiac signs and planets (GFX sprites or minimal glyph set in flash)
+- [x] **P1** Astrology / transits face (`draw_astrology_face`, `pm_transit`): full-screen chart (maximize wheel on 466×466, trim or relocate title/date/footer chrome); replace text labels (`ARI`…`PIS`, `pm_ephem_body_label` abbreviations) with bitmap icons for zodiac signs and planets (GFX sprites or minimal glyph set in flash)
 - [x] **P1** Remove gesture debug labels (e.g. swipe up/down banners on clock face); drop or gate `g_gesture_banner` / `pm_gesture` debug UI for production
 - [ ] **P2** Clock faces: local timezone (NTP + geo or user setting); README currently notes UTC-only
 - [x] **P2** Voice: raise or stream around HTTP body/response caps in `pm_voice.cpp` for long TTS
@@ -88,6 +86,7 @@ Derived from [README limits](../README.md#limits-mvp) and [open questions](pocke
 
 ## Done
 
+- [x] **2026-05-17** Astrology / transits face polish: full-screen glyph wheel, reduced voice chrome, optional aspect lines, Castalia ephemeris fetch fallback — [PR #10](https://github.com/CastaliaInstitute/astrolabe/pull/10)
 - [x] **2026-05-16** Voice UX: PWR STT + inward waves; BOOT TTS replay + outward waves; last-reply cache
 - [x] **2026-05-16** Moon phase clock face; README serial/JTAG bring-up notes
 - [x] **2026-05-16** Castalia QR sign-in + NVS session JWT; voice/Spotify use `pm_castalia_auth_apply_headers`
