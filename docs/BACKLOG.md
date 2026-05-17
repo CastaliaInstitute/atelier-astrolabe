@@ -26,16 +26,7 @@ Edit this file when you start or finish work. Keep **In progress** to 1–3 item
 
 ## In progress
 
-**Cloud agents running** (2026-05-17):
-
-| Issue | Agent |
-|-------|--------|
-| [#2](https://github.com/CastaliaInstitute/astrolabe/issues/2) Circadian hue | [bc-56e8e535…](https://cursor.com/agents/bc-56e8e535-1f4c-4075-936d-1c791ccd4dba) |
-| [#5](https://github.com/CastaliaInstitute/astrolabe/issues/5) Auth README | [bc-bcadff88…](https://cursor.com/agents/bc-bcadff88-8af9-434e-8de9-682efd5e0044) |
-| [#4](https://github.com/CastaliaInstitute/astrolabe/issues/4) Charging ripples | [bc-c79d3569…](https://cursor.com/agents/bc-c79d3569-0a37-431f-a404-1234977dbd6e) |
-| [#3](https://github.com/CastaliaInstitute/astrolabe/issues/3) Astrology polish | [bc-a88b79e1…](https://cursor.com/agents/bc-a88b79e1-ef59-4811-bcb5-dafad95e3f43) |
-
-Poll: `./scripts/cloud-agent.sh --agent <id> --status` · **Local:** [#1](https://github.com/CastaliaInstitute/astrolabe/issues/1) Moon UX on `fix/1-moon-face-ux` → open PR manually.
+_(none — cloud agent batch merged to `integration` 2026-05-17)_
 
 ---
 
@@ -132,6 +123,9 @@ Derived from [README limits](../README.md#limits-mvp) and [open questions](pocke
 
 ## Done
 
+- [x] **2026-05-17** Astrology face polish: ephemeris fetch + glyph wheel. Closes [#3](https://github.com/CastaliaInstitute/astrolabe/issues/3)
+- [x] **2026-05-17** Charging ripples on rainbow rim when USB-C. Closes [#4](https://github.com/CastaliaInstitute/astrolabe/issues/4)
+- [x] **2026-05-17** Circadian 24h hue keyframes (`pm_circadian_hue`). Closes [#2](https://github.com/CastaliaInstitute/astrolabe/issues/2)
 - [x] **2026-05-17** Auth docs: README explains anon bearer vs Castalia JWT for voice, commonplace, and Calcifer. Closes [#5](https://github.com/CastaliaInstitute/astrolabe/issues/5)
 - [x] **2026-05-17** Moon face UX: swipe cycles faces; removed phase label and footer hints. Closes [#1](https://github.com/CastaliaInstitute/astrolabe/issues/1)
 - [x] **2026-05-16** Commonplace journal from hue home (PWR hold → `mynah-pocket-journal` via `pm_commonplace`)
