@@ -9,3 +9,6 @@
  * @return false if no usable SSID after all fallbacks.
  */
 bool pm_wifi_credentials_load(char *ssid, size_t ssid_sz, char *pass, size_t pass_sz);
+
+/** Persist SSID/password to NVS (does not reconnect). */
+bool pm_wifi_credentials_save(const char *ssid, const char *pass);

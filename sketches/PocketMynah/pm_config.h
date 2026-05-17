@@ -38,3 +38,13 @@
 #ifndef MYNAH_CALCIFER_POLL_MS
 #define MYNAH_CALCIFER_POLL_MS 45000u
 #endif
+
+/** 1 = draw major aspect chords on the Astrology face; set 0 for a quieter wheel. */
+#ifndef MYNAH_ASTROLOGY_ASPECT_LINES
+#define MYNAH_ASTROLOGY_ASPECT_LINES 1
+#endif
+
+/** 1 = try Castalia `ephemeris` Edge Function before falling back to local approximations. */
+#ifndef MYNAH_ASTROLOGY_REMOTE_EPHEMERIS
+#define MYNAH_ASTROLOGY_REMOTE_EPHEMERIS 1
+#endif

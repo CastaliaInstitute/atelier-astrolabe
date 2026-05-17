@@ -13,7 +13,7 @@ Each face is a self-contained module under `faces/<name>/`. The app shell (`Astr
 | `spotify/` | Now playing + transport bar |
 | `astrology/` | Transit wheel, zodiac glyphs, voice chart |
 | `moon/` | Phase disk, texture, daily fortune |
-| `calcifer/` | CalDAV countdown |
+| `calcifer/` | Hue Daywheel (rolling 12h hue ring + event wedges + CalDAV) |
 | `castalia/` | Sign-in QR |
 
 ## Public API per face

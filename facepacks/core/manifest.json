@@ -1,0 +1,12 @@
+{
+  "package_id": "castalia.mynah.faces.core",
+  "version": "0.4.2",
+  "runtime_min": "0.8.0",
+  "runtime_max": "0.9.x",
+  "runtime_api": 3,
+  "face_schema": 2,
+  "signature": {
+    "algorithm": "none",
+    "key_id": "dev"
+  }
+}

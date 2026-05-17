@@ -48,7 +48,9 @@ void pm_faces_draw(float thinking_progress) {
                        : fmodf(static_cast<float>(millis()) * 0.0015f, 360.0f);
   const uint16_t bg_hsv = pm_face_color565_from_hsv(pm_gfx, hue, pm_face_hsv_s, pm_face_hsv_v);
   const uint16_t bg = bg_hsv;
-  pm_gfx->fillScreen(bg);
+  if (s_clock_face != ClockFace::CalciferCountdown) {
+    pm_gfx->fillScreen(bg);
+  }
 
   switch (s_clock_face) {
     case ClockFace::ClassicAnalog:
@@ -88,8 +90,9 @@ void pm_faces_draw(float thinking_progress) {
     pm_face_draw_centered_line(g_gesture_banner, banner_y, pm_gfx->color565(255, 220, 160), 1, 1);
   }
 
-  /** Rainbow annulus last (Moon draws its own; skip Castalia — QR repaint was tripping WDT/stack). */
-  if (s_clock_face != ClockFace::Castalia && s_clock_face != ClockFace::Moon) {
+  /** Rainbow annulus last (Moon/Daywheel draw their own; skip Castalia — QR repaint was tripping WDT/stack). */
+  if (s_clock_face != ClockFace::Castalia && s_clock_face != ClockFace::Moon &&
+      s_clock_face != ClockFace::CalciferCountdown) {
     pm_face_draw_circumference_rainbow_24h(pm_time_valid());
     if (thinking_progress >= 0.f) {
       pm_face_draw_thinking_progress_ring(thinking_progress);

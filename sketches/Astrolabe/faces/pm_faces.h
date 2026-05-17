@@ -12,7 +12,7 @@ enum class ClockFace : uint8_t {
   Astrology,
   /** Lunar phase disk; tap = daily fortune, PWR hold = ask, BOOT = replay last TTS. */
   Moon,
-  /** CalDAV block countdown via `calcifer-status`. */
+  /** Hue Daywheel — rolling 12h calendar via `calcifer-status`. */
   CalciferCountdown,
   /** QR → castalia.institute Google sign-in; tokens stored on watch for Edge Functions. */
   Castalia,

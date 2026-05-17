@@ -1,12 +1,14 @@
 #include "pm_castalia_auth.h"
 
 #include <HTTPClient.h>
+#include <JPEGDEC.h>
 #include <Preferences.h>
 #include <WiFiClientSecure.h>
 #include <cstring>
 #include <ctime>
 
 #include "Arduino_GFX_Library.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -55,7 +57,18 @@ static constexpr uint32_t kCastaliaNetTaskStack = 32768;
 static TaskHandle_t s_net_task = nullptr;
 static volatile bool s_net_done = false;
 static volatile bool s_net_ok = false;
-static volatile uint8_t s_net_op = 0; /** 1 = pair start, 2 = poll, 3 = refresh session */
+static volatile uint8_t s_net_op = 0; /** 1 = pair start, 2 = poll, 3 = refresh session, 4 = profile */
+
+static char s_profile_name[64] = "";
+static char s_profile_initials[4] = "";
+static char s_profile_avatar_url[384] = "";
+static bool s_profile_fetch_pending = false;
+static bool s_profile_fetching = false;
+static bool s_profile_name_ready = false;
+static bool s_profile_avatar_ready = false;
+static uint16_t *s_profile_avatar_fb = nullptr;
+static int s_profile_avatar_w = 0;
+static int s_profile_avatar_h = 0;
 
 static char s_poll_enc_id[80];
 static char s_poll_enc_sec[160];
@@ -95,6 +108,103 @@ static bool extract_json_string_field(const char *json, const char *key, char *o
   }
   out[o] = '\0';
   return true;
+}
+
+static void profile_compute_initials(const char *name) {
+  s_profile_initials[0] = '\0';
+  if (!name || !name[0]) {
+    return;
+  }
+  char a = 0;
+  char b = 0;
+  bool in_word = false;
+  for (const char *p = name; *p && !b; ++p) {
+    const unsigned char c = static_cast<unsigned char>(*p);
+    const bool alnum =
+        (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9');
+    if (alnum) {
+      if (!in_word) {
+        in_word = true;
+        const char up = (c >= 'a' && c <= 'z') ? static_cast<char>(c - 'a' + 'A') : static_cast<char>(c);
+        if (!a) {
+          a = up;
+        } else if (!b) {
+          b = up;
+        }
+      }
+    } else {
+      in_word = false;
+    }
+  }
+  if (!a) {
+    return;
+  }
+  if (!b) {
+    b = a;
+  }
+  s_profile_initials[0] = a;
+  s_profile_initials[1] = b;
+  s_profile_initials[2] = '\0';
+}
+
+static bool profile_pick_name_from_user_json(const char *json, char *out, size_t out_cap) {
+  if (!json || !out || out_cap < 2) {
+    return false;
+  }
+  if (extract_json_string_field(json, "full_name", out, out_cap) && out[0]) {
+    return true;
+  }
+  if (extract_json_string_field(json, "name", out, out_cap) && out[0]) {
+    return true;
+  }
+  if (extract_json_string_field(json, "email", out, out_cap) && out[0]) {
+    char *at = strchr(out, '@');
+    if (at) {
+      *at = '\0';
+    }
+    return out[0] != '\0';
+  }
+  return false;
+}
+
+static bool profile_pick_avatar_url(const char *json, char *out, size_t out_cap) {
+  if (!json || !out || out_cap < 8) {
+    return false;
+  }
+  if (extract_json_string_field(json, "avatar_url", out, out_cap) && out[0]) {
+    return true;
+  }
+  if (extract_json_string_field(json, "picture", out, out_cap) && out[0]) {
+    return true;
+  }
+  return false;
+}
+
+static void profile_free_avatar_fb() {
+  if (s_profile_avatar_fb) {
+    free(s_profile_avatar_fb);
+    s_profile_avatar_fb = nullptr;
+  }
+  s_profile_avatar_w = 0;
+  s_profile_avatar_h = 0;
+  s_profile_avatar_ready = false;
+}
+
+void pm_castalia_profile_clear() {
+  s_profile_name[0] = '\0';
+  s_profile_initials[0] = '\0';
+  s_profile_avatar_url[0] = '\0';
+  s_profile_name_ready = false;
+  s_profile_fetch_pending = false;
+  s_profile_fetching = false;
+  profile_free_avatar_fb();
+}
+
+static void profile_request_fetch() {
+  if (!pm_castalia_has_session()) {
+    return;
+  }
+  s_profile_fetch_pending = true;
 }
 
 static bool extract_json_long_field(const char *json, const char *key, long *out) {
@@ -203,6 +313,7 @@ static void prefs_clear_session() {
   s_access[0] = '\0';
   s_refresh[0] = '\0';
   s_expires_at_ms = 0;
+  pm_castalia_profile_clear();
 }
 
 static bool wall_time_ok() {
@@ -382,6 +493,7 @@ static bool pm_castalia_encode_qr_cache() {
 
 static bool castalia_pair_start_http();
 static bool pm_castalia_poll_pairing();
+static bool castalia_fetch_profile_http();
 
 static void castalia_net_task(void *arg) {
   (void)arg;
@@ -395,6 +507,9 @@ static void castalia_net_task(void *arg) {
     } else if (op == 3) {
       pm_castalia_auth_init();
       s_net_ok = refresh_session_http();
+    } else if (op == 4) {
+      pm_castalia_auth_init();
+      s_net_ok = castalia_fetch_profile_http();
     } else {
       s_net_ok = false;
     }
@@ -512,6 +627,187 @@ static bool http_get_text(const char *url, char *resp, size_t resp_cap) {
   return ok;
 }
 
+static bool http_get_authed(const char *url, char *resp, size_t resp_cap) {
+  WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient http;
+  http.setTimeout(kCastaliaHttpTimeoutMs);
+  if (!http.begin(client, url)) {
+    return false;
+  }
+  pm_castalia_auth_apply_headers(&http);
+  const int code = http.GET();
+  if (code != 200) {
+    ESP_LOGW(TAG, "GET authed %s -> %d", url, code);
+    http.end();
+    return false;
+  }
+  const bool ok = read_small_json_body(&http, resp, resp_cap);
+  http.end();
+  return ok;
+}
+
+static bool http_download_binary(const char *url, uint8_t **out_buf, size_t *out_len) {
+  if (!out_buf || !out_len) {
+    return false;
+  }
+  *out_buf = nullptr;
+  *out_len = 0;
+  WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient http;
+  http.setTimeout(kCastaliaHttpTimeoutMs);
+  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+  if (!http.begin(client, url)) {
+    return false;
+  }
+  const int code = http.GET();
+  const int len = http.getSize();
+  if (code != 200 || len <= 0 || len > 65536) {
+    ESP_LOGW(TAG, "avatar GET %d len %d", code, len);
+    http.end();
+    return false;
+  }
+  uint8_t *buf = static_cast<uint8_t *>(
+      heap_caps_malloc(static_cast<size_t>(len), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  if (!buf) {
+    buf = static_cast<uint8_t *>(malloc(static_cast<size_t>(len)));
+  }
+  if (!buf) {
+    http.end();
+    return false;
+  }
+  WiFiClient *stream = http.getStreamPtr();
+  size_t rd = 0;
+  const uint32_t deadline = millis() + kCastaliaBodyReadMs;
+  while (rd < static_cast<size_t>(len)) {
+    const int avail = stream->available();
+    if (avail > 0) {
+      const int n = stream->readBytes(buf + rd, static_cast<size_t>(len) - rd);
+      if (n > 0) {
+        rd += static_cast<size_t>(n);
+        continue;
+      }
+    }
+    if (!http.connected() && stream->available() == 0) {
+      break;
+    }
+    if (static_cast<int32_t>(millis() - deadline) >= 0) {
+      break;
+    }
+    yield();
+    delay(1);
+  }
+  http.end();
+  if (rd < 8) {
+    free(buf);
+    return false;
+  }
+  *out_buf = buf;
+  *out_len = rd;
+  return true;
+}
+
+static int profile_jpeg_draw(JPEGDRAW *pDraw) {
+  if (!s_profile_avatar_fb || s_profile_avatar_w <= 0 || s_profile_avatar_h <= 0 || !pDraw) {
+    return 0;
+  }
+  for (int row = 0; row < pDraw->iHeight; ++row) {
+    uint16_t *dst = s_profile_avatar_fb + (pDraw->y + row) * s_profile_avatar_w + pDraw->x;
+    const uint16_t *src = pDraw->pPixels + row * pDraw->iWidth;
+    memcpy(dst, src, static_cast<size_t>(pDraw->iWidth) * sizeof(uint16_t));
+  }
+  return 1;
+}
+
+static bool profile_decode_avatar_jpeg(const uint8_t *data, size_t len) {
+  profile_free_avatar_fb();
+  JPEGDEC jpg;
+  if (jpg.openRAM(const_cast<uint8_t *>(data), static_cast<int>(len), profile_jpeg_draw) != 1) {
+    return false;
+  }
+  const int w = jpg.getWidth();
+  const int h = jpg.getHeight();
+  if (w <= 0 || h <= 0 || w > 256 || h > 256) {
+    jpg.close();
+    return false;
+  }
+  s_profile_avatar_w = w;
+  s_profile_avatar_h = h;
+  const size_t px = static_cast<size_t>(w) * static_cast<size_t>(h);
+  s_profile_avatar_fb = static_cast<uint16_t *>(
+      heap_caps_malloc(px * sizeof(uint16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  if (!s_profile_avatar_fb) {
+    s_profile_avatar_fb = static_cast<uint16_t *>(malloc(px * sizeof(uint16_t)));
+  }
+  if (!s_profile_avatar_fb) {
+    jpg.close();
+    profile_free_avatar_fb();
+    return false;
+  }
+  memset(s_profile_avatar_fb, 0, px * sizeof(uint16_t));
+  jpg.setPixelType(RGB565_BIG_ENDIAN);
+  if (jpg.decode(0, 0, 0) != 1) {
+    jpg.close();
+    profile_free_avatar_fb();
+    return false;
+  }
+  jpg.close();
+  s_profile_avatar_ready = true;
+  return true;
+}
+
+static bool castalia_fetch_profile_http() {
+  if (s_refresh[0] == '\0' || strlen(MYNAH_SUPABASE_URL) == 0) {
+    return false;
+  }
+  if (access_token_stale() || access_token_dead()) {
+    if (!refresh_session_http()) {
+      return false;
+    }
+  }
+  char base[160];
+  strncpy(base, MYNAH_SUPABASE_URL, sizeof(base) - 1);
+  base[sizeof(base) - 1] = '\0';
+  trim_supabase_url(base, sizeof(base));
+  char url[220];
+  snprintf(url, sizeof(url), "%s/auth/v1/user", base);
+  if (!http_get_authed(url, s_http_json_buf, sizeof(s_http_json_buf))) {
+    ESP_LOGW(TAG, "profile user fetch failed");
+    return false;
+  }
+  char name[sizeof(s_profile_name)] = "";
+  if (!profile_pick_name_from_user_json(s_http_json_buf, name, sizeof(name))) {
+    ESP_LOGW(TAG, "profile name missing in user JSON");
+    return false;
+  }
+  strncpy(s_profile_name, name, sizeof(s_profile_name) - 1);
+  s_profile_name[sizeof(s_profile_name) - 1] = '\0';
+  profile_compute_initials(s_profile_name);
+  s_profile_name_ready = true;
+
+  char avatar_url[sizeof(s_profile_avatar_url)] = "";
+  if (profile_pick_avatar_url(s_http_json_buf, avatar_url, sizeof(avatar_url))) {
+    strncpy(s_profile_avatar_url, avatar_url, sizeof(s_profile_avatar_url) - 1);
+    s_profile_avatar_url[sizeof(s_profile_avatar_url) - 1] = '\0';
+    char fetch_url[sizeof(s_profile_avatar_url) + 16];
+    snprintf(fetch_url, sizeof(fetch_url), "%s", s_profile_avatar_url);
+    if (strstr(fetch_url, "googleusercontent.com") != nullptr && strchr(fetch_url, '?') == nullptr) {
+      strncat(fetch_url, "=s96-c", sizeof(fetch_url) - strlen(fetch_url) - 1);
+    }
+    uint8_t *img = nullptr;
+    size_t img_len = 0;
+    if (http_download_binary(fetch_url, &img, &img_len) && img) {
+      if (!profile_decode_avatar_jpeg(img, img_len)) {
+        ESP_LOGW(TAG, "avatar JPEG decode failed");
+      }
+      free(img);
+    }
+  }
+  snprintf(s_status, sizeof(s_status), "Signed in");
+  return true;
+}
+
 static bool castalia_pair_start_http() {
   char base[160];
   strncpy(base, MYNAH_SUPABASE_URL, sizeof(base) - 1);
@@ -548,6 +844,7 @@ static bool castalia_pair_start_http() {
 void pm_castalia_warmup_after_wifi() {
   pm_castalia_auth_init();
   if (pm_castalia_has_session()) {
+    profile_request_fetch();
     return;
   }
   if (!pm_wifi_connected()) {
@@ -569,7 +866,10 @@ void pm_castalia_on_face_enter() {
   s_last_poll_ms = 0;
 
   if (pm_castalia_has_session()) {
-    snprintf(s_status, sizeof(s_status), "Signed in");
+    snprintf(s_status, sizeof(s_status), s_profile_name_ready ? "Signed in" : "Loading profile…");
+    if (!s_profile_name_ready) {
+      profile_request_fetch();
+    }
     return;
   }
   if (!pm_wifi_connected()) {
@@ -696,7 +996,8 @@ static bool pm_castalia_poll_pairing() {
   s_pair_secret[0] = '\0';
   s_signin_url[0] = '\0';
   invalidate_qr_cache();
-  snprintf(s_status, sizeof(s_status), "Signed in");
+  snprintf(s_status, sizeof(s_status), "Loading profile…");
+  profile_request_fetch();
   return true;
 }
 
@@ -756,4 +1057,65 @@ bool pm_castalia_draw_qr(Arduino_Canvas *gfx, int cx, int cy, int max_px) {
   }
   pm_castalia_note_qr_drawn();
   return true;
+}
+
+const char *pm_castalia_profile_display_name() {
+  return s_profile_name_ready ? s_profile_name : "";
+}
+
+const char *pm_castalia_profile_initials() {
+  return s_profile_initials;
+}
+
+bool pm_castalia_tick_fetch_profile() {
+  if (!s_profile_fetch_pending || s_profile_fetching) {
+    return false;
+  }
+  if (!pm_wifi_connected() || !pm_castalia_has_session()) {
+    s_profile_fetch_pending = false;
+    return false;
+  }
+  s_profile_fetch_pending = false;
+  s_profile_fetching = true;
+  const bool ok = castalia_net_run(4, kCastaliaHttpTimeoutMs + 16000u);
+  s_profile_fetching = false;
+  return ok;
+}
+
+void pm_castalia_draw_profile_avatar(Arduino_Canvas *gfx, int cx, int cy, int r) {
+  if (!gfx || r < 8) {
+    return;
+  }
+  const uint16_t ring = gfx->color565(140, 150, 175);
+  const uint16_t fill = gfx->color565(72, 88, 128);
+  if (s_profile_avatar_ready && s_profile_avatar_fb && s_profile_avatar_w > 0 && s_profile_avatar_h > 0) {
+    const int diam = r * 2;
+    const int r2 = r * r;
+    for (int dy = -r; dy < r; ++dy) {
+      for (int dx = -r; dx < r; ++dx) {
+        if (dx * dx + dy * dy > r2) {
+          continue;
+        }
+        const int sx = (dx + r) * s_profile_avatar_w / diam;
+        const int sy = (dy + r) * s_profile_avatar_h / diam;
+        if (sx >= 0 && sx < s_profile_avatar_w && sy >= 0 && sy < s_profile_avatar_h) {
+          gfx->writePixel(cx + dx, cy + dy, s_profile_avatar_fb[sy * s_profile_avatar_w + sx]);
+        }
+      }
+    }
+    gfx->drawCircle(cx, cy, r, ring);
+    return;
+  }
+  gfx->fillCircle(cx, cy, r, fill);
+  gfx->drawCircle(cx, cy, r, ring);
+  const char *ini = s_profile_initials[0] ? s_profile_initials : "?";
+  gfx->setTextSize(3, 3);
+  int16_t x1 = 0;
+  int16_t y1 = 0;
+  uint16_t tw = 0;
+  uint16_t th = 0;
+  gfx->getTextBounds(ini, 0, 0, &x1, &y1, &tw, &th);
+  gfx->setCursor(cx - static_cast<int>(tw) / 2, cy - static_cast<int>(th) / 2);
+  gfx->setTextColor(gfx->color565(235, 240, 255));
+  gfx->print(ini);
 }

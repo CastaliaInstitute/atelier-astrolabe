@@ -5,6 +5,8 @@
 include/secrets.local.h
 include/secrets.h
 
+sketches/PocketMynah/pm_build_info.h
+
 .pio/
 .pio-build-w175/
 sketches/**/*.ino.cpp

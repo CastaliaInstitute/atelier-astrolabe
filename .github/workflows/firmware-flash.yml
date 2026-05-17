@@ -33,6 +33,7 @@ jobs:
     runs-on: [self-hosted, astrolabe-watch]
     environment: astrolabe-watch
     env:
+      # Avoid parallel jobs clobbering the same /tmp build tree on one runner.
       PLATFORMIO_BUILD_DIR: /tmp/astrolabe-pio-build-${{ github.run_id }}
     if: >-
       github.event_name == 'workflow_dispatch' ||

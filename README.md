@@ -6,7 +6,7 @@ PlatformIO firmware for the Waveshare **[ESP32-S3-Touch-AMOLED-1.75C](https://gi
 
 | Path | Role |
 |------|------|
-| [`sketches/PocketMynah/`](sketches/PocketMynah/) | **WiFi** + **NTP** hue clock faces (analog, Apocalypso, digital, Spotify, **Astrology**, **Moon**, **schedule** countdown, **Castalia** QR); **PWR hold** = STT, **BOOT** = replay last TTS (or CalDAV agenda on analog/digital/schedule); **voice-pipeline** with Castalia JWT. **Gestures**: swipe to change face. |
+| [`sketches/PocketMynah/`](sketches/PocketMynah/) | **WiFi** + **NTP** hue clock faces (analog, Apocalypso, digital, Spotify, **Astrology**, **Moon**, **schedule** countdown, **Castalia** QR, **Settings** LAN config QR, **Version** build info + GitHub QR); **PWR hold** = STT, **BOOT** = replay last TTS (or CalDAV agenda on analog/digital/schedule); **voice-pipeline** with Castalia JWT. **Gestures**: swipe to change face. |
 | [`sketches/01_HelloWorld/`](sketches/01_HelloWorld/) | Minimal display sanity check; set `src_dir` in [`platformio.ini`](platformio.ini) to switch back. |
 | [`lib/waveshare_board_audio/`](lib/waveshare_board_audio/) | Vendor **ES7210** / **ES8311** sources from the Waveshare tree (MIT / Apache-2.0). |
 | [`lib/minimp3/`](lib/minimp3/) | [lieff/minimp3](https://github.com/lieff/minimp3) (public domain) for decoding TTS MP3. |
@@ -43,6 +43,68 @@ Pick the **Espressif CDC** serial device (e.g. macOS `/dev/cu.usbmodem1101`, USB
 2. Set **`MYNAH_WIFI_SSID`**, **`MYNAH_WIFI_PASSWORD`**, **`MYNAH_SUPABASE_URL`**, **`MYNAH_SUPABASE_ANON_KEY`** (same model as Android [`VoicePipelineClient.kt`](../android/app/src/main/java/institute/castalia/mynah/voice/VoicePipelineClient.kt): `Authorization: Bearer <anon>` + `apikey`).
 
 If `secrets.local.h` is missing, the build uses the example file (empty strings): WiFi and voice calls will not work until you add a local secrets file.
+
+## Castalia auth modes
+
+PocketMynah always sends Supabase's anon key as the `apikey` header. The
+`Authorization` bearer is selected by
+[`pm_castalia_auth`](sketches/PocketMynah/pm_castalia_auth.h):
+
+- **Anonymous / not signed in**: `Authorization: Bearer <MYNAH_SUPABASE_ANON_KEY>`.
+  This is the bootstrapping mode used before the watch has a Castalia session.
+- **Signed in**: swipe to the
+  [`Castalia` sign-in face](sketches/PocketMynah/PocketMynah.ino), scan the QR
+  code, and complete Google sign-in on `castalia.institute`. The watch stores the
+  returned Supabase access and refresh tokens in NVS, refreshes stale sessions in
+  the background, and uses `Authorization: Bearer <Castalia JWT>` while the
+  access token is valid.
+- **Refresh failure / expired session**: the auth helper clears unusable session
+  state and falls back to the anon bearer. User-scoped functions may then return
+  `401` or empty/unconfigured data until you sign in again on the Castalia face.
+
+Current service expectations:
+
+| Service | Anonymous mode | Signed-in mode |
+|---------|----------------|----------------|
+| **Voice** (`voice-pipeline`) | Uses the anon bearer for basic anonymous voice requests when the backend allows them. | Sends the Castalia JWT, letting the pipeline identify the Castalia user and use signed-in context. A `401` is shown as "sign in on Castalia face". |
+| **Commonplace** | Use only for public or anonymous flows. Do not write user-owned commonplace data with the anon bearer. | Required for user-owned commonplace reads/writes so Castalia can attach entries to the signed-in account. |
+| **Calcifer** (`calcifer-status` / CalDAV agenda) | Can reach the function but has no user CalDAV configuration; expect unavailable, unconfigured, or `401` responses. | Required for personalized CalDAV countdowns and BOOT spoken agenda briefs. |
+
+## Cycle face
+
+The `Cycle` clock face is an on-device menstrual cycle wellness glance. The full ring maps to
+one configured cycle: day 1 starts at the top anchor, colored bands mark the period estimate,
+fertile/ovulation window, and luteal phase, and the bright marker shows today's position.
+
+Setup stays local in NVS only; there is no cloud sync for cycle data. This is calendar math for
+personal tracking, not a medical device or medical advice.
+
+- Tap the face to log "period started today" from the watch's local date.
+- Swipe up/down on the face to step through cycle length presets (default 28 days).
+- Serial commands:
+  - `cycle` or `cycle status`
+  - `cycle YYYY MM DD`
+  - `cycle today`
+  - `cycle length N`
+  - `cycle period N`
+  - `cycle clear`
+- Web settings (Settings face QR): `/settings/cycle` — last period, cycle/period length, pregnancy due date.
+
+Partner and child birth profiles (up to 8) are editable on the **Settings** face web UI
+(`/settings/family`) and stored in NVS for future synastry faces. Wi‑Fi SSID/password: `/settings/wifi`.
+
+## Development
+
+| Doc | Purpose |
+|-----|---------|
+| [`docs/BACKLOG.md`](docs/BACKLOG.md) | Roadmap |
+| [`docs/WORKFLOW.md`](docs/WORKFLOW.md) | Issues → PR to **`integration`** → promote to **`main`** (build + flash) |
+
+```bash
+./scripts/cloud-agent.sh <issue#>              # Cloud agent → PR to integration
+./scripts/ci-flash.sh                          # build + USB flash (self-hosted CI / local)
+./scripts/promote-integration.sh --flash-ok    # integration → main after flash QA
+```
 
 ## Limits (MVP)
 

@@ -4,6 +4,7 @@
 #include <Arduino_GFX_Library.h>
 #include <Wire.h>
 #include <cstdio>
+#include <cstdarg>
 #include <cmath>
 #include <ctime>
 #include <cstring>
@@ -21,11 +22,21 @@
 #include "pm_voice.h"
 #include "pm_wifi_ntp.h"
 #include "pm_screen_http.h"
+#include "pm_settings.h"
 #include "pm_birth_nvs.h"
 #include "pm_transit.h"
+#include "pm_ephemeris.h"
 #include "pm_castalia_auth.h"
 #include "pm_calcifer.h"
 #include "pm_astro_highlight.h"
+#include "pm_diag.h"
+#include "pm_face_safe.h"
+#include "pm_faces_pack.h"
+#include "pm_ota.h"
+#include "pm_circadian_hue.h"
+#include "pm_cycle_nvs.h"
+#include "pm_moon.h"
+#include "pm_version.h"
 
 Arduino_DataBus *bus = new Arduino_ESP32QSPI(
     LCD_CS, LCD_SCLK, LCD_SDIO0, LCD_SDIO1, LCD_SDIO2, LCD_SDIO3);
@@ -56,6 +67,7 @@ static bool g_voice_play_reset = false;
 static char g_astrology_voice_msg[2200] = "";
 static char g_astrology_sys_prompt[2800] = "";
 static bool s_rec_mic_on = false;
+static uint32_t g_cycle_confirm_until_ms = 0;
 /** Astrology voice: stay on chart during record/think/speak + highlight mentions. */
 static bool g_astro_voice_active = false;
 /** True when astro turn uses recorded PCM (PWR hold); false for BOOT tap text reading. */
@@ -84,8 +96,16 @@ enum class ClockFace : uint8_t {
   Moon,
   /** CalDAV block countdown via `calcifer-status`. */
   CalciferCountdown,
+  /** On-device menstrual cycle ring; NVS only, low-text wellness glance. */
+  Cycle,
   /** QR → castalia.institute Google sign-in; tokens stored on watch for Edge Functions. */
   Castalia,
+  /** QR → on-device LAN settings page (`/settings`). */
+  Settings,
+  /** Declarative Hue clock from LittleFS face pack (when mounted). */
+  HuePack,
+  /** Build branch/SHA + QR → GitHub commit baked in at compile time. */
+  Version,
   kNumFaces,
 };
 
@@ -105,6 +125,11 @@ static uint32_t s_last_spotify_poll_ms = 0;
 static PmCalciferStatus g_calcifer_ui = {};
 static bool s_calcifer_have_data = false;
 static uint32_t s_last_calcifer_poll_ms = 0;
+
+static PmTransitPositions g_astro_remote_tp = {};
+static bool s_astro_remote_have = false;
+static time_t s_astro_remote_epoch_min = -1;
+static uint32_t s_astro_remote_retry_after_ms = 0;
 
 #ifndef MYNAH_SPOTIFY_POLL_MS
 #define MYNAH_SPOTIFY_POLL_MS 25000u
@@ -337,10 +362,19 @@ static void draw_hand_radial(int cx, int cy, float ang, int len, uint16_t col, i
   }
 }
 
+/** Matches `draw_circumference_rainbow_24h` (R−4 outer, 5px band → inner R−9). */
+static constexpr int kDisplayR = (LCD_WIDTH < LCD_HEIGHT ? LCD_WIDTH : LCD_HEIGHT) / 2;
+static constexpr int kRimInner = kDisplayR - 9;
+static constexpr int kAnalogInset = 10;
 static constexpr int kAnalogCx = LCD_WIDTH / 2;
 static constexpr int kAnalogCy = LCD_HEIGHT / 2;
-static constexpr int kAnalogR = 138;
-static constexpr int kAnalogSecLen = kAnalogR - 10;
+static constexpr int kAnalogR = kRimInner - kAnalogInset;
+/** Hand insets scaled from the original r=138 layout. */
+static constexpr int kAnalogHourInset = (52 * kAnalogR) / 138;
+static constexpr int kAnalogMinInset = (22 * kAnalogR) / 138;
+static constexpr int kAnalogSecInset = (10 * kAnalogR) / 138;
+static constexpr int kAnalogHubR = (7 * kAnalogR) / 138;
+static constexpr int kAnalogHubHoleR = (3 * kAnalogR) / 138;
 
 static void draw_analog_clock(uint16_t bg565, const struct tm *tm, bool valid) {
   const int cx = kAnalogCx;
@@ -381,12 +415,12 @@ static void draw_analog_clock(uint16_t bg565, const struct tm *tm, bool valid) {
   const uint16_t c_min = RGB565_WHITE;
   const uint16_t c_sec = gfx->color565(255, 95, 95);
 
-  draw_hand_radial(cx, cy, h_ang, r - 52, c_hour, 3);
-  draw_hand_radial(cx, cy, m_ang, r - 22, c_min, 2);
-  draw_hand_radial(cx, cy, s_ang, kAnalogSecLen, c_sec, 1);
+  draw_hand_radial(cx, cy, h_ang, r - kAnalogHourInset, c_hour, 3);
+  draw_hand_radial(cx, cy, m_ang, r - kAnalogMinInset, c_min, 2);
+  draw_hand_radial(cx, cy, s_ang, r - kAnalogSecInset, c_sec, 1);
 
-  gfx->fillCircle(cx, cy, 7, c_hour);
-  gfx->fillCircle(cx, cy, 3, bg565);
+  gfx->fillCircle(cx, cy, kAnalogHubR, c_hour);
+  gfx->fillCircle(cx, cy, kAnalogHubHoleR, bg565);
 }
 
 /** Apocalypso risk radar (12 axes, 5 rings) — matches apocalypso.castalia.institute RISK PROFILE widget. */
@@ -400,6 +434,148 @@ static void draw_label_at_polar(int rcx, int rcy, int r, float ang, const char *
   const int ty = rcy + static_cast<int>(lrintf(sinf(ang) * static_cast<float>(r))) - static_cast<int>(h) / 2;
   gfx->setCursor(tx, ty);
   gfx->print(text);
+}
+
+static void draw_glyph_line(int cx, int cy, int x0, int y0, int x1, int y1, uint16_t col) {
+  gfx->drawLine(cx + x0, cy + y0, cx + x1, cy + y1, col);
+}
+
+static void draw_glyph_cross(int cx, int cy, int y0, int y1, uint16_t col) {
+  draw_glyph_line(cx, cy, 0, y0, 0, y1, col);
+  draw_glyph_line(cx, cy, -4, (y0 + y1) / 2, 4, (y0 + y1) / 2, col);
+}
+
+static void draw_zodiac_glyph(int cx, int cy, int sign, uint16_t col, uint16_t bg) {
+  switch (sign) {
+    case 0:  // Aries
+      draw_glyph_line(cx, cy, 0, 7, 0, -6, col);
+      draw_glyph_line(cx, cy, 0, -6, -8, 4, col);
+      draw_glyph_line(cx, cy, 0, -6, 8, 4, col);
+      gfx->drawCircle(cx - 6, cy + 2, 4, col);
+      gfx->drawCircle(cx + 6, cy + 2, 4, col);
+      break;
+    case 1:  // Taurus
+      gfx->drawCircle(cx, cy + 3, 6, col);
+      draw_glyph_line(cx, cy, -8, -6, -3, -1, col);
+      draw_glyph_line(cx, cy, 8, -6, 3, -1, col);
+      break;
+    case 2:  // Gemini
+      draw_glyph_line(cx, cy, -6, -8, -6, 8, col);
+      draw_glyph_line(cx, cy, 6, -8, 6, 8, col);
+      draw_glyph_line(cx, cy, -9, -7, 9, -7, col);
+      draw_glyph_line(cx, cy, -9, 7, 9, 7, col);
+      break;
+    case 3:  // Cancer
+      gfx->drawCircle(cx - 5, cy - 3, 4, col);
+      gfx->drawCircle(cx + 5, cy + 3, 4, col);
+      draw_glyph_line(cx, cy, -1, -6, 9, -6, col);
+      draw_glyph_line(cx, cy, -9, 6, 1, 6, col);
+      break;
+    case 4:  // Leo
+      gfx->drawCircle(cx - 4, cy + 3, 4, col);
+      draw_glyph_line(cx, cy, 0, 1, 4, -7, col);
+      draw_glyph_line(cx, cy, 4, -7, 9, -2, col);
+      draw_glyph_line(cx, cy, 8, -1, 5, 8, col);
+      break;
+    case 5:  // Virgo
+      draw_glyph_line(cx, cy, -8, -7, -8, 7, col);
+      draw_glyph_line(cx, cy, -8, -3, -3, -7, col);
+      draw_glyph_line(cx, cy, -3, -7, -3, 7, col);
+      draw_glyph_line(cx, cy, -3, -3, 2, -7, col);
+      draw_glyph_line(cx, cy, 2, -7, 2, 7, col);
+      gfx->drawCircle(cx + 7, cy + 4, 4, col);
+      break;
+    case 6:  // Libra
+      draw_glyph_line(cx, cy, -9, 7, 9, 7, col);
+      draw_glyph_line(cx, cy, -9, 3, -3, 3, col);
+      draw_glyph_line(cx, cy, 3, 3, 9, 3, col);
+      gfx->drawCircle(cx, cy + 1, 4, col);
+      break;
+    case 7:  // Scorpio
+      draw_glyph_line(cx, cy, -8, -7, -8, 7, col);
+      draw_glyph_line(cx, cy, -8, -3, -3, -7, col);
+      draw_glyph_line(cx, cy, -3, -7, -3, 7, col);
+      draw_glyph_line(cx, cy, -3, -3, 2, -7, col);
+      draw_glyph_line(cx, cy, 2, -7, 2, 6, col);
+      draw_glyph_line(cx, cy, 2, 6, 9, 2, col);
+      draw_glyph_line(cx, cy, 9, 2, 6, 1, col);
+      draw_glyph_line(cx, cy, 9, 2, 8, 5, col);
+      break;
+    case 8:  // Sagittarius
+      draw_glyph_line(cx, cy, -7, 7, 8, -8, col);
+      draw_glyph_line(cx, cy, 8, -8, 7, 1, col);
+      draw_glyph_line(cx, cy, 8, -8, -1, -7, col);
+      draw_glyph_line(cx, cy, -5, -1, 2, 6, col);
+      break;
+    case 9:  // Capricorn
+      draw_glyph_line(cx, cy, -8, -7, -4, 5, col);
+      draw_glyph_line(cx, cy, -4, 5, 0, -7, col);
+      draw_glyph_line(cx, cy, 0, -7, 0, 7, col);
+      gfx->drawCircle(cx + 6, cy + 4, 4, col);
+      break;
+    case 10:  // Aquarius
+      draw_glyph_line(cx, cy, -9, -3, -5, -6, col);
+      draw_glyph_line(cx, cy, -5, -6, -1, -3, col);
+      draw_glyph_line(cx, cy, -1, -3, 3, -6, col);
+      draw_glyph_line(cx, cy, 3, -6, 9, -3, col);
+      draw_glyph_line(cx, cy, -9, 5, -5, 2, col);
+      draw_glyph_line(cx, cy, -5, 2, -1, 5, col);
+      draw_glyph_line(cx, cy, -1, 5, 3, 2, col);
+      draw_glyph_line(cx, cy, 3, 2, 9, 5, col);
+      break;
+    case 11:  // Pisces
+      (void)bg;
+      draw_glyph_line(cx, cy, -8, -8, -4, 0, col);
+      draw_glyph_line(cx, cy, -4, 0, -8, 8, col);
+      draw_glyph_line(cx, cy, 8, -8, 4, 0, col);
+      draw_glyph_line(cx, cy, 4, 0, 8, 8, col);
+      draw_glyph_line(cx, cy, -9, 0, 9, 0, col);
+      break;
+    default:
+      break;
+  }
+}
+
+static void draw_planet_glyph(PmEphemBody body, int cx, int cy, uint16_t col, uint16_t bg) {
+  switch (body) {
+    case kPmBodySun:
+      gfx->drawCircle(cx, cy, 5, col);
+      gfx->fillCircle(cx, cy, 1, col);
+      break;
+    case kPmBodyMoon:
+      gfx->fillCircle(cx - 1, cy, 5, col);
+      gfx->fillCircle(cx + 2, cy, 5, bg);
+      gfx->drawCircle(cx - 1, cy, 5, col);
+      break;
+    case kPmBodyMercury:
+      gfx->drawCircle(cx, cy, 4, col);
+      gfx->drawCircle(cx, cy - 5, 3, col);
+      draw_glyph_cross(cx, cy, 4, 9, col);
+      break;
+    case kPmBodyVenus:
+      gfx->drawCircle(cx, cy - 2, 4, col);
+      draw_glyph_cross(cx, cy, 2, 9, col);
+      break;
+    case kPmBodyMars:
+      gfx->drawCircle(cx - 2, cy + 2, 4, col);
+      draw_glyph_line(cx, cy, 2, -2, 8, -8, col);
+      draw_glyph_line(cx, cy, 8, -8, 7, -2, col);
+      draw_glyph_line(cx, cy, 8, -8, 2, -7, col);
+      break;
+    case kPmBodyJupiter:
+      draw_glyph_line(cx, cy, -5, -4, 2, -4, col);
+      draw_glyph_line(cx, cy, -1, -8, -1, 8, col);
+      draw_glyph_line(cx, cy, -6, 2, 6, 2, col);
+      draw_glyph_line(cx, cy, -5, -4, -7, 1, col);
+      break;
+    case kPmBodySaturn:
+      draw_glyph_line(cx, cy, -3, -8, -3, 8, col);
+      draw_glyph_line(cx, cy, -7, -4, 4, -4, col);
+      gfx->drawCircle(cx + 4, cy + 4, 4, col);
+      break;
+    default:
+      break;
+  }
 }
 
 static void draw_apocalypso_face(const struct tm *tm, bool valid) {
@@ -598,30 +774,10 @@ static bool moon_illum_waxing_from_tp(const PmTransitPositions *tp, float *illum
   return true;
 }
 
-static void draw_moon_disk(int cx, int cy, int r, float illum, bool waxing) {
-  const uint16_t c_dark = gfx->color565(42, 48, 62);
-  const uint16_t c_lit = gfx->color565(210, 216, 228);
-  gfx->fillCircle(cx, cy, r, c_dark);
-  const float t = (1.f - 2.f * illum) * static_cast<float>(r);
-  for (int dy = -r; dy <= r; ++dy) {
-    for (int dx = -r; dx <= r; dx += 2) {
-      if (dx * dx + dy * dy > r * r) {
-        continue;
-      }
-      const bool lit = waxing ? (dx > t) : (dx < t);
-      if (lit) {
-        gfx->drawPixel(cx + dx, cy + dy, c_lit);
-      }
-    }
-  }
-  gfx->drawCircle(cx, cy, r, gfx->color565(88, 98, 118));
-}
-
 static void draw_moon_face(const struct tm *tm_local, bool valid_local) {
   const uint16_t c_dim = gfx->color565(150, 160, 178);
-  drawCenteredLine("MOON", 58, gfx->color565(210, 215, 235), 2, 2);
   if (!valid_local) {
-    drawCenteredLine("need NTP time", 200, c_dim, 2, 2);
+    drawCenteredLine("need NTP time", 220, c_dim, 2, 2);
     return;
   }
   struct tm utc = {};
@@ -631,28 +787,15 @@ static void draw_moon_face(const struct tm *tm_local, bool valid_local) {
   float illum = 0.5f;
   bool waxing = true;
   if (!moon_illum_waxing_from_tp(&tp, &illum, &waxing)) {
-    drawCenteredLine("ephemeris", 200, c_dim, 2, 2);
+    drawCenteredLine("ephemeris", 220, c_dim, 2, 2);
     return;
   }
-  double el = tp.lon[kPmBodyMoon] - tp.lon[kPmBodySun];
-  while (el < 0) {
-    el += 360.0;
-  }
-  while (el >= 360.0) {
-    el -= 360.0;
-  }
-  const char *nm = moon_phase_name_from_elong_deg(el);
-  char line[56];
-  snprintf(line, sizeof(line), "%s  %d%%", nm, static_cast<int>(lrintf(illum * 100.f)));
-  drawCenteredLine(line, 92, c_dim, 1, 1);
-  char tbuf[40];
-  snprintf(tbuf, sizeof(tbuf), "%02d:%02d local", tm_local->tm_hour, tm_local->tm_min);
-  drawCenteredLine(tbuf, 118, c_dim, 1, 1);
   const int cx = LCD_WIDTH / 2;
-  const int cy = LCD_HEIGHT / 2 + 14;
-  const int r = 108;
-  draw_moon_disk(cx, cy, r, illum, waxing);
-  drawCenteredLine("PWR: ask  BOOT: brief", 318, c_dim, 1, 1);
+  const int cy = LCD_HEIGHT / 2;
+  const int R = min(LCD_WIDTH, LCD_HEIGHT) / 2;
+  const int r = R - 14;
+  pm_moon_draw_disk(gfx, cx, cy, r, illum, waxing);
+  (void)tm_local;
 }
 
 static bool build_moon_voice_message(char *buf, size_t cap) {
@@ -726,6 +869,111 @@ static const char *zodiac_abbr_from_lon(double lon_deg) {
   return kZ[idx];
 }
 
+static bool astro_remote_positions_for_epoch(time_t epoch, PmTransitPositions *out) {
+  if (!out || !s_astro_remote_have || !g_astro_remote_tp.ok || epoch <= 0) {
+    return false;
+  }
+  if ((epoch / 60) != s_astro_remote_epoch_min) {
+    return false;
+  }
+  *out = g_astro_remote_tp;
+  return true;
+}
+
+static void compute_astrology_positions_utc(const struct tm *utc, time_t epoch, PmTransitPositions *out,
+                                            bool *remote_out) {
+  if (remote_out) {
+    *remote_out = false;
+  }
+  if (!out) {
+    return;
+  }
+  if (astro_remote_positions_for_epoch(epoch, out)) {
+    if (remote_out) {
+      *remote_out = true;
+    }
+    return;
+  }
+  pm_transit_compute_utc_local(utc, out);
+}
+
+static float astro_angle_from_lon(double lon_deg) {
+  return static_cast<float>(kPi + lon_deg * (kPi / 180.0f));
+}
+
+static double angle_delta_deg(double a, double b) {
+  double d = fabs(a - b);
+  while (d >= 360.0) {
+    d -= 360.0;
+  }
+  if (d > 180.0) {
+    d = 360.0 - d;
+  }
+  return d;
+}
+
+static bool appendf(char *buf, size_t cap, size_t *off, const char *fmt, ...) {
+  if (!buf || !off || *off >= cap || cap == 0) {
+    return false;
+  }
+  va_list ap;
+  va_start(ap, fmt);
+  const int n = vsnprintf(buf + *off, cap - *off, fmt, ap);
+  va_end(ap);
+  if (n < 0) {
+    return false;
+  }
+  if (static_cast<size_t>(n) >= cap - *off) {
+    *off = cap - 1;
+    buf[*off] = '\0';
+    return false;
+  }
+  *off += static_cast<size_t>(n);
+  return true;
+}
+
+static bool match_aspect(double delta, int *aspect_out) {
+  static const int k_aspects[] = {60, 90, 120, 180};
+  for (unsigned i = 0; i < sizeof(k_aspects) / sizeof(k_aspects[0]); ++i) {
+    if (fabs(delta - static_cast<double>(k_aspects[i])) <= 4.0) {
+      if (aspect_out) {
+        *aspect_out = k_aspects[i];
+      }
+      return true;
+    }
+  }
+  return false;
+}
+
+static void draw_astrology_aspects(const PmTransitPositions *tp, int cx, int cy, int r) {
+  if (!MYNAH_ASTROLOGY_ASPECT_LINES || !tp || !tp->ok) {
+    return;
+  }
+  for (int a = 0; a < kPmBodyCount; ++a) {
+    for (int b = a + 1; b < kPmBodyCount; ++b) {
+      int aspect = 0;
+      if (!match_aspect(angle_delta_deg(tp->lon[a], tp->lon[b]), &aspect)) {
+        continue;
+      }
+      uint16_t col = gfx->color565(68, 92, 120);
+      if (aspect == 90) {
+        col = gfx->color565(110, 72, 92);
+      } else if (aspect == 120) {
+        col = gfx->color565(70, 108, 100);
+      } else if (aspect == 180) {
+        col = gfx->color565(105, 88, 130);
+      }
+      const float aa = astro_angle_from_lon(tp->lon[a]);
+      const float ab = astro_angle_from_lon(tp->lon[b]);
+      const int ax = cx + static_cast<int>(lrintf(cosf(aa) * static_cast<float>(r)));
+      const int ay = cy + static_cast<int>(lrintf(sinf(aa) * static_cast<float>(r)));
+      const int bx = cx + static_cast<int>(lrintf(cosf(ab) * static_cast<float>(r)));
+      const int by = cy + static_cast<int>(lrintf(sinf(ab) * static_cast<float>(r)));
+      gfx->drawLine(ax, ay, bx, by, col);
+    }
+  }
+}
+
 static void draw_astrology_face(const struct tm *tm_local, bool valid_local, int highlight_body,
                                 int highlight_sign, bool pulse_chart) {
   const uint16_t c_dim = gfx->color565(130, 140, 158);
@@ -735,21 +983,28 @@ static void draw_astrology_face(const struct tm *tm_local, bool valid_local, int
 
   struct tm utc = {};
   PmTransitPositions tp = {};
+  bool remote_tp = false;
+  const time_t epoch_now = valid_local ? time(nullptr) : 0;
   if (valid_local) {
     pm_time_utc(&utc);
-    pm_transit_compute_utc(&utc, &tp);
+    compute_astrology_positions_utc(&utc, epoch_now, &tp, &remote_tp);
   }
 
   PmBirthSpec birth = {};
   (void)pm_birth_load(&birth);
+  PmNatalChart natal = {};
+  const bool have_natal = birth.valid && pm_transit_build_natal_chart(&birth, &natal);
 
   const int cx = LCD_WIDTH / 2;
   const int cy = LCD_HEIGHT / 2;
   const int R = min(LCD_WIDTH, LCD_HEIGHT) / 2;
   /** Chart fills the dial inside the 24h rainbow rim (rainbow inner ≈ R−9). */
-  const int r_outer = R - 14;
-  const int r_in = r_outer * 44 / 118;
-  const int r_lab = r_outer - 20;
+  const int r_outer = R - 12;
+  const int r_in = r_outer * 42 / 118;
+  const int r_lab = r_outer - 18;
+  const int r_aspect = r_in + (r_outer - r_in) * 52 / 100;
+  /** Bodies in the annulus between aspect chords and sign glyphs (~10px clearance each side). */
+  const int r_body = r_aspect + (r_lab - r_aspect) * 2 / 5;
 
   if (!tp.ok) {
     drawCenteredLine("ephemeris needs", 200, c_dim, 1, 1);
@@ -767,6 +1022,7 @@ static void draw_astrology_face(const struct tm *tm_local, bool valid_local, int
     }
     gfx->drawCircle(cx, cy, r_outer, c_ring);
     gfx->drawCircle(cx, cy, r_in, c_ring);
+    draw_astrology_aspects(&tp, cx, cy, r_aspect);
 
     if (highlight_sign >= 0 && highlight_sign < 12) {
       const uint16_t c_hi = gfx->color565(72, 82, 118);
@@ -790,19 +1046,27 @@ static void draw_astrology_face(const struct tm *tm_local, bool valid_local, int
                     gfx->color565(200, 210, 240));
     }
 
+    for (int s = 0; s < 12; ++s) {
+      const float amid = (static_cast<float>(s) + 0.5f) * (kTwoPi / 12.f) - kPi * 0.5f;
+      const uint16_t lbl_col =
+          (highlight_sign == s) ? gfx->color565(255, 250, 200) : c_lbl;
+      const int lx = cx + static_cast<int>(lrintf(cosf(amid) * static_cast<float>(r_lab)));
+      const int ly = cy + static_cast<int>(lrintf(sinf(amid) * static_cast<float>(r_lab)));
+      draw_zodiac_glyph(lx, ly, s, lbl_col, gfx->color565(12, 14, 22));
+    }
+
     static const uint16_t k_body_col[kPmBodyCount] = {
         gfx->color565(255, 210, 90),  gfx->color565(200, 210, 230), gfx->color565(180, 180, 190),
         gfx->color565(255, 190, 140), gfx->color565(230, 90, 70),   gfx->color565(220, 180, 120),
         gfx->color565(190, 170, 140),
     };
-    const int r_dot = r_outer - 14;
     const bool pulse_on = pulse_chart && ((millis() / 500u) % 2u) == 0u;
     for (int bi = 0; bi < kPmBodyCount; ++bi) {
       const double lon = tp.lon[bi];
-      const float ang = static_cast<float>(kPi + lon * (kPi / 180.0f));
-      const int px = cx + static_cast<int>(lrintf(cosf(ang) * static_cast<float>(r_dot)));
-      const int py = cy + static_cast<int>(lrintf(sinf(ang) * static_cast<float>(r_dot)));
-      int rr = (bi == kPmBodySun) ? 6 : (bi == kPmBodyMoon ? 5 : 4);
+      const float ang = astro_angle_from_lon(lon);
+      const int px = cx + static_cast<int>(lrintf(cosf(ang) * static_cast<float>(r_body)));
+      const int py = cy + static_cast<int>(lrintf(sinf(ang) * static_cast<float>(r_body)));
+      int rr = (bi == kPmBodySun) ? 8 : (bi == kPmBodyMoon ? 7 : 6);
       const bool hi = (highlight_body == bi);
       if (hi) {
         rr += 3;
@@ -812,22 +1076,13 @@ static void draw_astrology_face(const struct tm *tm_local, bool valid_local, int
       const uint16_t col = hi ? gfx->color565(255, 245, 170) : k_body_col[bi];
       gfx->fillCircle(px, py, rr, col);
       gfx->drawCircle(px, py, rr, hi ? gfx->color565(255, 255, 255) : RGB565_WHITE);
+      draw_planet_glyph(static_cast<PmEphemBody>(bi), px, py, RGB565_BLACK, RGB565_BLACK);
       if (hi) {
         gfx->drawCircle(px, py, rr + 4, gfx->color565(255, 255, 255));
       }
     }
-
-    static const char *const kZlab[12] = {"ARI", "TAU", "GEM", "CAN", "LEO", "VIR",
-                                          "LIB", "SCO", "SAG", "CAP", "AQU", "PIS"};
-    for (int s = 0; s < 12; ++s) {
-      const float amid = (static_cast<float>(s) + 0.5f) * (kTwoPi / 12.f) - kPi * 0.5f;
-      const uint16_t lbl_col =
-          (highlight_sign == s) ? gfx->color565(255, 250, 200) : c_lbl;
-      draw_label_at_polar(cx, cy, r_lab, amid, kZlab[s], lbl_col);
-    }
-    double natal_sun = 0;
-    if (birth.valid && pm_transit_natal_sun_lon(&birth, &natal_sun)) {
-      const float angn = static_cast<float>(kPi + natal_sun * (kPi / 180.0f));
+    if (have_natal) {
+      const float angn = astro_angle_from_lon(natal.bodies.lon[kPmBodySun]);
       const int qx = cx + static_cast<int>(lrintf(cosf(angn) * static_cast<float>(r_in - 6)));
       const int qy = cy + static_cast<int>(lrintf(sinf(angn) * static_cast<float>(r_in - 6)));
       const int q2x = cx + static_cast<int>(lrintf(cosf(angn + 0.35f) * static_cast<float>(r_in - 18)));
@@ -835,7 +1090,14 @@ static void draw_astrology_face(const struct tm *tm_local, bool valid_local, int
       const int q3x = cx + static_cast<int>(lrintf(cosf(angn - 0.35f) * static_cast<float>(r_in - 18)));
       const int q3y = cy + static_cast<int>(lrintf(sinf(angn - 0.35f) * static_cast<float>(r_in - 18)));
       gfx->fillTriangle(qx, qy, q2x, q2y, q3x, q3y, gfx->color565(120, 200, 255));
+      const float asca = astro_angle_from_lon(natal.asc_lon);
+      gfx->drawLine(cx + static_cast<int>(lrintf(cosf(asca) * static_cast<float>(r_in - 18))),
+                    cy + static_cast<int>(lrintf(sinf(asca) * static_cast<float>(r_in - 18))),
+                    cx + static_cast<int>(lrintf(cosf(asca) * static_cast<float>(r_outer))),
+                    cy + static_cast<int>(lrintf(sinf(asca) * static_cast<float>(r_outer))),
+                    gfx->color565(120, 200, 255));
     }
+    (void)remote_tp;
   }
 }
 
@@ -941,8 +1203,18 @@ static void draw_astro_voice_screen(const char *status, int highlight_body, int 
     draw_circumference_rainbow_24h(valid);
     draw_thinking_progress_ring(thinking_progress);
   } else if (status && status[0] != '\0') {
-    gfx->fillRect(0, 0, LCD_WIDTH, 46, gfx->color565(18, 20, 34));
-    drawCenteredLine(status, 14, gfx->color565(220, 200, 255), 2, 2);
+    gfx->setTextSize(1, 1);
+    int16_t x1, y1;
+    uint16_t w, h;
+    gfx->getTextBounds(status, 0, 0, &x1, &y1, &w, &h);
+    const int pad_x = 10;
+    const int pill_w = static_cast<int>(w) + pad_x * 2;
+    const int pill_x = (LCD_WIDTH - pill_w) / 2;
+    gfx->fillRoundRect(pill_x, 10, pill_w, 22, 10, gfx->color565(18, 20, 34));
+    gfx->drawRoundRect(pill_x, 10, pill_w, 22, 10, gfx->color565(78, 82, 118));
+    gfx->setTextColor(gfx->color565(220, 200, 255));
+    gfx->setCursor(pill_x + pad_x, 16);
+    gfx->print(status);
   }
   gfx->flush();
 }
@@ -966,7 +1238,247 @@ static void draw_radial_annulus_slice(int cx, int cy, float ang, int r0, int r1,
   }
 }
 
-/** 24h rim: outermost band; hue(sec of day) matches face fill (same formula as draw_clock_face). */
+static float cycle_angle_for_day(float day0, float cycle_len) {
+  return (day0 / cycle_len) * kTwoPi - kPi * 0.5f;
+}
+
+static void draw_cycle_band(int cx, int cy, int r_inner, int r_outer, uint8_t cycle_len,
+                            float start_day0, float day_count, uint16_t col, int half_w) {
+  if (cycle_len == 0 || day_count <= 0.f) {
+    return;
+  }
+  while (start_day0 < 0.f) {
+    start_day0 += static_cast<float>(cycle_len);
+  }
+  while (start_day0 >= static_cast<float>(cycle_len)) {
+    start_day0 -= static_cast<float>(cycle_len);
+  }
+
+  const float max_count = static_cast<float>(cycle_len);
+  if (day_count > max_count) {
+    day_count = max_count;
+  }
+  const int steps = static_cast<int>(ceilf(day_count * 12.f));
+  const int n = steps < 8 ? 8 : (steps > 432 ? 432 : steps);
+  for (int i = 0; i <= n; ++i) {
+    float day = start_day0 + day_count * (static_cast<float>(i) / static_cast<float>(n));
+    while (day >= static_cast<float>(cycle_len)) {
+      day -= static_cast<float>(cycle_len);
+    }
+    draw_radial_annulus_slice(cx, cy, cycle_angle_for_day(day, static_cast<float>(cycle_len)),
+                              r_inner, r_outer, col, half_w);
+  }
+}
+
+static void draw_cycle_marker(int cx, int cy, int r_mid, float ang, bool pulse) {
+  const float ux = cosf(ang);
+  const float uy = sinf(ang);
+  const int x = cx + static_cast<int>(lrintf(ux * static_cast<float>(r_mid)));
+  const int y = cy + static_cast<int>(lrintf(uy * static_cast<float>(r_mid)));
+  const int pulse_px = pulse ? (2 + static_cast<int>((millis() / 110u) % 3u)) : 0;
+  const uint16_t c_marker = gfx->color565(252, 248, 230);
+  const uint16_t c_halo = pulse ? gfx->color565(120, 210, 205) : gfx->color565(70, 76, 92);
+  gfx->fillCircle(x, y, 11 + pulse_px, c_halo);
+  gfx->fillCircle(x, y, 6 + pulse_px / 2, c_marker);
+  gfx->drawLine(cx + static_cast<int>(lrintf(ux * static_cast<float>(r_mid + 12))),
+                cy + static_cast<int>(lrintf(uy * static_cast<float>(r_mid + 12))),
+                cx + static_cast<int>(lrintf(ux * static_cast<float>(r_mid + 25))),
+                cy + static_cast<int>(lrintf(uy * static_cast<float>(r_mid + 25))), c_marker);
+}
+
+static void draw_cycle_face(const struct tm *tm_local, bool valid_local) {
+  const uint16_t c_dim = gfx->color565(142, 150, 166);
+  const uint16_t c_error = gfx->color565(255, 155, 145);
+  if (!valid_local || !tm_local) {
+    drawCenteredLine("need time", 220, c_dim, 2, 2);
+    return;
+  }
+
+  PmCycleProfile cycle = {};
+  (void)pm_cycle_load(&cycle);
+
+  const uint16_t year = static_cast<uint16_t>(tm_local->tm_year + 1900);
+  const uint8_t month = static_cast<uint8_t>(tm_local->tm_mon + 1);
+  const uint8_t day = static_cast<uint8_t>(tm_local->tm_mday);
+
+  if (cycle.pregnancy_active) {
+    if (!cycle.has_due_date) {
+      drawCenteredLine("set due date", 220, c_dim, 2, 2);
+      drawCenteredLine("settings web", 260, c_dim, 1, 1);
+      return;
+    }
+    const int32_t gest = pm_cycle_gestational_day(&cycle, year, month, day);
+    const int32_t until = pm_cycle_days_until_due(&cycle, year, month, day);
+    const int cx = LCD_WIDTH / 2;
+    const int cy = LCD_HEIGHT / 2;
+    const int R = min(LCD_WIDTH, LCD_HEIGHT) / 2;
+    const int r_outer = R - 20;
+    const int r_inner = r_outer - 32;
+    const uint16_t c_track = gfx->color565(40, 36, 52);
+    const uint16_t c_prog = gfx->color565(235, 175, 95);
+    const int32_t gest_clamped = gest >= 0 ? gest : 0;
+    int32_t week = (gest_clamped + 3) / 7;
+    if (week < 0) {
+      week = 0;
+    }
+    if (week > 40) {
+      week = 40;
+    }
+    constexpr uint8_t kPregWeeks = 40;
+    draw_cycle_band(cx, cy, r_inner, r_outer, kPregWeeks, 0.f, static_cast<float>(week), c_prog, 3);
+    draw_cycle_band(cx, cy, r_inner, r_outer, kPregWeeks, static_cast<float>(week),
+                    static_cast<float>(kPregWeeks - week), c_track, 2);
+    char line[32];
+    snprintf(line, sizeof(line), "week %ld", static_cast<long>(week));
+    drawCenteredLine(line, cy - 24, gfx->color565(250, 235, 210), 2, 2);
+    if (until >= 0) {
+      snprintf(line, sizeof(line), "due in %ld d", static_cast<long>(until));
+    } else {
+      snprintf(line, sizeof(line), "past due");
+    }
+    drawCenteredLine(line, cy + 12, c_dim, 1, 2);
+    snprintf(line, sizeof(line), "%02u/%02u/%04u", cycle.due_month, cycle.due_day, cycle.due_year);
+    drawCenteredLine(line, cy + 44, c_dim, 1, 1);
+    gfx->drawCircle(cx, cy, r_outer + 5, gfx->color565(90, 70, 110));
+    return;
+  }
+
+  if (!cycle.has_last_period) {
+    drawCenteredLine("set cycle", 220, c_dim, 2, 2);
+    return;
+  }
+
+  const int32_t day_idx = pm_cycle_day_index_for_date(&cycle, year, month, day);
+  if (day_idx < 0) {
+    drawCenteredLine("set cycle", 220, c_error, 2, 2);
+    return;
+  }
+
+  const int cx = LCD_WIDTH / 2;
+  const int cy = LCD_HEIGHT / 2;
+  const int R = min(LCD_WIDTH, LCD_HEIGHT) / 2;
+  const int r_outer = R - 20;
+  const int r_inner = r_outer - 32;
+  const int r_mid = (r_inner + r_outer) / 2;
+  const uint8_t cycle_len = cycle.cycle_length_days ? cycle.cycle_length_days : PM_CYCLE_DEFAULT_LENGTH_DAYS;
+  const uint8_t period_len = cycle.period_length_days < cycle_len ? cycle.period_length_days
+                                                                  : PM_CYCLE_DEFAULT_PERIOD_DAYS;
+  int ov_day = static_cast<int>(cycle_len) - 14;
+  if (ov_day < 1) {
+    ov_day = 1;
+  } else if (ov_day > static_cast<int>(cycle_len)) {
+    ov_day = cycle_len;
+  }
+
+  const uint16_t c_track = gfx->color565(33, 39, 55);
+  const uint16_t c_luteal = gfx->color565(105, 82, 148);
+  const uint16_t c_fertile = gfx->color565(44, 165, 140);
+  const uint16_t c_period = gfx->color565(205, 76, 118);
+  const uint16_t c_ov = gfx->color565(245, 195, 80);
+  const uint16_t c_spoke = gfx->color565(60, 68, 84);
+
+  draw_cycle_band(cx, cy, r_inner, r_outer, cycle_len, 0.f, static_cast<float>(cycle_len), c_track, 2);
+  draw_cycle_band(cx, cy, r_inner, r_outer, cycle_len, static_cast<float>(ov_day),
+                  static_cast<float>(cycle_len - ov_day), c_luteal, 2);
+  draw_cycle_band(cx, cy, r_inner, r_outer, cycle_len, static_cast<float>(ov_day - 1 - 3), 7.f,
+                  c_fertile, 2);
+  draw_cycle_band(cx, cy, r_inner, r_outer, cycle_len, 0.f, static_cast<float>(period_len), c_period, 2);
+
+  for (uint8_t d = 0; d < cycle_len; ++d) {
+    if (d % 7 != 0 && d != 0) {
+      continue;
+    }
+    const float a = cycle_angle_for_day(static_cast<float>(d), static_cast<float>(cycle_len));
+    const int t0 = d == 0 ? r_inner - 10 : r_inner - 5;
+    const int t1 = r_inner - 1;
+    gfx->drawLine(cx + static_cast<int>(lrintf(cosf(a) * static_cast<float>(t0))),
+                  cy + static_cast<int>(lrintf(sinf(a) * static_cast<float>(t0))),
+                  cx + static_cast<int>(lrintf(cosf(a) * static_cast<float>(t1))),
+                  cy + static_cast<int>(lrintf(sinf(a) * static_cast<float>(t1))), c_spoke);
+  }
+
+  const float ov_ang = cycle_angle_for_day(static_cast<float>(ov_day - 1), static_cast<float>(cycle_len));
+  draw_radial_annulus_slice(cx, cy, ov_ang, r_inner - 2, r_outer + 4, c_ov, 3);
+
+  const bool confirm = static_cast<int32_t>(millis() - g_cycle_confirm_until_ms) < 0;
+  const float today_ang = cycle_angle_for_day(static_cast<float>(day_idx), static_cast<float>(cycle_len));
+  draw_cycle_marker(cx, cy, r_mid, today_ang, confirm);
+
+  gfx->drawCircle(cx, cy, r_outer + 5, gfx->color565(38, 45, 60));
+  gfx->drawCircle(cx, cy, r_inner - 8, gfx->color565(30, 36, 50));
+  if (confirm) {
+    gfx->drawCircle(cx, cy, r_outer + 9, gfx->color565(90, 210, 190));
+  }
+}
+
+static void draw_charging_ripples_on_rainbow_rim(int cx, int cy, int r_inner, int r_outer, bool valid) {
+  if (!pm_pmu_charging()) {
+    return;
+  }
+
+  auto wrap360 = [](float d) {
+    d = fmodf(d, 360.0f);
+    if (d < 0.f) {
+      d += 360.0f;
+    }
+    return d;
+  };
+
+  constexpr int k_steps = 92;
+  constexpr int k_half_w = 3;
+  const float a0 = kPi * 0.5f - 0.82f;
+  const float a1 = kPi * 0.5f + 0.82f;
+  const float phase = fmodf(static_cast<float>(millis()) * 0.00042f, 1.f);
+
+  for (int i = 0; i < k_steps; ++i) {
+    const float u = static_cast<float>(i) / static_cast<float>(k_steps - 1);
+    float envelope = 1.f - fabsf(u - 0.5f) * 1.65f;
+    if (envelope <= 0.f) {
+      continue;
+    }
+    if (envelope > 1.f) {
+      envelope = 1.f;
+    }
+
+    float wave = 0.f;
+    for (int j = 0; j < 3; ++j) {
+      float center = phase + static_cast<float>(j) * 0.34f;
+      center -= floorf(center);
+      float d = fabsf(u - center);
+      if (d > 0.5f) {
+        d = 1.f - d;
+      }
+      float pulse = 1.f - d / 0.095f;
+      if (pulse > wave) {
+        wave = pulse;
+      }
+    }
+
+    const float intensity = wave * envelope;
+    if (intensity < 0.10f) {
+      continue;
+    }
+
+    const float ang = a0 + (a1 - a0) * u;
+    float af = ang + kPi * 0.5f;
+    af = fmodf(af, kTwoPi);
+    if (af < 0.f) {
+      af += kTwoPi;
+    }
+
+    const float hue_deg = valid ? wrap360(af * (360.f / kTwoPi))
+                                : wrap360(af * (360.f / kTwoPi) +
+                                          fmodf(static_cast<float>(millis()) * 0.025f, 360.f));
+    const float sat = 0.58f - intensity * 0.18f;
+    const float val = 0.18f + intensity * 0.20f;
+    const uint16_t col = color565FromHsv(gfx, hue_deg, sat, val);
+    const int radial_wobble =
+        static_cast<int>(lrintf(sinf(static_cast<float>(millis()) * 0.006f + u * kPi * 5.f)));
+    draw_radial_annulus_slice(cx, cy, ang, r_inner - 1 + radial_wobble, r_outer + 1, col, k_half_w);
+  }
+}
+
+/** 24h rim: outermost band; hue(sec of day) matches face fill. */
 static void draw_circumference_rainbow_24h(bool valid) {
   const int cx = LCD_WIDTH / 2;
   const int cy = LCD_HEIGHT / 2;
@@ -995,15 +1507,16 @@ static void draw_circumference_rainbow_24h(bool valid) {
     }
     float hue_deg;
     if (valid) {
-      /** `af` = 0 at top → midnight; same mapping as `sec_of_day * (360/86400)` on the face. */
+      /** `af` = 0 at top → midnight; same circadian keyframes as the face fill. */
       const float sec_of_day = af * (86400.f / kTwoPi);
-      hue_deg = wrap360(sec_of_day * (360.f / 86400.f));
+      hue_deg = pm_circadian_hue_from_seconds(sec_of_day);
     } else {
       hue_deg = wrap360(af * (360.f / kTwoPi) + fmodf(static_cast<float>(millis()) * 0.025f, 360.f));
     }
     const uint16_t col = color565FromHsv(gfx, hue_deg, k_clock_face_hsv_s, k_clock_face_hsv_v);
     draw_radial_annulus_slice(cx, cy, amid, r_inner, r_outer, col, k_half_w);
   }
+  draw_charging_ripples_on_rainbow_rim(cx, cy, r_inner, r_outer, valid);
 }
 
 static void voice_last_play_clear() {
@@ -1090,6 +1603,35 @@ static void draw_voice_wave_screen(bool outward, uint32_t t_ms, const char *labe
   gfx->flush();
 }
 
+static void draw_settings_face() {
+  const uint16_t c_hi = gfx->color565(210, 215, 235);
+  const uint16_t c_dim = gfx->color565(120, 128, 145);
+  drawCenteredLine("SETTINGS", 40, c_hi, 2, 2);
+  if (!pm_wifi_connected()) {
+    drawCenteredLine("WiFi needed", 130, c_dim, 2, 2);
+    return;
+  }
+  const char *host = pm_settings_host_label();
+  if (host[0] != '\0') {
+    drawCenteredLine(host, 78, c_dim, 1, 1);
+  }
+  if (pm_settings_url_for_qr()[0] != '\0') {
+    if (!pm_settings_draw_qr(gfx, LCD_WIDTH / 2, 238, 240)) {
+      drawCenteredLine("QR encode fail", 220, c_dim, 1, 1);
+    } else {
+      drawCenteredLine("scan for web settings", 392, c_dim, 1, 1);
+    }
+  }
+}
+
+static void version_face_draw_centered(const char *text, int y, uint16_t fg, uint8_t sx, uint8_t sy) {
+  drawCenteredLine(text, y, fg, sx, sy);
+}
+
+static void draw_version_face() {
+  pm_version_draw(gfx, version_face_draw_centered);
+}
+
 static void draw_castalia_face() {
   const uint16_t c_hi = gfx->color565(210, 215, 235);
   const uint16_t c_dim = gfx->color565(120, 128, 145);
@@ -1098,12 +1640,19 @@ static void draw_castalia_face() {
     drawCenteredLine("WiFi needed", 130, c_dim, 2, 2);
     return;
   }
-  drawCenteredLine(pm_castalia_status_line(), 78, c_dim, 1, 1);
   if (pm_castalia_has_session()) {
-    drawCenteredLine("Signed in", 200, c_hi, 1, 2);
-    drawCenteredLine("voice / Spotify use JWT", 232, c_dim, 1, 1);
+    const char *display = pm_castalia_profile_display_name();
+    if (display[0] != '\0') {
+      pm_castalia_draw_profile_avatar(gfx, LCD_WIDTH / 2, 228, 72);
+      drawCenteredLine(display, 328, c_hi, 1, 2);
+      drawCenteredLine("Castalia account", 368, c_dim, 1, 1);
+    } else {
+      drawCenteredLine(pm_castalia_status_line(), 78, c_dim, 1, 1);
+      drawCenteredLine("Signed in", 220, c_hi, 1, 2);
+    }
     return;
   }
+  drawCenteredLine(pm_castalia_status_line(), 78, c_dim, 1, 1);
   if (pm_castalia_signin_url_for_qr()[0] != '\0') {
     if (!pm_castalia_draw_qr(gfx, LCD_WIDTH / 2, 238, 240)) {
       drawCenteredLine("QR encode fail", 220, c_dim, 1, 1);
@@ -1116,15 +1665,24 @@ static void draw_castalia_face() {
 }
 
 static void draw_clock_face(float thinking_progress = -1.f) {
+  if (pm_diag_safe_mode()) {
+    pm_face_safe_draw(gfx, nullptr);
+    gfx->flush();
+    return;
+  }
+  if (g_clock_face == ClockFace::HuePack && pm_faces_pack_available()) {
+    pm_faces_pack_render(gfx, thinking_progress);
+    gfx->flush();
+    return;
+  }
   struct tm tm = {};
   int sec_of_day_for_hue = 0;
   if (pm_time_valid()) {
     pm_time_local(&tm);
     sec_of_day_for_hue = tm.tm_hour * 3600 + tm.tm_min * 60 + tm.tm_sec;
   }
-  const float hue =
-      pm_time_valid() ? static_cast<float>(sec_of_day_for_hue) * (360.0f / 86400.0f)
-                       : fmodf(static_cast<float>(millis()) * 0.0015f, 360.0f);
+  const float hue = pm_time_valid() ? pm_circadian_hue_from_seconds(static_cast<float>(sec_of_day_for_hue))
+                                    : fmodf(static_cast<float>(millis()) * 0.0015f, 360.0f);
   const uint16_t bg_hsv = color565FromHsv(gfx, hue, k_clock_face_hsv_s, k_clock_face_hsv_v);
   const uint16_t bg = bg_hsv;
   gfx->fillScreen(bg);
@@ -1151,8 +1709,20 @@ static void draw_clock_face(float thinking_progress = -1.f) {
     case ClockFace::CalciferCountdown:
       draw_calcifer_face();
       break;
+    case ClockFace::Cycle:
+      draw_cycle_face(&tm, pm_time_valid());
+      break;
     case ClockFace::Castalia:
       draw_castalia_face();
+      break;
+    case ClockFace::Settings:
+      draw_settings_face();
+      break;
+    case ClockFace::HuePack:
+      pm_faces_pack_render(gfx, thinking_progress);
+      break;
+    case ClockFace::Version:
+      draw_version_face();
       break;
     default:
       break;
@@ -1160,15 +1730,18 @@ static void draw_clock_face(float thinking_progress = -1.f) {
 
   const int banner_y = (g_clock_face == ClockFace::Apocalypso || g_clock_face == ClockFace::Spotify ||
                         g_clock_face == ClockFace::Astrology || g_clock_face == ClockFace::Moon ||
-                        g_clock_face == ClockFace::CalciferCountdown || g_clock_face == ClockFace::Castalia)
+                        g_clock_face == ClockFace::CalciferCountdown || g_clock_face == ClockFace::Cycle ||
+                        g_clock_face == ClockFace::Castalia || g_clock_face == ClockFace::Settings ||
+                        g_clock_face == ClockFace::HuePack || g_clock_face == ClockFace::Version)
                            ? 352
                            : 320;
   if (MYNAH_DEBUG_GESTURES && g_gesture_banner[0] != '\0') {
     drawCenteredLine(g_gesture_banner, banner_y, gfx->color565(255, 220, 160), 1, 1);
   }
 
-  /** Rainbow annulus last (skip on Castalia — full repaint + rim after QR was tripping WDT/stack). */
-  if (g_clock_face != ClockFace::Castalia) {
+  /** Rainbow annulus last (skip on QR faces — full repaint + rim was tripping WDT/stack). */
+  if (g_clock_face != ClockFace::Castalia && g_clock_face != ClockFace::Settings &&
+      g_clock_face != ClockFace::HuePack && g_clock_face != ClockFace::Version) {
     draw_circumference_rainbow_24h(pm_time_valid());
     if (thinking_progress >= 0.f) {
       draw_thinking_progress_ring(thinking_progress);
@@ -1180,6 +1753,12 @@ static void draw_clock_face(float thinking_progress = -1.f) {
     g_analog_saved_local_m = tm.tm_min;
   }
   gfx->flush();
+  static bool s_boot_marked = false;
+  if (!s_boot_marked && !pm_diag_safe_mode()) {
+    s_boot_marked = true;
+    pm_diag_mark_runtime_valid();
+    pm_ota_validate_pending_facepack();
+  }
 }
 
 static void ensure_pcm_buffer() {
@@ -1218,41 +1797,71 @@ static bool build_astrology_voice_message(char *buf, size_t cap) {
   pm_time_local(&loc);
   pm_time_utc(&utc);
   PmTransitPositions tp = {};
-  pm_transit_compute_utc(&utc, &tp);
+  bool remote_tp = false;
+  compute_astrology_positions_utc(&utc, time(nullptr), &tp, &remote_tp);
   if (!tp.ok) {
     return false;
   }
   PmBirthSpec b = {};
   (void)pm_birth_load(&b);
-  double nslon = 0;
-  const bool has_natal = b.valid && pm_transit_natal_sun_lon(&b, &nslon);
+  PmNatalChart natal = {};
+  PmTransitSnapshot snap = {};
+  const bool has_natal = b.valid && pm_transit_build_natal_chart(&b, &natal) &&
+                         pm_transit_snapshot_from_positions(&natal, &tp, nullptr, 0, &snap);
 
   int n = snprintf(
       buf, cap,
-      "Pocket Mynah transit snapshot for %04d-%02d-%02d %02d:%02d local. Tropical longitudes (approx deg): ",
-      loc.tm_year + 1900, loc.tm_mon + 1, loc.tm_mday, loc.tm_hour, loc.tm_min);
+      "Pocket Mynah transit snapshot for %04d-%02d-%02d %02d:%02d local. Tropical longitudes (%s deg): ",
+      loc.tm_year + 1900, loc.tm_mon + 1, loc.tm_mday, loc.tm_hour, loc.tm_min,
+      remote_tp ? "Castalia ephemeris" : "approx");
   if (n < 0 || static_cast<size_t>(n) >= cap) {
     return false;
   }
   size_t off = static_cast<size_t>(n);
   for (int i = 0; i < kPmBodyCount && off + 40 < cap; ++i) {
-    const int m = snprintf(buf + off, cap - off, "%s %.1f; ", pm_ephem_body_label(static_cast<PmEphemBody>(i)),
-                           tp.lon[i]);
-    if (m < 0) {
+    if (!appendf(buf, cap, &off, "%s %.1f; ", pm_ephem_body_label(static_cast<PmEphemBody>(i)),
+                 tp.lon[i])) {
       return false;
     }
-    off += static_cast<size_t>(m);
   }
-  if (has_natal && off + 120 < cap) {
-    snprintf(buf + off, cap - off,
-             "Natal (local civil on this device TZ): %04u-%02u-%02u %02u:%02u — Sun ~%.1f deg (%s). ",
-             b.year, b.month, b.day, b.hour, b.minute, nslon, zodiac_abbr_from_lon(nslon));
-  } else if (off + 80 < cap) {
-    snprintf(buf + off, cap - off, "Natal birth not stored; describe transits in general. ");
+  if (has_natal) {
+    if (!appendf(buf, cap, &off,
+                 "Natal (local civil on this device TZ): %04u-%02u-%02u %02u:%02u at %.2f, %.2f. "
+                 "Natal Sun %.1f %s house %u; Moon %.1f %s house %u; Asc %.1f %s. ",
+                 b.year, b.month, b.day, b.hour, b.minute, static_cast<double>(b.lat_deg),
+                 static_cast<double>(b.lon_deg), natal.bodies.lon[kPmBodySun],
+                 zodiac_abbr_from_lon(natal.bodies.lon[kPmBodySun]), natal.whole_sign_house[kPmBodySun],
+                 natal.bodies.lon[kPmBodyMoon], zodiac_abbr_from_lon(natal.bodies.lon[kPmBodyMoon]),
+                 natal.whole_sign_house[kPmBodyMoon], natal.asc_lon, zodiac_abbr_from_lon(natal.asc_lon))) {
+      return false;
+    }
+    if (snap.aspect_count > 0) {
+      if (!appendf(buf, cap, &off, "Major transit-to-natal aspects: ")) {
+        return false;
+      }
+      const size_t max_aspects = snap.aspect_count < 8 ? snap.aspect_count : 8;
+      for (size_t i = 0; i < max_aspects; ++i) {
+        const PmTransitAspect *a = &snap.aspects[i];
+        if (!appendf(buf, cap, &off, "%s %s %s orb %.1f; ",
+                     pm_ephem_body_label(a->transit_body), pm_transit_aspect_label(a->aspect),
+                     pm_transit_natal_target_label(a->natal_target), fabs(a->orb_delta_deg))) {
+          return false;
+        }
+      }
+    } else if (!appendf(buf, cap, &off, "No major transit-to-natal aspects within configured orbs. ")) {
+      return false;
+    }
+    if (snap.house_event_count > kPmBodyMoon) {
+      const PmTransitHouseEvent *moon_house = &snap.house_events[kPmBodyMoon];
+      if (!appendf(buf, cap, &off, "Transiting Moon is in natal house %u. ", moon_house->natal_house)) {
+        return false;
+      }
+    }
+  } else if (!appendf(buf, cap, &off, "Natal birth not stored; describe transits in general. ")) {
+    return false;
   }
-  off = strlen(buf);
-  if (off + 80 < cap) {
-    snprintf(buf + off, cap - off, "Please deliver the spoken reading now.");
+  if (!appendf(buf, cap, &off, "Please deliver the spoken reading now.")) {
+    return false;
   }
   return strlen(buf) > 0;
 }
@@ -1264,6 +1873,68 @@ static bool build_astrology_system_prompt() {
   const int n = snprintf(g_astrology_sys_prompt, sizeof(g_astrology_sys_prompt),
                          "%s\n\nChart snapshot:\n%s", kAstroVoiceSys, g_astrology_voice_msg);
   return n > 0 && static_cast<size_t>(n) < sizeof(g_astrology_sys_prompt);
+}
+
+static bool face_index_from_name(const char *name, int *out) {
+  if (!name || !out) {
+    return false;
+  }
+  struct {
+    const char *n;
+    int idx;
+  } k[] = {{"classic", 0}, {"hue", 0},     {"analog", 0},    {"apocalypso", 1},
+           {"digital", 2}, {"spotify", 3}, {"astro", 4},       {"astrology", 4},
+           {"moon", 5},    {"calcifer", 6}, {"schedule", 6},  {"cycle", 7},
+           {"menstrual", 7}, {"castalia", 8}, {"settings", 9}, {"config", 9},
+           {"huepack", 10}, {"pack", 10}, {"version", 11}, {"about", 11}, {"build", 11}};
+  for (const auto &e : k) {
+    if (strcasecmp(name, e.n) == 0) {
+      *out = e.idx;
+      return true;
+    }
+  }
+  return false;
+}
+
+static void print_cycle_status() {
+  PmCycleProfile p = {};
+  (void)pm_cycle_load(&p);
+  if (p.pregnancy_active && p.has_due_date) {
+    Serial.printf("cycle: pregnant due=%04u-%02u-%02u\n", p.due_year, p.due_month, p.due_day);
+  }
+  if (p.has_last_period) {
+    Serial.printf("cycle: last_period_ymd=%04u-%02u-%02u cycle_length_days=%u period_length_days=%u\n",
+                  p.last_period_year, p.last_period_month, p.last_period_day, p.cycle_length_days,
+                  p.period_length_days);
+  } else {
+    Serial.printf("cycle: last_period_ymd=(unset) cycle_length_days=%u period_length_days=%u\n",
+                  p.cycle_length_days, p.period_length_days);
+  }
+  if (pm_time_valid()) {
+    struct tm loc = {};
+    pm_time_local(&loc);
+    const uint16_t y = static_cast<uint16_t>(loc.tm_year + 1900);
+    const uint8_t mo = static_cast<uint8_t>(loc.tm_mon + 1);
+    const uint8_t d = static_cast<uint8_t>(loc.tm_mday);
+    if (p.pregnancy_active && p.has_due_date) {
+      const int32_t gest = pm_cycle_gestational_day(&p, y, mo, d);
+      const int32_t until = pm_cycle_days_until_due(&p, y, mo, d);
+      if (gest >= 0) {
+        Serial.printf("cycle: gestational week %ld", static_cast<long>((gest + 3) / 7));
+        if (until != INT32_MIN) {
+          Serial.printf(" due_in_days=%ld", static_cast<long>(until));
+        }
+        Serial.println();
+      }
+    }
+    if (p.has_last_period) {
+      const int32_t idx = pm_cycle_day_index_for_date(&p, y, mo, d);
+      if (idx >= 0) {
+        Serial.printf("cycle: today day %ld of %u\n", static_cast<long>(idx + 1), p.cycle_length_days);
+      }
+    }
+  }
+  Serial.println("cycle: wellness estimate only; NVS-only, no cloud sync");
 }
 
 static void poll_serial_birth_commands() {
@@ -1306,6 +1977,87 @@ static void poll_serial_birth_commands() {
           }
         }
         g_clock_repaint_pending = true;
+      } else if (strcmp(line, "cycle") == 0 || strncmp(line, "cycle ", 6) == 0) {
+        const char *p = line + 5;
+        while (*p == ' ') {
+          ++p;
+        }
+        if (*p == '\0' || strncmp(p, "status", 6) == 0) {
+          print_cycle_status();
+        } else if (strncmp(p, "clear", 5) == 0 && (p[5] == '\0' || p[5] == ' ')) {
+          pm_cycle_clear();
+          Serial.println("cycle: cleared (NVS)");
+        } else if ((strncmp(p, "today", 5) == 0 && (p[5] == '\0' || p[5] == ' ')) ||
+                   (strncmp(p, "start", 5) == 0 && (p[5] == '\0' || p[5] == ' '))) {
+          if (!pm_time_valid()) {
+            Serial.println("cycle: need time");
+          } else {
+            struct tm loc = {};
+            pm_time_local(&loc);
+            if (pm_cycle_log_period_started_today(&loc)) {
+              Serial.printf("cycle: saved %04d-%02d-%02d as period day 1 (NVS)\n",
+                            loc.tm_year + 1900, loc.tm_mon + 1, loc.tm_mday);
+              g_cycle_confirm_until_ms = millis() + 1200u;
+            } else {
+              Serial.println("cycle: save failed");
+            }
+          }
+        } else if (strncmp(p, "length ", 7) == 0) {
+          unsigned days = 0;
+          if (sscanf(p + 7, "%u", &days) == 1 &&
+              pm_cycle_set_cycle_length_days(static_cast<uint8_t>(days))) {
+            Serial.printf("cycle: cycle_length_days=%u (NVS)\n", days);
+            g_cycle_confirm_until_ms = millis() + 1200u;
+          } else {
+            Serial.printf("cycle: length must be %u-%u days\n", PM_CYCLE_MIN_LENGTH_DAYS,
+                          PM_CYCLE_MAX_LENGTH_DAYS);
+          }
+        } else if (strncmp(p, "period ", 7) == 0) {
+          unsigned days = 0;
+          if (sscanf(p + 7, "%u", &days) == 1 &&
+              pm_cycle_set_period_length_days(static_cast<uint8_t>(days))) {
+            Serial.printf("cycle: period_length_days=%u (NVS)\n", days);
+            g_cycle_confirm_until_ms = millis() + 1200u;
+          } else {
+            Serial.println("cycle: period must be 1-10 days and shorter than cycle length");
+          }
+        } else {
+          unsigned y = 0, mo = 0, d = 0;
+          if (sscanf(p, "%u %u %u", &y, &mo, &d) == 3 &&
+              pm_cycle_set_last_period(static_cast<uint16_t>(y), static_cast<uint8_t>(mo),
+                                       static_cast<uint8_t>(d))) {
+            Serial.printf("cycle: saved %u-%02u-%02u as period day 1 (NVS)\n", y, mo, d);
+            g_cycle_confirm_until_ms = millis() + 1200u;
+          } else {
+            Serial.println("cycle: usage: cycle | cycle YYYY MM DD | cycle today | cycle length N | cycle period N | cycle clear");
+          }
+        }
+        g_clock_repaint_pending = true;
+      } else if (strncmp(line, "face ", 5) == 0) {
+        const char *p = line + 5;
+        while (*p == ' ') {
+          ++p;
+        }
+        int idx = -1;
+        char *end = nullptr;
+        const long n = strtol(p, &end, 10);
+        if (end != p && end && (*end == '\0' || *end == ' ')) {
+          idx = static_cast<int>(n);
+        } else if (face_index_from_name(p, &idx)) {
+          /* ok */
+        }
+        if (idx >= 0 && idx < static_cast<int>(ClockFace::kNumFaces)) {
+          g_clock_face = static_cast<ClockFace>(idx);
+          g_clock_repaint_pending = true;
+          Serial.printf("face: %d\n", idx);
+        } else {
+          Serial.println("face: usage: face <0-11|name>");
+        }
+      } else if (strcmp(line, "ota status") == 0) {
+        pm_ota_print_status();
+      } else if (strcmp(line, "safe") == 0) {
+        pm_diag_enter_safe_mode("serial");
+        g_clock_repaint_pending = true;
       }
       continue;
     }
@@ -1329,6 +2081,14 @@ void setup() {
       delay(1000);
     }
   }
+
+  pm_ota_init();
+  pm_diag_init();
+  pm_ota_validate_pending_runtime();
+  pm_ota_validate_pending_facepack();
+  if (pm_faces_pack_available()) {
+    Serial.println("face pack: loaded (swipe to HuePack or serial: face pack)");
+  }
   tft->setBrightness(200);
   gfx->fillScreen(RGB565_BLACK);
   gfx->flush();
@@ -1350,6 +2110,7 @@ void setup() {
 
 void loop() {
   pm_screen_http_loop();
+  (void)pm_wifi_tick_reconnect();
   const uint32_t now = millis();
   poll_serial_birth_commands();
   const uint8_t side_ev = pm_side_buttons_poll(now);
@@ -1405,6 +2166,35 @@ void loop() {
         snprintf(g_gesture_banner, sizeof(g_gesture_banner), "spotify: refresh");
       }
       g_clock_repaint_pending = true;
+    } else if (g_state == AppState::kClock && g_clock_face == ClockFace::Cycle &&
+               (ge.kind == PmGestureKind::Tap || ge.kind == PmGestureKind::SwipeUp ||
+                ge.kind == PmGestureKind::SwipeDown)) {
+      if (ge.kind == PmGestureKind::Tap) {
+        if (!pm_time_valid()) {
+          Serial.println("cycle: tap needs time");
+        } else {
+          struct tm loc = {};
+          pm_time_local(&loc);
+          if (pm_cycle_log_period_started_today(&loc)) {
+            Serial.printf("cycle: tap saved %04d-%02d-%02d as day 1\n",
+                          loc.tm_year + 1900, loc.tm_mon + 1, loc.tm_mday);
+            g_cycle_confirm_until_ms = now + 1200u;
+          }
+        }
+      } else {
+        const uint8_t len = pm_cycle_adjust_cycle_length_preset(ge.kind == PmGestureKind::SwipeUp ? 1 : -1);
+        Serial.printf("cycle: length preset %u days\n", len);
+        g_cycle_confirm_until_ms = now + 1200u;
+      }
+      g_gesture_banner[0] = '\0';
+      g_clock_repaint_pending = true;
+      continue;
+    } else if (g_state == AppState::kClock && g_clock_face == ClockFace::Moon &&
+               (ge.kind == PmGestureKind::SwipeUp || ge.kind == PmGestureKind::SwipeDown)) {
+      cycle_clock_face(ge.kind == PmGestureKind::SwipeUp ? 1 : -1);
+      g_clock_repaint_pending = true;
+      g_gesture_banner[0] = '\0';
+      continue;
     } else if (ge.kind != PmGestureKind::SwipeUp && ge.kind != PmGestureKind::SwipeDown) {
       snprintf(g_gesture_banner, sizeof(g_gesture_banner), "%s", gesture_label(ge.kind));
       Serial.printf("[gesture] %s @ %d,%d\n", g_gesture_banner, static_cast<int>(ge.x), static_cast<int>(ge.y));
@@ -1501,10 +2291,16 @@ void loop() {
       static char s_prev_banner[44] = "";
       static uint32_t s_last_ntp_retry_wall = 0;
       static uint32_t s_last_no_time_redraw = 0;
+      static bool s_prev_charging = false;
+      static uint32_t s_last_charge_ripple_paint = 0;
+      static uint32_t s_last_cycle_confirm_paint = 0;
 
       const bool wifi = pm_wifi_connected();
       const bool valid = pm_time_valid();
       const time_t epoch = time(nullptr);
+      const bool charging = pm_pmu_charging();
+      const bool charging_chg = charging != s_prev_charging;
+      s_prev_charging = charging;
 
       struct tm tm_now = {};
       if (valid) {
@@ -1521,6 +2317,9 @@ void loop() {
         if (g_clock_face == ClockFace::Castalia) {
           pm_castalia_on_face_enter();
           g_clock_repaint_pending = true;
+        } else if (g_clock_face == ClockFace::Settings) {
+          pm_settings_refresh_url();
+          g_clock_repaint_pending = true;
         }
         s_prev_dial_face = g_clock_face;
       }
@@ -1531,6 +2330,9 @@ void loop() {
 
       if (wifi && pm_castalia_has_session()) {
         (void)pm_castalia_tick_refresh_session();
+        if (g_clock_face == ClockFace::Castalia && pm_castalia_tick_fetch_profile()) {
+          g_clock_repaint_pending = true;
+        }
       }
 
       const bool sec_tick = valid && (epoch != s_prev_epoch);
@@ -1539,7 +2341,8 @@ void loop() {
       const bool banner_chg = strcmp(g_gesture_banner, s_prev_banner) != 0;
       const bool wifi_chg = (wifi != s_prev_wifi);
       const bool local_hm_chg =
-          valid && g_clock_face != ClockFace::Castalia &&
+          valid && g_clock_face != ClockFace::Castalia && g_clock_face != ClockFace::Settings &&
+          g_clock_face != ClockFace::Version &&
           (g_analog_saved_local_h < 0 || tm_now.tm_hour != g_analog_saved_local_h ||
            tm_now.tm_min != g_analog_saved_local_m);
 
@@ -1559,21 +2362,38 @@ void loop() {
           (!s_calcifer_have_data || (now - s_last_calcifer_poll_ms >= MYNAH_CALCIFER_POLL_MS));
 
       static time_t s_prev_astro_epoch_min = -1;
+      static time_t s_astro_remote_attempt_min = -1;
       const time_t epoch_min_bucket = valid ? (epoch / 60) : -1;
       const bool astro_repaint =
           g_clock_face == ClockFace::Astrology && valid && epoch_min_bucket != s_prev_astro_epoch_min;
 
       const bool sec_tick_paint =
-          sec_tick && g_clock_face != ClockFace::Castalia && g_clock_face != ClockFace::CalciferCountdown;
+          sec_tick && g_clock_face != ClockFace::Castalia && g_clock_face != ClockFace::Settings &&
+          g_clock_face != ClockFace::Version && g_clock_face != ClockFace::CalciferCountdown;
       const bool calcifer_sec =
           g_clock_face == ClockFace::CalciferCountdown && valid && sec_tick;
+      const bool face_has_rim = g_clock_face != ClockFace::Castalia && g_clock_face != ClockFace::Settings &&
+                                g_clock_face != ClockFace::Version;
+      const bool charging_ripple_frame =
+          charging && face_has_rim && (now - s_last_charge_ripple_paint >= 160u);
+      const bool cycle_confirm_frame =
+          g_clock_face == ClockFace::Cycle &&
+          static_cast<int32_t>(now - g_cycle_confirm_until_ms) < 0 &&
+          (now - s_last_cycle_confirm_paint >= 120u);
       const bool full_paint = !s_clock_paint_inited || slow_no_time || banner_chg || wifi_chg ||
                               g_clock_repaint_pending || local_hm_chg || spotify_stale || calcifer_stale ||
-                              sec_tick_paint || calcifer_sec || astro_repaint;
+                              sec_tick_paint || calcifer_sec || astro_repaint || charging_chg ||
+                              charging_ripple_frame || cycle_confirm_frame;
 
       if (full_paint) {
         s_clock_paint_inited = true;
         g_clock_repaint_pending = false;
+        if (charging && face_has_rim) {
+          s_last_charge_ripple_paint = now;
+        }
+        if (g_clock_face == ClockFace::Cycle) {
+          s_last_cycle_confirm_paint = now;
+        }
         if (valid) {
           s_prev_epoch = epoch;
         }
@@ -1597,6 +2417,24 @@ void loop() {
             (void)pm_calcifer_fetch(&g_calcifer_ui, epoch);
             s_last_calcifer_poll_ms = now;
             s_calcifer_have_data = true;
+          }
+        }
+        if (g_clock_face == ClockFace::Astrology && wifi && valid &&
+            epoch_min_bucket != s_astro_remote_attempt_min) {
+          const bool retry_ready = s_astro_remote_retry_after_ms == 0 ||
+                                   static_cast<int32_t>(now - s_astro_remote_retry_after_ms) >= 0;
+          if (s_astro_remote_have || retry_ready) {
+            char err[40] = "";
+            PmTransitPositions fetched = {};
+            s_astro_remote_attempt_min = epoch_min_bucket;
+            if (pm_ephemeris_fetch(epoch, &fetched, err, sizeof(err))) {
+              g_astro_remote_tp = fetched;
+              s_astro_remote_have = true;
+              s_astro_remote_epoch_min = epoch_min_bucket;
+              s_astro_remote_retry_after_ms = 0;
+            } else if (!s_astro_remote_have) {
+              s_astro_remote_retry_after_ms = now + 600000u;
+            }
           }
         }
         draw_clock_face();
