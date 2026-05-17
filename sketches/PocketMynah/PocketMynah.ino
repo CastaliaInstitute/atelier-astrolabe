@@ -28,6 +28,7 @@
 #include "pm_calcifer.h"
 #include "pm_astro_highlight.h"
 #include "pm_circadian_hue.h"
+#include "pm_cycle_nvs.h"
 
 Arduino_DataBus *bus = new Arduino_ESP32QSPI(
     LCD_CS, LCD_SCLK, LCD_SDIO0, LCD_SDIO1, LCD_SDIO2, LCD_SDIO3);
@@ -58,6 +59,7 @@ static bool g_voice_play_reset = false;
 static char g_astrology_voice_msg[2200] = "";
 static char g_astrology_sys_prompt[2800] = "";
 static bool s_rec_mic_on = false;
+static uint32_t g_cycle_confirm_until_ms = 0;
 /** Astrology voice: stay on chart during record/think/speak + highlight mentions. */
 static bool g_astro_voice_active = false;
 /** True when astro turn uses recorded PCM (PWR hold); false for BOOT tap text reading. */
@@ -86,6 +88,8 @@ enum class ClockFace : uint8_t {
   Moon,
   /** CalDAV block countdown via `calcifer-status`. */
   CalciferCountdown,
+  /** On-device menstrual cycle ring; NVS only, low-text wellness glance. */
+  Cycle,
   /** QR → castalia.institute Google sign-in; tokens stored on watch for Edge Functions. */
   Castalia,
   kNumFaces,
@@ -1202,6 +1206,135 @@ static void draw_radial_annulus_slice(int cx, int cy, float ang, int r0, int r1,
   }
 }
 
+static float cycle_angle_for_day(float day0, float cycle_len) {
+  return (day0 / cycle_len) * kTwoPi - kPi * 0.5f;
+}
+
+static void draw_cycle_band(int cx, int cy, int r_inner, int r_outer, uint8_t cycle_len,
+                            float start_day0, float day_count, uint16_t col, int half_w) {
+  if (cycle_len == 0 || day_count <= 0.f) {
+    return;
+  }
+  while (start_day0 < 0.f) {
+    start_day0 += static_cast<float>(cycle_len);
+  }
+  while (start_day0 >= static_cast<float>(cycle_len)) {
+    start_day0 -= static_cast<float>(cycle_len);
+  }
+
+  const float max_count = static_cast<float>(cycle_len);
+  if (day_count > max_count) {
+    day_count = max_count;
+  }
+  const int steps = static_cast<int>(ceilf(day_count * 12.f));
+  const int n = steps < 8 ? 8 : (steps > 432 ? 432 : steps);
+  for (int i = 0; i <= n; ++i) {
+    float day = start_day0 + day_count * (static_cast<float>(i) / static_cast<float>(n));
+    while (day >= static_cast<float>(cycle_len)) {
+      day -= static_cast<float>(cycle_len);
+    }
+    draw_radial_annulus_slice(cx, cy, cycle_angle_for_day(day, static_cast<float>(cycle_len)),
+                              r_inner, r_outer, col, half_w);
+  }
+}
+
+static void draw_cycle_marker(int cx, int cy, int r_mid, float ang, bool pulse) {
+  const float ux = cosf(ang);
+  const float uy = sinf(ang);
+  const int x = cx + static_cast<int>(lrintf(ux * static_cast<float>(r_mid)));
+  const int y = cy + static_cast<int>(lrintf(uy * static_cast<float>(r_mid)));
+  const int pulse_px = pulse ? (2 + static_cast<int>((millis() / 110u) % 3u)) : 0;
+  const uint16_t c_marker = gfx->color565(252, 248, 230);
+  const uint16_t c_halo = pulse ? gfx->color565(120, 210, 205) : gfx->color565(70, 76, 92);
+  gfx->fillCircle(x, y, 11 + pulse_px, c_halo);
+  gfx->fillCircle(x, y, 6 + pulse_px / 2, c_marker);
+  gfx->drawLine(cx + static_cast<int>(lrintf(ux * static_cast<float>(r_mid + 12))),
+                cy + static_cast<int>(lrintf(uy * static_cast<float>(r_mid + 12))),
+                cx + static_cast<int>(lrintf(ux * static_cast<float>(r_mid + 25))),
+                cy + static_cast<int>(lrintf(uy * static_cast<float>(r_mid + 25))), c_marker);
+}
+
+static void draw_cycle_face(const struct tm *tm_local, bool valid_local) {
+  const uint16_t c_dim = gfx->color565(142, 150, 166);
+  const uint16_t c_error = gfx->color565(255, 155, 145);
+  if (!valid_local || !tm_local) {
+    drawCenteredLine("need time", 220, c_dim, 2, 2);
+    return;
+  }
+
+  PmCycleProfile cycle = {};
+  (void)pm_cycle_load(&cycle);
+  if (!cycle.has_last_period) {
+    drawCenteredLine("set cycle", 220, c_dim, 2, 2);
+    return;
+  }
+
+  const uint16_t year = static_cast<uint16_t>(tm_local->tm_year + 1900);
+  const uint8_t month = static_cast<uint8_t>(tm_local->tm_mon + 1);
+  const uint8_t day = static_cast<uint8_t>(tm_local->tm_mday);
+  const int32_t day_idx = pm_cycle_day_index_for_date(&cycle, year, month, day);
+  if (day_idx < 0) {
+    drawCenteredLine("set cycle", 220, c_error, 2, 2);
+    return;
+  }
+
+  const int cx = LCD_WIDTH / 2;
+  const int cy = LCD_HEIGHT / 2;
+  const int R = min(LCD_WIDTH, LCD_HEIGHT) / 2;
+  const int r_outer = R - 20;
+  const int r_inner = r_outer - 32;
+  const int r_mid = (r_inner + r_outer) / 2;
+  const uint8_t cycle_len = cycle.cycle_length_days ? cycle.cycle_length_days : PM_CYCLE_DEFAULT_LENGTH_DAYS;
+  const uint8_t period_len = cycle.period_length_days < cycle_len ? cycle.period_length_days
+                                                                  : PM_CYCLE_DEFAULT_PERIOD_DAYS;
+  int ov_day = static_cast<int>(cycle_len) - 14;
+  if (ov_day < 1) {
+    ov_day = 1;
+  } else if (ov_day > static_cast<int>(cycle_len)) {
+    ov_day = cycle_len;
+  }
+
+  const uint16_t c_track = gfx->color565(33, 39, 55);
+  const uint16_t c_luteal = gfx->color565(105, 82, 148);
+  const uint16_t c_fertile = gfx->color565(44, 165, 140);
+  const uint16_t c_period = gfx->color565(205, 76, 118);
+  const uint16_t c_ov = gfx->color565(245, 195, 80);
+  const uint16_t c_spoke = gfx->color565(60, 68, 84);
+
+  draw_cycle_band(cx, cy, r_inner, r_outer, cycle_len, 0.f, static_cast<float>(cycle_len), c_track, 2);
+  draw_cycle_band(cx, cy, r_inner, r_outer, cycle_len, static_cast<float>(ov_day),
+                  static_cast<float>(cycle_len - ov_day), c_luteal, 2);
+  draw_cycle_band(cx, cy, r_inner, r_outer, cycle_len, static_cast<float>(ov_day - 1 - 3), 7.f,
+                  c_fertile, 2);
+  draw_cycle_band(cx, cy, r_inner, r_outer, cycle_len, 0.f, static_cast<float>(period_len), c_period, 2);
+
+  for (uint8_t d = 0; d < cycle_len; ++d) {
+    if (d % 7 != 0 && d != 0) {
+      continue;
+    }
+    const float a = cycle_angle_for_day(static_cast<float>(d), static_cast<float>(cycle_len));
+    const int t0 = d == 0 ? r_inner - 10 : r_inner - 5;
+    const int t1 = r_inner - 1;
+    gfx->drawLine(cx + static_cast<int>(lrintf(cosf(a) * static_cast<float>(t0))),
+                  cy + static_cast<int>(lrintf(sinf(a) * static_cast<float>(t0))),
+                  cx + static_cast<int>(lrintf(cosf(a) * static_cast<float>(t1))),
+                  cy + static_cast<int>(lrintf(sinf(a) * static_cast<float>(t1))), c_spoke);
+  }
+
+  const float ov_ang = cycle_angle_for_day(static_cast<float>(ov_day - 1), static_cast<float>(cycle_len));
+  draw_radial_annulus_slice(cx, cy, ov_ang, r_inner - 2, r_outer + 4, c_ov, 3);
+
+  const bool confirm = static_cast<int32_t>(millis() - g_cycle_confirm_until_ms) < 0;
+  const float today_ang = cycle_angle_for_day(static_cast<float>(day_idx), static_cast<float>(cycle_len));
+  draw_cycle_marker(cx, cy, r_mid, today_ang, confirm);
+
+  gfx->drawCircle(cx, cy, r_outer + 5, gfx->color565(38, 45, 60));
+  gfx->drawCircle(cx, cy, r_inner - 8, gfx->color565(30, 36, 50));
+  if (confirm) {
+    gfx->drawCircle(cx, cy, r_outer + 9, gfx->color565(90, 210, 190));
+  }
+}
+
 static void draw_charging_ripples_on_rainbow_rim(int cx, int cy, int r_inner, int r_outer, bool valid) {
   if (!pm_pmu_charging()) {
     return;
@@ -1454,6 +1587,9 @@ static void draw_clock_face(float thinking_progress = -1.f) {
     case ClockFace::CalciferCountdown:
       draw_calcifer_face();
       break;
+    case ClockFace::Cycle:
+      draw_cycle_face(&tm, pm_time_valid());
+      break;
     case ClockFace::Castalia:
       draw_castalia_face();
       break;
@@ -1463,7 +1599,8 @@ static void draw_clock_face(float thinking_progress = -1.f) {
 
   const int banner_y = (g_clock_face == ClockFace::Apocalypso || g_clock_face == ClockFace::Spotify ||
                         g_clock_face == ClockFace::Astrology || g_clock_face == ClockFace::Moon ||
-                        g_clock_face == ClockFace::CalciferCountdown || g_clock_face == ClockFace::Castalia)
+                        g_clock_face == ClockFace::CalciferCountdown || g_clock_face == ClockFace::Cycle ||
+                        g_clock_face == ClockFace::Castalia)
                            ? 352
                            : 320;
   if (MYNAH_DEBUG_GESTURES && g_gesture_banner[0] != '\0') {
@@ -1580,7 +1717,8 @@ static bool face_index_from_name(const char *name, int *out) {
     int idx;
   } k[] = {{"classic", 0}, {"hue", 0},     {"analog", 0},    {"apocalypso", 1},
            {"digital", 2}, {"spotify", 3}, {"astro", 4},       {"astrology", 4},
-           {"moon", 5},    {"calcifer", 6}, {"schedule", 6},  {"castalia", 7}};
+           {"moon", 5},    {"calcifer", 6}, {"schedule", 6},  {"cycle", 7},
+           {"menstrual", 7}, {"castalia", 8}};
   for (const auto &e : k) {
     if (strcasecmp(name, e.n) == 0) {
       *out = e.idx;
@@ -1588,6 +1726,30 @@ static bool face_index_from_name(const char *name, int *out) {
     }
   }
   return false;
+}
+
+static void print_cycle_status() {
+  PmCycleProfile p = {};
+  (void)pm_cycle_load(&p);
+  if (p.has_last_period) {
+    Serial.printf("cycle: last_period_ymd=%04u-%02u-%02u cycle_length_days=%u period_length_days=%u\n",
+                  p.last_period_year, p.last_period_month, p.last_period_day, p.cycle_length_days,
+                  p.period_length_days);
+  } else {
+    Serial.printf("cycle: last_period_ymd=(unset) cycle_length_days=%u period_length_days=%u\n",
+                  p.cycle_length_days, p.period_length_days);
+  }
+  if (pm_time_valid() && p.has_last_period) {
+    struct tm loc = {};
+    pm_time_local(&loc);
+    const int32_t idx = pm_cycle_day_index_for_date(&p, static_cast<uint16_t>(loc.tm_year + 1900),
+                                                    static_cast<uint8_t>(loc.tm_mon + 1),
+                                                    static_cast<uint8_t>(loc.tm_mday));
+    if (idx >= 0) {
+      Serial.printf("cycle: today day %ld of %u\n", static_cast<long>(idx + 1), p.cycle_length_days);
+    }
+  }
+  Serial.println("cycle: wellness estimate only; NVS-only, no cloud sync");
 }
 
 static void poll_serial_birth_commands() {
@@ -1630,6 +1792,62 @@ static void poll_serial_birth_commands() {
           }
         }
         g_clock_repaint_pending = true;
+      } else if (strcmp(line, "cycle") == 0 || strncmp(line, "cycle ", 6) == 0) {
+        const char *p = line + 5;
+        while (*p == ' ') {
+          ++p;
+        }
+        if (*p == '\0' || strncmp(p, "status", 6) == 0) {
+          print_cycle_status();
+        } else if (strncmp(p, "clear", 5) == 0 && (p[5] == '\0' || p[5] == ' ')) {
+          pm_cycle_clear();
+          Serial.println("cycle: cleared (NVS)");
+        } else if ((strncmp(p, "today", 5) == 0 && (p[5] == '\0' || p[5] == ' ')) ||
+                   (strncmp(p, "start", 5) == 0 && (p[5] == '\0' || p[5] == ' '))) {
+          if (!pm_time_valid()) {
+            Serial.println("cycle: need time");
+          } else {
+            struct tm loc = {};
+            pm_time_local(&loc);
+            if (pm_cycle_log_period_started_today(&loc)) {
+              Serial.printf("cycle: saved %04d-%02d-%02d as period day 1 (NVS)\n",
+                            loc.tm_year + 1900, loc.tm_mon + 1, loc.tm_mday);
+              g_cycle_confirm_until_ms = millis() + 1200u;
+            } else {
+              Serial.println("cycle: save failed");
+            }
+          }
+        } else if (strncmp(p, "length ", 7) == 0) {
+          unsigned days = 0;
+          if (sscanf(p + 7, "%u", &days) == 1 &&
+              pm_cycle_set_cycle_length_days(static_cast<uint8_t>(days))) {
+            Serial.printf("cycle: cycle_length_days=%u (NVS)\n", days);
+            g_cycle_confirm_until_ms = millis() + 1200u;
+          } else {
+            Serial.printf("cycle: length must be %u-%u days\n", PM_CYCLE_MIN_LENGTH_DAYS,
+                          PM_CYCLE_MAX_LENGTH_DAYS);
+          }
+        } else if (strncmp(p, "period ", 7) == 0) {
+          unsigned days = 0;
+          if (sscanf(p + 7, "%u", &days) == 1 &&
+              pm_cycle_set_period_length_days(static_cast<uint8_t>(days))) {
+            Serial.printf("cycle: period_length_days=%u (NVS)\n", days);
+            g_cycle_confirm_until_ms = millis() + 1200u;
+          } else {
+            Serial.println("cycle: period must be 1-10 days and shorter than cycle length");
+          }
+        } else {
+          unsigned y = 0, mo = 0, d = 0;
+          if (sscanf(p, "%u %u %u", &y, &mo, &d) == 3 &&
+              pm_cycle_set_last_period(static_cast<uint16_t>(y), static_cast<uint8_t>(mo),
+                                       static_cast<uint8_t>(d))) {
+            Serial.printf("cycle: saved %u-%02u-%02u as period day 1 (NVS)\n", y, mo, d);
+            g_cycle_confirm_until_ms = millis() + 1200u;
+          } else {
+            Serial.println("cycle: usage: cycle | cycle YYYY MM DD | cycle today | cycle length N | cycle period N | cycle clear");
+          }
+        }
+        g_clock_repaint_pending = true;
       } else if (strncmp(line, "face ", 5) == 0) {
         const char *p = line + 5;
         while (*p == ' ') {
@@ -1648,7 +1866,7 @@ static void poll_serial_birth_commands() {
           g_clock_repaint_pending = true;
           Serial.printf("face: %d\n", idx);
         } else {
-          Serial.println("face: usage: face <0-7|name>");
+          Serial.println("face: usage: face <0-8|name>");
         }
       }
       continue;
@@ -1749,6 +1967,29 @@ void loop() {
         snprintf(g_gesture_banner, sizeof(g_gesture_banner), "spotify: refresh");
       }
       g_clock_repaint_pending = true;
+    } else if (g_state == AppState::kClock && g_clock_face == ClockFace::Cycle &&
+               (ge.kind == PmGestureKind::Tap || ge.kind == PmGestureKind::SwipeUp ||
+                ge.kind == PmGestureKind::SwipeDown)) {
+      if (ge.kind == PmGestureKind::Tap) {
+        if (!pm_time_valid()) {
+          Serial.println("cycle: tap needs time");
+        } else {
+          struct tm loc = {};
+          pm_time_local(&loc);
+          if (pm_cycle_log_period_started_today(&loc)) {
+            Serial.printf("cycle: tap saved %04d-%02d-%02d as day 1\n",
+                          loc.tm_year + 1900, loc.tm_mon + 1, loc.tm_mday);
+            g_cycle_confirm_until_ms = now + 1200u;
+          }
+        }
+      } else {
+        const uint8_t len = pm_cycle_adjust_cycle_length_preset(ge.kind == PmGestureKind::SwipeUp ? 1 : -1);
+        Serial.printf("cycle: length preset %u days\n", len);
+        g_cycle_confirm_until_ms = now + 1200u;
+      }
+      g_gesture_banner[0] = '\0';
+      g_clock_repaint_pending = true;
+      continue;
     } else if (g_state == AppState::kClock && g_clock_face == ClockFace::Moon &&
                (ge.kind == PmGestureKind::SwipeUp || ge.kind == PmGestureKind::SwipeDown)) {
       cycle_clock_face(ge.kind == PmGestureKind::SwipeUp ? 1 : -1);
@@ -1853,6 +2094,7 @@ void loop() {
       static uint32_t s_last_no_time_redraw = 0;
       static bool s_prev_charging = false;
       static uint32_t s_last_charge_ripple_paint = 0;
+      static uint32_t s_last_cycle_confirm_paint = 0;
 
       const bool wifi = pm_wifi_connected();
       const bool valid = pm_time_valid();
@@ -1926,16 +2168,23 @@ void loop() {
       const bool face_has_rim = g_clock_face != ClockFace::Castalia;
       const bool charging_ripple_frame =
           charging && face_has_rim && (now - s_last_charge_ripple_paint >= 160u);
+      const bool cycle_confirm_frame =
+          g_clock_face == ClockFace::Cycle &&
+          static_cast<int32_t>(now - g_cycle_confirm_until_ms) < 0 &&
+          (now - s_last_cycle_confirm_paint >= 120u);
       const bool full_paint = !s_clock_paint_inited || slow_no_time || banner_chg || wifi_chg ||
                               g_clock_repaint_pending || local_hm_chg || spotify_stale || calcifer_stale ||
                               sec_tick_paint || calcifer_sec || astro_repaint || charging_chg ||
-                              charging_ripple_frame;
+                              charging_ripple_frame || cycle_confirm_frame;
 
       if (full_paint) {
         s_clock_paint_inited = true;
         g_clock_repaint_pending = false;
         if (charging && face_has_rim) {
           s_last_charge_ripple_paint = now;
+        }
+        if (g_clock_face == ClockFace::Cycle) {
+          s_last_cycle_confirm_paint = now;
         }
         if (valid) {
           s_prev_epoch = epoch;
