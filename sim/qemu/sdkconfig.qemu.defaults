@@ -1,0 +1,11 @@
+# Fragment for ESP-IDF QEMU builds (MYNAH_SIM_QEMU).
+# Merge into project sdkconfig when porting shell/OTA tests off Arduino.
+#
+# Espressif QEMU: https://github.com/espressif/qemu
+# idf.py qemu monitor
+
+CONFIG_IDF_TARGET="esp32s3"
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+
+# Enable when running face-less firmware tests in CI
+# CONFIG_MYNAH_SIM_QEMU=y

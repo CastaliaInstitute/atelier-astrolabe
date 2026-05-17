@@ -39,6 +39,8 @@ Same project as Android Mynah:
 
 Firmware source lives at this **repository root** (**PlatformIO** + **Arduino**); **ESP-IDF** is acceptable if we need tighter audio/display coupling.
 
+**Simulation:** three levels (host round viewer, ESP-IDF QEMU mocks, hardware-in-the-loop) — see [`simulation.md`](simulation.md).
+
 **Suggested layers:**
 
 1. **Shell** — Wi‑Fi provisioning (captive portal or hard-coded dev secrets), NTP time, deep sleep / wake.
