@@ -62,6 +62,8 @@ _(none — cloud agent batch merged to `integration` 2026-05-17)_
 
 ### Glance / utility faces
 
+- [~] **P1** **Settings face (QR + LAN config)** — `ClockFace::Settings`: QR → `http://astrolabe-xxxx.local/settings` (mDNS) or IP; web form for birth NVS; `/screen.bmp` retained.
+
 - [ ] **P1** **Weather face** — new `ClockFace`: current conditions + short forecast for observer location. **Location:** Wi‑Fi geo / `pm_geo_tz` or NVS lat-lon from mDNS config. **Data:** Castalia Edge Function (API keys server-side, same pattern as `calcifer-status`) — temp, icon/condition, hi/lo, optional hourly strip on round display. Poll on interval when face visible + Wi‑Fi; cache last good response offline. Optional: STT “what’s the weather?” on this face; tie icon art to ambient hue. Depends on Castalia JWT + NTP.
 
 - [ ] **P1** **Rotating Earth face** — new `ClockFace`: **slowly rotating globe** on round display with **day/night terminator** from UTC + optional observer lon (NTP; `pm_geo_tz` or NVS). **Night side** dim, **day side** lit; optional dot for user location. **Weather:** overlay conditions on the map or a compact HUD (reuse **Weather face** / Castalia weather API — clouds/precip bands, temp at pin). Animate rotation tied to time (sidereal or simple spin). Distinct from flat **weather** summary and **orrery** (heliocentric); keep draw cost bounded on CO5300 canvas.
