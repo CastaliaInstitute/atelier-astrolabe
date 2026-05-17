@@ -20,3 +20,11 @@ Build flag `MYNAH_SIM_HOST` selects `mynah_hal_host.h` (SDL backend planned unde
 | Two-finger | Not yet — extend `TouchMouse` |
 
 Faces should not depend on this module; only `mynah::Display` / `mynah::Touch`.
+
+## CI
+
+```bash
+./scripts/ci-sim.sh
+```
+
+Runs `test_sim_ci.py` (headless) on every PR to `integration` / `main`.

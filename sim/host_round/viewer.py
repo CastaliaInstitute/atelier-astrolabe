@@ -12,9 +12,10 @@ Requires: pygame (`pip install pygame`)
 from __future__ import annotations
 
 import argparse
-import struct
 import sys
 from pathlib import Path
+
+from sim_core import CENTER, RADIUS, SCALE, SIZE, WIN, load_bmp24, validate_watch_bmp
 
 try:
     import pygame
@@ -22,24 +23,12 @@ except ImportError:
     print("Install pygame: pip install pygame", file=sys.stderr)
     raise SystemExit(1)
 
-SIZE = 466
-SCALE = 2
-WIN = SIZE * SCALE
-CENTER = WIN // 2
-RADIUS = int(218 * SCALE)
-
 
 def load_bmp565(path: Path) -> pygame.Surface | None:
     """Load a 24-bit BMP from the watch HTTP server into an RGB surface."""
-    data = path.read_bytes()
-    if len(data) < 54 or data[:2] != b"BM":
+    if not validate_watch_bmp(path):
         return None
-    offset = struct.unpack_from("<I", data, 10)[0]
-    w, h = struct.unpack_from("<ii", data, 18)
-    if w != SIZE or h != SIZE:
-        print(f"Expected {SIZE}x{SIZE}, got {w}x{h}", file=sys.stderr)
-        return None
-    pixels = data[offset : offset + w * h * 3]
+    pixels, w, h = load_bmp24(path)  # type: ignore[misc]
     surf = pygame.image.frombuffer(pixels, (w, h), "BGR")
     return surf.convert()
 

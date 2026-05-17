@@ -62,6 +62,21 @@ Use **fake drivers** under `sim/qemu/` — not a board-accurate machine model.
 | Simulate Mynah firmware logic with QEMU + mocks? | **Yes.** |
 | Best face iteration loop? | **Host sim** → QEMU for shell → **hardware** before release. |
 
+## Continuous integration
+
+Workflow [`.github/workflows/simulator-ci.yml`](../.github/workflows/simulator-ci.yml) runs on:
+
+- **Pull requests** targeting `integration` or `main` (feature branches → integration)
+- **Pushes** to `integration`
+
+Locally:
+
+```bash
+./scripts/ci-sim.sh
+```
+
+Checks: headless pygame smoke (`SDL_VIDEODRIVER=dummy`), BMP/viewport unit tests, QEMU HAL `.cpp` compile smoke. Firmware build remains in [`firmware-build.yml`](../.github/workflows/firmware-build.yml).
+
 ## References
 
 - [Espressif QEMU](https://github.com/espressif/qemu)
