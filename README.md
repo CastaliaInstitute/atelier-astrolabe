@@ -88,6 +88,7 @@ personal tracking, not a medical device or medical advice.
   - `cycle length N`
   - `cycle period N`
   - `cycle clear`
+- Web settings (Settings face QR): `/settings/cycle` — last period, cycle/period length, pregnancy due date.
 
 Partner and child birth profiles (up to 8) are editable on the **Settings** face web UI
 (`/settings/family`) and stored in NVS for future synastry faces. Wi‑Fi SSID/password: `/settings/wifi`.

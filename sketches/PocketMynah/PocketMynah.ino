@@ -1262,14 +1262,58 @@ static void draw_cycle_face(const struct tm *tm_local, bool valid_local) {
 
   PmCycleProfile cycle = {};
   (void)pm_cycle_load(&cycle);
+
+  const uint16_t year = static_cast<uint16_t>(tm_local->tm_year + 1900);
+  const uint8_t month = static_cast<uint8_t>(tm_local->tm_mon + 1);
+  const uint8_t day = static_cast<uint8_t>(tm_local->tm_mday);
+
+  if (cycle.pregnancy_active) {
+    if (!cycle.has_due_date) {
+      drawCenteredLine("set due date", 220, c_dim, 2, 2);
+      drawCenteredLine("settings web", 260, c_dim, 1, 1);
+      return;
+    }
+    const int32_t gest = pm_cycle_gestational_day(&cycle, year, month, day);
+    const int32_t until = pm_cycle_days_until_due(&cycle, year, month, day);
+    const int cx = LCD_WIDTH / 2;
+    const int cy = LCD_HEIGHT / 2;
+    const int R = min(LCD_WIDTH, LCD_HEIGHT) / 2;
+    const int r_outer = R - 20;
+    const int r_inner = r_outer - 32;
+    const uint16_t c_track = gfx->color565(40, 36, 52);
+    const uint16_t c_prog = gfx->color565(235, 175, 95);
+    const int32_t gest_clamped = gest >= 0 ? gest : 0;
+    int32_t week = (gest_clamped + 3) / 7;
+    if (week < 0) {
+      week = 0;
+    }
+    if (week > 40) {
+      week = 40;
+    }
+    constexpr uint8_t kPregWeeks = 40;
+    draw_cycle_band(cx, cy, r_inner, r_outer, kPregWeeks, 0.f, static_cast<float>(week), c_prog, 3);
+    draw_cycle_band(cx, cy, r_inner, r_outer, kPregWeeks, static_cast<float>(week),
+                    static_cast<float>(kPregWeeks - week), c_track, 2);
+    char line[32];
+    snprintf(line, sizeof(line), "week %ld", static_cast<long>(week));
+    drawCenteredLine(line, cy - 24, gfx->color565(250, 235, 210), 2, 2);
+    if (until >= 0) {
+      snprintf(line, sizeof(line), "due in %ld d", static_cast<long>(until));
+    } else {
+      snprintf(line, sizeof(line), "past due");
+    }
+    drawCenteredLine(line, cy + 12, c_dim, 1, 2);
+    snprintf(line, sizeof(line), "%02u/%02u/%04u", cycle.due_month, cycle.due_day, cycle.due_year);
+    drawCenteredLine(line, cy + 44, c_dim, 1, 1);
+    gfx->drawCircle(cx, cy, r_outer + 5, gfx->color565(90, 70, 110));
+    return;
+  }
+
   if (!cycle.has_last_period) {
     drawCenteredLine("set cycle", 220, c_dim, 2, 2);
     return;
   }
 
-  const uint16_t year = static_cast<uint16_t>(tm_local->tm_year + 1900);
-  const uint8_t month = static_cast<uint8_t>(tm_local->tm_mon + 1);
-  const uint8_t day = static_cast<uint8_t>(tm_local->tm_mday);
   const int32_t day_idx = pm_cycle_day_index_for_date(&cycle, year, month, day);
   if (day_idx < 0) {
     drawCenteredLine("set cycle", 220, c_error, 2, 2);
@@ -1779,6 +1823,9 @@ static bool face_index_from_name(const char *name, int *out) {
 static void print_cycle_status() {
   PmCycleProfile p = {};
   (void)pm_cycle_load(&p);
+  if (p.pregnancy_active && p.has_due_date) {
+    Serial.printf("cycle: pregnant due=%04u-%02u-%02u\n", p.due_year, p.due_month, p.due_day);
+  }
   if (p.has_last_period) {
     Serial.printf("cycle: last_period_ymd=%04u-%02u-%02u cycle_length_days=%u period_length_days=%u\n",
                   p.last_period_year, p.last_period_month, p.last_period_day, p.cycle_length_days,
@@ -1787,14 +1834,28 @@ static void print_cycle_status() {
     Serial.printf("cycle: last_period_ymd=(unset) cycle_length_days=%u period_length_days=%u\n",
                   p.cycle_length_days, p.period_length_days);
   }
-  if (pm_time_valid() && p.has_last_period) {
+  if (pm_time_valid()) {
     struct tm loc = {};
     pm_time_local(&loc);
-    const int32_t idx = pm_cycle_day_index_for_date(&p, static_cast<uint16_t>(loc.tm_year + 1900),
-                                                    static_cast<uint8_t>(loc.tm_mon + 1),
-                                                    static_cast<uint8_t>(loc.tm_mday));
-    if (idx >= 0) {
-      Serial.printf("cycle: today day %ld of %u\n", static_cast<long>(idx + 1), p.cycle_length_days);
+    const uint16_t y = static_cast<uint16_t>(loc.tm_year + 1900);
+    const uint8_t mo = static_cast<uint8_t>(loc.tm_mon + 1);
+    const uint8_t d = static_cast<uint8_t>(loc.tm_mday);
+    if (p.pregnancy_active && p.has_due_date) {
+      const int32_t gest = pm_cycle_gestational_day(&p, y, mo, d);
+      const int32_t until = pm_cycle_days_until_due(&p, y, mo, d);
+      if (gest >= 0) {
+        Serial.printf("cycle: gestational week %ld", static_cast<long>((gest + 3) / 7));
+        if (until != INT32_MIN) {
+          Serial.printf(" due_in_days=%ld", static_cast<long>(until));
+        }
+        Serial.println();
+      }
+    }
+    if (p.has_last_period) {
+      const int32_t idx = pm_cycle_day_index_for_date(&p, y, mo, d);
+      if (idx >= 0) {
+        Serial.printf("cycle: today day %ld of %u\n", static_cast<long>(idx + 1), p.cycle_length_days);
+      }
     }
   }
   Serial.println("cycle: wellness estimate only; NVS-only, no cloud sync");
