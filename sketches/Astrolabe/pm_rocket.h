@@ -9,12 +9,16 @@ static constexpr int kPmRocketMaxLaunches = 6;
 
 struct PmRocketLaunch {
   bool valid = false;
+  char id[40];
   char name[72];
   char vehicle[48];
   char provider[40];
   char pad[40];
   char location[56];
   char status_abbrev[16];
+  /** Official webcast URL from LL2 vidURLs (YouTube, etc.). */
+  char webcast_url[128];
+  bool webcast_live = false;
   int64_t net_unix = 0;
 };
 

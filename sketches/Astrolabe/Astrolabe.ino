@@ -882,6 +882,7 @@ void loop() {
       }
       if (pm_faces_current() != ClockFace::Rocket) {
         s_rocket_have_data = false;
+        pm_face_rocket_set_stream_qr_visible(false);
       }
 
       const bool spotify_stale =

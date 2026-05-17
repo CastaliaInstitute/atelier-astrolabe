@@ -116,8 +116,10 @@ static bool parse_launch_block(const char *block, size_t block_len, time_t now_e
 
   memset(out, 0, sizeof(*out));
   out->net_unix = static_cast<int64_t>(net_epoch);
+  (void)extract_json_string_field(slice, "id", out->id, sizeof(out->id));
   (void)extract_json_string_field(slice, "name", out->name, sizeof(out->name));
   (void)extract_json_string_field(slice, "abbrev", out->status_abbrev, sizeof(out->status_abbrev));
+  out->webcast_live = strstr(slice, "\"webcast_live\":true") != nullptr;
 
   const char *rocket = strstr(slice, "\"rocket\":");
   if (rocket) {
@@ -190,6 +192,108 @@ static bool parse_launch_block(const char *block, size_t block_len, time_t now_e
   }
   out->valid = true;
   return true;
+}
+
+static bool parse_webcast_from_detail_json(const char *json, PmRocketLaunch *out) {
+  if (!json || !out) {
+    return false;
+  }
+  out->webcast_url[0] = '\0';
+  out->webcast_live = strstr(json, "\"webcast_live\":true") != nullptr;
+
+  const char *vid = strstr(json, "\"vidURLs\":");
+  if (!vid) {
+    return false;
+  }
+  vid += strlen("\"vidURLs\":");
+  while (*vid == ' ') {
+    ++vid;
+  }
+  if (*vid == 'n' || (*vid == '[' && vid[1] == ']')) {
+    return false;
+  }
+
+  const char *end = strstr(vid, "\"infoURLs\":");
+  if (!end) {
+    end = json + strlen(json);
+  }
+
+  const char *url_key = vid;
+  while ((url_key = strstr(url_key, "\"url\":\"")) != nullptr && url_key < end) {
+    const char *p = url_key + strlen("\"url\":\"");
+    if (strncmp(p, "http", 4) != 0) {
+      ++url_key;
+      continue;
+    }
+    size_t o = 0;
+    while (p[o] && p[o] != '"' && o + 1 < sizeof(out->webcast_url)) {
+      if (p[o] == '\\' && p[o + 1]) {
+        ++o;
+        continue;
+      }
+      out->webcast_url[o++] = p[o];
+    }
+    out->webcast_url[o] = '\0';
+    return o > 0;
+  }
+  return false;
+}
+
+static bool fetch_launch_webcast(PmRocketLaunch *launch) {
+  if (!launch || !launch->valid || launch->id[0] == '\0') {
+    return false;
+  }
+
+  char url[120];
+  snprintf(url, sizeof(url), "https://ll.thespacedevs.com/2.2.0/launch/%s/", launch->id);
+
+  WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient http;
+  http.setTimeout(MYNAH_ROCKET_HTTP_MS);
+  if (!http.begin(client, url)) {
+    return false;
+  }
+
+  const int code = http.GET();
+  const int streamLen = http.getSize();
+  if (code != 200 || streamLen <= 0 || streamLen > MYNAH_ROCKET_MAX_BYTES) {
+    http.end();
+    return false;
+  }
+
+  char *resp = static_cast<char *>(
+      heap_caps_malloc(static_cast<size_t>(streamLen) + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  if (!resp) {
+    resp = static_cast<char *>(malloc(static_cast<size_t>(streamLen) + 1));
+  }
+  if (!resp) {
+    http.end();
+    return false;
+  }
+
+  WiFiClient *stream = http.getStreamPtr();
+  size_t rd = 0;
+  const uint32_t deadline = millis() + MYNAH_ROCKET_HTTP_MS;
+  while (rd < static_cast<size_t>(streamLen)) {
+    if (stream->available() > 0) {
+      const int n = stream->readBytes(resp + rd, static_cast<size_t>(streamLen) - rd);
+      if (n > 0) {
+        rd += static_cast<size_t>(n);
+        continue;
+      }
+    }
+    if (static_cast<int32_t>(millis() - deadline) >= 0) {
+      break;
+    }
+    delay(2);
+  }
+  resp[rd] = '\0';
+  http.end();
+
+  const bool ok = rd > 0 && parse_webcast_from_detail_json(resp, launch);
+  free(resp);
+  return ok;
 }
 
 static void insert_launch_sorted(PmRocketLaunch *list, int *count, const PmRocketLaunch *launch) {
@@ -321,6 +425,9 @@ bool pm_rocket_fetch(PmRocketStatus *out) {
   out->count = collect_upcoming_launches(resp, out->launches, kPmRocketMaxLaunches);
   if (out->count > 0) {
     out->ok = true;
+    if (fetch_launch_webcast(&out->launches[0])) {
+      ESP_LOGI(TAG, "webcast: %s live=%d", out->launches[0].webcast_url, out->launches[0].webcast_live ? 1 : 0);
+    }
     ESP_LOGI(TAG, "launch clock: %d upcoming (next %s @ %lld)", out->count, out->launches[0].name,
              static_cast<long long>(out->launches[0].net_unix));
   } else {
