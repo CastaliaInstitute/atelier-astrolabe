@@ -619,9 +619,8 @@ static void draw_moon_disk(int cx, int cy, int r, float illum, bool waxing) {
 
 static void draw_moon_face(const struct tm *tm_local, bool valid_local) {
   const uint16_t c_dim = gfx->color565(150, 160, 178);
-  drawCenteredLine("MOON", 58, gfx->color565(210, 215, 235), 2, 2);
   if (!valid_local) {
-    drawCenteredLine("need NTP time", 200, c_dim, 2, 2);
+    drawCenteredLine("need NTP time", 220, c_dim, 2, 2);
     return;
   }
   struct tm utc = {};
@@ -631,28 +630,15 @@ static void draw_moon_face(const struct tm *tm_local, bool valid_local) {
   float illum = 0.5f;
   bool waxing = true;
   if (!moon_illum_waxing_from_tp(&tp, &illum, &waxing)) {
-    drawCenteredLine("ephemeris", 200, c_dim, 2, 2);
+    drawCenteredLine("ephemeris", 220, c_dim, 2, 2);
     return;
   }
-  double el = tp.lon[kPmBodyMoon] - tp.lon[kPmBodySun];
-  while (el < 0) {
-    el += 360.0;
-  }
-  while (el >= 360.0) {
-    el -= 360.0;
-  }
-  const char *nm = moon_phase_name_from_elong_deg(el);
-  char line[56];
-  snprintf(line, sizeof(line), "%s  %d%%", nm, static_cast<int>(lrintf(illum * 100.f)));
-  drawCenteredLine(line, 92, c_dim, 1, 1);
-  char tbuf[40];
-  snprintf(tbuf, sizeof(tbuf), "%02d:%02d local", tm_local->tm_hour, tm_local->tm_min);
-  drawCenteredLine(tbuf, 118, c_dim, 1, 1);
   const int cx = LCD_WIDTH / 2;
-  const int cy = LCD_HEIGHT / 2 + 14;
-  const int r = 108;
+  const int cy = LCD_HEIGHT / 2;
+  const int R = min(LCD_WIDTH, LCD_HEIGHT) / 2;
+  const int r = R - 14;
   draw_moon_disk(cx, cy, r, illum, waxing);
-  drawCenteredLine("PWR: ask  BOOT: brief", 318, c_dim, 1, 1);
+  (void)tm_local;
 }
 
 static bool build_moon_voice_message(char *buf, size_t cap) {
@@ -1405,6 +1391,12 @@ void loop() {
         snprintf(g_gesture_banner, sizeof(g_gesture_banner), "spotify: refresh");
       }
       g_clock_repaint_pending = true;
+    } else if (g_state == AppState::kClock && g_clock_face == ClockFace::Moon &&
+               (ge.kind == PmGestureKind::SwipeUp || ge.kind == PmGestureKind::SwipeDown)) {
+      cycle_clock_face(ge.kind == PmGestureKind::SwipeUp ? 1 : -1);
+      g_clock_repaint_pending = true;
+      g_gesture_banner[0] = '\0';
+      continue;
     } else if (ge.kind != PmGestureKind::SwipeUp && ge.kind != PmGestureKind::SwipeDown) {
       snprintf(g_gesture_banner, sizeof(g_gesture_banner), "%s", gesture_label(ge.kind));
       Serial.printf("[gesture] %s @ %d,%d\n", g_gesture_banner, static_cast<int>(ge.x), static_cast<int>(ge.y));
