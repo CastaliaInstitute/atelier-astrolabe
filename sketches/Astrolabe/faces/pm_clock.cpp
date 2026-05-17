@@ -12,6 +12,7 @@
 #include "faces/digital/pm_face_digital.h"
 #include "faces/moon/pm_face_moon.h"
 #include "faces/shared/pm_face_draw.h"
+#include "faces/rocket/pm_face_rocket.h"
 #include "faces/spotify/pm_face_spotify.h"
 #include "pm_config.h"
 #include "pm_display.h"
@@ -48,7 +49,7 @@ void pm_faces_draw(float thinking_progress) {
                        : fmodf(static_cast<float>(millis()) * 0.0015f, 360.0f);
   const uint16_t bg_hsv = pm_face_color565_from_hsv(pm_gfx, hue, pm_face_hsv_s, pm_face_hsv_v);
   const uint16_t bg = bg_hsv;
-  if (s_clock_face != ClockFace::CalciferCountdown) {
+  if (s_clock_face != ClockFace::CalciferCountdown && s_clock_face != ClockFace::Rocket) {
     pm_gfx->fillScreen(bg);
   }
 
@@ -77,13 +78,17 @@ void pm_faces_draw(float thinking_progress) {
     case ClockFace::Castalia:
       pm_face_castalia_draw();
       break;
+    case ClockFace::Rocket:
+      pm_face_rocket_draw();
+      break;
     default:
       break;
   }
 
   const int banner_y = (s_clock_face == ClockFace::Apocalypso || s_clock_face == ClockFace::Spotify ||
                         s_clock_face == ClockFace::Astrology || s_clock_face == ClockFace::Moon ||
-                        s_clock_face == ClockFace::CalciferCountdown || s_clock_face == ClockFace::Castalia)
+                        s_clock_face == ClockFace::CalciferCountdown || s_clock_face == ClockFace::Castalia ||
+                        s_clock_face == ClockFace::Rocket)
                            ? 352
                            : 320;
   if (MYNAH_DEBUG_GESTURES && g_gesture_banner[0] != '\0') {
@@ -92,7 +97,7 @@ void pm_faces_draw(float thinking_progress) {
 
   /** Rainbow annulus last (Moon/Daywheel draw their own; skip Castalia — QR repaint was tripping WDT/stack). */
   if (s_clock_face != ClockFace::Castalia && s_clock_face != ClockFace::Moon &&
-      s_clock_face != ClockFace::CalciferCountdown) {
+      s_clock_face != ClockFace::CalciferCountdown && s_clock_face != ClockFace::Rocket) {
     pm_face_draw_circumference_rainbow_24h(pm_time_valid());
     if (thinking_progress >= 0.f) {
       pm_face_draw_thinking_progress_ring(thinking_progress);
@@ -111,7 +116,8 @@ void pm_faces_draw(float thinking_progress) {
 bool pm_faces_banner_low(void) {
   const ClockFace f = s_clock_face;
   return f == ClockFace::Apocalypso || f == ClockFace::Spotify || f == ClockFace::Astrology ||
-         f == ClockFace::Moon || f == ClockFace::CalciferCountdown || f == ClockFace::Castalia;
+         f == ClockFace::Moon || f == ClockFace::CalciferCountdown || f == ClockFace::Castalia ||
+         f == ClockFace::Rocket;
 }
 
 uint16_t pm_faces_last_bg565(void) { return s_clock_bg565; }

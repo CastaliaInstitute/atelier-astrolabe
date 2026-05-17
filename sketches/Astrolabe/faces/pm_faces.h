@@ -16,6 +16,8 @@ enum class ClockFace : uint8_t {
   CalciferCountdown,
   /** QR → castalia.institute Google sign-in; tokens stored on watch for Edge Functions. */
   Castalia,
+  /** Upcoming orbital launch countdown via Launch Library 2 (The Space Devs). */
+  Rocket,
   kNumFaces,
 };
 
