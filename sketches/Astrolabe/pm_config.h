@@ -75,6 +75,19 @@
 #define MYNAH_CALCIFER_POLL_MS 45000u
 #endif
 
+/** Launch Library 2 poll interval while Rocket face is visible. */
+#ifndef MYNAH_ROCKET_POLL_MS
+#define MYNAH_ROCKET_POLL_MS 120000u
+#endif
+
+#ifndef MYNAH_ROCKET_HTTP_MS
+#define MYNAH_ROCKET_HTTP_MS 20000
+#endif
+
+#ifndef MYNAH_ROCKET_MAX_BYTES
+#define MYNAH_ROCKET_MAX_BYTES 32768
+#endif
+
 /** 1 = fetch Swiss Ephemeris from ephemeris.castalia.institute when WiFi is up. */
 #ifndef MYNAH_EPHEMERIS_ENABLE
 #define MYNAH_EPHEMERIS_ENABLE 1
