@@ -29,6 +29,10 @@
 #include "pm_castalia_auth.h"
 #include "pm_calcifer.h"
 #include "pm_astro_highlight.h"
+#include "pm_diag.h"
+#include "pm_face_safe.h"
+#include "pm_faces_pack.h"
+#include "pm_ota.h"
 #include "pm_circadian_hue.h"
 #include "pm_cycle_nvs.h"
 #include "pm_moon.h"
@@ -98,6 +102,8 @@ enum class ClockFace : uint8_t {
   Castalia,
   /** QR → on-device LAN settings page (`/settings`). */
   Settings,
+  /** Declarative Hue clock from LittleFS face pack (when mounted). */
+  HuePack,
   /** Build branch/SHA + QR → GitHub commit baked in at compile time. */
   Version,
   kNumFaces,
@@ -1659,6 +1665,16 @@ static void draw_castalia_face() {
 }
 
 static void draw_clock_face(float thinking_progress = -1.f) {
+  if (pm_diag_safe_mode()) {
+    pm_face_safe_draw(gfx, nullptr);
+    gfx->flush();
+    return;
+  }
+  if (g_clock_face == ClockFace::HuePack && pm_faces_pack_available()) {
+    pm_faces_pack_render(gfx, thinking_progress);
+    gfx->flush();
+    return;
+  }
   struct tm tm = {};
   int sec_of_day_for_hue = 0;
   if (pm_time_valid()) {
@@ -1702,6 +1718,9 @@ static void draw_clock_face(float thinking_progress = -1.f) {
     case ClockFace::Settings:
       draw_settings_face();
       break;
+    case ClockFace::HuePack:
+      pm_faces_pack_render(gfx, thinking_progress);
+      break;
     case ClockFace::Version:
       draw_version_face();
       break;
@@ -1713,16 +1732,16 @@ static void draw_clock_face(float thinking_progress = -1.f) {
                         g_clock_face == ClockFace::Astrology || g_clock_face == ClockFace::Moon ||
                         g_clock_face == ClockFace::CalciferCountdown || g_clock_face == ClockFace::Cycle ||
                         g_clock_face == ClockFace::Castalia || g_clock_face == ClockFace::Settings ||
-                        g_clock_face == ClockFace::Version)
+                        g_clock_face == ClockFace::HuePack || g_clock_face == ClockFace::Version)
                            ? 352
                            : 320;
   if (MYNAH_DEBUG_GESTURES && g_gesture_banner[0] != '\0') {
     drawCenteredLine(g_gesture_banner, banner_y, gfx->color565(255, 220, 160), 1, 1);
   }
 
-  /** Rainbow annulus last (skip on QR faces — full repaint + rim after QR was tripping WDT/stack). */
+  /** Rainbow annulus last (skip on QR faces — full repaint + rim was tripping WDT/stack). */
   if (g_clock_face != ClockFace::Castalia && g_clock_face != ClockFace::Settings &&
-      g_clock_face != ClockFace::Version) {
+      g_clock_face != ClockFace::HuePack && g_clock_face != ClockFace::Version) {
     draw_circumference_rainbow_24h(pm_time_valid());
     if (thinking_progress >= 0.f) {
       draw_thinking_progress_ring(thinking_progress);
@@ -1734,6 +1753,12 @@ static void draw_clock_face(float thinking_progress = -1.f) {
     g_analog_saved_local_m = tm.tm_min;
   }
   gfx->flush();
+  static bool s_boot_marked = false;
+  if (!s_boot_marked && !pm_diag_safe_mode()) {
+    s_boot_marked = true;
+    pm_diag_mark_runtime_valid();
+    pm_ota_validate_pending_facepack();
+  }
 }
 
 static void ensure_pcm_buffer() {
@@ -1860,13 +1885,8 @@ static bool face_index_from_name(const char *name, int *out) {
   } k[] = {{"classic", 0}, {"hue", 0},     {"analog", 0},    {"apocalypso", 1},
            {"digital", 2}, {"spotify", 3}, {"astro", 4},       {"astrology", 4},
            {"moon", 5},    {"calcifer", 6}, {"schedule", 6},  {"cycle", 7},
-           {"menstrual", 7},
-           {"castalia", 8},
-           {"settings", 9},
-           {"config", 9},
-           {"version", 10},
-           {"about", 10},
-           {"build", 10}};
+           {"menstrual", 7}, {"castalia", 8}, {"settings", 9}, {"config", 9},
+           {"huepack", 10}, {"pack", 10}, {"version", 11}, {"about", 11}, {"build", 11}};
   for (const auto &e : k) {
     if (strcasecmp(name, e.n) == 0) {
       *out = e.idx;
@@ -2031,8 +2051,13 @@ static void poll_serial_birth_commands() {
           g_clock_repaint_pending = true;
           Serial.printf("face: %d\n", idx);
         } else {
-          Serial.println("face: usage: face <0-10|name>");
+          Serial.println("face: usage: face <0-11|name>");
         }
+      } else if (strcmp(line, "ota status") == 0) {
+        pm_ota_print_status();
+      } else if (strcmp(line, "safe") == 0) {
+        pm_diag_enter_safe_mode("serial");
+        g_clock_repaint_pending = true;
       }
       continue;
     }
@@ -2055,6 +2080,14 @@ void setup() {
     while (true) {
       delay(1000);
     }
+  }
+
+  pm_ota_init();
+  pm_diag_init();
+  pm_ota_validate_pending_runtime();
+  pm_ota_validate_pending_facepack();
+  if (pm_faces_pack_available()) {
+    Serial.println("face pack: loaded (swipe to HuePack or serial: face pack)");
   }
   tft->setBrightness(200);
   gfx->fillScreen(RGB565_BLACK);
