@@ -66,9 +66,9 @@ Artifacts: \`${OUT_DIR}\`
 EOF
 )"
 
-  LABELS="bug,face:${face},functional-test,needs-hardware-qa"
+  LABELS="bug,face-${face},functional-test,needs-hardware-qa"
   if command -v gh >/dev/null; then
-    EXISTING="$(gh issue list --repo "$REPO_SLUG" --state open --label "face:${face}" --label functional-test \
+    EXISTING="$(gh issue list --repo "$REPO_SLUG" --state open --label "face-${face}" --label functional-test \
       --json number,title -q '.[0].number' 2>/dev/null || true)"
     if [[ -n "$EXISTING" && "$EXISTING" != "null" ]]; then
       echo "→ updating issue #${EXISTING} (open functional-test for ${face})"
