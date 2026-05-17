@@ -93,7 +93,7 @@ Derived from [README limits](../README.md#limits-mvp) and [open questions](pocke
 - [x] **2026-05-16** Voice: 1.5 MiB response cap, JSON completeness check, TTS playback drain/abort, text-only pipeline replies
 - [x] **2026-05-16** `pm_calcifer` + **CalciferCountdown** clock face; BOOT spoken agenda via `pm_voice_begin_clock_agenda`
 - [x] **2026-05-16** Gesture banners gated (`MYNAH_DEBUG_GESTURES`); analog dial centered on 466×466
-- [x] **2026-05-17** Auth docs: README explains anon bearer vs Castalia JWT behavior for voice, commonplace, and Calcifer. PR pending.
+- [x] **2026-05-17** Auth docs: README explains anon bearer vs Castalia JWT behavior for voice, commonplace, and Calcifer. [PR #9](https://github.com/CastaliaInstitute/astrolabe/pull/9)
 - [x] **2026-05-15** Phase 0: PlatformIO toolchain, `secrets.example.h`, PocketMynah flashes on ESP32-S3 1.75C class board
 - [x] **2026-05-15** Phase 1: Wi‑Fi + NTP; `voice-pipeline` text (`message`) and PCM (`audioBase64` in); on-device MP3 via minimp3 + ES8311
 - [x] **2026-05-15** Hue clock faces: analog, Apocalypso, digital local; swipe gestures (`pm_gesture`)
