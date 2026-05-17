@@ -14,15 +14,15 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      PLATFORMIO_BUILD_DIR: /tmp/astrolabe-pio-build-${{ github.run_id }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Cache PlatformIO
         uses: actions/cache@v4
         with:
-          path: |
-            ~/.platformio
-            /tmp/astrolabe-pio-build
+          path: ~/.platformio
           key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini', 'scripts/build.sh') }}
           restore-keys: |
             pio-${{ runner.os }}-
