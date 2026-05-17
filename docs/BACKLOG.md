@@ -26,7 +26,7 @@ Edit this file when you start or finish work. Keep **In progress** to 1–3 item
 
 ## In progress
 
-- [~] **P1** Modular OTA (runtime + face-pack A/B, 32 MB) — Issue: [#60](https://github.com/CastaliaInstitute/astrolabe/issues/60), branch `feature/60-modular-ota`, [`docs/design/modular-ota.md`](design/modular-ota.md)
+- [~] **P1** Modular OTA (runtime + face-pack A/B, 32 MB) — Issue: [#60](https://github.com/CastaliaInstitute/astrolabe/issues/60), PR [#66](https://github.com/CastaliaInstitute/astrolabe/pull/66), [`docs/design/modular-ota.md`](design/modular-ota.md)
 
 ---
 
@@ -44,7 +44,16 @@ Edit this file when you start or finish work. Keep **In progress** to 1–3 item
 
 - [ ] **P1** Astrology / transits face: full-screen chart + planet/sign icons — Issue [#3](https://github.com/CastaliaInstitute/astrolabe/issues/3); glyphs done; polish chrome / aspects TBD
 
-- [ ] **P1** **Castalia ephemeris server** (dependency — **mynah / Supabase**, not firmware-only) — host at [**ephemeris.castalia.institute**](https://ephemeris.castalia.institute): Swiss Ephemeris (or equivalent) Edge Function/API. Replace on-watch approximations in [`pm_transit.cpp`](../sketches/Astrolabe/pm_transit.cpp). API: birth datetime + lat/lon → natal longitudes, houses, synastry aspects between two charts. Astrolabe calls with Castalia JWT; cache briefly on device. Unblocks **transits**, **celestial map**, **natal**, **synastry**. Firmware: `pm_ephemeris_fetch` + fallback to local `pm_transit` when offline.
+- [ ] **P1** **Castalia ephemeris server** (optional accuracy upgrade — **mynah / Supabase**, not firmware-only, and **not a Castalian Rhythms V0 blocker**) — host at [**ephemeris.castalia.institute**](https://ephemeris.castalia.institute): Swiss Ephemeris (or equivalent) Edge Function/API. Replace/refine on-watch approximations in [`pm_transit.cpp`](../sketches/Astrolabe/pm_transit.cpp) when online. API: birth datetime + lat/lon → natal longitudes, houses, synastry aspects between two charts. Astrolabe calls with Castalia JWT; cache briefly on device. Firmware: `pm_ephemeris_fetch` + fallback to local `pm_transit` when offline.
+
+### Castalian Rhythms V0 (on-device-first) — **P1 priority**
+
+Canonical design: [`castalian-rhythms.md`](castalian-rhythms.md). V0 defaults to local ephemeris + embedded interpretation KB + firmware fusion; Castalia services are optional enrichments.
+
+- [ ] **P1** **On-device natal, houses, transit aspects** — Issue [#62](https://github.com/CastaliaInstitute/astrolabe/issues/62): compute primary-profile chart facts locally from NVS birth/location data, NTP/RTC time, and `pm_transit`-class ephemeris helpers; include precision notes for unknown birth time/location.
+- [ ] **P1** **Embedded interpretation KB v0** — Issue [#63](https://github.com/CastaliaInstitute/astrolabe/issues/63): ship a compact structured KB for planets, signs, houses, aspects, transits, tags, and safety copy that firmware can select without remote prompts.
+- [ ] **P1** **On-device fusion and compact daily card** — Issue [#64](https://github.com/CastaliaInstitute/astrolabe/issues/64): deterministic firmware rules combine chart facts + KB snippets into a short cached card with title, themes, symbols, and confidence/precision text.
+- [ ] **P1** **Daily card clock face and Astrology BOOT** — Issue [#65](https://github.com/CastaliaInstitute/astrolabe/issues/65): present the compact card on-device and reuse it for the Astrology face BOOT brief; cloud/Mynah prose expansion remains optional.
 
 - [ ] **P1** **Orrery face** — new `ClockFace`: **orrery** view with the **Sun** at center and **planets on concentric rings** (orbital radii scaled for round display; positions from `pm_transit` or **Castalia ephemeris server** when available). Optional: animate slow orbital motion over time; tap a planet for label. Distinct from flat **celestial map** (sky dome) and **transits** zodiac wheel.
 
@@ -61,8 +70,6 @@ Edit this file when you start or finish work. Keep **In progress** to 1–3 item
 - [x] **P1** **Autism countdown face** — `CalciferCountdown` face + `pm_calcifer`; 5‑minute “ending soon” visual cue; BOOT agenda when no replay cache.
 
 ### Glance / utility faces
-
-- [~] **P1** **Settings face (QR + LAN config)** — `ClockFace::Settings`: QR → `http://astrolabe-xxxx.local/settings` (mDNS) or IP; web form for birth NVS; `/screen.bmp` retained.
 
 - [ ] **P1** **Weather face** — new `ClockFace`: current conditions + short forecast for observer location. **Location:** Wi‑Fi geo / `pm_geo_tz` or NVS lat-lon from mDNS config. **Data:** Castalia Edge Function (API keys server-side, same pattern as `calcifer-status`) — temp, icon/condition, hi/lo, optional hourly strip on round display. Poll on interval when face visible + Wi‑Fi; cache last good response offline. Optional: STT “what’s the weather?” on this face; tie icon art to ambient hue. Depends on Castalia JWT + NTP.
 
@@ -108,6 +115,7 @@ Derived from [README limits](../README.md#limits-mvp) and [open questions](pocke
 - [x] **P1** Voice: handle `voice-pipeline` responses without `audioBase64` (plain `ask-faculty`-only)
 - [ ] **P1** Auth: document anon-only vs signed-in behavior in README once Castalia flow is stable — Issue [#5](https://github.com/CastaliaInstitute/astrolabe/issues/5)
 - [x] **P1** Classic analog clock face: center dial on round display and use full-screen safe area (466×466); fix layout/offset in `Astrolabe.ino` analog draw path
+- [x] **P1** **Bugfix — Classic analog dial size** — enlarge analog clock to fill the round face **inside the 24h rainbow rim** on 466×466 (`draw_analog_clock` in `PocketMynah.ino`). Derive dial radius from rim inner edge (`R - 9`) minus tick inset; rescale hands/hub from prior r=138 layout.
 - [x] **P1** **Home face = Hue only** — `MYNAH_HUE_HOME_ONLY` (default 1): ClassicAnalog = ambient hue + 24h rainbow only; clock hands on DigitalLocal / Apocalypso.
 - [ ] **P1** **Charging ripples on rainbow rim** — Issue [#4](https://github.com/CastaliaInstitute/astrolabe/issues/4) — when **USB-C charging** detected (AXP2101 / PMU: `VBUS` or charge-status register via I2C, same bus as PWR key), animate **gentle ripples** along the **bottom arc** of the **24h rainbow ring** (`draw_circumference_rainbow_24h`); subtle amplitude, slow phase — ambient “filling” cue without bright alerts. Off when on battery only; works on home/Hue face and any face that shows the rim.
 - [x] **P1** Astrology chart glyphs — zodiac + planet alpha masks (`embed_*_glyphs.py`, `pm_zodiac_glyphs`); wheel radius `R−10`. Remaining: trim footer chrome, aspect lines, ephemeris server accuracy.
@@ -125,6 +133,9 @@ Derived from [README limits](../README.md#limits-mvp) and [open questions](pocke
 
 ## Done
 
+- [x] **2026-05-17** Castalian Rhythms V0 design doc/backlog epic: on-device-first architecture, embedded KB/fusion plan, and child issues [#62](https://github.com/CastaliaInstitute/astrolabe/issues/62)–[#65](https://github.com/CastaliaInstitute/astrolabe/issues/65). PR [#67](https://github.com/CastaliaInstitute/astrolabe/pull/67); Closes [#61](https://github.com/CastaliaInstitute/astrolabe/issues/61)
+- [x] **2026-05-17** Version clock face: git branch/SHA/date + GitHub commit QR (`pm_build_info.h`). PR [#59](https://github.com/CastaliaInstitute/astrolabe/pull/59); Closes [#58](https://github.com/CastaliaInstitute/astrolabe/issues/58)
+- [x] **2026-05-17** Classic analog dial: full-screen inside 24h rainbow rim (`kAnalogR` from `R−9` inset, scaled hands/hub)
 - [x] **2026-05-17** Menstrual cycle face: NVS-only circular cycle ring, fertile/ovulation bands, tap day-1 logging, and swipe length presets. PR [#12](https://github.com/CastaliaInstitute/astrolabe/pull/12); Closes [#11](https://github.com/CastaliaInstitute/astrolabe/issues/11)
 - [x] **2026-05-17** Astrology face polish: ephemeris fetch + glyph wheel. Closes [#3](https://github.com/CastaliaInstitute/astrolabe/issues/3)
 - [x] **2026-05-17** Charging ripples on rainbow rim when USB-C. Closes [#4](https://github.com/CastaliaInstitute/astrolabe/issues/4)

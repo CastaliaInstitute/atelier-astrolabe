@@ -4,6 +4,7 @@
 #include <Arduino_GFX_Library.h>
 #include <Wire.h>
 #include <cstdio>
+#include <cstdarg>
 #include <cmath>
 #include <ctime>
 #include <cstring>
@@ -35,6 +36,7 @@
 #include "pm_circadian_hue.h"
 #include "pm_cycle_nvs.h"
 #include "pm_moon.h"
+#include "pm_version.h"
 
 Arduino_DataBus *bus = new Arduino_ESP32QSPI(
     LCD_CS, LCD_SCLK, LCD_SDIO0, LCD_SDIO1, LCD_SDIO2, LCD_SDIO3);
@@ -102,6 +104,8 @@ enum class ClockFace : uint8_t {
   Settings,
   /** Declarative Hue clock from LittleFS face pack (when mounted). */
   HuePack,
+  /** Build branch/SHA + QR → GitHub commit baked in at compile time. */
+  Version,
   kNumFaces,
 };
 
@@ -358,10 +362,19 @@ static void draw_hand_radial(int cx, int cy, float ang, int len, uint16_t col, i
   }
 }
 
+/** Matches `draw_circumference_rainbow_24h` (R−4 outer, 5px band → inner R−9). */
+static constexpr int kDisplayR = (LCD_WIDTH < LCD_HEIGHT ? LCD_WIDTH : LCD_HEIGHT) / 2;
+static constexpr int kRimInner = kDisplayR - 9;
+static constexpr int kAnalogInset = 10;
 static constexpr int kAnalogCx = LCD_WIDTH / 2;
 static constexpr int kAnalogCy = LCD_HEIGHT / 2;
-static constexpr int kAnalogR = 138;
-static constexpr int kAnalogSecLen = kAnalogR - 10;
+static constexpr int kAnalogR = kRimInner - kAnalogInset;
+/** Hand insets scaled from the original r=138 layout. */
+static constexpr int kAnalogHourInset = (52 * kAnalogR) / 138;
+static constexpr int kAnalogMinInset = (22 * kAnalogR) / 138;
+static constexpr int kAnalogSecInset = (10 * kAnalogR) / 138;
+static constexpr int kAnalogHubR = (7 * kAnalogR) / 138;
+static constexpr int kAnalogHubHoleR = (3 * kAnalogR) / 138;
 
 static void draw_analog_clock(uint16_t bg565, const struct tm *tm, bool valid) {
   const int cx = kAnalogCx;
@@ -402,12 +415,12 @@ static void draw_analog_clock(uint16_t bg565, const struct tm *tm, bool valid) {
   const uint16_t c_min = RGB565_WHITE;
   const uint16_t c_sec = gfx->color565(255, 95, 95);
 
-  draw_hand_radial(cx, cy, h_ang, r - 52, c_hour, 3);
-  draw_hand_radial(cx, cy, m_ang, r - 22, c_min, 2);
-  draw_hand_radial(cx, cy, s_ang, kAnalogSecLen, c_sec, 1);
+  draw_hand_radial(cx, cy, h_ang, r - kAnalogHourInset, c_hour, 3);
+  draw_hand_radial(cx, cy, m_ang, r - kAnalogMinInset, c_min, 2);
+  draw_hand_radial(cx, cy, s_ang, r - kAnalogSecInset, c_sec, 1);
 
-  gfx->fillCircle(cx, cy, 7, c_hour);
-  gfx->fillCircle(cx, cy, 3, bg565);
+  gfx->fillCircle(cx, cy, kAnalogHubR, c_hour);
+  gfx->fillCircle(cx, cy, kAnalogHubHoleR, bg565);
 }
 
 /** Apocalypso risk radar (12 axes, 5 rings) — matches apocalypso.castalia.institute RISK PROFILE widget. */
@@ -881,7 +894,7 @@ static void compute_astrology_positions_utc(const struct tm *utc, time_t epoch, 
     }
     return;
   }
-  pm_transit_compute_utc(utc, out);
+  pm_transit_compute_utc_local(utc, out);
 }
 
 static float astro_angle_from_lon(double lon_deg) {
@@ -897,6 +910,26 @@ static double angle_delta_deg(double a, double b) {
     d = 360.0 - d;
   }
   return d;
+}
+
+static bool appendf(char *buf, size_t cap, size_t *off, const char *fmt, ...) {
+  if (!buf || !off || *off >= cap || cap == 0) {
+    return false;
+  }
+  va_list ap;
+  va_start(ap, fmt);
+  const int n = vsnprintf(buf + *off, cap - *off, fmt, ap);
+  va_end(ap);
+  if (n < 0) {
+    return false;
+  }
+  if (static_cast<size_t>(n) >= cap - *off) {
+    *off = cap - 1;
+    buf[*off] = '\0';
+    return false;
+  }
+  *off += static_cast<size_t>(n);
+  return true;
 }
 
 static bool match_aspect(double delta, int *aspect_out) {
@@ -959,6 +992,8 @@ static void draw_astrology_face(const struct tm *tm_local, bool valid_local, int
 
   PmBirthSpec birth = {};
   (void)pm_birth_load(&birth);
+  PmNatalChart natal = {};
+  const bool have_natal = birth.valid && pm_transit_build_natal_chart(&birth, &natal);
 
   const int cx = LCD_WIDTH / 2;
   const int cy = LCD_HEIGHT / 2;
@@ -1046,9 +1081,8 @@ static void draw_astrology_face(const struct tm *tm_local, bool valid_local, int
         gfx->drawCircle(px, py, rr + 4, gfx->color565(255, 255, 255));
       }
     }
-    double natal_sun = 0;
-    if (birth.valid && pm_transit_natal_sun_lon(&birth, &natal_sun)) {
-      const float angn = astro_angle_from_lon(natal_sun);
+    if (have_natal) {
+      const float angn = astro_angle_from_lon(natal.bodies.lon[kPmBodySun]);
       const int qx = cx + static_cast<int>(lrintf(cosf(angn) * static_cast<float>(r_in - 6)));
       const int qy = cy + static_cast<int>(lrintf(sinf(angn) * static_cast<float>(r_in - 6)));
       const int q2x = cx + static_cast<int>(lrintf(cosf(angn + 0.35f) * static_cast<float>(r_in - 18)));
@@ -1056,6 +1090,12 @@ static void draw_astrology_face(const struct tm *tm_local, bool valid_local, int
       const int q3x = cx + static_cast<int>(lrintf(cosf(angn - 0.35f) * static_cast<float>(r_in - 18)));
       const int q3y = cy + static_cast<int>(lrintf(sinf(angn - 0.35f) * static_cast<float>(r_in - 18)));
       gfx->fillTriangle(qx, qy, q2x, q2y, q3x, q3y, gfx->color565(120, 200, 255));
+      const float asca = astro_angle_from_lon(natal.asc_lon);
+      gfx->drawLine(cx + static_cast<int>(lrintf(cosf(asca) * static_cast<float>(r_in - 18))),
+                    cy + static_cast<int>(lrintf(sinf(asca) * static_cast<float>(r_in - 18))),
+                    cx + static_cast<int>(lrintf(cosf(asca) * static_cast<float>(r_outer))),
+                    cy + static_cast<int>(lrintf(sinf(asca) * static_cast<float>(r_outer))),
+                    gfx->color565(120, 200, 255));
     }
     (void)remote_tp;
   }
@@ -1256,14 +1296,58 @@ static void draw_cycle_face(const struct tm *tm_local, bool valid_local) {
 
   PmCycleProfile cycle = {};
   (void)pm_cycle_load(&cycle);
+
+  const uint16_t year = static_cast<uint16_t>(tm_local->tm_year + 1900);
+  const uint8_t month = static_cast<uint8_t>(tm_local->tm_mon + 1);
+  const uint8_t day = static_cast<uint8_t>(tm_local->tm_mday);
+
+  if (cycle.pregnancy_active) {
+    if (!cycle.has_due_date) {
+      drawCenteredLine("set due date", 220, c_dim, 2, 2);
+      drawCenteredLine("settings web", 260, c_dim, 1, 1);
+      return;
+    }
+    const int32_t gest = pm_cycle_gestational_day(&cycle, year, month, day);
+    const int32_t until = pm_cycle_days_until_due(&cycle, year, month, day);
+    const int cx = LCD_WIDTH / 2;
+    const int cy = LCD_HEIGHT / 2;
+    const int R = min(LCD_WIDTH, LCD_HEIGHT) / 2;
+    const int r_outer = R - 20;
+    const int r_inner = r_outer - 32;
+    const uint16_t c_track = gfx->color565(40, 36, 52);
+    const uint16_t c_prog = gfx->color565(235, 175, 95);
+    const int32_t gest_clamped = gest >= 0 ? gest : 0;
+    int32_t week = (gest_clamped + 3) / 7;
+    if (week < 0) {
+      week = 0;
+    }
+    if (week > 40) {
+      week = 40;
+    }
+    constexpr uint8_t kPregWeeks = 40;
+    draw_cycle_band(cx, cy, r_inner, r_outer, kPregWeeks, 0.f, static_cast<float>(week), c_prog, 3);
+    draw_cycle_band(cx, cy, r_inner, r_outer, kPregWeeks, static_cast<float>(week),
+                    static_cast<float>(kPregWeeks - week), c_track, 2);
+    char line[32];
+    snprintf(line, sizeof(line), "week %ld", static_cast<long>(week));
+    drawCenteredLine(line, cy - 24, gfx->color565(250, 235, 210), 2, 2);
+    if (until >= 0) {
+      snprintf(line, sizeof(line), "due in %ld d", static_cast<long>(until));
+    } else {
+      snprintf(line, sizeof(line), "past due");
+    }
+    drawCenteredLine(line, cy + 12, c_dim, 1, 2);
+    snprintf(line, sizeof(line), "%02u/%02u/%04u", cycle.due_month, cycle.due_day, cycle.due_year);
+    drawCenteredLine(line, cy + 44, c_dim, 1, 1);
+    gfx->drawCircle(cx, cy, r_outer + 5, gfx->color565(90, 70, 110));
+    return;
+  }
+
   if (!cycle.has_last_period) {
     drawCenteredLine("set cycle", 220, c_dim, 2, 2);
     return;
   }
 
-  const uint16_t year = static_cast<uint16_t>(tm_local->tm_year + 1900);
-  const uint8_t month = static_cast<uint8_t>(tm_local->tm_mon + 1);
-  const uint8_t day = static_cast<uint8_t>(tm_local->tm_mday);
   const int32_t day_idx = pm_cycle_day_index_for_date(&cycle, year, month, day);
   if (day_idx < 0) {
     drawCenteredLine("set cycle", 220, c_error, 2, 2);
@@ -1540,6 +1624,14 @@ static void draw_settings_face() {
   }
 }
 
+static void version_face_draw_centered(const char *text, int y, uint16_t fg, uint8_t sx, uint8_t sy) {
+  drawCenteredLine(text, y, fg, sx, sy);
+}
+
+static void draw_version_face() {
+  pm_version_draw(gfx, version_face_draw_centered);
+}
+
 static void draw_castalia_face() {
   const uint16_t c_hi = gfx->color565(210, 215, 235);
   const uint16_t c_dim = gfx->color565(120, 128, 145);
@@ -1629,6 +1721,9 @@ static void draw_clock_face(float thinking_progress = -1.f) {
     case ClockFace::HuePack:
       pm_faces_pack_render(gfx, thinking_progress);
       break;
+    case ClockFace::Version:
+      draw_version_face();
+      break;
     default:
       break;
   }
@@ -1636,16 +1731,17 @@ static void draw_clock_face(float thinking_progress = -1.f) {
   const int banner_y = (g_clock_face == ClockFace::Apocalypso || g_clock_face == ClockFace::Spotify ||
                         g_clock_face == ClockFace::Astrology || g_clock_face == ClockFace::Moon ||
                         g_clock_face == ClockFace::CalciferCountdown || g_clock_face == ClockFace::Cycle ||
-                        g_clock_face == ClockFace::Castalia || g_clock_face == ClockFace::Settings)
+                        g_clock_face == ClockFace::Castalia || g_clock_face == ClockFace::Settings ||
+                        g_clock_face == ClockFace::HuePack || g_clock_face == ClockFace::Version)
                            ? 352
                            : 320;
   if (MYNAH_DEBUG_GESTURES && g_gesture_banner[0] != '\0') {
     drawCenteredLine(g_gesture_banner, banner_y, gfx->color565(255, 220, 160), 1, 1);
   }
 
-  /** Rainbow annulus last (skip on Castalia/Settings — QR + rim was tripping WDT/stack). */
+  /** Rainbow annulus last (skip on QR faces — full repaint + rim was tripping WDT/stack). */
   if (g_clock_face != ClockFace::Castalia && g_clock_face != ClockFace::Settings &&
-      g_clock_face != ClockFace::HuePack) {
+      g_clock_face != ClockFace::HuePack && g_clock_face != ClockFace::Version) {
     draw_circumference_rainbow_24h(pm_time_valid());
     if (thinking_progress >= 0.f) {
       draw_thinking_progress_ring(thinking_progress);
@@ -1708,8 +1804,10 @@ static bool build_astrology_voice_message(char *buf, size_t cap) {
   }
   PmBirthSpec b = {};
   (void)pm_birth_load(&b);
-  double nslon = 0;
-  const bool has_natal = b.valid && pm_transit_natal_sun_lon(&b, &nslon);
+  PmNatalChart natal = {};
+  PmTransitSnapshot snap = {};
+  const bool has_natal = b.valid && pm_transit_build_natal_chart(&b, &natal) &&
+                         pm_transit_snapshot_from_positions(&natal, &tp, nullptr, 0, &snap);
 
   int n = snprintf(
       buf, cap,
@@ -1721,23 +1819,49 @@ static bool build_astrology_voice_message(char *buf, size_t cap) {
   }
   size_t off = static_cast<size_t>(n);
   for (int i = 0; i < kPmBodyCount && off + 40 < cap; ++i) {
-    const int m = snprintf(buf + off, cap - off, "%s %.1f; ", pm_ephem_body_label(static_cast<PmEphemBody>(i)),
-                           tp.lon[i]);
-    if (m < 0) {
+    if (!appendf(buf, cap, &off, "%s %.1f; ", pm_ephem_body_label(static_cast<PmEphemBody>(i)),
+                 tp.lon[i])) {
       return false;
     }
-    off += static_cast<size_t>(m);
   }
-  if (has_natal && off + 120 < cap) {
-    snprintf(buf + off, cap - off,
-             "Natal (local civil on this device TZ): %04u-%02u-%02u %02u:%02u — Sun ~%.1f deg (%s). ",
-             b.year, b.month, b.day, b.hour, b.minute, nslon, zodiac_abbr_from_lon(nslon));
-  } else if (off + 80 < cap) {
-    snprintf(buf + off, cap - off, "Natal birth not stored; describe transits in general. ");
+  if (has_natal) {
+    if (!appendf(buf, cap, &off,
+                 "Natal (local civil on this device TZ): %04u-%02u-%02u %02u:%02u at %.2f, %.2f. "
+                 "Natal Sun %.1f %s house %u; Moon %.1f %s house %u; Asc %.1f %s. ",
+                 b.year, b.month, b.day, b.hour, b.minute, static_cast<double>(b.lat_deg),
+                 static_cast<double>(b.lon_deg), natal.bodies.lon[kPmBodySun],
+                 zodiac_abbr_from_lon(natal.bodies.lon[kPmBodySun]), natal.whole_sign_house[kPmBodySun],
+                 natal.bodies.lon[kPmBodyMoon], zodiac_abbr_from_lon(natal.bodies.lon[kPmBodyMoon]),
+                 natal.whole_sign_house[kPmBodyMoon], natal.asc_lon, zodiac_abbr_from_lon(natal.asc_lon))) {
+      return false;
+    }
+    if (snap.aspect_count > 0) {
+      if (!appendf(buf, cap, &off, "Major transit-to-natal aspects: ")) {
+        return false;
+      }
+      const size_t max_aspects = snap.aspect_count < 8 ? snap.aspect_count : 8;
+      for (size_t i = 0; i < max_aspects; ++i) {
+        const PmTransitAspect *a = &snap.aspects[i];
+        if (!appendf(buf, cap, &off, "%s %s %s orb %.1f; ",
+                     pm_ephem_body_label(a->transit_body), pm_transit_aspect_label(a->aspect),
+                     pm_transit_natal_target_label(a->natal_target), fabs(a->orb_delta_deg))) {
+          return false;
+        }
+      }
+    } else if (!appendf(buf, cap, &off, "No major transit-to-natal aspects within configured orbs. ")) {
+      return false;
+    }
+    if (snap.house_event_count > kPmBodyMoon) {
+      const PmTransitHouseEvent *moon_house = &snap.house_events[kPmBodyMoon];
+      if (!appendf(buf, cap, &off, "Transiting Moon is in natal house %u. ", moon_house->natal_house)) {
+        return false;
+      }
+    }
+  } else if (!appendf(buf, cap, &off, "Natal birth not stored; describe transits in general. ")) {
+    return false;
   }
-  off = strlen(buf);
-  if (off + 80 < cap) {
-    snprintf(buf + off, cap - off, "Please deliver the spoken reading now.");
+  if (!appendf(buf, cap, &off, "Please deliver the spoken reading now.")) {
+    return false;
   }
   return strlen(buf) > 0;
 }
@@ -1762,7 +1886,7 @@ static bool face_index_from_name(const char *name, int *out) {
            {"digital", 2}, {"spotify", 3}, {"astro", 4},       {"astrology", 4},
            {"moon", 5},    {"calcifer", 6}, {"schedule", 6},  {"cycle", 7},
            {"menstrual", 7}, {"castalia", 8}, {"settings", 9}, {"config", 9},
-           {"huepack", 10}, {"pack", 10}};
+           {"huepack", 10}, {"pack", 10}, {"version", 11}, {"about", 11}, {"build", 11}};
   for (const auto &e : k) {
     if (strcasecmp(name, e.n) == 0) {
       *out = e.idx;
@@ -1775,6 +1899,9 @@ static bool face_index_from_name(const char *name, int *out) {
 static void print_cycle_status() {
   PmCycleProfile p = {};
   (void)pm_cycle_load(&p);
+  if (p.pregnancy_active && p.has_due_date) {
+    Serial.printf("cycle: pregnant due=%04u-%02u-%02u\n", p.due_year, p.due_month, p.due_day);
+  }
   if (p.has_last_period) {
     Serial.printf("cycle: last_period_ymd=%04u-%02u-%02u cycle_length_days=%u period_length_days=%u\n",
                   p.last_period_year, p.last_period_month, p.last_period_day, p.cycle_length_days,
@@ -1783,14 +1910,28 @@ static void print_cycle_status() {
     Serial.printf("cycle: last_period_ymd=(unset) cycle_length_days=%u period_length_days=%u\n",
                   p.cycle_length_days, p.period_length_days);
   }
-  if (pm_time_valid() && p.has_last_period) {
+  if (pm_time_valid()) {
     struct tm loc = {};
     pm_time_local(&loc);
-    const int32_t idx = pm_cycle_day_index_for_date(&p, static_cast<uint16_t>(loc.tm_year + 1900),
-                                                    static_cast<uint8_t>(loc.tm_mon + 1),
-                                                    static_cast<uint8_t>(loc.tm_mday));
-    if (idx >= 0) {
-      Serial.printf("cycle: today day %ld of %u\n", static_cast<long>(idx + 1), p.cycle_length_days);
+    const uint16_t y = static_cast<uint16_t>(loc.tm_year + 1900);
+    const uint8_t mo = static_cast<uint8_t>(loc.tm_mon + 1);
+    const uint8_t d = static_cast<uint8_t>(loc.tm_mday);
+    if (p.pregnancy_active && p.has_due_date) {
+      const int32_t gest = pm_cycle_gestational_day(&p, y, mo, d);
+      const int32_t until = pm_cycle_days_until_due(&p, y, mo, d);
+      if (gest >= 0) {
+        Serial.printf("cycle: gestational week %ld", static_cast<long>((gest + 3) / 7));
+        if (until != INT32_MIN) {
+          Serial.printf(" due_in_days=%ld", static_cast<long>(until));
+        }
+        Serial.println();
+      }
+    }
+    if (p.has_last_period) {
+      const int32_t idx = pm_cycle_day_index_for_date(&p, y, mo, d);
+      if (idx >= 0) {
+        Serial.printf("cycle: today day %ld of %u\n", static_cast<long>(idx + 1), p.cycle_length_days);
+      }
     }
   }
   Serial.println("cycle: wellness estimate only; NVS-only, no cloud sync");
@@ -1910,7 +2051,7 @@ static void poll_serial_birth_commands() {
           g_clock_repaint_pending = true;
           Serial.printf("face: %d\n", idx);
         } else {
-          Serial.println("face: usage: face <0-9|name>");
+          Serial.println("face: usage: face <0-11|name>");
         }
       } else if (strcmp(line, "ota status") == 0) {
         pm_ota_print_status();
@@ -1969,6 +2110,7 @@ void setup() {
 
 void loop() {
   pm_screen_http_loop();
+  (void)pm_wifi_tick_reconnect();
   const uint32_t now = millis();
   poll_serial_birth_commands();
   const uint8_t side_ev = pm_side_buttons_poll(now);
@@ -2200,6 +2342,7 @@ void loop() {
       const bool wifi_chg = (wifi != s_prev_wifi);
       const bool local_hm_chg =
           valid && g_clock_face != ClockFace::Castalia && g_clock_face != ClockFace::Settings &&
+          g_clock_face != ClockFace::Version &&
           (g_analog_saved_local_h < 0 || tm_now.tm_hour != g_analog_saved_local_h ||
            tm_now.tm_min != g_analog_saved_local_m);
 
@@ -2226,11 +2369,11 @@ void loop() {
 
       const bool sec_tick_paint =
           sec_tick && g_clock_face != ClockFace::Castalia && g_clock_face != ClockFace::Settings &&
-              g_clock_face != ClockFace::CalciferCountdown;
+          g_clock_face != ClockFace::Version && g_clock_face != ClockFace::CalciferCountdown;
       const bool calcifer_sec =
           g_clock_face == ClockFace::CalciferCountdown && valid && sec_tick;
-      const bool face_has_rim =
-          g_clock_face != ClockFace::Castalia && g_clock_face != ClockFace::Settings;
+      const bool face_has_rim = g_clock_face != ClockFace::Castalia && g_clock_face != ClockFace::Settings &&
+                                g_clock_face != ClockFace::Version;
       const bool charging_ripple_frame =
           charging && face_has_rim && (now - s_last_charge_ripple_paint >= 160u);
       const bool cycle_confirm_frame =

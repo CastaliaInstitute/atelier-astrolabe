@@ -13,7 +13,7 @@ static constexpr size_t kQrBufLen = qrcodegen_BUFFER_LEN_FOR_VERSION(kQrMaxVersi
 
 static uint8_t s_temp[kQrBufLen];
 static uint8_t s_out[kQrBufLen];
-static char s_cached_url[128] = "";
+static char s_cached_url[384] = "";
 static bool s_modules_valid = false;
 static int s_cached_size = 0;
 
@@ -76,6 +76,9 @@ bool pm_qr_draw_url(Arduino_Canvas *gfx, const char *url, int cx, int cy, int ma
         gfx->fillRect(x0 + x * mod, y0 + y * mod, run * mod, mod, fg);
       }
       x += run;
+    }
+    if ((y & 3) == 0) {
+      yield();
     }
   }
   return true;
