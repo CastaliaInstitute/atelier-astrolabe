@@ -8,6 +8,7 @@
 #include "esp_heap_caps.h"
 #include "pm_birth_nvs.h"
 #include "pm_chart_profiles.h"
+#include "pm_cycle_nvs.h"
 #include "pm_settings.h"
 #include "pm_wifi_creds.h"
 #include "pm_wifi_ntp.h"
@@ -93,7 +94,8 @@ static void page_begin(char *page, size_t *len, const char *title) {
   append_html(page, kPageCap, len, head);
   append_html(page, kPageCap, len,
               "<nav><a href=\"/settings\">Settings</a><a href=\"/settings/wifi\">WiFi</a>"
-              "<a href=\"/settings/birth\">Your birth</a><a href=\"/settings/family\">Family</a></nav>");
+              "<a href=\"/settings/birth\">Your birth</a><a href=\"/settings/family\">Family</a>"
+              "<a href=\"/settings/cycle\">Cycle</a></nav>");
 }
 
 static void page_end(char *page, size_t *len) {
@@ -223,7 +225,8 @@ static void handle_settings_hub() {
   append_html(page, kPageCap, &len,
               "<ul><li><a href=\"/settings/wifi\">WiFi network &amp; password</a></li>"
               "<li><a href=\"/settings/birth\">Your birth chart</a></li>"
-              "<li><a href=\"/settings/family\">Partners &amp; children</a></li></ul>");
+              "<li><a href=\"/settings/family\">Partners &amp; children</a></li>"
+              "<li><a href=\"/settings/cycle\">Menstrual cycle &amp; pregnancy</a></li></ul>");
   page_end(page, &len);
   send_page(200, page);
 }
@@ -494,6 +497,150 @@ static void handle_family_delete_post() {
   redirect("/settings/family");
 }
 
+static void handle_cycle_get() {
+  char *page = alloc_page();
+  if (!page) {
+    s_server->send(500, "text/plain", "alloc failed");
+    return;
+  }
+  PmCycleProfile c = {};
+  (void)pm_cycle_load(&c);
+
+  size_t len = 0;
+  page_begin(page, &len, "Cycle");
+  append_html(page, kPageCap, &len, "<h1>Menstrual cycle &amp; pregnancy</h1>");
+  append_html(page, kPageCap, &len,
+              "<p class=\"msg\">Wellness estimate only; stored on watch (NVS). Not medical advice.</p>");
+  if (s_server->hasArg("saved")) {
+    append_html(page, kPageCap, &len, "<p class=\"msg\">Saved.</p>");
+  }
+
+  if (c.pregnancy_active && c.has_due_date && pm_time_valid()) {
+    struct tm loc = {};
+    pm_time_local(&loc);
+    const uint16_t y = static_cast<uint16_t>(loc.tm_year + 1900);
+    const uint8_t mo = static_cast<uint8_t>(loc.tm_mon + 1);
+    const uint8_t d = static_cast<uint8_t>(loc.tm_mday);
+    const int32_t gest = pm_cycle_gestational_day(&c, y, mo, d);
+    const int32_t until = pm_cycle_days_until_due(&c, y, mo, d);
+    char status[120];
+    if (gest >= 0 && until != INT32_MIN) {
+      snprintf(status, sizeof(status),
+               "<p>Now: gestational week %ld · due %04u-%02u-%02u (%ld days)</p>",
+               static_cast<long>((gest + 3) / 7), c.due_year, c.due_month, c.due_day, static_cast<long>(until));
+    } else {
+      snprintf(status, sizeof(status), "<p>Due date: %04u-%02u-%02u</p>", c.due_year, c.due_month, c.due_day);
+    }
+    append_html(page, kPageCap, &len, status);
+  } else if (c.has_last_period && pm_time_valid()) {
+    struct tm loc = {};
+    pm_time_local(&loc);
+    const int32_t idx = pm_cycle_day_index_for_date(
+        &c, static_cast<uint16_t>(loc.tm_year + 1900), static_cast<uint8_t>(loc.tm_mon + 1),
+        static_cast<uint8_t>(loc.tm_mday));
+    if (idx >= 0) {
+      char status[80];
+      snprintf(status, sizeof(status), "<p>Cycle day %ld of %u today.</p>", static_cast<long>(idx + 1),
+               c.cycle_length_days);
+      append_html(page, kPageCap, &len, status);
+    }
+  }
+
+  char chunk[900];
+  const char *preg_chk = c.pregnancy_active ? "checked" : "";
+  snprintf(chunk, sizeof(chunk),
+           "<form method=\"POST\" action=\"/settings/cycle\">"
+           "<h2>Pregnancy</h2>"
+           "<label><input type=\"checkbox\" name=\"pregnant\" value=\"1\" %s> Tracking pregnancy</label>"
+           "<div class=\"row\">"
+           "<label>Due date — year<input name=\"due_year\" type=\"number\" min=\"2000\" max=\"2100\" value=\"%u\"></label>"
+           "<label>Month<input name=\"due_month\" type=\"number\" min=\"1\" max=\"12\" value=\"%u\"></label>"
+           "<label>Day<input name=\"due_day\" type=\"number\" min=\"1\" max=\"31\" value=\"%u\"></label>"
+           "</div>"
+           "<h2>Menstrual cycle</h2>"
+           "<div class=\"row\">"
+           "<label>Last period — year<input name=\"lp_year\" type=\"number\" min=\"2000\" max=\"2100\" value=\"%u\"></label>"
+           "<label>Month<input name=\"lp_month\" type=\"number\" min=\"1\" max=\"12\" value=\"%u\"></label>"
+           "<label>Day<input name=\"lp_day\" type=\"number\" min=\"1\" max=\"31\" value=\"%u\"></label>"
+           "</div>"
+           "<div class=\"row\">"
+           "<label>Cycle length (days)<input name=\"cycle_len\" type=\"number\" min=\"%u\" max=\"%u\" value=\"%u\"></label>"
+           "<label>Period length (days)<input name=\"period_len\" type=\"number\" min=\"1\" max=\"10\" value=\"%u\"></label>"
+           "</div>"
+           "<button type=\"submit\">Save</button></form>",
+           preg_chk, c.has_due_date ? c.due_year : 2026u, c.has_due_date ? c.due_month : 1u,
+           c.has_due_date ? c.due_day : 1u, c.has_last_period ? c.last_period_year : 2000u,
+           c.has_last_period ? c.last_period_month : 1u, c.has_last_period ? c.last_period_day : 1u,
+           PM_CYCLE_MIN_LENGTH_DAYS, PM_CYCLE_MAX_LENGTH_DAYS, c.cycle_length_days, c.period_length_days);
+  append_html(page, kPageCap, &len, chunk);
+
+  append_html(page, kPageCap, &len,
+              "<form method=\"POST\" action=\"/settings/cycle/today\" style=\"margin-top:16px\">"
+              "<button type=\"submit\">Log period started today</button></form>"
+              "<form method=\"POST\" action=\"/settings/cycle/clear\" style=\"margin-top:12px\">"
+              "<button type=\"submit\" class=\"danger\">Clear all cycle data</button></form>");
+  page_end(page, &len);
+  send_page(200, page);
+}
+
+static void handle_cycle_post() {
+  PmCycleProfile p = {};
+  (void)pm_cycle_load(&p);
+
+  p.pregnancy_active = s_server->hasArg("pregnant");
+  const int due_y = s_server->arg("due_year").toInt();
+  const int due_mo = s_server->arg("due_month").toInt();
+  const int due_d = s_server->arg("due_day").toInt();
+  if (p.pregnancy_active && pm_cycle_ymd_sane(static_cast<uint16_t>(due_y), static_cast<uint8_t>(due_mo),
+                                              static_cast<uint8_t>(due_d))) {
+    p.due_year = static_cast<uint16_t>(due_y);
+    p.due_month = static_cast<uint8_t>(due_mo);
+    p.due_day = static_cast<uint8_t>(due_d);
+    p.has_due_date = true;
+  } else {
+    p.pregnancy_active = false;
+    p.has_due_date = false;
+  }
+
+  const int lp_y = s_server->arg("lp_year").toInt();
+  const int lp_mo = s_server->arg("lp_month").toInt();
+  const int lp_d = s_server->arg("lp_day").toInt();
+  if (pm_cycle_ymd_sane(static_cast<uint16_t>(lp_y), static_cast<uint8_t>(lp_mo), static_cast<uint8_t>(lp_d))) {
+    p.last_period_year = static_cast<uint16_t>(lp_y);
+    p.last_period_month = static_cast<uint8_t>(lp_mo);
+    p.last_period_day = static_cast<uint8_t>(lp_d);
+    p.has_last_period = true;
+  } else {
+    p.has_last_period = false;
+  }
+
+  const int clen = s_server->arg("cycle_len").toInt();
+  const int plen = s_server->arg("period_len").toInt();
+  if (clen >= PM_CYCLE_MIN_LENGTH_DAYS && clen <= PM_CYCLE_MAX_LENGTH_DAYS) {
+    p.cycle_length_days = static_cast<uint8_t>(clen);
+  }
+  if (plen >= 1 && plen < p.cycle_length_days) {
+    p.period_length_days = static_cast<uint8_t>(plen);
+  }
+
+  pm_cycle_save(&p);
+  redirect("/settings/cycle?saved=1");
+}
+
+static void handle_cycle_today_post() {
+  struct tm loc = {};
+  if (pm_time_valid()) {
+    pm_time_local(&loc);
+    (void)pm_cycle_log_period_started_today(&loc);
+  }
+  redirect("/settings/cycle?saved=1");
+}
+
+static void handle_cycle_clear_post() {
+  pm_cycle_clear();
+  redirect("/settings/cycle?saved=1");
+}
+
 void pm_settings_http_register(WebServer *server) {
   if (!server) {
     return;
@@ -509,4 +656,8 @@ void pm_settings_http_register(WebServer *server) {
   server->on("/settings/family", HTTP_POST, handle_family_post);
   server->on("/settings/family/edit", HTTP_GET, handle_family_edit_get);
   server->on("/settings/family/delete", HTTP_POST, handle_family_delete_post);
+  server->on("/settings/cycle", HTTP_GET, handle_cycle_get);
+  server->on("/settings/cycle", HTTP_POST, handle_cycle_post);
+  server->on("/settings/cycle/today", HTTP_POST, handle_cycle_today_post);
+  server->on("/settings/cycle/clear", HTTP_POST, handle_cycle_clear_post);
 }
