@@ -972,6 +972,8 @@ static void draw_astrology_face(const struct tm *tm_local, bool valid_local, int
   const int r_outer = R - 12;
   const int r_in = r_outer * 42 / 118;
   const int r_lab = r_outer - 18;
+  /** Planet centers sit between aspect chords and sign glyphs (not on the label ring). */
+  const int r_body = r_lab - 30;
   const int r_aspect = r_in + (r_outer - r_in) * 52 / 100;
 
   if (!tp.ok) {
@@ -1019,13 +1021,12 @@ static void draw_astrology_face(const struct tm *tm_local, bool valid_local, int
         gfx->color565(255, 190, 140), gfx->color565(230, 90, 70),   gfx->color565(220, 180, 120),
         gfx->color565(190, 170, 140),
     };
-    const int r_dot = r_outer - 14;
     const bool pulse_on = pulse_chart && ((millis() / 500u) % 2u) == 0u;
     for (int bi = 0; bi < kPmBodyCount; ++bi) {
       const double lon = tp.lon[bi];
       const float ang = astro_angle_from_lon(lon);
-      const int px = cx + static_cast<int>(lrintf(cosf(ang) * static_cast<float>(r_dot)));
-      const int py = cy + static_cast<int>(lrintf(sinf(ang) * static_cast<float>(r_dot)));
+      const int px = cx + static_cast<int>(lrintf(cosf(ang) * static_cast<float>(r_body)));
+      const int py = cy + static_cast<int>(lrintf(sinf(ang) * static_cast<float>(r_body)));
       int rr = (bi == kPmBodySun) ? 8 : (bi == kPmBodyMoon ? 7 : 6);
       const bool hi = (highlight_body == bi);
       if (hi) {
