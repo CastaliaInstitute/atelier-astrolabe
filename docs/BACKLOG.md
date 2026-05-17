@@ -133,6 +133,7 @@ Derived from [README limits](../README.md#limits-mvp) and [open questions](pocke
 - [x] **2026-05-16** Hue-only home face (`MYNAH_HUE_HOME_ONLY`); astrology planet + zodiac glyphs on chart
 - [x] **2026-05-16** Voice UX: PWR STT + inward waves; BOOT TTS replay + outward waves; last-reply cache
 - [x] **2026-05-16** Moon phase clock face; README serial/JTAG bring-up notes
+- [x] **2026-05-17** Castalia face: signed-in profile name + avatar from Supabase `/auth/v1/user` (JPEGDEC; initials fallback)
 - [x] **2026-05-16** Castalia QR sign-in + NVS session JWT; voice/Spotify use `pm_castalia_auth_apply_headers`
 - [x] **2026-05-16** Voice: 1.5 MiB response cap, JSON completeness check, TTS playback drain/abort, text-only pipeline replies
 - [x] **2026-05-16** `pm_calcifer` + **CalciferCountdown** clock face; BOOT spoken agenda via `pm_voice_begin_clock_agenda`

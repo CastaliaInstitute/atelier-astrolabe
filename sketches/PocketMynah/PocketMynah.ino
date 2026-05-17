@@ -1536,12 +1536,19 @@ static void draw_castalia_face() {
     drawCenteredLine("WiFi needed", 130, c_dim, 2, 2);
     return;
   }
-  drawCenteredLine(pm_castalia_status_line(), 78, c_dim, 1, 1);
   if (pm_castalia_has_session()) {
-    drawCenteredLine("Signed in", 200, c_hi, 1, 2);
-    drawCenteredLine("voice / Spotify use JWT", 232, c_dim, 1, 1);
+    const char *display = pm_castalia_profile_display_name();
+    if (display[0] != '\0') {
+      pm_castalia_draw_profile_avatar(gfx, LCD_WIDTH / 2, 228, 72);
+      drawCenteredLine(display, 328, c_hi, 1, 2);
+      drawCenteredLine("Castalia account", 368, c_dim, 1, 1);
+    } else {
+      drawCenteredLine(pm_castalia_status_line(), 78, c_dim, 1, 1);
+      drawCenteredLine("Signed in", 220, c_hi, 1, 2);
+    }
     return;
   }
+  drawCenteredLine(pm_castalia_status_line(), 78, c_dim, 1, 1);
   if (pm_castalia_signin_url_for_qr()[0] != '\0') {
     if (!pm_castalia_draw_qr(gfx, LCD_WIDTH / 2, 238, 240)) {
       drawCenteredLine("QR encode fail", 220, c_dim, 1, 1);
@@ -2129,6 +2136,9 @@ void loop() {
 
       if (wifi && pm_castalia_has_session()) {
         (void)pm_castalia_tick_refresh_session();
+        if (g_clock_face == ClockFace::Castalia && pm_castalia_tick_fetch_profile()) {
+          g_clock_repaint_pending = true;
+        }
       }
 
       const bool sec_tick = valid && (epoch != s_prev_epoch);
