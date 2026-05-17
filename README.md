@@ -89,8 +89,8 @@ personal tracking, not a medical device or medical advice.
   - `cycle period N`
   - `cycle clear`
 
-Partner profiles are intentionally out of scope for this first face revision; a later NVS profile
-toggle can reuse the same circular mapping.
+Partner and child birth profiles (up to 8) are editable on the **Settings** face web UI
+(`/settings/family`) and stored in NVS for future synastry faces. Wi‑Fi SSID/password: `/settings/wifi`.
 
 ## Development
 
