@@ -26,7 +26,7 @@ Edit this file when you start or finish work. Keep **In progress** to 1–3 item
 
 ## In progress
 
-_(none — issue #11 ready for integration review 2026-05-17)_
+- [~] **P1** Modular OTA (runtime + face-pack A/B, 32 MB) — Issue: [#60](https://github.com/CastaliaInstitute/astrolabe/issues/60), branch `feature/60-modular-ota`, [`docs/design/modular-ota.md`](design/modular-ota.md)
 
 ---
 
