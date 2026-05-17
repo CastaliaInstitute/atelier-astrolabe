@@ -26,7 +26,7 @@ Edit this file when you start or finish work. Keep **In progress** to 1–3 item
 
 ## In progress
 
-- [~] **P1** **Version clock face** — branch + commit SHA + build date + QR → GitHub commit at compile time. Issue: #58
+_(none)_
 
 ---
 
@@ -61,8 +61,6 @@ Edit this file when you start or finish work. Keep **In progress** to 1–3 item
 - [x] **P1** **Autism countdown face** — `CalciferCountdown` face + `pm_calcifer`; 5‑minute “ending soon” visual cue; BOOT agenda when no replay cache.
 
 ### Glance / utility faces
-
-- [~] **P1** **Version / build info face** — `ClockFace::Version`: git branch, short SHA, build date, QR to exact commit (`pm_build_info.h` from PlatformIO pre-script). Issue: #58
 
 - [ ] **P1** **Weather face** — new `ClockFace`: current conditions + short forecast for observer location. **Location:** Wi‑Fi geo / `pm_geo_tz` or NVS lat-lon from mDNS config. **Data:** Castalia Edge Function (API keys server-side, same pattern as `calcifer-status`) — temp, icon/condition, hi/lo, optional hourly strip on round display. Poll on interval when face visible + Wi‑Fi; cache last good response offline. Optional: STT “what’s the weather?” on this face; tie icon art to ambient hue. Depends on Castalia JWT + NTP.
 
@@ -125,6 +123,7 @@ Derived from [README limits](../README.md#limits-mvp) and [open questions](pocke
 
 ## Done
 
+- [x] **2026-05-17** Version clock face: git branch/SHA/date + GitHub commit QR (`pm_build_info.h`). PR [#59](https://github.com/CastaliaInstitute/astrolabe/pull/59); Closes [#58](https://github.com/CastaliaInstitute/astrolabe/issues/58)
 - [x] **2026-05-17** Menstrual cycle face: NVS-only circular cycle ring, fertile/ovulation bands, tap day-1 logging, and swipe length presets. PR [#12](https://github.com/CastaliaInstitute/astrolabe/pull/12); Closes [#11](https://github.com/CastaliaInstitute/astrolabe/issues/11)
 - [x] **2026-05-17** Astrology face polish: ephemeris fetch + glyph wheel. Closes [#3](https://github.com/CastaliaInstitute/astrolabe/issues/3)
 - [x] **2026-05-17** Charging ripples on rainbow rim when USB-C. Closes [#4](https://github.com/CastaliaInstitute/astrolabe/issues/4)

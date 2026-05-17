@@ -41,7 +41,7 @@ void pm_version_draw(Arduino_Canvas *gfx,
   draw_centered(date_line, 128, c_dim, 1, 1);
 
   if (PM_BUILD_QR_URL[0] != '\0') {
-    if (!pm_qr_draw(gfx, LCD_WIDTH / 2, 278, 220, PM_BUILD_QR_URL)) {
+    if (!pm_qr_draw_url(gfx, PM_BUILD_QR_URL, LCD_WIDTH / 2, 278, 220)) {
       draw_centered("QR encode fail", 250, c_dim, 1, 1);
     } else {
       draw_centered("scan for source", 408, c_dim, 1, 1);

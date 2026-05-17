@@ -21,6 +21,7 @@
 #include "pm_voice.h"
 #include "pm_wifi_ntp.h"
 #include "pm_screen_http.h"
+#include "pm_settings.h"
 #include "pm_birth_nvs.h"
 #include "pm_transit.h"
 #include "pm_ephemeris.h"
@@ -94,6 +95,8 @@ enum class ClockFace : uint8_t {
   Cycle,
   /** QR → castalia.institute Google sign-in; tokens stored on watch for Edge Functions. */
   Castalia,
+  /** QR → on-device LAN settings page (`/settings`). */
+  Settings,
   /** Build branch/SHA + QR → GitHub commit baked in at compile time. */
   Version,
   kNumFaces,
@@ -961,9 +964,9 @@ static void draw_astrology_face(const struct tm *tm_local, bool valid_local, int
   const int r_outer = R - 12;
   const int r_in = r_outer * 42 / 118;
   const int r_lab = r_outer - 18;
-  /** Planet centers sit between aspect chords and sign glyphs (not on the label ring). */
-  const int r_body = r_lab - 30;
   const int r_aspect = r_in + (r_outer - r_in) * 52 / 100;
+  /** Bodies in the annulus between aspect chords and sign glyphs (~10px clearance each side). */
+  const int r_body = r_aspect + (r_lab - r_aspect) * 2 / 5;
 
   if (!tp.ok) {
     drawCenteredLine("ephemeris needs", 200, c_dim, 1, 1);
@@ -1005,6 +1008,15 @@ static void draw_astrology_face(const struct tm *tm_local, bool valid_local, int
                     gfx->color565(200, 210, 240));
     }
 
+    for (int s = 0; s < 12; ++s) {
+      const float amid = (static_cast<float>(s) + 0.5f) * (kTwoPi / 12.f) - kPi * 0.5f;
+      const uint16_t lbl_col =
+          (highlight_sign == s) ? gfx->color565(255, 250, 200) : c_lbl;
+      const int lx = cx + static_cast<int>(lrintf(cosf(amid) * static_cast<float>(r_lab)));
+      const int ly = cy + static_cast<int>(lrintf(sinf(amid) * static_cast<float>(r_lab)));
+      draw_zodiac_glyph(lx, ly, s, lbl_col, gfx->color565(12, 14, 22));
+    }
+
     static const uint16_t k_body_col[kPmBodyCount] = {
         gfx->color565(255, 210, 90),  gfx->color565(200, 210, 230), gfx->color565(180, 180, 190),
         gfx->color565(255, 190, 140), gfx->color565(230, 90, 70),   gfx->color565(220, 180, 120),
@@ -1030,15 +1042,6 @@ static void draw_astrology_face(const struct tm *tm_local, bool valid_local, int
       if (hi) {
         gfx->drawCircle(px, py, rr + 4, gfx->color565(255, 255, 255));
       }
-    }
-
-    for (int s = 0; s < 12; ++s) {
-      const float amid = (static_cast<float>(s) + 0.5f) * (kTwoPi / 12.f) - kPi * 0.5f;
-      const uint16_t lbl_col =
-          (highlight_sign == s) ? gfx->color565(255, 250, 200) : c_lbl;
-      const int lx = cx + static_cast<int>(lrintf(cosf(amid) * static_cast<float>(r_lab)));
-      const int ly = cy + static_cast<int>(lrintf(sinf(amid) * static_cast<float>(r_lab)));
-      draw_zodiac_glyph(lx, ly, s, lbl_col, gfx->color565(12, 14, 22));
     }
     double natal_sun = 0;
     if (birth.valid && pm_transit_natal_sun_lon(&birth, &natal_sun)) {
@@ -1513,6 +1516,27 @@ static void draw_voice_wave_screen(bool outward, uint32_t t_ms, const char *labe
   gfx->flush();
 }
 
+static void draw_settings_face() {
+  const uint16_t c_hi = gfx->color565(210, 215, 235);
+  const uint16_t c_dim = gfx->color565(120, 128, 145);
+  drawCenteredLine("SETTINGS", 40, c_hi, 2, 2);
+  if (!pm_wifi_connected()) {
+    drawCenteredLine("WiFi needed", 130, c_dim, 2, 2);
+    return;
+  }
+  const char *host = pm_settings_host_label();
+  if (host[0] != '\0') {
+    drawCenteredLine(host, 78, c_dim, 1, 1);
+  }
+  if (pm_settings_url_for_qr()[0] != '\0') {
+    if (!pm_settings_draw_qr(gfx, LCD_WIDTH / 2, 238, 240)) {
+      drawCenteredLine("QR encode fail", 220, c_dim, 1, 1);
+    } else {
+      drawCenteredLine("scan for web settings", 392, c_dim, 1, 1);
+    }
+  }
+}
+
 static void version_face_draw_centered(const char *text, int y, uint16_t fg, uint8_t sx, uint8_t sy) {
   drawCenteredLine(text, y, fg, sx, sy);
 }
@@ -1594,6 +1618,9 @@ static void draw_clock_face(float thinking_progress = -1.f) {
     case ClockFace::Castalia:
       draw_castalia_face();
       break;
+    case ClockFace::Settings:
+      draw_settings_face();
+      break;
     case ClockFace::Version:
       draw_version_face();
       break;
@@ -1604,7 +1631,8 @@ static void draw_clock_face(float thinking_progress = -1.f) {
   const int banner_y = (g_clock_face == ClockFace::Apocalypso || g_clock_face == ClockFace::Spotify ||
                         g_clock_face == ClockFace::Astrology || g_clock_face == ClockFace::Moon ||
                         g_clock_face == ClockFace::CalciferCountdown || g_clock_face == ClockFace::Cycle ||
-                        g_clock_face == ClockFace::Castalia || g_clock_face == ClockFace::Version)
+                        g_clock_face == ClockFace::Castalia || g_clock_face == ClockFace::Settings ||
+                        g_clock_face == ClockFace::Version)
                            ? 352
                            : 320;
   if (MYNAH_DEBUG_GESTURES && g_gesture_banner[0] != '\0') {
@@ -1612,7 +1640,8 @@ static void draw_clock_face(float thinking_progress = -1.f) {
   }
 
   /** Rainbow annulus last (skip on QR faces — full repaint + rim after QR was tripping WDT/stack). */
-  if (g_clock_face != ClockFace::Castalia && g_clock_face != ClockFace::Version) {
+  if (g_clock_face != ClockFace::Castalia && g_clock_face != ClockFace::Settings &&
+      g_clock_face != ClockFace::Version) {
     draw_circumference_rainbow_24h(pm_time_valid());
     if (thinking_progress >= 0.f) {
       draw_thinking_progress_ring(thinking_progress);
@@ -1722,7 +1751,13 @@ static bool face_index_from_name(const char *name, int *out) {
   } k[] = {{"classic", 0}, {"hue", 0},     {"analog", 0},    {"apocalypso", 1},
            {"digital", 2}, {"spotify", 3}, {"astro", 4},       {"astrology", 4},
            {"moon", 5},    {"calcifer", 6}, {"schedule", 6},  {"cycle", 7},
-           {"menstrual", 7}, {"castalia", 8}, {"version", 9}, {"about", 9}, {"build", 9}};
+           {"menstrual", 7},
+           {"castalia", 8},
+           {"settings", 9},
+           {"config", 9},
+           {"version", 10},
+           {"about", 10},
+           {"build", 10}};
   for (const auto &e : k) {
     if (strcasecmp(name, e.n) == 0) {
       *out = e.idx;
@@ -1870,7 +1905,7 @@ static void poll_serial_birth_commands() {
           g_clock_repaint_pending = true;
           Serial.printf("face: %d\n", idx);
         } else {
-          Serial.println("face: usage: face <0-9|name>");
+          Serial.println("face: usage: face <0-10|name>");
         }
       }
       continue;
@@ -2122,6 +2157,9 @@ void loop() {
         if (g_clock_face == ClockFace::Castalia) {
           pm_castalia_on_face_enter();
           g_clock_repaint_pending = true;
+        } else if (g_clock_face == ClockFace::Settings) {
+          pm_settings_refresh_url();
+          g_clock_repaint_pending = true;
         }
         s_prev_dial_face = g_clock_face;
       }
@@ -2143,7 +2181,8 @@ void loop() {
       const bool banner_chg = strcmp(g_gesture_banner, s_prev_banner) != 0;
       const bool wifi_chg = (wifi != s_prev_wifi);
       const bool local_hm_chg =
-          valid && g_clock_face != ClockFace::Castalia && g_clock_face != ClockFace::Version &&
+          valid && g_clock_face != ClockFace::Castalia && g_clock_face != ClockFace::Settings &&
+          g_clock_face != ClockFace::Version &&
           (g_analog_saved_local_h < 0 || tm_now.tm_hour != g_analog_saved_local_h ||
            tm_now.tm_min != g_analog_saved_local_m);
 
@@ -2169,12 +2208,12 @@ void loop() {
           g_clock_face == ClockFace::Astrology && valid && epoch_min_bucket != s_prev_astro_epoch_min;
 
       const bool sec_tick_paint =
-          sec_tick && g_clock_face != ClockFace::Castalia && g_clock_face != ClockFace::Version &&
-          g_clock_face != ClockFace::CalciferCountdown;
+          sec_tick && g_clock_face != ClockFace::Castalia && g_clock_face != ClockFace::Settings &&
+          g_clock_face != ClockFace::Version && g_clock_face != ClockFace::CalciferCountdown;
       const bool calcifer_sec =
           g_clock_face == ClockFace::CalciferCountdown && valid && sec_tick;
-      const bool face_has_rim =
-          g_clock_face != ClockFace::Castalia && g_clock_face != ClockFace::Version;
+      const bool face_has_rim = g_clock_face != ClockFace::Castalia && g_clock_face != ClockFace::Settings &&
+                                g_clock_face != ClockFace::Version;
       const bool charging_ripple_frame =
           charging && face_has_rim && (now - s_last_charge_ripple_paint >= 160u);
       const bool cycle_confirm_frame =

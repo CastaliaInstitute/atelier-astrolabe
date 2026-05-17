@@ -8,49 +8,46 @@ extern "C" {
 #include "third_party/qrcodegen/qrcodegen.h"
 }
 
-static constexpr int kPmQrMaxVersion = 12;
-static constexpr size_t kPmQrBufLen = qrcodegen_BUFFER_LEN_FOR_VERSION(kPmQrMaxVersion);
+static constexpr int kQrMaxVersion = 12;
+static constexpr size_t kQrBufLen = qrcodegen_BUFFER_LEN_FOR_VERSION(kQrMaxVersion);
 
-static uint8_t s_qr_temp[kPmQrBufLen];
-static uint8_t s_qr_out[kPmQrBufLen];
-static char s_qr_cached_text[384] = "";
-static bool s_qr_modules_valid = false;
-static int s_qr_cached_size = 0;
+static uint8_t s_temp[kQrBufLen];
+static uint8_t s_out[kQrBufLen];
+static char s_cached_url[384] = "";
+static bool s_modules_valid = false;
+static int s_cached_size = 0;
 
-static void pm_qr_invalidate() {
-  s_qr_cached_text[0] = '\0';
-  s_qr_modules_valid = false;
-  s_qr_cached_size = 0;
+void pm_qr_invalidate_cache(void) {
+  s_cached_url[0] = '\0';
+  s_modules_valid = false;
+  s_cached_size = 0;
 }
 
-static bool pm_qr_encode(const char *text) {
-  if (!text || text[0] == '\0') {
+static bool encode_url_cache(const char *url) {
+  if (!url || url[0] == '\0') {
     return false;
   }
-  if (s_qr_modules_valid && strcmp(text, s_qr_cached_text) == 0 && s_qr_cached_size > 0) {
+  if (s_modules_valid && strcmp(url, s_cached_url) == 0 && s_cached_size > 0) {
     return true;
   }
-  if (!qrcodegen_encodeText(text, s_qr_temp, s_qr_out, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, kPmQrMaxVersion,
-                           qrcodegen_Mask_AUTO, true)) {
-    pm_qr_invalidate();
+  if (!qrcodegen_encodeText(url, s_temp, s_out, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, kQrMaxVersion,
+                            qrcodegen_Mask_AUTO, true)) {
+    pm_qr_invalidate_cache();
     return false;
   }
-  strncpy(s_qr_cached_text, text, sizeof(s_qr_cached_text) - 1);
-  s_qr_cached_text[sizeof(s_qr_cached_text) - 1] = '\0';
-  s_qr_modules_valid = true;
-  s_qr_cached_size = qrcodegen_getSize(s_qr_out);
-  return s_qr_cached_size > 0;
+  strncpy(s_cached_url, url, sizeof(s_cached_url) - 1);
+  s_cached_url[sizeof(s_cached_url) - 1] = '\0';
+  s_modules_valid = true;
+  s_cached_size = qrcodegen_getSize(s_out);
+  return s_cached_size > 0;
 }
 
-bool pm_qr_draw(Arduino_Canvas *gfx, int cx, int cy, int max_px, const char *text) {
-  if (!gfx || !text || text[0] == '\0' || max_px < 8) {
-    return false;
-  }
-  if (!pm_qr_encode(text)) {
+bool pm_qr_draw_url(Arduino_Canvas *gfx, const char *url, int cx, int cy, int max_px) {
+  if (!gfx || !url || url[0] == '\0' || !encode_url_cache(url)) {
     return false;
   }
 
-  const int size = s_qr_cached_size > 0 ? s_qr_cached_size : qrcodegen_getSize(s_qr_out);
+  const int size = s_cached_size > 0 ? s_cached_size : qrcodegen_getSize(s_out);
   if (size <= 0) {
     return false;
   }
@@ -70,9 +67,9 @@ bool pm_qr_draw(Arduino_Canvas *gfx, int cx, int cy, int max_px, const char *tex
   for (int y = 0; y < size; ++y) {
     int x = 0;
     while (x < size) {
-      const bool on = qrcodegen_getModule(s_qr_out, x, y);
+      const bool on = qrcodegen_getModule(s_out, x, y);
       int run = 1;
-      while (x + run < size && qrcodegen_getModule(s_qr_out, x + run, y) == on) {
+      while (x + run < size && qrcodegen_getModule(s_out, x + run, y) == on) {
         ++run;
       }
       if (on) {
