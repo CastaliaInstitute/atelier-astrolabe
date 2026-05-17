@@ -30,6 +30,9 @@ void pm_transit_compute_utc(const struct tm *utc, PmTransitPositions *out);
 /** Natal Sun longitude only (sufficient for sign + basic transits). Birth interpreted as local civil time. */
 bool pm_transit_natal_sun_lon(const PmBirthSpec *birth, double *lon_deg_out);
 
+/** Full natal/body positions for a stored civil birth record. Uses ephemeris cache/server when online. */
+bool pm_transit_birth_positions(const PmBirthSpec *birth, PmTransitPositions *out);
+
 static inline const char *pm_ephem_body_label(PmEphemBody b) {
   static const char *const k[] = {"Su", "Mo", "Me", "Ve", "Ma", "Ju", "Sa"};
   if (static_cast<unsigned>(b) >= kPmBodyCount) {

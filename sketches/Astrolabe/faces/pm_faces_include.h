@@ -12,3 +12,4 @@
 #include "faces/pm_faces.h"
 #include "faces/shared/pm_face_draw.h"
 #include "faces/spotify/pm_face_spotify.h"
+#include "faces/synastry/pm_face_synastry.h"

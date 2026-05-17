@@ -30,6 +30,7 @@ When you **finish or materially change a clock face**, run this loop before mark
 | Moon | 5 | `moon` |
 | CalciferCountdown | 6 | `calcifer`, `schedule` |
 | Castalia | 7 | `castalia` |
+| Synastry | 8 | `syn`, `synastry` |
 
 GDB symbols (debug ELF): `_ZL12s_clock_face`, `_ZL23g_clock_repaint_pending`.
 

@@ -22,6 +22,7 @@
 #include "pm_wifi_ntp.h"
 #include "pm_screen_http.h"
 #include "pm_birth_nvs.h"
+#include "pm_chart_profiles.h"
 #include "pm_transit.h"
 #include "pm_castalia_auth.h"
 #include "pm_calcifer.h"
@@ -33,6 +34,7 @@
 #include "faces/moon/pm_face_moon.h"
 #include "faces/spotify/pm_face_spotify.h"
 #include "faces/calcifer/pm_face_calcifer.h"
+#include "faces/synastry/pm_face_synastry.h"
 #include "pm_display.h"
 
 Arduino_DataBus *bus = new Arduino_ESP32QSPI(
@@ -51,6 +53,7 @@ static bool g_voice_use_message = false;
 static constexpr uint8_t k_tv_none = 0;
 static constexpr uint8_t k_tv_astro = 1;
 static constexpr uint8_t k_tv_moon = 2;
+static constexpr uint8_t k_tv_synastry = 3;
 static uint8_t g_text_voice_route = k_tv_none;
 static bool g_calcifer_briefing = false;
 static char g_moon_voice_msg[2200] = "";
@@ -65,15 +68,21 @@ static size_t g_last_play_mp3_len = 0;
 static bool g_voice_play_reset = false;
 static char g_astrology_voice_msg[2200] = "";
 static char g_astrology_sys_prompt[2800] = "";
+static char g_synastry_voice_msg[2600] = "";
+static char g_synastry_sys_prompt[3200] = "";
 static bool s_rec_mic_on = false;
 /** Astrology voice: stay on chart during record/think/speak + highlight mentions. */
 static bool g_astro_voice_active = false;
 /** True when astro turn uses recorded PCM (PWR hold); false for BOOT tap text reading. */
 static bool g_astro_voice_pcm = false;
+/** Synastry voice: stay on dual chart during record/think/speak. */
+static bool g_synastry_voice_active = false;
+static bool g_synastry_voice_pcm = false;
 /** ClassicAnalog PWR hold → mynah-pocket-journal (no voice-pipeline TTS). */
 static bool g_commonplace_journal = false;
 static bool s_astro_voice_armed = false;
 static bool s_astro_play_armed = false;
+static bool s_synastry_play_armed = false;
 static PmAstroHighlightPlan g_astro_highlight_plan = {};
 /** Set when entering clock UI so the face repaints after voice/recording states. */
 static bool g_clock_repaint_pending = true;
@@ -223,6 +232,8 @@ static bool voice_last_play_begin() {
   g_voice_result.mp3 = copy;
   g_voice_result.mp3_len = g_last_play_mp3_len;
   g_astro_voice_active = false;
+  g_synastry_voice_active = false;
+  g_synastry_voice_pcm = false;
   g_moon_voice_pcm = false;
   g_calcifer_briefing = false;
   g_voice_play_reset = true;
@@ -248,6 +259,8 @@ static void reset_recording_buffer() {
 
 static const char kAstroBootUserMsg[] =
     "Deliver today's spoken transit reading now (one flowing mini-reading, under 90 seconds).";
+static const char kSynastryBootUserMsg[] =
+    "Deliver the spoken synastry relationship highlight now (one flowing mini-reading, under 90 seconds).";
 
 /** BOOT on Astrology face or serial `astro`: text-only voice-pipeline turn with full chart in system prompt. */
 static bool astrology_begin_boot_reading(void) {
@@ -269,12 +282,40 @@ static bool astrology_begin_boot_reading(void) {
   g_text_voice_route = k_tv_astro;
   g_astro_voice_active = true;
   g_astro_voice_pcm = false;
+  g_synastry_voice_active = false;
+  g_synastry_voice_pcm = false;
   g_moon_fortune_active = false;
   g_moon_voice_pcm = false;
   g_calcifer_briefing = false;
   s_astro_voice_armed = false;
   s_astro_play_armed = false;
   memset(&g_astro_highlight_plan, 0, sizeof(g_astro_highlight_plan));
+  g_state = AppState::kThinking;
+  return true;
+}
+
+/** BOOT on Synastry face or serial `synastry`: text-only voice-pipeline turn with active chart target. */
+static bool synastry_begin_boot_reading(void) {
+  if (!pm_wifi_connected()) {
+    snprintf(g_gesture_banner, sizeof(g_gesture_banner), "synastry: need WiFi");
+    return false;
+  }
+  if (!pm_face_synastry_build_system_prompt(g_synastry_voice_msg, sizeof(g_synastry_voice_msg),
+                                            g_synastry_sys_prompt, sizeof(g_synastry_sys_prompt))) {
+    snprintf(g_gesture_banner, sizeof(g_gesture_banner), "synastry: chart data fail");
+    return false;
+  }
+  pm_voice_result_free(&g_voice_result);
+  g_voice_use_message = true;
+  g_text_voice_route = k_tv_synastry;
+  g_synastry_voice_active = true;
+  g_synastry_voice_pcm = false;
+  g_astro_voice_active = false;
+  g_astro_voice_pcm = false;
+  g_moon_fortune_active = false;
+  g_moon_voice_pcm = false;
+  g_calcifer_briefing = false;
+  s_synastry_play_armed = false;
   g_state = AppState::kThinking;
   return true;
 }
@@ -302,6 +343,8 @@ static bool moon_begin_fortune() {
   g_moon_fortune_active = true;
   g_astro_voice_active = false;
   g_astro_voice_pcm = false;
+  g_synastry_voice_active = false;
+  g_synastry_voice_pcm = false;
   g_moon_voice_pcm = false;
   g_calcifer_briefing = false;
   g_state = AppState::kThinking;
@@ -356,11 +399,13 @@ static void poll_serial_birth_commands() {
         }
         if (strcmp(p, "astro") == 0 || strcmp(p, "astrology") == 0) {
           idx = static_cast<int>(ClockFace::Astrology);
+        } else if (strcmp(p, "syn") == 0 || strcmp(p, "synastry") == 0) {
+          idx = static_cast<int>(ClockFace::Synastry);
         } else if (sscanf(p, "%d", &idx) == 1 && idx >= 0 &&
                    idx < static_cast<int>(ClockFace::kNumFaces)) {
           /* ok */
         } else {
-          Serial.println("face: usage: face 0..7 | face astro");
+          Serial.println("face: usage: face 0..8 | face astro | face synastry");
           continue;
         }
         pm_faces_set(static_cast<ClockFace>(idx));
@@ -377,6 +422,31 @@ static void poll_serial_birth_commands() {
         } else {
           Serial.printf("astro: %s\n", g_gesture_banner);
         }
+      } else if (strcmp(line, "synastry") == 0 || strcmp(line, "syn") == 0) {
+        if (pm_faces_current() != ClockFace::Synastry) {
+          Serial.println("synastry: swipe to Synastry face first (or: face synastry)");
+        } else if (g_state != AppState::kClock) {
+          Serial.printf("synastry: busy (state=%d)\n", static_cast<int>(g_state));
+        } else if (synastry_begin_boot_reading()) {
+          Serial.println("synastry: voice reading started (BOOT/text)");
+          g_clock_repaint_pending = true;
+        } else {
+          Serial.printf("synastry: %s\n", g_gesture_banner);
+        }
+      } else if (strcmp(line, "profiles seed") == 0) {
+        pm_chart_profiles_ensure_demo_seed();
+        Serial.printf("profiles: %d saved\n", pm_chart_profile_count());
+        g_clock_repaint_pending = true;
+      } else if (strcmp(line, "profile next") == 0 || strcmp(line, "profile prev") == 0) {
+        const int delta = strcmp(line, "profile next") == 0 ? 1 : -1;
+        PmChartProfile profile = {};
+        int slot = -1;
+        if (pm_chart_profiles_cycle_active(delta, &slot, &profile)) {
+          Serial.printf("profile: slot %d %s (%s)\n", slot, profile.name, pm_chart_role_label(profile.role));
+        } else {
+          Serial.println("profile: no saved profiles");
+        }
+        g_clock_repaint_pending = true;
       }
       continue;
     }
@@ -407,6 +477,7 @@ void setup() {
   (void)pm_touch_begin();
   pm_gesture_reset();
   (void)pm_side_buttons_begin();
+  pm_chart_profiles_ensure_demo_seed();
 
   if (pm_wifi_begin()) {
     pm_ntp_sync_blocking();
@@ -477,6 +548,20 @@ void loop() {
         snprintf(g_gesture_banner, sizeof(g_gesture_banner), "spotify: refresh");
       }
       g_clock_repaint_pending = true;
+    } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Synastry &&
+               (ge.kind == PmGestureKind::SwipeUp || ge.kind == PmGestureKind::SwipeDown)) {
+      if (pm_face_synastry_cycle_target(ge.kind == PmGestureKind::SwipeUp ? 1 : -1)) {
+        PmChartProfile profile = {};
+        if (pm_chart_profiles_active(&profile)) {
+          snprintf(g_gesture_banner, sizeof(g_gesture_banner), "target: %.28s", profile.name);
+        } else {
+          g_gesture_banner[0] = '\0';
+        }
+      } else {
+        snprintf(g_gesture_banner, sizeof(g_gesture_banner), "synastry: no profiles");
+      }
+      g_clock_repaint_pending = true;
+      continue;
     } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Moon &&
                (ge.kind == PmGestureKind::SwipeUp || ge.kind == PmGestureKind::SwipeDown)) {
       pm_faces_cycle(ge.kind == PmGestureKind::SwipeUp ? 1 : -1);
@@ -505,6 +590,16 @@ void loop() {
     }
   }
 
+  if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Synastry &&
+      (side_ev & PM_SIDE_BTN_BOOT) != 0) {
+    if (!voice_last_play_begin()) {
+      if (synastry_begin_boot_reading()) {
+        g_gesture_banner[0] = '\0';
+      }
+      g_clock_repaint_pending = true;
+    }
+  }
+
   static uint32_t s_ptt_press_ms = 0;
   const bool ptt_hold = pm_ptt_button_held();
   if (g_state == AppState::kClock) {
@@ -523,7 +618,7 @@ void loop() {
 
   static uint32_t s_last_clock_boot_brief_ms = 0;
   if (g_state == AppState::kClock && (side_ev & PM_SIDE_BTN_BOOT) &&
-      pm_faces_current() != ClockFace::Astrology) {
+      pm_faces_current() != ClockFace::Astrology && pm_faces_current() != ClockFace::Synastry) {
     if (voice_last_play_begin()) {
       /* BOOT replay last TTS */
     } else {
@@ -538,6 +633,8 @@ void loop() {
         g_calcifer_briefing = true;
         g_astro_voice_active = false;
         g_astro_voice_pcm = false;
+        g_synastry_voice_active = false;
+        g_synastry_voice_pcm = false;
         g_moon_voice_pcm = false;
         g_state = AppState::kThinking;
       }
@@ -613,7 +710,8 @@ void loop() {
           pm_faces_current() == ClockFace::Astrology && valid && epoch_min_bucket != s_prev_astro_epoch_min;
 
       const bool sec_tick_paint =
-          sec_tick && pm_faces_current() != ClockFace::Castalia && pm_faces_current() != ClockFace::CalciferCountdown;
+          sec_tick && pm_faces_current() != ClockFace::Castalia && pm_faces_current() != ClockFace::CalciferCountdown &&
+          pm_faces_current() != ClockFace::Synastry;
       const bool calcifer_sec =
           pm_faces_current() == ClockFace::CalciferCountdown && valid && sec_tick;
       const bool full_paint = !s_clock_paint_inited || slow_no_time || banner_chg || wifi_chg ||
@@ -677,6 +775,19 @@ void loop() {
           s_astro_voice_armed = false;
           s_astro_play_armed = false;
           memset(&g_astro_highlight_plan, 0, sizeof(g_astro_highlight_plan));
+        } else if (pm_faces_current() == ClockFace::Synastry) {
+          if (!pm_wifi_connected()) {
+            snprintf(g_gesture_banner, sizeof(g_gesture_banner), "synastry: need WiFi");
+            g_clock_repaint_pending = true;
+            break;
+          }
+          g_commonplace_journal = false;
+          g_astro_voice_active = false;
+          g_astro_voice_pcm = false;
+          g_synastry_voice_active = true;
+          g_synastry_voice_pcm = true;
+          g_moon_voice_pcm = false;
+          s_synastry_play_armed = false;
         } else if (pm_faces_current() == ClockFace::Moon) {
           if (!pm_wifi_connected() || !pm_time_valid()) {
             g_clock_repaint_pending = true;
@@ -685,6 +796,8 @@ void loop() {
           g_commonplace_journal = false;
           g_astro_voice_active = true;
           g_astro_voice_pcm = true;
+          g_synastry_voice_active = false;
+          g_synastry_voice_pcm = false;
           g_moon_voice_pcm = true;
           s_astro_voice_armed = false;
           s_astro_play_armed = false;
@@ -702,11 +815,15 @@ void loop() {
           g_commonplace_journal = true;
           g_astro_voice_active = false;
           g_astro_voice_pcm = false;
+          g_synastry_voice_active = false;
+          g_synastry_voice_pcm = false;
           g_moon_voice_pcm = false;
         } else {
           g_commonplace_journal = false;
           g_astro_voice_active = false;
           g_astro_voice_pcm = false;
+          g_synastry_voice_active = false;
+          g_synastry_voice_pcm = false;
           g_moon_voice_pcm = false;
         }
         reset_recording_buffer();
@@ -727,6 +844,7 @@ void loop() {
         s_rec_mic_on = false;
         recording_progress_end();
         g_astro_voice_active = false;
+        g_synastry_voice_active = false;
         g_state = AppState::kClock;
         g_clock_repaint_pending = true;
         break;
@@ -743,7 +861,14 @@ void loop() {
           g_pcm_len += frame_bytes;
         }
       }
-      if (g_astro_voice_active) {
+      if (g_synastry_voice_active) {
+        pm_gfx->fillScreen(pm_gfx->color565(10, 12, 22));
+        pm_face_synastry_draw(nullptr, false);
+        pm_face_draw_voice_waves_overlay(false, now);
+        pm_gfx->fillRect(0, 0, LCD_WIDTH, 40, pm_gfx->color565(10, 12, 22));
+        pm_face_draw_centered_line("listening", 12, pm_gfx->color565(230, 210, 255), 1, 1);
+        pm_gfx->flush();
+      } else if (g_astro_voice_active) {
         struct tm tm = {};
         if (pm_time_valid()) {
           pm_time_local(&tm);
@@ -772,6 +897,7 @@ void loop() {
       recording_progress_end();
       if (g_pcm_len < frame_bytes * 2) {
         g_astro_voice_active = false;
+        g_synastry_voice_active = false;
         g_commonplace_journal = false;
         g_state = AppState::kClock;
         g_clock_repaint_pending = true;
@@ -841,6 +967,8 @@ void loop() {
           started = pm_voice_begin_clock_agenda(&g_voice_result);
         } else if (g_text_voice_route == k_tv_moon) {
           started = pm_voice_begin_message(g_moon_voice_msg, g_moon_sys_prompt, &g_voice_result);
+        } else if (g_text_voice_route == k_tv_synastry) {
+          started = pm_voice_begin_message(kSynastryBootUserMsg, g_synastry_sys_prompt, &g_voice_result);
         } else if (g_astro_voice_active && !g_astro_voice_pcm) {
           started = pm_voice_begin_message(kAstroBootUserMsg, g_astrology_sys_prompt, &g_voice_result);
         } else {
@@ -867,24 +995,43 @@ void loop() {
               break;
             }
             sys = g_astrology_sys_prompt;
+          } else if (g_synastry_voice_active) {
+            if (!pm_face_synastry_build_system_prompt(g_synastry_voice_msg, sizeof(g_synastry_voice_msg),
+                                                      g_synastry_sys_prompt,
+                                                      sizeof(g_synastry_sys_prompt))) {
+              pm_face_synastry_draw_voice_screen("chart data fail");
+              delay(1200);
+              g_synastry_voice_active = false;
+              g_synastry_voice_pcm = false;
+              g_state = AppState::kClock;
+              g_clock_repaint_pending = true;
+              break;
+            }
+            sys = g_synastry_sys_prompt;
           }
           started = pm_voice_begin_pcm(g_pcm, g_pcm_len, sys, &g_voice_result);
         }
         if (!started) {
-          if (g_astro_voice_active) {
+          if (g_synastry_voice_active) {
+            pm_face_synastry_draw_voice_screen("voice start fail");
+          } else if (g_astro_voice_active) {
             pm_face_astrology_draw_voice_screen("voice start fail", -1, -1, false);
           }
           g_astro_voice_active = false;
           g_astro_voice_pcm = false;
+          g_synastry_voice_active = false;
+          g_synastry_voice_pcm = false;
           g_moon_voice_pcm = false;
           g_state = AppState::kClock;
           g_clock_repaint_pending = true;
           break;
         }
-        thinking_progress_begin(g_astro_voice_active ? 180000u : 45000u);
+        thinking_progress_begin((g_astro_voice_active || g_synastry_voice_active) ? 180000u : 45000u);
         s_voice_job_armed = true;
       }
-      if (g_astro_voice_active) {
+      if (g_synastry_voice_active) {
+        pm_face_synastry_draw_voice_screen(nullptr, thinking_progress_now());
+      } else if (g_astro_voice_active) {
         pm_face_astrology_draw_voice_screen(nullptr, -1, -1, false, thinking_progress_now());
       } else if (g_moon_fortune_active) {
         pm_face_moon_draw_voice_screen(nullptr, thinking_progress_now());
@@ -894,7 +1041,7 @@ void loop() {
       const PmVoiceStatus vs = pm_voice_poll();
       if (vs == PmVoiceStatus::Working) {
         const uint32_t voice_wait_ms =
-            (g_moon_fortune_active || g_astro_voice_active) ? 620000u : 100000u;
+            (g_moon_fortune_active || g_astro_voice_active || g_synastry_voice_active) ? 620000u : 100000u;
         if (s_voice_wait_t0 != 0 && (now - s_voice_wait_t0) > voice_wait_ms) {
           Serial.println("astro: voice wait timeout — abort");
           pm_voice_abort();
@@ -905,6 +1052,9 @@ void loop() {
       if (g_astro_voice_active) {
         Serial.printf("astro: voice done status=%d mp3=%u err=%s\n", static_cast<int>(vs),
                       static_cast<unsigned>(g_voice_result.mp3_len), pm_voice_last_error());
+      } else if (g_synastry_voice_active) {
+        Serial.printf("synastry: voice done status=%d mp3=%u err=%s\n", static_cast<int>(vs),
+                      static_cast<unsigned>(g_voice_result.mp3_len), pm_voice_last_error());
       }
       s_voice_job_armed = false;
       thinking_progress_end();
@@ -912,7 +1062,9 @@ void loop() {
       g_text_voice_route = k_tv_none;
       g_calcifer_briefing = false;
       if (vs != PmVoiceStatus::DoneOk) {
-        if (g_astro_voice_active) {
+        if (g_synastry_voice_active) {
+          pm_face_synastry_draw_voice_screen(pm_voice_last_error());
+        } else if (g_astro_voice_active) {
           pm_face_astrology_draw_voice_screen(pm_voice_last_error(), -1, -1, false);
         } else if (g_moon_fortune_active) {
           pm_face_moon_draw_voice_screen(pm_voice_last_error(), -1.f);
@@ -927,12 +1079,24 @@ void loop() {
         pm_voice_result_free(&g_voice_result);
         g_astro_voice_active = false;
         g_astro_voice_pcm = false;
+        g_synastry_voice_active = false;
+        g_synastry_voice_pcm = false;
         g_moon_fortune_active = false;
         g_state = AppState::kClock;
         g_clock_repaint_pending = true;
         break;
       }
       if (!g_voice_result.mp3 || g_voice_result.mp3_len < 64) {
+        if (g_synastry_voice_active) {
+          pm_face_synastry_draw_voice_screen("no audio reply");
+          delay(1500);
+          pm_voice_result_free(&g_voice_result);
+          g_synastry_voice_active = false;
+          g_synastry_voice_pcm = false;
+          g_state = AppState::kClock;
+          g_clock_repaint_pending = true;
+          break;
+        }
         if (g_astro_voice_active) {
           pm_face_astrology_draw_voice_screen("no audio reply", -1, -1, false);
           delay(1500);
@@ -970,6 +1134,7 @@ void loop() {
         voice_last_play_save(g_voice_result.mp3, g_voice_result.mp3_len);
       }
       g_astro_voice_pcm = false;
+      g_synastry_voice_pcm = false;
       g_moon_voice_pcm = false;
       g_voice_play_reset = true;
       g_state = AppState::kPlaying;
@@ -983,6 +1148,7 @@ void loop() {
         s_play_wait_t0 = 0;
         s_play_armed = false;
         s_astro_play_armed = false;
+        s_synastry_play_armed = false;
       }
       if (s_play_wait_t0 == 0) {
         s_play_wait_t0 = now;
@@ -1031,6 +1197,56 @@ void loop() {
         pm_voice_result_free(&g_voice_result);
         s_astro_play_armed = false;
         g_astro_voice_active = false;
+        g_state = AppState::kClock;
+        g_clock_repaint_pending = true;
+        break;
+      }
+      if (g_synastry_voice_active) {
+        if (!s_synastry_play_armed) {
+          if (!g_voice_result.mp3 || g_voice_result.mp3_len < 64) {
+            pm_face_synastry_draw_voice_screen("no audio");
+            delay(1200);
+            pm_voice_result_free(&g_voice_result);
+            g_synastry_voice_active = false;
+            g_state = AppState::kClock;
+            g_clock_repaint_pending = true;
+            break;
+          }
+          if (!pm_speaker_play_begin(g_voice_result.mp3, g_voice_result.mp3_len)) {
+            pm_face_synastry_draw_voice_screen("speaker busy");
+            delay(1200);
+            pm_voice_result_free(&g_voice_result);
+            g_synastry_voice_active = false;
+            g_state = AppState::kClock;
+            g_clock_repaint_pending = true;
+            break;
+          }
+          s_synastry_play_armed = true;
+          s_play_wait_t0 = now;
+        }
+        pm_face_synastry_draw_voice_screen(nullptr);
+        pm_face_draw_voice_waves_overlay(true, now);
+        pm_gfx->fillRect(0, LCD_HEIGHT - 40, LCD_WIDTH, 40, pm_gfx->color565(10, 12, 22));
+        pm_face_draw_centered_line("speaking", LCD_HEIGHT - 28, pm_gfx->color565(220, 210, 245), 1, 1);
+        pm_gfx->flush();
+        const PmSpeakerStatus spk = pm_speaker_poll();
+        if (spk == PmSpeakerStatus::Playing) {
+          const uint32_t est_ms =
+              static_cast<uint32_t>((g_voice_result.mp3_len * 8u * 1000u) / 96000u) + 45000u;
+          if (s_play_wait_t0 != 0 && (now - s_play_wait_t0) > est_ms) {
+            pm_speaker_abort();
+          } else {
+            break;
+          }
+        }
+        if (spk == PmSpeakerStatus::DoneFail) {
+          pm_face_synastry_draw_voice_screen("playback failed");
+          delay(1200);
+        }
+        pm_voice_result_free(&g_voice_result);
+        s_synastry_play_armed = false;
+        s_play_wait_t0 = 0;
+        g_synastry_voice_active = false;
         g_state = AppState::kClock;
         g_clock_repaint_pending = true;
         break;
