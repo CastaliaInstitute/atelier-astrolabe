@@ -1,0 +1,13 @@
+
+# boot
+Screen over WiFi: http://192.168.86.182/  (GET /screen.bmp)
+PocketMynah MVP ready
+[ 11160][E][TouchPoints.cpp:68] getPoint(): Invalid touch point index: 0
+[ 11379][E][TouchPoints.cpp:68] getPoint(): Invalid touch point index: 0
+[gesture] double tap @ 402,191
+
+# after face
+face: 4
+
+# after astro
+astro: voice reading started

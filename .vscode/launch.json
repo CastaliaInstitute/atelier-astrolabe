@@ -1,0 +1,24 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Astrolabe JTAG (astro TTS)",
+      "type": "platformio-debug",
+      "request": "launch",
+      "executable": "${workspaceFolder}/.pio/build/waveshare_s3_175_debug/firmware.elf",
+      "projectEnvName": "waveshare_s3_175_debug",
+      "toolchainBinDir": "${env:HOME}/.platformio/packages/toolchain-xtensa-esp32s3@8.4.0+2021r2-patch5/bin",
+      "internalConsoleOptions": "openOnSessionStart",
+      "preLaunchTask": "PIO Debug (upload)"
+    },
+    {
+      "name": "Astrolabe JTAG (no upload)",
+      "type": "platformio-debug",
+      "request": "launch",
+      "executable": "${workspaceFolder}/.pio/build/waveshare_s3_175_debug/firmware.elf",
+      "projectEnvName": "waveshare_s3_175_debug",
+      "toolchainBinDir": "${env:HOME}/.platformio/packages/toolchain-xtensa-esp32s3@8.4.0+2021r2-patch5/bin",
+      "internalConsoleOptions": "openOnSessionStart"
+    }
+  ]
+}

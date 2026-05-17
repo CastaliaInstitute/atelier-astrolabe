@@ -1,0 +1,61 @@
+name: Bugfix
+description: Fix incorrect behavior or UX on the watch
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Branch: `fix/<issue#>-short-slug` · PR should include `Closes #<issue>`.
+        **Cursor Cloud:** add label `cloud-agent` to auto-start, or `./scripts/cloud-agent.sh <issue#>`, or `@cursor` — see [`docs/WORKFLOW.md`](https://github.com/CastaliaInstitute/astrolabe/blob/main/docs/WORKFLOW.md#cursor-cloud-agents-from-issues).
+  - type: checkboxes
+    id: cloud_agent
+    attributes:
+      label: Cursor automation
+      options:
+        - label: cloud-agent
+          description: Start a Cursor cloud agent when this issue is filed
+  - type: textarea
+    id: summary
+    attributes:
+      label: What is wrong?
+      placeholder: e.g. Moon face treats vertical swipe as tap → starts fortune
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      value: |
+        1. Flash firmware (commit / branch)
+        2. Navigate to … face
+        3. …
+    validations:
+      required: false
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options:
+        - P0
+        - P1
+        - P2
+      default: 1
+    validations:
+      required: true
+  - type: input
+    id: backlog
+    attributes:
+      label: Backlog reference
+      placeholder: "P1 Bugfix: Moon face tap steals swipe"
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Files suspected, screenshot paths under `artifacts/`

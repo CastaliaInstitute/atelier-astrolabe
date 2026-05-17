@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Product backlog (markdown)
+    url: https://github.com/CastaliaInstitute/astrolabe/blob/main/docs/BACKLOG.md
+    about: Roadmap and priorities before opening an issue

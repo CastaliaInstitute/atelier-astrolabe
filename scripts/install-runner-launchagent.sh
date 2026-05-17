@@ -51,3 +51,4 @@ launchctl bootout "gui/$(id -u)/${LABEL}" 2>/dev/null || true
 launchctl bootstrap "gui/$(id -u)" "$PLIST"
 launchctl enable "gui/$(id -u)/${LABEL}"
 echo "→ installed ${PLIST}"
+echo "→ logs: ${INSTALL_DIR}/_diag/launchd.{out,err}.log"

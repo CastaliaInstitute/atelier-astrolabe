@@ -1,0 +1,61 @@
+name: Feature
+description: New clock face, firmware capability, or integration
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Link the matching line in [`docs/BACKLOG.md`](https://github.com/CastaliaInstitute/astrolabe/blob/main/docs/BACKLOG.md) when applicable.
+        Branch: `feature/<issue#>-short-slug` · PR should include `Closes #<issue>`.
+        **Cursor Cloud:** add label `cloud-agent` to auto-start an agent ([workflow](https://github.com/CastaliaInstitute/astrolabe/blob/main/.github/workflows/cursor-agent-dispatch.yml)), or run `./scripts/cloud-agent.sh <issue#>`, or comment `@cursor`.
+  - type: checkboxes
+    id: cloud_agent
+    attributes:
+      label: Cursor automation
+      options:
+        - label: cloud-agent
+          description: Start a Cursor cloud agent when this issue is filed (requires repo secret CURSOR_API_KEY)
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What should exist when this is done?
+      placeholder: e.g. Commonplace journal from home face — PWR hold STT → Directus journal entry
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Checklist an agent or reviewer can verify
+      value: |
+        - [ ] Builds (`./scripts/build.sh`)
+        - [ ] `docs/BACKLOG.md` updated
+        - [ ] Hardware QA (if clock face / on-device UI)
+    validations:
+      required: true
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options:
+        - P0
+        - P1
+        - P2
+      default: 1
+    validations:
+      required: true
+  - type: input
+    id: backlog
+    attributes:
+      label: Backlog reference
+      description: Section or one-line quote from BACKLOG.md
+      placeholder: "P1 Commonplace journal from home face"
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Dependencies (mynah edge fn), out of scope, links
+    validations:
+      required: false
