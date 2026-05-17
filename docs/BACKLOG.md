@@ -42,6 +42,15 @@ Edit this file when you start or finish work. Keep **In progress** to 1–3 item
 
 - [x] **P1** **Autism countdown face** — `CalciferCountdown` face + `pm_calcifer`; 5‑minute “ending soon” visual cue; BOOT agenda when no replay cache.
 
+### Music / Spotify face (“Vinyl Queue”)
+
+Design: [`docs/mynah-spotify-face.md`](mynah-spotify-face.md). **Swipe explores, tap commits** — vertical album-art stream with center vinyl record; hub-built Music Stream + preprocessed RGB565 art. Replaces transport-bar MVP in [`pm_face_spotify.cpp`](../sketches/Astrolabe/faces/spotify/pm_face_spotify.cpp).
+
+- [ ] **P1** **Mynah Spotify Face — design doc + epic** ([#72](https://github.com/CastaliaInstitute/astrolabe/issues/72)) — canonical spec in `docs/mynah-spotify-face.md`; unblocks milestone work below
+- [ ] **P1** **Spotify face M1–M2 (firmware)** — static vinyl layout + gesture prototype (swipe browse, tap commit, double-tap return, 15s browse timeout) on device; fake or stub stream
+- [ ] **P1** **Spotify face M3–M4 (hub + integration)** — hub `spotify_state` / Music Stream, album-art pipeline, `spotify_command` + `browse_delta`; Castalia `mynah-spotify` or successor; Astrolabe render + command path
+- [ ] **P2** **Spotify face M5 (polish)** — hue-time ring, groove glint overlay, Commonplace save (long press), room label, hardware QA per face table
+
 ### Phase 2 (round UI + voice parity)
 
 - [ ] **P1** Faculty bust thumbnail on watch (`faculty-bust` HTTP) — see [pocketwatch.md § Backend](pocketwatch.md#backend-reuse)
