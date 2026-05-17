@@ -73,7 +73,6 @@ Derived from [README limits](../README.md#limits-mvp) and [open questions](pocke
 
 - [ ] **P1** TLS: replace `WiFiClientSecure::setInsecure()` with CA pinning / bundle
 - [x] **P1** Voice: handle `voice-pipeline` responses without `audioBase64` (plain `ask-faculty`-only)
-- [ ] **P1** Auth: document anon-only vs signed-in behavior in README once Castalia flow is stable
 - [x] **P1** Classic analog clock face: center dial on round display and use full-screen safe area (466×466); fix layout/offset in `PocketMynah.ino` analog draw path
 - [ ] **P1** Astrology / transits face (`draw_astrology_face`, `pm_transit`): full-screen chart (maximize wheel on 466×466, trim or relocate title/date/footer chrome); replace text labels (`ARI`…`PIS`, `pm_ephem_body_label` abbreviations) with bitmap icons for zodiac signs and planets (GFX sprites or minimal glyph set in flash)
 - [x] **P1** Remove gesture debug labels (e.g. swipe up/down banners on clock face); drop or gate `g_gesture_banner` / `pm_gesture` debug UI for production
@@ -94,6 +93,7 @@ Derived from [README limits](../README.md#limits-mvp) and [open questions](pocke
 - [x] **2026-05-16** Voice: 1.5 MiB response cap, JSON completeness check, TTS playback drain/abort, text-only pipeline replies
 - [x] **2026-05-16** `pm_calcifer` + **CalciferCountdown** clock face; BOOT spoken agenda via `pm_voice_begin_clock_agenda`
 - [x] **2026-05-16** Gesture banners gated (`MYNAH_DEBUG_GESTURES`); analog dial centered on 466×466
+- [x] **2026-05-17** Auth docs: README explains anon bearer vs Castalia JWT behavior for voice, commonplace, and Calcifer. PR pending.
 - [x] **2026-05-15** Phase 0: PlatformIO toolchain, `secrets.example.h`, PocketMynah flashes on ESP32-S3 1.75C class board
 - [x] **2026-05-15** Phase 1: Wi‑Fi + NTP; `voice-pipeline` text (`message`) and PCM (`audioBase64` in); on-device MP3 via minimp3 + ES8311
 - [x] **2026-05-15** Hue clock faces: analog, Apocalypso, digital local; swipe gestures (`pm_gesture`)

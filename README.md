@@ -44,6 +44,32 @@ Pick the **Espressif CDC** serial device (e.g. macOS `/dev/cu.usbmodem1101`, USB
 
 If `secrets.local.h` is missing, the build uses the example file (empty strings): WiFi and voice calls will not work until you add a local secrets file.
 
+## Castalia auth modes
+
+PocketMynah always sends Supabase's anon key as the `apikey` header. The
+`Authorization` bearer is selected by
+[`pm_castalia_auth`](sketches/PocketMynah/pm_castalia_auth.h):
+
+- **Anonymous / not signed in**: `Authorization: Bearer <MYNAH_SUPABASE_ANON_KEY>`.
+  This is the bootstrapping mode used before the watch has a Castalia session.
+- **Signed in**: swipe to the
+  [`Castalia` sign-in face](sketches/PocketMynah/PocketMynah.ino), scan the QR
+  code, and complete Google sign-in on `castalia.institute`. The watch stores the
+  returned Supabase access and refresh tokens in NVS, refreshes stale sessions in
+  the background, and uses `Authorization: Bearer <Castalia JWT>` while the
+  access token is valid.
+- **Refresh failure / expired session**: the auth helper clears unusable session
+  state and falls back to the anon bearer. User-scoped functions may then return
+  `401` or empty/unconfigured data until you sign in again on the Castalia face.
+
+Current service expectations:
+
+| Service | Anonymous mode | Signed-in mode |
+|---------|----------------|----------------|
+| **Voice** (`voice-pipeline`) | Uses the anon bearer for basic anonymous voice requests when the backend allows them. | Sends the Castalia JWT, letting the pipeline identify the Castalia user and use signed-in context. A `401` is shown as "sign in on Castalia face". |
+| **Commonplace** | Use only for public or anonymous flows. Do not write user-owned commonplace data with the anon bearer. | Required for user-owned commonplace reads/writes so Castalia can attach entries to the signed-in account. |
+| **Calcifer** (`calcifer-status` / CalDAV agenda) | Can reach the function but has no user CalDAV configuration; expect unavailable, unconfigured, or `401` responses. | Required for personalized CalDAV countdowns and BOOT spoken agenda briefs. |
+
 ## Limits (MVP)
 
 - **HTTPS**: `WiFiClientSecure::setInsecure()` (no CA pin yet).
