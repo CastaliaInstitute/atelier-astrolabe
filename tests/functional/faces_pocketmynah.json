@@ -1,0 +1,19 @@
+{
+  "sketch": "PocketMynah",
+  "face_count": 12,
+  "center": [233, 233],
+  "faces": [
+    {"id": 0, "name": "classic", "gestures": ["swipe_left", "tap:233,233"], "buttons": ["boot"]},
+    {"id": 1, "name": "apocalypso", "gestures": ["swipe_left", "tap:233,233"], "buttons": []},
+    {"id": 2, "name": "digital", "gestures": ["swipe_left", "tap:233,233"], "buttons": ["boot"]},
+    {"id": 3, "name": "spotify", "gestures": ["tap:233,269", "swipe_up"], "buttons": []},
+    {"id": 4, "name": "astro", "gestures": ["tap:233,350", "swipe_left"], "buttons": []},
+    {"id": 5, "name": "moon", "gestures": ["tap:233,233", "swipe_up"], "buttons": []},
+    {"id": 6, "name": "calcifer", "gestures": ["swipe_left", "tap:233,233"], "buttons": ["boot"]},
+    {"id": 7, "name": "cycle", "gestures": ["tap:233,233", "swipe_up"], "buttons": []},
+    {"id": 8, "name": "castalia", "gestures": ["tap:233,238", "swipe_left"], "buttons": []},
+    {"id": 9, "name": "settings", "gestures": ["tap:233,238", "swipe_left"], "buttons": []},
+    {"id": 10, "name": "huepack", "gestures": ["swipe_left", "tap:233,233"], "buttons": []},
+    {"id": 11, "name": "version", "gestures": ["swipe_left", "tap:233,233"], "buttons": []}
+  ]
+}

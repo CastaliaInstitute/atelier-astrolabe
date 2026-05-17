@@ -34,6 +34,7 @@
 #include "pm_faces_pack.h"
 #include "pm_ota.h"
 #include "pm_circadian_hue.h"
+#include "pm_qa.h"
 #include "pm_cycle_nvs.h"
 #include "pm_moon.h"
 #include "pm_version.h"
@@ -1938,7 +1939,7 @@ static void print_cycle_status() {
 }
 
 static void poll_serial_birth_commands() {
-  static char line[100];
+  static char line[120];
   static size_t li = 0;
   while (Serial.available() > 0) {
     const int c = Serial.read();
@@ -2033,6 +2034,20 @@ static void poll_serial_birth_commands() {
           }
         }
         g_clock_repaint_pending = true;
+      } else if (strncmp(line, "qa ", 3) == 0) {
+        const char *args = line + 3;
+        while (*args == ' ') {
+          ++args;
+        }
+        if (strcmp(args, "status") == 0) {
+          Serial.printf("qa: face=%d state=%d heap=%u wifi=%d\n",
+                        static_cast<int>(g_clock_face), static_cast<int>(g_state),
+                        static_cast<unsigned>(ESP.getFreeHeap()), pm_wifi_connected() ? 1 : 0);
+        } else if (strcmp(args, "faces") == 0) {
+          Serial.printf("qa: faces=%d\n", static_cast<int>(ClockFace::kNumFaces));
+        } else if (!pm_qa_inject_command(args)) {
+          Serial.println("qa: usage: status | faces | inject …");
+        }
       } else if (strncmp(line, "face ", 5) == 0) {
         const char *p = line + 5;
         while (*p == ' ') {

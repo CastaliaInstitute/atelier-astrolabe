@@ -11,6 +11,7 @@ static bool s_pmu_ok = false;
 static uint32_t s_last_pmu_scan = 0;
 /** Latched from AXP2101 PEK negative/positive edge IRQs (true while user is holding PWR). */
 static bool s_pek_pressed = false;
+static uint8_t s_qa_inject_ev = 0;
 
 bool pm_side_buttons_begin() {
   pinMode(MYNAH_BOOT_BUTTON_GPIO, INPUT_PULLUP);
@@ -25,8 +26,13 @@ bool pm_side_buttons_begin() {
   return true;
 }
 
+void pm_side_buttons_inject(uint8_t ev_mask) { s_qa_inject_ev |= ev_mask; }
+
+void pm_side_buttons_inject_pek_hold(bool held) { s_pek_pressed = held; }
+
 uint8_t pm_side_buttons_poll(uint32_t now_ms) {
-  uint8_t ev = 0;
+  uint8_t ev = s_qa_inject_ev;
+  s_qa_inject_ev = 0;
 
   static bool s_boot_armed = true;
   static uint32_t s_boot_low_ms = 0;

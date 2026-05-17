@@ -1,0 +1,70 @@
+{
+  "sketch": "Astrolabe",
+  "face_count": 9,
+  "center": [233, 233],
+  "faces": [
+    {
+      "id": 0,
+      "name": "classic",
+      "source_paths": ["sketches/Astrolabe/faces/classic_analog"],
+      "gestures": ["swipe_left", "swipe_right", "tap:233,233"],
+      "buttons": ["boot"]
+    },
+    {
+      "id": 1,
+      "name": "apocalypso",
+      "source_paths": ["sketches/Astrolabe/faces/apocalypso"],
+      "gestures": ["swipe_left", "swipe_right", "tap:233,233"],
+      "buttons": []
+    },
+    {
+      "id": 2,
+      "name": "digital",
+      "source_paths": ["sketches/Astrolabe/faces/digital"],
+      "gestures": ["swipe_left", "swipe_right", "tap:233,233"],
+      "buttons": ["boot"]
+    },
+    {
+      "id": 3,
+      "name": "spotify",
+      "source_paths": ["sketches/Astrolabe/faces/spotify", "sketches/Astrolabe/pm_spotify.cpp", "sketches/Astrolabe/pm_spotify.h"],
+      "gestures": ["tap:233,269", "swipe_up", "swipe_down", "swipe_left"],
+      "buttons": []
+    },
+    {
+      "id": 4,
+      "name": "astro",
+      "source_paths": ["sketches/Astrolabe/faces/astrology", "sketches/Astrolabe/pm_transit.cpp", "sketches/Astrolabe/pm_transit.h", "sketches/Astrolabe/pm_astro_highlight.cpp"],
+      "gestures": ["tap:233,350", "swipe_left"],
+      "buttons": []
+    },
+    {
+      "id": 5,
+      "name": "moon",
+      "source_paths": ["sketches/Astrolabe/faces/moon"],
+      "gestures": ["tap:233,233", "swipe_up", "swipe_left"],
+      "buttons": []
+    },
+    {
+      "id": 6,
+      "name": "calcifer",
+      "source_paths": ["sketches/Astrolabe/faces/calcifer", "sketches/Astrolabe/pm_calcifer.cpp", "sketches/Astrolabe/pm_calcifer.h"],
+      "gestures": ["swipe_left", "swipe_right", "tap:233,233"],
+      "buttons": ["boot"]
+    },
+    {
+      "id": 7,
+      "name": "castalia",
+      "source_paths": ["sketches/Astrolabe/faces/castalia", "sketches/Astrolabe/pm_castalia_auth.cpp", "sketches/Astrolabe/pm_castalia_auth.h"],
+      "gestures": ["tap:233,238", "swipe_left"],
+      "buttons": []
+    },
+    {
+      "id": 8,
+      "name": "synastry",
+      "source_paths": ["sketches/Astrolabe/faces/synastry"],
+      "gestures": ["tap:233,233", "swipe_left"],
+      "buttons": []
+    }
+  ]
+}

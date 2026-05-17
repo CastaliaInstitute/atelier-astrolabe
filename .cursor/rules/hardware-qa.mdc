@@ -54,6 +54,20 @@ Briefly assess the capture and note fixes if needed:
 
 Record outcome in the commit message, PR, or **Done** line on the backlog item. If it fails QA, do not mark the feature complete.
 
+## Functional test (all faces)
+
+After large face or input-handler changes, run the full matrix (screenshot + injected touch/button, serial crash watch):
+
+```bash
+./scripts/functional_test.py --flash
+```
+
+CI: **Firmware functional test** workflow or `./scripts/ci-functional-test.sh` on the `astrolabe-watch` runner.
+
+On failure, CI triages and files a deduped issue. Revert PRs only when `ASTROLABE_FT_UNMERGE_PUSH=1` (off by default). Prefer **Integration device gate** over separate flash + FT workflows.
+
+Serial QA: `qa status`, `qa inject swipe left`, `qa inject tap 233 269`, `qa inject boot`.
+
 ## MCP
 
 Prefer **`astrolabe_*`** tools ([`mcp/astrolabe-esp/README.md`](mcp/astrolabe-esp/README.md)). Reload MCP if tools are missing.

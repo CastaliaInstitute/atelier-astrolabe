@@ -71,6 +71,14 @@ void pm_gesture_reset() {
   memset(g_q, 0, sizeof(g_q));
 }
 
+void pm_gesture_inject(PmGestureKind kind, int16_t x, int16_t y) {
+  PmGestureEvent e = {};
+  e.kind = kind;
+  e.x = x;
+  e.y = y;
+  q_push(e);
+}
+
 bool pm_gesture_consume(PmGestureEvent *out) {
   if (!out || g_qn == 0) {
     return false;

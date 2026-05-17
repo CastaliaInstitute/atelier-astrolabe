@@ -1,0 +1,114 @@
+# Recommended integration hardware gate: one job, one lock, flash then full functional test.
+#
+# Enable: repo variable ENABLE_INTEGRATION_DEVICE_GATE=true
+# Replaces parallel ENABLE_INTEGRATION_FLASH + ENABLE_INTEGRATION_FUNCTIONAL_TEST triggers.
+#
+name: Integration device gate
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref to flash and test
+        required: false
+        default: integration
+      faces:
+        description: Comma-separated face names (empty = all)
+        required: false
+        default: ""
+      skip_remediate:
+        description: Do not open issues/revert PRs on failure
+        type: boolean
+        default: false
+  workflow_run:
+    workflows: [Firmware build]
+    types: [completed]
+    branches: [integration]
+
+# Exclusive access to the single bench watch (shared with manual flash / HW QA dispatch).
+concurrency:
+  group: astrolabe-watch-device
+  cancel-in-progress: false
+
+jobs:
+  device-gate:
+    name: Flash + functional test
+    runs-on: [self-hosted, astrolabe-watch]
+    environment: astrolabe-watch
+    env:
+      PLATFORMIO_BUILD_DIR: /tmp/astrolabe-pio-build-${{ github.run_id }}
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event_name == 'workflow_run' &&
+        github.event.workflow_run.conclusion == 'success' &&
+        vars.ENABLE_INTEGRATION_DEVICE_GATE == 'true'
+      )
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.event.workflow_run.head_sha }}
+
+      - name: Preflight (USB watch)
+        run: ./scripts/preflight-watch.sh
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-gate-${{ runner.os }}-${{ hashFiles('platformio.ini', 'scripts/build.sh') }}
+          restore-keys: |
+            pio-gate-${{ runner.os }}-
+
+      - name: Install tools
+        run: |
+          pip install platformio
+          ./mcp/astrolabe-esp/setup.sh
+
+      - name: Device secrets
+        env:
+          MYNAH_WIFI_SSID: ${{ secrets.MYNAH_WIFI_SSID }}
+          MYNAH_WIFI_PASSWORD: ${{ secrets.MYNAH_WIFI_PASSWORD }}
+          MYNAH_SUPABASE_URL: ${{ secrets.MYNAH_SUPABASE_URL }}
+          MYNAH_SUPABASE_ANON_KEY: ${{ secrets.MYNAH_SUPABASE_ANON_KEY }}
+        run: ./scripts/ensure-device-secrets.sh
+
+      - name: Flash firmware
+        run: ./scripts/ci-flash.sh
+
+      - name: Functional test
+        id: ft
+        env:
+          ASTROLABE_FT_FACES: ${{ github.event_name == 'workflow_dispatch' && inputs.faces || '' }}
+        run: ./scripts/functional_test.py --port "$(./scripts/detect_upload_port.sh)"
+        continue-on-error: true
+
+      - name: Remediate failures
+        if: >-
+          steps.ft.outcome == 'failure' &&
+          (github.event_name != 'workflow_dispatch' || inputs.skip_remediate != true)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ASTROLABE_FT_UNMERGE_PUSH: ${{ vars.ASTROLABE_FT_UNMERGE_PUSH || '0' }}
+          ASTROLABE_FT_DISPATCH_AGENT: ${{ vars.ASTROLABE_FT_DISPATCH_AGENT || '0' }}
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+        run: |
+          REPORT="artifacts/functional/latest/report.json"
+          if [[ -f "$REPORT" ]]; then
+            ./scripts/functional_remediate.sh "$REPORT"
+          fi
+          exit 1
+
+      - name: Fail if functional test failed
+        if: steps.ft.outcome == 'failure'
+        run: exit 1
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: device-gate-${{ github.run_id }}
+          path: |
+            artifacts/functional/
+          retention-days: 14
+          if-no-files-found: ignore

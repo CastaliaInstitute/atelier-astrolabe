@@ -24,6 +24,12 @@ git fetch origin integration
 
 GitHub: set the repo **default branch for pull requests** to **`integration`** (Settings → General → Pull Requests).
 
+**Branch protection (recommended)** on `integration`:
+
+- Required status check: **Firmware build**
+- Optional: require **Integration device gate** after enabling `ENABLE_INTEGRATION_DEVICE_GATE`
+- Do not allow bypassing for face PRs without a linked functional test report
+
 ## Roles
 
 | Artifact | Role |
@@ -117,21 +123,31 @@ After the PR merges to **`integration`**, run **hardware QA** on **`integration`
 | Workflow | Runner | What |
 |----------|--------|------|
 | [Firmware build](../.github/workflows/firmware-build.yml) | `ubuntu-latest` | `./scripts/build.sh`; uploads `firmware.bin` artifact |
-| [Firmware flash](../.github/workflows/firmware-flash.yml) | **`self-hosted` + `astrolabe-watch`** | `./scripts/ci-flash.sh` to the USB watch |
+| [**Integration device gate**](../.github/workflows/integration-device-gate.yml) | **`self-hosted` + `astrolabe-watch`** | **Recommended:** flash → full functional test (one lock, one job) |
+| [Firmware flash](../.github/workflows/firmware-flash.yml) | **`self-hosted` + `astrolabe-watch`** | Manual / legacy `ENABLE_INTEGRATION_FLASH` only |
+| [Firmware functional test](../.github/workflows/firmware-functional-test.yml) | **`self-hosted` + `astrolabe-watch`** | Manual dispatch only |
+| [Firmware hardware QA](../.github/workflows/firmware-hardware-qa.yml) | **`self-hosted` + `astrolabe-watch`** | Manual: one face screenshot → issue |
 
 GitHub **cloud** runners cannot see USB. To flash in CI, register a [self-hosted runner](https://docs.github.com/en/actions/hosting-your-own-runners/managing-self-hosted-runners/adding-self-hosted-runners) on the Mac where the watch is plugged in.
 
 **One-time runner setup**
 
-1. Repo → **Settings → Actions → Runners → New self-hosted runner** (macOS).
-2. Install and start the runner on that Mac; add labels: `self-hosted`, `astrolabe-watch`.
-3. Create environment **astrolabe-watch** (Settings → Environments) if you want approval gates before flash.
-4. Plug in the watch (Espressif **303A:1001**); optional fixed port: set runner env `ASTROLABE_UPLOAD_PORT=/dev/cu.usbmodem1101`.
+1. `./scripts/setup-self-hosted-runner.sh` then `./scripts/install-runner-launchagent.sh`
+2. Labels: `self-hosted`, `astrolabe-watch` — remove **offline** duplicate runners in GitHub Settings.
+3. Environment **astrolabe-watch**: optional reviewers for revert PRs when `ASTROLABE_FT_UNMERGE_PUSH=1`.
+4. Secrets: `ASTROLABE_SECRETS_FILE` on the Mac (default `~/GitHub/astrolabe/include/secrets.local.h`) or GitHub Actions secrets.
+5. Plug in the watch (**303A:1001**); optional `ASTROLABE_UPLOAD_PORT` in LaunchAgent.
 
-**Run a flash**
+**Integration device gate (recommended)**
 
-- **Actions → Firmware flash → Run workflow** (pick branch, default `integration`).
-- **Auto after build:** set repo variable `ENABLE_INTEGRATION_FLASH` = `true` to flash on every successful [Firmware build](https://github.com/CastaliaInstitute/astrolabe/actions/workflows/firmware-build.yml) on `integration`.
+- Set repo variable **`ENABLE_INTEGRATION_DEVICE_GATE=true`**
+- After each green **Firmware build** on `integration`: one job flashes and runs the full face matrix.
+- All device workflows share concurrency group **`astrolabe-watch-device`** (no parallel flash + test).
+
+**Legacy / manual**
+
+- **Firmware flash** — `ENABLE_INTEGRATION_FLASH=true` (avoid if device gate is on).
+- **Firmware functional test** — workflow_dispatch only.
 
 Local equivalent: `./scripts/ci-flash.sh`
 
@@ -156,6 +172,27 @@ Local run:
 ```bash
 ASTROLABE_QA_FACE=moon ASTROLABE_QA_ISSUE=2 ./scripts/ci-hardware-qa.sh
 ```
+
+### Functional test (all faces, crash + screenshot)
+
+Flashes firmware, walks each clock face via serial `face N`, captures `screen.bmp`, injects gestures/buttons with `qa inject`, and fails on Guru Meditation / backtrace in serial.
+
+```bash
+./scripts/functional_test.py --flash
+./scripts/functional_test.py --faces classic,moon,spotify   # subset
+./scripts/ci-functional-test.sh                             # CI wrapper (always --flash)
+```
+
+Matrix: [`tests/functional/faces_astrolabe.json`](../tests/functional/faces_astrolabe.json).
+
+**On failure** (device gate / `--remediate`):
+
+1. **Triage** — `artifacts/functional/<run>/NN-<face>-triage.md`
+2. **GitHub issue** — deduped per open `face:<name>` + `functional-test`
+3. **Unmerge** — only if `ASTROLABE_FT_UNMERGE_PUSH=1` (default **off**); approve via `astrolabe-watch` environment
+4. **Fix agent** — optional `ASTROLABE_FT_DISPATCH_AGENT=1`
+
+**Promotion** — `./scripts/promote-integration.sh --flash-ok` requires `artifacts/functional/latest/report.json` with `failed: 0` matching `integration` HEAD (`--skip-functional` to override).
 
 Secrets: `include/secrets.local.h` on the laptop (`ASTROLABE_SECRETS_FILE`) or GitHub Actions secrets `MYNAH_WIFI_*` / `MYNAH_SUPABASE_*`.
 

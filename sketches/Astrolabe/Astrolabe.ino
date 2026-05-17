@@ -7,6 +7,7 @@
 #include <cmath>
 #include <ctime>
 #include <cstring>
+#include <strings.h>
 
 #include "esp_heap_caps.h"
 
@@ -36,6 +37,7 @@
 #include "faces/calcifer/pm_face_calcifer.h"
 #include "faces/synastry/pm_face_synastry.h"
 #include "pm_display.h"
+#include "pm_qa.h"
 
 Arduino_DataBus *bus = new Arduino_ESP32QSPI(
     LCD_CS, LCD_SCLK, LCD_SDIO0, LCD_SDIO1, LCD_SDIO2, LCD_SDIO3);
@@ -351,8 +353,28 @@ static bool moon_begin_fortune() {
   return true;
 }
 
+static bool face_index_from_name(const char *name, int *out) {
+  if (!name || !out) {
+    return false;
+  }
+  struct {
+    const char *n;
+    int idx;
+  } k[] = {{"classic", 0},  {"hue", 0},       {"analog", 0},    {"apocalypso", 1},
+           {"digital", 2},  {"spotify", 3},   {"astro", 4},       {"astrology", 4},
+           {"moon", 5},     {"calcifer", 6},  {"schedule", 6},  {"castalia", 7},
+           {"synastry", 8}, {"syn", 8}};
+  for (const auto &e : k) {
+    if (strcasecmp(name, e.n) == 0) {
+      *out = e.idx;
+      return true;
+    }
+  }
+  return false;
+}
+
 static void poll_serial_birth_commands() {
-  static char line[100];
+  static char line[120];
   static size_t li = 0;
   while (Serial.available() > 0) {
     const int c = Serial.read();
@@ -391,26 +413,49 @@ static void poll_serial_birth_commands() {
           }
         }
         g_clock_repaint_pending = true;
+      } else if (strncmp(line, "qa ", 3) == 0) {
+        const char *args = line + 3;
+        while (*args == ' ') {
+          ++args;
+        }
+        if (strcmp(args, "status") == 0) {
+          Serial.printf("qa: face=%d state=%d heap=%u wifi=%d\n",
+                        static_cast<int>(pm_faces_current()), static_cast<int>(g_state),
+                        static_cast<unsigned>(ESP.getFreeHeap()), pm_wifi_connected() ? 1 : 0);
+        } else if (strcmp(args, "faces") == 0) {
+          Serial.printf("qa: faces=%d\n", static_cast<int>(ClockFace::kNumFaces));
+          Serial.println("qa: 0 classic");
+          Serial.println("qa: 1 apocalypso");
+          Serial.println("qa: 2 digital");
+          Serial.println("qa: 3 spotify");
+          Serial.println("qa: 4 astro");
+          Serial.println("qa: 5 moon");
+          Serial.println("qa: 6 calcifer");
+          Serial.println("qa: 7 castalia");
+          Serial.println("qa: 8 synastry");
+        } else if (!pm_qa_inject_command(args)) {
+          Serial.println("qa: usage: status | faces | inject …");
+        }
       } else if (strncmp(line, "face ", 5) == 0) {
         int idx = -1;
         const char *p = line + 5;
         while (*p == ' ') {
           ++p;
         }
-        if (strcmp(p, "astro") == 0 || strcmp(p, "astrology") == 0) {
-          idx = static_cast<int>(ClockFace::Astrology);
-        } else if (strcmp(p, "syn") == 0 || strcmp(p, "synastry") == 0) {
-          idx = static_cast<int>(ClockFace::Synastry);
-        } else if (sscanf(p, "%d", &idx) == 1 && idx >= 0 &&
-                   idx < static_cast<int>(ClockFace::kNumFaces)) {
+        char *end = nullptr;
+        const long n = strtol(p, &end, 10);
+        if (end != p && end && (*end == '\0' || *end == ' ')) {
+          idx = static_cast<int>(n);
+        } else if (face_index_from_name(p, &idx)) {
           /* ok */
-        } else {
-          Serial.println("face: usage: face 0..8 | face astro | face synastry");
-          continue;
         }
-        pm_faces_set(static_cast<ClockFace>(idx));
-        g_clock_repaint_pending = true;
-        Serial.printf("face: %d\n", idx);
+        if (idx >= 0 && idx < static_cast<int>(ClockFace::kNumFaces)) {
+          pm_faces_set(static_cast<ClockFace>(idx));
+          g_clock_repaint_pending = true;
+          Serial.printf("face: %d\n", idx);
+        } else {
+          Serial.println("face: usage: face <0-8|name>");
+        }
       } else if (strcmp(line, "astro") == 0) {
         if (pm_faces_current() != ClockFace::Astrology) {
           Serial.println("astro: swipe to Astrology face first (or: face astro)");

@@ -20,13 +20,8 @@ on:
         description: GitHub issue to attach screenshot (required)
         required: true
         type: string
-  workflow_run:
-    workflows: [Firmware build]
-    types: [completed]
-    branches: [integration]
-
 concurrency:
-  group: hardware-qa-${{ github.event.inputs.issue_number || 'auto' }}-${{ github.run_id }}
+  group: astrolabe-watch-device
   cancel-in-progress: false
 
 jobs:
@@ -36,18 +31,14 @@ jobs:
     environment: astrolabe-watch
     env:
       PLATFORMIO_BUILD_DIR: /tmp/astrolabe-pio-build-${{ github.run_id }}
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (
-        github.event_name == 'workflow_run' &&
-        github.event.workflow_run.conclusion == 'success' &&
-        vars.ENABLE_INTEGRATION_HW_QA == 'true' &&
-        vars.ASTROLABE_QA_ISSUE != ''
-      )
+    if: github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.event.workflow_run.head_sha }}
+          ref: ${{ inputs.ref }}
+
+      - name: Preflight (USB watch)
+        run: ./scripts/preflight-watch.sh
 
       - name: Cache PlatformIO
         uses: actions/cache@v4
@@ -69,15 +60,7 @@ jobs:
           MYNAH_WIFI_PASSWORD: ${{ secrets.MYNAH_WIFI_PASSWORD }}
           MYNAH_SUPABASE_URL: ${{ secrets.MYNAH_SUPABASE_URL }}
           MYNAH_SUPABASE_ANON_KEY: ${{ secrets.MYNAH_SUPABASE_ANON_KEY }}
-        run: |
-          if [[ -f "${ASTROLABE_SECRETS_FILE:-$HOME/GitHub/CastaliaInstitute/astrolabe/include/secrets.local.h}" ]]; then
-            cp "${ASTROLABE_SECRETS_FILE:-$HOME/GitHub/CastaliaInstitute/astrolabe/include/secrets.local.h}" include/secrets.local.h
-          elif [[ -n "${MYNAH_WIFI_SSID:-}" ]]; then
-            ./scripts/write_secrets_ci.sh
-          else
-            echo "No secrets — add laptop secrets.local.h or GitHub Actions secrets"
-            exit 1
-          fi
+        run: ./scripts/ensure-device-secrets.sh
 
       - name: Hardware QA (JTAG debug + screen.bmp → issue)
         env:
