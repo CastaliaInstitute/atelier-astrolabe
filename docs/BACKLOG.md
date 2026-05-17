@@ -19,7 +19,6 @@ Edit this file when you start or finish work. Keep **In progress** to 1–3 item
 ## In progress
 
 - [~] **P1** Astrology / transits face: full-screen chart + planet/sign icons
-- [~] **P1** Charging ripples on rainbow rim when USB-C (#4)
 
 ---
 
@@ -89,6 +88,7 @@ Derived from [README limits](../README.md#limits-mvp) and [open questions](pocke
 
 ## Done
 
+- [x] **2026-05-17** Charging ripples on rainbow rim when USB-C — [PR #7](https://github.com/CastaliaInstitute/astrolabe/pull/7)
 - [x] **2026-05-16** Voice UX: PWR STT + inward waves; BOOT TTS replay + outward waves; last-reply cache
 - [x] **2026-05-16** Moon phase clock face; README serial/JTAG bring-up notes
 - [x] **2026-05-16** Castalia QR sign-in + NVS session JWT; voice/Spotify use `pm_castalia_auth_apply_headers`
