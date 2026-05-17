@@ -1,0 +1,41 @@
+# Gate merges to `integration` and keep `main` buildable after promotion.
+name: Firmware build
+
+on:
+  push:
+    branches: [integration, main]
+  pull_request:
+    branches: [integration]
+
+concurrency:
+  group: firmware-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            /tmp/astrolabe-pio-build
+          key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini', 'scripts/build.sh') }}
+          restore-keys: |
+            pio-${{ runner.os }}-
+
+      - name: Install PlatformIO
+        run: pip install platformio
+
+      - name: Build firmware
+        run: ./scripts/build.sh
+
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-waveshare_s3_175
+          path: /tmp/astrolabe-pio-build/waveshare_s3_175/firmware.bin
+          if-no-files-found: error
