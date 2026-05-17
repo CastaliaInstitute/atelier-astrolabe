@@ -355,10 +355,19 @@ static void draw_hand_radial(int cx, int cy, float ang, int len, uint16_t col, i
   }
 }
 
+/** Matches `draw_circumference_rainbow_24h` (R−4 outer, 5px band → inner R−9). */
+static constexpr int kDisplayR = (LCD_WIDTH < LCD_HEIGHT ? LCD_WIDTH : LCD_HEIGHT) / 2;
+static constexpr int kRimInner = kDisplayR - 9;
+static constexpr int kAnalogInset = 10;
 static constexpr int kAnalogCx = LCD_WIDTH / 2;
 static constexpr int kAnalogCy = LCD_HEIGHT / 2;
-static constexpr int kAnalogR = 138;
-static constexpr int kAnalogSecLen = kAnalogR - 10;
+static constexpr int kAnalogR = kRimInner - kAnalogInset;
+/** Hand insets scaled from the original r=138 layout. */
+static constexpr int kAnalogHourInset = (52 * kAnalogR) / 138;
+static constexpr int kAnalogMinInset = (22 * kAnalogR) / 138;
+static constexpr int kAnalogSecInset = (10 * kAnalogR) / 138;
+static constexpr int kAnalogHubR = (7 * kAnalogR) / 138;
+static constexpr int kAnalogHubHoleR = (3 * kAnalogR) / 138;
 
 static void draw_analog_clock(uint16_t bg565, const struct tm *tm, bool valid) {
   const int cx = kAnalogCx;
@@ -399,12 +408,12 @@ static void draw_analog_clock(uint16_t bg565, const struct tm *tm, bool valid) {
   const uint16_t c_min = RGB565_WHITE;
   const uint16_t c_sec = gfx->color565(255, 95, 95);
 
-  draw_hand_radial(cx, cy, h_ang, r - 52, c_hour, 3);
-  draw_hand_radial(cx, cy, m_ang, r - 22, c_min, 2);
-  draw_hand_radial(cx, cy, s_ang, kAnalogSecLen, c_sec, 1);
+  draw_hand_radial(cx, cy, h_ang, r - kAnalogHourInset, c_hour, 3);
+  draw_hand_radial(cx, cy, m_ang, r - kAnalogMinInset, c_min, 2);
+  draw_hand_radial(cx, cy, s_ang, r - kAnalogSecInset, c_sec, 1);
 
-  gfx->fillCircle(cx, cy, 7, c_hour);
-  gfx->fillCircle(cx, cy, 3, bg565);
+  gfx->fillCircle(cx, cy, kAnalogHubR, c_hour);
+  gfx->fillCircle(cx, cy, kAnalogHubHoleR, bg565);
 }
 
 /** Apocalypso risk radar (12 axes, 5 rings) — matches apocalypso.castalia.institute RISK PROFILE widget. */

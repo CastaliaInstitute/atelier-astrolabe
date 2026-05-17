@@ -106,6 +106,7 @@ Derived from [README limits](../README.md#limits-mvp) and [open questions](pocke
 - [x] **P1** Voice: handle `voice-pipeline` responses without `audioBase64` (plain `ask-faculty`-only)
 - [ ] **P1** Auth: document anon-only vs signed-in behavior in README once Castalia flow is stable — Issue [#5](https://github.com/CastaliaInstitute/astrolabe/issues/5)
 - [x] **P1** Classic analog clock face: center dial on round display and use full-screen safe area (466×466); fix layout/offset in `Astrolabe.ino` analog draw path
+- [x] **P1** **Bugfix — Classic analog dial size** — enlarge analog clock to fill the round face **inside the 24h rainbow rim** on 466×466 (`draw_analog_clock` in `PocketMynah.ino`). Derive dial radius from rim inner edge (`R - 9`) minus tick inset; rescale hands/hub from prior r=138 layout.
 - [x] **P1** **Home face = Hue only** — `MYNAH_HUE_HOME_ONLY` (default 1): ClassicAnalog = ambient hue + 24h rainbow only; clock hands on DigitalLocal / Apocalypso.
 - [ ] **P1** **Charging ripples on rainbow rim** — Issue [#4](https://github.com/CastaliaInstitute/astrolabe/issues/4) — when **USB-C charging** detected (AXP2101 / PMU: `VBUS` or charge-status register via I2C, same bus as PWR key), animate **gentle ripples** along the **bottom arc** of the **24h rainbow ring** (`draw_circumference_rainbow_24h`); subtle amplitude, slow phase — ambient “filling” cue without bright alerts. Off when on battery only; works on home/Hue face and any face that shows the rim.
 - [x] **P1** Astrology chart glyphs — zodiac + planet alpha masks (`embed_*_glyphs.py`, `pm_zodiac_glyphs`); wheel radius `R−10`. Remaining: trim footer chrome, aspect lines, ephemeris server accuracy.
@@ -124,6 +125,7 @@ Derived from [README limits](../README.md#limits-mvp) and [open questions](pocke
 ## Done
 
 - [x] **2026-05-17** Version clock face: git branch/SHA/date + GitHub commit QR (`pm_build_info.h`). PR [#59](https://github.com/CastaliaInstitute/astrolabe/pull/59); Closes [#58](https://github.com/CastaliaInstitute/astrolabe/issues/58)
+- [x] **2026-05-17** Classic analog dial: full-screen inside 24h rainbow rim (`kAnalogR` from `R−9` inset, scaled hands/hub)
 - [x] **2026-05-17** Menstrual cycle face: NVS-only circular cycle ring, fertile/ovulation bands, tap day-1 logging, and swipe length presets. PR [#12](https://github.com/CastaliaInstitute/astrolabe/pull/12); Closes [#11](https://github.com/CastaliaInstitute/astrolabe/issues/11)
 - [x] **2026-05-17** Astrology face polish: ephemeris fetch + glyph wheel. Closes [#3](https://github.com/CastaliaInstitute/astrolabe/issues/3)
 - [x] **2026-05-17** Charging ripples on rainbow rim when USB-C. Closes [#4](https://github.com/CastaliaInstitute/astrolabe/issues/4)
