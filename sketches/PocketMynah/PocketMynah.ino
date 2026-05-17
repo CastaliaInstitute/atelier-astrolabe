@@ -26,6 +26,7 @@
 #include "pm_castalia_auth.h"
 #include "pm_calcifer.h"
 #include "pm_astro_highlight.h"
+#include "pm_circadian_hue.h"
 
 Arduino_DataBus *bus = new Arduino_ESP32QSPI(
     LCD_CS, LCD_SCLK, LCD_SDIO0, LCD_SDIO1, LCD_SDIO2, LCD_SDIO3);
@@ -966,7 +967,7 @@ static void draw_radial_annulus_slice(int cx, int cy, float ang, int r0, int r1,
   }
 }
 
-/** 24h rim: outermost band; hue(sec of day) matches face fill (same formula as draw_clock_face). */
+/** 24h rim: outermost band; hue(sec of day) matches face fill. */
 static void draw_circumference_rainbow_24h(bool valid) {
   const int cx = LCD_WIDTH / 2;
   const int cy = LCD_HEIGHT / 2;
@@ -995,9 +996,9 @@ static void draw_circumference_rainbow_24h(bool valid) {
     }
     float hue_deg;
     if (valid) {
-      /** `af` = 0 at top → midnight; same mapping as `sec_of_day * (360/86400)` on the face. */
+      /** `af` = 0 at top → midnight; use the same circadian keyframes as the face fill. */
       const float sec_of_day = af * (86400.f / kTwoPi);
-      hue_deg = wrap360(sec_of_day * (360.f / 86400.f));
+      hue_deg = pm_circadian_hue_from_seconds(sec_of_day);
     } else {
       hue_deg = wrap360(af * (360.f / kTwoPi) + fmodf(static_cast<float>(millis()) * 0.025f, 360.f));
     }
@@ -1122,9 +1123,8 @@ static void draw_clock_face(float thinking_progress = -1.f) {
     pm_time_local(&tm);
     sec_of_day_for_hue = tm.tm_hour * 3600 + tm.tm_min * 60 + tm.tm_sec;
   }
-  const float hue =
-      pm_time_valid() ? static_cast<float>(sec_of_day_for_hue) * (360.0f / 86400.0f)
-                       : fmodf(static_cast<float>(millis()) * 0.0015f, 360.0f);
+  const float hue = pm_time_valid() ? pm_circadian_hue_from_seconds(static_cast<float>(sec_of_day_for_hue))
+                                    : fmodf(static_cast<float>(millis()) * 0.0015f, 360.0f);
   const uint16_t bg_hsv = color565FromHsv(gfx, hue, k_clock_face_hsv_s, k_clock_face_hsv_v);
   const uint16_t bg = bg_hsv;
   gfx->fillScreen(bg);
