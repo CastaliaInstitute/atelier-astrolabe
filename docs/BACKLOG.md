@@ -88,6 +88,7 @@ Derived from [README limits](../README.md#limits-mvp) and [open questions](pocke
 
 ## Done
 
+- [x] **2026-05-17** Bugfix: circadian hue mapping — shared 24h keyframe helper for clock face + rainbow rim (`00:00=250deg`, `06:00=30deg`, `12:00=120deg`, `18:00=30deg`, wraps to midnight). [PR #8](https://github.com/CastaliaInstitute/astrolabe/pull/8)
 - [x] **2026-05-16** Voice UX: PWR STT + inward waves; BOOT TTS replay + outward waves; last-reply cache
 - [x] **2026-05-16** Moon phase clock face; README serial/JTAG bring-up notes
 - [x] **2026-05-16** Castalia QR sign-in + NVS session JWT; voice/Spotify use `pm_castalia_auth_apply_headers`
