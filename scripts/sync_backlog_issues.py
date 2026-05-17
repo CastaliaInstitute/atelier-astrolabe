@@ -668,6 +668,7 @@ P1
 Parent epic for Vinyl Queue. Horizontal swipe stays reserved for face changes. v1 excludes lyrics, ESP32 OAuth, and browse previews.
 """,
         "open",
+        72,
     ),
 ]
 
