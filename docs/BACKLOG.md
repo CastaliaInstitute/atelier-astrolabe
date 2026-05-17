@@ -14,6 +14,8 @@ Optional priority prefix: **P0** (blocker / MVP), **P1** (next), **P2** (later).
 
 Edit this file when you start or finish work. Keep **In progress** to 1–3 items. Link commits or PRs on **Done** lines when useful.
 
+**Git:** Issue branches merge via **PR → `integration`**; promote to **`main`** with `./scripts/promote-integration.sh --flash-ok` after build + flash QA. See [`WORKFLOW.md`](WORKFLOW.md).
+
 ---
 
 ## In progress

@@ -1,0 +1,35 @@
+---
+description: GitHub issues, branches, and PRs for Astrolabe (including Cursor Cloud)
+alwaysApply: true
+---
+
+# GitHub workflow
+
+Use **issues + branches + PRs** for feature and bugfix work. Roadmap stays in [`docs/BACKLOG.md`](docs/BACKLOG.md); full process in [`docs/WORKFLOW.md`](docs/WORKFLOW.md). Branch model: [integration-branch.mdc](integration-branch.mdc).
+
+## Starting work
+
+1. **Issue** — one issue per backlog item; use repo templates (Feature / Bugfix).
+2. **Branch** from **`integration`**: `feature/<issue#>-kebab-slug` or `fix/<issue#>-kebab-slug`.
+3. **BACKLOG** — `[~]` in **In progress** with `Issue: #N`.
+
+## Cursor Cloud
+
+- Prefer CLI: `./scripts/cloud-agent.sh <issue#>` (reads issue via `gh`, no URL pasting). See [`docs/WORKFLOW.md`](docs/WORKFLOW.md#start-an-agent-from-the-cli-recommended).
+- Agent works only on that branch; does not mix other backlog items.
+- Deliverable: **PR into `integration`** with `Closes #<issue>`, BACKLOG updated, `./scripts/build.sh` passes.
+- **May push, open PR, and merge into `integration`** when CI is green and the change is a single issue — do not merge to **`main`**.
+- Clock faces: note in PR that **hardware QA** on **`integration`** is required before promotion to **`main`**.
+
+## Finishing
+
+1. Face changes: [hardware-qa.mdc](hardware-qa.mdc) on **`integration`** before promotion.
+2. PR description uses [`.github/pull_request_template.md`](../.github/pull_request_template.md).
+3. Backlog **Done** line includes date + PR link.
+4. **`main`**: only via `./scripts/promote-integration.sh --flash-ok` after flash QA.
+
+## Do not
+
+- Implement multiple unrelated backlog items on one branch.
+- Push or merge to **`main`** (use promotion script).
+- Commit secrets.

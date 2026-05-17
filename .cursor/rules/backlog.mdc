@@ -1,0 +1,31 @@
+---
+description: Use docs/BACKLOG.md for Astrolabe firmware work tracking
+globs: sketches/**/*,include/**/*,lib/**/*,platformio.ini,docs/**/*
+alwaysApply: false
+---
+
+# Firmware backlog
+
+Before starting Astrolabe firmware work:
+
+1. Read [`docs/BACKLOG.md`](docs/BACKLOG.md) and pick or confirm the active item.
+2. Ensure a **GitHub issue** exists (create from [Feature](../.github/ISSUE_TEMPLATE/feature.yml) / [Bugfix](../.github/ISSUE_TEMPLATE/bugfix.yml) templates if missing). Follow [`docs/WORKFLOW.md`](docs/WORKFLOW.md).
+3. Work on branch `feature/<#>-slug` or `fix/<#>-slug` from **`integration`** (Cursor Cloud: branch from the issue).
+4. Mark backlog `[~]` under **In progress** with `Issue: #N` (keep 1–3 items there).
+
+When finishing a **feature** (backlog item):
+
+1. If it adds or changes a **clock face**, run the **hardware QA loop** in [hardware-qa.mdc](hardware-qa.mdc): upload (or JTAG inject face) → `screen.bmp` screenshot → evaluate before marking done.
+2. Mark it `[x]` and move it to **Done** with `YYYY-MM-DD` and **PR / issue** link (`Closes #N`).
+3. Open or update **PR** against **`integration`**; merge when CI green (agents: see [integration-branch.mdc](integration-branch.mdc)). Promote to **`main`** only after flash QA.
+4. **Commit before the next feature** — see [git-workflow.mdc](git-workflow.mdc) and [github-workflow.mdc](github-workflow.mdc).
+5. Only then pick up the next backlog item (new issue + branch).
+
+When finishing a session (partial work):
+
+1. Leave **In progress** accurate.
+2. Offer a checkpoint commit if the diff is large or the next session will tackle a different feature.
+
+Other:
+
+- Design context stays in [`docs/pocketwatch.md`](docs/pocketwatch.md); do not duplicate long specs in the backlog.

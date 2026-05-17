@@ -1,0 +1,45 @@
+---
+description: Commit often between features; one focused commit per completed unit of work
+alwaysApply: true
+---
+
+# Git workflow (Astrolabe)
+
+## Commit boundaries
+
+- **Finish → commit → next:** When a feature, bugfix, or backlog item is done and builds, commit (or ask the user to commit) **before** starting the next feature or a large unrelated task.
+- **One concern per commit:** Do not bundle unrelated features, refactors, drive-by cleanups, or “while I’m here” edits in one commit.
+- **Include tracking:** Put `docs/BACKLOG.md` updates in the same commit as the firmware change they describe.
+
+## When to commit
+
+| Situation | Action |
+|-----------|--------|
+| Backlog item marked done | Commit, then pick up the next item |
+| User asks to implement multiple features | Commit after each completed feature unless they say otherwise |
+| Large refactor split across sessions | Offer a checkpoint commit before switching direction |
+| Only the user asked for one small fix | One commit for that fix is enough; do not commit unrelated WIP |
+
+## Agent behavior
+
+- **Issue work:** commit, push, open PR to **`integration`**, and merge when CI is green and the scope is a single issue — see [integration-branch.mdc](integration-branch.mdc).
+- **Otherwise:** follow the user’s **committing-changes-with-git** rule (commit when they request or clearly authorize).
+- At each **feature boundary**, if commits are in scope but not yet requested: briefly say the work is ready to commit and suggest a one-line message — do not start the next feature on top of a large uncommitted pile.
+- Do not amend or force-push. Do not push to **`main`**.
+- Never commit secrets (`.env`, credentials, tokens).
+
+## Commit message style
+
+- One or two sentences focused on **why**, not a file list.
+- Match recent repo style (e.g. `Add moon face tap fortune`, `Fix waning moon terminator tint`).
+
+## Branches and PRs
+
+- One **issue** → one **branch** → one **PR** into **`integration`** (see [github-workflow.mdc](github-workflow.mdc)).
+- **`main`**: promote only with `./scripts/promote-integration.sh --flash-ok` after hardware flash QA.
+
+## Related rules
+
+- Issues and Cursor Cloud: [github-workflow.mdc](github-workflow.mdc)
+- Backlog lifecycle: [backlog.mdc](backlog.mdc)
+- Hardware QA before marking face work done: [hardware-qa.mdc](hardware-qa.mdc)

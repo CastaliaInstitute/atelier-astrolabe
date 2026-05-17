@@ -44,6 +44,18 @@ Pick the **Espressif CDC** serial device (e.g. macOS `/dev/cu.usbmodem1101`, USB
 
 If `secrets.local.h` is missing, the build uses the example file (empty strings): WiFi and voice calls will not work until you add a local secrets file.
 
+## Development
+
+| Doc | Purpose |
+|-----|---------|
+| [`docs/BACKLOG.md`](docs/BACKLOG.md) | Roadmap |
+| [`docs/WORKFLOW.md`](docs/WORKFLOW.md) | Issues → PR to **`integration`** → promote to **`main`** (build + flash) |
+
+```bash
+./scripts/cloud-agent.sh <issue#>              # Cloud agent → PR to integration
+./scripts/promote-integration.sh --flash-ok    # integration → main after flash QA
+```
+
 ## Limits (MVP)
 
 - **HTTPS**: `WiFiClientSecure::setInsecure()` (no CA pin yet).
