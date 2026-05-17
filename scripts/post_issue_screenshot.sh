@@ -16,7 +16,7 @@ fi
 
 NAME="astrolabe-qa-$(basename "$IMAGE")"
 GIST_OUT="$(mktemp)"
-gh gist create "$IMAGE" --public --desc "$TITLE" >"$GIST_OUT"
+gh gist create -f "${NAME}=@${IMAGE}" --public --desc "$TITLE" >"$GIST_OUT"
 GIST_URL="$(tr -d '[:space:]' <"$GIST_OUT")"
 rm -f "$GIST_OUT"
 

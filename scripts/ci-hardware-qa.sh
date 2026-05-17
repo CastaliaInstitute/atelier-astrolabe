@@ -11,7 +11,12 @@ FACE="${ASTROLABE_QA_FACE:-moon}"
 ISSUE="${ASTROLABE_QA_ISSUE:-}"
 MONITOR_SEC="${ASTROLABE_QA_MONITOR_SEC:-35}"
 PAINT_SEC="${ASTROLABE_QA_PAINT_SEC:-3}"
-DEBUG_ENV="${ASTROLABE_PIO_DEBUG_ENV:-waveshare_s3_175_debug}"
+# Release build is stable on device; set ASTROLABE_QA_DEBUG=1 for debug ELF + JTAG.
+if [[ "${ASTROLABE_QA_DEBUG:-}" == "1" ]]; then
+  DEBUG_ENV="${ASTROLABE_PIO_DEBUG_ENV:-waveshare_s3_175_debug}"
+else
+  DEBUG_ENV="${ASTROLABE_PIO_ENV:-waveshare_s3_175}"
+fi
 export PLATFORMIO_BUILD_DIR="${PLATFORMIO_BUILD_DIR:-/tmp/astrolabe-pio-build}"
 QA_DIR="${ROOT}/artifacts/qa"
 mkdir -p "$QA_DIR"
@@ -75,8 +80,37 @@ if [[ ! -x "${ROOT}/mcp/astrolabe-esp/.venv/bin/python" ]]; then
   "${ROOT}/mcp/astrolabe-esp/setup.sh"
 fi
 
-echo "→ JTAG set face: ${FACE}"
-"${ROOT}/scripts/jtag_set_face.sh" "$FACE"
+set_face_serial() {
+  echo "→ serial: face ${FACE}"
+  "${ROOT}/mcp/astrolabe-esp/.venv/bin/python" -u - "$PORT" "$FACE" <<'PY'
+import sys, time, serial
+port, face = sys.argv[1], sys.argv[2]
+ser = serial.Serial(port, 115200, timeout=0.3)
+time.sleep(1.0)
+ser.reset_input_buffer()
+ser.write(f"face {face}\n".encode())
+ser.flush()
+time.sleep(0.5)
+for _ in range(40):
+    chunk = ser.read(4096)
+    if chunk:
+        print(chunk.decode("utf-8", errors="replace"), end="")
+    time.sleep(0.1)
+ser.close()
+PY
+}
+
+if [[ "${ASTROLABE_QA_DEBUG:-}" == "1" ]]; then
+  echo "→ JTAG set face: ${FACE}"
+  if ! "${ROOT}/scripts/jtag_set_face.sh" "$FACE" 2>/dev/null; then
+    echo "→ JTAG failed; using serial face command"
+    set_face_serial
+  fi
+else
+  echo "→ serial set face: ${FACE} (release build)"
+  sleep 5
+  set_face_serial
+fi
 
 LOG="${QA_DIR}/serial-$(date +%s).log"
 export ASTROLABE_MONITOR_LOG="$LOG"

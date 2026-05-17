@@ -1571,6 +1571,25 @@ static bool build_astrology_system_prompt() {
   return n > 0 && static_cast<size_t>(n) < sizeof(g_astrology_sys_prompt);
 }
 
+static bool face_index_from_name(const char *name, int *out) {
+  if (!name || !out) {
+    return false;
+  }
+  struct {
+    const char *n;
+    int idx;
+  } k[] = {{"classic", 0}, {"hue", 0},     {"analog", 0},    {"apocalypso", 1},
+           {"digital", 2}, {"spotify", 3}, {"astro", 4},       {"astrology", 4},
+           {"moon", 5},    {"calcifer", 6}, {"schedule", 6},  {"castalia", 7}};
+  for (const auto &e : k) {
+    if (strcasecmp(name, e.n) == 0) {
+      *out = e.idx;
+      return true;
+    }
+  }
+  return false;
+}
+
 static void poll_serial_birth_commands() {
   static char line[100];
   static size_t li = 0;
@@ -1611,6 +1630,26 @@ static void poll_serial_birth_commands() {
           }
         }
         g_clock_repaint_pending = true;
+      } else if (strncmp(line, "face ", 5) == 0) {
+        const char *p = line + 5;
+        while (*p == ' ') {
+          ++p;
+        }
+        int idx = -1;
+        char *end = nullptr;
+        const long n = strtol(p, &end, 10);
+        if (end != p && end && (*end == '\0' || *end == ' ')) {
+          idx = static_cast<int>(n);
+        } else if (face_index_from_name(p, &idx)) {
+          /* ok */
+        }
+        if (idx >= 0 && idx < static_cast<int>(ClockFace::kNumFaces)) {
+          g_clock_face = static_cast<ClockFace>(idx);
+          g_clock_repaint_pending = true;
+          Serial.printf("face: %d\n", idx);
+        } else {
+          Serial.println("face: usage: face <0-7|name>");
+        }
       }
       continue;
     }
