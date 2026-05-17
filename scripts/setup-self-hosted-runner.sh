@@ -19,7 +19,7 @@ URL="https://github.com/actions/runner/releases/download/v${VER}/${PKG}-${VER}.t
 
 command -v gh >/dev/null || { echo "install gh first"; exit 1; }
 
-if ! TOKEN="$(gh api "repos/${OWNER}/${NAME}/actions/runners/registration-token" --jq .token 2>/dev/null)"; then
+if ! TOKEN="$(gh api -X POST "repos/${OWNER}/${NAME}/actions/runners/registration-token" --jq .token 2>/dev/null)"; then
   echo "error: cannot get registration token (need repo admin)." >&2
   echo "  GitHub → ${OWNER}/${NAME} → Settings → Actions → Runners → New self-hosted runner" >&2
   echo "  Copy the token, then:" >&2
