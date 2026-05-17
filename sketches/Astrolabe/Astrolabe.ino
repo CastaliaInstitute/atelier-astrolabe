@@ -495,6 +495,17 @@ void loop() {
         g_gesture_banner[0] = '\0';
       }
       g_clock_repaint_pending = true;
+    } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Rocket &&
+               ge.kind == PmGestureKind::Tap) {
+      if (pm_face_rocket_has_stream()) {
+        pm_face_rocket_toggle_stream_qr();
+        snprintf(g_gesture_banner, sizeof(g_gesture_banner),
+                 pm_face_rocket_stream_qr_visible() ? "launch: stream QR" : "launch: clock");
+        g_gesture_banner[sizeof(g_gesture_banner) - 1] = '\0';
+      } else {
+        snprintf(g_gesture_banner, sizeof(g_gesture_banner), "launch: no stream");
+      }
+      g_clock_repaint_pending = true;
     } else if (ge.kind != PmGestureKind::SwipeUp && ge.kind != PmGestureKind::SwipeDown) {
       snprintf(g_gesture_banner, sizeof(g_gesture_banner), "%s", gesture_label(ge.kind));
       Serial.printf("[gesture] %s @ %d,%d\n", g_gesture_banner, static_cast<int>(ge.x), static_cast<int>(ge.y));
@@ -606,6 +617,7 @@ void loop() {
       }
       if (pm_faces_current() != ClockFace::Rocket) {
         s_rocket_have_data = false;
+        pm_face_rocket_set_stream_qr_visible(false);
       }
 
       const bool spotify_stale =

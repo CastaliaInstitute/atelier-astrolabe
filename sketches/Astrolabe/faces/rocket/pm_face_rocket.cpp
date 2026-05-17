@@ -5,14 +5,25 @@
 #include "pm_geo_tz.h"
 #include "pm_wifi_ntp.h"
 #include "pin_config.h"
+#include "third_party/qrcodegen/qrcodegen.h"
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <ctime>
 
 PmRocketStatus g_rocket_ui = {};
 bool s_rocket_have_data = false;
 
 namespace {
+
+constexpr int kStreamQrMaxVersion = 10;
+constexpr size_t kStreamQrBufLen = qrcodegen_BUFFER_LEN_FOR_VERSION(kStreamQrMaxVersion);
+static uint8_t s_stream_qr_temp[kStreamQrBufLen];
+static uint8_t s_stream_qr_out[kStreamQrBufLen];
+static char s_stream_qr_cached_url[128] = "";
+static bool s_stream_qr_modules_valid = false;
+static int s_stream_qr_cached_size = 0;
+static bool s_stream_qr_visible = false;
 
 constexpr int64_t k_window_sec = 14 * 24 * 3600;
 
@@ -147,6 +158,61 @@ void draw_launch_clock_dial(int64_t now_unix, const PmRocketStatus &ui) {
   pm_face_draw_now_bead(kCx, kCy - r_markers, 5, pm_gfx->color565(255, 250, 230));
 }
 
+bool encode_stream_qr(const char *url) {
+  if (!url || !url[0]) {
+    return false;
+  }
+  if (s_stream_qr_modules_valid && strcmp(url, s_stream_qr_cached_url) == 0 && s_stream_qr_cached_size > 0) {
+    return true;
+  }
+  if (!qrcodegen_encodeText(url, s_stream_qr_temp, s_stream_qr_out, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN,
+                            kStreamQrMaxVersion, qrcodegen_Mask_AUTO, true)) {
+    s_stream_qr_modules_valid = false;
+    s_stream_qr_cached_size = 0;
+    return false;
+  }
+  strncpy(s_stream_qr_cached_url, url, sizeof(s_stream_qr_cached_url) - 1);
+  s_stream_qr_cached_url[sizeof(s_stream_qr_cached_url) - 1] = '\0';
+  s_stream_qr_modules_valid = true;
+  s_stream_qr_cached_size = qrcodegen_getSize(s_stream_qr_out);
+  return s_stream_qr_cached_size > 0;
+}
+
+bool draw_stream_qr(int cx, int cy, int max_px) {
+  const int size = s_stream_qr_cached_size;
+  if (size <= 0) {
+    return false;
+  }
+  int mod = max_px / size;
+  if (mod < 2) {
+    mod = 2;
+  }
+  if (mod > 4) {
+    mod = 4;
+  }
+  const int total = mod * size;
+  const int x0 = cx - total / 2;
+  const int y0 = cy - total / 2;
+  const uint16_t fg = pm_gfx->color565(8, 8, 12);
+  const uint16_t bg = pm_gfx->color565(248, 248, 252);
+  pm_gfx->fillRect(x0, y0, total, total, bg);
+  for (int y = 0; y < size; ++y) {
+    int x = 0;
+    while (x < size) {
+      const bool on = qrcodegen_getModule(s_stream_qr_out, x, y);
+      int run = 1;
+      while (x + run < size && qrcodegen_getModule(s_stream_qr_out, x + run, y) == on) {
+        ++run;
+      }
+      if (on) {
+        pm_gfx->fillRect(x0 + x * mod, y0 + y * mod, run * mod, mod, fg);
+      }
+      x += run;
+    }
+  }
+  return true;
+}
+
 void draw_center_clock(const PmRocketLaunch *next) {
   struct tm tm = {};
   pm_time_local(&tm);
@@ -161,9 +227,14 @@ void draw_center_clock(const PmRocketLaunch *next) {
   const uint16_t c_big = RGB565_WHITE;
   const uint16_t c_accent = pm_gfx->color565(130, 200, 255);
   const uint16_t c_dim = pm_gfx->color565(150, 165, 190);
+  const uint16_t c_live = pm_gfx->color565(255, 90, 80);
 
   pm_face_draw_centered_line(time_line, kCy - 8, c_big, 2, 2);
-  pm_face_draw_centered_line("LAUNCH CLOCK", kCy + 18, c_accent, 1, 1);
+  if (next && next->webcast_live) {
+    pm_face_draw_centered_line("● LIVE", kCy + 14, c_live, 1, 1);
+  } else {
+    pm_face_draw_centered_line("LAUNCH CLOCK", kCy + 18, c_accent, 1, 1);
+  }
 
   if (next) {
     char line[48];
@@ -173,6 +244,26 @@ void draw_center_clock(const PmRocketLaunch *next) {
       snprintf(line, sizeof(line), "%s", next->status_abbrev);
       pm_face_draw_centered_line(line, kCy + 56, c_dim, 1, 1);
     }
+    if (next->webcast_url[0]) {
+      pm_face_draw_centered_line("tap for stream", kCy + 74, c_accent, 1, 1);
+    }
+  }
+}
+
+void draw_stream_overlay(const PmRocketLaunch *next) {
+  pm_gfx->fillScreen(pm_gfx->color565(6, 10, 24));
+  const uint16_t c_hi = pm_gfx->color565(220, 230, 245);
+  const uint16_t c_dim = pm_gfx->color565(130, 145, 170);
+  pm_face_draw_centered_line("WEBCAST", 36, c_hi, 2, 2);
+  if (next && next->webcast_live) {
+    pm_face_draw_centered_line("● LIVE NOW", 64, pm_gfx->color565(255, 100, 90), 1, 1);
+  }
+  if (next && encode_stream_qr(next->webcast_url) && draw_stream_qr(LCD_WIDTH / 2, 230, 220)) {
+    pm_face_draw_centered_line("scan phone to watch", 360, c_dim, 1, 1);
+    pm_face_draw_centered_line("tap to return", 382, c_dim, 1, 1);
+  } else {
+    pm_face_draw_centered_line("stream unavailable", 220, c_dim, 1, 1);
+    pm_face_draw_centered_line("tap to return", 250, c_dim, 1, 1);
   }
 }
 
@@ -241,9 +332,32 @@ void pm_face_rocket_format_until(int64_t net_unix, char *out, size_t cap) {
   }
 }
 
+bool pm_face_rocket_has_stream(void) {
+  const PmRocketLaunch *next = pm_rocket_next(&g_rocket_ui);
+  return next && next->webcast_url[0] != '\0';
+}
+
+bool pm_face_rocket_stream_qr_visible(void) { return s_stream_qr_visible; }
+
+void pm_face_rocket_set_stream_qr_visible(bool visible) { s_stream_qr_visible = visible; }
+
+void pm_face_rocket_toggle_stream_qr(void) {
+  if (!pm_face_rocket_has_stream()) {
+    s_stream_qr_visible = false;
+    return;
+  }
+  s_stream_qr_visible = !s_stream_qr_visible;
+}
+
 void pm_face_rocket_draw() {
   const uint16_t c_dim = pm_gfx->color565(130, 140, 165);
   const uint16_t c_accent = pm_gfx->color565(120, 200, 255);
+
+  const PmRocketLaunch *next = pm_rocket_next(&g_rocket_ui);
+  if (s_stream_qr_visible && next && next->webcast_url[0]) {
+    draw_stream_overlay(next);
+    return;
+  }
 
   if (!pm_time_valid()) {
     pm_gfx->fillScreen(pm_gfx->color565(8, 12, 28));

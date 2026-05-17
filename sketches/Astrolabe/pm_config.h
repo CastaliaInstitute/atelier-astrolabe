@@ -54,7 +54,7 @@
 #endif
 
 #ifndef MYNAH_ROCKET_MAX_BYTES
-#define MYNAH_ROCKET_MAX_BYTES 32768
+#define MYNAH_ROCKET_MAX_BYTES 65536
 #endif
 
 /** 1 = fetch Swiss Ephemeris from ephemeris.castalia.institute when WiFi is up. */
