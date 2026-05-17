@@ -61,8 +61,6 @@ Canonical design: [`castalian-rhythms.md`](castalian-rhythms.md). V0 defaults to
 
 - [ ] **P1** **Natal chart face** — dedicated `ClockFace` (or mode on Astrology face): full **natal wheel** from birth data in NVS (`pm_birth_nvs`, serial `birth Y M D H MI`) — all major bodies + Asc/MC when ephemeris server supports houses; static chart for birth moment vs live **transits** overlay optional. Same round layout language as transits face (signs, houses, aspect lines TBD); planet/sign **icons** not abbreviations. Requires stored birth + accurate **Castalia ephemeris server**; distinct from transit-only view in `draw_astrology_face` (today: natal Sun marker only).
 
-- [ ] **P1** **Synastry face** — new `ClockFace`: **synastry** (and related) charts for **partners, children, family** via **ephemeris.castalia.institute** (natal pairs → aspect grid or dual-wheel overlay on round display). **Swipe up/down** cycles chart targets (e.g. user↔partner, user↔child, child↔child composites TBD). **STT** (PWR) to ask questions about the active chart; **TTS** / text reading of highlights (BOOT or auto-brief). Store named profiles in NVS (`pm_chart_profiles`): birth date, place → geocode lat/lon, optional birth time (default noon local if unknown). **Demo seed profiles:** **Camille** (1984-09-23, Exeter, NH) partner; **Aidan** (2003-09-12, Littleton, CO); **Finn** (2024-04-30, Monument, CO); **Aleia** (2025-05-04, Monument, CO). Depends on ephemeris server + user natal in `pm_birth_nvs`.
-
 - [x] **P1** **Moon phase face** — `ClockFace::Moon` with `pm_transit` illumination disk; PWR hold STT + moon system prompt; BOOT spoken phase brief via `pm_voice_post_message`.
 
 ### Schedule / accessibility (Calcifer CalDAV)
@@ -143,6 +141,7 @@ Derived from [README limits](../README.md#limits-mvp) and [open questions](pocke
 
 ## Done
 
+- [x] **2026-05-17** Synastry clock face: dual-wheel partner/family charts, NVS chart profiles with demo seeds, up/down target cycling, and PWR/BOOT voice prompts. PR [#75](https://github.com/CastaliaInstitute/astrolabe/pull/75); Closes [#32](https://github.com/CastaliaInstitute/astrolabe/issues/32). Hardware QA on `integration` required before promotion to `main`.
 - [x] **2026-05-17** Castalian Rhythms V0 design doc/backlog epic: on-device-first architecture, embedded KB/fusion plan, and child issues [#62](https://github.com/CastaliaInstitute/astrolabe/issues/62)–[#65](https://github.com/CastaliaInstitute/astrolabe/issues/65). PR [#67](https://github.com/CastaliaInstitute/astrolabe/pull/67); Closes [#61](https://github.com/CastaliaInstitute/astrolabe/issues/61)
 - [x] **2026-05-17** Version clock face: git branch/SHA/date + GitHub commit QR (`pm_build_info.h`). PR [#59](https://github.com/CastaliaInstitute/astrolabe/pull/59); Closes [#58](https://github.com/CastaliaInstitute/astrolabe/issues/58)
 - [x] **2026-05-17** Classic analog dial: full-screen inside 24h rainbow rim (`kAnalogR` from `R−9` inset, scaled hands/hub)
