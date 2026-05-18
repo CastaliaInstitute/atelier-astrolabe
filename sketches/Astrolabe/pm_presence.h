@@ -10,7 +10,7 @@ struct PmPresencePeer {
   /** Smoothed RSSI used for ring placement. */
   int8_t rssi_ema = -127;
   uint32_t last_seen_ms = 0;
-  /** Clockwise degrees from top (0 = 12 o'clock); adjusted by IMU yaw. */
+  /** Clockwise degrees from top (0 = 12 o'clock); adjusted by integrated gyro yaw. */
   float angle_deg = 0.f;
 };
 
@@ -24,7 +24,7 @@ bool pm_presence_begin(void);
 /** Poll scan results, refresh advertisement payload, expire stale peers. */
 void pm_presence_tick(uint32_t now_ms);
 
-/** Apply IMU yaw delta (degrees) to peer bearing on the radar ring. */
+/** Apply relative yaw delta from 6DOF gyro (degrees) to peer bearing on the radar ring. */
 void pm_presence_apply_yaw_delta(float delta_deg);
 
 size_t pm_presence_peer_count(void);

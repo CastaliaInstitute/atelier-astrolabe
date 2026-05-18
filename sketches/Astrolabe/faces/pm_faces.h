@@ -22,7 +22,7 @@ enum class ClockFace : uint8_t {
   Spectrum,
   /** Chakra symbols + solfeggio tones; swipe up/down, tap toggles tone. */
   Chakra,
-  /** BLE peer radar: RSSI rings + IMU bearing refinement. */
+  /** BLE peer radar: RSSI rings + 6DOF gyro bearing (no magnetometer). */
   Radar,
   kNumFaces,
 };

@@ -26,7 +26,7 @@ Edit this file when you start or finish work. Keep **In progress** to 1–3 item
 
 ## In progress
 
-- [~] **P2** **BLE peer radar face** — advertise/scan + RSSI rings + IMU bearing; [`docs/design/ble-presence-radar.md`](design/ble-presence-radar.md)
+- [~] **P2** **BLE peer radar face** — advertise/scan + RSSI rings + 6DOF gyro bearing (no mag); [`docs/design/ble-presence-radar.md`](design/ble-presence-radar.md)
 - [~] **P2** **USB Audio Class gadget** — M1 UAC speaker (`waveshare_s3_175_uac`), [`docs/design/usb-audio-gadget.md`](design/usb-audio-gadget.md); M2 mic + arbiter TBD
 - [~] **P1** Modular OTA (runtime + face-pack A/B, 32 MB) — Issue: [#60](https://github.com/CastaliaInstitute/astrolabe/issues/60), PR [#66](https://github.com/CastaliaInstitute/astrolabe/pull/66), [`docs/design/modular-ota.md`](design/modular-ota.md)
 
@@ -96,7 +96,7 @@ Design: [`docs/mynah-spotify-face.md`](mynah-spotify-face.md). **Swipe explores,
 
 ### Phase 3 (satellite link + updates)
 
-- [~] **P2** BLE peer discovery + radar face (watch-to-watch RSSI, IMU ring bearing) — [`docs/design/ble-presence-radar.md`](design/ble-presence-radar.md); home Mynah `MynahBleCodec` alignment TBD
+- [~] **P2** BLE peer discovery + radar face (watch-to-watch RSSI, 6DOF gyro ring bearing, no magnetometer) — [`docs/design/ble-presence-radar.md`](design/ble-presence-radar.md); home Mynah `MynahBleCodec` alignment TBD
 - [ ] **P2** BLE or LAN presence with home Mynah — [pocketwatch.md § Phased delivery](pocketwatch.md#phased-delivery)
 - [~] **P1** Modular OTA Phase 0–3 — partitions, safe face, runtime OTA, face-pack OTA — Issue: [#60](https://github.com/CastaliaInstitute/astrolabe/issues/60)
 - [ ] **P2** OTA signed channels + `updates.castalia.institute` — [#60](https://github.com/CastaliaInstitute/astrolabe/issues/60) Phase 5 follow-up

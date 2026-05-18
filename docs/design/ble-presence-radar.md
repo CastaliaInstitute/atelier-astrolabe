@@ -1,6 +1,6 @@
 # BLE peer presence and radar face
 
-Astrolabe watches discover each other over BLE, exchange smoothed RSSI observations, and show peers on a **radar** clock face. Distance is approximated from RSSI (concentric rings); bearing on the ring is refined with **IMU yaw** when a gyro is present.
+Astrolabe watches discover each other over BLE, exchange smoothed RSSI observations, and show peers on a **radar** clock face. Distance is approximated from RSSI (concentric rings); bearing on the ring is refined with **gyro-integrated yaw** from an optional **6DOF** IMU (accelerometer + gyroscope). There is **no magnetometer** — heading is **relative** (pan the radar as you rotate the watch), not compass-north absolute.
 
 ## Manufacturer data (v1)
 
@@ -20,8 +20,8 @@ Scanners apply an exponential moving average (EMA) to observed RSSI. Advertisers
 
 - **Center:** this device.
 - **Rings:** five distance bins from RSSI (−40 dBm near … −90 dBm far).
-- **Blips:** one per peer; radius from EMA RSSI; angle = stable hash(device_id) minus integrated **yaw** (degrees clockwise from top).
-- **IMU:** optional QMI8658 on the shared I2C bus; gyro-Z integrated when the part is detected. Waveshare 1.75C reference SKU has no IMU — the face still works; rotating the watch does not pan the radar until a gyro is present.
+- **Blips:** one per peer; radius from EMA RSSI; angle = stable hash(device_id) minus integrated **relative yaw** (degrees clockwise from top).
+- **6DOF IMU:** optional QMI8658-class part on shared I2C (`0x6B`). Firmware enables accel + gyro; **radar bearing uses gyro-Z integration only** (accel reserved for future tilt compensation). No magnetometer — do not expect north-up stability; drift is acceptable for “rotate watch to scan the ring.” Waveshare 1.75C reference SKU may ship without any IMU; RSSI-only mode still works.
 
 ## Coexistence
 
@@ -32,4 +32,4 @@ Scanners apply an exponential moving average (EMA) to observed RSSI. Advertisers
 ## Future
 
 - Align payload with Android [`MynahBleCodec`](https://github.com/CastaliaInstitute/mynah) when home Mynah presence ships.
-- Magnetometer fusion for absolute bearing; RSSI gradient walking refinement on-ring.
+- Accel-assisted gyro bias / tilt compensation; RSSI gradient walking refinement on-ring. (No magnetometer planned.)

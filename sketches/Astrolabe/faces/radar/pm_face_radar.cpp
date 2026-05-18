@@ -31,7 +31,7 @@ void pm_face_radar_tick(uint32_t now_ms) {
   }
   static float s_prev_yaw = 0.f;
   pm_motion_tick(now_ms);
-  if (pm_motion_has_gyro()) {
+  if (pm_motion_has_6dof()) {
     const float yaw = pm_motion_yaw_deg();
     float delta = yaw - s_prev_yaw;
     while (delta > 180.f) {
@@ -112,7 +112,7 @@ void pm_face_radar_draw(const struct tm *tm, bool valid) {
 
   char footer[40];
   snprintf(footer, sizeof(footer), "%u peer%s  %s", static_cast<unsigned>(n), n == 1 ? "" : "s",
-           pm_motion_has_gyro() ? "IMU" : "RSSI");
+           pm_motion_has_6dof() ? "6DOF" : "RSSI");
   pm_face_draw_centered_line(footer, 318, c_label, 1, 1);
 
   const char *ring_lbl[] = {"-40", "-55", "-70", "-85", "-95"};

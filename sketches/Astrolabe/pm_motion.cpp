@@ -66,6 +66,7 @@ bool pm_motion_begin(void) {
     s_has_gyro = false;
     return false;
   }
+  /** Enable accel + gyro (6DOF). Radar uses gyro-Z only; no magnetometer on this bus. */
   (void)imu_write(MYNAH_IMU_CTRL1_REG, 0x60);
   (void)imu_write(MYNAH_IMU_CTRL2_REG, 0x13);
   (void)imu_write(MYNAH_IMU_CTRL3_REG, 0x43);
@@ -108,4 +109,4 @@ void pm_motion_tick(uint32_t now_ms) {
 
 float pm_motion_yaw_deg(void) { return s_yaw_deg; }
 
-bool pm_motion_has_gyro(void) { return s_has_gyro; }
+bool pm_motion_has_6dof(void) { return s_has_gyro; }
