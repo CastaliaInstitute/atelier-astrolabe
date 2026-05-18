@@ -24,6 +24,8 @@ enum class ClockFace : uint8_t {
   Chakra,
   /** Singing bowl; drag rainbow rim to strike, swipe up/down for presets. */
   TibetanBowl,
+  /** ask-faculty conversations; swipe up/down cycles recent faculty. */
+  Faculty,
   kNumFaces,
 };
 

@@ -56,6 +56,8 @@ FACE_BY_NAME = {
     "bowl": 11,
     "tibetan": 11,
     "tibetan_bowl": 11,
+    "faculty": 12,
+    "fac": 12,
 }
 FACE_LABELS = (
     "ClassicAnalog",
@@ -70,6 +72,7 @@ FACE_LABELS = (
     "Spectrum",
     "Chakra",
     "TibetanBowl",
+    "Faculty",
 )
 
 

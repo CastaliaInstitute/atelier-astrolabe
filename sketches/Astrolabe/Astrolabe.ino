@@ -41,6 +41,7 @@
 #include "faces/calcifer/pm_face_calcifer.h"
 #include "faces/spectrum/pm_face_spectrum.h"
 #include "faces/synastry/pm_face_synastry.h"
+#include "pm_faculty.h"
 #include "pm_audio_analyzer.h"
 #include "pm_display.h"
 #include "pm_qa.h"
@@ -372,7 +373,8 @@ static bool face_index_from_name(const char *name, int *out) {
            {"moon", 5},       {"calcifer", 6},    {"schedule", 6},    {"castalia", 7},
            {"synastry", 8},   {"syn", 8},         {"spectrum", 9},    {"fft", 9},
            {"audio", 9},      {"sound", 9},       {"chakra", 10},
-           {"bowl", 11},      {"tibetan", 11},    {"tibetan_bowl", 11}};
+           {"bowl", 11},      {"tibetan", 11},    {"tibetan_bowl", 11},
+           {"faculty", 12},   {"fac", 12}};
   for (const auto &e : k) {
     if (strcasecmp(name, e.n) == 0) {
       *out = e.idx;
@@ -447,6 +449,7 @@ static void poll_serial_birth_commands() {
           Serial.println("qa: 9 spectrum");
           Serial.println("qa: 10 chakra");
           Serial.println("qa: 11 bowl");
+          Serial.println("qa: 12 faculty");
         } else if (!pm_qa_inject_command(args)) {
           Serial.println("qa: usage: status | faces | inject …");
         }
@@ -468,7 +471,7 @@ static void poll_serial_birth_commands() {
           g_clock_repaint_pending = true;
           Serial.printf("face: %d\n", idx);
         } else {
-          Serial.println("face: usage: face <0-9|name>");
+          Serial.println("face: usage: face <0-12|name>");
         }
       } else if (strcmp(line, "astro") == 0) {
         if (pm_faces_current() != ClockFace::Astrology) {
@@ -713,6 +716,17 @@ void loop() {
       pm_face_tibetan_bowl_touch_tick(now);
       g_clock_repaint_pending = true;
       continue;
+    } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Faculty &&
+               (ge.kind == PmGestureKind::SwipeUp || ge.kind == PmGestureKind::SwipeDown)) {
+      PmFacultyProfile faculty = {};
+      if (pm_faculty_cycle_active(ge.kind == PmGestureKind::SwipeUp ? 1 : -1, &faculty)) {
+        snprintf(g_gesture_banner, sizeof(g_gesture_banner), "faculty: %.25s", faculty.name);
+        (void)pm_faculty_tick_bust_fetch();
+      } else {
+        snprintf(g_gesture_banner, sizeof(g_gesture_banner), "faculty: no recents");
+      }
+      g_clock_repaint_pending = true;
+      continue;
     } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Moon &&
                (ge.kind == PmGestureKind::SwipeUp || ge.kind == PmGestureKind::SwipeDown)) {
       pm_faces_cycle(ge.kind == PmGestureKind::SwipeUp ? 1 : -1);
@@ -830,6 +844,12 @@ void loop() {
           s_ptt_press_ms = 0;
           g_clock_repaint_pending = true;
         }
+        if (pm_faces_current() == ClockFace::Faculty) {
+          pm_faculty_ensure_seed();
+          (void)pm_faculty_tick_bust_fetch();
+          pm_faculty_begin_bust_rise();
+          g_clock_repaint_pending = true;
+        }
         s_prev_dial_face = pm_faces_current();
       }
 
@@ -882,13 +902,15 @@ void loop() {
           pm_faces_current() == ClockFace::Chakra && pm_face_chakra_anim_tick(now);
       const bool bowl_anim =
           pm_faces_current() == ClockFace::TibetanBowl && pm_face_tibetan_bowl_anim_tick(now);
+      const bool faculty_anim =
+          pm_faces_current() == ClockFace::Faculty && pm_faculty_tick(now);
       const bool home_gem_breath =
           pm_faces_current() == ClockFace::ClassicAnalog && pm_home_gem_pulse_enabled();
       const bool sec_tick_paint =
           sec_tick && pm_faces_current() != ClockFace::Castalia && pm_faces_current() != ClockFace::CalciferCountdown &&
           pm_faces_current() != ClockFace::Synastry && pm_faces_current() != ClockFace::Spectrum &&
           pm_faces_current() != ClockFace::Chakra && pm_faces_current() != ClockFace::TibetanBowl &&
-          !home_gem_breath;
+          pm_faces_current() != ClockFace::Faculty && !home_gem_breath;
       const bool calcifer_sec =
           pm_faces_current() == ClockFace::CalciferCountdown && valid && sec_tick;
 #if MYNAH_HUE_HOME_ONLY
@@ -906,7 +928,7 @@ void loop() {
       const bool non_gem_paint = !s_clock_paint_inited || slow_no_time || banner_chg || wifi_chg ||
                                  g_clock_repaint_pending || local_hm_chg || spotify_stale || calcifer_stale ||
                                  sec_tick_paint || calcifer_sec || astro_repaint || spectrum_anim ||
-                                 chakra_anim || bowl_anim;
+                                 chakra_anim || bowl_anim || faculty_anim;
 #if MYNAH_HUE_HOME_ONLY
       const bool gem_only_paint = gem_pulse_paint && s_clock_paint_inited && !non_gem_paint;
       const bool full_paint = non_gem_paint || gem_pulse_paint;

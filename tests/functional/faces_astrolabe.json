@@ -1,6 +1,6 @@
 {
   "sketch": "Astrolabe",
-  "face_count": 12,
+  "face_count": 13,
   "center": [233, 233],
   "faces": [
     {
@@ -94,6 +94,17 @@
         "sketches/Astrolabe/pm_speaker.h"
       ],
       "gestures": ["tap:448,233", "swipe_up", "swipe_down", "swipe_left"],
+      "buttons": []
+    },
+    {
+      "id": 12,
+      "name": "faculty",
+      "source_paths": [
+        "sketches/Astrolabe/faces/faculty",
+        "sketches/Astrolabe/pm_faculty.cpp",
+        "sketches/Astrolabe/pm_faculty.h"
+      ],
+      "gestures": ["swipe_up", "swipe_down", "swipe_left"],
       "buttons": []
     }
   ]
