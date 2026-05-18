@@ -7,7 +7,7 @@ cd "$ROOT"
 VENV="${ASTROLABE_CI_VENV:-${HOME}/.astrolabe-ci-venv}"
 if [[ ! -x "${VENV}/bin/pio" ]]; then
   python3 -m venv "$VENV"
-  "${VENV}/bin/pip" install -U pip platformio
+  "${VENV}/bin/pip" install -U pip platformio pyserial
 fi
 export PATH="${VENV}/bin:${PATH}"
 
