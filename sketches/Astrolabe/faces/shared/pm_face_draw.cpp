@@ -4,6 +4,7 @@
 #include "pin_config.h"
 #include "pm_config.h"
 #include "pm_display.h"
+#include "pm_home_gem_pulse.h"
 #include "pm_wifi_ntp.h"
 
 namespace {
@@ -37,10 +38,15 @@ float smoothstep01(float t) {
   return t * t * (3.f - 2.f * t);
 }
 
-uint16_t gem_color_at_radius(float t, float hue_deg) {
+uint16_t gem_color_at_radius(float t, float hue_deg, float pulse_brightness) {
   /** Brightness falls off from lit core to the legacy flat-home value at the rim. */
   const float glow = powf(1.f - t, 1.55f);
   float v = pm_face_hsv_v + (0.90f - pm_face_hsv_v) * glow;
+  const float pulse_mix = glow * glow;
+  v *= 1.f + (pulse_brightness - 1.f) * pulse_mix;
+  if (v > 1.f) {
+    v = 1.f;
+  }
   float s = pm_face_hsv_s * (0.84f + 0.16f * glow);
   uint16_t col = pm_face_color565_from_hsv(pm_gfx, hue_deg, s, v);
   if (t > 0.48f) {
@@ -338,12 +344,14 @@ uint16_t pm_face_draw_home_gem_glow(float hue_deg_24h) {
   /** Leave inset for the 24h rainbow annulus drawn afterward. */
   const int r_max = R - 14;
 
-  const uint16_t edge = gem_color_at_radius(1.f, hue_deg_24h);
+  const float pulse_b = pm_home_gem_pulse_brightness(millis());
+
+  const uint16_t edge = gem_color_at_radius(1.f, hue_deg_24h, pulse_b);
   pm_gfx->fillScreen(edge);
 
   for (int r = r_max; r >= 0; --r) {
     const float t = static_cast<float>(r) / static_cast<float>(r_max);
-    pm_gfx->fillCircle(cx, cy, r, gem_color_at_radius(t, hue_deg_24h));
+    pm_gfx->fillCircle(cx, cy, r, gem_color_at_radius(t, hue_deg_24h, pulse_b));
   }
 
   /** Domed resin highlight — soft offset gleam above center, same time hue. */
@@ -353,7 +361,7 @@ uint16_t pm_face_draw_home_gem_glow(float hue_deg_24h) {
   for (int dr = 38; dr >= 8; dr -= 6) {
     const float a = 0.07f + 0.16f * (1.f - static_cast<float>(dr - 8) / 30.f);
     pm_gfx->fillCircle(cx + k_dome_cx, cy + k_dome_cy, dr,
-                       blend565(gem_color_at_radius(0.08f, hue_deg_24h), c_hot, a));
+                       blend565(gem_color_at_radius(0.08f, hue_deg_24h, pulse_b), c_hot, a));
   }
 
   /** Fine frost grain in the lit core (sparse, deterministic). */
@@ -371,13 +379,13 @@ uint16_t pm_face_draw_home_gem_glow(float hue_deg_24h) {
       }
       const float lift = static_cast<float>((h >> 3) & 0xFu) / 15.f * 0.11f;
       const float dist_t = sqrtf(static_cast<float>(dx * dx + dy * dy)) / static_cast<float>(grain_r);
-      const uint16_t base = gem_color_at_radius(dist_t, hue_deg_24h);
+      const uint16_t base = gem_color_at_radius(dist_t, hue_deg_24h, pulse_b);
       const uint16_t spark = pm_face_color565_from_hsv(pm_gfx, hue_deg_24h, pm_face_hsv_s * 0.45f, 0.98f);
       pm_gfx->drawPixel(gx, gy, blend565(base, spark, lift));
     }
   }
 
-  return gem_color_at_radius(0.35f, hue_deg_24h);
+  return gem_color_at_radius(0.35f, hue_deg_24h, pulse_b);
 }
 
 

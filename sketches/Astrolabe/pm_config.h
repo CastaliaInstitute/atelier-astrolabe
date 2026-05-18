@@ -40,6 +40,28 @@
 #define MYNAH_HUE_HOME_ONLY 1
 #endif
 
+/** Home gem breathing pulse (1 = on at boot). */
+#ifndef MYNAH_HUE_GEM_PULSE_DEFAULT
+#define MYNAH_HUE_GEM_PULSE_DEFAULT 1
+#endif
+/** Resting meditative heartbeat (~52 BPM). */
+#ifndef MYNAH_HUE_GEM_PULSE_BPM_DEFAULT
+#define MYNAH_HUE_GEM_PULSE_BPM_DEFAULT 52
+#endif
+#ifndef MYNAH_HUE_GEM_PULSE_BPM_MIN
+#define MYNAH_HUE_GEM_PULSE_BPM_MIN 20
+#endif
+#ifndef MYNAH_HUE_GEM_PULSE_BPM_MAX
+#define MYNAH_HUE_GEM_PULSE_BPM_MAX 120
+#endif
+/** Peak-to-trough brightness swing (0..1). */
+#ifndef MYNAH_HUE_GEM_PULSE_DEPTH
+#define MYNAH_HUE_GEM_PULSE_DEPTH 0.14f
+#endif
+#ifndef MYNAH_HUE_GEM_PULSE_REPAINT_MIN_MS
+#define MYNAH_HUE_GEM_PULSE_REPAINT_MIN_MS 50u
+#endif
+
 #ifndef MYNAH_CALCIFER_POLL_MS
 #define MYNAH_CALCIFER_POLL_MS 45000u
 #endif
