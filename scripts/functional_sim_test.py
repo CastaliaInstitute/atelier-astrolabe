@@ -67,14 +67,11 @@ class QemuSerial:
         while time.time() < deadline:
             if self._proc.stdout is None:
                 break
-            chunk = self._proc.stdout.read(4096)
-            if chunk:
-                self._buf += chunk
-                while "\n" in self._buf:
-                    line, self._buf = self._buf.split("\n", 1)
-                    line = line.rstrip("\r")
-                    if line:
-                        lines.append(line)
+            line = self._proc.stdout.readline()
+            if line:
+                line = line.rstrip("\r\n")
+                if line:
+                    lines.append(line)
             elif timeout > 0:
                 time.sleep(0.05)
             else:
@@ -91,7 +88,10 @@ class QemuSerial:
     def wait_ready(self, timeout: float = 120.0) -> bool:
         deadline = time.time() + timeout
         while time.time() < deadline:
-            for ln in self._drain(0.2):
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                break
+            for ln in self._drain(min(remaining, 1.0)):
                 for pat in READY_PATTERNS:
                     if pat.search(ln):
                         return True
@@ -185,8 +185,12 @@ def launch_qemu(flash_bin: Path, qemu_bin: str, timeout_sec: int) -> QemuSerial:
         "-nographic",
         "-machine",
         "esp32s3",
+        "-m",
+        "16M",
         "-drive",
         f"file={flash_bin},if=mtd,format=raw",
+        "-global",
+        "driver=esp32s3.gpio,property=strap_mode,value=0x04",
         "-serial",
         "mon:stdio",
         "-monitor",
@@ -198,7 +202,7 @@ def launch_qemu(flash_bin: Path, qemu_bin: str, timeout_sec: int) -> QemuSerial:
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
-        bufsize=0,
+        bufsize=1,
     )
     return QemuSerial(proc)
 
