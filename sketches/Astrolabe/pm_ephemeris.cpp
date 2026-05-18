@@ -40,6 +40,26 @@ static double norm360(double lon) {
   return lon;
 }
 
+static double shortest_delta_deg(double from, double to) {
+  double d = norm360(to) - norm360(from);
+  if (d > 180.0) {
+    d -= 360.0;
+  } else if (d < -180.0) {
+    d += 360.0;
+  }
+  return d;
+}
+
+static double interp_lon_deg(double a, double b, double t) {
+  if (t <= 0.0) {
+    return norm360(a);
+  }
+  if (t >= 1.0) {
+    return norm360(b);
+  }
+  return norm360(a + shortest_delta_deg(a, b) * t);
+}
+
 static time_t utc_tm_to_epoch(const struct tm *utc) {
   struct tm t = *utc;
   t.tm_isdst = 0;
@@ -128,12 +148,21 @@ static bool lookup_month_json(const char *json, time_t epoch, PmTransitPositions
     return false;
   }
   const int idx = static_cast<int>((epoch - t0) / step);
+  const double frac = static_cast<double>((epoch - t0) % step) / static_cast<double>(step);
   for (int i = 0; i < kPmBodyCount; ++i) {
-    if (!nth_array_double(json, kBodyIds[i], idx, &out->lon[i])) {
+    double lon0 = 0.0;
+    if (!nth_array_double(json, kBodyIds[i], idx, &lon0)) {
       return false;
+    }
+    double lon1 = lon0;
+    if (frac > 0.0 && nth_array_double(json, kBodyIds[i], idx + 1, &lon1)) {
+      out->lon[i] = interp_lon_deg(lon0, lon1, frac);
+    } else {
+      out->lon[i] = lon0;
     }
   }
   out->ok = true;
+  out->from_network = true;
   return true;
 }
 
@@ -209,6 +238,8 @@ bool pm_ephemeris_fetch_utc(const struct tm *utc, PmTransitPositions *out) {
     return false;
   }
   out->ok = false;
+  out->from_network = false;
+  s_last_from_network = false;
 #if !MYNAH_EPHEMERIS_ENABLE
   return false;
 #endif
@@ -227,6 +258,8 @@ bool pm_ephemeris_fetch_utc(const struct tm *utc, PmTransitPositions *out) {
   const time_t bucket = epoch / 60;
   if (s_cache.ok && s_cache_epoch_min == bucket) {
     *out = s_cache;
+    out->from_network = true;
+    s_last_from_network = true;
     return true;
   }
 
@@ -245,8 +278,10 @@ bool pm_ephemeris_fetch_utc(const struct tm *utc, PmTransitPositions *out) {
   }
 
   s_cache = parsed;
+  s_cache.from_network = true;
   s_cache_epoch_min = bucket;
   *out = parsed;
+  out->from_network = true;
   s_last_from_network = true;
   return true;
 }

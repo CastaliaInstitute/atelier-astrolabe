@@ -194,6 +194,7 @@ static void pm_transit_compute_utc_local(const struct tm *utc, PmTransitPosition
                    2.97661e-5, -9.499e-9, 0.0334442282, xs, ys, zs, &out->lon[kPmBodySaturn]);
 
   out->ok = true;
+  out->from_network = false;
 }
 
 void pm_transit_compute_utc(const struct tm *utc, PmTransitPositions *out) {

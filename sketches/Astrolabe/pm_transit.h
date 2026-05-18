@@ -22,6 +22,7 @@ typedef enum {
 typedef struct {
   double lon[kPmBodyCount];
   bool ok;
+  bool from_network;
 } PmTransitPositions;
 
 /** `utc` must be filled in calendar fields (tm_year mon mday hour min sec). Ignores tm_isdst. */
