@@ -20,6 +20,7 @@ Each face is a self-contained module under `faces/<name>/`. The app shell (`Astr
 | `chakra/` | Chakra symbols + solfeggio tones |
 | `tibetan_bowl/` | Singing bowl; drag rainbow rim to strike |
 | `rocket/` | Launch clock — upcoming launches on a 14-day dial |
+| `radar/` | BLE peer radar — RSSI rings + gyro bearing |
 | `weather/` | 24h radial temp + humidity rings, current conditions center |
 
 ## Public API per face

@@ -94,6 +94,8 @@ Design: [`docs/mynah-spotify-face.md`](mynah-spotify-face.md). **Swipe explores,
 
 ### Phase 3 (satellite link + updates)
 
+- [~] **P2** BLE peer discovery + radar face (watch-to-watch RSSI, 6DOF gyro ring bearing, no magnetometer) — [`docs/design/ble-presence-radar.md`](design/ble-presence-radar.md); home Mynah `MynahBleCodec` alignment TBD
+- [ ] **P2** **Static location anchors on radar graph** — BLE location beacons (`0xA5…` ids), NVS floor catalog, pinned nodes in force layout — scaffold in [`pm_presence_locations`](../../sketches/Astrolabe/pm_presence_locations.h); hub/LAN provisioning TBD
 - [ ] **P2** BLE or LAN presence with home Mynah — [pocketwatch.md § Phased delivery](pocketwatch.md#phased-delivery)
 - [~] **P1** Modular OTA Phase 0–3 — partitions, safe face, runtime OTA, face-pack OTA — Issue: [#60](https://github.com/CastaliaInstitute/astrolabe/issues/60)
 - [ ] **P2** OTA signed channels + `updates.castalia.institute` — [#60](https://github.com/CastaliaInstitute/astrolabe/issues/60) Phase 5 follow-up

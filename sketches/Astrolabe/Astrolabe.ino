@@ -44,6 +44,9 @@
 #include "pm_weather.h"
 #include "faces/spectrum/pm_face_spectrum.h"
 #include "faces/synastry/pm_face_synastry.h"
+#include "faces/radar/pm_face_radar.h"
+#include "pm_presence.h"
+#include "pm_motion.h"
 #include "pm_audio_analyzer.h"
 #include "faces/rocket/pm_face_rocket.h"
 #include "pm_display.h"
@@ -381,7 +384,8 @@ static bool face_index_from_name(const char *name, int *out) {
            {"audio", 9},      {"sound", 9},       {"chakra", 10},
            {"bowl", 11},      {"tibetan", 11},    {"tibetan_bowl", 11},
            {"rocket", 12},    {"launch", 12},     {"launchclock", 12},
-           {"weather", 13}};
+           {"radar", 13},     {"presence", 13},   {"peers", 13},
+           {"weather", 14}};
   for (const auto &e : k) {
     if (strcasecmp(name, e.n) == 0) {
       *out = e.idx;
@@ -457,7 +461,8 @@ static void poll_serial_birth_commands() {
           Serial.println("qa: 10 chakra");
           Serial.println("qa: 11 bowl");
           Serial.println("qa: 12 rocket");
-          Serial.println("qa: 13 weather");
+          Serial.println("qa: 13 radar");
+          Serial.println("qa: 14 weather");
         } else if (!pm_qa_inject_command(args)) {
           Serial.println("qa: usage: status | faces | inject …");
         }
@@ -479,7 +484,7 @@ static void poll_serial_birth_commands() {
           g_clock_repaint_pending = true;
           Serial.printf("face: %d\n", idx);
         } else {
-          Serial.println("face: usage: face <0-13|name>");
+          Serial.println("face: usage: face <0-14|name>");
         }
       } else if (strcmp(line, "astro") == 0) {
         if (pm_faces_current() != ClockFace::Astrology) {
@@ -590,6 +595,9 @@ void setup() {
 
   pm_audio_route_begin();
 
+  (void)pm_motion_begin();
+  (void)pm_presence_begin();
+
 #if defined(CONFIG_UAC_SPEAKER_CHANNEL_NUM) && CONFIG_UAC_SPEAKER_CHANNEL_NUM > 0
   if (pm_usb_uac_begin()) {
     Serial.println("USB UAC speaker ready (host output → ES8311)");
@@ -607,6 +615,7 @@ void loop() {
   pm_screen_http_loop();
 #endif
   const uint32_t now = millis();
+  pm_presence_tick(now);
   poll_serial_birth_commands();
   const uint8_t side_ev = pm_side_buttons_poll(now);
 
@@ -843,6 +852,9 @@ void loop() {
         if (s_prev_dial_face == ClockFace::Spectrum) {
           pm_face_spectrum_on_leave();
         }
+        if (s_prev_dial_face == ClockFace::Radar) {
+          pm_face_radar_on_leave();
+        }
         if (pm_faces_current() == ClockFace::Castalia) {
           pm_castalia_on_face_enter();
           g_clock_repaint_pending = true;
@@ -850,6 +862,10 @@ void loop() {
         if (pm_faces_current() == ClockFace::Spectrum) {
           pm_face_spectrum_on_enter();
           s_ptt_press_ms = 0;
+          g_clock_repaint_pending = true;
+        }
+        if (pm_faces_current() == ClockFace::Radar) {
+          pm_face_radar_on_enter();
           g_clock_repaint_pending = true;
         }
         s_prev_dial_face = pm_faces_current();
@@ -862,6 +878,15 @@ void loop() {
       if (spectrum_anim) {
         s_last_spectrum_ms = now;
         pm_face_spectrum_tick();
+      }
+
+      static uint32_t s_last_radar_ms = 0;
+      const bool radar_anim =
+          pm_faces_current() == ClockFace::Radar && g_state == AppState::kClock &&
+          (now - s_last_radar_ms >= 80u);
+      if (radar_anim) {
+        s_last_radar_ms = now;
+        pm_face_radar_tick(now);
       }
 
       if (pm_faces_current() == ClockFace::Castalia && wifi && pm_castalia_tick_pair_start()) {
@@ -925,7 +950,8 @@ void loop() {
           sec_tick && pm_faces_current() != ClockFace::Castalia && pm_faces_current() != ClockFace::CalciferCountdown &&
           pm_faces_current() != ClockFace::Synastry && pm_faces_current() != ClockFace::Spectrum &&
           pm_faces_current() != ClockFace::Chakra && pm_faces_current() != ClockFace::TibetanBowl &&
-          pm_faces_current() != ClockFace::Rocket && !home_gem_breath;
+          pm_faces_current() != ClockFace::Rocket && pm_faces_current() != ClockFace::Radar &&
+          !home_gem_breath;
       const bool calcifer_sec =
           pm_faces_current() == ClockFace::CalciferCountdown && valid && sec_tick;
       const bool rocket_sec = pm_faces_current() == ClockFace::Rocket && valid && sec_tick;
@@ -944,7 +970,7 @@ void loop() {
       const bool non_gem_paint = !s_clock_paint_inited || slow_no_time || banner_chg || wifi_chg ||
                                  g_clock_repaint_pending || local_hm_chg || spotify_stale || calcifer_stale ||
                                  weather_stale || rocket_stale || sec_tick_paint || calcifer_sec || rocket_sec ||
-                                 astro_repaint || spectrum_anim || chakra_anim || bowl_anim;
+                                 astro_repaint || spectrum_anim || chakra_anim || bowl_anim || radar_anim;
 #if MYNAH_HUE_HOME_ONLY
       const bool gem_only_paint = gem_pulse_paint && s_clock_paint_inited && !non_gem_paint;
       const bool full_paint = non_gem_paint || gem_pulse_paint;

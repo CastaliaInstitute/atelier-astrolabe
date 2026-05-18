@@ -35,7 +35,8 @@ Run this loop **before promoting `integration` → `main`** (or when validating 
 | Chakra | 10 | `chakra` |
 | TibetanBowl | 11 | `bowl`, `tibetan`, `tibetan_bowl` |
 | LaunchClock (Rocket) | 12 | `rocket`, `launch`, `launchclock` |
-| Weather | 13 | `weather` |
+| Radar | 13 | `radar`, `presence`, `peers` |
+| Weather | 14 | `weather` |
 
 GDB symbols (debug ELF): `_ZL12s_clock_face`, `_ZL23g_clock_repaint_pending`.
 

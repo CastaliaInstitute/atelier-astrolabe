@@ -59,7 +59,10 @@ FACE_BY_NAME = {
     "rocket": 12,
     "launch": 12,
     "launchclock": 12,
-    "weather": 13,
+    "radar": 13,
+    "presence": 13,
+    "peers": 13,
+    "weather": 14,
 }
 FACE_LABELS = (
     "ClassicAnalog",
@@ -75,6 +78,7 @@ FACE_LABELS = (
     "Chakra",
     "TibetanBowl",
     "LaunchClock",
+    "Radar",
     "Weather",
 )
 
@@ -479,7 +483,7 @@ def _resolve_face_index(face: int | str) -> int:
 async def astrolabe_debug_set_face(face: int | str = 4, repaint: bool = True) -> str:
     """
     Halt via JTAG/GDB and set clock face (debug ELF only: waveshare_s3_175_debug).
-    face: 0–13 or name (astro, moon, rocket, weather, classic, …). Sets s_clock_face + g_clock_repaint_pending.
+    face: 0–14 or name (astro, moon, rocket, radar, weather, classic, …). Sets s_clock_face + g_clock_repaint_pending.
     """
     try:
         idx = _resolve_face_index(face)
