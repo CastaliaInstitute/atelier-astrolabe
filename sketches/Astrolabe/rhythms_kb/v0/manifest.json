@@ -1,0 +1,60 @@
+{
+  "schema": "castalian-rhythms-kb-v0",
+  "version": 0,
+  "entries": "entries.json",
+  "generated": "../../pm_rhythms_kb_data.cpp",
+  "minimum_entries": 100,
+  "categories": [
+    "aspect",
+    "cycle",
+    "house",
+    "lunar_phase",
+    "planet",
+    "retrograde",
+    "safety",
+    "sign",
+    "transit"
+  ],
+  "safety_levels": [
+    "reflective",
+    "grounding",
+    "caution",
+    "safety"
+  ],
+  "required_prefixes": [
+    "aspect.",
+    "cycle.",
+    "house.",
+    "lunar_phase.",
+    "planet.",
+    "retrograde.",
+    "safety.",
+    "sign.",
+    "transit.moon.house_"
+  ],
+  "required_keys": [
+    "transit.moon.house_01",
+    "transit.moon.house_02",
+    "transit.moon.house_03",
+    "transit.moon.house_04",
+    "transit.moon.house_05",
+    "transit.moon.house_06",
+    "transit.moon.house_07",
+    "transit.moon.house_08",
+    "transit.moon.house_09",
+    "transit.moon.house_10",
+    "transit.moon.house_11",
+    "transit.moon.house_12",
+    "aspect.conjunction",
+    "aspect.sextile",
+    "aspect.square",
+    "aspect.trine",
+    "aspect.opposition",
+    "lunar_phase.new",
+    "lunar_phase.full",
+    "retrograde.mercury",
+    "cycle.circadian.dawn",
+    "cycle.menstrual.menstrual",
+    "cycle.project.seed"
+  ]
+}

@@ -27,6 +27,7 @@ Edit this file when you start or finish work. Keep **In progress** to 1–3 item
 ## In progress
 
 - [~] **P1** Modular OTA (runtime + face-pack A/B, 32 MB) — Issue: [#60](https://github.com/CastaliaInstitute/astrolabe/issues/60), PR [#66](https://github.com/CastaliaInstitute/astrolabe/pull/66), [`docs/design/modular-ota.md`](design/modular-ota.md)
+- [~] **P1** **Embedded interpretation KB v0** — Issue: [#63](https://github.com/CastaliaInstitute/astrolabe/issues/63): ship a compact structured KB for planets, signs, houses, aspects, transits, tags, and safety copy that firmware can select without remote prompts.
 
 ---
 
@@ -51,7 +52,6 @@ Edit this file when you start or finish work. Keep **In progress** to 1–3 item
 Canonical design: [`castalian-rhythms.md`](castalian-rhythms.md). V0 defaults to local ephemeris + embedded interpretation KB + firmware fusion; Castalia services are optional enrichments.
 
 - [ ] **P1** **On-device natal, houses, transit aspects** — Issue [#62](https://github.com/CastaliaInstitute/astrolabe/issues/62): compute primary-profile chart facts locally from NVS birth/location data, NTP/RTC time, and `pm_transit`-class ephemeris helpers; include precision notes for unknown birth time/location.
-- [ ] **P1** **Embedded interpretation KB v0** — Issue [#63](https://github.com/CastaliaInstitute/astrolabe/issues/63): ship a compact structured KB for planets, signs, houses, aspects, transits, tags, and safety copy that firmware can select without remote prompts.
 - [ ] **P1** **On-device fusion and compact daily card** — Issue [#64](https://github.com/CastaliaInstitute/astrolabe/issues/64): deterministic firmware rules combine chart facts + KB snippets into a short cached card with title, themes, symbols, and confidence/precision text.
 - [ ] **P1** **Daily card clock face and Astrology BOOT** — Issue [#65](https://github.com/CastaliaInstitute/astrolabe/issues/65): present the compact card on-device and reuse it for the Astrology face BOOT brief; cloud/Mynah prose expansion remains optional.
 
