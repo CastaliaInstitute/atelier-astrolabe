@@ -10,6 +10,7 @@
 #include "faces/digital/pm_face_digital.h"
 #include "faces/faculty/pm_face_faculty.h"
 #include "faces/moon/pm_face_moon.h"
+#include "faces/rocket/pm_face_rocket.h"
 #include "faces/pm_faces.h"
 #include "faces/shared/pm_face_draw.h"
 #include "faces/spotify/pm_face_spotify.h"

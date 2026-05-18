@@ -14,6 +14,7 @@
 #include "faces/faculty/pm_face_faculty.h"
 #include "faces/moon/pm_face_moon.h"
 #include "faces/shared/pm_face_draw.h"
+#include "faces/rocket/pm_face_rocket.h"
 #include "faces/spotify/pm_face_spotify.h"
 #include "faces/spectrum/pm_face_spectrum.h"
 #include "faces/synastry/pm_face_synastry.h"
@@ -79,7 +80,8 @@ void pm_faces_draw(float thinking_progress) {
   const uint16_t bg_hsv = pm_face_color565_from_hsv(pm_gfx, hue, pm_face_hsv_s, pm_face_hsv_v);
   uint16_t bg = bg_hsv;
   if (s_clock_face != ClockFace::CalciferCountdown && s_clock_face != ClockFace::Spectrum &&
-      s_clock_face != ClockFace::Chakra && s_clock_face != ClockFace::TibetanBowl) {
+      s_clock_face != ClockFace::Chakra && s_clock_face != ClockFace::TibetanBowl &&
+      s_clock_face != ClockFace::Rocket) {
 #if MYNAH_HUE_HOME_ONLY
     if (s_clock_face == ClockFace::ClassicAnalog) {
       bg = pm_face_draw_home_gem_glow(hue);
@@ -128,6 +130,9 @@ void pm_faces_draw(float thinking_progress) {
     case ClockFace::TibetanBowl:
       pm_face_tibetan_bowl_draw();
       break;
+    case ClockFace::Rocket:
+      pm_face_rocket_draw();
+      break;
     case ClockFace::Faculty:
       pm_face_faculty_draw();
       break;
@@ -140,7 +145,7 @@ void pm_faces_draw(float thinking_progress) {
                         s_clock_face == ClockFace::CalciferCountdown || s_clock_face == ClockFace::Castalia ||
                         s_clock_face == ClockFace::Synastry || s_clock_face == ClockFace::Spectrum ||
                         s_clock_face == ClockFace::Chakra || s_clock_face == ClockFace::TibetanBowl ||
-                        s_clock_face == ClockFace::Faculty)
+                        s_clock_face == ClockFace::Rocket || s_clock_face == ClockFace::Faculty)
                            ? 352
                            : 320;
   if (MYNAH_DEBUG_GESTURES && g_gesture_banner[0] != '\0') {
@@ -150,7 +155,8 @@ void pm_faces_draw(float thinking_progress) {
   /** Rainbow annulus last (Moon/Daywheel draw their own; skip Castalia — QR repaint was tripping WDT/stack). */
   if (s_clock_face != ClockFace::Castalia && s_clock_face != ClockFace::Moon &&
       s_clock_face != ClockFace::CalciferCountdown && s_clock_face != ClockFace::Spectrum &&
-      s_clock_face != ClockFace::TibetanBowl && s_clock_face != ClockFace::Faculty) {
+      s_clock_face != ClockFace::TibetanBowl && s_clock_face != ClockFace::Rocket &&
+      s_clock_face != ClockFace::Faculty) {
     pm_face_draw_circumference_rainbow_24h(pm_time_valid());
     if (thinking_progress >= 0.f) {
       pm_face_draw_thinking_progress_ring(thinking_progress);
@@ -182,7 +188,7 @@ bool pm_faces_banner_low(void) {
   return f == ClockFace::Apocalypso || f == ClockFace::Spotify || f == ClockFace::Astrology ||
          f == ClockFace::Moon || f == ClockFace::CalciferCountdown || f == ClockFace::Castalia ||
          f == ClockFace::Synastry || f == ClockFace::Spectrum || f == ClockFace::Chakra ||
-         f == ClockFace::TibetanBowl || f == ClockFace::Faculty;
+         f == ClockFace::TibetanBowl || f == ClockFace::Rocket || f == ClockFace::Faculty;
 }
 
 uint16_t pm_faces_last_bg565(void) { return s_clock_bg565; }
@@ -190,7 +196,8 @@ uint16_t pm_faces_last_bg565(void) { return s_clock_bg565; }
 bool pm_faces_local_hm_changed(int hour, int min) {
   if (s_clock_face == ClockFace::Castalia || s_clock_face == ClockFace::Synastry ||
       s_clock_face == ClockFace::Spectrum || s_clock_face == ClockFace::Chakra ||
-      s_clock_face == ClockFace::TibetanBowl || s_clock_face == ClockFace::Faculty) {
+      s_clock_face == ClockFace::TibetanBowl || s_clock_face == ClockFace::Rocket ||
+      s_clock_face == ClockFace::Faculty) {
     return false;
   }
   return s_analog_saved_local_h < 0 || hour != s_analog_saved_local_h || min != s_analog_saved_local_m;
