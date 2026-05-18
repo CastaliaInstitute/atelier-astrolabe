@@ -1,0 +1,2 @@
+dependencies:
+  espressif/usb_device_uac: "1.2.3"

@@ -1,6 +1,7 @@
 #include "pm_spotify.h"
 
 #include <HTTPClient.h>
+#include <WiFiClient.h>
 #include <WiFiClientSecure.h>
 #include <cstring>
 #include <cstdio>

@@ -26,6 +26,7 @@ Edit this file when you start or finish work. Keep **In progress** to 1–3 item
 
 ## In progress
 
+- [~] **P2** **USB Audio Class gadget** — M1 UAC speaker (`waveshare_s3_175_uac`), [`docs/design/usb-audio-gadget.md`](design/usb-audio-gadget.md); M2 mic + arbiter TBD
 - [~] **P1** Modular OTA (runtime + face-pack A/B, 32 MB) — Issue: [#60](https://github.com/CastaliaInstitute/astrolabe/issues/60), PR [#66](https://github.com/CastaliaInstitute/astrolabe/pull/66), [`docs/design/modular-ota.md`](design/modular-ota.md)
 
 ---
@@ -87,6 +88,10 @@ Design: [`docs/mynah-spotify-face.md`](mynah-spotify-face.md). **Swipe explores,
 - [ ] **P1** **Faculty face** — new `ClockFace` for **ask-faculty** conversations. **Flow:** **STT** question (PWR) → **router step** (LLM or edge fn) infers **which faculty** from utterance (“ask Einstein…”, “what would Curie say…”) → **`ask-faculty`** with resolved `facultySlug` + **conversation history** in prompt → **TTS** reply. **Bust:** `GET` [`faculty-bust`](https://github.com/CastaliaInstitute/mynah/blob/main/supabase/functions/faculty-bust/index.ts), download/cache portrait in flash or PSRAM (`pm_faculty_bust`), show on face during chat. **Swipe up/down:** cycle **recent faculty** (NVS list of slugs last spoken with); continue same thread per faculty. **Commonplace:** log each turn via [`commonplaceDirectus`](https://github.com/CastaliaInstitute/mynah/blob/main/supabase/functions/_shared/commonplaceDirectus.ts) (`kind: conversation`, `route: ask-faculty`, `facultySlug`); fetch recent entries for that faculty+user to build **history** for prompts (server-side or pocket pulls summary). Parity with Android [`GlowScreen`](https://github.com/CastaliaInstitute/mynah/blob/main/android/app/src/main/java/institute/castalia/mynah/ui/GlowScreen.kt) voice route. See [pocketwatch.md § Backend](pocketwatch.md#backend-reuse).
 - [ ] **P2** Round UI polish: safe-area inset, lower-arc touch targets — [pocketwatch.md § Experience](pocketwatch.md#experience-principles)
 - [ ] **P1** **Very low power mode (battery)** — when **not USB-C charging** (AXP2101 / PMU: on battery only), enter aggressive low-power after idle timeout: dim or **blank AMOLED**, stop nonessential polling (Spotify, CalDAV, weather, etc.), CPU **deep sleep** / light sleep between ticks. **Wake on button press** — **PWR** (AXP IRQ) and **BOOT** (GPIO) restore full UI + Wi‑Fi reconnect as needed. While **charging**, stay in normal ambient mode (optional charging ripples on rim). Tune idle timeout and RTC/NVS retention. See [pocketwatch.md § Experience](pocketwatch.md#experience-principles) battery honesty.
+
+### USB audio gadget
+
+- [~] **P2** **USB Audio Class gadget** — [`docs/design/usb-audio-gadget.md`](design/usb-audio-gadget.md): M1 host→speaker via `pm_usb_uac` + `espressif/usb_device_uac` (`waveshare_s3_175_uac`); M2 mic; M3 arbiter + CDC composite
 
 ### Phase 3 (satellite link + updates)
 
