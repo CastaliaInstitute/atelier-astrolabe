@@ -530,7 +530,9 @@ void setup() {
   Serial.begin(115200);
   delay(200);
 
+#ifndef ASTROLABE_QEMU
   Wire.begin(IIC_SDA, IIC_SCL);
+#endif
 
 #ifdef ASTROLABE_QEMU
   (void)pm_touch_begin();
