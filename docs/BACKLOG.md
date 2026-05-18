@@ -144,6 +144,7 @@ Derived from [README limits](../README.md#limits-mvp) and [open questions](pocke
 
 ## Done
 
+- [x] **2026-05-18** Tibetan bowl face: rim-drag sustained resonator (chakra pitch map, center strike, additive I2S partials), standing-wave visuals. PR [#107](https://github.com/CastaliaInstitute/astrolabe/pull/107).
 - [x] **2026-05-17** Synastry clock face: dual-wheel partner/family charts, NVS chart profiles with demo seeds, up/down target cycling, and PWR/BOOT voice prompts. PR [#75](https://github.com/CastaliaInstitute/astrolabe/pull/75); Closes [#32](https://github.com/CastaliaInstitute/astrolabe/issues/32). Hardware QA on `integration` required before promotion to `main`.
 - [x] **2026-05-17** Castalian Rhythms V0 design doc/backlog epic: on-device-first architecture, embedded KB/fusion plan, and child issues [#62](https://github.com/CastaliaInstitute/astrolabe/issues/62)–[#65](https://github.com/CastaliaInstitute/astrolabe/issues/65). PR [#67](https://github.com/CastaliaInstitute/astrolabe/pull/67); Closes [#61](https://github.com/CastaliaInstitute/astrolabe/issues/61)
 - [x] **2026-05-17** Version clock face: git branch/SHA/date + GitHub commit QR (`pm_build_info.h`). PR [#59](https://github.com/CastaliaInstitute/astrolabe/pull/59); Closes [#58](https://github.com/CastaliaInstitute/astrolabe/issues/58)
