@@ -53,6 +53,7 @@ FACE_BY_NAME = {
     "audio": 9,
     "sound": 9,
     "chakra": 10,
+    "weather": 11,
 }
 FACE_LABELS = (
     "ClassicAnalog",
@@ -66,6 +67,7 @@ FACE_LABELS = (
     "Synastry",
     "Spectrum",
     "Chakra",
+    "Weather",
 )
 
 

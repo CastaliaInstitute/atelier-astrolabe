@@ -75,6 +75,10 @@
 #define MYNAH_CALCIFER_POLL_MS 45000u
 #endif
 
+#ifndef MYNAH_WEATHER_POLL_MS
+#define MYNAH_WEATHER_POLL_MS 900000u
+#endif
+
 /** 1 = fetch Swiss Ephemeris from ephemeris.castalia.institute when WiFi is up. */
 #ifndef MYNAH_EPHEMERIS_ENABLE
 #define MYNAH_EPHEMERIS_ENABLE 1

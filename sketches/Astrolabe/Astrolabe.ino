@@ -38,6 +38,8 @@
 #include "faces/moon/pm_face_moon.h"
 #include "faces/spotify/pm_face_spotify.h"
 #include "faces/calcifer/pm_face_calcifer.h"
+#include "faces/weather/pm_face_weather.h"
+#include "pm_weather.h"
 #include "faces/spectrum/pm_face_spectrum.h"
 #include "faces/synastry/pm_face_synastry.h"
 #include "pm_audio_analyzer.h"
@@ -103,6 +105,8 @@ static bool s_spotify_have_data = false;
 static uint32_t s_last_spotify_poll_ms = 0;
 
 static uint32_t s_last_calcifer_poll_ms = 0;
+static bool s_weather_have_data = false;
+static uint32_t s_last_weather_poll_ms = 0;
 
 #ifndef MYNAH_SPOTIFY_POLL_MS
 #define MYNAH_SPOTIFY_POLL_MS 25000u
@@ -370,7 +374,7 @@ static bool face_index_from_name(const char *name, int *out) {
            {"digital", 2},    {"spotify", 3},     {"astro", 4},       {"astrology", 4},
            {"moon", 5},       {"calcifer", 6},    {"schedule", 6},    {"castalia", 7},
            {"synastry", 8},   {"syn", 8},         {"spectrum", 9},    {"fft", 9},
-           {"audio", 9},      {"sound", 9},       {"chakra", 10}};
+           {"audio", 9},      {"sound", 9},       {"chakra", 10},     {"weather", 11}};
   for (const auto &e : k) {
     if (strcasecmp(name, e.n) == 0) {
       *out = e.idx;
@@ -444,6 +448,7 @@ static void poll_serial_birth_commands() {
           Serial.println("qa: 8 synastry");
           Serial.println("qa: 9 spectrum");
           Serial.println("qa: 10 chakra");
+          Serial.println("qa: 11 weather");
         } else if (!pm_qa_inject_command(args)) {
           Serial.println("qa: usage: status | faces | inject …");
         }
@@ -839,6 +844,9 @@ void loop() {
       if (pm_faces_current() != ClockFace::CalciferCountdown) {
         s_calcifer_have_data = false;
       }
+      if (pm_faces_current() != ClockFace::Weather) {
+        s_weather_have_data = false;
+      }
 
       const bool spotify_stale =
           pm_faces_current() == ClockFace::Spotify && pm_wifi_connected() && s_spotify_have_data &&
@@ -847,6 +855,10 @@ void loop() {
       const bool calcifer_stale =
           pm_faces_current() == ClockFace::CalciferCountdown && pm_wifi_connected() && valid &&
           (!s_calcifer_have_data || (now - s_last_calcifer_poll_ms >= MYNAH_CALCIFER_POLL_MS));
+
+      const bool weather_stale =
+          pm_faces_current() == ClockFace::Weather &&
+          (!s_weather_have_data || (now - s_last_weather_poll_ms >= MYNAH_WEATHER_POLL_MS));
 
       static time_t s_prev_astro_epoch_min = -1;
       const time_t epoch_min_bucket = valid ? (epoch / 60) : -1;
@@ -877,7 +889,8 @@ void loop() {
 #endif
       const bool non_gem_paint = !s_clock_paint_inited || slow_no_time || banner_chg || wifi_chg ||
                                  g_clock_repaint_pending || local_hm_chg || spotify_stale || calcifer_stale ||
-                                 sec_tick_paint || calcifer_sec || astro_repaint || spectrum_anim || chakra_anim;
+                                 weather_stale || sec_tick_paint || calcifer_sec || astro_repaint || spectrum_anim ||
+                                 chakra_anim;
 #if MYNAH_HUE_HOME_ONLY
       const bool gem_only_paint = gem_pulse_paint && s_clock_paint_inited && !non_gem_paint;
       const bool full_paint = non_gem_paint || gem_pulse_paint;
@@ -912,6 +925,13 @@ void loop() {
             (void)pm_calcifer_fetch(&g_calcifer_ui, epoch);
             s_last_calcifer_poll_ms = now;
             s_calcifer_have_data = true;
+          }
+        }
+        if (pm_faces_current() == ClockFace::Weather) {
+          if (!s_weather_have_data || weather_stale) {
+            (void)pm_weather_fetch(&g_weather_ui);
+            s_last_weather_poll_ms = now;
+            s_weather_have_data = true;
           }
         }
         if (pm_gfx) {

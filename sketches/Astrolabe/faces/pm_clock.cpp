@@ -16,6 +16,7 @@
 #include "faces/spotify/pm_face_spotify.h"
 #include "faces/spectrum/pm_face_spectrum.h"
 #include "faces/synastry/pm_face_synastry.h"
+#include "faces/weather/pm_face_weather.h"
 #include "pm_config.h"
 #include "pm_display.h"
 #include "pm_wifi_ntp.h"
@@ -71,7 +72,7 @@ void pm_faces_draw(float thinking_progress) {
   const uint16_t bg_hsv = pm_face_color565_from_hsv(pm_gfx, hue, pm_face_hsv_s, pm_face_hsv_v);
   uint16_t bg = bg_hsv;
   if (s_clock_face != ClockFace::CalciferCountdown && s_clock_face != ClockFace::Spectrum &&
-      s_clock_face != ClockFace::Chakra) {
+      s_clock_face != ClockFace::Chakra && s_clock_face != ClockFace::Weather) {
 #if MYNAH_HUE_HOME_ONLY
     if (s_clock_face == ClockFace::ClassicAnalog) {
       bg = pm_face_draw_home_gem_glow(hue);
@@ -117,6 +118,16 @@ void pm_faces_draw(float thinking_progress) {
     case ClockFace::Chakra:
       pm_face_chakra_draw();
       break;
+    case ClockFace::Weather: {
+      int lh = 0;
+      int lm = 0;
+      if (pm_time_valid()) {
+        lh = tm.tm_hour;
+        lm = tm.tm_min;
+      }
+      pm_face_weather_draw(pm_time_valid(), lh, lm);
+      break;
+    }
     default:
       break;
   }
@@ -125,7 +136,7 @@ void pm_faces_draw(float thinking_progress) {
                         s_clock_face == ClockFace::Astrology || s_clock_face == ClockFace::Moon ||
                         s_clock_face == ClockFace::CalciferCountdown || s_clock_face == ClockFace::Castalia ||
                         s_clock_face == ClockFace::Synastry || s_clock_face == ClockFace::Spectrum ||
-                        s_clock_face == ClockFace::Chakra)
+                        s_clock_face == ClockFace::Chakra || s_clock_face == ClockFace::Weather)
                            ? 352
                            : 320;
   if (MYNAH_DEBUG_GESTURES && g_gesture_banner[0] != '\0') {
@@ -134,7 +145,8 @@ void pm_faces_draw(float thinking_progress) {
 
   /** Rainbow annulus last (Moon/Daywheel draw their own; skip Castalia — QR repaint was tripping WDT/stack). */
   if (s_clock_face != ClockFace::Castalia && s_clock_face != ClockFace::Moon &&
-      s_clock_face != ClockFace::CalciferCountdown && s_clock_face != ClockFace::Spectrum) {
+      s_clock_face != ClockFace::CalciferCountdown && s_clock_face != ClockFace::Spectrum &&
+      s_clock_face != ClockFace::Weather) {
     pm_face_draw_circumference_rainbow_24h(pm_time_valid());
     if (thinking_progress >= 0.f) {
       pm_face_draw_thinking_progress_ring(thinking_progress);
@@ -165,14 +177,16 @@ bool pm_faces_banner_low(void) {
   const ClockFace f = s_clock_face;
   return f == ClockFace::Apocalypso || f == ClockFace::Spotify || f == ClockFace::Astrology ||
          f == ClockFace::Moon || f == ClockFace::CalciferCountdown || f == ClockFace::Castalia ||
-         f == ClockFace::Synastry || f == ClockFace::Spectrum || f == ClockFace::Chakra;
+         f == ClockFace::Synastry || f == ClockFace::Spectrum || f == ClockFace::Chakra ||
+         f == ClockFace::Weather;
 }
 
 uint16_t pm_faces_last_bg565(void) { return s_clock_bg565; }
 
 bool pm_faces_local_hm_changed(int hour, int min) {
   if (s_clock_face == ClockFace::Castalia || s_clock_face == ClockFace::Synastry ||
-      s_clock_face == ClockFace::Spectrum || s_clock_face == ClockFace::Chakra) {
+      s_clock_face == ClockFace::Spectrum || s_clock_face == ClockFace::Chakra ||
+      s_clock_face == ClockFace::Weather) {
     return false;
   }
   return s_analog_saved_local_h < 0 || hour != s_analog_saved_local_h || min != s_analog_saved_local_m;

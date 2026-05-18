@@ -17,6 +17,7 @@ Each face is a self-contained module under `faces/<name>/`. The app shell (`Astr
 | `castalia/` | Sign-in QR |
 | `synastry/` | Partner/family dual natal wheel + aspect highlights |
 | `spectrum/` | Dual FFT bars: mic in (inner), speaker out (outer) |
+| `weather/` | 24h radial temp + humidity rings, current conditions center |
 
 ## Public API per face
 

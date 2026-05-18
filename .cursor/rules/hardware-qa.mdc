@@ -33,6 +33,7 @@ Run this loop **before promoting `integration` → `main`** (or when validating 
 | Castalia | 8 | `castalia` |
 | Synastry | 9 | `syn`, `synastry` |
 | Spectrum | 10 | `spectrum`, `fft`, `audio`, `sound` |
+| Weather | 11 | `weather` |
 
 GDB symbols (debug ELF): `_ZL12s_clock_face`, `_ZL23g_clock_repaint_pending`.
 

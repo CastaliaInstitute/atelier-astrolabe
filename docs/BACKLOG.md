@@ -26,6 +26,7 @@ Edit this file when you start or finish work. Keep **In progress** to 1–3 item
 
 ## In progress
 
+- [~] **P1** **Weather face** — 24h radial temp/humidity rings + center conditions; `weather-status` fetch with demo fallback — Issue: weather-face
 - [~] **P2** **USB Audio Class gadget** — M1 UAC speaker (`waveshare_s3_175_uac`), [`docs/design/usb-audio-gadget.md`](design/usb-audio-gadget.md); M2 mic + arbiter TBD
 - [~] **P1** Modular OTA (runtime + face-pack A/B, 32 MB) — Issue: [#60](https://github.com/CastaliaInstitute/astrolabe/issues/60), PR [#66](https://github.com/CastaliaInstitute/astrolabe/pull/66), [`docs/design/modular-ota.md`](design/modular-ota.md)
 
@@ -78,8 +79,6 @@ Design: [`docs/mynah-spotify-face.md`](mynah-spotify-face.md). **Swipe explores,
 - [ ] **P2** **Spotify face M5 (polish)** — hue-time ring, groove glint overlay, Commonplace save (long press), room label, hardware QA per face table
 
 ### Glance / utility faces
-
-- [ ] **P1** **Weather face** — new `ClockFace`: current conditions + short forecast for observer location. **Location:** Wi‑Fi geo / `pm_geo_tz` or NVS lat-lon from mDNS config. **Data:** Castalia Edge Function (API keys server-side, same pattern as `calcifer-status`) — temp, icon/condition, hi/lo, optional hourly strip on round display. Poll on interval when face visible + Wi‑Fi; cache last good response offline. Optional: STT “what’s the weather?” on this face; tie icon art to ambient hue. Depends on Castalia JWT + NTP.
 
 - [ ] **P1** **Rotating Earth face** — new `ClockFace`: **slowly rotating globe** on round display with **day/night terminator** from UTC + optional observer lon (NTP; `pm_geo_tz` or NVS). **Night side** dim, **day side** lit; optional dot for user location. **Weather:** overlay conditions on the map or a compact HUD (reuse **Weather face** / Castalia weather API — clouds/precip bands, temp at pin). Animate rotation tied to time (sidereal or simple spin). Distinct from flat **weather** summary and **orrery** (heliocentric); keep draw cost bounded on CO5300 canvas.
 
