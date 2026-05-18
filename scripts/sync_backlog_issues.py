@@ -371,18 +371,23 @@ Rotating globe with day/night terminator; optional weather HUD overlay. Bounded 
     ),
     BacklogIssue(
         "faculty-face",
-        "[Feature] Faculty ask-faculty clock face",
+        "[Feature] Faculty face — STT, ask-faculty, bust + TTS",
         ["enhancement"],
         "P1",
         """## Summary
-STT → faculty router → `ask-faculty` with history; bust cache; swipe recent faculty; commonplace logging. Parity with Android GlowScreen.
+New `ClockFace::Faculty`: PWR/PTT STT → faculty router → `ask-faculty` with history → download `faculty-bust` + play LLM/TTS reply. Swipe up/down cycles recent faculty (NVS). Parity with Android GlowScreen.
 
 ## Backlog
 `docs/BACKLOG.md` — Faculty face
 
 ## Acceptance criteria
-- [ ] End-to-end voice on face
+- [ ] Faculty face in swipe cycle; STT selects/continues faculty + question
+- [ ] `faculty-bust` cached and shown; TTS/audio playback works
+- [ ] `./scripts/build.sh` passes; BACKLOG updated with issue #
 - [ ] Hardware QA screenshot
+
+## Issue body
+`scripts/issue-bodies/faculty-face.md`
 """,
         "open",
     ),
