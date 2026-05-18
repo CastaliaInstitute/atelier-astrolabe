@@ -25,6 +25,7 @@
 #include "pm_transit.h"
 #include "pm_castalia_auth.h"
 #include "pm_calcifer.h"
+#include "pm_rocket.h"
 #include "pm_commonplace.h"
 #include "pm_astro_highlight.h"
 #include "faces/pm_faces.h"
@@ -33,6 +34,7 @@
 #include "faces/moon/pm_face_moon.h"
 #include "faces/spotify/pm_face_spotify.h"
 #include "faces/calcifer/pm_face_calcifer.h"
+#include "faces/rocket/pm_face_rocket.h"
 #include "pm_display.h"
 
 Arduino_DataBus *bus = new Arduino_ESP32QSPI(
@@ -86,6 +88,7 @@ static bool s_spotify_have_data = false;
 static uint32_t s_last_spotify_poll_ms = 0;
 
 static uint32_t s_last_calcifer_poll_ms = 0;
+static uint32_t s_last_rocket_poll_ms = 0;
 
 #ifndef MYNAH_SPOTIFY_POLL_MS
 #define MYNAH_SPOTIFY_POLL_MS 25000u
@@ -356,11 +359,14 @@ static void poll_serial_birth_commands() {
         }
         if (strcmp(p, "astro") == 0 || strcmp(p, "astrology") == 0) {
           idx = static_cast<int>(ClockFace::Astrology);
+        } else if (strcmp(p, "rocket") == 0 || strcmp(p, "launch") == 0 ||
+                   strcmp(p, "launchclock") == 0) {
+          idx = static_cast<int>(ClockFace::Rocket);
         } else if (sscanf(p, "%d", &idx) == 1 && idx >= 0 &&
                    idx < static_cast<int>(ClockFace::kNumFaces)) {
           /* ok */
         } else {
-          Serial.println("face: usage: face 0..7 | face astro");
+          Serial.println("face: usage: face 0..8 | face astro | face rocket");
           continue;
         }
         pm_faces_set(static_cast<ClockFace>(idx));
@@ -489,6 +495,17 @@ void loop() {
         g_gesture_banner[0] = '\0';
       }
       g_clock_repaint_pending = true;
+    } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Rocket &&
+               ge.kind == PmGestureKind::Tap) {
+      if (pm_face_rocket_has_stream()) {
+        pm_face_rocket_toggle_stream_qr();
+        snprintf(g_gesture_banner, sizeof(g_gesture_banner),
+                 pm_face_rocket_stream_qr_visible() ? "launch: stream QR" : "launch: clock");
+        g_gesture_banner[sizeof(g_gesture_banner) - 1] = '\0';
+      } else {
+        snprintf(g_gesture_banner, sizeof(g_gesture_banner), "launch: no stream");
+      }
+      g_clock_repaint_pending = true;
     } else if (ge.kind != PmGestureKind::SwipeUp && ge.kind != PmGestureKind::SwipeDown) {
       snprintf(g_gesture_banner, sizeof(g_gesture_banner), "%s", gesture_label(ge.kind));
       Serial.printf("[gesture] %s @ %d,%d\n", g_gesture_banner, static_cast<int>(ge.x), static_cast<int>(ge.y));
@@ -598,6 +615,11 @@ void loop() {
       if (pm_faces_current() != ClockFace::CalciferCountdown) {
         s_calcifer_have_data = false;
       }
+      if (pm_faces_current() != ClockFace::Rocket) {
+        s_rocket_have_data = false;
+        pm_face_rocket_set_stream_qr_visible(false);
+        pm_rocket_pad_image_release();
+      }
 
       const bool spotify_stale =
           pm_faces_current() == ClockFace::Spotify && pm_wifi_connected() && s_spotify_have_data &&
@@ -607,18 +629,24 @@ void loop() {
           pm_faces_current() == ClockFace::CalciferCountdown && pm_wifi_connected() && valid &&
           (!s_calcifer_have_data || (now - s_last_calcifer_poll_ms >= MYNAH_CALCIFER_POLL_MS));
 
+      const bool rocket_stale =
+          pm_faces_current() == ClockFace::Rocket && pm_wifi_connected() && valid &&
+          (!s_rocket_have_data || (now - s_last_rocket_poll_ms >= MYNAH_ROCKET_POLL_MS));
+
       static time_t s_prev_astro_epoch_min = -1;
       const time_t epoch_min_bucket = valid ? (epoch / 60) : -1;
       const bool astro_repaint =
           pm_faces_current() == ClockFace::Astrology && valid && epoch_min_bucket != s_prev_astro_epoch_min;
 
       const bool sec_tick_paint =
-          sec_tick && pm_faces_current() != ClockFace::Castalia && pm_faces_current() != ClockFace::CalciferCountdown;
+          sec_tick && pm_faces_current() != ClockFace::Castalia &&
+          pm_faces_current() != ClockFace::CalciferCountdown && pm_faces_current() != ClockFace::Rocket;
       const bool calcifer_sec =
           pm_faces_current() == ClockFace::CalciferCountdown && valid && sec_tick;
+      const bool rocket_sec = pm_faces_current() == ClockFace::Rocket && valid && sec_tick;
       const bool full_paint = !s_clock_paint_inited || slow_no_time || banner_chg || wifi_chg ||
                               g_clock_repaint_pending || local_hm_chg || spotify_stale || calcifer_stale ||
-                              sec_tick_paint || calcifer_sec || astro_repaint;
+                              rocket_stale || sec_tick_paint || calcifer_sec || rocket_sec || astro_repaint;
 
       if (full_paint) {
         s_clock_paint_inited = true;
@@ -646,6 +674,13 @@ void loop() {
             (void)pm_calcifer_fetch(&g_calcifer_ui, epoch);
             s_last_calcifer_poll_ms = now;
             s_calcifer_have_data = true;
+          }
+        }
+        if (pm_faces_current() == ClockFace::Rocket && pm_wifi_connected() && valid) {
+          if (!s_rocket_have_data || rocket_stale) {
+            (void)pm_rocket_fetch(&g_rocket_ui);
+            s_last_rocket_poll_ms = now;
+            s_rocket_have_data = true;
           }
         }
         pm_faces_draw();
