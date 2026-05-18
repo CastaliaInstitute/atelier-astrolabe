@@ -23,9 +23,6 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-PORT="$(./scripts/detect_upload_port.sh)"
-echo "→ upload port: ${PORT}"
-
 ENV="${PIO_ENV:-waveshare_s3_175}"
 BUILD_DIR="${PLATFORMIO_BUILD_DIR:-/tmp/astrolabe-pio-build}"
 BIN="${BUILD_DIR}/${ENV}/firmware.bin"
@@ -40,8 +37,32 @@ if [[ ! -f "$BIN" ]]; then
   exit 1
 fi
 
+# Detect after build — USB port can re-enumerate during long compiles.
+PORT="$(./scripts/detect_upload_port.sh)"
+export ASTROLABE_UPLOAD_PORT="$PORT"
+echo "→ upload port: ${PORT}"
 echo "→ upload ${BIN}"
-pio run -e "$ENV" -t upload --upload-port "$PORT" -j 1
+echo "→ if upload fails: hold BOOT, tap PWR (or plug USB), release BOOT when esptool connects"
+
+upload_once() {
+  pio run -e "$ENV" -t upload --upload-port "$PORT" -j 1 "$@"
+}
+
+if command -v "${ASTROLABE_CI_VENV:-$HOME/.astrolabe-ci-venv}/bin/python" >/dev/null 2>&1; then
+  bash ./scripts/preupload-boot-pulse.sh "$PORT" 2>/dev/null || true
+fi
+
+TRIES="${ASTROLABE_UPLOAD_TRIES:-3}"
+ok=0
+for ((i = 1; i <= TRIES; i++)); do
+  echo "→ upload attempt ${i}/${TRIES}"
+  [[ "$i" -gt 1 ]] && { bash ./scripts/preupload-boot-pulse.sh "$PORT" 2>/dev/null || true; sleep 2; }
+  upload_once && ok=1 && break
+done
+if [[ "$ok" != "1" ]]; then
+  echo "error: upload failed after ${TRIES} attempts — put watch in download mode (hold BOOT, tap PWR)" >&2
+  exit 1
+fi
 
 if [[ "$SMOKE_SEC" -gt 0 ]] && command -v timeout >/dev/null 2>&1; then
   echo "→ serial smoke (${SMOKE_SEC}s)"

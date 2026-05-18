@@ -1,0 +1,35 @@
+{
+  "canvas": { "width": 466, "height": 466, "shape": "round" },
+  "nodes": [
+    {
+      "type": "radial_hue_ring",
+      "id": "outer_hue",
+      "cx": 233,
+      "cy": 233,
+      "r_outer": 220,
+      "r_inner": 195,
+      "bind": "mynah.hue_time"
+    },
+    {
+      "type": "analog_hand",
+      "id": "hour_hand",
+      "cx": 233,
+      "cy": 233,
+      "bind": "time.local.hour_angle"
+    },
+    {
+      "type": "analog_hand",
+      "id": "minute_hand",
+      "cx": 233,
+      "cy": 233,
+      "bind": "time.local.minute_angle"
+    },
+    {
+      "type": "text",
+      "id": "label",
+      "cx": 193,
+      "cy": 400,
+      "bind": "face.name"
+    }
+  ]
+}

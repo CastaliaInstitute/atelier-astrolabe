@@ -11,7 +11,16 @@ typedef struct {
   uint8_t cycle_length_days;
   uint8_t period_length_days;
   bool has_last_period;
+  /** When true, Cycle face emphasizes pregnancy (due date) over menstrual ring. */
+  bool pregnancy_active;
+  bool has_due_date;
+  uint16_t due_year;
+  uint8_t due_month;
+  uint8_t due_day;
 } PmCycleProfile;
+
+/** Typical gestational length from LMP (used with due date). */
+static constexpr int32_t PM_CYCLE_GESTATION_DAYS = 280;
 
 static constexpr uint8_t PM_CYCLE_DEFAULT_LENGTH_DAYS = 28;
 static constexpr uint8_t PM_CYCLE_DEFAULT_PERIOD_DAYS = 5;
@@ -32,3 +41,9 @@ bool pm_cycle_ymd_sane(uint16_t year, uint8_t month, uint8_t day);
 int32_t pm_cycle_days_between(uint16_t start_year, uint8_t start_month, uint8_t start_day,
                               uint16_t end_year, uint8_t end_month, uint8_t end_day);
 int32_t pm_cycle_day_index_for_date(const PmCycleProfile *profile, uint16_t year, uint8_t month, uint8_t day);
+
+/** Days from `year-month-day` until due date; negative if past due. */
+int32_t pm_cycle_days_until_due(const PmCycleProfile *profile, uint16_t year, uint8_t month, uint8_t day);
+
+/** Gestational day 0–280 from due date; -1 if not tracking pregnancy. */
+int32_t pm_cycle_gestational_day(const PmCycleProfile *profile, uint16_t year, uint8_t month, uint8_t day);

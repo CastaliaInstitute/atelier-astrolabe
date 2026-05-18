@@ -29,7 +29,12 @@
 #include "pm_castalia_auth.h"
 #include "pm_calcifer.h"
 #include "pm_astro_highlight.h"
+#include "pm_diag.h"
+#include "pm_face_safe.h"
+#include "pm_faces_pack.h"
+#include "pm_ota.h"
 #include "pm_circadian_hue.h"
+#include "pm_qa.h"
 #include "pm_cycle_nvs.h"
 #include "pm_moon.h"
 #include "pm_version.h"
@@ -98,6 +103,8 @@ enum class ClockFace : uint8_t {
   Castalia,
   /** QR → on-device LAN settings page (`/settings`). */
   Settings,
+  /** Declarative Hue clock from LittleFS face pack (when mounted). */
+  HuePack,
   /** Build branch/SHA + QR → GitHub commit baked in at compile time. */
   Version,
   kNumFaces,
@@ -1290,14 +1297,58 @@ static void draw_cycle_face(const struct tm *tm_local, bool valid_local) {
 
   PmCycleProfile cycle = {};
   (void)pm_cycle_load(&cycle);
+
+  const uint16_t year = static_cast<uint16_t>(tm_local->tm_year + 1900);
+  const uint8_t month = static_cast<uint8_t>(tm_local->tm_mon + 1);
+  const uint8_t day = static_cast<uint8_t>(tm_local->tm_mday);
+
+  if (cycle.pregnancy_active) {
+    if (!cycle.has_due_date) {
+      drawCenteredLine("set due date", 220, c_dim, 2, 2);
+      drawCenteredLine("settings web", 260, c_dim, 1, 1);
+      return;
+    }
+    const int32_t gest = pm_cycle_gestational_day(&cycle, year, month, day);
+    const int32_t until = pm_cycle_days_until_due(&cycle, year, month, day);
+    const int cx = LCD_WIDTH / 2;
+    const int cy = LCD_HEIGHT / 2;
+    const int R = min(LCD_WIDTH, LCD_HEIGHT) / 2;
+    const int r_outer = R - 20;
+    const int r_inner = r_outer - 32;
+    const uint16_t c_track = gfx->color565(40, 36, 52);
+    const uint16_t c_prog = gfx->color565(235, 175, 95);
+    const int32_t gest_clamped = gest >= 0 ? gest : 0;
+    int32_t week = (gest_clamped + 3) / 7;
+    if (week < 0) {
+      week = 0;
+    }
+    if (week > 40) {
+      week = 40;
+    }
+    constexpr uint8_t kPregWeeks = 40;
+    draw_cycle_band(cx, cy, r_inner, r_outer, kPregWeeks, 0.f, static_cast<float>(week), c_prog, 3);
+    draw_cycle_band(cx, cy, r_inner, r_outer, kPregWeeks, static_cast<float>(week),
+                    static_cast<float>(kPregWeeks - week), c_track, 2);
+    char line[32];
+    snprintf(line, sizeof(line), "week %ld", static_cast<long>(week));
+    drawCenteredLine(line, cy - 24, gfx->color565(250, 235, 210), 2, 2);
+    if (until >= 0) {
+      snprintf(line, sizeof(line), "due in %ld d", static_cast<long>(until));
+    } else {
+      snprintf(line, sizeof(line), "past due");
+    }
+    drawCenteredLine(line, cy + 12, c_dim, 1, 2);
+    snprintf(line, sizeof(line), "%02u/%02u/%04u", cycle.due_month, cycle.due_day, cycle.due_year);
+    drawCenteredLine(line, cy + 44, c_dim, 1, 1);
+    gfx->drawCircle(cx, cy, r_outer + 5, gfx->color565(90, 70, 110));
+    return;
+  }
+
   if (!cycle.has_last_period) {
     drawCenteredLine("set cycle", 220, c_dim, 2, 2);
     return;
   }
 
-  const uint16_t year = static_cast<uint16_t>(tm_local->tm_year + 1900);
-  const uint8_t month = static_cast<uint8_t>(tm_local->tm_mon + 1);
-  const uint8_t day = static_cast<uint8_t>(tm_local->tm_mday);
   const int32_t day_idx = pm_cycle_day_index_for_date(&cycle, year, month, day);
   if (day_idx < 0) {
     drawCenteredLine("set cycle", 220, c_error, 2, 2);
@@ -1615,6 +1666,16 @@ static void draw_castalia_face() {
 }
 
 static void draw_clock_face(float thinking_progress = -1.f) {
+  if (pm_diag_safe_mode()) {
+    pm_face_safe_draw(gfx, nullptr);
+    gfx->flush();
+    return;
+  }
+  if (g_clock_face == ClockFace::HuePack && pm_faces_pack_available()) {
+    pm_faces_pack_render(gfx, thinking_progress);
+    gfx->flush();
+    return;
+  }
   struct tm tm = {};
   int sec_of_day_for_hue = 0;
   if (pm_time_valid()) {
@@ -1658,6 +1719,9 @@ static void draw_clock_face(float thinking_progress = -1.f) {
     case ClockFace::Settings:
       draw_settings_face();
       break;
+    case ClockFace::HuePack:
+      pm_faces_pack_render(gfx, thinking_progress);
+      break;
     case ClockFace::Version:
       draw_version_face();
       break;
@@ -1669,16 +1733,16 @@ static void draw_clock_face(float thinking_progress = -1.f) {
                         g_clock_face == ClockFace::Astrology || g_clock_face == ClockFace::Moon ||
                         g_clock_face == ClockFace::CalciferCountdown || g_clock_face == ClockFace::Cycle ||
                         g_clock_face == ClockFace::Castalia || g_clock_face == ClockFace::Settings ||
-                        g_clock_face == ClockFace::Version)
+                        g_clock_face == ClockFace::HuePack || g_clock_face == ClockFace::Version)
                            ? 352
                            : 320;
   if (MYNAH_DEBUG_GESTURES && g_gesture_banner[0] != '\0') {
     drawCenteredLine(g_gesture_banner, banner_y, gfx->color565(255, 220, 160), 1, 1);
   }
 
-  /** Rainbow annulus last (skip on QR faces — full repaint + rim after QR was tripping WDT/stack). */
+  /** Rainbow annulus last (skip on QR faces — full repaint + rim was tripping WDT/stack). */
   if (g_clock_face != ClockFace::Castalia && g_clock_face != ClockFace::Settings &&
-      g_clock_face != ClockFace::Version) {
+      g_clock_face != ClockFace::HuePack && g_clock_face != ClockFace::Version) {
     draw_circumference_rainbow_24h(pm_time_valid());
     if (thinking_progress >= 0.f) {
       draw_thinking_progress_ring(thinking_progress);
@@ -1690,6 +1754,12 @@ static void draw_clock_face(float thinking_progress = -1.f) {
     g_analog_saved_local_m = tm.tm_min;
   }
   gfx->flush();
+  static bool s_boot_marked = false;
+  if (!s_boot_marked && !pm_diag_safe_mode()) {
+    s_boot_marked = true;
+    pm_diag_mark_runtime_valid();
+    pm_ota_validate_pending_facepack();
+  }
 }
 
 static void ensure_pcm_buffer() {
@@ -1815,13 +1885,8 @@ static bool face_index_from_name(const char *name, int *out) {
   } k[] = {{"classic", 0}, {"hue", 0},     {"analog", 0},    {"apocalypso", 1},
            {"digital", 2}, {"spotify", 3}, {"astro", 4},       {"astrology", 4},
            {"moon", 5},    {"calcifer", 6}, {"schedule", 6},  {"cycle", 7},
-           {"menstrual", 7},
-           {"castalia", 8},
-           {"settings", 9},
-           {"config", 9},
-           {"version", 10},
-           {"about", 10},
-           {"build", 10}};
+           {"menstrual", 7}, {"castalia", 8}, {"settings", 9}, {"config", 9},
+           {"huepack", 10}, {"pack", 10}, {"version", 11}, {"about", 11}, {"build", 11}};
   for (const auto &e : k) {
     if (strcasecmp(name, e.n) == 0) {
       *out = e.idx;
@@ -1834,6 +1899,9 @@ static bool face_index_from_name(const char *name, int *out) {
 static void print_cycle_status() {
   PmCycleProfile p = {};
   (void)pm_cycle_load(&p);
+  if (p.pregnancy_active && p.has_due_date) {
+    Serial.printf("cycle: pregnant due=%04u-%02u-%02u\n", p.due_year, p.due_month, p.due_day);
+  }
   if (p.has_last_period) {
     Serial.printf("cycle: last_period_ymd=%04u-%02u-%02u cycle_length_days=%u period_length_days=%u\n",
                   p.last_period_year, p.last_period_month, p.last_period_day, p.cycle_length_days,
@@ -1842,21 +1910,35 @@ static void print_cycle_status() {
     Serial.printf("cycle: last_period_ymd=(unset) cycle_length_days=%u period_length_days=%u\n",
                   p.cycle_length_days, p.period_length_days);
   }
-  if (pm_time_valid() && p.has_last_period) {
+  if (pm_time_valid()) {
     struct tm loc = {};
     pm_time_local(&loc);
-    const int32_t idx = pm_cycle_day_index_for_date(&p, static_cast<uint16_t>(loc.tm_year + 1900),
-                                                    static_cast<uint8_t>(loc.tm_mon + 1),
-                                                    static_cast<uint8_t>(loc.tm_mday));
-    if (idx >= 0) {
-      Serial.printf("cycle: today day %ld of %u\n", static_cast<long>(idx + 1), p.cycle_length_days);
+    const uint16_t y = static_cast<uint16_t>(loc.tm_year + 1900);
+    const uint8_t mo = static_cast<uint8_t>(loc.tm_mon + 1);
+    const uint8_t d = static_cast<uint8_t>(loc.tm_mday);
+    if (p.pregnancy_active && p.has_due_date) {
+      const int32_t gest = pm_cycle_gestational_day(&p, y, mo, d);
+      const int32_t until = pm_cycle_days_until_due(&p, y, mo, d);
+      if (gest >= 0) {
+        Serial.printf("cycle: gestational week %ld", static_cast<long>((gest + 3) / 7));
+        if (until != INT32_MIN) {
+          Serial.printf(" due_in_days=%ld", static_cast<long>(until));
+        }
+        Serial.println();
+      }
+    }
+    if (p.has_last_period) {
+      const int32_t idx = pm_cycle_day_index_for_date(&p, y, mo, d);
+      if (idx >= 0) {
+        Serial.printf("cycle: today day %ld of %u\n", static_cast<long>(idx + 1), p.cycle_length_days);
+      }
     }
   }
   Serial.println("cycle: wellness estimate only; NVS-only, no cloud sync");
 }
 
 static void poll_serial_birth_commands() {
-  static char line[100];
+  static char line[120];
   static size_t li = 0;
   while (Serial.available() > 0) {
     const int c = Serial.read();
@@ -1951,6 +2033,20 @@ static void poll_serial_birth_commands() {
           }
         }
         g_clock_repaint_pending = true;
+      } else if (strncmp(line, "qa ", 3) == 0) {
+        const char *args = line + 3;
+        while (*args == ' ') {
+          ++args;
+        }
+        if (strcmp(args, "status") == 0) {
+          Serial.printf("qa: face=%d state=%d heap=%u wifi=%d\n",
+                        static_cast<int>(g_clock_face), static_cast<int>(g_state),
+                        static_cast<unsigned>(ESP.getFreeHeap()), pm_wifi_connected() ? 1 : 0);
+        } else if (strcmp(args, "faces") == 0) {
+          Serial.printf("qa: faces=%d\n", static_cast<int>(ClockFace::kNumFaces));
+        } else if (!pm_qa_inject_command(args)) {
+          Serial.println("qa: usage: status | faces | inject …");
+        }
       } else if (strncmp(line, "face ", 5) == 0) {
         const char *p = line + 5;
         while (*p == ' ') {
@@ -1969,8 +2065,13 @@ static void poll_serial_birth_commands() {
           g_clock_repaint_pending = true;
           Serial.printf("face: %d\n", idx);
         } else {
-          Serial.println("face: usage: face <0-10|name>");
+          Serial.println("face: usage: face <0-11|name>");
         }
+      } else if (strcmp(line, "ota status") == 0) {
+        pm_ota_print_status();
+      } else if (strcmp(line, "safe") == 0) {
+        pm_diag_enter_safe_mode("serial");
+        g_clock_repaint_pending = true;
       }
       continue;
     }
@@ -1994,6 +2095,14 @@ void setup() {
       delay(1000);
     }
   }
+
+  pm_ota_init();
+  pm_diag_init();
+  pm_ota_validate_pending_runtime();
+  pm_ota_validate_pending_facepack();
+  if (pm_faces_pack_available()) {
+    Serial.println("face pack: loaded (swipe to HuePack or serial: face pack)");
+  }
   tft->setBrightness(200);
   gfx->fillScreen(RGB565_BLACK);
   gfx->flush();
@@ -2015,6 +2124,7 @@ void setup() {
 
 void loop() {
   pm_screen_http_loop();
+  (void)pm_wifi_tick_reconnect();
   const uint32_t now = millis();
   poll_serial_birth_commands();
   const uint8_t side_ev = pm_side_buttons_poll(now);

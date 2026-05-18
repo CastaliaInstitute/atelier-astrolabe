@@ -1,0 +1,51 @@
+# Start a Cursor Cloud Agent when an issue is labeled `cloud-agent` (opt-in).
+#
+# Setup:
+#   1. Repo secret: CURSOR_API_KEY (https://cursor.com/dashboard/integrations)
+#   2. Cursor GitHub App on CastaliaInstitute/astrolabe (read/write)
+#   3. Add label `cloud-agent` to issues you want automated (do not bulk-label closed backlog issues)
+#
+# Manual: ./scripts/cloud-agent.sh <issue#>
+# Comment: @cursor on an issue (Cursor GitHub App — separate from this workflow)
+#
+name: Cursor agent dispatch
+
+on:
+  issues:
+    types: [opened, labeled]
+
+concurrency:
+  group: cursor-agent-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    name: Start cloud agent
+    runs-on: ubuntu-latest
+    if: >-
+      github.event.issue.state == 'open' &&
+      (
+        contains(github.event.issue.labels.*.name, 'cloud-agent') ||
+        (github.event.action == 'labeled' && github.event.label.name == 'cloud-agent')
+      )
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq jq
+          type -p curl >/dev/null || sudo apt-get install -y -qq curl
+
+      - name: Start Cursor agent for issue
+        env:
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${CURSOR_API_KEY:-}" ]]; then
+            echo "::error::Missing repo secret CURSOR_API_KEY"
+            exit 1
+          fi
+          ./scripts/cloud-agent.sh "${{ github.event.issue.number }}"

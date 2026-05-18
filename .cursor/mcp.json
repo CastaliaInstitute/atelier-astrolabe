@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "astrolabe-esp": {
+      "command": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/mcp/astrolabe-esp/.venv/bin/python",
+      "args": [
+        "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/mcp/astrolabe-esp/server.py"
+      ],
+      "cwd": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe",
+      "env": {
+        "ASTROLABE_ROOT": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe"
+      }
+    }
+  }
+}

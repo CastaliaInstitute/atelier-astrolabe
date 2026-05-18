@@ -1,0 +1,9 @@
+# port=/dev/cu.usbmodem1101
+[ 50054][E][TouchPoints.cpp:68] getPoint(): Invalid touch point index: 0
+[ 53722][E][TouchPoints.cpp:68] getPoint(): Invalid touch point index: 0
+[gesture] face @ 440,309
+[ 56024][E][TouchPoints.cpp:68] getPoint(): Invalid touch point index: 0
+[gesture] face @ 420,325
+[ 57663][E][TouchPoints.cpp:68] getPoint(): Invalid touch point index: 0
+[gesture] face @ 432,318
+[ 68193][E][TouchPoints.cpp:68] getPoint(): Invalid touch point index: 0

@@ -11,6 +11,10 @@ static constexpr const char *kKeyMo = "cyc_mo";
 static constexpr const char *kKeyD = "cyc_d";
 static constexpr const char *kKeyLen = "cyc_len";
 static constexpr const char *kKeyPeriod = "cyc_per";
+static constexpr const char *kKeyPreg = "cyc_preg";
+static constexpr const char *kKeyDueY = "cyc_due_y";
+static constexpr const char *kKeyDueMo = "cyc_due_mo";
+static constexpr const char *kKeyDueD = "cyc_due_d";
 
 static uint8_t clamp_cycle_len(uint8_t days) {
   if (days < PM_CYCLE_MIN_LENGTH_DAYS) {
@@ -97,6 +101,18 @@ bool pm_cycle_load(PmCycleProfile *out) {
     out->last_period_month = 0;
     out->last_period_day = 0;
   }
+
+  out->pregnancy_active = pref.getBool(kKeyPreg, false);
+  out->due_year = static_cast<uint16_t>(pref.getUShort(kKeyDueY, 0));
+  out->due_month = pref.getUChar(kKeyDueMo, 0);
+  out->due_day = pref.getUChar(kKeyDueD, 0);
+  out->has_due_date =
+      out->pregnancy_active && pm_cycle_ymd_sane(out->due_year, out->due_month, out->due_day);
+  if (!out->has_due_date) {
+    out->due_year = 0;
+    out->due_month = 0;
+    out->due_day = 0;
+  }
   return true;
 }
 
@@ -122,6 +138,14 @@ void pm_cycle_save(const PmCycleProfile *in) {
     pref.putUChar(kKeyMo, in->last_period_month);
     pref.putUChar(kKeyD, in->last_period_day);
   }
+  const bool has_due =
+      in->pregnancy_active && pm_cycle_ymd_sane(in->due_year, in->due_month, in->due_day);
+  pref.putBool(kKeyPreg, in->pregnancy_active && has_due);
+  if (has_due) {
+    pref.putUShort(kKeyDueY, in->due_year);
+    pref.putUChar(kKeyDueMo, in->due_month);
+    pref.putUChar(kKeyDueD, in->due_day);
+  }
   pref.end();
 }
 
@@ -130,6 +154,8 @@ void pm_cycle_clear(void) {
   p.cycle_length_days = PM_CYCLE_DEFAULT_LENGTH_DAYS;
   p.period_length_days = PM_CYCLE_DEFAULT_PERIOD_DAYS;
   p.has_last_period = false;
+  p.pregnancy_active = false;
+  p.has_due_date = false;
   pm_cycle_save(&p);
 }
 
@@ -217,4 +243,26 @@ int32_t pm_cycle_day_index_for_date(const PmCycleProfile *profile, uint16_t year
     return -1;
   }
   return diff % static_cast<int32_t>(profile->cycle_length_days);
+}
+
+int32_t pm_cycle_days_until_due(const PmCycleProfile *profile, uint16_t year, uint8_t month, uint8_t day) {
+  if (!profile || !profile->has_due_date || !pm_cycle_ymd_sane(year, month, day)) {
+    return INT32_MIN;
+  }
+  return pm_cycle_days_between(year, month, day, profile->due_year, profile->due_month, profile->due_day);
+}
+
+int32_t pm_cycle_gestational_day(const PmCycleProfile *profile, uint16_t year, uint8_t month, uint8_t day) {
+  const int32_t until = pm_cycle_days_until_due(profile, year, month, day);
+  if (until == INT32_MIN) {
+    return -1;
+  }
+  const int32_t gest = PM_CYCLE_GESTATION_DAYS - until;
+  if (gest < 0) {
+    return 0;
+  }
+  if (gest > PM_CYCLE_GESTATION_DAYS) {
+    return PM_CYCLE_GESTATION_DAYS;
+  }
+  return gest;
 }

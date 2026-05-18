@@ -1,0 +1,35 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "PIO Debug (upload)",
+      "type": "shell",
+      "command": "pio",
+      "args": [
+        "run",
+        "-e",
+        "waveshare_s3_175_debug",
+        "-t",
+        "upload"
+      ],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "PIO Build debug",
+      "type": "shell",
+      "command": "pio",
+      "args": ["run", "-e", "waveshare_s3_175_debug"],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "PIO Monitor",
+      "type": "shell",
+      "command": "pio",
+      "args": ["device", "monitor", "-e", "waveshare_s3_175_debug"],
+      "isBackground": true,
+      "problemMatcher": []
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "default": "face.hue_clock",
+  "faces": [
+    {
+      "id": "face.hue_clock",
+      "kind": "radial_face",
+      "layout": "faces/hue_clock/layout.json",
+      "source": "pack"
+    }
+  ]
+}

@@ -19,3 +19,9 @@ bool pm_ptt_button_held(void);
 
 /** True when the AXP2101 reports active USB/VBUS battery charging. */
 bool pm_pmu_charging(void);
+
+/** Inject PM_SIDE_BTN_* events (merged on next poll; for CI / qa inject). */
+void pm_side_buttons_inject(uint8_t ev_mask);
+
+/** Simulate PWR key hold state (pm_ptt_button_held). */
+void pm_side_buttons_inject_pek_hold(bool held);

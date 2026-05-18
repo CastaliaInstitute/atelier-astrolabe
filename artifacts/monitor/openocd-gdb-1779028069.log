@@ -1,0 +1,41 @@
+Open On-Chip Debugger  v0.11.0-esp32-20220706 (2022-07-06-15:49)
+Licensed under GNU GPL v2
+For bug reports, read
+	http://openocd.org/doc/doxygen/bugs.html
+Info : only one transport option; autoselect 'jtag'
+Info : esp_usb_jtag: VID set to 0x303a and PID to 0x1001
+Info : esp_usb_jtag: capabilities descriptor set to 0x2000
+Warn : Transport "jtag" was already selected
+adapter speed: 5000 kHz
+
+16MB
+Info : esp_usb_jtag: serial (A4:CB:8F:D6:42:60)
+Info : esp_usb_jtag: Device found. Base speed 40000KHz, div range 1 to 255
+Info : clock speed 5000 kHz
+Info : JTAG tap: esp32s3.cpu0 tap/device found: 0x120034e5 (mfg: 0x272 (Tensilica), part: 0x2003, ver: 0x1)
+Info : JTAG tap: esp32s3.cpu1 tap/device found: 0x120034e5 (mfg: 0x272 (Tensilica), part: 0x2003, ver: 0x1)
+Info : [esp32s3.cpu0] Debug controller was reset.
+Info : [esp32s3.cpu0] Core was reset.
+Info : [esp32s3.cpu1] Debug controller was reset.
+Info : [esp32s3.cpu1] Core was reset.
+Info : starting gdb server for esp32s3.cpu0 on 3333
+Info : Listening on port 3333 for gdb connections
+Info : Listening on port 6666 for tcl connections
+Info : Listening on port 4444 for telnet connections
+Info : [esp32s3.cpu0] Target halted, PC=0x42050813, debug_reason=00000001
+Info : Set GDB target to 'esp32s3.cpu0'
+Info : [esp32s3.cpu1] Target halted, PC=0x403777FB, debug_reason=00000000
+Info : accepting 'gdb' connection on tcp/3333
+Warn : No symbols for FreeRTOS!
+Info : [esp32s3.cpu0] Target halted, PC=0x403B2482, debug_reason=00000001
+Error: Failed to get flash maps (4294967295)!
+Warn : Failed to get flash mappings (-4)!
+Info : [esp32s3.cpu0] Target halted, PC=0x403B2482, debug_reason=00000001
+Error: Failed to get flash size!
+Info : [esp32s3.cpu0] Target halted, PC=0x403B2482, debug_reason=00000001
+Error: Failed to get flash size!
+Error: Failed to probe flash, size 0 KB
+Error: auto_probe failed
+Error: Connect failed. Consider setting up a gdb-attach event for the target to prepare target for GDB connect, or use 'gdb_memory_map disable'.
+Error: attempted 'gdb' connection rejected
+shutdown command invoked

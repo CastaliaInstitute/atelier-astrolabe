@@ -19,7 +19,7 @@ URL="https://github.com/actions/runner/releases/download/v${VER}/${PKG}-${VER}.t
 
 command -v gh >/dev/null || { echo "install gh first"; exit 1; }
 
-if ! TOKEN="$(gh api "repos/${OWNER}/${NAME}/actions/runners/registration-token" --jq .token 2>/dev/null)"; then
+if ! TOKEN="$(gh api -X POST "repos/${OWNER}/${NAME}/actions/runners/registration-token" --jq .token 2>/dev/null)"; then
   echo "error: cannot get registration token (need repo admin)." >&2
   echo "  GitHub → ${OWNER}/${NAME} → Settings → Actions → Runners → New self-hosted runner" >&2
   echo "  Copy the token, then:" >&2
@@ -54,9 +54,9 @@ Start (keep terminal open or use launchd):
 
   cd ${INSTALL_DIR} && ./run.sh
 
-Secrets for hardware QA: copy or symlink
-  include/secrets.local.h
-to this machine (already at ~/GitHub/CastaliaInstitute/astrolabe/include/secrets.local.h).
+Secrets: set ASTROLABE_SECRETS_FILE (default ~/GitHub/astrolabe/include/secrets.local.h)
+Optional: ASTROLABE_UPLOAD_PORT=/dev/cu.usbmodem101 in LaunchAgent (install-runner-launchagent.sh)
 
-Run QA from GitHub: Actions → Firmware hardware QA → issue_number + face
+Enable integration gate: repo variable ENABLE_INTEGRATION_DEVICE_GATE=true
+Remove stale offline runners in GitHub → Settings → Actions → Runners
 EOF

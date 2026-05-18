@@ -1,11 +1,11 @@
 ---
-description: Integration branch — issue PRs land here; main after build + flash
+description: Integration branch — issue PRs land here; main after build + device gate
 alwaysApply: true
 ---
 
 # Integration branch
 
-**`integration`** is the merge target for issue work. **`main`** is the release line: it must always **build** and have been **flashed** on hardware before promotion.
+**`integration`** is the merge target for issue work. **`main`** is the release line: it must **build**, pass the **device gate** (functional test on hardware), and have been **flashed** before promotion.
 
 ## Branch flow
 
@@ -15,17 +15,33 @@ fix|feature/<#>-slug  ──PR──►  integration  ──promote──►  ma
          └── branch from integration ┘
 ```
 
+## CI vs device gate
+
+| Check | Runner | Required for |
+|-------|--------|----------------|
+| **Firmware build** | `ubuntu-latest` | Every PR to `integration` |
+| **Integration device gate** | `astrolabe-watch` | Auto on `integration` when `ENABLE_INTEGRATION_DEVICE_GATE=true` |
+
+**Cloud CI green is necessary, not sufficient** for clock-face or input-handler changes.
+
 ## Agents (Cursor Cloud / local)
 
 **May do without asking:**
 
 - Push the issue branch
 - Open a PR with base **`integration`** (not `main`)
-- Merge that PR into **`integration`** when:
-  - Scope is a single issue (`Closes #N`)
-  - `./scripts/build.sh` passes (CI green on the PR)
-  - No secrets in the diff
-  - Clock-face UI: PR notes that hardware QA on **`integration`** is required before promotion (agents cannot flash in cloud)
+
+**May merge into `integration` when:**
+
+- Scope is a single issue (`Closes #N`)
+- **Firmware build** CI is green on the PR
+- No secrets in the diff
+- **Non-UI changes** (docs, scripts without face behavior)
+
+**Do not merge into `integration` when the PR touches** `sketches/**/faces/`, gesture/button handlers, or face draw paths **until**:
+
+- **Integration device gate** has passed on the PR commit or current `integration` HEAD, **or**
+- PR explicitly notes manual `./scripts/functional_test.py` on that SHA and links `artifacts/functional/latest/report.json`
 
 **Do not** push or merge directly to **`main`**. Promotion only:
 
@@ -33,12 +49,13 @@ fix|feature/<#>-slug  ──PR──►  integration  ──promote──►  ma
 ./scripts/promote-integration.sh --flash-ok
 ```
 
-Run promotion after flashing **`integration`** on a watch and smoke-testing.
+Requires a passing functional test report at `integration` HEAD (unless `--skip-functional`).
 
 ## Humans
 
 - Default PR base branch: **`integration`**
-- After a batch of merged issue PRs: flash **`integration`**, then run `promote-integration.sh --flash-ok`
-- Hotfix on **`main`**: cherry-pick or merge to **`main`**, then merge **`main`** back into **`integration`** so branches do not diverge
+- Enable **`ENABLE_INTEGRATION_DEVICE_GATE=true`** (Settings → Actions → Variables)
+- Configure **`astrolabe-watch`** environment with optional approval before revert PRs (`ASTROLABE_FT_UNMERGE_PUSH=1`)
+- After promotion batch: remove offline self-hosted runners; keep one bench Mac labeled `astrolabe-watch`
 
 See [`docs/WORKFLOW.md`](docs/WORKFLOW.md).

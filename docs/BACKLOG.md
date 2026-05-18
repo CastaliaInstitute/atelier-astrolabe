@@ -26,7 +26,7 @@ Edit this file when you start or finish work. Keep **In progress** to 1–3 item
 
 ## In progress
 
-_(none)_
+- [~] **P1** Modular OTA (runtime + face-pack A/B, 32 MB) — Issue: [#60](https://github.com/CastaliaInstitute/astrolabe/issues/60), PR [#66](https://github.com/CastaliaInstitute/astrolabe/pull/66), [`docs/design/modular-ota.md`](design/modular-ota.md)
 
 ---
 
@@ -44,7 +44,16 @@ _(none)_
 
 - [ ] **P1** Astrology / transits face: full-screen chart + planet/sign icons — Issue [#3](https://github.com/CastaliaInstitute/astrolabe/issues/3); glyphs done; polish chrome / aspects TBD
 
-- [ ] **P1** **Castalia ephemeris server** (dependency — **mynah / Supabase**, not firmware-only) — host at [**ephemeris.castalia.institute**](https://ephemeris.castalia.institute): Swiss Ephemeris (or equivalent) Edge Function/API. Replace on-watch approximations in [`pm_transit.cpp`](../sketches/Astrolabe/pm_transit.cpp). API: birth datetime + lat/lon → natal longitudes, houses, synastry aspects between two charts. Astrolabe calls with Castalia JWT; cache briefly on device. Unblocks **transits**, **celestial map**, **natal**, **synastry**. Firmware: `pm_ephemeris_fetch` + fallback to local `pm_transit` when offline.
+- [ ] **P1** **Castalia ephemeris server** (optional accuracy upgrade — **mynah / Supabase**, not firmware-only, and **not a Castalian Rhythms V0 blocker**) — host at [**ephemeris.castalia.institute**](https://ephemeris.castalia.institute): Swiss Ephemeris (or equivalent) Edge Function/API. Replace/refine on-watch approximations in [`pm_transit.cpp`](../sketches/Astrolabe/pm_transit.cpp) when online. API: birth datetime + lat/lon → natal longitudes, houses, synastry aspects between two charts. Astrolabe calls with Castalia JWT; cache briefly on device. Firmware: `pm_ephemeris_fetch` + fallback to local `pm_transit` when offline.
+
+### Castalian Rhythms V0 (on-device-first) — **P1 priority**
+
+Canonical design: [`castalian-rhythms.md`](castalian-rhythms.md). V0 defaults to local ephemeris + embedded interpretation KB + firmware fusion; Castalia services are optional enrichments.
+
+- [ ] **P1** **On-device natal, houses, transit aspects** — Issue [#62](https://github.com/CastaliaInstitute/astrolabe/issues/62): compute primary-profile chart facts locally from NVS birth/location data, NTP/RTC time, and `pm_transit`-class ephemeris helpers; include precision notes for unknown birth time/location.
+- [ ] **P1** **Embedded interpretation KB v0** — Issue [#63](https://github.com/CastaliaInstitute/astrolabe/issues/63): ship a compact structured KB for planets, signs, houses, aspects, transits, tags, and safety copy that firmware can select without remote prompts.
+- [ ] **P1** **On-device fusion and compact daily card** — Issue [#64](https://github.com/CastaliaInstitute/astrolabe/issues/64): deterministic firmware rules combine chart facts + KB snippets into a short cached card with title, themes, symbols, and confidence/precision text.
+- [ ] **P1** **Daily card clock face and Astrology BOOT** — Issue [#65](https://github.com/CastaliaInstitute/astrolabe/issues/65): present the compact card on-device and reuse it for the Astrology face BOOT brief; cloud/Mynah prose expansion remains optional.
 
 - [ ] **P1** **Orrery face** — new `ClockFace`: **orrery** view with the **Sun** at center and **planets on concentric rings** (orbital radii scaled for round display; positions from `pm_transit` or **Castalia ephemeris server** when available). Optional: animate slow orbital motion over time; tap a planet for label. Distinct from flat **celestial map** (sky dome) and **transits** zodiac wheel.
 
@@ -52,13 +61,20 @@ _(none)_
 
 - [ ] **P1** **Natal chart face** — dedicated `ClockFace` (or mode on Astrology face): full **natal wheel** from birth data in NVS (`pm_birth_nvs`, serial `birth Y M D H MI`) — all major bodies + Asc/MC when ephemeris server supports houses; static chart for birth moment vs live **transits** overlay optional. Same round layout language as transits face (signs, houses, aspect lines TBD); planet/sign **icons** not abbreviations. Requires stored birth + accurate **Castalia ephemeris server**; distinct from transit-only view in `draw_astrology_face` (today: natal Sun marker only).
 
-- [ ] **P1** **Synastry face** — new `ClockFace`: **synastry** (and related) charts for **partners, children, family** via **ephemeris.castalia.institute** (natal pairs → aspect grid or dual-wheel overlay on round display). **Swipe up/down** cycles chart targets (e.g. user↔partner, user↔child, child↔child composites TBD). **STT** (PWR) to ask questions about the active chart; **TTS** / text reading of highlights (BOOT or auto-brief). Store named profiles in NVS (`pm_chart_profiles`): birth date, place → geocode lat/lon, optional birth time (default noon local if unknown). **Demo seed profiles:** **Camille** (1984-09-23, Exeter, NH) partner; **Aidan** (2003-09-12, Littleton, CO); **Finn** (2024-04-30, Monument, CO); **Aleia** (2025-05-04, Monument, CO). Depends on ephemeris server + user natal in `pm_birth_nvs`.
-
 - [x] **P1** **Moon phase face** — `ClockFace::Moon` with `pm_transit` illumination disk; PWR hold STT + moon system prompt; BOOT spoken phase brief via `pm_voice_post_message`.
 
 ### Schedule / accessibility (Calcifer CalDAV)
 
 - [x] **P1** **Autism countdown face** — `CalciferCountdown` face + `pm_calcifer`; 5‑minute “ending soon” visual cue; BOOT agenda when no replay cache.
+
+### Music / Spotify face (“Vinyl Queue”)
+
+Design: [`docs/mynah-spotify-face.md`](mynah-spotify-face.md). **Swipe explores, tap commits** — vertical album-art stream with center vinyl record; hub-built Music Stream + preprocessed RGB565 art. Replaces transport-bar MVP in [`pm_face_spotify.cpp`](../sketches/Astrolabe/faces/spotify/pm_face_spotify.cpp).
+
+- [ ] **P1** **Mynah Spotify Face — design doc + epic** ([#72](https://github.com/CastaliaInstitute/astrolabe/issues/72)) — canonical spec in `docs/mynah-spotify-face.md`; unblocks milestone work below
+- [ ] **P1** **Spotify face M1–M2 (firmware)** — static vinyl layout + gesture prototype (swipe browse, tap commit, double-tap return, 15s browse timeout) on device; fake or stub stream
+- [ ] **P1** **Spotify face M3–M4 (hub + integration)** — hub `spotify_state` / Music Stream, album-art pipeline, `spotify_command` + `browse_delta`; Castalia `mynah-spotify` or successor; Astrolabe render + command path
+- [ ] **P2** **Spotify face M5 (polish)** — hue-time ring, groove glint overlay, Commonplace save (long press), room label, hardware QA per face table
 
 ### Glance / utility faces
 
@@ -75,7 +91,8 @@ _(none)_
 ### Phase 3 (satellite link + updates)
 
 - [ ] **P2** BLE or LAN presence with home Mynah — [pocketwatch.md § Phased delivery](pocketwatch.md#phased-delivery)
-- [ ] **P2** OTA firmware updates (GitHub or custom bucket TBD)
+- [~] **P1** Modular OTA Phase 0–3 — partitions, safe face, runtime OTA, face-pack OTA — Issue: [#60](https://github.com/CastaliaInstitute/astrolabe/issues/60)
+- [ ] **P2** OTA signed channels + `updates.castalia.institute` — [#60](https://github.com/CastaliaInstitute/astrolabe/issues/60) Phase 5 follow-up
 
 ### Ambient / delight (low priority)
 
@@ -112,7 +129,7 @@ Derived from [README limits](../README.md#limits-mvp) and [open questions](pocke
 - [x] **P1** Astrology chart glyphs — zodiac + planet alpha masks (`embed_*_glyphs.py`, `pm_zodiac_glyphs`); wheel radius `R−10`. Remaining: trim footer chrome, aspect lines, ephemeris server accuracy.
 - [x] **P1** Remove gesture debug labels (e.g. swipe up/down banners on clock face); drop or gate `g_gesture_banner` / `pm_gesture` debug UI for production
 - [x] **P1** Moon face UX bugfixes — Closes [#1](https://github.com/CastaliaInstitute/astrolabe/issues/1): swipe up/down cycles faces; removed phase % label and footer hints
-- [ ] **P1** **Bugfix: circadian hue mapping** — Issue [#2](https://github.com/CastaliaInstitute/astrolabe/issues/2) — replace linear `sec_of_day * (360/86400)` (midnight reads red/wrong) with **keyframed hue** + interpolation in one helper used by home face fill and `pm_face_draw_circumference_rainbow_24h` ([`pm_clock.cpp`](../sketches/Astrolabe/faces/pm_clock.cpp), [`pm_face_draw.cpp`](../sketches/Astrolabe/faces/shared/pm_face_draw.cpp)). **Anchor:** midnight **250°** indigo → pre-dawn magenta → sunrise **340°** rose → morning amber **40°** → noon **120°** green → afternoon cyan **185°** → dusk **245°** → night violet **270°** → wrap to 250°. **Stops (hour, hue°):** `(0,250) (3,270) (5,310) (6,340) (8,40) (10,70) (12,120) (15,185) (17,215) (19,245) (21,270) (24,250)`. **Display:** restrained face — low-V dark bg from hue (~45% S, 8% V), accents higher S/V; optional debug band names: Nocturne 00–04, Aurora 05–07, Solar 08–11, Meridian 12–14, Zephyr 15–17, Vesper 18–20, Oracle 21–23. QA: screenshot home face at 00:00, 06:00, 12:00, 18:00.
+- [x] **P1** **Bugfix: circadian hue mapping** — Issue [#2](https://github.com/CastaliaInstitute/astrolabe/issues/2) — `pm_circadian_hue` keyframes for home face + rainbow rim (5-stop MVP; full 12-stop backlog in [#51](https://github.com/CastaliaInstitute/astrolabe/issues/51)).
 - [ ] **P2** Clock faces: local timezone (NTP + geo or user setting); README currently notes UTC-only
 - [x] **P2** Voice: raise or stream around HTTP body/response caps in `pm_voice.cpp` for long TTS
 - [ ] **P2** Confirm TTS output path (codec, amp, speaker) for pinned Waveshare SKU in README
@@ -124,12 +141,14 @@ Derived from [README limits](../README.md#limits-mvp) and [open questions](pocke
 
 ## Done
 
+- [x] **2026-05-17** Synastry clock face: dual-wheel partner/family charts, NVS chart profiles with demo seeds, up/down target cycling, and PWR/BOOT voice prompts. PR [#75](https://github.com/CastaliaInstitute/astrolabe/pull/75); Closes [#32](https://github.com/CastaliaInstitute/astrolabe/issues/32). Hardware QA on `integration` required before promotion to `main`.
+- [x] **2026-05-17** Castalian Rhythms V0 design doc/backlog epic: on-device-first architecture, embedded KB/fusion plan, and child issues [#62](https://github.com/CastaliaInstitute/astrolabe/issues/62)–[#65](https://github.com/CastaliaInstitute/astrolabe/issues/65). PR [#67](https://github.com/CastaliaInstitute/astrolabe/pull/67); Closes [#61](https://github.com/CastaliaInstitute/astrolabe/issues/61)
 - [x] **2026-05-17** Version clock face: git branch/SHA/date + GitHub commit QR (`pm_build_info.h`). PR [#59](https://github.com/CastaliaInstitute/astrolabe/pull/59); Closes [#58](https://github.com/CastaliaInstitute/astrolabe/issues/58)
 - [x] **2026-05-17** Classic analog dial: full-screen inside 24h rainbow rim (`kAnalogR` from `R−9` inset, scaled hands/hub)
 - [x] **2026-05-17** Menstrual cycle face: NVS-only circular cycle ring, fertile/ovulation bands, tap day-1 logging, and swipe length presets. PR [#12](https://github.com/CastaliaInstitute/astrolabe/pull/12); Closes [#11](https://github.com/CastaliaInstitute/astrolabe/issues/11)
 - [x] **2026-05-17** Astrology face polish: ephemeris fetch + glyph wheel. Closes [#3](https://github.com/CastaliaInstitute/astrolabe/issues/3)
 - [x] **2026-05-17** Charging ripples on rainbow rim when USB-C. Closes [#4](https://github.com/CastaliaInstitute/astrolabe/issues/4)
-- [x] **2026-05-17** Circadian 24h hue keyframes (`pm_circadian_hue`). Closes [#2](https://github.com/CastaliaInstitute/astrolabe/issues/2)
+- [x] **2026-05-17** Circadian 24h hue keyframes (`pm_circadian_hue`). Closes [#2](https://github.com/CastaliaInstitute/astrolabe/issues/2); PR [#8](https://github.com/CastaliaInstitute/astrolabe/pull/8)
 - [x] **2026-05-17** Auth docs: README explains anon bearer vs Castalia JWT for voice, commonplace, and Calcifer. Closes [#5](https://github.com/CastaliaInstitute/astrolabe/issues/5)
 - [x] **2026-05-17** Moon face UX: swipe cycles faces; removed phase label and footer hints. Closes [#1](https://github.com/CastaliaInstitute/astrolabe/issues/1)
 - [x] **2026-05-16** Commonplace journal from hue home (PWR hold → `mynah-pocket-journal` via `pm_commonplace`)

@@ -1,0 +1,73 @@
+---
+description: Flash watch, JTAG face inject, screenshot, and evaluate new clock faces
+globs: sketches/**/*,src/**/*,include/**/*,mcp/astrolabe-esp/**/*
+alwaysApply: false
+---
+
+# Hardware QA loop (clock faces)
+
+When you **finish or materially change a clock face**, run this loop before marking the backlog item done (skip only if the user says no hardware is connected).
+
+## 1. Build and load firmware
+
+1. `astrolabe_list_ports` (MCP) or confirm `/dev/cu.usbmodem*` (303A:1001).
+2. `astrolabe_build` then **`astrolabe_upload`** (`waveshare_s3_175`) — primary path to load the new face code.
+3. **JTAG / debug** (optional fast path): build `waveshare_s3_175_debug`, use **`astrolabe_debug_gdb`** or extend inject scripts like `astrolabe_debug_inject_astro_boot` to set the target face without a full reflash when only UI state is under test.
+
+## 2. Show the target face on hardware
+
+- Swipe on the watch to the new face, **or**
+- **JTAG/GDB** (debug ELF `waveshare_s3_175_debug`): MCP **`astrolabe_debug_set_face`** or `./scripts/jtag_set_face.sh astro` — sets `s_clock_face` + `g_clock_repaint_pending`, then `continue`.
+- Serial: `face astro` then `astro` for TTS (release build too).
+
+| Face | Index | JTAG / serial name |
+|------|-------|-------------------|
+| ClassicAnalog | 0 | `classic`, `hue` |
+| Apocalypso | 1 | `apocalypso` |
+| DigitalLocal | 2 | `digital` |
+| Spotify | 3 | `spotify` |
+| Astrology | 4 | `astro`, `astrology` |
+| Moon | 5 | `moon` |
+| CalciferCountdown | 6 | `calcifer`, `schedule` |
+| Castalia | 7 | `castalia` |
+| Synastry | 8 | `syn`, `synastry` |
+
+GDB symbols (debug ELF): `_ZL12s_clock_face`, `_ZL23g_clock_repaint_pending`.
+
+## 3. Screenshot
+
+Watch must be on **Wi‑Fi** (framebuffer HTTP server).
+
+1. Get IP from serial boot log, mDNS `astrolabe-xxxx.local` (when implemented), or LAN config page.
+2. `curl -sf "http://<watch-ip>/screen.bmp" -o artifacts/qa-<face>-<date>.bmp`
+3. Open the BMP in the agent (Read tool) or attach to the user for review.
+
+## 4. Evaluate
+
+Briefly assess the capture and note fixes if needed:
+
+- Round **safe area** (466×466); nothing critical clipped by the bezel
+- **Legibility** (contrast, font size, icons vs debug text)
+- **Correct data** (time, weather, chart, countdown, etc.)
+- **Performance** (tearing, flicker, obvious slowdown)
+- Matches the **backlog / design** intent
+
+Record outcome in the commit message, PR, or **Done** line on the backlog item. If it fails QA, do not mark the feature complete.
+
+## Functional test (all faces)
+
+After large face or input-handler changes, run the full matrix (screenshot + injected touch/button, serial crash watch):
+
+```bash
+./scripts/functional_test.py --flash
+```
+
+CI: **Firmware functional test** workflow or `./scripts/ci-functional-test.sh` on the `astrolabe-watch` runner.
+
+On failure, CI triages and files a deduped issue. Revert PRs only when `ASTROLABE_FT_UNMERGE_PUSH=1` (off by default). Prefer **Integration device gate** over separate flash + FT workflows.
+
+Serial QA: `qa status`, `qa inject swipe left`, `qa inject tap 233 269`, `qa inject boot`.
+
+## MCP
+
+Prefer **`astrolabe_*`** tools ([`mcp/astrolabe-esp/README.md`](mcp/astrolabe-esp/README.md)). Reload MCP if tools are missing.
