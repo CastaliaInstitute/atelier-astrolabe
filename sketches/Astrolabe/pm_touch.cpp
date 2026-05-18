@@ -9,9 +9,14 @@ static TouchDrvCST92xx g_touch;
 static bool g_touch_ok = false;
 
 bool pm_touch_begin() {
+#ifdef ASTROLABE_QEMU
+  g_touch_ok = true;
+  return true;
+#else
   g_touch.setPins(TP_RST, TP_INT);
   g_touch_ok = g_touch.begin(Wire, CST92XX_SLAVE_ADDRESS, IIC_SDA, IIC_SCL);
   return g_touch_ok;
+#endif
 }
 
 uint8_t pm_touch_sample(int16_t *xs, int16_t *ys, uint8_t max_pts) {

@@ -1,11 +1,11 @@
 ---
-description: Integration branch — issue PRs land here; main after build + device gate
+description: Integration branch — sim gate for merge; hardware device gate for main promotion
 alwaysApply: true
 ---
 
 # Integration branch
 
-**`integration`** is the merge target for issue work. **`main`** is the release line: it must **build**, pass the **device gate** (functional test on hardware), and have been **flashed** before promotion.
+**`integration`** is the merge target for issue work. **`main`** is the release line: it must **build**, pass the **hardware device gate** on **m1** (`astrolabe-watch`), and have been **flashed** before promotion.
 
 ## Branch flow
 
@@ -15,14 +15,15 @@ fix|feature/<#>-slug  ──PR──►  integration  ──promote──►  ma
          └── branch from integration ┘
 ```
 
-## CI vs device gate
+## CI gates
 
 | Check | Runner | Required for |
 |-------|--------|----------------|
-| **Firmware build** | `ubuntu-latest` | Every PR to `integration` |
-| **Integration device gate** | `astrolabe-watch` | Auto on `integration` when `ENABLE_INTEGRATION_DEVICE_GATE=true` |
+| **Firmware build** | `ubuntu-latest` | Merge to **`integration`** |
+| **Integration sim gate** (QEMU) | `ubuntu-latest` | Merge to **`integration`** when `ENABLE_INTEGRATION_SIM_GATE=true` |
+| **Integration device gate** | `astrolabe-watch` (m1) | **`main` promotion** only — not a merge blocker on `integration` |
 
-**Cloud CI green is necessary, not sufficient** for clock-face or input-handler changes.
+Sim gate exercises serial face/qa paths in QEMU (subset matrix). Hardware gate runs full BMP/Wi‑Fi matrix on the bench watch before `promote-integration.sh`.
 
 ## Agents (Cursor Cloud / local)
 
@@ -38,10 +39,7 @@ fix|feature/<#>-slug  ──PR──►  integration  ──promote──►  ma
 - No secrets in the diff
 - **Non-UI changes** (docs, scripts without face behavior)
 
-**Do not merge into `integration` when the PR touches** `sketches/**/faces/`, gesture/button handlers, or face draw paths **until**:
-
-- **Integration device gate** has passed on the PR commit or current `integration` HEAD, **or**
-- PR explicitly notes manual `./scripts/functional_test.py` on that SHA and links `artifacts/functional/latest/report.json`
+**Face / gesture PRs:** merge when **Firmware build** + **Integration sim gate** are green. Prefer a green **device gate** run on m1 before promotion, but it is not required to merge.
 
 **Do not** push or merge directly to **`main`**. Promotion only:
 
@@ -49,12 +47,13 @@ fix|feature/<#>-slug  ──PR──►  integration  ──promote──►  ma
 ./scripts/promote-integration.sh --flash-ok
 ```
 
-Requires a passing functional test report at `integration` HEAD (unless `--skip-functional`).
+Requires a passing **hardware** report (`gate: hardware` in `artifacts/functional/latest/report.json`) at `integration` HEAD (unless `--skip-functional`). Sim reports live under `artifacts/functional-sim/` and do not qualify.
 
 ## Humans
 
 - Default PR base branch: **`integration`**
-- Enable **`ENABLE_INTEGRATION_DEVICE_GATE=true`** (Settings → Actions → Variables)
+- Enable **`ENABLE_INTEGRATION_SIM_GATE=true`** and **`ENABLE_INTEGRATION_DEVICE_GATE=true`** (Settings → Actions → Variables)
+- Branch protection on **`integration`**: required checks **Firmware build** + **Integration sim gate** (not device gate)
 - Configure **`astrolabe-watch`** environment with optional approval before revert PRs (`ASTROLABE_FT_UNMERGE_PUSH=1`)
 - After promotion batch: remove offline self-hosted runners; keep one bench Mac labeled `astrolabe-watch`
 

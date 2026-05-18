@@ -1,0 +1,25 @@
+{
+  "sketch": "Astrolabe",
+  "face_count": 3,
+  "center": [233, 233],
+  "faces": [
+    {
+      "id": 0,
+      "name": "classic",
+      "gestures": ["swipe_left", "swipe_right"],
+      "buttons": ["boot"]
+    },
+    {
+      "id": 1,
+      "name": "apocalypso",
+      "gestures": ["swipe_left", "swipe_right"],
+      "buttons": []
+    },
+    {
+      "id": 2,
+      "name": "digital",
+      "gestures": ["tap:233,233"],
+      "buttons": []
+    }
+  ]
+}

@@ -354,6 +354,7 @@ def main() -> int:
 
         report = {
             "timestamp": stamp,
+            "gate": "hardware",
             "matrix": str(args.matrix),
             "ip": ip,
             "port": port,
