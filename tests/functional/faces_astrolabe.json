@@ -1,6 +1,6 @@
 {
   "sketch": "Astrolabe",
-  "face_count": 9,
+  "face_count": 10,
   "center": [233, 233],
   "faces": [
     {
@@ -65,6 +65,13 @@
       "source_paths": ["sketches/Astrolabe/faces/synastry"],
       "gestures": ["tap:233,233", "swipe_left"],
       "buttons": []
+    },
+    {
+      "id": 9,
+      "name": "rhythms",
+      "source_paths": ["sketches/Astrolabe/faces/rhythms", "sketches/Astrolabe/pm_rhythms.cpp", "sketches/Astrolabe/pm_rhythms.h"],
+      "gestures": ["tap:233,233", "swipe_left", "swipe_right"],
+      "buttons": ["boot"]
     }
   ]
 }

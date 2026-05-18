@@ -18,6 +18,8 @@ enum class ClockFace : uint8_t {
   Castalia,
   /** Dual natal wheel/aspects for saved partner/family chart profiles. */
   Synastry,
+  /** Castalian Rhythms compact daily card; BOOT speaks the cached card. */
+  Rhythms,
   kNumFaces,
 };
 
