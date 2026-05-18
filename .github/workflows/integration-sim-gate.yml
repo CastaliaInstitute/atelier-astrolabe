@@ -6,6 +6,8 @@
 name: Integration sim gate
 
 on:
+  pull_request:
+    branches: [integration]
   workflow_dispatch:
     inputs:
       ref:
@@ -26,6 +28,7 @@ jobs:
     name: QEMU sim test
     runs-on: ubuntu-latest
     if: >-
+      github.event_name == 'pull_request' ||
       github.event_name == 'workflow_dispatch' ||
       (
         github.event_name == 'workflow_run' &&
@@ -35,7 +38,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.event.workflow_run.head_sha }}
+          ref: >-
+            ${{ github.event_name == 'workflow_dispatch' && inputs.ref
+            || github.event_name == 'pull_request' && github.event.pull_request.head.sha
+            || github.event.workflow_run.head_sha }}
 
       - name: Cache PlatformIO
         uses: actions/cache@v4

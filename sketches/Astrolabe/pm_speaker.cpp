@@ -17,6 +17,8 @@ extern "C" {
 }
 
 #include "pin_config.h"
+#include "faces/pm_faces.h"
+#include "pm_audio_analyzer.h"
 #include "pm_mic.h"
 #include "pm_speaker_pcm.h"
 
@@ -104,6 +106,7 @@ static esp_err_t i2s_tx_begin(int sample_hz, int channels) {
 }
 
 static esp_err_t i2s_write_all(const int16_t *pcm, size_t total_s16) {
+  pm_audio_analyzer_feed_out(pcm, total_s16, 2);
   const uint8_t *p = reinterpret_cast<const uint8_t *>(pcm);
   size_t remain = total_s16 * sizeof(int16_t);
   while (remain > 0) {
@@ -151,7 +154,9 @@ static bool play_mp3_streaming(const uint8_t *mp3, size_t mp3_len) {
     return false;
   }
 
-  pm_mic_stop();
+  if (pm_faces_current() != ClockFace::Spectrum) {
+    pm_mic_stop();
+  }
 
   mp3dec_t dec;
   mp3dec_init(&dec);

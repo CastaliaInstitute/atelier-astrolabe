@@ -35,11 +35,11 @@ Sim gate exercises serial face/qa paths in QEMU (subset matrix). Hardware gate r
 **May merge into `integration` when:**
 
 - Scope is a single issue (`Closes #N`)
-- **Firmware build** CI is green on the PR
+- **Firmware build** + **Integration sim gate** CI are green on the PR (`ENABLE_INTEGRATION_SIM_GATE=true`)
 - No secrets in the diff
-- **Non-UI changes** (docs, scripts without face behavior)
+- Applies to **all** changes (docs, scripts, faces, gestures) — **no bench watch / device gate required to merge**
 
-**Face / gesture PRs:** merge when **Firmware build** + **Integration sim gate** are green. Prefer a green **device gate** run on m1 before promotion, but it is not required to merge.
+**Before `main` promotion:** green **Integration device gate** on m1 (or local `./scripts/functional_test.py --flash`) at `integration` HEAD. Optional hardware QA anytime on `integration` for screenshots ([hardware-qa.mdc](hardware-qa.mdc)).
 
 **Do not** push or merge directly to **`main`**. Promotion only:
 
