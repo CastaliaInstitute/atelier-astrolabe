@@ -15,9 +15,9 @@ Before starting Astrolabe firmware work:
 
 When finishing a **feature** (backlog item):
 
-1. If it adds or changes a **clock face**, run the **hardware QA loop** in [hardware-qa.mdc](hardware-qa.mdc): upload (or JTAG inject face) → `screen.bmp` screenshot → evaluate before marking done.
-2. Mark it `[x]` and move it to **Done** with `YYYY-MM-DD` and **PR / issue** link (`Closes #N`).
-3. Open or update **PR** against **`integration`**; merge when CI green (agents: see [integration-branch.mdc](integration-branch.mdc)). Promote to **`main`** only after flash QA.
+1. Open or update **PR** against **`integration`**; merge when **Firmware build** + **Integration sim gate** are green (agents: [integration-branch.mdc](integration-branch.mdc)). Bench hardware is **not** required to merge.
+2. Mark it `[x]` and move it to **Done** with `YYYY-MM-DD` and **PR / issue** link (`Closes #N`) after merge (or when PR is ready).
+3. **Clock faces / promotion:** before **`main`**, run hardware QA ([hardware-qa.mdc](hardware-qa.mdc)) or pass **Integration device gate**; optional `screen.bmp` on the issue anytime.
 4. **Commit before the next feature** — see [git-workflow.mdc](git-workflow.mdc) and [github-workflow.mdc](github-workflow.mdc).
 5. Only then pick up the next backlog item (new issue + branch).
 

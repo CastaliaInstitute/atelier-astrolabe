@@ -96,15 +96,15 @@ Implement GitHub issue #<N> for CastaliaInstitute/astrolabe.
 
 Branch: fix/<N>-<slug>   (or feature/<N>-<slug>)
 Read: issue body, docs/BACKLOG.md, docs/WORKFLOW.md, docs/pocketwatch.md (if needed).
-Rules: .cursor/rules/backlog.mdc, git-workflow.mdc, github-workflow.mdc; hardware-qa.mdc for clock faces.
+Rules: .cursor/rules/backlog.mdc, git-workflow.mdc, github-workflow.mdc, integration-branch.mdc.
 
 Deliverables:
 - Code + ./scripts/build.sh passes
 - docs/BACKLOG.md updated (In progress → Done with PR link)
-- PR against integration with "Closes #<N>"; merge when CI green if confident (single issue only)
-- Do not commit secrets; do not merge to main (promotion is separate)
+- PR against integration with "Closes #<N>"; merge when Firmware build + Integration sim gate are green (single issue only)
+- Do not commit secrets; do not merge to main (promotion needs hardware gate)
 
-Hardware: this repo targets ESP32 watch firmware. You cannot flash hardware in cloud; note in PR if on-device QA is required.
+Hardware: cloud agents cannot flash the watch. Sim gate (QEMU) covers merge; bench flash/screen.bmp is for promotion to main or optional QA — not a merge blocker.
 ```
 
 ### What Cloud Agents can / cannot do here
@@ -115,7 +115,7 @@ Hardware: this repo targets ESP32 watch firmware. You cannot flash hardware in c
 | Run `./scripts/build.sh` in VM | `screen.bmp` unless Wi‑Fi + device on your LAN |
 | Attach screenshots/logs to PR | Castalia sign-in on physical device |
 
-After the PR merges to **`integration`**, run **hardware QA** on **`integration`** for face/UI changes ([`hardware-qa.mdc`](../.cursor/rules/hardware-qa.mdc)). When a batch is verified, **promote** to **`main`**.
+Merging to **`integration`** does **not** require the bench watch — **Integration sim gate** (QEMU) is the automated gate. Run **hardware QA** on **`integration`** before **promoting** to **`main`** ([`hardware-qa.mdc`](../.cursor/rules/hardware-qa.mdc)).
 
 ### CI
 
@@ -217,10 +217,9 @@ Optional repo variables: `ENABLE_INTEGRATION_HW_QA=true`, `ASTROLABE_QA_ISSUE=2`
 
 ## Finishing
 
-1. Merge PR into **`integration`** (CI green; agents may merge when confident — see [integration-branch.mdc](../.cursor/rules/integration-branch.mdc)).
-2. **Hardware QA** on **`integration`** for new/changed clock faces ([`hardware-qa.mdc`](../.cursor/rules/hardware-qa.mdc)): flash → `http://<watch-ip>/screen.bmp` → evaluate.
-3. Mark backlog `[x]`, move to **Done** with `YYYY-MM-DD` and PR link.
-4. When ready to release: `./scripts/promote-integration.sh --flash-ok` → **`main`**.
+1. Merge PR into **`integration`** when **Firmware build** + **Integration sim gate** are green (see [integration-branch.mdc](../.cursor/rules/integration-branch.mdc)); face/UI PRs do not need the bench watch to merge.
+2. Mark backlog `[x]`, move to **Done** with `YYYY-MM-DD` and PR link.
+3. Before **`main`**: **hardware QA** on **`integration`** for new/changed clock faces ([`hardware-qa.mdc`](../.cursor/rules/hardware-qa.mdc)) or green **Integration device gate**; then `./scripts/promote-integration.sh --flash-ok`.
 5. Delete the issue branch after merge.
 
 ## Branch naming

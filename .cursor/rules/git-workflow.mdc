@@ -22,7 +22,7 @@ alwaysApply: true
 
 ## Agent behavior
 
-- **Issue work:** commit, push, open PR to **`integration`**, and merge when CI is green and the scope is a single issue — see [integration-branch.mdc](integration-branch.mdc).
+- **Issue work:** commit, push, open PR to **`integration`**, and merge when **Firmware build** + **Integration sim gate** are green (single issue) — see [integration-branch.mdc](integration-branch.mdc). Bench hardware is for **`main`** promotion, not merge.
 - **Otherwise:** follow the user’s **committing-changes-with-git** rule (commit when they request or clearly authorize).
 - At each **feature boundary**, if commits are in scope but not yet requested: briefly say the work is ready to commit and suggest a one-line message — do not start the next feature on top of a large uncommitted pile.
 - Do not amend or force-push. Do not push to **`main`**.
