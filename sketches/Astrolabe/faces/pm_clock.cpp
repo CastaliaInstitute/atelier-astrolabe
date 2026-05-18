@@ -8,6 +8,7 @@
 #include "faces/astrology/pm_face_astrology.h"
 #include "faces/calcifer/pm_face_calcifer.h"
 #include "faces/castalia/pm_face_castalia.h"
+#include "faces/chakra/pm_face_chakra.h"
 #include "faces/classic_analog/pm_face_classic_analog.h"
 #include "faces/digital/pm_face_digital.h"
 #include "faces/moon/pm_face_moon.h"
@@ -26,10 +27,29 @@ static uint16_t s_clock_bg565 = 0;
 static int s_analog_saved_local_h = -1;
 static int s_analog_saved_local_m = -1;
 
+static float pm_faces_home_hue_deg(void) {
+  struct tm tm = {};
+  int sec_of_day_for_hue = 0;
+  if (pm_time_valid()) {
+    pm_time_local(&tm);
+    sec_of_day_for_hue = tm.tm_hour * 3600 + tm.tm_min * 60 + tm.tm_sec;
+    return static_cast<float>(sec_of_day_for_hue) * (360.0f / 86400.0f);
+  }
+  return fmodf(static_cast<float>(millis()) * 0.0015f, 360.0f);
+}
+
 ClockFace pm_faces_current(void) { return s_clock_face; }
-void pm_faces_set(ClockFace face) { s_clock_face = face; }
+void pm_faces_set(ClockFace face) {
+  if (s_clock_face == ClockFace::Chakra && face != ClockFace::Chakra) {
+    pm_face_chakra_stop();
+  }
+  s_clock_face = face;
+}
 
 void pm_faces_cycle(int delta) {
+  if (s_clock_face == ClockFace::Chakra) {
+    pm_face_chakra_stop();
+  }
   int v = static_cast<int>(s_clock_face) + delta;
   const int n = static_cast<int>(ClockFace::kNumFaces);
   v = (v % n + n) % n;
@@ -50,7 +70,8 @@ void pm_faces_draw(float thinking_progress) {
                        : fmodf(static_cast<float>(millis()) * 0.0015f, 360.0f);
   const uint16_t bg_hsv = pm_face_color565_from_hsv(pm_gfx, hue, pm_face_hsv_s, pm_face_hsv_v);
   uint16_t bg = bg_hsv;
-  if (s_clock_face != ClockFace::CalciferCountdown && s_clock_face != ClockFace::Spectrum) {
+  if (s_clock_face != ClockFace::CalciferCountdown && s_clock_face != ClockFace::Spectrum &&
+      s_clock_face != ClockFace::Chakra) {
 #if MYNAH_HUE_HOME_ONLY
     if (s_clock_face == ClockFace::ClassicAnalog) {
       bg = pm_face_draw_home_gem_glow(hue);
@@ -93,6 +114,9 @@ void pm_faces_draw(float thinking_progress) {
     case ClockFace::Spectrum:
       pm_face_spectrum_draw(bg);
       break;
+    case ClockFace::Chakra:
+      pm_face_chakra_draw();
+      break;
     default:
       break;
   }
@@ -100,7 +124,8 @@ void pm_faces_draw(float thinking_progress) {
   const int banner_y = (s_clock_face == ClockFace::Apocalypso || s_clock_face == ClockFace::Spotify ||
                         s_clock_face == ClockFace::Astrology || s_clock_face == ClockFace::Moon ||
                         s_clock_face == ClockFace::CalciferCountdown || s_clock_face == ClockFace::Castalia ||
-                        s_clock_face == ClockFace::Synastry || s_clock_face == ClockFace::Spectrum)
+                        s_clock_face == ClockFace::Synastry || s_clock_face == ClockFace::Spectrum ||
+                        s_clock_face == ClockFace::Chakra)
                            ? 352
                            : 320;
   if (MYNAH_DEBUG_GESTURES && g_gesture_banner[0] != '\0') {
@@ -123,20 +148,31 @@ void pm_faces_draw(float thinking_progress) {
   pm_gfx->flush();
 }
 
-
+void pm_faces_draw_home_gem_pulse(void) {
+#if MYNAH_HUE_HOME_ONLY
+  if (s_clock_face != ClockFace::ClassicAnalog) {
+    return;
+  }
+  const float hue = pm_faces_home_hue_deg();
+  pm_face_draw_home_gem_breath_only(hue);
+  pm_gfx->flush();
+#else
+  (void)0;
+#endif
+}
 
 bool pm_faces_banner_low(void) {
   const ClockFace f = s_clock_face;
   return f == ClockFace::Apocalypso || f == ClockFace::Spotify || f == ClockFace::Astrology ||
          f == ClockFace::Moon || f == ClockFace::CalciferCountdown || f == ClockFace::Castalia ||
-         f == ClockFace::Synastry || f == ClockFace::Spectrum;
+         f == ClockFace::Synastry || f == ClockFace::Spectrum || f == ClockFace::Chakra;
 }
 
 uint16_t pm_faces_last_bg565(void) { return s_clock_bg565; }
 
 bool pm_faces_local_hm_changed(int hour, int min) {
   if (s_clock_face == ClockFace::Castalia || s_clock_face == ClockFace::Synastry ||
-      s_clock_face == ClockFace::Spectrum) {
+      s_clock_face == ClockFace::Spectrum || s_clock_face == ClockFace::Chakra) {
     return false;
   }
   return s_analog_saved_local_h < 0 || hour != s_analog_saved_local_h || min != s_analog_saved_local_m;

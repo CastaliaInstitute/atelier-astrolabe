@@ -44,22 +44,31 @@
 #ifndef MYNAH_HUE_GEM_PULSE_DEFAULT
 #define MYNAH_HUE_GEM_PULSE_DEFAULT 1
 #endif
-/** Resting meditative heartbeat (~52 BPM). */
+/** Full 5-6-7 breath cycles per minute (~3 ≈ 20 s/cycle). */
 #ifndef MYNAH_HUE_GEM_PULSE_BPM_DEFAULT
-#define MYNAH_HUE_GEM_PULSE_BPM_DEFAULT 52
+#define MYNAH_HUE_GEM_PULSE_BPM_DEFAULT 3
 #endif
 #ifndef MYNAH_HUE_GEM_PULSE_BPM_MIN
-#define MYNAH_HUE_GEM_PULSE_BPM_MIN 20
+#define MYNAH_HUE_GEM_PULSE_BPM_MIN 2
 #endif
 #ifndef MYNAH_HUE_GEM_PULSE_BPM_MAX
-#define MYNAH_HUE_GEM_PULSE_BPM_MAX 120
+#define MYNAH_HUE_GEM_PULSE_BPM_MAX 8
 #endif
 /** Peak-to-trough brightness swing (0..1). */
 #ifndef MYNAH_HUE_GEM_PULSE_DEPTH
-#define MYNAH_HUE_GEM_PULSE_DEPTH 0.14f
+#define MYNAH_HUE_GEM_PULSE_DEPTH 0.11f
+#endif
+#ifndef MYNAH_HUE_GEM_PULSE_INHALE
+#define MYNAH_HUE_GEM_PULSE_INHALE 5
+#endif
+#ifndef MYNAH_HUE_GEM_PULSE_HOLD
+#define MYNAH_HUE_GEM_PULSE_HOLD 6
+#endif
+#ifndef MYNAH_HUE_GEM_PULSE_EXHALE
+#define MYNAH_HUE_GEM_PULSE_EXHALE 7
 #endif
 #ifndef MYNAH_HUE_GEM_PULSE_REPAINT_MIN_MS
-#define MYNAH_HUE_GEM_PULSE_REPAINT_MIN_MS 50u
+#define MYNAH_HUE_GEM_PULSE_REPAINT_MIN_MS 33u
 #endif
 
 #ifndef MYNAH_CALCIFER_POLL_MS

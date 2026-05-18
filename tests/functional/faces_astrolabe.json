@@ -1,6 +1,6 @@
 {
   "sketch": "Astrolabe",
-  "face_count": 10,
+  "face_count": 11,
   "center": [233, 233],
   "faces": [
     {
@@ -56,7 +56,8 @@
       "id": 7,
       "name": "castalia",
       "source_paths": ["sketches/Astrolabe/faces/castalia", "sketches/Astrolabe/pm_castalia_auth.cpp", "sketches/Astrolabe/pm_castalia_auth.h"],
-      "gestures": ["tap:233,238", "swipe_left"],
+      "paint_sec": 0.35,
+      "gestures": ["swipe_left"],
       "buttons": []
     },
     {
@@ -67,7 +68,7 @@
       "buttons": []
     },
     {
-      "id": 9,
+      "id": 10,
       "name": "spectrum",
       "source_paths": [
         "sketches/Astrolabe/faces/spectrum",
@@ -75,6 +76,13 @@
         "sketches/Astrolabe/pm_audio_analyzer.cpp"
       ],
       "gestures": ["swipe_left", "swipe_right", "tap:233,233"],
+      "buttons": []
+    },
+    {
+      "id": 10,
+      "name": "chakra",
+      "source_paths": ["sketches/Astrolabe/faces/chakra", "sketches/Astrolabe/pm_speaker.cpp", "sketches/Astrolabe/pm_speaker.h"],
+      "gestures": ["tap:233,233", "swipe_up", "swipe_down", "swipe_left"],
       "buttons": []
     }
   ]

@@ -34,6 +34,7 @@
 #include "faces/pm_faces.h"
 #include "faces/shared/pm_face_draw.h"
 #include "faces/astrology/pm_face_astrology.h"
+#include "faces/chakra/pm_face_chakra.h"
 #include "faces/moon/pm_face_moon.h"
 #include "faces/spotify/pm_face_spotify.h"
 #include "faces/calcifer/pm_face_calcifer.h"
@@ -369,7 +370,7 @@ static bool face_index_from_name(const char *name, int *out) {
            {"digital", 2},    {"spotify", 3},     {"astro", 4},       {"astrology", 4},
            {"moon", 5},       {"calcifer", 6},    {"schedule", 6},    {"castalia", 7},
            {"synastry", 8},   {"syn", 8},         {"spectrum", 9},    {"fft", 9},
-           {"audio", 9},      {"sound", 9}};
+           {"audio", 9},      {"sound", 9},       {"chakra", 10}};
   for (const auto &e : k) {
     if (strcasecmp(name, e.n) == 0) {
       *out = e.idx;
@@ -442,6 +443,7 @@ static void poll_serial_birth_commands() {
           Serial.println("qa: 7 castalia");
           Serial.println("qa: 8 synastry");
           Serial.println("qa: 9 spectrum");
+          Serial.println("qa: 10 chakra");
         } else if (!pm_qa_inject_command(args)) {
           Serial.println("qa: usage: status | faces | inject …");
         }
@@ -601,8 +603,11 @@ void loop() {
     if (g_state == AppState::kClock &&
         (ge.kind == PmGestureKind::SwipeLeft || ge.kind == PmGestureKind::SwipeRight)) {
       pm_faces_cycle(ge.kind == PmGestureKind::SwipeLeft ? 1 : -1);
-      g_clock_repaint_pending = true;
       g_gesture_banner[0] = '\0';
+      if (pm_gfx) {
+        pm_faces_draw();
+      }
+      g_clock_repaint_pending = false;
       Serial.printf("[gesture] face @ %d,%d\n", static_cast<int>(ge.x), static_cast<int>(ge.y));
       continue;
     } else if (g_state == AppState::kClock &&
@@ -665,6 +670,21 @@ void loop() {
         }
       } else {
         snprintf(g_gesture_banner, sizeof(g_gesture_banner), "synastry: no profiles");
+      }
+      g_clock_repaint_pending = true;
+      continue;
+    } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Chakra &&
+               (ge.kind == PmGestureKind::SwipeUp || ge.kind == PmGestureKind::SwipeDown)) {
+      pm_face_chakra_cycle(ge.kind == PmGestureKind::SwipeUp ? 1 : -1);
+      snprintf(g_gesture_banner, sizeof(g_gesture_banner), "chakra %d/7", pm_face_chakra_index() + 1);
+      g_clock_repaint_pending = true;
+      continue;
+    } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Chakra &&
+               ge.kind == PmGestureKind::Tap) {
+      if (pm_face_chakra_toggle_tone()) {
+        snprintf(g_gesture_banner, sizeof(g_gesture_banner), "chakra tone");
+      } else {
+        snprintf(g_gesture_banner, sizeof(g_gesture_banner), "tone busy");
       }
       g_clock_repaint_pending = true;
       continue;
@@ -833,14 +853,19 @@ void loop() {
       const bool astro_repaint =
           pm_faces_current() == ClockFace::Astrology && valid && epoch_min_bucket != s_prev_astro_epoch_min;
 
+      const bool chakra_anim =
+          pm_faces_current() == ClockFace::Chakra && pm_face_chakra_anim_tick(now);
+      const bool home_gem_breath =
+          pm_faces_current() == ClockFace::ClassicAnalog && pm_home_gem_pulse_enabled();
       const bool sec_tick_paint =
           sec_tick && pm_faces_current() != ClockFace::Castalia && pm_faces_current() != ClockFace::CalciferCountdown &&
-          pm_faces_current() != ClockFace::Synastry && pm_faces_current() != ClockFace::Spectrum;
+          pm_faces_current() != ClockFace::Synastry && pm_faces_current() != ClockFace::Spectrum &&
+          pm_faces_current() != ClockFace::Chakra && !home_gem_breath;
       const bool calcifer_sec =
           pm_faces_current() == ClockFace::CalciferCountdown && valid && sec_tick;
 #if MYNAH_HUE_HOME_ONLY
       bool gem_pulse_paint = false;
-      if (pm_faces_current() == ClockFace::ClassicAnalog && pm_home_gem_pulse_enabled()) {
+      if (home_gem_breath && !pm_gesture_touch_down()) {
         const uint32_t pulse_iv = pm_home_gem_pulse_repaint_interval_ms();
         if (now - s_gem_pulse_last_ms >= pulse_iv) {
           s_gem_pulse_last_ms = now;
@@ -850,10 +875,16 @@ void loop() {
 #else
       const bool gem_pulse_paint = false;
 #endif
-      const bool full_paint = !s_clock_paint_inited || slow_no_time || banner_chg || wifi_chg ||
-                              g_clock_repaint_pending || local_hm_chg || spotify_stale || calcifer_stale ||
-                              sec_tick_paint || calcifer_sec || astro_repaint || spectrum_anim ||
-                              gem_pulse_paint;
+      const bool non_gem_paint = !s_clock_paint_inited || slow_no_time || banner_chg || wifi_chg ||
+                                 g_clock_repaint_pending || local_hm_chg || spotify_stale || calcifer_stale ||
+                                 sec_tick_paint || calcifer_sec || astro_repaint || spectrum_anim || chakra_anim;
+#if MYNAH_HUE_HOME_ONLY
+      const bool gem_only_paint = gem_pulse_paint && s_clock_paint_inited && !non_gem_paint;
+      const bool full_paint = non_gem_paint || gem_pulse_paint;
+#else
+      const bool gem_only_paint = false;
+      const bool full_paint = non_gem_paint || gem_pulse_paint;
+#endif
 
       if (full_paint) {
         s_clock_paint_inited = true;
@@ -884,7 +915,11 @@ void loop() {
           }
         }
         if (pm_gfx) {
-          pm_faces_draw();
+          if (gem_only_paint) {
+            pm_faces_draw_home_gem_pulse();
+          } else {
+            pm_faces_draw();
+          }
         }
         if (!valid) {
           s_last_no_time_redraw = now;

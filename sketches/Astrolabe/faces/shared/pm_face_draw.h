@@ -3,6 +3,12 @@
 #include <Arduino_GFX_Library.h>
 #include <cstdint>
 
+#include "pin_config.h"
+
+/** Shared panel center (466×466 round). */
+constexpr int pm_face_lcd_cx = LCD_WIDTH / 2;
+constexpr int pm_face_lcd_cy = LCD_HEIGHT / 2;
+
 constexpr float pm_face_k_pi = 3.14159265f;
 constexpr float pm_face_k_two_pi = pm_face_k_pi * 2.f;
 constexpr float pm_face_hsv_s = 0.75f;
@@ -25,3 +31,5 @@ void pm_face_draw_voice_waves_overlay(bool outward, uint32_t t_ms);
 void pm_face_draw_voice_wave_screen(bool outward, uint32_t t_ms, const char *label);
 /** Radial “glowing gem” fill; `hue_deg_24h` = seconds-of-day × (360/86400), same as home/rim. */
 uint16_t pm_face_draw_home_gem_glow(float hue_deg_24h);
+/** Breath frame: gem disc only (does not redraw rainbow or fillScreen). */
+void pm_face_draw_home_gem_breath_only(float hue_deg_24h);

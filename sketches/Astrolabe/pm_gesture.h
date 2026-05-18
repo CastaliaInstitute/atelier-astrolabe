@@ -35,5 +35,8 @@ void pm_gesture_poll(uint32_t now_ms);
 /** Pop one pending gesture (FIFO). Returns false if empty. */
 bool pm_gesture_consume(PmGestureEvent *out);
 
+/** True while a finger is on the panel (gesture recognizer active). */
+bool pm_gesture_touch_down(void);
+
 /** Enqueue a synthetic gesture (functional / CI tests). */
 void pm_gesture_inject(PmGestureKind kind, int16_t x, int16_t y);

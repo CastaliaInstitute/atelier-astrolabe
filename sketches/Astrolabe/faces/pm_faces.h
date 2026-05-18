@@ -20,6 +20,8 @@ enum class ClockFace : uint8_t {
   Synastry,
   /** Live FFT: mic (inner) + speaker/TTS (outer) spectrum bars. */
   Spectrum,
+  /** Chakra symbols + solfeggio tones; swipe up/down, tap toggles tone. */
+  Chakra,
   kNumFaces,
 };
 
@@ -29,6 +31,8 @@ void pm_faces_cycle(int delta);
 bool pm_faces_is_commonplace_home(void);
 bool pm_faces_banner_low(void);
 void pm_faces_draw(float thinking_progress = -1.f);
+/** Home gem + rainbow only (breath animation). */
+void pm_faces_draw_home_gem_pulse(void);
 uint16_t pm_faces_last_bg565(void);
 bool pm_faces_local_hm_changed(int hour, int min);
 

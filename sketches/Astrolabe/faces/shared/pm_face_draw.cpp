@@ -38,29 +38,130 @@ float smoothstep01(float t) {
   return t * t * (3.f - 2.f * t);
 }
 
-uint16_t gem_color_at_radius(float t, float hue_deg, float pulse_brightness) {
-  /** Brightness falls off from lit core to the legacy flat-home value at the rim. */
-  const float glow = powf(1.f - t, 1.55f);
-  float v = pm_face_hsv_v + (0.90f - pm_face_hsv_v) * glow;
-  const float pulse_mix = glow * glow;
-  v *= 1.f + (pulse_brightness - 1.f) * pulse_mix;
-  if (v > 1.f) {
-    v = 1.f;
+void hsv_to_rgb255(float h_deg, float s, float v, float &r, float &g, float &b) {
+  h_deg = fmodf(h_deg, 360.0f);
+  if (h_deg < 0.f) {
+    h_deg += 360.f;
   }
-  float s = pm_face_hsv_s * (0.84f + 0.16f * glow);
-  uint16_t col = pm_face_color565_from_hsv(pm_gfx, hue_deg, s, v);
-  if (t > 0.48f) {
-    const float u = smoothstep01((t - 0.48f) / 0.52f);
-    const float vignette = u * u;
-    col = blend565(col, pm_face_color565_from_hsv(pm_gfx, hue_deg, pm_face_hsv_s * 0.5f, 0.02f), vignette);
+  const float c = v * s;
+  const float x = c * (1.f - fabsf(fmodf(h_deg / 60.f, 2.f) - 1.f));
+  const float m = v - c;
+  float rp = 0.f, gp = 0.f, bp = 0.f;
+  if (h_deg < 60.f) {
+    rp = c;
+    gp = x;
+  } else if (h_deg < 120.f) {
+    rp = x;
+    gp = c;
+  } else if (h_deg < 180.f) {
+    gp = c;
+    bp = x;
+  } else if (h_deg < 240.f) {
+    gp = x;
+    bp = c;
+  } else if (h_deg < 300.f) {
+    rp = x;
+    bp = c;
+  } else {
+    rp = c;
+    bp = x;
   }
-  return col;
+  r = (rp + m) * 255.f;
+  g = (gp + m) * 255.f;
+  b = (bp + m) * 255.f;
 }
 
 uint32_t frost_hash(int x, int y) {
   uint32_t h = static_cast<uint32_t>(x * 374761393 + y * 668265263);
   h = (h ^ (h >> 13)) * 1274126177u;
   return h ^ (h >> 16);
+}
+
+/** Linear in radius (no center hot-spot). */
+float gem_radial_glow(float t) { return 1.f - t; }
+
+uint16_t rgb255_ordered_dither_565(int x, int y, float r, float g, float b) {
+  static const uint8_t k_bayer8[8][8] = {
+      {0, 48, 12, 60, 3, 51, 15, 63},  {32, 16, 44, 28, 35, 19, 47, 31}, {8, 56, 4, 52, 11, 59, 7, 55},
+      {40, 24, 36, 20, 43, 27, 39, 23}, {2, 50, 14, 62, 1, 49, 13, 61},  {34, 18, 46, 30, 33, 17, 45, 29},
+      {10, 58, 6, 54, 9, 57, 5, 53},   {42, 26, 38, 22, 41, 25, 37, 21}};
+  const float th = (static_cast<float>(k_bayer8[y & 7][x & 7]) + 0.5f) / 64.f;
+  auto q = [&](float c) {
+    if (c < 0.f) {
+      c = 0.f;
+    } else if (c > 255.f) {
+      c = 255.f;
+    }
+    int lo = static_cast<int>(c);
+    const float frac = c - static_cast<float>(lo);
+    if (frac > th) {
+      ++lo;
+    }
+    if (lo > 255) {
+      lo = 255;
+    }
+    return static_cast<uint8_t>(lo);
+  };
+  return pm_gfx->color565(q(r), q(g), q(b));
+}
+
+uint16_t gem_color_at_radius(int x, int y, float t, float hue_deg, float pulse_brightness) {
+  constexpr float k_peak_v = 0.40f;
+  const float glow = gem_radial_glow(t);
+  float v = pm_face_hsv_v + (k_peak_v - pm_face_hsv_v) * glow;
+  v += (static_cast<float>((frost_hash(x, y) >> 8) & 255u) - 127.5f) / 6144.f;
+  v *= pulse_brightness;
+  if (v > 1.f) {
+    v = 1.f;
+  }
+  if (v < 0.f) {
+    v = 0.f;
+  }
+  const float sat = pm_face_hsv_s * (0.82f + 0.18f * glow);
+  float r, g, b;
+  hsv_to_rgb255(hue_deg, sat, v, r, g, b);
+  if (t > 0.58f) {
+    const float edge = smoothstep01((t - 0.58f) / 0.42f);
+    float vr, vg, vb;
+    hsv_to_rgb255(hue_deg, pm_face_hsv_s * 0.48f, 0.02f, vr, vg, vb);
+    const float iv = 1.f - edge;
+    r = r * iv + vr * edge;
+    g = g * iv + vg * edge;
+    b = b * iv + vb * edge;
+  }
+  return rgb255_ordered_dither_565(x, y, r, g, b);
+}
+
+void gem_fill_radial_dithered(int cx, int cy, int r_max, float hue_deg, float pulse_b) {
+  const int r_max2 = r_max * r_max;
+  const float inv_r_max = 1.f / static_cast<float>(r_max);
+  const int y0 = cy - r_max;
+  const int y1 = cy + r_max;
+  for (int y = y0; y <= y1; ++y) {
+    const int dy = y - cy;
+    const int dy2 = dy * dy;
+    if (dy2 > r_max2) {
+      continue;
+    }
+    const int half = static_cast<int>(lrintf(sqrtf(static_cast<float>(r_max2 - dy2))));
+    int xa = cx - half;
+    int xb = cx + half;
+    if (xa < 0) {
+      xa = 0;
+    }
+    if (xb >= LCD_WIDTH) {
+      xb = LCD_WIDTH - 1;
+    }
+    for (int x = xa; x <= xb; ++x) {
+      const int dx = x - cx;
+      const int d2 = dx * dx + dy2;
+      if (d2 > r_max2) {
+        continue;
+      }
+      const float t = sqrtf(static_cast<float>(d2)) * inv_r_max;
+      pm_gfx->drawPixel(x, y, gem_color_at_radius(x, y, t, hue_deg, pulse_b));
+    }
+  }
 }
 
 }  // namespace
@@ -199,8 +300,8 @@ void pm_face_draw_annular_wedge(int cx, int cy, int r_inner, int r_outer, float 
 }
 
 void pm_face_draw_daywheel_hue_ring_12h(int64_t now_unix, int r_inner, int r_outer) {
-  const int cx = LCD_WIDTH / 2;
-  const int cy = LCD_HEIGHT / 2;
+  const int cx = pm_face_lcd_cx;
+  const int cy = pm_face_lcd_cy;
   constexpr int64_t k_window = 12 * 3600;
   constexpr int k_seg = 144;
   for (int s = 0; s < k_seg; ++s) {
@@ -220,11 +321,10 @@ void pm_face_draw_now_bead(int cx, int cy, int r, uint16_t col) {
 }
 
 void pm_face_draw_circumference_rainbow_24h(bool valid) {
-  const int cx = LCD_WIDTH / 2;
-  const int cy = LCD_HEIGHT / 2;
+  const int cx = pm_face_lcd_cx;
+  const int cy = pm_face_lcd_cy;
   const int R = min(LCD_WIDTH, LCD_HEIGHT) / 2;
-  /** Inset a few pixels from the physical edge (bezel / mask). */
-  const int r_outer = R - 4;
+  const int r_outer = R - 9;
   const int r_inner = r_outer - 5;
   constexpr int k_seg = 288;
   constexpr int k_half_w = 4;
@@ -267,8 +367,8 @@ void pm_face_draw_thinking_progress_ring(float progress) {
   if (progress > 1.f) {
     progress = 1.f;
   }
-  const int cx = LCD_WIDTH / 2;
-  const int cy = LCD_HEIGHT / 2;
+  const int cx = pm_face_lcd_cx;
+  const int cy = pm_face_lcd_cy;
   const int R = min(LCD_WIDTH, LCD_HEIGHT) / 2;
   const int r_ring = R - 10;
   const uint16_t c_track = pm_gfx->color565(36, 40, 52);
@@ -303,8 +403,8 @@ void pm_face_draw_thinking_progress_ring(float progress) {
 
 
 void pm_face_draw_voice_waves_overlay(bool outward, uint32_t t_ms) {
-  const int cx = LCD_WIDTH / 2;
-  const int cy = LCD_HEIGHT / 2;
+  const int cx = pm_face_lcd_cx;
+  const int cy = pm_face_lcd_cy;
   const int R = min(LCD_WIDTH, LCD_HEIGHT) / 2 - 18;
   const float phase = fmodf(static_cast<float>(t_ms) * 0.0045f, 1.f);
   constexpr int k_n = 7;
@@ -338,54 +438,27 @@ void pm_face_draw_voice_wave_screen(bool outward, uint32_t t_ms, const char *lab
 }
 
 uint16_t pm_face_draw_home_gem_glow(float hue_deg_24h) {
-  const int cx = LCD_WIDTH / 2;
-  const int cy = LCD_HEIGHT / 2;
+  const int cx = pm_face_lcd_cx;
+  const int cy = pm_face_lcd_cy;
   const int R = min(LCD_WIDTH, LCD_HEIGHT) / 2;
-  /** Leave inset for the 24h rainbow annulus drawn afterward. */
+  /** Match rainbow inner radius (r_outer − 5) so gem and rim share one center. */
   const int r_max = R - 14;
 
   const float pulse_b = pm_home_gem_pulse_brightness(millis());
 
-  const uint16_t edge = gem_color_at_radius(1.f, hue_deg_24h, pulse_b);
+  const uint16_t edge = gem_color_at_radius(cx, cy, 1.f, hue_deg_24h, pulse_b);
   pm_gfx->fillScreen(edge);
+  gem_fill_radial_dithered(cx, cy, r_max, hue_deg_24h, pulse_b);
 
-  for (int r = r_max; r >= 0; --r) {
-    const float t = static_cast<float>(r) / static_cast<float>(r_max);
-    pm_gfx->fillCircle(cx, cy, r, gem_color_at_radius(t, hue_deg_24h, pulse_b));
-  }
-
-  /** Domed resin highlight — soft offset gleam above center, same time hue. */
-  constexpr int k_dome_cx = 0;
-  constexpr int k_dome_cy = -22;
-  const uint16_t c_hot = pm_face_color565_from_hsv(pm_gfx, hue_deg_24h, pm_face_hsv_s * 0.65f, 0.96f);
-  for (int dr = 38; dr >= 8; dr -= 6) {
-    const float a = 0.07f + 0.16f * (1.f - static_cast<float>(dr - 8) / 30.f);
-    pm_gfx->fillCircle(cx + k_dome_cx, cy + k_dome_cy, dr,
-                       blend565(gem_color_at_radius(0.08f, hue_deg_24h, pulse_b), c_hot, a));
-  }
-
-  /** Fine frost grain in the lit core (sparse, deterministic). */
-  const int grain_r = r_max * 55 / 100;
-  for (int gy = cy - grain_r; gy <= cy + grain_r; gy += 3) {
-    for (int gx = cx - grain_r; gx <= cx + grain_r; gx += 3) {
-      const int dx = gx - cx;
-      const int dy = gy - cy;
-      if (dx * dx + dy * dy > grain_r * grain_r) {
-        continue;
-      }
-      const uint32_t h = frost_hash(gx, gy);
-      if ((h & 7u) != 0u) {
-        continue;
-      }
-      const float lift = static_cast<float>((h >> 3) & 0xFu) / 15.f * 0.11f;
-      const float dist_t = sqrtf(static_cast<float>(dx * dx + dy * dy)) / static_cast<float>(grain_r);
-      const uint16_t base = gem_color_at_radius(dist_t, hue_deg_24h, pulse_b);
-      const uint16_t spark = pm_face_color565_from_hsv(pm_gfx, hue_deg_24h, pm_face_hsv_s * 0.45f, 0.98f);
-      pm_gfx->drawPixel(gx, gy, blend565(base, spark, lift));
-    }
-  }
-
-  return gem_color_at_radius(0.35f, hue_deg_24h, pulse_b);
+  return gem_color_at_radius(cx, cy, 0.35f, hue_deg_24h, pulse_b);
 }
 
+void pm_face_draw_home_gem_breath_only(float hue_deg_24h) {
+  const int cx = pm_face_lcd_cx;
+  const int cy = pm_face_lcd_cy;
+  const int R = min(LCD_WIDTH, LCD_HEIGHT) / 2;
+  const int r_max = R - 14;
+  const float pulse_b = pm_home_gem_pulse_brightness(millis());
+  gem_fill_radial_dithered(cx, cy, r_max, hue_deg_24h, pulse_b);
+}
 
