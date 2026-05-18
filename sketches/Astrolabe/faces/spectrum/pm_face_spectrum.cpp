@@ -27,7 +27,7 @@ void pm_face_spectrum_tick(void) {
   if (!s_active) {
     return;
   }
-  pm_audio_analyzer_tick();
+  pm_audio_analyzer_tick(true);
 }
 
 void pm_face_spectrum_draw(uint16_t bg) {

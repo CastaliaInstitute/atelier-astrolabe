@@ -116,7 +116,7 @@ void pm_audio_analyzer_mic_end(void) {
   pm_mic_stop();
 }
 
-void pm_audio_analyzer_tick(void) {
+void pm_audio_analyzer_tick(bool mirror_to_out) {
   static int16_t frame[512];
   const size_t ns = pm_mic_frame_samples();
   if (ns > sizeof(frame) / sizeof(frame[0])) {
@@ -125,15 +125,21 @@ void pm_audio_analyzer_tick(void) {
   size_t br = 0;
   if (pm_mic_read_frame(frame, ns, &br)) {
     pm_audio_analyzer_feed_in(frame, ns);
+    if (mirror_to_out) {
+      pm_audio_analyzer_feed_out(frame, ns, 1);
+    }
   }
-  for (int b = 0; b < PM_AUDIO_ANALYZER_BANDS; ++b) {
-    s_out_disp[b] *= 0.9f;
+  if (!mirror_to_out) {
+    for (int b = 0; b < PM_AUDIO_ANALYZER_BANDS; ++b) {
+      s_out_disp[b] *= 0.9f;
+    }
   }
 }
 
 #else
 
-void pm_audio_analyzer_tick(void) {
+void pm_audio_analyzer_tick(bool mirror_to_out) {
+  (void)mirror_to_out;
   static uint32_t s_phase = 0;
   s_phase += 17;
   static int16_t fake[PM_FFT_N];

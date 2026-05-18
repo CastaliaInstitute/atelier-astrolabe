@@ -137,3 +137,7 @@ bool pm_faces_local_hm_changed(int hour, int min) {
 bool pm_faces_is_commonplace_home(void) {
   return s_clock_face == ClockFace::ClassicAnalog;
 }
+
+bool pm_faces_voice_input_enabled(void) {
+  return s_clock_face != ClockFace::Spectrum;
+}

@@ -700,7 +700,7 @@ void loop() {
       ptt_hold && s_ptt_press_ms != 0 && (now - s_ptt_press_ms >= MYNAH_PTT_ARM_MS);
 
   static uint32_t s_last_clock_boot_brief_ms = 0;
-  if (g_state == AppState::kClock && (side_ev & PM_SIDE_BTN_BOOT) &&
+  if (g_state == AppState::kClock && (side_ev & PM_SIDE_BTN_BOOT) && pm_faces_voice_input_enabled() &&
       pm_faces_current() != ClockFace::Astrology && pm_faces_current() != ClockFace::Synastry) {
     if (voice_last_play_begin()) {
       /* BOOT replay last TTS */
@@ -758,6 +758,7 @@ void loop() {
         }
         if (pm_faces_current() == ClockFace::Spectrum) {
           pm_face_spectrum_on_enter();
+          s_ptt_press_ms = 0;
           g_clock_repaint_pending = true;
         }
         s_prev_dial_face = pm_faces_current();
@@ -857,7 +858,7 @@ void loop() {
         g_clock_repaint_pending = true;
       }
 
-      if (ptt_armed && g_pcm) {
+      if (ptt_armed && g_pcm && pm_faces_voice_input_enabled()) {
         if (pm_faces_current() == ClockFace::Astrology) {
           if (!pm_wifi_connected()) {
             snprintf(g_gesture_banner, sizeof(g_gesture_banner), "astro: need WiFi");

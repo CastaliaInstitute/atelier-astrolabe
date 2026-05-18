@@ -18,8 +18,12 @@ void pm_audio_analyzer_feed_out(const int16_t *pcm, size_t num_s16, int channels
 void pm_audio_analyzer_get_in(float *bands, size_t count);
 void pm_audio_analyzer_get_out(float *bands, size_t count);
 
-/** Advance mic capture + FFT when the spectrum face is active. */
-void pm_audio_analyzer_tick(void);
+/**
+ * Advance mic capture + FFT.
+ * @param mirror_to_out When true (Spectrum face), duplicate mic into OUT bands so both
+ *        rings react to room audio without TTS/BOOT.
+ */
+void pm_audio_analyzer_tick(bool mirror_to_out);
 
 #ifndef ASTROLABE_QEMU
 /** Start/stop ES7210 mic for spectrum face. */
