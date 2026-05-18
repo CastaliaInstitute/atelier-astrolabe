@@ -129,7 +129,7 @@ void sync_nodes_from_peers(uint32_t now_ms) {
   const size_t n_peers = pm_presence_peer_count();
   for (size_t i = 0; i < n_peers && next_n < kMaxNodes; ++i) {
     const PmPresencePeer *p = pm_presence_peer(i);
-    if (!p || pm_presence_is_location_id(p->device_id)) {
+    if (!p || p->node_kind == PmPresenceGraphNodeKind::LocationAnchor) {
       continue;
     }
     const int old = find_node(p->device_id);

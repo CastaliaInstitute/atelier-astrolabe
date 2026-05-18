@@ -1,5 +1,6 @@
 #include "pm_presence.h"
 
+#include "pm_presence_adv.h"
 #include "pm_presence_graph.h"
 #include "pm_presence_locations.h"
 
@@ -21,11 +22,7 @@
 
 namespace {
 
-constexpr uint16_t kCompanyId = 0xCA57;
-constexpr uint8_t kMagic0 = 0x41;
-constexpr uint8_t kMagic1 = 0x73;
-constexpr uint8_t kVersion = 1;
-constexpr uint8_t kMaxAdvReports = 3;
+constexpr uint8_t kMaxAdvReports = kPmPresenceAdvMaxReports;
 constexpr uint32_t kPeerStaleMs = 15000;
 constexpr uint32_t kScanPeriodMs = 400;
 constexpr float kRssiEmaAlpha = 0.35f;
@@ -55,10 +52,11 @@ int find_peer(uint32_t id) {
   return -1;
 }
 
-void upsert_peer(uint32_t id, int8_t rssi, uint32_t now_ms) {
+void upsert_peer(uint32_t id, int8_t rssi, uint32_t now_ms, PmPresenceGraphNodeKind kind) {
   if (id == 0 || id == s_self_id) {
     return;
   }
+  kind = pm_presence_resolve_node_kind(id, kind);
   int idx = find_peer(id);
   if (idx < 0) {
     if (s_peer_count >= kPmPresenceMaxPeers) {
@@ -67,6 +65,7 @@ void upsert_peer(uint32_t id, int8_t rssi, uint32_t now_ms) {
     idx = static_cast<int>(s_peer_count++);
     s_peers[idx] = {};
     s_peers[idx].device_id = id;
+    s_peers[idx].node_kind = kind;
     s_peers[idx].rssi_dbm = rssi;
     s_peers[idx].rssi_ema = rssi;
     s_peers[idx].angle_deg = peer_base_angle_deg(id) - s_yaw_offset_deg;
@@ -77,6 +76,7 @@ void upsert_peer(uint32_t id, int8_t rssi, uint32_t now_ms) {
       s_peers[idx].angle_deg -= 360.f;
     }
   } else {
+    s_peers[idx].node_kind = kind;
     s_peers[idx].rssi_dbm = rssi;
     s_peers[idx].rssi_ema =
         static_cast<int8_t>(lrintf(kRssiEmaAlpha * static_cast<float>(rssi) +
@@ -103,35 +103,6 @@ void expire_peers(uint32_t now_ms) {
 BLEScan *s_scan = nullptr;
 bool s_ble_ready = false;
 
-struct AdvReport {
-  uint32_t peer_id;
-  int8_t rssi;
-};
-
-bool parse_manufacturer(const uint8_t *data, size_t len, uint32_t *out_id, AdvReport *reports, size_t *out_n) {
-  if (!data || len < 8 || data[0] != kMagic0 || data[1] != kMagic1 || data[2] != kVersion) {
-    return false;
-  }
-  const uint32_t id = static_cast<uint32_t>(data[3]) | (static_cast<uint32_t>(data[4]) << 8) |
-                      (static_cast<uint32_t>(data[5]) << 16) | (static_cast<uint32_t>(data[6]) << 24);
-  *out_id = id;
-  const uint8_t n = data[7];
-  if (n > kMaxAdvReports || len < 8u + static_cast<size_t>(n) * 5u) {
-    return false;
-  }
-  size_t count = 0;
-  for (uint8_t i = 0; i < n; ++i) {
-    const size_t off = 8u + static_cast<size_t>(i) * 5u;
-    reports[count].peer_id = static_cast<uint32_t>(data[off]) | (static_cast<uint32_t>(data[off + 1]) << 8) |
-                             (static_cast<uint32_t>(data[off + 2]) << 16) |
-                             (static_cast<uint32_t>(data[off + 3]) << 24);
-    reports[count].rssi = static_cast<int8_t>(data[off + 4]);
-    ++count;
-  }
-  *out_n = count;
-  return true;
-}
-
 class PresenceScanCallbacks : public BLEAdvertisedDeviceCallbacks {
   void onResult(BLEAdvertisedDevice advertisedDevice) override {
     const uint32_t now_ms = millis();
@@ -144,29 +115,25 @@ class PresenceScanCallbacks : public BLEAdvertisedDeviceCallbacks {
     }
     const uint8_t *raw = reinterpret_cast<const uint8_t *>(mfg.data());
     size_t off = 0;
-    if (mfg.size() >= 2 && raw[0] == static_cast<uint8_t>(kCompanyId & 0xFF) &&
-        raw[1] == static_cast<uint8_t>((kCompanyId >> 8) & 0xFF)) {
+    if (mfg.size() >= 2 && raw[0] == static_cast<uint8_t>(kPmPresenceAdvCompanyId & 0xFF) &&
+        raw[1] == static_cast<uint8_t>((kPmPresenceAdvCompanyId >> 8) & 0xFF)) {
       off = 2;
     }
-    uint32_t peer_id = 0;
-    AdvReport reports[kMaxAdvReports] = {};
-    size_t n_reports = 0;
-    if (!parse_manufacturer(raw + off, mfg.size() - off, &peer_id, reports, &n_reports)) {
+    PmPresenceAdvDecoded adv = {};
+    if (!pm_presence_adv_decode(raw + off, mfg.size() - off, &adv)) {
       return;
     }
     const int8_t rssi = static_cast<int8_t>(advertisedDevice.getRSSI());
-    upsert_peer(peer_id, rssi, now_ms);
-    for (size_t i = 0; i < n_reports; ++i) {
-      const uint32_t other = reports[i].peer_id;
-      if (other == 0 || other == peer_id) {
+    upsert_peer(adv.device_id, rssi, now_ms, adv.node_kind);
+    for (uint8_t i = 0; i < adv.report_count; ++i) {
+      const uint32_t other = adv.reports[i].device_id;
+      if (other == 0 || other == adv.device_id || other == s_self_id) {
         continue;
       }
-      if (other == s_self_id) {
-        continue;
-      }
-      /** Reporter heard another peer — inter-node edge for force-graph triangulation. */
-      upsert_peer(other, reports[i].rssi, now_ms);
-      pm_presence_graph_set_edge(peer_id, other, pm_presence_rssi_to_meters(reports[i].rssi), now_ms);
+      const PmPresenceGraphNodeKind other_kind =
+          pm_presence_resolve_node_kind(other, PmPresenceGraphNodeKind::MobilePeer);
+      upsert_peer(other, adv.reports[i].rssi_dbm, now_ms, other_kind);
+      pm_presence_graph_set_edge(adv.device_id, other, pm_presence_rssi_to_meters(adv.reports[i].rssi_dbm), now_ms);
     }
   }
 };
@@ -174,41 +141,26 @@ class PresenceScanCallbacks : public BLEAdvertisedDeviceCallbacks {
 static PresenceScanCallbacks s_scan_cb;
 
 void build_adv_payload(uint8_t *out, size_t *out_len) {
-  AdvReport ranked[kPmPresenceMaxPeers];
-  size_t n = 0;
-  for (size_t i = 0; i < s_peer_count && n < kMaxAdvReports; ++i) {
-    ranked[n].peer_id = s_peers[i].device_id;
-    ranked[n].rssi = s_peers[i].rssi_ema;
+  PmPresenceAdvReport ranked[kPmPresenceAdvMaxReports];
+  uint8_t n = 0;
+  for (size_t i = 0; i < s_peer_count && n < kPmPresenceAdvMaxReports; ++i) {
+    if (s_peers[i].node_kind == PmPresenceGraphNodeKind::LocationAnchor) {
+      continue;
+    }
+    ranked[n].device_id = s_peers[i].device_id;
+    ranked[n].rssi_dbm = s_peers[i].rssi_ema;
     ++n;
   }
-  for (size_t i = 0; i + 1 < n; ++i) {
-    for (size_t j = i + 1; j < n; ++j) {
-      if (ranked[j].rssi > ranked[i].rssi) {
-        const AdvReport t = ranked[i];
+  for (uint8_t i = 0; i + 1 < n; ++i) {
+    for (uint8_t j = i + 1; j < n; ++j) {
+      if (ranked[j].rssi_dbm > ranked[i].rssi_dbm) {
+        const PmPresenceAdvReport t = ranked[i];
         ranked[i] = ranked[j];
         ranked[j] = t;
       }
     }
   }
-
-  size_t o = 0;
-  out[o++] = kMagic0;
-  out[o++] = kMagic1;
-  out[o++] = kVersion;
-  out[o++] = static_cast<uint8_t>(s_self_id);
-  out[o++] = static_cast<uint8_t>((s_self_id >> 8) & 0xFF);
-  out[o++] = static_cast<uint8_t>((s_self_id >> 16) & 0xFF);
-  out[o++] = static_cast<uint8_t>((s_self_id >> 24) & 0xFF);
-  out[o++] = static_cast<uint8_t>(n);
-  for (size_t i = 0; i < n; ++i) {
-    const uint32_t id = ranked[i].peer_id;
-    out[o++] = static_cast<uint8_t>(id);
-    out[o++] = static_cast<uint8_t>((id >> 8) & 0xFF);
-    out[o++] = static_cast<uint8_t>((id >> 16) & 0xFF);
-    out[o++] = static_cast<uint8_t>((id >> 24) & 0xFF);
-    out[o++] = static_cast<uint8_t>(ranked[i].rssi);
-  }
-  *out_len = o;
+  *out_len = pm_presence_adv_encode(s_self_id, PmPresenceGraphNodeKind::MobilePeer, ranked, n, out, 32);
 }
 
 void refresh_advertisement(void) {
@@ -216,8 +168,8 @@ void refresh_advertisement(void) {
   size_t len = 0;
   build_adv_payload(payload, &len);
   uint8_t mfg[36] = {};
-  mfg[0] = static_cast<uint8_t>(kCompanyId & 0xFF);
-  mfg[1] = static_cast<uint8_t>((kCompanyId >> 8) & 0xFF);
+  mfg[0] = static_cast<uint8_t>(kPmPresenceAdvCompanyId & 0xFF);
+  mfg[1] = static_cast<uint8_t>((kPmPresenceAdvCompanyId >> 8) & 0xFF);
   if (len > sizeof(mfg) - 2) {
     len = sizeof(mfg) - 2;
   }
@@ -238,10 +190,10 @@ void qemu_seed_peers(uint32_t now_ms) {
     return;
   }
   /** ~3 m, ~4 m, ~6 m from self; N1–N2 ~5 m (triangle for layout QA). */
-  upsert_peer(0xA1B2C3D4u, -58, now_ms);
-  upsert_peer(0x11223344u, -66, now_ms);
-  upsert_peer(0xDEADBEEFu, -76, now_ms);
-  upsert_peer(pm_presence_location_beacon_id(1), -62, now_ms);
+  upsert_peer(0xA1B2C3D4u, -58, now_ms, PmPresenceGraphNodeKind::MobilePeer);
+  upsert_peer(0x11223344u, -66, now_ms, PmPresenceGraphNodeKind::MobilePeer);
+  upsert_peer(0xDEADBEEFu, -76, now_ms, PmPresenceGraphNodeKind::MobilePeer);
+  upsert_peer(pm_presence_location_beacon_id(1), -62, now_ms, PmPresenceGraphNodeKind::LocationAnchor);
   pm_presence_graph_set_edge(0xA1B2C3D4u, 0x11223344u, 5.0f, now_ms);
   pm_presence_graph_set_edge(0xA1B2C3D4u, 0xDEADBEEFu, 7.0f, now_ms);
 #else

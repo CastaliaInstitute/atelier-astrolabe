@@ -3,9 +3,12 @@
 #include <cstddef>
 #include <cstdint>
 
-/** One discovered Astrolabe peer (BLE manufacturer data v1). */
+#include "pm_presence_locations.h"
+
+/** One discovered node from a Castalia presence advertisement (watch or location). */
 struct PmPresencePeer {
   uint32_t device_id = 0;
+  PmPresenceGraphNodeKind node_kind = PmPresenceGraphNodeKind::MobilePeer;
   int8_t rssi_dbm = -127;
   /** Smoothed RSSI used for ring placement. */
   int8_t rssi_ema = -127;

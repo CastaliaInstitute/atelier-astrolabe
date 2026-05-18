@@ -4,8 +4,9 @@
 #include <cstdint>
 
 /**
- * Static "location" beacons (desk, room, doorway) — distinct from mobile watches.
- * BLE device_id uses 0xA5xxxxxx; catalog coordinates live in NVS (building frame).
+ * Static "location" beacons (desk, room, doorway) use the same Castalia presence
+ * advertisement as watches (see pm_presence_adv.h), with node_kind=LocationAnchor.
+ * device_id is typically 0xA5xxxxxx; surveyed coordinates live in NVS (building frame).
  */
 enum class PmPresenceGraphNodeKind : uint8_t {
   MobilePeer = 0,

@@ -92,6 +92,8 @@
         "sketches/Astrolabe/faces/radar",
         "sketches/Astrolabe/pm_presence.cpp",
         "sketches/Astrolabe/pm_presence.h",
+        "sketches/Astrolabe/pm_presence_adv.cpp",
+        "sketches/Astrolabe/pm_presence_adv.h",
         "sketches/Astrolabe/pm_motion.cpp",
         "sketches/Astrolabe/pm_motion.h",
         "sketches/Astrolabe/pm_presence_graph.cpp",
