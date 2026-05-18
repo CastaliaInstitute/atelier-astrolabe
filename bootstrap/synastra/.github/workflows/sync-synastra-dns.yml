@@ -1,0 +1,20 @@
+name: Sync synastra DNS (Cloudflare → GitHub Pages)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cloudflare-dns:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Apply GitHub Pages CNAME on Cloudflare
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_API_EMAIL: ${{ secrets.CF_API_EMAIL }}
+          CF_API_GLOBAL_API_KEY: ${{ secrets.CF_API_GLOBAL_API_KEY }}
+        run: bash scripts/cf-dns-synastra-github-pages.sh
