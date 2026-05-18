@@ -27,7 +27,6 @@ Edit this file when you start or finish work. Keep **In progress** to 1–3 item
 ## In progress
 
 - [~] **P1** Modular OTA (runtime + face-pack A/B, 32 MB) — Issue: [#60](https://github.com/CastaliaInstitute/astrolabe/issues/60), PR [#66](https://github.com/CastaliaInstitute/astrolabe/pull/66), [`docs/design/modular-ota.md`](design/modular-ota.md)
-- [~] **P1** Astrology face aspects, chrome trim, and ephemeris accuracy — Issue: [#52](https://github.com/CastaliaInstitute/astrolabe/issues/52)
 
 ---
 
@@ -127,7 +126,7 @@ Derived from [README limits](../README.md#limits-mvp) and [open questions](pocke
 - [x] **P1** **Bugfix — Classic analog dial size** — enlarge analog clock to fill the round face **inside the 24h rainbow rim** on 466×466 (`draw_analog_clock` in `PocketMynah.ino`). Derive dial radius from rim inner edge (`R - 9`) minus tick inset; rescale hands/hub from prior r=138 layout.
 - [x] **P1** **Home face = Hue only** — `MYNAH_HUE_HOME_ONLY` (default 1): ClassicAnalog = ambient hue + 24h rainbow only; clock hands on DigitalLocal / Apocalypso.
 - [ ] **P1** **Charging ripples on rainbow rim** — Issue [#4](https://github.com/CastaliaInstitute/astrolabe/issues/4) — when **USB-C charging** detected (AXP2101 / PMU: `VBUS` or charge-status register via I2C, same bus as PWR key), animate **gentle ripples** along the **bottom arc** of the **24h rainbow ring** (`draw_circumference_rainbow_24h`); subtle amplitude, slow phase — ambient “filling” cue without bright alerts. Off when on battery only; works on home/Hue face and any face that shows the rim.
-- [x] **P1** Astrology chart glyphs — zodiac + planet alpha masks (`embed_*_glyphs.py`, `pm_zodiac_glyphs`); wheel radius `R−10`. Remaining: trim footer chrome, aspect lines, ephemeris server accuracy.
+- [x] **P1** Astrology chart glyphs and polish — zodiac + planet alpha masks (`embed_*_glyphs.py`, `pm_zodiac_glyphs`); wheel radius `R−10`; follow-up aspect lines, footer/source chrome, and online ephemeris interpolation tracked by #52.
 - [x] **P1** Remove gesture debug labels (e.g. swipe up/down banners on clock face); drop or gate `g_gesture_banner` / `pm_gesture` debug UI for production
 - [x] **P1** Moon face UX bugfixes — Closes [#1](https://github.com/CastaliaInstitute/astrolabe/issues/1): swipe up/down cycles faces; removed phase % label and footer hints
 - [x] **P1** **Bugfix: circadian hue mapping** — Issue [#2](https://github.com/CastaliaInstitute/astrolabe/issues/2) — `pm_circadian_hue` keyframes for home face + rainbow rim (5-stop MVP; full 12-stop backlog in [#51](https://github.com/CastaliaInstitute/astrolabe/issues/51)).
@@ -142,6 +141,7 @@ Derived from [README limits](../README.md#limits-mvp) and [open questions](pocke
 
 ## Done
 
+- [x] **2026-05-18** Astrology face aspects, chrome trim, and ephemeris accuracy: closest major transit aspect lines, compact Castalia/local ephemeris footer, interpolated online month ephemeris samples, and voice prompt source/aspect context. PR [#88](https://github.com/CastaliaInstitute/astrolabe/pull/88); Closes [#52](https://github.com/CastaliaInstitute/astrolabe/issues/52). Hardware QA on `integration` required before promotion to `main`.
 - [x] **2026-05-17** Synastry clock face: dual-wheel partner/family charts, NVS chart profiles with demo seeds, up/down target cycling, and PWR/BOOT voice prompts. PR [#75](https://github.com/CastaliaInstitute/astrolabe/pull/75); Closes [#32](https://github.com/CastaliaInstitute/astrolabe/issues/32). Hardware QA on `integration` required before promotion to `main`.
 - [x] **2026-05-17** Castalian Rhythms V0 design doc/backlog epic: on-device-first architecture, embedded KB/fusion plan, and child issues [#62](https://github.com/CastaliaInstitute/astrolabe/issues/62)–[#65](https://github.com/CastaliaInstitute/astrolabe/issues/65). PR [#67](https://github.com/CastaliaInstitute/astrolabe/pull/67); Closes [#61](https://github.com/CastaliaInstitute/astrolabe/issues/61)
 - [x] **2026-05-17** Version clock face: git branch/SHA/date + GitHub commit QR (`pm_build_info.h`). PR [#59](https://github.com/CastaliaInstitute/astrolabe/pull/59); Closes [#58](https://github.com/CastaliaInstitute/astrolabe/issues/58)
