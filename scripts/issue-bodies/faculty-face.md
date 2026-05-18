@@ -4,20 +4,35 @@ New **`ClockFace::Faculty`** for on-watch **ask-faculty** conversations (Phase 2
 
 **User flow**
 
-1. User swipes to the Faculty face.
+1. User swipes to the Faculty face (or scrolls to a faculty — see below).
 2. **PWR hold / PTT** → capture **STT** (16 kHz mono PCM via existing `pm_voice` / `voice-pipeline` path).
-3. Utterance may name a faculty (“ask Einstein…”, “what would Curie say about…”) or continue the active thread.
-4. **Router step** (edge function or `voice-pipeline` routing) resolves **`facultySlug`** from the transcript.
-5. Device calls **`ask-faculty`** with `facultySlug`, the user question, and **conversation history** for that faculty.
+3. Utterance may name a faculty (“ask Einstein…”, “what would Curie say about…”) or continue the **currently selected** faculty.
+4. **Router step** (edge function or `voice-pipeline` routing) resolves **`facultySlug`** from the transcript when needed.
+5. Device calls **`ask-faculty`** with `facultySlug` and the user question. **Conversation history** is **not stored on the watch** — Castalia/commonplace holds prior turns; the edge function (or client pulling recent commonplace entries) assembles history server-side for the prompt.
 6. On success:
-   - **`GET` [`faculty-bust`](https://github.com/CastaliaInstitute/mynah/blob/main/supabase/functions/faculty-bust/index.ts)** with `faculty` query param → download/cache portrait (flash or PSRAM, `pm_faculty_bust`) and show on the round display during the exchange.
+   - **`GET` [`faculty-bust`](https://github.com/CastaliaInstitute/mynah/blob/main/supabase/functions/faculty-bust/index.ts)** with `faculty` query param → download/cache portrait (flash or PSRAM, `pm_faculty_bust`) and show on the round display.
    - Play **LLM reply + TTS** from the response (`audioBase64` MP3 when present; text-only path already supported).
-7. Show a short **transcript snippet** on the face (question + reply summary).
+7. Optional: brief on-face status for the **current** exchange only (listening / thinking / speaking) — not a scrollable transcript archive.
 
-**Navigation / state**
+**On-device state (faculty + bust only)**
 
-- **Swipe up/down** on this face: cycle **recent faculty** (NVS list of slugs last spoken with); each slug keeps its own thread.
-- **Commonplace** (follow-up): log turns via `commonplaceDirectus` (`kind: conversation`, `route: ask-faculty`, `facultySlug`) and use recent entries for prompt history.
+| Stored locally | Not stored locally |
+|----------------|-------------------|
+| Ordered list of **recent faculty slugs** (NVS, capped) | Full conversation text / turn log |
+| **Cached bust image** per slug (`pm_faculty_bust`) | Commonplace payloads |
+| **Active faculty** index into the recent list | Server-side history assembly |
+
+**Speaker history (UI)**
+
+- **Swipe up/down** on this face: scroll through **recent speakers** (faculty slugs), not conversation messages.
+- Each step shows that faculty’s **cached bust** (fetch on first use, refresh if stale/missing).
+- Selecting a faculty sets the **active** slug for the next PTT; `ask-faculty` continues that thread on Castalia using server-held history for that `facultySlug` + user.
+- New faculty from STT: append slug to recent list, download bust, make active.
+
+**Castalia (source of truth for conversations)**
+
+- Turns logged via [`commonplaceDirectus`](https://github.com/CastaliaInstitute/mynah/blob/main/supabase/functions/_shared/commonplaceDirectus.ts) (`kind: conversation`, `route: ask-faculty`, `facultySlug`) on the server.
+- Firmware does **not** implement local conversation scrollback; v1 does **not** require on-watch commonplace fetch UI.
 
 ## Backlog reference
 
@@ -25,19 +40,18 @@ New **`ClockFace::Faculty`** for on-watch **ask-faculty** conversations (Phase 2
 
 ## Acceptance criteria
 
-- [ ] Faculty face appears in the face swipe cycle (`ClockFace::Faculty` or equivalent).
-- [ ] PWR/PTT on Faculty face: STT → faculty resolution → `ask-faculty` → TTS playback on device.
-- [ ] After a resolved faculty, **`faculty-bust`** portrait is fetched, cached, and drawn on the face for that session.
-- [ ] Swipe up/down cycles recent faculty slugs from NVS; continuing a thread reuses history for that slug.
-- [ ] `./scripts/build.sh` passes.
-- [ ] `docs/BACKLOG.md` line updated with `Issue: #N`.
-- [ ] **Hardware QA**: screenshot (`screen.bmp`) of Faculty face with bust visible during/after a reply.
+- [ ] Faculty face in swipe cycle; PTT → STT → `ask-faculty` → TTS for **active** faculty.
+- [ ] **No local conversation archive** — only recent **faculty slugs** + bust cache in NVS/flash.
+- [ ] Swipe up/down scrolls **speaker history** (recent faculty); bust shown per speaker.
+- [ ] `faculty-bust` fetched and cached per slug; bust updates when active speaker changes.
+- [ ] `./scripts/build.sh` passes; `docs/BACKLOG.md` has `Issue: #N`.
+- [ ] **Hardware QA**: screenshot with bust visible while browsing at least two recent faculty.
 
 ## Dependencies / notes
 
-- Reuses existing Castalia auth (`pm_castalia_auth`), `pm_voice` / `voice-pipeline`, and text-only `ask-faculty` handling (backlog done).
-- Mynah edge functions: `voice-pipeline`, `ask-faculty`, `faculty-bust` (no new server contract required for v1 if routing already exists).
-- Out of scope for v1 unless trivial: full commonplace history sync UI; wake word.
+- Reuses `pm_castalia_auth`, `pm_voice` / `voice-pipeline`, text-only `ask-faculty` path (backlog done).
+- Mynah: `voice-pipeline`, `ask-faculty`, `faculty-bust`.
+- Out of scope v1: on-watch transcript history UI; wake word; full commonplace browser.
 
 ## Branch
 

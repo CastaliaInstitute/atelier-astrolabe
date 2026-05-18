@@ -375,15 +375,14 @@ Rotating globe with day/night terminator; optional weather HUD overlay. Bounded 
         ["enhancement"],
         "P1",
         """## Summary
-New `ClockFace::Faculty`: PWR/PTT STT → faculty router → `ask-faculty` with history → download `faculty-bust` + play LLM/TTS reply. Swipe up/down cycles recent faculty (NVS). Parity with Android GlowScreen.
+New `ClockFace::Faculty`: STT → `ask-faculty` (history on Castalia). Watch stores recent faculty slugs + bust cache only; swipe up/down scrolls speakers, not transcripts.
 
 ## Backlog
 `docs/BACKLOG.md` — Faculty face
 
 ## Acceptance criteria
-- [ ] Faculty face in swipe cycle; STT selects/continues faculty + question
-- [ ] `faculty-bust` cached and shown; TTS/audio playback works
-- [ ] `./scripts/build.sh` passes; BACKLOG updated with issue #
+- [ ] PTT → ask-faculty → TTS; no local conversation log
+- [ ] NVS recent slugs + per-slug bust cache; swipe browses speakers
 - [ ] Hardware QA screenshot
 
 ## Issue body
