@@ -13,6 +13,7 @@ concurrency:
 
 jobs:
   build:
+    name: Firmware build
     runs-on: ubuntu-latest
     env:
       PLATFORMIO_BUILD_DIR: /tmp/astrolabe-pio-build-${{ github.run_id }}

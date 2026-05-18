@@ -25,7 +25,7 @@ concurrency:
 
 jobs:
   sim-gate:
-    name: QEMU sim test
+    name: Integration sim gate
     runs-on: ubuntu-latest
     if: >-
       github.event_name == 'pull_request' ||
