@@ -654,7 +654,7 @@ void loop() {
       continue;
     } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Chakra &&
                (ge.kind == PmGestureKind::SwipeUp || ge.kind == PmGestureKind::SwipeDown)) {
-      pm_face_chakra_cycle(ge.kind == PmGestureKind::SwipeUp ? 1 : -1);
+      pm_face_chakra_cycle(ge.kind == PmGestureKind::SwipeDown ? 1 : -1);
       snprintf(g_gesture_banner, sizeof(g_gesture_banner), "chakra %d/7", pm_face_chakra_index() + 1);
       g_clock_repaint_pending = true;
       continue;
