@@ -110,7 +110,10 @@ static esp_err_t i2s_tx_begin(int sample_hz, int channels) {
 }
 
 static esp_err_t i2s_write_all(const int16_t *pcm, size_t total_s16) {
-  pm_audio_analyzer_feed_out(pcm, total_s16, 2);
+  /** Spectrum face only — avoid FFT load / races during chakra tones. */
+  if (pm_faces_current() == ClockFace::Spectrum) {
+    pm_audio_analyzer_feed_out(pcm, total_s16, 2);
+  }
   const uint8_t *p = reinterpret_cast<const uint8_t *>(pcm);
   size_t remain = total_s16 * sizeof(int16_t);
   while (remain > 0) {
@@ -187,6 +190,7 @@ static bool play_tone_streaming(float hz, uint32_t duration_ms) {
 
   for (;;) {
     esp_task_wdt_reset();
+    vTaskDelay(1);
     if (until_stop && s_tone_stop && stop_fade_left == 0) {
       stop_fade_left = fade_out;
     }
