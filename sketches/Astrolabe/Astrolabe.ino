@@ -29,6 +29,7 @@
 #include "pm_calcifer.h"
 #include "pm_commonplace.h"
 #include "pm_astro_highlight.h"
+#include "pm_rhythms_kb.h"
 #include "faces/pm_faces.h"
 #include "faces/shared/pm_face_draw.h"
 #include "faces/astrology/pm_face_astrology.h"
@@ -482,6 +483,24 @@ static void poll_serial_birth_commands() {
         pm_chart_profiles_ensure_demo_seed();
         Serial.printf("profiles: %d saved\n", pm_chart_profile_count());
         g_clock_repaint_pending = true;
+      } else if (strcmp(line, "rhythms") == 0 || strcmp(line, "rhythms count") == 0) {
+        Serial.printf("rhythms: kb v0 entries=%u\n", static_cast<unsigned>(pm_rhythms_kb_count()));
+      } else if (strncmp(line, "rhythm ", 7) == 0) {
+        const char *key = line + 7;
+        while (*key == ' ') {
+          ++key;
+        }
+        const PmRhythmsKbEntry *entry = pm_rhythms_kb_lookup(key);
+        if (entry) {
+          Serial.printf("rhythm: %s [%s] safety=%s\n", entry->interpretation_key, entry->title,
+                        entry->safety_level);
+          Serial.printf("summary: %s\n", entry->summary);
+          Serial.printf("invitations: %s\n", entry->invitations);
+          Serial.printf("cautions: %s\n", entry->cautions);
+          Serial.printf("practices: %s\n", entry->practices);
+        } else {
+          Serial.println("rhythm: not found (usage: rhythm <interpretation_key>)");
+        }
       } else if (strcmp(line, "profiles list") == 0) {
         Serial.println("profiles:");
         for (int i = 0; i < kPmChartProfileSlots; ++i) {
