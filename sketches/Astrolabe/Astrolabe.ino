@@ -29,6 +29,7 @@
 #include "pm_calcifer.h"
 #include "pm_commonplace.h"
 #include "pm_astro_highlight.h"
+#include "pm_rhythms.h"
 #include "faces/pm_faces.h"
 #include "faces/shared/pm_face_draw.h"
 #include "faces/astrology/pm_face_astrology.h"
@@ -373,6 +374,33 @@ static bool face_index_from_name(const char *name, int *out) {
   return false;
 }
 
+static uint32_t ymd_from_parts(unsigned y, unsigned mo, unsigned d) {
+  if (y < 1900 || y > 2100 || mo < 1 || mo > 12 || d < 1 || d > 31) {
+    return 0;
+  }
+  return static_cast<uint32_t>(y * 10000u + mo * 100u + d);
+}
+
+static void print_rhythms_card_serial() {
+  PmRhythmsCompactCard card = {};
+  if (!pm_rhythms_get_compact_card(&card)) {
+    Serial.println("rhythms: no card (need valid time or cached card)");
+    return;
+  }
+  Serial.printf("rhythms: %s date=%u%s%s\n", card.schema, static_cast<unsigned>(card.local_ymd),
+                card.stale ? " " : "", card.stale ? card.stale_ribbon : "");
+  Serial.printf("title: %s\n", card.title);
+  Serial.printf("favor: %s\n", card.favor);
+  Serial.printf("watch: %s\n", card.watch);
+  Serial.printf("practice: %s\n", card.practice);
+  if (card.symbols[0] != '\0') {
+    Serial.printf("symbols: %s\n", card.symbols);
+  }
+  if (card.precision[0] != '\0') {
+    Serial.printf("precision: %s\n", card.precision);
+  }
+}
+
 static void poll_serial_birth_commands() {
   static char line[120];
   static size_t li = 0;
@@ -413,6 +441,44 @@ static void poll_serial_birth_commands() {
           }
         }
         g_clock_repaint_pending = true;
+      } else if (strcmp(line, "rhythms") == 0 || strcmp(line, "card") == 0) {
+        print_rhythms_card_serial();
+      } else if (strcmp(line, "rhythms clear") == 0) {
+        pm_rhythms_cache_clear();
+        Serial.println("rhythms: cache cleared");
+      } else if (strncmp(line, "cycle ", 6) == 0) {
+        const char *p = line + 6;
+        while (*p == ' ') {
+          ++p;
+        }
+        if (strcmp(p, "off") == 0 || strcmp(p, "clear") == 0) {
+          pm_rhythms_cycle_clear();
+          Serial.println("cycle: disabled");
+        } else if (strcmp(p, "status") == 0) {
+          PmRhythmsCycleState cycle = {};
+          if (pm_rhythms_cycle_load(&cycle)) {
+            Serial.printf("cycle: enabled=%d last_period_start=%u\n", cycle.enabled ? 1 : 0,
+                          static_cast<unsigned>(cycle.last_period_start_ymd));
+          } else {
+            Serial.println("cycle: unavailable");
+          }
+        } else if (strncmp(p, "start ", 6) == 0) {
+          unsigned y = 0, mo = 0, d = 0;
+          if (sscanf(p + 6, "%u %u %u", &y, &mo, &d) == 3) {
+            const uint32_t ymd = ymd_from_parts(y, mo, d);
+            if (ymd != 0) {
+              pm_rhythms_cycle_save(true, ymd);
+              pm_rhythms_cache_clear();
+              Serial.printf("cycle: enabled last_period_start=%u\n", static_cast<unsigned>(ymd));
+            } else {
+              Serial.println("cycle: invalid date");
+            }
+          } else {
+            Serial.println("cycle: usage: cycle start YYYY MM DD | cycle off | cycle status");
+          }
+        } else {
+          Serial.println("cycle: usage: cycle start YYYY MM DD | cycle off | cycle status");
+        }
       } else if (strncmp(line, "qa ", 3) == 0) {
         const char *args = line + 3;
         while (*args == ' ') {
