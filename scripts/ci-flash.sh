@@ -42,7 +42,32 @@ PORT="$(./scripts/detect_upload_port.sh)"
 export ASTROLABE_UPLOAD_PORT="$PORT"
 echo "→ upload port: ${PORT}"
 echo "→ upload ${BIN}"
-pio run -e "$ENV" -t upload --upload-port "$PORT" -j 1
+echo "→ if upload fails: hold BOOT, tap PWR (or plug USB), release BOOT when esptool connects"
+
+upload_once() {
+  local flags=("$@")
+  pio run -e "$ENV" -t upload --upload-port "$PORT" -j 1 "${flags[@]}"
+}
+
+if command -v "${ASTROLABE_CI_VENV:-$HOME/.astrolabe-ci-venv}/bin/python" >/dev/null 2>&1; then
+  bash ./scripts/preupload-boot-pulse.sh "$PORT" 2>/dev/null || true
+fi
+
+TRIES="${ASTROLABE_UPLOAD_TRIES:-3}"
+ok=0
+for ((i = 1; i <= TRIES; i++)); do
+  echo "→ upload attempt ${i}/${TRIES}"
+  [[ "$i" -gt 1 ]] && { bash ./scripts/preupload-boot-pulse.sh "$PORT" 2>/dev/null || true; sleep 2; }
+  if [[ "$i" -eq 1 ]]; then
+    upload_once && ok=1 && break
+  elif upload_once --upload-flags "--before=usb_reset" --upload-flags "--after=hard_reset"; then
+    ok=1 && break
+  fi
+done
+if [[ "$ok" != "1" ]]; then
+  echo "error: upload failed after ${TRIES} attempts — put watch in download mode (hold BOOT, tap PWR)" >&2
+  exit 1
+fi
 
 if [[ "$SMOKE_SEC" -gt 0 ]] && command -v timeout >/dev/null 2>&1; then
   echo "→ serial smoke (${SMOKE_SEC}s)"
