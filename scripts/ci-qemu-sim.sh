@@ -36,6 +36,6 @@ else
     0x10000 "${BIN_DIR}/firmware.bin"
 fi
 
-QEMU_BIN="$(bash ./scripts/ci-install-qemu.sh)"
+QEMU_BIN="$(bash ./scripts/ci-install-qemu.sh | tail -1)"
 export QEMU_ESP32="$QEMU_BIN"
 exec python3 ./scripts/functional_sim_test.py --flash-bin "$FLASH_MERGED" --qemu "$QEMU_BIN"
