@@ -16,6 +16,7 @@ Each face is a self-contained module under `faces/<name>/`. The app shell (`Astr
 | `calcifer/` | Hue Daywheel (rolling 12h hue ring + event wedges + CalDAV) |
 | `castalia/` | Sign-in QR |
 | `synastry/` | Partner/family dual natal wheel + aspect highlights |
+| `rhythms/` | Castalian Rhythms compact daily card + BOOT narration |
 
 ## Public API per face
 

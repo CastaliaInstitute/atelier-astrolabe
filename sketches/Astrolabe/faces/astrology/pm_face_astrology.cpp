@@ -1,6 +1,7 @@
 #include "faces/astrology/pm_face_astrology.h"
 #include "faces/shared/pm_face_draw.h"
 #include "pm_birth_nvs.h"
+#include "pm_rhythms.h"
 #include "pm_transit.h"
 #include "pm_wifi_ntp.h"
 #include "pm_zodiac_glyphs.h"
@@ -219,6 +220,10 @@ bool pm_face_astrology_build_system_prompt_impl() {
 
 
 bool pm_face_astrology_build_system_prompt(char *voice_msg, size_t voice_cap, char *sys_out, size_t sys_cap) {
+  if (pm_rhythms_has_cached_daily_card()) {
+    return pm_rhythms_build_tts_message(voice_msg, voice_cap) &&
+           pm_rhythms_build_tts_system_prompt(sys_out, sys_cap);
+  }
   if (!pm_face_astrology_build_voice_message(voice_msg, voice_cap)) {
     return false;
   }

@@ -29,6 +29,7 @@
 #include "pm_calcifer.h"
 #include "pm_commonplace.h"
 #include "pm_astro_highlight.h"
+#include "pm_rhythms.h"
 #include "faces/pm_faces.h"
 #include "faces/shared/pm_face_draw.h"
 #include "faces/astrology/pm_face_astrology.h"
@@ -36,6 +37,7 @@
 #include "faces/spotify/pm_face_spotify.h"
 #include "faces/calcifer/pm_face_calcifer.h"
 #include "faces/synastry/pm_face_synastry.h"
+#include "faces/rhythms/pm_face_rhythms.h"
 #include "pm_display.h"
 #include "pm_qa.h"
 
@@ -56,6 +58,7 @@ static constexpr uint8_t k_tv_none = 0;
 static constexpr uint8_t k_tv_astro = 1;
 static constexpr uint8_t k_tv_moon = 2;
 static constexpr uint8_t k_tv_synastry = 3;
+static constexpr uint8_t k_tv_rhythms = 4;
 static uint8_t g_text_voice_route = k_tv_none;
 static bool g_calcifer_briefing = false;
 static char g_moon_voice_msg[2200] = "";
@@ -72,6 +75,8 @@ static char g_astrology_voice_msg[2200] = "";
 static char g_astrology_sys_prompt[2800] = "";
 static char g_synastry_voice_msg[2600] = "";
 static char g_synastry_sys_prompt[3200] = "";
+static char g_rhythms_voice_msg[900] = "";
+static char g_rhythms_sys_prompt[520] = "";
 static bool s_rec_mic_on = false;
 /** Astrology voice: stay on chart during record/think/speak + highlight mentions. */
 static bool g_astro_voice_active = false;
@@ -259,12 +264,10 @@ static void reset_recording_buffer() {
   g_pcm_len = 0;
 }
 
-static const char kAstroBootUserMsg[] =
-    "Deliver today's spoken transit reading now (one flowing mini-reading, under 90 seconds).";
 static const char kSynastryBootUserMsg[] =
     "Deliver the spoken synastry relationship highlight now (one flowing mini-reading, under 90 seconds).";
 
-/** BOOT on Astrology face or serial `astro`: text-only voice-pipeline turn with full chart in system prompt. */
+/** BOOT on Astrology face or serial `astro`: text-only voice-pipeline turn, preferring Rhythms card cache. */
 static bool astrology_begin_boot_reading(void) {
   if (!pm_wifi_connected()) {
     snprintf(g_gesture_banner, sizeof(g_gesture_banner), "astro: need WiFi");
@@ -274,6 +277,7 @@ static bool astrology_begin_boot_reading(void) {
     snprintf(g_gesture_banner, sizeof(g_gesture_banner), "astro: need time");
     return false;
   }
+  (void)pm_rhythms_prefetch_daily_card();
   if (!pm_face_astrology_build_system_prompt(g_astrology_voice_msg, sizeof(g_astrology_voice_msg),
                                              g_astrology_sys_prompt, sizeof(g_astrology_sys_prompt))) {
     snprintf(g_gesture_banner, sizeof(g_gesture_banner), "astro: build msg fail");
@@ -292,6 +296,36 @@ static bool astrology_begin_boot_reading(void) {
   s_astro_voice_armed = false;
   s_astro_play_armed = false;
   memset(&g_astro_highlight_plan, 0, sizeof(g_astro_highlight_plan));
+  g_state = AppState::kThinking;
+  return true;
+}
+
+/** BOOT on Rhythms face: speak the cached compact card, not an open-ended chart reading. */
+static bool rhythms_begin_boot_reading(void) {
+  if (!pm_wifi_connected()) {
+    snprintf(g_gesture_banner, sizeof(g_gesture_banner), "rhythms: need WiFi");
+    return false;
+  }
+  if (!pm_time_valid()) {
+    snprintf(g_gesture_banner, sizeof(g_gesture_banner), "rhythms: need time");
+    return false;
+  }
+  if (!pm_rhythms_prefetch_daily_card() ||
+      !pm_rhythms_build_tts_message(g_rhythms_voice_msg, sizeof(g_rhythms_voice_msg)) ||
+      !pm_rhythms_build_tts_system_prompt(g_rhythms_sys_prompt, sizeof(g_rhythms_sys_prompt))) {
+    snprintf(g_gesture_banner, sizeof(g_gesture_banner), "rhythms: card fail");
+    return false;
+  }
+  pm_voice_result_free(&g_voice_result);
+  g_voice_use_message = true;
+  g_text_voice_route = k_tv_rhythms;
+  g_astro_voice_active = false;
+  g_astro_voice_pcm = false;
+  g_synastry_voice_active = false;
+  g_synastry_voice_pcm = false;
+  g_moon_fortune_active = false;
+  g_moon_voice_pcm = false;
+  g_calcifer_briefing = false;
   g_state = AppState::kThinking;
   return true;
 }
@@ -363,7 +397,7 @@ static bool face_index_from_name(const char *name, int *out) {
   } k[] = {{"classic", 0},  {"hue", 0},       {"analog", 0},    {"apocalypso", 1},
            {"digital", 2},  {"spotify", 3},   {"astro", 4},       {"astrology", 4},
            {"moon", 5},     {"calcifer", 6},  {"schedule", 6},  {"castalia", 7},
-           {"synastry", 8}, {"syn", 8}};
+           {"synastry", 8}, {"syn", 8},       {"rhythms", 9},    {"card", 9}};
   for (const auto &e : k) {
     if (strcasecmp(name, e.n) == 0) {
       *out = e.idx;
@@ -394,6 +428,7 @@ static void poll_serial_birth_commands() {
         }
         if (strncmp(p, "clear", 5) == 0 && (p[5] == '\0' || p[5] == ' ')) {
           pm_birth_clear();
+          pm_rhythms_invalidate_daily_card();
           Serial.println("birth: cleared (NVS)");
         } else {
           unsigned y = 0, mo = 0, d = 0, h = 0, mi = 0;
@@ -407,6 +442,7 @@ static void poll_serial_birth_commands() {
             bb.minute = static_cast<uint8_t>(mi);
             bb.valid = true;
             pm_birth_save(&bb);
+            pm_rhythms_invalidate_daily_card();
             Serial.printf("birth: saved %u-%02u-%02u %02u:%02u local (NVS)\n", y, mo, d, h, mi);
           } else {
             Serial.println("birth: usage: birth YYYY MM DD HH MI   |   birth clear");
@@ -433,6 +469,7 @@ static void poll_serial_birth_commands() {
           Serial.println("qa: 6 calcifer");
           Serial.println("qa: 7 castalia");
           Serial.println("qa: 8 synastry");
+          Serial.println("qa: 9 rhythms");
         } else if (!pm_qa_inject_command(args)) {
           Serial.println("qa: usage: status | faces | inject …");
         }
@@ -454,7 +491,7 @@ static void poll_serial_birth_commands() {
           g_clock_repaint_pending = true;
           Serial.printf("face: %d\n", idx);
         } else {
-          Serial.println("face: usage: face <0-8|name>");
+          Serial.println("face: usage: face <0-9|name>");
         }
       } else if (strcmp(line, "astro") == 0) {
         if (pm_faces_current() != ClockFace::Astrology) {
@@ -466,6 +503,17 @@ static void poll_serial_birth_commands() {
           g_clock_repaint_pending = true;
         } else {
           Serial.printf("astro: %s\n", g_gesture_banner);
+        }
+      } else if (strcmp(line, "rhythms") == 0 || strcmp(line, "card") == 0) {
+        if (pm_faces_current() != ClockFace::Rhythms) {
+          Serial.println("rhythms: swipe to Rhythms face first (or: face rhythms)");
+        } else if (g_state != AppState::kClock) {
+          Serial.printf("rhythms: busy (state=%d)\n", static_cast<int>(g_state));
+        } else if (rhythms_begin_boot_reading()) {
+          Serial.println("rhythms: voice card started (BOOT/text)");
+          g_clock_repaint_pending = true;
+        } else {
+          Serial.printf("rhythms: %s\n", g_gesture_banner);
         }
       } else if (strcmp(line, "synastry") == 0 || strcmp(line, "syn") == 0) {
         if (pm_faces_current() != ClockFace::Synastry) {
@@ -547,6 +595,7 @@ void setup() {
 
   if (pm_wifi_begin()) {
     pm_ntp_sync_blocking();
+    (void)pm_rhythms_prefetch_daily_card();
     pm_castalia_warmup_after_wifi();
   }
   pm_display_bind(gfx);
@@ -666,6 +715,16 @@ void loop() {
     }
   }
 
+  if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Rhythms &&
+      (side_ev & PM_SIDE_BTN_BOOT) != 0) {
+    if (!voice_last_play_begin()) {
+      if (rhythms_begin_boot_reading()) {
+        g_gesture_banner[0] = '\0';
+      }
+      g_clock_repaint_pending = true;
+    }
+  }
+
   static uint32_t s_ptt_press_ms = 0;
   const bool ptt_hold = pm_ptt_button_held();
   if (g_state == AppState::kClock) {
@@ -684,7 +743,8 @@ void loop() {
 
   static uint32_t s_last_clock_boot_brief_ms = 0;
   if (g_state == AppState::kClock && (side_ev & PM_SIDE_BTN_BOOT) &&
-      pm_faces_current() != ClockFace::Astrology && pm_faces_current() != ClockFace::Synastry) {
+      pm_faces_current() != ClockFace::Astrology && pm_faces_current() != ClockFace::Synastry &&
+      pm_faces_current() != ClockFace::Rhythms) {
     if (voice_last_play_begin()) {
       /* BOOT replay last TTS */
     } else {
@@ -725,6 +785,14 @@ void loop() {
         pm_time_local(&tm_now);
       }
 
+      static bool s_prev_time_valid = false;
+      if (valid && !s_prev_time_valid) {
+        if (pm_rhythms_prefetch_daily_card() && pm_faces_current() == ClockFace::Rhythms) {
+          g_clock_repaint_pending = true;
+        }
+      }
+      s_prev_time_valid = valid;
+
       if (wifi && !valid && (now - s_last_ntp_retry_wall > 60000)) {
         s_last_ntp_retry_wall = now;
         pm_ntp_retry_if_stale();
@@ -735,6 +803,11 @@ void loop() {
         if (pm_faces_current() == ClockFace::Castalia) {
           pm_castalia_on_face_enter();
           g_clock_repaint_pending = true;
+        }
+        if (pm_faces_current() == ClockFace::Rhythms) {
+          if (pm_rhythms_prefetch_daily_card()) {
+            g_clock_repaint_pending = true;
+          }
         }
         s_prev_dial_face = pm_faces_current();
       }
@@ -774,15 +847,18 @@ void loop() {
       const time_t epoch_min_bucket = valid ? (epoch / 60) : -1;
       const bool astro_repaint =
           pm_faces_current() == ClockFace::Astrology && valid && epoch_min_bucket != s_prev_astro_epoch_min;
+      static int s_prev_rhythms_yday = -1;
+      const bool rhythms_day_changed =
+          pm_faces_current() == ClockFace::Rhythms && valid && tm_now.tm_yday != s_prev_rhythms_yday;
 
       const bool sec_tick_paint =
           sec_tick && pm_faces_current() != ClockFace::Castalia && pm_faces_current() != ClockFace::CalciferCountdown &&
-          pm_faces_current() != ClockFace::Synastry;
+          pm_faces_current() != ClockFace::Synastry && pm_faces_current() != ClockFace::Rhythms;
       const bool calcifer_sec =
           pm_faces_current() == ClockFace::CalciferCountdown && valid && sec_tick;
       const bool full_paint = !s_clock_paint_inited || slow_no_time || banner_chg || wifi_chg ||
                               g_clock_repaint_pending || local_hm_chg || spotify_stale || calcifer_stale ||
-                              sec_tick_paint || calcifer_sec || astro_repaint;
+                              sec_tick_paint || calcifer_sec || astro_repaint || rhythms_day_changed;
 
       if (full_paint) {
         s_clock_paint_inited = true;
@@ -792,6 +868,9 @@ void loop() {
         }
         if (pm_faces_current() == ClockFace::Astrology && valid) {
           s_prev_astro_epoch_min = epoch_min_bucket;
+        }
+        if (pm_faces_current() == ClockFace::Rhythms && valid) {
+          s_prev_rhythms_yday = tm_now.tm_yday;
         }
         if (banner_chg) {
           strncpy(s_prev_banner, g_gesture_banner, sizeof(s_prev_banner));
@@ -1033,10 +1112,12 @@ void loop() {
           started = pm_voice_begin_clock_agenda(&g_voice_result);
         } else if (g_text_voice_route == k_tv_moon) {
           started = pm_voice_begin_message(g_moon_voice_msg, g_moon_sys_prompt, &g_voice_result);
+        } else if (g_text_voice_route == k_tv_rhythms) {
+          started = pm_voice_begin_message(g_rhythms_voice_msg, g_rhythms_sys_prompt, &g_voice_result);
         } else if (g_text_voice_route == k_tv_synastry) {
           started = pm_voice_begin_message(kSynastryBootUserMsg, g_synastry_sys_prompt, &g_voice_result);
         } else if (g_astro_voice_active && !g_astro_voice_pcm) {
-          started = pm_voice_begin_message(kAstroBootUserMsg, g_astrology_sys_prompt, &g_voice_result);
+          started = pm_voice_begin_message(g_astrology_voice_msg, g_astrology_sys_prompt, &g_voice_result);
         } else {
           const char *sys = nullptr;
           if (g_moon_voice_pcm) {
@@ -1101,6 +1182,8 @@ void loop() {
         pm_face_astrology_draw_voice_screen(nullptr, -1, -1, false, thinking_progress_now());
       } else if (g_moon_fortune_active) {
         pm_face_moon_draw_voice_screen(nullptr, thinking_progress_now());
+      } else if (g_text_voice_route == k_tv_rhythms) {
+        pm_face_rhythms_draw_voice_screen(nullptr, thinking_progress_now());
       } else {
         pm_faces_draw(thinking_progress_now());
       }
