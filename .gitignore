@@ -13,3 +13,6 @@ sketches/**/*.ino.cpp
 firmware-bare/.pio/
 
 vendor/
+
+# Sibling atom repo when cloned into workspace (see scripts/clone-atom.sh)
+atom/
