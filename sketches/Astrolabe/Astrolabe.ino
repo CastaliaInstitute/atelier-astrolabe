@@ -939,9 +939,13 @@ void loop() {
       break;
     }
     case AppState::kRecording: {
-      const size_t frame_bytes = pm_mic_frame_samples() * sizeof(int16_t);
+      const size_t ns = pm_mic_frame_samples();
+      const size_t frame_bytes = ns * sizeof(int16_t);
+      int16_t raw[512 * 2];
       int16_t frame[512];
-      if (pm_mic_frame_samples() > sizeof(frame) / sizeof(frame[0]) || frame_bytes == 0) {
+      if (ns > sizeof(frame) / sizeof(frame[0]) ||
+          ns * static_cast<size_t>(pm_mic_i2s_channels()) > sizeof(raw) / sizeof(raw[0]) ||
+          frame_bytes == 0) {
         pm_mic_stop();
         s_rec_mic_on = false;
         recording_progress_end();
@@ -957,8 +961,9 @@ void loop() {
       }
       if (pm_ptt_button_held()) {
         size_t br = 0;
-        if (pm_mic_read_frame(frame, pm_mic_frame_samples(), &br) && br > 0 &&
+        if (pm_mic_read_frame(raw, ns, &br) && br > 0 &&
             g_pcm_len + frame_bytes <= MYNAH_VOICE_MAX_PCM_BYTES) {
+          pm_mic_pick_channel(raw, ns, 0, frame);
           memcpy(g_pcm + g_pcm_len, frame, frame_bytes);
           g_pcm_len += frame_bytes;
         }

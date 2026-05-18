@@ -1,6 +1,6 @@
 #include "faces/spectrum/pm_face_spectrum.h"
 
-#include "faces/shared/pm_face_draw.h"  // pm_face_color565_from_hsv
+#include "faces/shared/pm_face_draw.h"
 #include "pin_config.h"
 #include "pm_audio_analyzer.h"
 #include "pm_display.h"
@@ -92,8 +92,8 @@ void pm_face_spectrum_draw(uint16_t bg) {
   pm_gfx->fillScreen(RGB565_BLACK);
   const uint16_t grid = pm_gfx->color565(40, 44, 52);
 
-  draw_panel_label("IN LO", k_left_x, k_top_y - 14, k_left_w, pm_gfx->color565(70, 190, 210));
-  draw_panel_label("IN HI", k_left_x, k_bot_y - 14, k_left_w, pm_gfx->color565(90, 210, 200));
+  draw_panel_label("MIC 1", k_left_x, k_top_y - 14, k_left_w, pm_gfx->color565(70, 190, 210));
+  draw_panel_label("MIC 2", k_left_x, k_bot_y - 14, k_left_w, pm_gfx->color565(90, 210, 200));
   draw_panel_label("OUT", k_right_x, k_right_y + k_right_h + 6, k_right_w, pm_gfx->color565(220, 110, 200));
 
   draw_bar_panel(k_left_x, k_top_y, k_left_w, k_top_h, low, PM_AUDIO_ANALYZER_BANDS, 155.f, grid);
