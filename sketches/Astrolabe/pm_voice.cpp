@@ -1,6 +1,7 @@
 #include "pm_voice.h"
 
 #include <HTTPClient.h>
+#include <WiFiClient.h>
 #include <WiFiClientSecure.h>
 #include <mbedtls/base64.h>
 #include <string.h>

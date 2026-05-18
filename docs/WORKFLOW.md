@@ -62,9 +62,15 @@ You can run a **Cloud Agent** per GitHub issue (parallel, no local machine requi
 
 1. **Paid Cursor plan** with Cloud Agents enabled.
 2. **[GitHub integration](https://cursor.com/dashboard/integrations)** — install the Cursor GitHub App on **CastaliaInstitute/astrolabe** with read/write (repo, PRs, issues).
-3. Optional: **[Cloud Agents dashboard](https://cursor.com/dashboard/cloud-agents)** — spend limit, “post artifacts to GitHub” on PRs, secrets for CI (not `secrets.local.h`).
+3. **[Cloud Agents dashboard](https://cursor.com/dashboard/cloud-agents)** — spend limit, “post artifacts to GitHub” on PRs, secrets for CI (not `secrets.local.h`).
+4. **Base branch = `integration`** (required for ad-hoc Cloud agents):
+   - [Cloud Agents → Default settings](https://cursor.com/dashboard/cloud-agents) → **Base branch** → `integration` for **CastaliaInstitute/astrolabe** (or your team default if this repo is the only one).
+   - If Base branch is blank, Cursor uses the GitHub repo default (`main` today), which is wrong for issue work.
+   - `./scripts/cloud-agent.sh` already sets `startingRef: "integration"` in the API payload; the dashboard setting covers runs started from the UI or issue comments without the script.
 
-Cloud agents use repo rules from [`.cursor/rules/`](../.cursor/rules/) and hooks from [`.cursor/hooks.json`](../.cursor/hooks.json) when present.
+Cloud agents read [`AGENTS.md`](../AGENTS.md) and rules in [`.cursor/rules/`](../.cursor/rules/).
+
+**GitHub (repo admin, optional):** Settings → General → Pull Requests → default base branch **`integration`**. You can keep **`main`** as the repository default branch (release line) and only change the PR default; Cursor’s **Base branch** field is the important one for agents.
 
 ### Start an agent from the CLI (recommended)
 
@@ -189,7 +195,19 @@ Flashes firmware, walks each clock face via serial `face N`, captures `screen.bm
 ./scripts/ci-functional-test.sh                             # CI wrapper (always --flash)
 ```
 
-Matrix: [`tests/functional/faces_astrolabe.json`](../tests/functional/faces_astrolabe.json).
+Matrix: [`tests/functional/faces_astrolabe.json`](../tests/functional/faces_astrolabe.json).  
+Comprehensive (L/R/U/D swipes + buttons on every face): [`faces_astrolabe_comprehensive.json`](../tests/functional/faces_astrolabe_comprehensive.json).
+
+**m1 bench automation** (pull `integration` → flash → comprehensive test):
+
+```bash
+./scripts/device-bench.sh              # pull, flash, test (~30–45 min)
+./scripts/device-bench.sh --no-pull    # already on integration
+./scripts/install-device-bench-launchagent.sh   # daily 06:00 on this Mac
+./scripts/install-device-bench-launchagent.sh --run-now
+```
+
+Logs: `artifacts/bench/`. Uses `ASTROLABE_UHUBCTL_SEARCH=Espressif` for hub power cycle.
 
 **On failure** (device gate / `--remediate`):
 

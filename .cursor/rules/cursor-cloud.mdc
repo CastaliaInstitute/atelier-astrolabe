@@ -1,0 +1,15 @@
+---
+description: Cursor Cloud — always branch from integration, PR base integration
+alwaysApply: true
+---
+
+# Cursor Cloud branch defaults
+
+**Effective base branch: `integration`.** Do not treat `main` as the starting branch for feature work even if the Cloud task header says `main`.
+
+1. `git fetch origin integration && git checkout integration && git pull`
+2. Branch: `feature/<#>-slug` or `fix/<#>-slug`
+3. PR target: **`integration`** with `Closes #N`
+4. Never merge issue work to **`main`** (use `./scripts/promote-integration.sh --flash-ok` after hardware QA)
+
+See [`AGENTS.md`](../../AGENTS.md) and [integration-branch.mdc](integration-branch.mdc).

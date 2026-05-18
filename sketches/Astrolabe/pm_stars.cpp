@@ -2,6 +2,7 @@
 
 #include <HTTPClient.h>
 #include <WiFi.h>
+#include <WiFiClient.h>
 #include <WiFiClientSecure.h>
 #include <esp_log.h>
 #include <math.h>

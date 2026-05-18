@@ -3,6 +3,7 @@
 #include <math.h>
 #include <string.h>
 
+#include "pm_audio_route.h"
 #include "pm_fft.h"
 #include "pm_mic.h"
 
@@ -231,14 +232,25 @@ float pm_audio_analyzer_get_level(void) { return s_level; }
 #ifndef ASTROLABE_QEMU
 
 bool pm_audio_analyzer_mic_begin(void) {
+  if (pm_audio_route_input_usb()) {
+    return true;
+  }
   return pm_mic_begin();
 }
 
 void pm_audio_analyzer_mic_end(void) {
-  pm_mic_stop();
+  if (!pm_audio_route_input_usb()) {
+    pm_mic_stop();
+  }
 }
 
 void pm_audio_analyzer_tick(void) {
+  if (pm_audio_route_input_usb()) {
+    for (int b = 0; b < PM_AUDIO_ANALYZER_BANDS; ++b) {
+      s_out_disp[b] *= 0.92f;
+    }
+    return;
+  }
   static int16_t raw[512 * 2];
   static int16_t mono[512];
   const size_t ns = pm_mic_frame_samples();
