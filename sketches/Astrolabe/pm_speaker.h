@@ -20,3 +20,9 @@ bool pm_speaker_play_mp3(const uint8_t *mp3, size_t mp3_len);
 
 /** Force poll() to leave Playing (does not stop the speaker task immediately). */
 void pm_speaker_abort(void);
+
+/** Start a solfeggio-style sine tone (non-blocking). Replaces any current playback. */
+bool pm_speaker_play_tone_begin(float hz, uint32_t duration_ms);
+
+/** True while MP3 or tone playback is active. */
+bool pm_speaker_is_playing(void);

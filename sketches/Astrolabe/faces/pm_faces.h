@@ -20,6 +20,8 @@ enum class ClockFace : uint8_t {
   Synastry,
   /** Live FFT: mic (inner) + speaker/TTS (outer) spectrum bars. */
   Spectrum,
+  /** Chakra symbols + solfeggio tones; swipe up/down, tap to play. */
+  Chakra,
   kNumFaces,
 };
 

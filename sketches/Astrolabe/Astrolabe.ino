@@ -32,6 +32,7 @@
 #include "faces/pm_faces.h"
 #include "faces/shared/pm_face_draw.h"
 #include "faces/astrology/pm_face_astrology.h"
+#include "faces/chakra/pm_face_chakra.h"
 #include "faces/moon/pm_face_moon.h"
 #include "faces/spotify/pm_face_spotify.h"
 #include "faces/calcifer/pm_face_calcifer.h"
@@ -367,7 +368,7 @@ static bool face_index_from_name(const char *name, int *out) {
            {"digital", 2},    {"spotify", 3},     {"astro", 4},       {"astrology", 4},
            {"moon", 5},       {"calcifer", 6},    {"schedule", 6},    {"castalia", 7},
            {"synastry", 8},   {"syn", 8},         {"spectrum", 9},    {"fft", 9},
-           {"audio", 9},      {"sound", 9}};
+           {"audio", 9},      {"sound", 9},       {"chakra", 10}};
   for (const auto &e : k) {
     if (strcasecmp(name, e.n) == 0) {
       *out = e.idx;
@@ -440,6 +441,7 @@ static void poll_serial_birth_commands() {
           Serial.println("qa: 7 castalia");
           Serial.println("qa: 8 synastry");
           Serial.println("qa: 9 spectrum");
+          Serial.println("qa: 10 chakra");
         } else if (!pm_qa_inject_command(args)) {
           Serial.println("qa: usage: status | faces | inject …");
         }
@@ -647,6 +649,21 @@ void loop() {
       }
       g_clock_repaint_pending = true;
       continue;
+    } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Chakra &&
+               (ge.kind == PmGestureKind::SwipeUp || ge.kind == PmGestureKind::SwipeDown)) {
+      pm_face_chakra_cycle(ge.kind == PmGestureKind::SwipeUp ? 1 : -1);
+      snprintf(g_gesture_banner, sizeof(g_gesture_banner), "chakra %d/7", pm_face_chakra_index() + 1);
+      g_clock_repaint_pending = true;
+      continue;
+    } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Chakra &&
+               ge.kind == PmGestureKind::Tap) {
+      if (pm_face_chakra_play_tone()) {
+        snprintf(g_gesture_banner, sizeof(g_gesture_banner), "playing");
+      } else {
+        snprintf(g_gesture_banner, sizeof(g_gesture_banner), "tone busy");
+      }
+      g_clock_repaint_pending = true;
+      continue;
     } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Moon &&
                (ge.kind == PmGestureKind::SwipeUp || ge.kind == PmGestureKind::SwipeDown)) {
       pm_faces_cycle(ge.kind == PmGestureKind::SwipeUp ? 1 : -1);
@@ -812,9 +829,12 @@ void loop() {
       const bool astro_repaint =
           pm_faces_current() == ClockFace::Astrology && valid && epoch_min_bucket != s_prev_astro_epoch_min;
 
+      const bool chakra_anim =
+          pm_faces_current() == ClockFace::Chakra && pm_face_chakra_anim_tick(now);
       const bool sec_tick_paint =
           sec_tick && pm_faces_current() != ClockFace::Castalia && pm_faces_current() != ClockFace::CalciferCountdown &&
-          pm_faces_current() != ClockFace::Synastry && pm_faces_current() != ClockFace::Spectrum;
+          pm_faces_current() != ClockFace::Synastry && pm_faces_current() != ClockFace::Spectrum &&
+          pm_faces_current() != ClockFace::Chakra;
       const bool calcifer_sec =
           pm_faces_current() == ClockFace::CalciferCountdown && valid && sec_tick;
 #if MYNAH_HUE_HOME_ONLY
@@ -832,7 +852,7 @@ void loop() {
       const bool full_paint = !s_clock_paint_inited || slow_no_time || banner_chg || wifi_chg ||
                               g_clock_repaint_pending || local_hm_chg || spotify_stale || calcifer_stale ||
                               sec_tick_paint || calcifer_sec || astro_repaint || spectrum_anim ||
-                              gem_pulse_paint;
+                              chakra_anim || gem_pulse_paint;
 
       if (full_paint) {
         s_clock_paint_inited = true;

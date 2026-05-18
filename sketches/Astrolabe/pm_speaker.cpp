@@ -1,5 +1,6 @@
 #include "pm_speaker.h"
 
+#include <math.h>
 #include <string.h>
 
 #include "driver/gpio.h"
@@ -37,6 +38,9 @@ static volatile bool s_speaker_ok = false;
 static volatile PmSpeakerStatus s_speaker_status = PmSpeakerStatus::Idle;
 static const uint8_t *s_play_mp3 = nullptr;
 static size_t s_play_mp3_len = 0;
+static volatile uint8_t s_play_mode = 0; /** 0 = MP3, 1 = tone */
+static float s_play_tone_hz = 528.f;
+static uint32_t s_play_tone_ms = 5000;
 static uint32_t s_play_start_ms = 0;
 static uint32_t s_play_est_ms = 1;
 static volatile uint32_t s_play_pcm_frames = 0;
@@ -146,6 +150,75 @@ static void i2s_drain_and_stop(int out_hz, int out_channels) {
   i2s_stop(I2S_TX);
   vTaskDelay(pdMS_TO_TICKS(20));
   i2s_tx_stop();
+}
+
+static bool play_tone_streaming(float hz, uint32_t duration_ms) {
+  if (hz < 20.f || hz > 2000.f || duration_ms == 0) {
+    return false;
+  }
+  pm_mic_stop();
+
+  static constexpr int kToneHz = 22050;
+  if (es8311_board_init(kToneHz) != ESP_OK) {
+    ESP_LOGW(TAG, "es8311 init failed (tone)");
+    return false;
+  }
+  if (i2s_tx_begin(kToneHz, 2) != ESP_OK) {
+    ESP_LOGW(TAG, "i2s begin failed (tone)");
+    return false;
+  }
+
+  const uint32_t total_samples = (static_cast<uint64_t>(duration_ms) * kToneHz) / 1000u;
+  const uint32_t fade_in = (kToneHz * 180u) / 1000u;
+  const uint32_t fade_out = (kToneHz * 900u) / 1000u;
+  static int16_t buf[512 * 2];
+  double phase = 0.0;
+  const double phase_inc = (2.0 * 3.14159265358979323846 * static_cast<double>(hz)) / static_cast<double>(kToneHz);
+  uint32_t written = 0;
+
+  s_play_pcm_hz = kToneHz;
+  s_play_pcm_frames = 0;
+  s_play_est_ms = duration_ms + 120u;
+
+  while (written < total_samples) {
+    esp_task_wdt_reset();
+    const size_t frame = (total_samples - written > 512u) ? 512u : (total_samples - written);
+    for (size_t i = 0; i < frame; ++i) {
+      const uint32_t pos = written + static_cast<uint32_t>(i);
+      float env = 1.f;
+      if (pos < fade_in) {
+        env = static_cast<float>(pos) / static_cast<float>(fade_in);
+      } else if (pos + fade_out > total_samples) {
+        const uint32_t tail = total_samples - pos;
+        env = static_cast<float>(tail) / static_cast<float>(fade_out);
+      }
+      const float s =
+          sinf(static_cast<float>(phase)) * 0.82f * env +
+          sinf(static_cast<float>(phase * 2.0)) * 0.12f * env;
+      phase += phase_inc;
+      if (phase > 2.0 * 3.14159265358979323846) {
+        phase -= 2.0 * 3.14159265358979323846;
+      }
+      int16_t v = static_cast<int16_t>(s * 28000.f);
+      if (v > 30000) {
+        v = 30000;
+      } else if (v < -30000) {
+        v = -30000;
+      }
+      buf[2 * i] = v;
+      buf[2 * i + 1] = v;
+    }
+    if (i2s_write_all(buf, frame * 2) != ESP_OK) {
+      i2s_tx_stop();
+      return false;
+    }
+    written += static_cast<uint32_t>(frame);
+    s_play_pcm_frames = written;
+  }
+
+  i2s_drain_and_stop(kToneHz, 2);
+  ESP_LOGI(TAG, "tone %.1f Hz ~%u ms", static_cast<double>(hz), duration_ms);
+  return true;
 }
 
 static bool play_mp3_streaming(const uint8_t *mp3, size_t mp3_len) {
@@ -298,7 +371,11 @@ static void speaker_play_task(void *arg) {
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
     s_spk_task_busy = true;
     s_speaker_status = PmSpeakerStatus::Playing;
-    s_speaker_ok = play_mp3_streaming(s_play_mp3, s_play_mp3_len);
+    if (s_play_mode == 1) {
+      s_speaker_ok = play_tone_streaming(s_play_tone_hz, s_play_tone_ms);
+    } else {
+      s_speaker_ok = play_mp3_streaming(s_play_mp3, s_play_mp3_len);
+    }
     s_speaker_status = s_speaker_ok ? PmSpeakerStatus::DoneOk : PmSpeakerStatus::DoneFail;
     s_spk_task_busy = false;
   }
@@ -336,6 +413,7 @@ bool pm_speaker_play_begin(const uint8_t *mp3, size_t mp3_len) {
     s_speaker_status = PmSpeakerStatus::DoneFail;
     return false;
   }
+  s_play_mode = 0;
   s_play_mp3 = mp3;
   s_play_mp3_len = mp3_len;
   s_play_start_ms = millis();
@@ -358,6 +436,33 @@ void pm_speaker_abort(void) {
     s_speaker_status = PmSpeakerStatus::DoneFail;
     (void)speaker_wait_idle(3000);
   }
+}
+
+bool pm_speaker_play_tone_begin(float hz, uint32_t duration_ms) {
+  speaker_task_ensure();
+  if (!s_speaker_task || hz < 20.f || duration_ms == 0) {
+    s_speaker_status = PmSpeakerStatus::DoneFail;
+    return false;
+  }
+  if (!speaker_wait_idle(8000)) {
+    s_speaker_status = PmSpeakerStatus::DoneFail;
+    return false;
+  }
+  s_play_mode = 1;
+  s_play_tone_hz = hz;
+  s_play_tone_ms = duration_ms;
+  s_play_start_ms = millis();
+  s_play_est_ms = duration_ms + 120u;
+  s_play_pcm_frames = 0;
+  s_play_pcm_hz = 0;
+  s_speaker_ok = false;
+  s_speaker_status = PmSpeakerStatus::Playing;
+  xTaskNotify(s_speaker_task, 1, eSetBits);
+  return true;
+}
+
+bool pm_speaker_is_playing(void) {
+  return s_speaker_status == PmSpeakerStatus::Playing || s_spk_task_busy;
 }
 
 float pm_speaker_play_progress(void) {
