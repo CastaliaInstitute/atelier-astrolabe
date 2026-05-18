@@ -1837,15 +1837,14 @@ static bool build_astrology_voice_message(char *buf, size_t cap) {
       return false;
     }
     if (snap.aspect_count > 0) {
-      if (!appendf(buf, cap, &off, "Major transit-to-natal aspects: ")) {
+      if (!appendf(buf, cap, &off, "Named transit currents: ")) {
         return false;
       }
       const size_t max_aspects = snap.aspect_count < 8 ? snap.aspect_count : 8;
       for (size_t i = 0; i < max_aspects; ++i) {
         const PmTransitAspect *a = &snap.aspects[i];
-        if (!appendf(buf, cap, &off, "%s %s %s orb %.1f; ",
-                     pm_ephem_body_label(a->transit_body), pm_transit_aspect_label(a->aspect),
-                     pm_transit_natal_target_label(a->natal_target), fabs(a->orb_delta_deg))) {
+        if (!appendf(buf, cap, &off, "%s, %s, orb %.1f; ", a->title, a->duration_label,
+                     fabs(a->orb_delta_deg))) {
           return false;
         }
       }

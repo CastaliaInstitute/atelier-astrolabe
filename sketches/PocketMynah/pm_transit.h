@@ -18,7 +18,12 @@ typedef enum {
   kPmBodyCount,
 } PmEphemBody;
 
-enum { kPmTransitAspectMax = kPmBodyCount * 3, kPmTransitHouseEventMax = kPmBodyCount };
+enum {
+  kPmTransitAspectMax = kPmBodyCount * 3,
+  kPmTransitHouseEventMax = kPmBodyCount,
+  kPmTransitAspectTitleLen = 48,
+  kPmTransitDurationLabelLen = 24,
+};
 
 /** Tropical ecliptic longitudes in degrees [0,360). */
 typedef struct {
@@ -63,13 +68,21 @@ typedef struct {
   bool ok;
 } PmNatalChart;
 
-/** One live transit aspect to natal Sun, Moon, or Ascendant. `orb_delta_deg` is signed from exact. */
+/**
+ * One live transit aspect to natal Sun, Moon, or Ascendant. `orb_delta_deg` is signed from exact.
+ * `title` and `duration_label` are compact Castalian names for Pattern-like summaries; duration is
+ * approximate, based on configured orb and average transiting-body motion rather than exact ingress.
+ */
 typedef struct {
   PmEphemBody transit_body;
   PmNatalTarget natal_target;
   PmTransitAspectKind aspect;
   double exact_delta_deg;
   double orb_delta_deg;
+  double orb_limit_deg;
+  double active_days;
+  char title[kPmTransitAspectTitleLen];
+  char duration_label[kPmTransitDurationLabelLen];
 } PmTransitAspect;
 
 /** Live body occupying a whole-sign natal house. */

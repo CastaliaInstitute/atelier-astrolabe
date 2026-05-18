@@ -12,6 +12,8 @@
 #include "pin_config.h"
 #include "pm_display.h"
 
+#include <cstdarg>
+
 static char s_astrology_voice_msg[2200];
 static char s_astrology_sys_prompt[2800];
 
@@ -34,6 +36,26 @@ int pm_face_astrology_sign_label_radius(int r_outer) { return r_outer - 22; }
 
 int pm_face_astrology_planet_radius(int r_outer) { return pm_face_astrology_sign_label_radius(r_outer) - 18; }
 
+static bool append_text(char *buf, size_t cap, size_t *off, const char *fmt, ...) {
+  if (!buf || !off || *off >= cap || cap == 0) {
+    return false;
+  }
+  va_list ap;
+  va_start(ap, fmt);
+  const int n = vsnprintf(buf + *off, cap - *off, fmt, ap);
+  va_end(ap);
+  if (n < 0) {
+    return false;
+  }
+  if (static_cast<size_t>(n) >= cap - *off) {
+    *off = cap - 1;
+    buf[*off] = '\0';
+    return false;
+  }
+  *off += static_cast<size_t>(n);
+  return true;
+}
+
 
 
 void pm_face_astrology_draw(const struct tm *tm_local, bool valid_local, int highlight_body,
@@ -52,6 +74,8 @@ void pm_face_astrology_draw(const struct tm *tm_local, bool valid_local, int hig
 
   PmBirthSpec birth = {};
   (void)pm_birth_load(&birth);
+  PmNatalChart natal = {};
+  const bool have_natal = birth.valid && pm_transit_build_natal_chart(&birth, &natal);
 
   const int cx = LCD_WIDTH / 2;
   const int cy = LCD_HEIGHT / 2;
@@ -122,9 +146,8 @@ void pm_face_astrology_draw(const struct tm *tm_local, bool valid_local, int hig
     }
 
     pm_zodiac_draw_sign_ring(pm_gfx, cx, cy, r_lab, highlight_sign, c_lbl);
-    double natal_sun = 0;
-    if (birth.valid && pm_transit_natal_sun_lon(&birth, &natal_sun)) {
-      const float angn = static_cast<float>(pm_face_k_pi + natal_sun * (pm_face_k_pi / 180.0f));
+    if (have_natal) {
+      const float angn = static_cast<float>(pm_face_k_pi + natal.bodies.lon[kPmBodySun] * (pm_face_k_pi / 180.0f));
       const int qx = cx + static_cast<int>(lrintf(cosf(angn) * static_cast<float>(r_in - 6)));
       const int qy = cy + static_cast<int>(lrintf(sinf(angn) * static_cast<float>(r_in - 6)));
       const int q2x = cx + static_cast<int>(lrintf(cosf(angn + 0.35f) * static_cast<float>(r_in - 18)));
@@ -132,6 +155,12 @@ void pm_face_astrology_draw(const struct tm *tm_local, bool valid_local, int hig
       const int q3x = cx + static_cast<int>(lrintf(cosf(angn - 0.35f) * static_cast<float>(r_in - 18)));
       const int q3y = cy + static_cast<int>(lrintf(sinf(angn - 0.35f) * static_cast<float>(r_in - 18)));
       pm_gfx->fillTriangle(qx, qy, q2x, q2y, q3x, q3y, pm_gfx->color565(120, 200, 255));
+      const float asca = static_cast<float>(pm_face_k_pi + natal.asc_lon * (pm_face_k_pi / 180.0f));
+      pm_gfx->drawLine(cx + static_cast<int>(lrintf(cosf(asca) * static_cast<float>(r_in - 18))),
+                       cy + static_cast<int>(lrintf(sinf(asca) * static_cast<float>(r_in - 18))),
+                       cx + static_cast<int>(lrintf(cosf(asca) * static_cast<float>(r_outer))),
+                       cy + static_cast<int>(lrintf(sinf(asca) * static_cast<float>(r_outer))),
+                       pm_gfx->color565(120, 200, 255));
     }
   }
 }
@@ -177,8 +206,10 @@ bool pm_face_astrology_build_voice_message(char *buf, size_t cap) {
   }
   PmBirthSpec b = {};
   (void)pm_birth_load(&b);
-  double nslon = 0;
-  const bool has_natal = b.valid && pm_transit_natal_sun_lon(&b, &nslon);
+  PmNatalChart natal = {};
+  PmTransitSnapshot snap = {};
+  const bool has_natal = b.valid && pm_transit_build_natal_chart(&b, &natal) &&
+                         pm_transit_snapshot_from_positions(&natal, &tp, nullptr, 0, &snap);
 
   int n = snprintf(
       buf, cap,
@@ -189,23 +220,48 @@ bool pm_face_astrology_build_voice_message(char *buf, size_t cap) {
   }
   size_t off = static_cast<size_t>(n);
   for (int i = 0; i < kPmBodyCount && off + 40 < cap; ++i) {
-    const int m = snprintf(buf + off, cap - off, "%s %.1f; ", pm_ephem_body_label(static_cast<PmEphemBody>(i)),
-                           tp.lon[i]);
-    if (m < 0) {
+    if (!append_text(buf, cap, &off, "%s %.1f; ", pm_ephem_body_label(static_cast<PmEphemBody>(i)),
+                     tp.lon[i])) {
       return false;
     }
-    off += static_cast<size_t>(m);
   }
-  if (has_natal && off + 120 < cap) {
-    snprintf(buf + off, cap - off,
-             "Natal (local civil on this device TZ): %04u-%02u-%02u %02u:%02u — Sun ~%.1f deg (%s). ",
-             b.year, b.month, b.day, b.hour, b.minute, nslon, pm_face_zodiac_abbr(nslon));
-  } else if (off + 80 < cap) {
-    snprintf(buf + off, cap - off, "Natal birth not stored; describe transits in general. ");
+  if (has_natal) {
+    if (!append_text(buf, cap, &off,
+                     "Natal (local civil on this device TZ): %04u-%02u-%02u %02u:%02u at %.2f, %.2f. "
+                     "Natal Sun %.1f %s house %u; Moon %.1f %s house %u; Asc %.1f %s. ",
+                     b.year, b.month, b.day, b.hour, b.minute, static_cast<double>(b.lat_deg),
+                     static_cast<double>(b.lon_deg), natal.bodies.lon[kPmBodySun],
+                     pm_face_zodiac_abbr(natal.bodies.lon[kPmBodySun]), natal.whole_sign_house[kPmBodySun],
+                     natal.bodies.lon[kPmBodyMoon], pm_face_zodiac_abbr(natal.bodies.lon[kPmBodyMoon]),
+                     natal.whole_sign_house[kPmBodyMoon], natal.asc_lon, pm_face_zodiac_abbr(natal.asc_lon))) {
+      return false;
+    }
+    if (snap.aspect_count > 0) {
+      if (!append_text(buf, cap, &off, "Named transit currents: ")) {
+        return false;
+      }
+      const size_t max_aspects = snap.aspect_count < 8 ? snap.aspect_count : 8;
+      for (size_t i = 0; i < max_aspects; ++i) {
+        const PmTransitAspect *a = &snap.aspects[i];
+        if (!append_text(buf, cap, &off, "%s, %s, orb %.1f; ", a->title, a->duration_label,
+                         fabs(a->orb_delta_deg))) {
+          return false;
+        }
+      }
+    } else if (!append_text(buf, cap, &off, "No major transit-to-natal aspects within configured orbs. ")) {
+      return false;
+    }
+    if (snap.house_event_count > kPmBodyMoon) {
+      const PmTransitHouseEvent *moon_house = &snap.house_events[kPmBodyMoon];
+      if (!append_text(buf, cap, &off, "Transiting Moon is in natal house %u. ", moon_house->natal_house)) {
+        return false;
+      }
+    }
+  } else if (!append_text(buf, cap, &off, "Natal birth not stored; describe transits in general. ")) {
+    return false;
   }
-  off = strlen(buf);
-  if (off + 80 < cap) {
-    snprintf(buf + off, cap - off, "Please deliver the spoken reading now.");
+  if (!append_text(buf, cap, &off, "Please deliver the spoken reading now.")) {
+    return false;
   }
   return strlen(buf) > 0;
 }

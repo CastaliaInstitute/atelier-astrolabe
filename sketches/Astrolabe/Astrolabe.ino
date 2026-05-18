@@ -36,6 +36,7 @@
 #include "faces/spotify/pm_face_spotify.h"
 #include "faces/calcifer/pm_face_calcifer.h"
 #include "faces/synastry/pm_face_synastry.h"
+#include "faces/year_transits/pm_face_year_transits.h"
 #include "pm_display.h"
 #include "pm_qa.h"
 
@@ -363,7 +364,8 @@ static bool face_index_from_name(const char *name, int *out) {
   } k[] = {{"classic", 0},  {"hue", 0},       {"analog", 0},    {"apocalypso", 1},
            {"digital", 2},  {"spotify", 3},   {"astro", 4},       {"astrology", 4},
            {"moon", 5},     {"calcifer", 6},  {"schedule", 6},  {"castalia", 7},
-           {"synastry", 8}, {"syn", 8}};
+           {"synastry", 8}, {"syn", 8},       {"year", 9},      {"transits", 9},
+           {"currents", 9}};
   for (const auto &e : k) {
     if (strcasecmp(name, e.n) == 0) {
       *out = e.idx;
@@ -638,6 +640,17 @@ void loop() {
         }
       } else {
         snprintf(g_gesture_banner, sizeof(g_gesture_banner), "synastry: no profiles");
+      }
+      g_clock_repaint_pending = true;
+      continue;
+    } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::YearTransits &&
+               (ge.kind == PmGestureKind::SwipeUp || ge.kind == PmGestureKind::SwipeDown)) {
+      if (pm_face_year_transits_cycle_selected(ge.kind == PmGestureKind::SwipeUp ? 1 : -1)) {
+        if (!pm_face_year_transits_selected_summary(g_gesture_banner, sizeof(g_gesture_banner))) {
+          g_gesture_banner[0] = '\0';
+        }
+      } else {
+        snprintf(g_gesture_banner, sizeof(g_gesture_banner), "year: no transit arcs");
       }
       g_clock_repaint_pending = true;
       continue;
