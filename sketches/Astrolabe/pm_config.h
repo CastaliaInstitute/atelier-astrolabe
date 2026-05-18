@@ -40,6 +40,11 @@
 #define MYNAH_HUE_HOME_ONLY 1
 #endif
 
+/** 1 = draw bottom-arc label probe on Classic/Digital (see pm_clock.cpp). */
+#ifndef MYNAH_ARC_LABEL_PROBE
+#define MYNAH_ARC_LABEL_PROBE 1
+#endif
+
 #ifndef MYNAH_CALCIFER_POLL_MS
 #define MYNAH_CALCIFER_POLL_MS 45000u
 #endif

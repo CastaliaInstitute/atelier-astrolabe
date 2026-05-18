@@ -11,9 +11,11 @@
 #include "faces/classic_analog/pm_face_classic_analog.h"
 #include "faces/digital/pm_face_digital.h"
 #include "faces/moon/pm_face_moon.h"
+#include "faces/shared/pm_circadian_hue.h"
 #include "faces/shared/pm_face_draw.h"
 #include "faces/spotify/pm_face_spotify.h"
 #include "faces/synastry/pm_face_synastry.h"
+#include "pin_config.h"
 #include "pm_config.h"
 #include "pm_display.h"
 #include "pm_wifi_ntp.h"
@@ -102,6 +104,23 @@ void pm_faces_draw(float thinking_progress) {
     if (thinking_progress >= 0.f) {
       pm_face_draw_thinking_progress_ring(thinking_progress);
     }
+#if MYNAH_ARC_LABEL_PROBE
+    if (pm_time_valid() &&
+        (s_clock_face == ClockFace::ClassicAnalog || s_clock_face == ClockFace::DigitalLocal)) {
+      const uint16_t c_arc = pm_gfx->color565(238, 234, 252);
+      if (s_clock_face == ClockFace::ClassicAnalog) {
+        PmFaceBottomArcLabelStyle st = {};
+        st.color = c_arc;
+        pm_face_draw_bottom_arc_label_static(pm_circadian_hue_name_now(), &st);
+      } else {
+        PmFaceBottomArcLabelStyle st = {};
+        st.r_px = (min(LCD_WIDTH, LCD_HEIGHT) / 2) - 4 - 5 - 18;
+        st.color = c_arc;
+        static const char k_scroll_demo[] = "circadian hue fades through the day  ·  ";
+        pm_face_draw_bottom_arc_label_scroll(k_scroll_demo, static_cast<uint32_t>(millis()), 24.f, &st);
+      }
+    }
+#endif
   }
   s_clock_bg565 = bg;
   if (pm_time_valid()) {
