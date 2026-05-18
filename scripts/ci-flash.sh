@@ -57,11 +57,7 @@ ok=0
 for ((i = 1; i <= TRIES; i++)); do
   echo "→ upload attempt ${i}/${TRIES}"
   [[ "$i" -gt 1 ]] && { bash ./scripts/preupload-boot-pulse.sh "$PORT" 2>/dev/null || true; sleep 2; }
-  if [[ "$i" -eq 1 ]]; then
-    upload_once && ok=1 && break
-  elif upload_once --upload-flags "--before=usb_reset" --upload-flags "--after=hard_reset"; then
-    ok=1 && break
-  fi
+  upload_once && ok=1 && break
 done
 if [[ "$ok" != "1" ]]; then
   echo "error: upload failed after ${TRIES} attempts — put watch in download mode (hold BOOT, tap PWR)" >&2
