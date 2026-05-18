@@ -48,6 +48,9 @@ NAME_TO_IDX = {
     "rocket": 12,
     "launch": 12,
     "launchclock": 12,
+    "radar": 13,
+    "presence": 13,
+    "peers": 13,
 }
 
 port, face = sys.argv[1], sys.argv[2].strip().lower()
