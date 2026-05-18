@@ -8,6 +8,7 @@
 #include "faces/castalia/pm_face_castalia.h"
 #include "faces/classic_analog/pm_face_classic_analog.h"
 #include "faces/digital/pm_face_digital.h"
+#include "faces/hafez/pm_face_hafez.h"
 #include "faces/moon/pm_face_moon.h"
 #include "faces/pm_faces.h"
 #include "faces/shared/pm_face_draw.h"

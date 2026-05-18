@@ -69,6 +69,7 @@ Current service expectations:
 | **Voice** (`voice-pipeline`) | Uses the anon bearer for basic anonymous voice requests when the backend allows them. | Sends the Castalia JWT, letting the pipeline identify the Castalia user and use signed-in context. A `401` is shown as "sign in on Castalia face". |
 | **Commonplace** | Use only for public or anonymous flows. Do not write user-owned commonplace data with the anon bearer. | Required for user-owned commonplace reads/writes so Castalia can attach entries to the signed-in account. |
 | **Calcifer** (`calcifer-status` / CalDAV agenda) | Can reach the function but has no user CalDAV configuration; expect unavailable, unconfigured, or `401` responses. | Required for personalized CalDAV countdowns and BOOT spoken agenda briefs. |
+| **Hafez** (`hafez-daily`) | Public quote/art payload works with anon bearer. | Same payload contract; signed-in mode may support user-curated collections later. |
 
 ## Cycle face
 
