@@ -45,8 +45,7 @@ echo "→ upload ${BIN}"
 echo "→ if upload fails: hold BOOT, tap PWR (or plug USB), release BOOT when esptool connects"
 
 upload_once() {
-  local flags=("$@")
-  pio run -e "$ENV" -t upload --upload-port "$PORT" -j 1 "${flags[@]}"
+  pio run -e "$ENV" -t upload --upload-port "$PORT" -j 1 "$@"
 }
 
 if command -v "${ASTROLABE_CI_VENV:-$HOME/.astrolabe-ci-venv}/bin/python" >/dev/null 2>&1; then
