@@ -14,6 +14,7 @@
 #include "faces/shared/pm_face_draw.h"
 #include "faces/spotify/pm_face_spotify.h"
 #include "faces/synastry/pm_face_synastry.h"
+#include "faces/year_transits/pm_face_year_transits.h"
 #include "pm_config.h"
 #include "pm_display.h"
 #include "pm_wifi_ntp.h"
@@ -81,6 +82,9 @@ void pm_faces_draw(float thinking_progress) {
     case ClockFace::Synastry:
       pm_face_synastry_draw(&tm, pm_time_valid());
       break;
+    case ClockFace::YearTransits:
+      pm_face_year_transits_draw(&tm, pm_time_valid());
+      break;
     default:
       break;
   }
@@ -88,7 +92,7 @@ void pm_faces_draw(float thinking_progress) {
   const int banner_y = (s_clock_face == ClockFace::Apocalypso || s_clock_face == ClockFace::Spotify ||
                         s_clock_face == ClockFace::Astrology || s_clock_face == ClockFace::Moon ||
                         s_clock_face == ClockFace::CalciferCountdown || s_clock_face == ClockFace::Castalia ||
-                        s_clock_face == ClockFace::Synastry)
+                        s_clock_face == ClockFace::Synastry || s_clock_face == ClockFace::YearTransits)
                            ? 352
                            : 320;
   if (MYNAH_DEBUG_GESTURES && g_gesture_banner[0] != '\0') {
@@ -117,13 +121,14 @@ bool pm_faces_banner_low(void) {
   const ClockFace f = s_clock_face;
   return f == ClockFace::Apocalypso || f == ClockFace::Spotify || f == ClockFace::Astrology ||
          f == ClockFace::Moon || f == ClockFace::CalciferCountdown || f == ClockFace::Castalia ||
-         f == ClockFace::Synastry;
+         f == ClockFace::Synastry || f == ClockFace::YearTransits;
 }
 
 uint16_t pm_faces_last_bg565(void) { return s_clock_bg565; }
 
 bool pm_faces_local_hm_changed(int hour, int min) {
-  if (s_clock_face == ClockFace::Castalia || s_clock_face == ClockFace::Synastry) {
+  if (s_clock_face == ClockFace::Castalia || s_clock_face == ClockFace::Synastry ||
+      s_clock_face == ClockFace::YearTransits) {
     return false;
   }
   return s_analog_saved_local_h < 0 || hour != s_analog_saved_local_h || min != s_analog_saved_local_m;

@@ -363,7 +363,8 @@ static bool face_index_from_name(const char *name, int *out) {
   } k[] = {{"classic", 0},  {"hue", 0},       {"analog", 0},    {"apocalypso", 1},
            {"digital", 2},  {"spotify", 3},   {"astro", 4},       {"astrology", 4},
            {"moon", 5},     {"calcifer", 6},  {"schedule", 6},  {"castalia", 7},
-           {"synastry", 8}, {"syn", 8}};
+           {"synastry", 8}, {"syn", 8},       {"year", 9},      {"transits", 9},
+           {"currents", 9}};
   for (const auto &e : k) {
     if (strcasecmp(name, e.n) == 0) {
       *out = e.idx;
