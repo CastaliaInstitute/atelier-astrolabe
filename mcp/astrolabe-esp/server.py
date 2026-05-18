@@ -62,6 +62,8 @@ FACE_BY_NAME = {
     "radar": 13,
     "presence": 13,
     "peers": 13,
+    "faculty": 14,
+    "fac": 14,
 }
 FACE_LABELS = (
     "ClassicAnalog",
@@ -78,6 +80,7 @@ FACE_LABELS = (
     "TibetanBowl",
     "LaunchClock",
     "Radar",
+    "Faculty",
 )
 
 
