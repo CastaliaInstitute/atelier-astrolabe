@@ -9,6 +9,7 @@
 #include "esp_log.h"
 #include "pm_castalia_auth.h"
 #include "pm_config.h"
+#include "pm_tls.h"
 
 static const char *TAG = "pm_calcifer";
 
@@ -148,7 +149,7 @@ bool pm_calcifer_fetch(PmCalciferStatus *out, time_t epoch_seconds) {
   snprintf(body, sizeof(body), "{\"epochSeconds\":%lld}", static_cast<long long>(epoch_seconds));
 
   WiFiClientSecure client;
-  client.setInsecure();
+  pm_tls_configure_client(client);
   HTTPClient http;
   http.setTimeout(25000);
   if (!http.begin(client, url)) {

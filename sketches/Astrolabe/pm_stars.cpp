@@ -10,6 +10,7 @@
 #include <string.h>
 
 #include "pm_config.h"
+#include "pm_tls.h"
 
 static const char *TAG = "pm_stars";
 
@@ -149,7 +150,7 @@ bool pm_stars_ensure_catalog(void) {
 #if MYNAH_EPHEMERIS_ENABLE
   if (WiFi.status() == WL_CONNECTED) {
     WiFiClientSecure client;
-    client.setInsecure();
+    pm_tls_configure_client(client);
     HTTPClient http;
     http.setTimeout(static_cast<uint16_t>(MYNAH_EPHEMERIS_HTTP_MS));
     if (http.begin(client, MYNAH_STARS_CATALOG_URL)) {

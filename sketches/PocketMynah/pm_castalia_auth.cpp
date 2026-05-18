@@ -13,6 +13,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "pm_config.h"
+#include "pm_tls.h"
 #include "pm_wifi_ntp.h"
 
 extern "C" {
@@ -359,7 +360,7 @@ static bool refresh_session_http() {
   // refresh_token may contain quotes? unlikely - if so would need JSON escape; JWT uses . -
 
   WiFiClientSecure client;
-  client.setInsecure();
+  pm_tls_configure_client(client);
   HTTPClient http;
   http.setTimeout(kCastaliaHttpTimeoutMs);
   if (!http.begin(client, url)) {
@@ -581,7 +582,7 @@ static bool http_post_json(const char *url, const char *body, char *resp, size_t
     *http_code_out = -1;
   }
   WiFiClientSecure client;
-  client.setInsecure();
+  pm_tls_configure_client(client);
   HTTPClient http;
   http.setTimeout(kCastaliaHttpTimeoutMs);
   if (!http.begin(client, url)) {
@@ -607,7 +608,7 @@ static bool http_post_json(const char *url, const char *body, char *resp, size_t
 
 static bool http_get_text(const char *url, char *resp, size_t resp_cap) {
   WiFiClientSecure client;
-  client.setInsecure();
+  pm_tls_configure_client(client);
   HTTPClient http;
   http.setTimeout(kCastaliaHttpTimeoutMs);
   if (!http.begin(client, url)) {
@@ -629,7 +630,7 @@ static bool http_get_text(const char *url, char *resp, size_t resp_cap) {
 
 static bool http_get_authed(const char *url, char *resp, size_t resp_cap) {
   WiFiClientSecure client;
-  client.setInsecure();
+  pm_tls_configure_client(client);
   HTTPClient http;
   http.setTimeout(kCastaliaHttpTimeoutMs);
   if (!http.begin(client, url)) {
@@ -654,7 +655,7 @@ static bool http_download_binary(const char *url, uint8_t **out_buf, size_t *out
   *out_buf = nullptr;
   *out_len = 0;
   WiFiClientSecure client;
-  client.setInsecure();
+  pm_tls_configure_client(client);
   HTTPClient http;
   http.setTimeout(kCastaliaHttpTimeoutMs);
   http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);

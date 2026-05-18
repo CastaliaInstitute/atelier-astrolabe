@@ -12,6 +12,7 @@
 #include "freertos/task.h"
 #include "pm_config.h"
 #include "pm_castalia_auth.h"
+#include "pm_tls.h"
 
 static const char *TAG = "pm_voice";
 
@@ -46,7 +47,7 @@ static void body_read_set_err(const char *msg) {
 }
 
 static void voice_begin_http(WiFiClientSecure *client, HTTPClient *http) {
-  client->setInsecure();
+  pm_tls_configure_client(*client);
   client->setTimeout(360);
   http->setTimeout(65535);
 }

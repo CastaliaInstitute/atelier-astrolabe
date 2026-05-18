@@ -11,6 +11,7 @@
 #include <time.h>
 
 #include "pm_config.h"
+#include "pm_tls.h"
 
 static const char *TAG = "pm_ephem";
 
@@ -149,7 +150,7 @@ static bool ensure_month_loaded(const char *month_key) {
   snprintf(url, sizeof(url), "%s/%s.json", MYNAH_EPHEMERIS_DATA_BASE, month_key);
 
   WiFiClientSecure client;
-  client.setInsecure();
+  pm_tls_configure_client(client);
   HTTPClient http;
   http.setTimeout(static_cast<uint16_t>(MYNAH_EPHEMERIS_HTTP_MS));
   if (!http.begin(client, url)) {

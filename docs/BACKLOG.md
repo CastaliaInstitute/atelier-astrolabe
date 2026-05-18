@@ -119,7 +119,6 @@ Derived from [README limits](../README.md#limits-mvp) and [open questions](pocke
 
 - [ ] **P1** **mDNS + LAN config page** — advertise **`astrolabe-xxxx.local`** on the LAN (`ESPmDNS`, `xxxx` = short id from MAC/chip id). While on Wi‑Fi, run a lightweight **HTTP config UI** (ESPAsyncWebServer or `WebServer`) at that hostname: edit **NVS-backed** settings without serial — Wi‑Fi creds (if not compile-time only), user **birth** (`pm_birth_nvs`), **synastry profiles**, default face, optional Supabase URL override for dev. POST saves → NVS commit → confirm in UI. Document URL in README; require LAN or simple setup-token if adding auth later.
 
-- [ ] **P1** TLS: replace `WiFiClientSecure::setInsecure()` with CA pinning / bundle
 - [x] **P1** Voice: handle `voice-pipeline` responses without `audioBase64` (plain `ask-faculty`-only)
 - [ ] **P1** Auth: document anon-only vs signed-in behavior in README once Castalia flow is stable — Issue [#5](https://github.com/CastaliaInstitute/astrolabe/issues/5)
 - [x] **P1** Classic analog clock face: center dial on round display and use full-screen safe area (466×466); fix layout/offset in `Astrolabe.ino` analog draw path
@@ -141,6 +140,7 @@ Derived from [README limits](../README.md#limits-mvp) and [open questions](pocke
 
 ## Done
 
+- [x] **2026-05-18** TLS: Castalia/Supabase HTTPS now uses a pinned ISRG Root X1/X2 CA bundle instead of insecure TLS mode. PR [#87](https://github.com/CastaliaInstitute/astrolabe/pull/87); Closes [#47](https://github.com/CastaliaInstitute/astrolabe/issues/47). Cloud build passed; on-device service smoke test optional because no face/input code changed.
 - [x] **2026-05-17** Synastry clock face: dual-wheel partner/family charts, NVS chart profiles with demo seeds, up/down target cycling, and PWR/BOOT voice prompts. PR [#75](https://github.com/CastaliaInstitute/astrolabe/pull/75); Closes [#32](https://github.com/CastaliaInstitute/astrolabe/issues/32). Hardware QA on `integration` required before promotion to `main`.
 - [x] **2026-05-17** Castalian Rhythms V0 design doc/backlog epic: on-device-first architecture, embedded KB/fusion plan, and child issues [#62](https://github.com/CastaliaInstitute/astrolabe/issues/62)–[#65](https://github.com/CastaliaInstitute/astrolabe/issues/65). PR [#67](https://github.com/CastaliaInstitute/astrolabe/pull/67); Closes [#61](https://github.com/CastaliaInstitute/astrolabe/issues/61)
 - [x] **2026-05-17** Version clock face: git branch/SHA/date + GitHub commit QR (`pm_build_info.h`). PR [#59](https://github.com/CastaliaInstitute/astrolabe/pull/59); Closes [#58](https://github.com/CastaliaInstitute/astrolabe/issues/58)

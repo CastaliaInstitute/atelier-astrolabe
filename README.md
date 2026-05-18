@@ -108,7 +108,7 @@ Partner and child birth profiles (up to 8) are editable on the **Settings** face
 
 ## Limits (MVP)
 
-- **HTTPS**: `WiFiClientSecure::setInsecure()` (no CA pin yet).
+- **HTTPS**: `WiFiClientSecure` validates Castalia/Supabase hosts with the pinned ISRG Root X1/X2 CA bundle.
 - **Voice response**: prefers `audioBase64` MP3; text-only `reply` is shown on screen when audio is absent.
 - **HTTP body / response**: capped at ~1.5 MiB in `pm_voice.cpp`; very long TTS may fail.
 - **Time**: UTC only on the watch face.

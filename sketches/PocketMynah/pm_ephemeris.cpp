@@ -12,6 +12,7 @@
 #include "esp_log.h"
 #include "pm_castalia_auth.h"
 #include "pm_config.h"
+#include "pm_tls.h"
 
 static const char *TAG = "pm_ephemeris";
 
@@ -150,7 +151,7 @@ bool pm_ephemeris_fetch(time_t epoch_seconds, PmTransitPositions *out, char *err
            static_cast<long long>(epoch_seconds));
 
   WiFiClientSecure client;
-  client.setInsecure();
+  pm_tls_configure_client(client);
   HTTPClient http;
   http.setTimeout(18000);
   if (!http.begin(client, url)) {
