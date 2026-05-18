@@ -1,6 +1,6 @@
 {
   "sketch": "Astrolabe",
-  "face_count": 10,
+  "face_count": 11,
   "center": [233, 233],
   "faces": [
     {
@@ -75,6 +75,13 @@
         "sketches/Astrolabe/pm_audio_analyzer.cpp"
       ],
       "gestures": ["swipe_left", "swipe_right", "tap:233,233"],
+      "buttons": []
+    },
+    {
+      "id": 10,
+      "name": "chakra",
+      "source_paths": ["sketches/Astrolabe/faces/chakra", "sketches/Astrolabe/pm_speaker.cpp", "sketches/Astrolabe/pm_speaker.h"],
+      "gestures": ["tap:233,233", "swipe_up", "swipe_down", "swipe_left"],
       "buttons": []
     }
   ]
