@@ -37,22 +37,18 @@ float smoothstep01(float t) {
   return t * t * (3.f - 2.f * t);
 }
 
-uint16_t gem_color_at_radius(float t, uint16_t circadian) {
-  const uint16_t c_core = blend565(circadian, pm_gfx->color565(255, 248, 215), 0.62f);
-  const uint16_t c_mid = blend565(circadian, pm_gfx->color565(255, 175, 55), 0.48f);
-  const uint16_t c_edge = pm_gfx->color565(3, 2, 5);
-
-  if (t < 0.18f) {
-    const float u = smoothstep01(t / 0.18f);
-    return blend565(c_mid, c_core, u);
+uint16_t gem_color_at_radius(float t, float hue_deg) {
+  /** Brightness falls off from lit core to the legacy flat-home value at the rim. */
+  const float glow = powf(1.f - t, 1.55f);
+  float v = pm_face_hsv_v + (0.90f - pm_face_hsv_v) * glow;
+  float s = pm_face_hsv_s * (0.84f + 0.16f * glow);
+  uint16_t col = pm_face_color565_from_hsv(pm_gfx, hue_deg, s, v);
+  if (t > 0.48f) {
+    const float u = smoothstep01((t - 0.48f) / 0.52f);
+    const float vignette = u * u;
+    col = blend565(col, pm_face_color565_from_hsv(pm_gfx, hue_deg, pm_face_hsv_s * 0.5f, 0.02f), vignette);
   }
-  if (t < 0.52f) {
-    const float u = (t - 0.18f) / 0.34f;
-    return blend565(c_mid, circadian, 0.12f * (1.f - u));
-  }
-  const float u = smoothstep01((t - 0.52f) / 0.48f);
-  const float falloff = u * u;
-  return blend565(c_mid, c_edge, falloff);
+  return col;
 }
 
 uint32_t frost_hash(int x, int y) {
@@ -335,35 +331,29 @@ void pm_face_draw_voice_wave_screen(bool outward, uint32_t t_ms, const char *lab
   pm_gfx->flush();
 }
 
-uint16_t pm_face_draw_home_gem_glow(float hour_local, bool time_valid) {
+uint16_t pm_face_draw_home_gem_glow(float hue_deg_24h) {
   const int cx = LCD_WIDTH / 2;
   const int cy = LCD_HEIGHT / 2;
   const int R = min(LCD_WIDTH, LCD_HEIGHT) / 2;
   /** Leave inset for the 24h rainbow annulus drawn afterward. */
   const int r_max = R - 14;
 
-  uint16_t circadian;
-  if (time_valid) {
-    circadian = pm_circadian_color565_at_hour(hour_local);
-  } else {
-    const float hue = fmodf(static_cast<float>(millis()) * 0.0015f, 360.0f);
-    circadian = pm_face_color565_from_hsv(pm_gfx, hue, 0.82f, 0.55f);
-  }
-
-  pm_gfx->fillScreen(pm_gfx->color565(2, 2, 4));
+  const uint16_t edge = gem_color_at_radius(1.f, hue_deg_24h);
+  pm_gfx->fillScreen(edge);
 
   for (int r = r_max; r >= 0; --r) {
     const float t = static_cast<float>(r) / static_cast<float>(r_max);
-    pm_gfx->fillCircle(cx, cy, r, gem_color_at_radius(t, circadian));
+    pm_gfx->fillCircle(cx, cy, r, gem_color_at_radius(t, hue_deg_24h));
   }
 
-  /** Domed resin highlight — soft offset gleam above center. */
+  /** Domed resin highlight — soft offset gleam above center, same time hue. */
   constexpr int k_dome_cx = 0;
   constexpr int k_dome_cy = -22;
+  const uint16_t c_hot = pm_face_color565_from_hsv(pm_gfx, hue_deg_24h, pm_face_hsv_s * 0.65f, 0.96f);
   for (int dr = 38; dr >= 8; dr -= 6) {
     const float a = 0.07f + 0.16f * (1.f - static_cast<float>(dr - 8) / 30.f);
     pm_gfx->fillCircle(cx + k_dome_cx, cy + k_dome_cy, dr,
-                       blend565(gem_color_at_radius(0.08f, circadian), pm_gfx->color565(255, 252, 238), a));
+                       blend565(gem_color_at_radius(0.08f, hue_deg_24h), c_hot, a));
   }
 
   /** Fine frost grain in the lit core (sparse, deterministic). */
@@ -380,13 +370,14 @@ uint16_t pm_face_draw_home_gem_glow(float hour_local, bool time_valid) {
         continue;
       }
       const float lift = static_cast<float>((h >> 3) & 0xFu) / 15.f * 0.11f;
-      const uint16_t base = gem_color_at_radius(sqrtf(static_cast<float>(dx * dx + dy * dy)) / static_cast<float>(grain_r),
-                                                circadian);
-      pm_gfx->drawPixel(gx, gy, blend565(base, pm_gfx->color565(255, 255, 250), lift));
+      const float dist_t = sqrtf(static_cast<float>(dx * dx + dy * dy)) / static_cast<float>(grain_r);
+      const uint16_t base = gem_color_at_radius(dist_t, hue_deg_24h);
+      const uint16_t spark = pm_face_color565_from_hsv(pm_gfx, hue_deg_24h, pm_face_hsv_s * 0.45f, 0.98f);
+      pm_gfx->drawPixel(gx, gy, blend565(base, spark, lift));
     }
   }
 
-  return gem_color_at_radius(0.35f, circadian);
+  return gem_color_at_radius(0.35f, hue_deg_24h);
 }
 
 

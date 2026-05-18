@@ -52,12 +52,7 @@ void pm_faces_draw(float thinking_progress) {
   if (s_clock_face != ClockFace::CalciferCountdown) {
 #if MYNAH_HUE_HOME_ONLY
     if (s_clock_face == ClockFace::ClassicAnalog) {
-      const float hour_local =
-          pm_time_valid()
-              ? static_cast<float>(tm.tm_hour) + static_cast<float>(tm.tm_min) / 60.f +
-                    static_cast<float>(tm.tm_sec) / 3600.f
-              : fmodf(static_cast<float>(millis()) * 0.00025f, 24.f);
-      bg = pm_face_draw_home_gem_glow(hour_local, pm_time_valid());
+      bg = pm_face_draw_home_gem_glow(hue);
     } else {
       pm_gfx->fillScreen(bg);
     }
