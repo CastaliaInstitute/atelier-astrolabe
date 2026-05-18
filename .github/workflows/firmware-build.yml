@@ -39,3 +39,36 @@ jobs:
           name: firmware-waveshare_s3_175
           path: ${{ env.PLATFORMIO_BUILD_DIR }}/waveshare_s3_175/firmware.bin
           if-no-files-found: error
+
+  # Parallel QEMU profile build for the sim gate (not a required merge check).
+  build-qemu:
+    runs-on: ubuntu-latest
+    env:
+      PLATFORMIO_BUILD_DIR: /tmp/astrolabe-pio-build-${{ github.run_id }}
+      PIO_ENV: waveshare_s3_175_qemu
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini', 'scripts/build.sh') }}
+          restore-keys: |
+            pio-${{ runner.os }}-
+
+      - name: Install PlatformIO
+        run: pip install platformio
+
+      - name: Build QEMU firmware
+        run: ./scripts/build.sh
+
+      - name: Upload QEMU firmware bins
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-waveshare_s3_175_qemu
+          path: |
+            ${{ env.PLATFORMIO_BUILD_DIR }}/waveshare_s3_175_qemu/bootloader.bin
+            ${{ env.PLATFORMIO_BUILD_DIR }}/waveshare_s3_175_qemu/partitions.bin
+            ${{ env.PLATFORMIO_BUILD_DIR }}/waveshare_s3_175_qemu/firmware.bin
+          if-no-files-found: error

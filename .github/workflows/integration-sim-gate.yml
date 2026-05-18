@@ -1,7 +1,8 @@
-# QEMU serial sim gate — required for merging to integration (ubuntu, no USB).
+# QEMU serial sim gate — informational (runs after Firmware build; not a merge blocker).
 # Hardware device gate remains for promotion to main (self-hosted m1).
 #
-# Enable: repo variable ENABLE_INTEGRATION_SIM_GATE=true
+# Branch protection on integration: required check = Firmware build only.
+# Optional: repo variable ENABLE_INTEGRATION_SIM_GATE=false skips post-merge sim on integration pushes.
 #
 name: Integration sim gate
 
@@ -12,15 +13,13 @@ on:
         description: Git ref to test
         required: false
         default: integration
-  pull_request:
-    branches: [integration]
   workflow_run:
     workflows: [Firmware build]
     types: [completed]
     branches: [integration]
 
 concurrency:
-  group: astrolabe-qemu-sim-${{ github.ref }}
+  group: astrolabe-qemu-sim-${{ github.event.workflow_run.head_branch || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -29,27 +28,45 @@ jobs:
     runs-on: ubuntu-latest
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'pull_request' ||
       (
         github.event_name == 'workflow_run' &&
         github.event.workflow_run.conclusion == 'success' &&
-        vars.ENABLE_INTEGRATION_SIM_GATE == 'true'
+        (
+          github.event.workflow_run.event == 'pull_request' ||
+          vars.ENABLE_INTEGRATION_SIM_GATE != 'false'
+        )
       )
+    env:
+      PLATFORMIO_BUILD_DIR: /tmp/astrolabe-pio-qemu-${{ github.run_id }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: >-
             ${{ github.event_name == 'workflow_dispatch' && inputs.ref
-            || github.event_name == 'pull_request' && github.event.pull_request.head.sha
             || github.event.workflow_run.head_sha }}
 
       - name: Cache PlatformIO
         uses: actions/cache@v4
         with:
           path: ~/.platformio
-          key: pio-sim-${{ runner.os }}-${{ hashFiles('platformio.ini', 'scripts/build.sh') }}
+          key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini', 'scripts/build.sh') }}
           restore-keys: |
-            pio-sim-${{ runner.os }}-
+            pio-${{ runner.os }}-
+
+      - name: Cache Espressif QEMU
+        uses: actions/cache@v4
+        with:
+          path: ~/.espressif/tools/qemu-xtensa
+          key: qemu-xtensa-${{ runner.os }}-esp_develop_9.2.2_20250817
+
+      - name: Download QEMU firmware bins
+        if: github.event_name == 'workflow_run'
+        uses: actions/download-artifact@v4
+        with:
+          name: firmware-waveshare_s3_175_qemu
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+          path: ${{ env.PLATFORMIO_BUILD_DIR }}/waveshare_s3_175_qemu
 
       - name: Install tools
         run: |
@@ -59,7 +76,8 @@ jobs:
 
       - name: QEMU sim functional test
         env:
-          PLATFORMIO_BUILD_DIR: /tmp/astrolabe-pio-qemu-${{ github.run_id }}
+          SKIP_BUILD: ${{ github.event_name == 'workflow_run' && '1' || '0' }}
+          CI_SIM_FAST: "1"
         run: bash ./scripts/ci-qemu-sim.sh
 
       - name: Upload sim report

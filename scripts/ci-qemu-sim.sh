@@ -9,10 +9,21 @@ BUILD_DIR="${PLATFORMIO_BUILD_DIR:-/tmp/astrolabe-pio-qemu}"
 export PLATFORMIO_BUILD_DIR="$BUILD_DIR"
 export PIO_ENV="$ENV"
 
-echo "→ build ${ENV}"
-./scripts/build.sh
-
 BIN_DIR="${BUILD_DIR}/${ENV}"
+if [[ "${SKIP_BUILD:-0}" == "1" ]]; then
+  echo "→ skip build (prebuilt bins)"
+elif [[ -f "${BIN_DIR}/firmware.bin" && -f "${BIN_DIR}/bootloader.bin" && -f "${BIN_DIR}/partitions.bin" ]]; then
+  echo "→ skip build (bins already present)"
+else
+  echo "→ build ${ENV}"
+  if [[ -n "${CI_SIM_FAST:-}" ]]; then
+    export PLATFORMIO_BUILD_JOBS="${PLATFORMIO_BUILD_JOBS:-4}"
+    pio run -e "$ENV" -j "$PLATFORMIO_BUILD_JOBS"
+  else
+    ./scripts/build.sh
+  fi
+fi
+
 for f in bootloader.bin partitions.bin firmware.bin; do
   if [[ ! -f "${BIN_DIR}/${f}" ]]; then
     echo "error: missing ${BIN_DIR}/${f}" >&2

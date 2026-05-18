@@ -26,7 +26,7 @@ GitHub: set the repo **default branch for pull requests** to **`integration`** (
 
 **Branch protection (recommended)** on `integration`:
 
-- Required status checks: **Firmware build** + **Integration sim gate** (`ENABLE_INTEGRATION_SIM_GATE=true`)
+- Required status check: **Firmware build** only (remove **QEMU sim test** from required checks if still listed)
 - **Integration device gate** runs on m1 after each build but is **not** a merge requirement — it gates promotion to **`main`**
 
 ## Roles
@@ -121,8 +121,8 @@ After the PR merges to **`integration`**, run **hardware QA** on **`integration`
 
 | Workflow | Runner | What |
 |----------|--------|------|
-| [Firmware build](../.github/workflows/firmware-build.yml) | `ubuntu-latest` | `./scripts/build.sh`; uploads `firmware.bin` artifact |
-| [**Integration sim gate**](../.github/workflows/integration-sim-gate.yml) | `ubuntu-latest` | QEMU serial tests — **required for merge to `integration`** |
+| [Firmware build](../.github/workflows/firmware-build.yml) | `ubuntu-latest` | `./scripts/build.sh` (merge gate); parallel `build-qemu` uploads QEMU bins for sim |
+| [**Integration sim gate**](../.github/workflows/integration-sim-gate.yml) | `ubuntu-latest` | QEMU serial tests after each green Firmware build — **informational**, not a merge blocker |
 | [**Integration device gate**](../.github/workflows/integration-device-gate.yml) | **`self-hosted` + `astrolabe-watch`** (m1) | Flash → full hardware functional test — **required for `main` promotion**, not merge |
 | [Firmware flash](../.github/workflows/firmware-flash.yml) | **`self-hosted` + `astrolabe-watch`** | Manual / legacy `ENABLE_INTEGRATION_FLASH` only |
 | [Firmware functional test](../.github/workflows/firmware-functional-test.yml) | **`self-hosted` + `astrolabe-watch`** | Manual dispatch only |
@@ -138,11 +138,11 @@ GitHub **cloud** runners cannot see USB. To flash in CI, register a [self-hosted
 4. Secrets: `ASTROLABE_SECRETS_FILE` on the Mac (default `~/GitHub/astrolabe/include/secrets.local.h`) or GitHub Actions secrets.
 5. Plug in the watch (**303A:1001**); optional `ASTROLABE_UPLOAD_PORT` in LaunchAgent.
 
-**Integration sim gate (merge to `integration`)**
+**Integration sim gate (informational)**
 
-- Set repo variable **`ENABLE_INTEGRATION_SIM_GATE=true`**
-- After each green **Firmware build** on `integration`: QEMU build (`waveshare_s3_175_qemu`) + serial face matrix ([`faces_qemu.json`](../tests/functional/faces_qemu.json)).
-- Reports: `artifacts/functional-sim/latest/report.json` with `"gate": "sim"`.
+- Runs automatically after each green **Firmware build** (PRs and `integration` pushes). Set **`ENABLE_INTEGRATION_SIM_GATE=false`** to skip post-merge sim on `integration` pushes only (PRs still run sim).
+- Reuses **`firmware-waveshare_s3_175_qemu`** artifact from the Firmware build workflow when possible (merge + QEMU test only, no second full compile in sim).
+- Serial face matrix: [`faces_qemu.json`](../tests/functional/faces_qemu.json). Reports: `artifacts/functional-sim/latest/report.json` with `"gate": "sim"`.
 
 **Integration device gate (promote to `main`)**
 

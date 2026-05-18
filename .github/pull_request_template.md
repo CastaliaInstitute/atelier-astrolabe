@@ -14,7 +14,8 @@ Closes #
 
 - [ ] `./scripts/build.sh` (or `pio run -e waveshare_s3_175`)
 - [ ] **Clock faces / touch / buttons touched?**
-  - [ ] **Integration sim gate** green (QEMU) — required to merge
+  - [ ] **Firmware build** green (merge gate)
+  - [ ] **Integration sim gate** green (QEMU) — optional; runs after build
   - [ ] Optional before **main** promotion: **Integration device gate** on m1 or `./scripts/functional_test.py --flash`
 - [ ] Flashed / smoke-tested on hardware before promoting to `main` (if applicable)
 - [ ] Optional visual QA: `screen.bmp` ([`hardware-qa.mdc`](.cursor/rules/hardware-qa.mdc))

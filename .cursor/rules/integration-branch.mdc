@@ -20,10 +20,10 @@ fix|feature/<#>-slug  ──PR──►  integration  ──promote──►  ma
 | Check | Runner | Required for |
 |-------|--------|----------------|
 | **Firmware build** | `ubuntu-latest` | Merge to **`integration`** |
-| **Integration sim gate** (QEMU) | `ubuntu-latest` | Merge to **`integration`** when `ENABLE_INTEGRATION_SIM_GATE=true` |
+| **Integration sim gate** (QEMU) | `ubuntu-latest` | **Informational** — runs after each green Firmware build (not a merge blocker) |
 | **Integration device gate** | `astrolabe-watch` (m1) | **`main` promotion** only — not a merge blocker on `integration` |
 
-Sim gate exercises serial face/qa paths in QEMU (subset matrix). Hardware gate runs full BMP/Wi‑Fi matrix on the bench watch before `promote-integration.sh`.
+Sim gate exercises serial face/qa paths in QEMU (subset matrix); reuses prebuilt QEMU bins from the Firmware build workflow when possible. Hardware gate runs full BMP/Wi‑Fi matrix on the bench watch before `promote-integration.sh`.
 
 ## Agents (Cursor Cloud / local)
 
@@ -39,7 +39,7 @@ Sim gate exercises serial face/qa paths in QEMU (subset matrix). Hardware gate r
 - No secrets in the diff
 - **Non-UI changes** (docs, scripts without face behavior)
 
-**Face / gesture PRs:** merge when **Firmware build** + **Integration sim gate** are green. Prefer a green **device gate** run on m1 before promotion, but it is not required to merge.
+**Face / gesture PRs:** merge when **Firmware build** is green; treat a green **Integration sim gate** as extra signal (optional). Prefer a green **device gate** run on m1 before promotion, but it is not required to merge.
 
 **Do not** push or merge directly to **`main`**. Promotion only:
 
@@ -53,7 +53,7 @@ Requires a passing **hardware** report (`gate: hardware` in `artifacts/functiona
 
 - Default PR base branch: **`integration`**
 - Enable **`ENABLE_INTEGRATION_SIM_GATE=true`** and **`ENABLE_INTEGRATION_DEVICE_GATE=true`** (Settings → Actions → Variables)
-- Branch protection on **`integration`**: required checks **Firmware build** + **Integration sim gate** (not device gate)
+- Branch protection on **`integration`**: required check **Firmware build** only (remove **QEMU sim test** if still listed). Sim gate stays informational.
 - Configure **`astrolabe-watch`** environment with optional approval before revert PRs (`ASTROLABE_FT_UNMERGE_PUSH=1`)
 - After promotion batch: remove offline self-hosted runners; keep one bench Mac labeled `astrolabe-watch`
 

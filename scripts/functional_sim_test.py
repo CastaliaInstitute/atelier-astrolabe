@@ -150,6 +150,12 @@ def button_to_qa(b: str) -> str:
     raise ValueError(b)
 
 
+def _sim_wait(default: float) -> float:
+    if os.environ.get("CI_SIM_FAST"):
+        return default * 0.6
+    return default
+
+
 def run_face(ser: QemuSerial, spec: dict, out_dir: Path) -> FaceResult:
     fid = int(spec["id"])
     name = spec["name"]
@@ -162,9 +168,9 @@ def run_face(ser: QemuSerial, spec: dict, out_dir: Path) -> FaceResult:
             result.ok = False
 
     face_pat = re.compile(rf"face:\s*{fid}\b")
-    lines = ser.send(f"face {fid}", wait=0.8)
+    lines = ser.send(f"face {fid}", wait=_sim_wait(0.8))
     log.extend(lines)
-    face_ack = any(face_pat.search(ln) for ln in lines) or ser.wait_line(face_pat, timeout=10.0)
+    face_ack = any(face_pat.search(ln) for ln in lines) or ser.wait_line(face_pat, timeout=_sim_wait(10.0))
     if not face_ack:
         step("set_face", False, "no face: ack")
         return result
@@ -176,18 +182,18 @@ def run_face(ser: QemuSerial, spec: dict, out_dir: Path) -> FaceResult:
         return result
 
     for g in spec.get("gestures", []):
-        glines = ser.send(gesture_to_qa(g), wait=0.5)
+        glines = ser.send(gesture_to_qa(g), wait=_sim_wait(0.5))
         log.extend(glines)
         err = ser.check_crashes(glines)
         step(f"gesture:{g}", err is None, err or "ok")
 
     for b in spec.get("buttons", []):
-        blines = ser.send(button_to_qa(b), wait=0.5)
+        blines = ser.send(button_to_qa(b), wait=_sim_wait(0.5))
         log.extend(blines)
         err = ser.check_crashes(blines)
         step(f"button:{b}", err is None, err or "ok")
 
-    status = ser.send("qa status", wait=0.4)
+    status = ser.send("qa status", wait=_sim_wait(0.4))
     log.extend(status)
     err = ser.check_crashes(status)
     has_qa = any(ln.startswith("qa: face=") for ln in status)
@@ -227,7 +233,8 @@ def main() -> int:
     parser.add_argument("--matrix", type=Path, default=DEFAULT_MATRIX)
     parser.add_argument("--flash-bin", type=Path, required=True)
     parser.add_argument("--qemu", default="", help="qemu-system-xtensa path")
-    parser.add_argument("--ready-timeout", type=float, default=120.0)
+    default_ready = 90.0 if os.environ.get("CI_SIM_FAST") else 120.0
+    parser.add_argument("--ready-timeout", type=float, default=default_ready)
     parser.add_argument("--output", type=Path, default=OUT_DIR)
     args = parser.parse_args()
 
