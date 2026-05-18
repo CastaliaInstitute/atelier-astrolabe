@@ -1,6 +1,7 @@
 #include "pm_transit.h"
 
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <ctime>
 
@@ -306,6 +307,113 @@ static double natal_target_lon(const PmNatalChart *natal, PmNatalTarget target) 
   }
 }
 
+static const char *aspect_literary_label(PmTransitAspectKind aspect) {
+  switch (aspect) {
+    case kPmTransitAspectConjunction:
+      return "Confluence";
+    case kPmTransitAspectSextile:
+      return "Invitation";
+    case kPmTransitAspectSquare:
+      return "Crossing";
+    case kPmTransitAspectTrine:
+      return "Current";
+    case kPmTransitAspectOpposition:
+      return "Mirror";
+    default:
+      return "Signal";
+  }
+}
+
+static const char *body_literary_label(PmEphemBody body) {
+  switch (body) {
+    case kPmBodySun:
+      return "Sunfire";
+    case kPmBodyMoon:
+      return "Moon-tide";
+    case kPmBodyMercury:
+      return "Mercury Lantern";
+    case kPmBodyVenus:
+      return "Venus Rose";
+    case kPmBodyMars:
+      return "Mars Ember";
+    case kPmBodyJupiter:
+      return "Jupiter Oracle";
+    case kPmBodySaturn:
+      return "Saturn Gate";
+    default:
+      return "Wanderer";
+  }
+}
+
+static const char *target_literary_label(PmNatalTarget target) {
+  switch (target) {
+    case kPmNatalTargetSun:
+      return "Solar Self";
+    case kPmNatalTargetMoon:
+      return "Inner Moon";
+    case kPmNatalTargetAsc:
+      return "Horizon";
+    default:
+      return "Chart";
+  }
+}
+
+static double body_avg_motion_deg_per_day(PmEphemBody body) {
+  switch (body) {
+    case kPmBodyMoon:
+      return 13.176;
+    case kPmBodySun:
+      return 0.986;
+    case kPmBodyMercury:
+      return 1.20;
+    case kPmBodyVenus:
+      return 1.00;
+    case kPmBodyMars:
+      return 0.524;
+    case kPmBodyJupiter:
+      return 0.083;
+    case kPmBodySaturn:
+      return 0.033;
+    default:
+      return 1.0;
+  }
+}
+
+static void format_duration_label(double days, char *out, size_t cap) {
+  if (!out || cap == 0) {
+    return;
+  }
+  if (!std::isfinite(days) || days <= 0.0) {
+    snprintf(out, cap, "briefly");
+  } else if (days < 1.5) {
+    int hours = static_cast<int>(lrint(days * 24.0));
+    if (hours < 1) {
+      hours = 1;
+    }
+    snprintf(out, cap, "about %d hour%s", hours, hours == 1 ? "" : "s");
+  } else if (days < 14.0) {
+    const int whole_days = static_cast<int>(lrint(days));
+    snprintf(out, cap, "about %d days", whole_days < 1 ? 1 : whole_days);
+  } else if (days < 70.0) {
+    const int weeks = static_cast<int>(lrint(days / 7.0));
+    snprintf(out, cap, "about %d weeks", weeks < 1 ? 1 : weeks);
+  } else {
+    const int months = static_cast<int>(lrint(days / 30.0));
+    snprintf(out, cap, "about %d months", months < 1 ? 1 : months);
+  }
+}
+
+static void describe_transit_aspect(PmTransitAspect *asp) {
+  if (!asp) {
+    return;
+  }
+  snprintf(asp->title, sizeof(asp->title), "%s %s: %s", body_literary_label(asp->transit_body),
+           aspect_literary_label(asp->aspect), target_literary_label(asp->natal_target));
+  const double speed = body_avg_motion_deg_per_day(asp->transit_body);
+  asp->active_days = speed > 0.0 ? (2.0 * asp->orb_limit_deg) / speed : 0.0;
+  format_duration_label(asp->active_days, asp->duration_label, sizeof(asp->duration_label));
+}
+
 bool pm_transit_snapshot_from_positions(const PmNatalChart *natal, const PmTransitPositions *transit,
                                         const PmTransitAspectOrb *orbs, size_t orb_count,
                                         PmTransitSnapshot *out) {
@@ -336,6 +444,7 @@ bool pm_transit_snapshot_from_positions(const PmNatalChart *natal, const PmTrans
       bool have_match = false;
       PmTransitAspectKind best_aspect = kPmTransitAspectConjunction;
       double best_orb_delta = 999.0;
+      double best_orb_limit = 0.0;
       for (size_t oi = 0; oi < orb_count; ++oi) {
         if (orbs[oi].orb_deg < 0.0 || !std::isfinite(orbs[oi].orb_deg)) {
           continue;
@@ -346,6 +455,7 @@ bool pm_transit_snapshot_from_positions(const PmNatalChart *natal, const PmTrans
           have_match = true;
           best_aspect = orbs[oi].aspect;
           best_orb_delta = orb_delta;
+          best_orb_limit = orbs[oi].orb_deg;
         }
       }
       if (have_match && out->aspect_count < kPmTransitAspectMax) {
@@ -355,6 +465,8 @@ bool pm_transit_snapshot_from_positions(const PmNatalChart *natal, const PmTrans
         asp->aspect = best_aspect;
         asp->exact_delta_deg = delta;
         asp->orb_delta_deg = best_orb_delta;
+        asp->orb_limit_deg = best_orb_limit;
+        describe_transit_aspect(asp);
       }
     }
   }
