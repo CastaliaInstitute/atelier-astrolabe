@@ -13,6 +13,8 @@ extern "C" {
 #define MYNAH_MESH_MAGIC 0x4D4Eu /** 'NM' little-endian */
 #define MYNAH_MESH_PROTO_VERSION 1u
 
+#define MYNAH_MESH_WIFI_CHANNEL 1u /** Fixed ESP-NOW channel (watch + atom). */
+
 #define MYNAH_MESH_SAMPLE_HZ 16000u
 #define MYNAH_MESH_FRAME_MS 30u
 #define MYNAH_MESH_MAX_PCM_BYTES 960u /** 30 ms mono int16 @ 16 kHz */

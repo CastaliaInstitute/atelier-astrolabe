@@ -22,7 +22,7 @@ static const char *TAG = "pm_mesh";
 
 static bool s_ready = false;
 static bool s_rx_on = true;
-static uint8_t s_channel = 1;
+static uint8_t s_channel = MYNAH_MESH_WIFI_CHANNEL;
 static uint16_t s_device_id = 0;
 static uint16_t s_pkt_seq = 0;
 static uint16_t s_frame_seq = 0;
@@ -90,14 +90,11 @@ static void mesh_peer_upsert(const uint8_t mac[6], uint8_t channel, uint8_t role
   mesh_label_from_mac(mac, s_peers[idx].label, sizeof(s_peers[idx].label));
 }
 
-static uint8_t mesh_current_channel(void) {
-  if (pm_wifi_connected()) {
-    const uint8_t ch = WiFi.channel();
-    if (ch > 0 && ch <= 14) {
-      return ch;
-    }
-  }
-  return s_channel > 0 ? s_channel : 1;
+static uint8_t mesh_current_channel(void) { return MYNAH_MESH_WIFI_CHANNEL; }
+
+static void mesh_apply_channel(void) {
+  s_channel = MYNAH_MESH_WIFI_CHANNEL;
+  esp_wifi_set_channel(s_channel, WIFI_SECOND_CHAN_NONE);
 }
 
 static bool mesh_ensure_peer_entry(const uint8_t mac[6], uint8_t channel) {
@@ -226,8 +223,7 @@ bool pm_mesh_begin(void) {
   uint8_t mac[6];
   WiFi.macAddress(mac);
   s_device_id = mesh_device_id_from_mac(mac);
-  s_channel = mesh_current_channel();
-  esp_wifi_set_channel(s_channel, WIFI_SECOND_CHAN_NONE);
+  mesh_apply_channel();
 
   if (esp_now_init() != ESP_OK) {
     ESP_LOGE(TAG, "esp_now_init failed");
@@ -280,8 +276,7 @@ void pm_mesh_discovery_tick(uint32_t now_ms) {
     return;
   }
   last = now_ms;
-  s_channel = mesh_current_channel();
-  esp_wifi_set_channel(s_channel, WIFI_SECOND_CHAN_NONE);
+  mesh_apply_channel();
 
   mynah_mesh_beacon pkt = {};
   mynah_mesh_hdr_init(&pkt.hdr, MYNAH_MESH_PKT_BEACON, ++s_pkt_seq);
