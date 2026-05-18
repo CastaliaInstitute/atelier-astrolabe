@@ -1,6 +1,6 @@
 {
   "sketch": "Astrolabe",
-  "face_count": 11,
+  "face_count": 12,
   "center": [233, 233],
   "faces": [
     {
@@ -68,7 +68,7 @@
       "buttons": []
     },
     {
-      "id": 10,
+      "id": 9,
       "name": "spectrum",
       "source_paths": [
         "sketches/Astrolabe/faces/spectrum",
@@ -83,6 +83,19 @@
       "name": "chakra",
       "source_paths": ["sketches/Astrolabe/faces/chakra", "sketches/Astrolabe/pm_speaker.cpp", "sketches/Astrolabe/pm_speaker.h"],
       "gestures": ["tap:233,233", "swipe_up", "swipe_down", "swipe_left"],
+      "buttons": []
+    },
+    {
+      "id": 11,
+      "name": "radar",
+      "source_paths": [
+        "sketches/Astrolabe/faces/radar",
+        "sketches/Astrolabe/pm_presence.cpp",
+        "sketches/Astrolabe/pm_presence.h",
+        "sketches/Astrolabe/pm_motion.cpp",
+        "sketches/Astrolabe/pm_motion.h"
+      ],
+      "gestures": ["swipe_left", "swipe_right", "tap:233,233"],
       "buttons": []
     }
   ]
