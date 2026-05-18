@@ -37,6 +37,10 @@ NAME_TO_IDX = {
     "castalia": 7,
     "syn": 8,
     "synastry": 8,
+    "spectrum": 9,
+    "fft": 9,
+    "audio": 9,
+    "sound": 9,
 }
 
 port, face = sys.argv[1], sys.argv[2].strip().lower()

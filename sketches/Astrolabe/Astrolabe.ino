@@ -35,7 +35,9 @@
 #include "faces/moon/pm_face_moon.h"
 #include "faces/spotify/pm_face_spotify.h"
 #include "faces/calcifer/pm_face_calcifer.h"
+#include "faces/spectrum/pm_face_spectrum.h"
 #include "faces/synastry/pm_face_synastry.h"
+#include "pm_audio_analyzer.h"
 #include "pm_display.h"
 #include "pm_qa.h"
 
@@ -360,10 +362,11 @@ static bool face_index_from_name(const char *name, int *out) {
   struct {
     const char *n;
     int idx;
-  } k[] = {{"classic", 0},  {"hue", 0},       {"analog", 0},    {"apocalypso", 1},
-           {"digital", 2},  {"spotify", 3},   {"astro", 4},       {"astrology", 4},
-           {"moon", 5},     {"calcifer", 6},  {"schedule", 6},  {"castalia", 7},
-           {"synastry", 8}, {"syn", 8}};
+  } k[] = {{"classic", 0},    {"hue", 0},         {"analog", 0},      {"apocalypso", 1},
+           {"digital", 2},    {"spotify", 3},     {"astro", 4},       {"astrology", 4},
+           {"moon", 5},       {"calcifer", 6},    {"schedule", 6},    {"castalia", 7},
+           {"synastry", 8},   {"syn", 8},         {"spectrum", 9},    {"fft", 9},
+           {"audio", 9},      {"sound", 9}};
   for (const auto &e : k) {
     if (strcasecmp(name, e.n) == 0) {
       *out = e.idx;
@@ -433,6 +436,7 @@ static void poll_serial_birth_commands() {
           Serial.println("qa: 6 calcifer");
           Serial.println("qa: 7 castalia");
           Serial.println("qa: 8 synastry");
+          Serial.println("qa: 9 spectrum");
         } else if (!pm_qa_inject_command(args)) {
           Serial.println("qa: usage: status | faces | inject …");
         }
@@ -454,7 +458,7 @@ static void poll_serial_birth_commands() {
           g_clock_repaint_pending = true;
           Serial.printf("face: %d\n", idx);
         } else {
-          Serial.println("face: usage: face <0-8|name>");
+          Serial.println("face: usage: face <0-9|name>");
         }
       } else if (strcmp(line, "astro") == 0) {
         if (pm_faces_current() != ClockFace::Astrology) {
@@ -745,11 +749,27 @@ void loop() {
 
       static ClockFace s_prev_dial_face = ClockFace::kNumFaces;
       if (pm_faces_current() != s_prev_dial_face) {
+        if (s_prev_dial_face == ClockFace::Spectrum) {
+          pm_face_spectrum_on_leave();
+        }
         if (pm_faces_current() == ClockFace::Castalia) {
           pm_castalia_on_face_enter();
           g_clock_repaint_pending = true;
         }
+        if (pm_faces_current() == ClockFace::Spectrum) {
+          pm_face_spectrum_on_enter();
+          g_clock_repaint_pending = true;
+        }
         s_prev_dial_face = pm_faces_current();
+      }
+
+      static uint32_t s_last_spectrum_ms = 0;
+      const bool spectrum_anim =
+          pm_faces_current() == ClockFace::Spectrum && g_state == AppState::kClock &&
+          (now - s_last_spectrum_ms >= 50u);
+      if (spectrum_anim) {
+        s_last_spectrum_ms = now;
+        pm_face_spectrum_tick();
       }
 
       if (pm_faces_current() == ClockFace::Castalia && wifi && pm_castalia_tick_pair_start()) {
@@ -790,12 +810,12 @@ void loop() {
 
       const bool sec_tick_paint =
           sec_tick && pm_faces_current() != ClockFace::Castalia && pm_faces_current() != ClockFace::CalciferCountdown &&
-          pm_faces_current() != ClockFace::Synastry;
+          pm_faces_current() != ClockFace::Synastry && pm_faces_current() != ClockFace::Spectrum;
       const bool calcifer_sec =
           pm_faces_current() == ClockFace::CalciferCountdown && valid && sec_tick;
       const bool full_paint = !s_clock_paint_inited || slow_no_time || banner_chg || wifi_chg ||
                               g_clock_repaint_pending || local_hm_chg || spotify_stale || calcifer_stale ||
-                              sec_tick_paint || calcifer_sec || astro_repaint;
+                              sec_tick_paint || calcifer_sec || astro_repaint || spectrum_anim;
 
       if (full_paint) {
         s_clock_paint_inited = true;

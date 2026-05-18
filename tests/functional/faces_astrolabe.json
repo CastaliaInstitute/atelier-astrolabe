@@ -1,6 +1,6 @@
 {
   "sketch": "Astrolabe",
-  "face_count": 9,
+  "face_count": 10,
   "center": [233, 233],
   "faces": [
     {
@@ -64,6 +64,17 @@
       "name": "synastry",
       "source_paths": ["sketches/Astrolabe/faces/synastry"],
       "gestures": ["tap:233,233", "swipe_left"],
+      "buttons": []
+    },
+    {
+      "id": 9,
+      "name": "spectrum",
+      "source_paths": [
+        "sketches/Astrolabe/faces/spectrum",
+        "sketches/Astrolabe/pm_fft.cpp",
+        "sketches/Astrolabe/pm_audio_analyzer.cpp"
+      ],
+      "gestures": ["swipe_left", "swipe_right", "tap:233,233"],
       "buttons": []
     }
   ]

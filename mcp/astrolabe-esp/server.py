@@ -48,6 +48,10 @@ FACE_BY_NAME = {
     "castalia": 7,
     "syn": 8,
     "synastry": 8,
+    "spectrum": 9,
+    "fft": 9,
+    "audio": 9,
+    "sound": 9,
 }
 FACE_LABELS = (
     "ClassicAnalog",
@@ -59,6 +63,7 @@ FACE_LABELS = (
     "CalciferCountdown",
     "Castalia",
     "Synastry",
+    "Spectrum",
 )
 
 
