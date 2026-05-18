@@ -378,7 +378,13 @@ def load_matrix(path: Path) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Astrolabe face functional tests (hardware)")
-    parser.add_argument("--matrix", type=Path, default=DEFAULT_MATRIX)
+    parser.add_argument(
+        "--matrix",
+        type=Path,
+        default=Path(
+            __import__("os").environ.get("ASTROLABE_FT_MATRIX", str(DEFAULT_MATRIX))
+        ),
+    )
     parser.add_argument("--faces", default="", help="comma names or ids; default all")
     parser.add_argument("--flash", action="store_true", help="build + upload before tests")
     parser.add_argument("--env", default="waveshare_s3_175")
@@ -442,6 +448,22 @@ def main() -> int:
             results.append(fr)
             mark = "PASS" if fr.ok else "FAIL"
             print(f"  {mark}")
+
+        nav_steps = int(__import__("os").environ.get("ASTROLABE_FT_SWIPE_NAV", "0"))
+        if nav_steps > 0:
+            print(f"→ swipe navigation ({nav_steps}× swipe_left from face 0)")
+            nav = FaceResult(face_id=-1, name="swipe_nav", ok=True)
+            ser.send("face 0", wait=1.0)
+            time.sleep(args.paint_sec)
+            for i in range(nav_steps):
+                glines = ser.send("qa inject swipe left", wait=args.step_pause)
+                err = ser.check_crashes(glines)
+                nav.steps.append(
+                    StepResult(f"nav_swipe_left_{i}", err is None, err or "ok")
+                )
+                if err:
+                    nav.ok = False
+            results.append(nav)
 
         face_specs = {int(f["id"]): f for f in matrix["faces"]}
         try:

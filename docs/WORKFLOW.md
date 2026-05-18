@@ -189,7 +189,19 @@ Flashes firmware, walks each clock face via serial `face N`, captures `screen.bm
 ./scripts/ci-functional-test.sh                             # CI wrapper (always --flash)
 ```
 
-Matrix: [`tests/functional/faces_astrolabe.json`](../tests/functional/faces_astrolabe.json).
+Matrix: [`tests/functional/faces_astrolabe.json`](../tests/functional/faces_astrolabe.json).  
+Comprehensive (L/R/U/D swipes + buttons on every face): [`faces_astrolabe_comprehensive.json`](../tests/functional/faces_astrolabe_comprehensive.json).
+
+**m1 bench automation** (pull `integration` → flash → comprehensive test):
+
+```bash
+./scripts/device-bench.sh              # pull, flash, test (~30–45 min)
+./scripts/device-bench.sh --no-pull    # already on integration
+./scripts/install-device-bench-launchagent.sh   # daily 06:00 on this Mac
+./scripts/install-device-bench-launchagent.sh --run-now
+```
+
+Logs: `artifacts/bench/`. Uses `ASTROLABE_UHUBCTL_SEARCH=Espressif` for hub power cycle.
 
 **On failure** (device gate / `--remediate`):
 

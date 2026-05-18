@@ -1,6 +1,7 @@
 #include "pm_calcifer.h"
 
 #include <HTTPClient.h>
+#include <WiFiClient.h>
 #include <WiFiClientSecure.h>
 #include <cstdio>
 #include <cstring>

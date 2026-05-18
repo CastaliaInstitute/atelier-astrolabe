@@ -5,7 +5,7 @@
 /** Draw the active chakra (symbol in its color). */
 void pm_face_chakra_draw(void);
 
-/** Swipe up/down: cycle root → crown. Returns new index 0..6. */
+/** Swipe down root → crown; swipe up back. Clamped at ends (no wrap). If tone was on, switches to new Hz. */
 int pm_face_chakra_cycle(int delta);
 
 /** Tap: start looping solfeggio tone; tap again to stop. */

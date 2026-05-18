@@ -41,6 +41,10 @@ cat >"$PLIST" <<EOF
     <string>${ASTROLABE_SECRETS_FILE:-$HOME/GitHub/astrolabe/include/secrets.local.h}</string>
     <key>ASTROLABE_UPLOAD_PORT</key>
     <string>${ASTROLABE_UPLOAD_PORT:-}</string>
+    <key>ASTROLABE_USB_POWER_CYCLE</key>
+    <string>${ASTROLABE_USB_POWER_CYCLE:-1}</string>
+    <key>ASTROLABE_UHUBCTL_SEARCH</key>
+    <string>${ASTROLABE_UHUBCTL_SEARCH:-Espressif}</string>
     <key>PATH</key>
     <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
   </dict>
