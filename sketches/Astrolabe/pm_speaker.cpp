@@ -45,6 +45,7 @@ static uint32_t s_play_start_ms = 0;
 static uint32_t s_play_est_ms = 1;
 static volatile uint32_t s_play_pcm_frames = 0;
 static volatile uint32_t s_play_pcm_hz = 0;
+static volatile bool s_tone_stop = false;
 
 static esp_err_t es8311_board_init(int sample_hz) {
   if (!s_es) {
@@ -153,9 +154,10 @@ static void i2s_drain_and_stop(int out_hz, int out_channels) {
 }
 
 static bool play_tone_streaming(float hz, uint32_t duration_ms) {
-  if (hz < 20.f || hz > 2000.f || duration_ms == 0) {
+  if (hz < 20.f || hz > 2000.f) {
     return false;
   }
+  const bool until_stop = (duration_ms == 0);
   pm_mic_stop();
 
   static constexpr int kToneHz = 22050;
@@ -168,29 +170,43 @@ static bool play_tone_streaming(float hz, uint32_t duration_ms) {
     return false;
   }
 
-  const uint32_t total_samples = (static_cast<uint64_t>(duration_ms) * kToneHz) / 1000u;
+  const uint32_t total_samples =
+      until_stop ? 0u : static_cast<uint32_t>((static_cast<uint64_t>(duration_ms) * kToneHz) / 1000u);
   const uint32_t fade_in = (kToneHz * 180u) / 1000u;
-  const uint32_t fade_out = (kToneHz * 900u) / 1000u;
+  const uint32_t fade_out = until_stop ? (kToneHz * 220u) / 1000u : (kToneHz * 900u) / 1000u;
   static int16_t buf[512 * 2];
   double phase = 0.0;
   const double phase_inc = (2.0 * 3.14159265358979323846 * static_cast<double>(hz)) / static_cast<double>(kToneHz);
   uint32_t written = 0;
+  uint32_t stop_fade_left = 0;
 
   s_play_pcm_hz = kToneHz;
   s_play_pcm_frames = 0;
-  s_play_est_ms = duration_ms + 120u;
+  s_play_est_ms = until_stop ? 60000u : duration_ms + 120u;
+  s_tone_stop = false;
 
-  while (written < total_samples) {
+  for (;;) {
     esp_task_wdt_reset();
-    const size_t frame = (total_samples - written > 512u) ? 512u : (total_samples - written);
+    if (until_stop && s_tone_stop && stop_fade_left == 0) {
+      stop_fade_left = fade_out;
+    }
+    if (!until_stop && written >= total_samples) {
+      break;
+    }
+
+    const size_t frame = until_stop ? 512u
+                                    : ((total_samples - written > 512u) ? 512u : (total_samples - written));
     for (size_t i = 0; i < frame; ++i) {
       const uint32_t pos = written + static_cast<uint32_t>(i);
       float env = 1.f;
       if (pos < fade_in) {
         env = static_cast<float>(pos) / static_cast<float>(fade_in);
-      } else if (pos + fade_out > total_samples) {
+      } else if (!until_stop && pos + fade_out > total_samples) {
         const uint32_t tail = total_samples - pos;
         env = static_cast<float>(tail) / static_cast<float>(fade_out);
+      } else if (until_stop && stop_fade_left > 0) {
+        env = static_cast<float>(stop_fade_left) / static_cast<float>(fade_out);
+        --stop_fade_left;
       }
       const float s =
           sinf(static_cast<float>(phase)) * 0.82f * env +
@@ -214,10 +230,17 @@ static bool play_tone_streaming(float hz, uint32_t duration_ms) {
     }
     written += static_cast<uint32_t>(frame);
     s_play_pcm_frames = written;
+    if (until_stop && s_tone_stop && stop_fade_left == 0) {
+      break;
+    }
   }
 
   i2s_drain_and_stop(kToneHz, 2);
-  ESP_LOGI(TAG, "tone %.1f Hz ~%u ms", static_cast<double>(hz), duration_ms);
+  if (until_stop) {
+    ESP_LOGI(TAG, "tone %.1f Hz (loop until stop)", static_cast<double>(hz));
+  } else {
+    ESP_LOGI(TAG, "tone %.1f Hz ~%u ms", static_cast<double>(hz), duration_ms);
+  }
   return true;
 }
 
@@ -433,9 +456,20 @@ PmSpeakerStatus pm_speaker_poll() {
 void pm_speaker_abort(void) {
   if (s_speaker_status == PmSpeakerStatus::Playing || s_spk_task_busy) {
     ESP_LOGW(TAG, "playback aborted (waiting for speaker task)");
+    if (s_play_mode == 1 && s_play_tone_ms == 0) {
+      s_tone_stop = true;
+    }
     s_speaker_status = PmSpeakerStatus::DoneFail;
-    (void)speaker_wait_idle(3000);
+    (void)speaker_wait_idle(10000);
   }
+}
+
+void pm_speaker_tone_stop(void) {
+  if (!pm_speaker_is_playing() || s_play_mode != 1 || s_play_tone_ms != 0) {
+    return;
+  }
+  s_tone_stop = true;
+  (void)speaker_wait_idle(10000);
 }
 
 bool pm_speaker_play_tone_begin(float hz, uint32_t duration_ms) {
@@ -455,6 +489,31 @@ bool pm_speaker_play_tone_begin(float hz, uint32_t duration_ms) {
   s_play_est_ms = duration_ms + 120u;
   s_play_pcm_frames = 0;
   s_play_pcm_hz = 0;
+  s_tone_stop = false;
+  s_speaker_ok = false;
+  s_speaker_status = PmSpeakerStatus::Playing;
+  xTaskNotify(s_speaker_task, 1, eSetBits);
+  return true;
+}
+
+bool pm_speaker_play_tone_loop_begin(float hz) {
+  speaker_task_ensure();
+  if (!s_speaker_task || hz < 20.f) {
+    s_speaker_status = PmSpeakerStatus::DoneFail;
+    return false;
+  }
+  if (!speaker_wait_idle(8000)) {
+    s_speaker_status = PmSpeakerStatus::DoneFail;
+    return false;
+  }
+  s_play_mode = 1;
+  s_play_tone_hz = hz;
+  s_play_tone_ms = 0;
+  s_play_start_ms = millis();
+  s_play_est_ms = 60000u;
+  s_play_pcm_frames = 0;
+  s_play_pcm_hz = 0;
+  s_tone_stop = false;
   s_speaker_ok = false;
   s_speaker_status = PmSpeakerStatus::Playing;
   xTaskNotify(s_speaker_task, 1, eSetBits);

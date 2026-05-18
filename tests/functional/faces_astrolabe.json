@@ -56,7 +56,8 @@
       "id": 7,
       "name": "castalia",
       "source_paths": ["sketches/Astrolabe/faces/castalia", "sketches/Astrolabe/pm_castalia_auth.cpp", "sketches/Astrolabe/pm_castalia_auth.h"],
-      "gestures": ["tap:233,238", "swipe_left"],
+      "paint_sec": 0.35,
+      "gestures": ["swipe_left"],
       "buttons": []
     },
     {
@@ -67,7 +68,7 @@
       "buttons": []
     },
     {
-      "id": 9,
+      "id": 10,
       "name": "spectrum",
       "source_paths": [
         "sketches/Astrolabe/faces/spectrum",

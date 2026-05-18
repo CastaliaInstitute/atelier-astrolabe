@@ -6,6 +6,8 @@ Requires Waveshare 1.75C on USB, Wi‑Fi secrets, and firmware with `qa` serial 
 
   ./scripts/functional_test.py --flash
   ./scripts/functional_test.py --faces classic,moon
+  ./scripts/functional_test.py --faces castalia   # face 8 → swipe left → assert face 9 (synastry)
+  ./scripts/test_castalia_swipe.py --flash        # thin wrapper for the castalia matrix row
 """
 from __future__ import annotations
 
@@ -61,7 +63,13 @@ class WatchSerial:
 
         self._ser = serial.Serial(port, baud, timeout=0.25)
         self._buf = ""
-        time.sleep(0.4)
+        time.sleep(0.15)
+        self._ser.setDTR(False)
+        self._ser.setRTS(False)
+        time.sleep(0.05)
+        self._ser.setDTR(True)
+        self._ser.setRTS(True)
+        time.sleep(0.05)
         self._ser.reset_input_buffer()
 
     def close(self) -> None:
@@ -208,6 +216,71 @@ def button_to_qa(b: str) -> str:
     raise ValueError(f"unknown button {b}")
 
 
+def benchmark_face_loads(
+    ser: WatchSerial,
+    ip: str,
+    faces: list[dict],
+    out_path: Path,
+    paint_sec: float,
+) -> list[dict]:
+    """Measure serial ack and optional screen.bmp latency per face."""
+    rows: list[dict] = []
+    face_ack = re.compile(r"face:\s*(\d+)\b")
+    for spec in faces:
+        fid = int(spec["id"])
+        name = spec["name"]
+        t0 = time.perf_counter()
+        ser.send(f"face {fid}", wait=0.05)
+        ack_ms: float | None = None
+        deadline = time.perf_counter() + 15.0
+        while time.perf_counter() < deadline:
+            for ln in ser._drain(0.12):
+                m = face_ack.search(ln)
+                if m and int(m.group(1)) == fid:
+                    ack_ms = (time.perf_counter() - t0) * 1000.0
+                    break
+            if ack_ms is not None:
+                break
+        time.sleep(float(spec.get("paint_sec", paint_sec)))
+        screenshot_ms: float | None = None
+        screenshot_ok = False
+        if ip:
+            bmp = out_path.parent / f"bench-{fid:02d}-{name}.bmp"
+            t1 = time.perf_counter()
+            try:
+                fetch_screenshot(ip, bmp)
+                screenshot_ms = (time.perf_counter() - t1) * 1000.0
+                screenshot_ok, _ = validate_bmp(bmp)
+            except (urllib.error.URLError, TimeoutError, OSError):
+                screenshot_ms = (time.perf_counter() - t1) * 1000.0
+        rows.append(
+            {
+                "face_id": fid,
+                "name": name,
+                "ack_ms": round(ack_ms, 1) if ack_ms is not None else None,
+                "screenshot_ms": round(screenshot_ms, 1) if screenshot_ms is not None else None,
+                "screenshot_ok": screenshot_ok,
+            }
+        )
+        print(
+            f"  face {fid} {name}: ack={rows[-1]['ack_ms']}ms"
+            + (
+                f" bmp={rows[-1]['screenshot_ms']}ms"
+                if rows[-1]["screenshot_ms"] is not None
+                else " bmp=n/a"
+            )
+        )
+    payload = {
+        "timestamp": out_path.stem.replace("face-load-times-", ""),
+        "ip": ip,
+        "faces": rows,
+    }
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    print(f"→ face load benchmark {out_path}")
+    return rows
+
+
 def run_face(
     ser: WatchSerial,
     ip: str,
@@ -236,7 +309,8 @@ def run_face(
         return result
     step("set_face", True)
 
-    time.sleep(paint_sec)
+    face_paint = float(spec.get("paint_sec", paint_sec))
+    time.sleep(face_paint)
     crash = ser.check_crashes(lines)
     if crash:
         step("after_set_face", False, crash)
@@ -281,7 +355,15 @@ def run_face(
     elif not m:
         step("qa_status", False, "no qa: face= line")
     else:
-        step("qa_status", True, m)
+        expected = spec.get("expect_face")
+        if expected is not None:
+            fm = re.search(r"face=(\d+)", m)
+            actual = int(fm.group(1)) if fm else -1
+            ok = actual == int(expected)
+            detail = m if ok else f"{m} (expected face {expected})"
+            step("qa_status", ok, detail)
+        else:
+            step("qa_status", True, m)
 
     log_path = out_dir / f"{fid:02d}-{name}-serial.log"
     log_path.write_text("\n".join(face_log) + "\n", encoding="utf-8")
@@ -301,6 +383,7 @@ def main() -> int:
     parser.add_argument("--flash", action="store_true", help="build + upload before tests")
     parser.add_argument("--env", default="waveshare_s3_175")
     parser.add_argument("--port", default="")
+    parser.add_argument("--ip", default="", help="skip Wi‑Fi wait; use known watch IP")
     parser.add_argument("--paint-sec", type=float, default=2.5)
     parser.add_argument("--step-pause", type=float, default=0.65)
     parser.add_argument("--wifi-timeout", type=float, default=90.0)
@@ -309,6 +392,11 @@ def main() -> int:
         "--remediate",
         action="store_true",
         help="on failure run triage + issue + unmerge (see functional_remediate.sh)",
+    )
+    parser.add_argument(
+        "--benchmark-load",
+        action="store_true",
+        help="measure per-face serial ack + screen.bmp time; writes face-load-times-*.json",
     )
     args = parser.parse_args()
 
@@ -327,14 +415,25 @@ def main() -> int:
 
     ser = WatchSerial(port)
     try:
-        print("→ waiting for Wi‑Fi + screen server…")
-        ip = wait_wifi_ip(ser, timeout=args.wifi_timeout)
-        print(f"→ watch at {ip}")
+        ip = args.ip.strip()
+        if ip:
+            print(f"→ watch at {ip} (--ip)")
+        else:
+            print("→ waiting for Wi‑Fi + screen server…")
+            ip = wait_wifi_ip(ser, timeout=args.wifi_timeout)
+            print(f"→ watch at {ip}")
 
         faces = matrix["faces"]
         if args.faces.strip():
             want = {x.strip().lower() for x in args.faces.split(",")}
             faces = [f for f in faces if f["name"] in want or str(f["id"]) in want]
+
+        if args.benchmark_load:
+            bench_faces = sorted(matrix["faces"], key=lambda f: int(f["id"]))
+            if args.faces.strip():
+                bench_faces = faces
+            bench_path = OUT_DIR / f"face-load-times-{stamp}.json"
+            benchmark_face_loads(ser, ip, bench_faces, bench_path, args.paint_sec)
 
         results: list[FaceResult] = []
         for spec in faces:

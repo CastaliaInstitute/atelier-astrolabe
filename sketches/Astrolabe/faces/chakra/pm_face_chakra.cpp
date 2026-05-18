@@ -46,6 +46,7 @@ static float s_ripple = 0.f;
 static uint32_t s_ripple_start = 0;
 static uint32_t s_last_anim_ms = 0;
 static bool s_ripple_active = false;
+static bool s_chakra_tone_on = false;
 
 static uint16_t chakra_color(const ChakraDef &c, float dim) {
   const float d = dim < 0.f ? 0.f : (dim > 1.f ? 1.f : dim);
@@ -126,7 +127,7 @@ static void draw_symbol(const ChakraDef &ch) {
 }
 
 static void draw_ripples(const ChakraDef &ch) {
-  if (!s_ripple_active && !pm_speaker_is_playing()) {
+  if (!s_chakra_tone_on && !s_ripple_active && !pm_speaker_is_playing()) {
     return;
   }
   for (int i = 0; i < 3; ++i) {
@@ -158,13 +159,18 @@ void pm_face_chakra_draw(void) {
   char hz_line[16];
   snprintf(hz_line, sizeof(hz_line), "%.0f Hz", ch.hz);
   pm_face_draw_centered_line(hz_line, 400, chakra_color(ch, 0.75f), 1, 2);
+}
 
-  char hint[20];
-  snprintf(hint, sizeof(hint), "tap play  %d/7", s_index + 1);
-  pm_face_draw_centered_line(hint, 430, pm_gfx->color565(120, 120, 130), 1, 1);
+static void chakra_stop_tone(void) {
+  if (s_chakra_tone_on || pm_speaker_is_playing()) {
+    pm_speaker_tone_stop();
+  }
+  s_chakra_tone_on = false;
+  s_ripple_active = false;
 }
 
 int pm_face_chakra_cycle(int delta) {
+  chakra_stop_tone();
   int n = static_cast<int>(sizeof(kChakras) / sizeof(kChakras[0]));
   int v = s_index + delta;
   v = (v % n + n) % n;
@@ -172,26 +178,39 @@ int pm_face_chakra_cycle(int delta) {
   return s_index;
 }
 
-bool pm_face_chakra_play_tone(void) {
+bool pm_face_chakra_toggle_tone(void) {
+  if (s_chakra_tone_on || pm_speaker_is_playing()) {
+    chakra_stop_tone();
+    return true;
+  }
   const ChakraDef &ch = kChakras[s_index];
   s_ripple_active = true;
   s_ripple_start = millis();
-  return pm_speaker_play_tone_begin(ch.hz, 5000);
+  s_ripple = 0.f;
+  if (!pm_speaker_play_tone_loop_begin(ch.hz)) {
+    s_ripple_active = false;
+    return false;
+  }
+  s_chakra_tone_on = true;
+  return true;
 }
 
 bool pm_face_chakra_anim_tick(uint32_t now_ms) {
-  if (!s_ripple_active && !pm_speaker_is_playing()) {
+  if (!s_chakra_tone_on && !s_ripple_active && !pm_speaker_is_playing()) {
     return false;
   }
   if (now_ms - s_last_anim_ms < 40u) {
-    return false;
+    return s_chakra_tone_on || pm_speaker_is_playing() || s_ripple_active;
   }
   s_last_anim_ms = now_ms;
   s_ripple = static_cast<float>(now_ms - s_ripple_start) * 0.0012f;
-  if (!pm_speaker_is_playing() && s_ripple > 2.5f) {
+  if (!pm_speaker_is_playing()) {
+    s_chakra_tone_on = false;
     s_ripple_active = false;
   }
-  return s_ripple_active || pm_speaker_is_playing();
+  return s_chakra_tone_on || pm_speaker_is_playing() || s_ripple_active;
 }
+
+void pm_face_chakra_stop(void) { chakra_stop_tone(); }
 
 int pm_face_chakra_index(void) { return s_index; }

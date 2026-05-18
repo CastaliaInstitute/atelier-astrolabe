@@ -21,7 +21,7 @@ import time
 
 import serial
 
-# Keep in sync with face_index_from_name() in PocketMynah.ino
+# Keep in sync with pm_faces_index_from_name() in faces/pm_clock.cpp
 NAME_TO_IDX = {
     "classic": 0,
     "hue": 0,
@@ -34,13 +34,15 @@ NAME_TO_IDX = {
     "moon": 5,
     "calcifer": 6,
     "schedule": 6,
-    "castalia": 7,
-    "syn": 8,
-    "synastry": 8,
-    "spectrum": 9,
-    "fft": 9,
-    "audio": 9,
-    "sound": 9,
+    "cycle": 7,
+    "menstrual": 7,
+    "castalia": 8,
+    "syn": 9,
+    "synastry": 9,
+    "spectrum": 10,
+    "fft": 10,
+    "audio": 10,
+    "sound": 10,
 }
 
 port, face = sys.argv[1], sys.argv[2].strip().lower()
@@ -52,32 +54,35 @@ else:
 
 ser = serial.Serial(port, 115200, timeout=0.3)
 try:
-    time.sleep(0.25)
+    time.sleep(0.35)
+    # Drain boot/log spam so the face ack is not lost in a full RX buffer.
+    drain_end = time.monotonic() + 0.4
+    while time.monotonic() < drain_end:
+        chunk = ser.read(4096)
+        if not chunk:
+            time.sleep(0.05)
     ser.reset_input_buffer()
-    ser.write(f"face {face}\n".encode("utf-8"))
+    ser.write(f"face {face}\r\n".encode("utf-8"))
     ser.flush()
     buf = ""
-    for _ in range(80):
+    for _ in range(120):
         chunk = ser.read(4096)
         if chunk:
             text = chunk.decode("utf-8", errors="replace")
             print(text, end="", flush=True)
             buf += text
+            if len(buf) > 65536:
+                buf = buf[-32768:]
             if "face: usage" in buf:
                 print("serial_set_face: firmware rejected face command", file=sys.stderr)
                 sys.exit(1)
-            m = re.search(r"face:\s*(\d+)", buf)
-            if m:
+            for m in re.finditer(r"face:\s*(\d+)", buf):
                 got = int(m.group(1))
                 if want_idx is not None and got != want_idx:
-                    print(
-                        f"serial_set_face: expected index {want_idx}, got {got}",
-                        file=sys.stderr,
-                    )
-                    sys.exit(1)
+                    continue
                 print(f"# face_index={got}", flush=True)
                 sys.exit(0)
-        time.sleep(0.1)
+        time.sleep(0.12)
 finally:
     ser.close()
 

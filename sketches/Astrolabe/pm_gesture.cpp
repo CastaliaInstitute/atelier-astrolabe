@@ -3,6 +3,7 @@
 #include <cstring>
 
 #include "pm_config.h"
+#include "pm_side_buttons.h"
 #include "pm_touch.h"
 
 #ifndef MYNAH_GESTURE_TAP_SLOP_PX
@@ -104,6 +105,8 @@ static uint32_t g_chain_deadline = 0;
 static int16_t g_chain_x = 0;
 static int16_t g_chain_y = 0;
 
+bool pm_gesture_touch_down(void) { return g_down; }
+
 static void emit_chain_locked() {
   if (g_chain == 0) {
     return;
@@ -178,8 +181,8 @@ static void on_release(uint32_t now, int16_t cx, int16_t cy) {
   if (dt <= MYNAH_GESTURE_SWIPE_MAX_MS && move >= MYNAH_GESTURE_SWIPE_MIN_PX) {
     g_chain = 0;
     g_chain_deadline = 0;
-    /** Thumb drift along the bottom rim while arming PTT reads as L/R swipe and cycles faces. */
-    const bool from_ptt_rim = g_y0 >= MYNAH_PTT_MIN_Y;
+    /** Bottom-rim drift while holding PTT — not a face swipe. */
+    const bool from_ptt_rim = g_y0 >= MYNAH_PTT_MIN_Y && pm_ptt_button_held();
     PmGestureKind g = PmGestureKind::None;
     if (!from_ptt_rim && g_madx > g_mady + 12) {
       g = (cx > g_x0) ? PmGestureKind::SwipeRight : PmGestureKind::SwipeLeft;

@@ -27,10 +27,29 @@ static uint16_t s_clock_bg565 = 0;
 static int s_analog_saved_local_h = -1;
 static int s_analog_saved_local_m = -1;
 
+static float pm_faces_home_hue_deg(void) {
+  struct tm tm = {};
+  int sec_of_day_for_hue = 0;
+  if (pm_time_valid()) {
+    pm_time_local(&tm);
+    sec_of_day_for_hue = tm.tm_hour * 3600 + tm.tm_min * 60 + tm.tm_sec;
+    return static_cast<float>(sec_of_day_for_hue) * (360.0f / 86400.0f);
+  }
+  return fmodf(static_cast<float>(millis()) * 0.0015f, 360.0f);
+}
+
 ClockFace pm_faces_current(void) { return s_clock_face; }
-void pm_faces_set(ClockFace face) { s_clock_face = face; }
+void pm_faces_set(ClockFace face) {
+  if (s_clock_face == ClockFace::Chakra && face != ClockFace::Chakra) {
+    pm_face_chakra_stop();
+  }
+  s_clock_face = face;
+}
 
 void pm_faces_cycle(int delta) {
+  if (s_clock_face == ClockFace::Chakra) {
+    pm_face_chakra_stop();
+  }
   int v = static_cast<int>(s_clock_face) + delta;
   const int n = static_cast<int>(ClockFace::kNumFaces);
   v = (v % n + n) % n;
@@ -129,7 +148,18 @@ void pm_faces_draw(float thinking_progress) {
   pm_gfx->flush();
 }
 
-
+void pm_faces_draw_home_gem_pulse(void) {
+#if MYNAH_HUE_HOME_ONLY
+  if (s_clock_face != ClockFace::ClassicAnalog) {
+    return;
+  }
+  const float hue = pm_faces_home_hue_deg();
+  pm_face_draw_home_gem_breath_only(hue);
+  pm_gfx->flush();
+#else
+  (void)0;
+#endif
+}
 
 bool pm_faces_banner_low(void) {
   const ClockFace f = s_clock_face;
