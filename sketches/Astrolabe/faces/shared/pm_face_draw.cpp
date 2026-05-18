@@ -164,6 +164,84 @@ void gem_fill_radial_dithered(int cx, int cy, int r_max, float hue_deg, float pu
   }
 }
 
+uint16_t chakra_gem_color_at_radius(int x, int y, int gem_cx, int gem_cy, float t, uint8_t cr, uint8_t cg,
+                                    uint8_t cb, float pulse_b, float wave_phase, float tone_hz,
+                                    bool wave_active) {
+  constexpr float k_peak_v = 0.46f;
+  constexpr float k_base_v = 0.09f;
+  const float glow = gem_radial_glow(t);
+  float v = k_base_v + (k_peak_v - k_base_v) * glow;
+  v += (static_cast<float>((frost_hash(x, y) >> 8) & 255u) - 127.5f) / 6144.f;
+
+  if (wave_active && tone_hz > 20.f) {
+    const float k_hz = tone_hz / 528.f;
+    const float wavelength = 0.19f / k_hz;
+    const float dx = static_cast<float>(x - gem_cx);
+    const float dy = static_cast<float>(y - gem_cy);
+    const float angle = atan2f(dy, dx);
+    const float ripple_radial = sinf(wave_phase + pm_face_k_two_pi * (t / wavelength));
+    const float ripple_2d =
+        sinf(wave_phase * 1.11f +
+             pm_face_k_two_pi * (t / wavelength + 0.15f * cosf(angle * 2.f) + 0.05f * (dx + dy) * 0.0035f));
+    v *= 1.f + 0.17f * ripple_radial + 0.11f * ripple_2d;
+  }
+
+  v *= pulse_b;
+  if (v > 1.f) {
+    v = 1.f;
+  }
+  if (v < 0.f) {
+    v = 0.f;
+  }
+
+  float r = static_cast<float>(cr) * v;
+  float g = static_cast<float>(cg) * v;
+  float b = static_cast<float>(cb) * v;
+  if (t > 0.58f) {
+    const float edge = smoothstep01((t - 0.58f) / 0.42f);
+    const float iv = 1.f - edge;
+    r = r * iv + static_cast<float>(cr) * 0.025f * edge;
+    g = g * iv + static_cast<float>(cg) * 0.025f * edge;
+    b = b * iv + static_cast<float>(cb) * 0.025f * edge;
+  }
+  return rgb255_ordered_dither_565(x, y, r, g, b);
+}
+
+void chakra_gem_fill_radial_dithered(int cx, int cy, int r_max, uint8_t cr, uint8_t cg, uint8_t cb,
+                                     float pulse_b, float wave_phase, float tone_hz, bool wave_active) {
+  const int r_max2 = r_max * r_max;
+  const float inv_r_max = 1.f / static_cast<float>(r_max);
+  const int y0 = cy - r_max;
+  const int y1 = cy + r_max;
+  for (int y = y0; y <= y1; ++y) {
+    const int dy = y - cy;
+    const int dy2 = dy * dy;
+    if (dy2 > r_max2) {
+      continue;
+    }
+    const int half = static_cast<int>(lrintf(sqrtf(static_cast<float>(r_max2 - dy2))));
+    int xa = cx - half;
+    int xb = cx + half;
+    if (xa < 0) {
+      xa = 0;
+    }
+    if (xb >= LCD_WIDTH) {
+      xb = LCD_WIDTH - 1;
+    }
+    for (int x = xa; x <= xb; ++x) {
+      const int dx = x - cx;
+      const int d2 = dx * dx + dy2;
+      if (d2 > r_max2) {
+        continue;
+      }
+      const float t = sqrtf(static_cast<float>(d2)) * inv_r_max;
+      pm_gfx->drawPixel(x, y,
+                        chakra_gem_color_at_radius(x, y, cx, cy, t, cr, cg, cb, pulse_b, wave_phase, tone_hz,
+                                                   wave_active));
+    }
+  }
+}
+
 }  // namespace
 
 uint16_t pm_face_color565_from_hsv(Arduino_GFX *out, float h_deg, float s, float v) {
@@ -460,5 +538,11 @@ void pm_face_draw_home_gem_breath_only(float hue_deg_24h) {
   const int r_max = R - 14;
   const float pulse_b = pm_home_gem_pulse_brightness(millis());
   gem_fill_radial_dithered(cx, cy, r_max, hue_deg_24h, pulse_b);
+}
+
+void pm_face_draw_chakra_gem(int cx, int cy, int r_max, uint8_t cr, uint8_t cg, uint8_t cb,
+                             float pulse_brightness, float wave_phase_rad, float tone_hz, bool wave_active) {
+  chakra_gem_fill_radial_dithered(cx, cy, r_max, cr, cg, cb, pulse_brightness, wave_phase_rad, tone_hz,
+                                  wave_active);
 }
 
