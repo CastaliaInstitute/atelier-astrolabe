@@ -43,9 +43,7 @@ jobs:
             pio-ft-${{ runner.os }}-
 
       - name: Install tools
-        run: |
-          pip install platformio
-          "${{ github.workspace }}/mcp/astrolabe-esp/setup.sh"
+        run: bash ./scripts/ci-install-tools.sh
 
       - name: Device secrets
         env:

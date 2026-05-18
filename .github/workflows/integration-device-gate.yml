@@ -61,9 +61,7 @@ jobs:
             pio-gate-${{ runner.os }}-
 
       - name: Install tools
-        run: |
-          pip install platformio
-          ./mcp/astrolabe-esp/setup.sh
+        run: bash ./scripts/ci-install-tools.sh
 
       - name: Device secrets
         env:

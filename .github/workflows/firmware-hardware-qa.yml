@@ -50,7 +50,7 @@ jobs:
 
       - name: Install tools
         run: |
-          pip install platformio
+          bash ./scripts/ci-install-tools.sh
           command -v gh >/dev/null || brew install gh
           command -v curl >/dev/null
 

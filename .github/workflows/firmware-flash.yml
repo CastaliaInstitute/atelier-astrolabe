@@ -61,7 +61,7 @@ jobs:
             pio-flash-${{ runner.os }}-
 
       - name: Install PlatformIO
-        run: pip install platformio
+        run: bash ./scripts/ci-install-tools.sh
 
       - name: Device secrets
         env:
