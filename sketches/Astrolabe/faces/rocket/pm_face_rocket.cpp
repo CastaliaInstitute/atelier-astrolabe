@@ -143,6 +143,7 @@ void draw_launch_clock_dial(int64_t now_unix, const PmRocketStatus &ui) {
   const int r_disk = 92;
 
   const uint16_t c_bg = pm_gfx->color565(6, 10, 24);
+  const int cover_r = min(LCD_WIDTH, LCD_HEIGHT) / 2;
   const uint16_t c_ring = pm_gfx->color565(40, 55, 90);
   const uint16_t c_ring_hi = pm_gfx->color565(80, 110, 160);
   const uint16_t c_tminus = pm_gfx->color565(70, 120, 200);
@@ -150,6 +151,9 @@ void draw_launch_clock_dial(int64_t now_unix, const PmRocketStatus &ui) {
   const uint16_t c_launch = pm_gfx->color565(255, 200, 120);
 
   pm_gfx->fillScreen(c_bg);
+  if (pm_rocket_pad_image_ready()) {
+    pm_rocket_pad_image_draw_background(kCx, kCy + 12, cover_r, c_bg, 0.62f);
+  }
 
   const PmRocketLaunch *primary = ui.count > 0 && ui.launches[0].valid ? &ui.launches[0] : nullptr;
   const int64_t t0 = primary ? primary->net_unix : now_unix;
