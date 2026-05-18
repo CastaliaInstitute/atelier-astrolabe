@@ -18,13 +18,13 @@ Use **issues + branches + PRs** for feature and bugfix work. Roadmap stays in [`
 - Prefer CLI: `./scripts/cloud-agent.sh <issue#>` (reads issue via `gh`, no URL pasting). See [`docs/WORKFLOW.md`](docs/WORKFLOW.md#start-an-agent-from-the-cli-recommended).
 - Agent works only on that branch; does not mix other backlog items.
 - Deliverable: **PR into `integration`** with `Closes #<issue>`, BACKLOG updated, `./scripts/build.sh` passes.
-- **May merge into `integration`** when CI build is green and scope is a single issue — **except** face/UI PRs (see integration-branch.mdc).
+- **May merge into `integration`** when **Firmware build** + **Integration sim gate** are green and scope is a single issue (face/UI included — no bench watch required). See [integration-branch.mdc](integration-branch.mdc).
 - **Do not merge to `main`** (use promotion script).
 
 ## Finishing
 
-1. Face / input changes: **Integration device gate** or `./scripts/functional_test.py --flash` on `integration` before promotion.
-2. Visual polish: optional [hardware-qa.mdc](hardware-qa.mdc) screenshot on an issue.
+1. **`main` promotion:** **Integration device gate** on m1 or `./scripts/functional_test.py --flash` on `integration` HEAD (hardware report required by `promote-integration.sh`).
+2. Visual polish: optional [hardware-qa.mdc](hardware-qa.mdc) screenshot on an issue (not a merge blocker).
 3. PR description uses [`.github/pull_request_template.md`](../.github/pull_request_template.md).
 4. Backlog **Done** line includes date + PR link.
 5. **`main`**: only via `./scripts/promote-integration.sh --flash-ok` after device gate + flash QA.
@@ -34,4 +34,5 @@ Use **issues + branches + PRs** for feature and bugfix work. Roadmap stays in [`
 - Implement multiple unrelated backlog items on one branch.
 - Push or merge to **`main`** (use promotion script).
 - Commit secrets.
-- Rely on compile-only CI as proof of face correctness.
+- Block merge to `integration` on bench hardware — use **Integration sim gate** (QEMU) instead.
+- Rely on compile-only CI alone when sim gate is disabled; enable `ENABLE_INTEGRATION_SIM_GATE` for face/input paths.

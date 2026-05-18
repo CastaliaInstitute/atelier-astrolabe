@@ -95,11 +95,11 @@ Deliverables:
 - Code changes; ./scripts/build.sh must pass
 - Update docs/BACKLOG.md (In progress → Done with PR link)
 - Open a PR against integration with "Closes #${num}"
-- When CI is green and scope is only this issue: push branch and merge PR into integration
-- Do not merge to main (promotion is ./scripts/promote-integration.sh --flash-ok after hardware flash)
+- When Firmware build + Integration sim gate are green and scope is only this issue: push branch and merge PR into integration (face/UI included; no bench watch required to merge)
+- Do not merge to main (promotion is ./scripts/promote-integration.sh --flash-ok after hardware device gate / flash QA)
 - Do not commit secrets
 
-Hardware note: ESP32 watch firmware — cloud cannot flash hardware; note in PR if on-device QA is needed.
+Hardware note: cloud cannot flash the watch. Sim gate (QEMU) is the merge gate; bench flash/screen.bmp is for promotion to main or optional QA.
 
 --- issue body ---
 ${body}

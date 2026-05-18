@@ -40,6 +40,7 @@
 #include "pm_audio_analyzer.h"
 #include "pm_display.h"
 #include "pm_qa.h"
+#include "pm_home_gem_pulse.h"
 
 Arduino_DataBus *bus = new Arduino_ESP32QSPI(
     LCD_CS, LCD_SCLK, LCD_SDIO0, LCD_SDIO1, LCD_SDIO2, LCD_SDIO3);
@@ -390,7 +391,9 @@ static void poll_serial_birth_commands() {
     if (c == '\n') {
       line[li] = '\0';
       li = 0;
-      if (strncmp(line, "birth ", 6) == 0) {
+      if (pm_home_gem_pulse_serial_command(line)) {
+        g_clock_repaint_pending = true;
+      } else if (strncmp(line, "birth ", 6) == 0) {
         const char *p = line + 6;
         while (*p == ' ') {
           ++p;
@@ -531,14 +534,12 @@ void setup() {
   Serial.begin(115200);
   delay(200);
 
+#ifndef ASTROLABE_QEMU
   Wire.begin(IIC_SDA, IIC_SCL);
+#endif
 
 #ifdef ASTROLABE_QEMU
-  (void)pm_touch_begin();
   pm_gesture_reset();
-  (void)pm_side_buttons_begin();
-  pm_birth_ensure_demo();
-  pm_chart_profiles_ensure_demo_seed();
   pm_display_bind(nullptr);
   ensure_pcm_buffer();
   Serial.println("PocketMynah MVP ready");
@@ -558,6 +559,7 @@ void setup() {
   (void)pm_side_buttons_begin();
   pm_birth_ensure_demo();
   pm_chart_profiles_ensure_demo_seed();
+  pm_home_gem_pulse_begin();
 
   if (pm_wifi_begin()) {
     pm_ntp_sync_blocking();
@@ -732,6 +734,7 @@ void loop() {
       static char s_prev_banner[44] = "";
       static uint32_t s_last_ntp_retry_wall = 0;
       static uint32_t s_last_no_time_redraw = 0;
+      static uint32_t s_gem_pulse_last_ms = 0;
 
       const bool wifi = pm_wifi_connected();
       const bool valid = pm_time_valid();
@@ -814,9 +817,22 @@ void loop() {
           pm_faces_current() != ClockFace::Synastry && pm_faces_current() != ClockFace::Spectrum;
       const bool calcifer_sec =
           pm_faces_current() == ClockFace::CalciferCountdown && valid && sec_tick;
+#if MYNAH_HUE_HOME_ONLY
+      bool gem_pulse_paint = false;
+      if (pm_faces_current() == ClockFace::ClassicAnalog && pm_home_gem_pulse_enabled()) {
+        const uint32_t pulse_iv = pm_home_gem_pulse_repaint_interval_ms();
+        if (now - s_gem_pulse_last_ms >= pulse_iv) {
+          s_gem_pulse_last_ms = now;
+          gem_pulse_paint = true;
+        }
+      }
+#else
+      const bool gem_pulse_paint = false;
+#endif
       const bool full_paint = !s_clock_paint_inited || slow_no_time || banner_chg || wifi_chg ||
                               g_clock_repaint_pending || local_hm_chg || spotify_stale || calcifer_stale ||
-                              sec_tick_paint || calcifer_sec || astro_repaint || spectrum_anim;
+                              sec_tick_paint || calcifer_sec || astro_repaint || spectrum_anim ||
+                              gem_pulse_paint;
 
       if (full_paint) {
         s_clock_paint_inited = true;

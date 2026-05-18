@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
+import select
 import subprocess
 import sys
 import time
@@ -48,9 +50,10 @@ class FaceResult:
 
 
 class QemuSerial:
-    def __init__(self, proc: subprocess.Popen[str]) -> None:
+    def __init__(self, proc: subprocess.Popen[bytes]) -> None:
         self._proc = proc
         self._buf = ""
+        self._fd = proc.stdout.fileno() if proc.stdout else None
 
     def close(self) -> None:
         if self._proc.stdin:
@@ -61,27 +64,42 @@ class QemuSerial:
         except subprocess.TimeoutExpired:
             self._proc.kill()
 
+    def _append_chunk(self, chunk: str, lines: list[str]) -> None:
+        self._buf += chunk
+        while "\n" in self._buf:
+            line, self._buf = self._buf.split("\n", 1)
+            line = line.rstrip("\r")
+            if line:
+                lines.append(line)
+
     def _drain(self, timeout: float = 0.0) -> list[str]:
         lines: list[str] = []
+        if self._fd is None:
+            return lines
         deadline = time.time() + timeout
-        while time.time() < deadline:
-            if self._proc.stdout is None:
-                break
-            line = self._proc.stdout.readline()
-            if line:
-                line = line.rstrip("\r\n")
-                if line:
-                    lines.append(line)
-            elif timeout > 0:
-                time.sleep(0.05)
+        while True:
+            if timeout > 0:
+                remaining = deadline - time.time()
+                if remaining <= 0:
+                    break
+                wait = min(0.2, remaining)
             else:
+                wait = 0.0
+            ready, _, _ = select.select([self._fd], [], [], wait)
+            if not ready:
+                if timeout <= 0:
+                    break
+                continue
+            chunk_b = os.read(self._fd, 4096)
+            if not chunk_b:
                 break
+            self._append_chunk(chunk_b.decode(errors="replace"), lines)
         return lines
 
     def send(self, cmd: str, wait: float = 0.35) -> list[str]:
         if not self._proc.stdin:
             return []
-        self._proc.stdin.write(cmd.strip() + "\n")
+        self._proc.stdin.write((cmd.strip() + "\n").encode())
         self._proc.stdin.flush()
         return self._drain(wait)
 
@@ -95,6 +113,9 @@ class QemuSerial:
                 for pat in READY_PATTERNS:
                     if pat.search(ln):
                         return True
+            for pat in READY_PATTERNS:
+                if pat.search(self._buf):
+                    return True
         return False
 
     def wait_line(self, pattern: re.Pattern[str], timeout: float = 12.0) -> str | None:
@@ -143,9 +164,11 @@ def run_face(ser: QemuSerial, spec: dict, out_dir: Path) -> FaceResult:
         if not ok:
             result.ok = False
 
+    face_pat = re.compile(rf"face:\s*{fid}\b")
     lines = ser.send(f"face {fid}", wait=0.8)
     log.extend(lines)
-    if not ser.wait_line(re.compile(rf"face:\s*{fid}\b"), timeout=10.0):
+    face_ack = any(face_pat.search(ln) for ln in lines) or ser.wait_line(face_pat, timeout=10.0)
+    if not face_ack:
         step("set_face", False, "no face: ack")
         return result
     step("set_face", True)
@@ -180,6 +203,7 @@ def run_face(ser: QemuSerial, spec: dict, out_dir: Path) -> FaceResult:
 
 
 def launch_qemu(flash_bin: Path, qemu_bin: str, timeout_sec: int) -> QemuSerial:
+    # Espressif QEMU: -nographic routes UART to stdio; avoid -serial mon:stdio.
     cmd = [
         qemu_bin,
         "-nographic",
@@ -191,18 +215,12 @@ def launch_qemu(flash_bin: Path, qemu_bin: str, timeout_sec: int) -> QemuSerial:
         f"file={flash_bin},if=mtd,format=raw",
         "-global",
         "driver=esp32s3.gpio,property=strap_mode,value=0x04",
-        "-serial",
-        "mon:stdio",
-        "-monitor",
-        "none",
     ]
     proc = subprocess.Popen(
         cmd,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1,
     )
     return QemuSerial(proc)
 
