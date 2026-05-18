@@ -12,6 +12,7 @@
 
 static constexpr int kCx = LCD_WIDTH / 2;
 static constexpr int kCy = LCD_HEIGHT / 2 - 8;
+static constexpr int kGemRadius = 130;
 
 struct ChakraDef {
   const char *name;
@@ -34,6 +35,8 @@ static const ChakraDef kChakras[] = {
 static int s_index = 0;
 static uint32_t s_ripple_start = 0;
 static uint32_t s_last_anim_ms = 0;
+static uint32_t s_wave_last_ms = 0;
+static float s_wave_phase = 0.f;
 static bool s_ripple_active = false;
 static bool s_chakra_tone_on = false;
 
@@ -43,23 +46,23 @@ static uint16_t chakra_color(const ChakraDef &c, float dim) {
                           static_cast<uint8_t>(c.b * d));
 }
 
-static void draw_ripples(const ChakraDef &ch) {
-  if (!s_chakra_tone_on && !s_ripple_active && !pm_speaker_is_playing()) {
+static bool chakra_audio_active(void) {
+  return s_chakra_tone_on || s_ripple_active || pm_speaker_is_playing();
+}
+
+static void chakra_advance_wave(uint32_t now_ms, float hz) {
+  if (s_wave_last_ms == 0) {
+    s_wave_last_ms = now_ms;
     return;
   }
-  const float s_ripple = static_cast<float>(millis() - s_ripple_start) * 0.0012f;
-  const uint16_t ring = chakra_color(ch, 0.55f);
-  for (int i = 0; i < 3; ++i) {
-    const float phase = s_ripple + static_cast<float>(i) * 0.33f;
-    const float t = phase - floorf(phase);
-    const int r = 88 + static_cast<int>(t * 100.f);
-    const float alpha = 1.f - t;
-    if (alpha <= 0.05f) {
-      continue;
-    }
-    const uint16_t c = chakra_color(ch, 0.12f + 0.4f * alpha);
-    pm_gfx->drawCircle(kCx, kCy, r, c);
-    pm_gfx->drawCircle(kCx, kCy, r + 1, ring);
+  const float dt = static_cast<float>(now_ms - s_wave_last_ms) * 0.001f;
+  s_wave_last_ms = now_ms;
+  if (dt <= 0.f || hz < 20.f) {
+    return;
+  }
+  s_wave_phase += pm_face_k_two_pi * (hz / 528.f) * dt * 1.65f;
+  if (s_wave_phase > pm_face_k_two_pi * 64.f) {
+    s_wave_phase = fmodf(s_wave_phase, pm_face_k_two_pi);
   }
 }
 
@@ -68,10 +71,12 @@ void pm_face_chakra_draw(void) {
   const uint16_t bg = pm_gfx->color565(6, 6, 10);
   pm_gfx->fillScreen(bg);
 
-  const uint16_t glow = chakra_color(ch, 0.22f);
-  pm_gfx->fillCircle(kCx, kCy, 130, glow);
-
-  draw_ripples(ch);
+  const bool waves = chakra_audio_active();
+  float pulse = 0.78f;
+  if (waves) {
+    pulse = 0.86f + 0.14f * sinf(s_wave_phase);
+  }
+  pm_face_draw_chakra_gem(kCx, kCy, kGemRadius, ch.r, ch.g, ch.b, pulse, s_wave_phase, ch.hz, waves);
 
   const bool playing = s_chakra_tone_on || pm_speaker_is_playing();
   pm_chakra_draw_glyph(pm_gfx, kCx, kCy, s_index, chakra_color(ch, 1.f), playing);
@@ -97,6 +102,8 @@ static bool chakra_start_tone(void) {
   const ChakraDef &ch = kChakras[s_index];
   s_ripple_active = true;
   s_ripple_start = millis();
+  s_wave_phase = 0.f;
+  s_wave_last_ms = 0;
   if (!pm_speaker_play_tone_loop_begin(ch.hz)) {
     s_ripple_active = false;
     return false;
@@ -134,23 +141,30 @@ bool pm_face_chakra_toggle_tone(void) {
 }
 
 bool pm_face_chakra_anim_tick(uint32_t now_ms) {
-  if (!s_chakra_tone_on && !s_ripple_active && !pm_speaker_is_playing()) {
+  if (!chakra_audio_active()) {
     return false;
   }
-  if (now_ms - s_last_anim_ms < 120u) {
+
+  const bool playing = s_chakra_tone_on || pm_speaker_is_playing();
+  const uint32_t interval = playing ? 50u : 120u;
+  if (now_ms - s_last_anim_ms < interval) {
     return false;
   }
   s_last_anim_ms = now_ms;
-  if (!pm_speaker_is_playing()) {
-    s_chakra_tone_on = false;
-    if (!s_ripple_active) {
-      return false;
-    }
-    const float elapsed = static_cast<float>(now_ms - s_ripple_start) * 0.0012f;
-    if (elapsed > 2.8f) {
-      s_ripple_active = false;
-    }
+
+  if (playing) {
+    chakra_advance_wave(now_ms, kChakras[s_index].hz);
     return true;
+  }
+
+  s_chakra_tone_on = false;
+  if (!s_ripple_active) {
+    return false;
+  }
+  chakra_advance_wave(now_ms, kChakras[s_index].hz);
+  const float elapsed = static_cast<float>(now_ms - s_ripple_start) * 0.0012f;
+  if (elapsed > 2.8f) {
+    s_ripple_active = false;
   }
   return true;
 }

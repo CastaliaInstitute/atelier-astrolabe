@@ -29,12 +29,13 @@ Run this loop **before promoting `integration` → `main`** (or when validating 
 | Astrology | 4 | `astro`, `astrology` |
 | Moon | 5 | `moon` |
 | CalciferCountdown | 6 | `calcifer`, `schedule` |
-| Cycle | 7 | `cycle`, `menstrual` |
-| Castalia | 8 | `castalia` |
-| Synastry | 9 | `syn`, `synastry` |
-| Spectrum | 10 | `spectrum`, `fft`, `audio`, `sound` |
+| Castalia | 7 | `castalia` |
+| Synastry | 8 | `syn`, `synastry` |
+| Spectrum | 9 | `spectrum`, `fft`, `audio`, `sound` |
+| Chakra | 10 | `chakra` |
 | TibetanBowl | 11 | `bowl`, `tibetan`, `tibetan_bowl` |
-| Weather | 12 | `weather` |
+| LaunchClock (Rocket) | 12 | `rocket`, `launch`, `launchclock` |
+| Weather | 13 | `weather` |
 
 GDB symbols (debug ELF): `_ZL12s_clock_face`, `_ZL23g_clock_repaint_pending`.
 

@@ -1,6 +1,6 @@
 {
   "sketch": "Astrolabe",
-  "face_count": 13,
+  "face_count": 14,
   "center": [233, 233],
   "faces": [
     {
@@ -98,6 +98,13 @@
     },
     {
       "id": 12,
+      "name": "rocket",
+      "source_paths": ["sketches/Astrolabe/faces/rocket", "sketches/Astrolabe/pm_rocket.cpp"],
+      "gestures": ["swipe_left", "swipe_right", "tap:233,233"],
+      "buttons": ["boot"]
+    },
+    {
+      "id": 13,
       "name": "weather",
       "source_paths": ["sketches/Astrolabe/faces/weather", "sketches/Astrolabe/pm_weather.cpp"],
       "gestures": ["swipe_left", "swipe_right", "tap:233,233"],

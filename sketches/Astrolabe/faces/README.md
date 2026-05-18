@@ -19,6 +19,7 @@ Each face is a self-contained module under `faces/<name>/`. The app shell (`Astr
 | `spectrum/` | Dual FFT bars: mic in (inner), speaker out (outer) |
 | `chakra/` | Chakra symbols + solfeggio tones |
 | `tibetan_bowl/` | Singing bowl; drag rainbow rim to strike |
+| `rocket/` | Launch clock — upcoming launches on a 14-day dial |
 | `weather/` | 24h radial temp + humidity rings, current conditions center |
 
 ## Public API per face

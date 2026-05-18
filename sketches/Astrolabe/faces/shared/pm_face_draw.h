@@ -33,3 +33,8 @@ void pm_face_draw_voice_wave_screen(bool outward, uint32_t t_ms, const char *lab
 uint16_t pm_face_draw_home_gem_glow(float hue_deg_24h);
 /** Breath frame: gem disc only (does not redraw rainbow or fillScreen). */
 void pm_face_draw_home_gem_breath_only(float hue_deg_24h);
+
+/** Chakra-colored radial gem (home style). `wave_active` adds 2D ripples at `tone_hz`. */
+void pm_face_draw_chakra_gem(int cx, int cy, int r_max, uint8_t cr, uint8_t cg, uint8_t cb,
+                             float pulse_brightness, float wave_phase_rad, float tone_hz,
+                             bool wave_active);
