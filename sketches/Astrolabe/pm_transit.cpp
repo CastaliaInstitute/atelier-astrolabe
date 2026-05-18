@@ -3,6 +3,8 @@
 #include "pm_ephemeris.h"
 
 #include <cmath>
+#include <cstdio>
+#include <cstring>
 #include <ctime>
 
 static double rev360(double x) {
@@ -29,6 +31,44 @@ static double julian_day_ut(const struct tm *u) {
       floor(365.25 * (Y + 4716)) + floor(30.6001 * (M + 1)) + static_cast<double>(D) +
       static_cast<double>(B) - 1524.5 + h / 24.0;
   return jd;
+}
+
+static double deg_to_rad(double deg) { return deg * (M_PI / 180.0); }
+
+static int zodiac_sign_index(double lon_deg) {
+  return static_cast<int>(rev360(lon_deg) / 30.0) % 12;
+}
+
+static double angle_delta_deg(double a, double b) {
+  double d = fabs(rev360(a) - rev360(b));
+  if (d > 180.0) {
+    d = 360.0 - d;
+  }
+  return d;
+}
+
+static double mean_obliquity_deg(double jd) {
+  const double T = (jd - 2451545.0) / 36525.0;
+  return 23.439291111 - 0.013004167 * T - 0.000000164 * T * T + 0.000000504 * T * T * T;
+}
+
+static double gmst_deg(double jd) {
+  const double T = (jd - 2451545.0) / 36525.0;
+  return rev360(280.46061837 + 360.98564736629 * (jd - 2451545.0) + 0.000387933 * T * T -
+                (T * T * T) / 38710000.0);
+}
+
+static bool ascendant_lon_deg(double jd, double lat_deg, double lon_deg, double *out) {
+  if (!out || !std::isfinite(lat_deg) || !std::isfinite(lon_deg) || lat_deg < -89.5 || lat_deg > 89.5) {
+    return false;
+  }
+  const double lst = deg_to_rad(rev360(gmst_deg(jd) + lon_deg));
+  const double lat = deg_to_rad(lat_deg);
+  const double eps = deg_to_rad(mean_obliquity_deg(jd));
+  const double y = -cos(lst);
+  const double x = sin(lst) * cos(eps) + tan(lat) * sin(eps);
+  *out = rev360(atan2(y, x) * (180.0 / M_PI));
+  return true;
 }
 
 static void sun_rect_and_mean(double d, double *xs, double *ys, double *zs, double *lon_deg,
@@ -172,7 +212,11 @@ static void planet_helio_geo(double d, double N0, double i0, double w0, double a
   *lon_deg = rev360(atan2(yg, xg) * (180.0 / M_PI));
 }
 
-static void pm_transit_compute_utc_local(const struct tm *utc, PmTransitPositions *out) {
+void pm_transit_compute_utc_local(const struct tm *utc, PmTransitPositions *out) {
+  if (!utc || !out) {
+    return;
+  }
+  out->ok = false;
   const double jd = julian_day_ut(utc);
   const double d = jd - 2451543.5;
 
@@ -207,6 +251,257 @@ void pm_transit_compute_utc(const struct tm *utc, PmTransitPositions *out) {
   pm_transit_compute_utc_local(utc, out);
 }
 
+uint8_t pm_transit_whole_sign_house(double lon_deg, double asc_lon_deg) {
+  if (!std::isfinite(lon_deg) || !std::isfinite(asc_lon_deg)) {
+    return 0;
+  }
+  const int asc_sign = zodiac_sign_index(asc_lon_deg);
+  const int body_sign = zodiac_sign_index(lon_deg);
+  return static_cast<uint8_t>(((body_sign - asc_sign + 12) % 12) + 1);
+}
+
+bool pm_transit_build_natal_chart(const PmBirthSpec *birth, PmNatalChart *out) {
+  if (!out) {
+    return false;
+  }
+  memset(out, 0, sizeof(*out));
+  if (!birth || !birth->valid || !std::isfinite(birth->lat_deg) || !std::isfinite(birth->lon_deg)) {
+    return false;
+  }
+  time_t epoch = 0;
+  if (!pm_birth_to_utc_epoch(birth, &epoch)) {
+    return false;
+  }
+  struct tm utc = {};
+  gmtime_r(&epoch, &utc);
+  pm_transit_compute_utc(&utc, &out->bodies);
+  if (!out->bodies.ok) {
+    return false;
+  }
+  const double jd = julian_day_ut(&utc);
+  if (!ascendant_lon_deg(jd, static_cast<double>(birth->lat_deg), static_cast<double>(birth->lon_deg),
+                         &out->asc_lon)) {
+    return false;
+  }
+  out->asc_sign = static_cast<uint8_t>(zodiac_sign_index(out->asc_lon));
+  for (int i = 0; i < kPmBodyCount; ++i) {
+    out->whole_sign_house[i] = pm_transit_whole_sign_house(out->bodies.lon[i], out->asc_lon);
+  }
+  out->ok = true;
+  return true;
+}
+
+const PmTransitAspectOrb *pm_transit_default_orbs(size_t *count_out) {
+  static const PmTransitAspectOrb k_default_orbs[] = {
+      {kPmTransitAspectConjunction, 8.0}, {kPmTransitAspectSextile, 4.0},
+      {kPmTransitAspectSquare, 6.0},      {kPmTransitAspectTrine, 6.0},
+      {kPmTransitAspectOpposition, 6.0},
+  };
+  if (count_out) {
+    *count_out = sizeof(k_default_orbs) / sizeof(k_default_orbs[0]);
+  }
+  return k_default_orbs;
+}
+
+static double natal_target_lon(const PmNatalChart *natal, PmNatalTarget target) {
+  switch (target) {
+    case kPmNatalTargetSun:
+      return natal->bodies.lon[kPmBodySun];
+    case kPmNatalTargetMoon:
+      return natal->bodies.lon[kPmBodyMoon];
+    case kPmNatalTargetAsc:
+      return natal->asc_lon;
+    default:
+      return 0.0;
+  }
+}
+
+static const char *aspect_literary_label(PmTransitAspectKind aspect) {
+  switch (aspect) {
+    case kPmTransitAspectConjunction:
+      return "Confluence";
+    case kPmTransitAspectSextile:
+      return "Invitation";
+    case kPmTransitAspectSquare:
+      return "Crossing";
+    case kPmTransitAspectTrine:
+      return "Current";
+    case kPmTransitAspectOpposition:
+      return "Mirror";
+    default:
+      return "Signal";
+  }
+}
+
+static const char *body_literary_label(PmEphemBody body) {
+  switch (body) {
+    case kPmBodySun:
+      return "Sunfire";
+    case kPmBodyMoon:
+      return "Moon-tide";
+    case kPmBodyMercury:
+      return "Mercury Lantern";
+    case kPmBodyVenus:
+      return "Venus Rose";
+    case kPmBodyMars:
+      return "Mars Ember";
+    case kPmBodyJupiter:
+      return "Jupiter Oracle";
+    case kPmBodySaturn:
+      return "Saturn Gate";
+    default:
+      return "Wanderer";
+  }
+}
+
+static const char *target_literary_label(PmNatalTarget target) {
+  switch (target) {
+    case kPmNatalTargetSun:
+      return "Solar Self";
+    case kPmNatalTargetMoon:
+      return "Inner Moon";
+    case kPmNatalTargetAsc:
+      return "Horizon";
+    default:
+      return "Chart";
+  }
+}
+
+static double body_avg_motion_deg_per_day(PmEphemBody body) {
+  switch (body) {
+    case kPmBodyMoon:
+      return 13.176;
+    case kPmBodySun:
+      return 0.986;
+    case kPmBodyMercury:
+      return 1.20;
+    case kPmBodyVenus:
+      return 1.00;
+    case kPmBodyMars:
+      return 0.524;
+    case kPmBodyJupiter:
+      return 0.083;
+    case kPmBodySaturn:
+      return 0.033;
+    default:
+      return 1.0;
+  }
+}
+
+static void format_duration_label(double days, char *out, size_t cap) {
+  if (!out || cap == 0) {
+    return;
+  }
+  if (!std::isfinite(days) || days <= 0.0) {
+    snprintf(out, cap, "briefly");
+  } else if (days < 1.5) {
+    int hours = static_cast<int>(lrint(days * 24.0));
+    if (hours < 1) {
+      hours = 1;
+    }
+    snprintf(out, cap, "about %d hour%s", hours, hours == 1 ? "" : "s");
+  } else if (days < 14.0) {
+    const int whole_days = static_cast<int>(lrint(days));
+    snprintf(out, cap, "about %d days", whole_days < 1 ? 1 : whole_days);
+  } else if (days < 70.0) {
+    const int weeks = static_cast<int>(lrint(days / 7.0));
+    snprintf(out, cap, "about %d weeks", weeks < 1 ? 1 : weeks);
+  } else {
+    const int months = static_cast<int>(lrint(days / 30.0));
+    snprintf(out, cap, "about %d months", months < 1 ? 1 : months);
+  }
+}
+
+static void describe_transit_aspect(PmTransitAspect *asp) {
+  if (!asp) {
+    return;
+  }
+  snprintf(asp->title, sizeof(asp->title), "%s %s: %s", body_literary_label(asp->transit_body),
+           aspect_literary_label(asp->aspect), target_literary_label(asp->natal_target));
+  const double speed = body_avg_motion_deg_per_day(asp->transit_body);
+  asp->active_days = speed > 0.0 ? (2.0 * asp->orb_limit_deg) / speed : 0.0;
+  format_duration_label(asp->active_days, asp->duration_label, sizeof(asp->duration_label));
+}
+
+bool pm_transit_snapshot_from_positions(const PmNatalChart *natal, const PmTransitPositions *transit,
+                                        const PmTransitAspectOrb *orbs, size_t orb_count,
+                                        PmTransitSnapshot *out) {
+  if (!out) {
+    return false;
+  }
+  memset(out, 0, sizeof(*out));
+  if (!natal || !natal->ok || !transit || !transit->ok) {
+    return false;
+  }
+  if (!orbs || orb_count == 0) {
+    orbs = pm_transit_default_orbs(&orb_count);
+  }
+  out->natal = *natal;
+  out->transit = *transit;
+
+  for (int body = 0; body < kPmBodyCount; ++body) {
+    if (out->house_event_count < kPmTransitHouseEventMax) {
+      PmTransitHouseEvent *ev = &out->house_events[out->house_event_count++];
+      ev->transit_body = static_cast<PmEphemBody>(body);
+      ev->natal_house = pm_transit_whole_sign_house(transit->lon[body], natal->asc_lon);
+      ev->lon_deg = transit->lon[body];
+    }
+
+    for (int target = 0; target < kPmNatalTargetCount; ++target) {
+      const double delta = angle_delta_deg(transit->lon[body],
+                                           natal_target_lon(natal, static_cast<PmNatalTarget>(target)));
+      bool have_match = false;
+      PmTransitAspectKind best_aspect = kPmTransitAspectConjunction;
+      double best_orb_delta = 999.0;
+      double best_orb_limit = 0.0;
+      for (size_t oi = 0; oi < orb_count; ++oi) {
+        if (orbs[oi].orb_deg < 0.0 || !std::isfinite(orbs[oi].orb_deg)) {
+          continue;
+        }
+        const double exact = static_cast<double>(static_cast<int>(orbs[oi].aspect));
+        const double orb_delta = delta - exact;
+        if (fabs(orb_delta) <= orbs[oi].orb_deg && fabs(orb_delta) < fabs(best_orb_delta)) {
+          have_match = true;
+          best_aspect = orbs[oi].aspect;
+          best_orb_delta = orb_delta;
+          best_orb_limit = orbs[oi].orb_deg;
+        }
+      }
+      if (have_match && out->aspect_count < kPmTransitAspectMax) {
+        PmTransitAspect *asp = &out->aspects[out->aspect_count++];
+        asp->transit_body = static_cast<PmEphemBody>(body);
+        asp->natal_target = static_cast<PmNatalTarget>(target);
+        asp->aspect = best_aspect;
+        asp->exact_delta_deg = delta;
+        asp->orb_delta_deg = best_orb_delta;
+        asp->orb_limit_deg = best_orb_limit;
+        describe_transit_aspect(asp);
+      }
+    }
+  }
+  out->ok = true;
+  return true;
+}
+
+bool pm_transit_snapshot_utc(const PmBirthSpec *birth, const struct tm *utc,
+                             const PmTransitAspectOrb *orbs, size_t orb_count,
+                             PmTransitSnapshot *out) {
+  if (!out) {
+    return false;
+  }
+  memset(out, 0, sizeof(*out));
+  if (!birth || !utc) {
+    return false;
+  }
+  PmNatalChart natal = {};
+  if (!pm_transit_build_natal_chart(birth, &natal)) {
+    return false;
+  }
+  PmTransitPositions transit = {};
+  pm_transit_compute_utc(utc, &transit);
+  return pm_transit_snapshot_from_positions(&natal, &transit, orbs, orb_count, out);
+}
+
 bool pm_transit_natal_sun_lon(const PmBirthSpec *birth, double *lon_deg_out) {
   if (!birth || !birth->valid || !lon_deg_out) {
     return false;
@@ -235,4 +530,34 @@ bool pm_transit_birth_positions(const PmBirthSpec *birth, PmTransitPositions *ou
     return false;
   }
   return true;
+}
+
+const char *pm_transit_aspect_label(PmTransitAspectKind aspect) {
+  switch (aspect) {
+    case kPmTransitAspectConjunction:
+      return "conj";
+    case kPmTransitAspectSextile:
+      return "sextile";
+    case kPmTransitAspectSquare:
+      return "square";
+    case kPmTransitAspectTrine:
+      return "trine";
+    case kPmTransitAspectOpposition:
+      return "opp";
+    default:
+      return "?";
+  }
+}
+
+const char *pm_transit_natal_target_label(PmNatalTarget target) {
+  switch (target) {
+    case kPmNatalTargetSun:
+      return "natal Sun";
+    case kPmNatalTargetMoon:
+      return "natal Moon";
+    case kPmNatalTargetAsc:
+      return "Asc";
+    default:
+      return "?";
+  }
 }
