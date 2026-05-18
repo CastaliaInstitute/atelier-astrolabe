@@ -2,8 +2,68 @@
 #include "faces/shared/pm_circadian_hue.h"
 #include <cmath>
 #include "pin_config.h"
+#include "pm_config.h"
 #include "pm_display.h"
+#include "pm_home_gem_pulse.h"
 #include "pm_wifi_ntp.h"
+
+namespace {
+
+uint16_t blend565(uint16_t bg, uint16_t fg, float alpha) {
+  if (alpha <= 0.f) {
+    return bg;
+  }
+  if (alpha >= 1.f) {
+    return fg;
+  }
+  const uint8_t br = static_cast<uint8_t>(((bg >> 11) & 0x1F) * 255 / 31);
+  const uint8_t bg_g = static_cast<uint8_t>(((bg >> 5) & 0x3F) * 255 / 63);
+  const uint8_t bb = static_cast<uint8_t>((bg & 0x1F) * 255 / 31);
+  const uint8_t fr = static_cast<uint8_t>(((fg >> 11) & 0x1F) * 255 / 31);
+  const uint8_t fg_g = static_cast<uint8_t>(((fg >> 5) & 0x3F) * 255 / 63);
+  const uint8_t fb = static_cast<uint8_t>((fg & 0x1F) * 255 / 31);
+  const float a = alpha;
+  const float ia = 1.f - a;
+  return pm_gfx->color565(static_cast<uint8_t>(br * ia + fr * a), static_cast<uint8_t>(bg_g * ia + fg_g * a),
+                          static_cast<uint8_t>(bb * ia + fb * a));
+}
+
+float smoothstep01(float t) {
+  if (t <= 0.f) {
+    return 0.f;
+  }
+  if (t >= 1.f) {
+    return 1.f;
+  }
+  return t * t * (3.f - 2.f * t);
+}
+
+uint16_t gem_color_at_radius(float t, float hue_deg, float pulse_brightness) {
+  /** Brightness falls off from lit core to the legacy flat-home value at the rim. */
+  const float glow = powf(1.f - t, 1.55f);
+  float v = pm_face_hsv_v + (0.90f - pm_face_hsv_v) * glow;
+  const float pulse_mix = glow * glow;
+  v *= 1.f + (pulse_brightness - 1.f) * pulse_mix;
+  if (v > 1.f) {
+    v = 1.f;
+  }
+  float s = pm_face_hsv_s * (0.84f + 0.16f * glow);
+  uint16_t col = pm_face_color565_from_hsv(pm_gfx, hue_deg, s, v);
+  if (t > 0.48f) {
+    const float u = smoothstep01((t - 0.48f) / 0.52f);
+    const float vignette = u * u;
+    col = blend565(col, pm_face_color565_from_hsv(pm_gfx, hue_deg, pm_face_hsv_s * 0.5f, 0.02f), vignette);
+  }
+  return col;
+}
+
+uint32_t frost_hash(int x, int y) {
+  uint32_t h = static_cast<uint32_t>(x * 374761393 + y * 668265263);
+  h = (h ^ (h >> 13)) * 1274126177u;
+  return h ^ (h >> 16);
+}
+
+}  // namespace
 
 uint16_t pm_face_color565_from_hsv(Arduino_GFX *out, float h_deg, float s, float v) {
   h_deg = fmodf(h_deg, 360.0f);
@@ -275,6 +335,57 @@ void pm_face_draw_voice_wave_screen(bool outward, uint32_t t_ms, const char *lab
     pm_face_draw_centered_line(label, 12, pm_gfx->color565(215, 205, 255), 1, 1);
   }
   pm_gfx->flush();
+}
+
+uint16_t pm_face_draw_home_gem_glow(float hue_deg_24h) {
+  const int cx = LCD_WIDTH / 2;
+  const int cy = LCD_HEIGHT / 2;
+  const int R = min(LCD_WIDTH, LCD_HEIGHT) / 2;
+  /** Leave inset for the 24h rainbow annulus drawn afterward. */
+  const int r_max = R - 14;
+
+  const float pulse_b = pm_home_gem_pulse_brightness(millis());
+
+  const uint16_t edge = gem_color_at_radius(1.f, hue_deg_24h, pulse_b);
+  pm_gfx->fillScreen(edge);
+
+  for (int r = r_max; r >= 0; --r) {
+    const float t = static_cast<float>(r) / static_cast<float>(r_max);
+    pm_gfx->fillCircle(cx, cy, r, gem_color_at_radius(t, hue_deg_24h, pulse_b));
+  }
+
+  /** Domed resin highlight — soft offset gleam above center, same time hue. */
+  constexpr int k_dome_cx = 0;
+  constexpr int k_dome_cy = -22;
+  const uint16_t c_hot = pm_face_color565_from_hsv(pm_gfx, hue_deg_24h, pm_face_hsv_s * 0.65f, 0.96f);
+  for (int dr = 38; dr >= 8; dr -= 6) {
+    const float a = 0.07f + 0.16f * (1.f - static_cast<float>(dr - 8) / 30.f);
+    pm_gfx->fillCircle(cx + k_dome_cx, cy + k_dome_cy, dr,
+                       blend565(gem_color_at_radius(0.08f, hue_deg_24h, pulse_b), c_hot, a));
+  }
+
+  /** Fine frost grain in the lit core (sparse, deterministic). */
+  const int grain_r = r_max * 55 / 100;
+  for (int gy = cy - grain_r; gy <= cy + grain_r; gy += 3) {
+    for (int gx = cx - grain_r; gx <= cx + grain_r; gx += 3) {
+      const int dx = gx - cx;
+      const int dy = gy - cy;
+      if (dx * dx + dy * dy > grain_r * grain_r) {
+        continue;
+      }
+      const uint32_t h = frost_hash(gx, gy);
+      if ((h & 7u) != 0u) {
+        continue;
+      }
+      const float lift = static_cast<float>((h >> 3) & 0xFu) / 15.f * 0.11f;
+      const float dist_t = sqrtf(static_cast<float>(dx * dx + dy * dy)) / static_cast<float>(grain_r);
+      const uint16_t base = gem_color_at_radius(dist_t, hue_deg_24h, pulse_b);
+      const uint16_t spark = pm_face_color565_from_hsv(pm_gfx, hue_deg_24h, pm_face_hsv_s * 0.45f, 0.98f);
+      pm_gfx->drawPixel(gx, gy, blend565(base, spark, lift));
+    }
+  }
+
+  return gem_color_at_radius(0.35f, hue_deg_24h, pulse_b);
 }
 
 
