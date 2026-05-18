@@ -1,6 +1,6 @@
 {
   "sketch": "Astrolabe",
-  "face_count": 13,
+  "face_count": 14,
   "center": [233, 233],
   "faces": [
     {
@@ -98,6 +98,17 @@
     },
     {
       "id": 12,
+      "name": "rocket",
+      "source_paths": [
+        "sketches/Astrolabe/faces/rocket",
+        "sketches/Astrolabe/pm_rocket.cpp",
+        "sketches/Astrolabe/pm_rocket.h"
+      ],
+      "gestures": ["tap:233,233", "swipe_left"],
+      "buttons": []
+    },
+    {
+      "id": 13,
       "name": "radar",
       "source_paths": [
         "sketches/Astrolabe/faces/radar",

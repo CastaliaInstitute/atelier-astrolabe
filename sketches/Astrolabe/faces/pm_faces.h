@@ -24,6 +24,8 @@ enum class ClockFace : uint8_t {
   Chakra,
   /** Singing bowl; drag rainbow rim to strike, swipe up/down for presets. */
   TibetanBowl,
+  /** Launch clock — upcoming orbital launches on a 14-day dial (Launch Library 2). */
+  Rocket,
   /** BLE peer radar: force graph + 6DOF gyro bearing (no magnetometer). */
   Radar,
   kNumFaces,
