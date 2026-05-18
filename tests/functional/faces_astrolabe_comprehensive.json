@@ -1,0 +1,89 @@
+{
+  "sketch": "Astrolabe",
+  "face_count": 11,
+  "center": [233, 233],
+  "description": "Full swipe matrix (L/R/U/D) + buttons on every face; crash + screenshot gate.",
+  "faces": [
+    {
+      "id": 0,
+      "name": "classic",
+      "source_paths": ["sketches/Astrolabe/faces/classic_analog"],
+      "gestures": ["swipe_left", "swipe_right", "swipe_up", "swipe_down", "tap:233,233"],
+      "buttons": ["boot", "pwr"]
+    },
+    {
+      "id": 1,
+      "name": "apocalypso",
+      "source_paths": ["sketches/Astrolabe/faces/apocalypso"],
+      "gestures": ["swipe_left", "swipe_right", "swipe_up", "swipe_down", "tap:233,233"],
+      "buttons": ["boot"]
+    },
+    {
+      "id": 2,
+      "name": "digital",
+      "source_paths": ["sketches/Astrolabe/faces/digital"],
+      "gestures": ["swipe_left", "swipe_right", "swipe_up", "swipe_down", "tap:233,233"],
+      "buttons": ["boot"]
+    },
+    {
+      "id": 3,
+      "name": "spotify",
+      "source_paths": ["sketches/Astrolabe/faces/spotify", "sketches/Astrolabe/pm_spotify.cpp"],
+      "gestures": ["swipe_left", "swipe_right", "swipe_up", "swipe_down", "tap:233,269"],
+      "buttons": ["boot"]
+    },
+    {
+      "id": 4,
+      "name": "astro",
+      "source_paths": ["sketches/Astrolabe/faces/astrology", "sketches/Astrolabe/pm_transit.cpp"],
+      "gestures": ["swipe_left", "swipe_right", "swipe_up", "swipe_down", "tap:233,350"],
+      "buttons": ["boot"]
+    },
+    {
+      "id": 5,
+      "name": "moon",
+      "source_paths": ["sketches/Astrolabe/faces/moon"],
+      "gestures": ["swipe_left", "swipe_right", "swipe_up", "swipe_down", "tap:233,233"],
+      "buttons": ["boot"]
+    },
+    {
+      "id": 6,
+      "name": "calcifer",
+      "source_paths": ["sketches/Astrolabe/faces/calcifer", "sketches/Astrolabe/pm_calcifer.cpp"],
+      "gestures": ["swipe_left", "swipe_right", "swipe_up", "swipe_down", "tap:233,233"],
+      "buttons": ["boot"]
+    },
+    {
+      "id": 7,
+      "name": "castalia",
+      "source_paths": ["sketches/Astrolabe/faces/castalia", "sketches/Astrolabe/pm_castalia_auth.cpp"],
+      "gestures": ["swipe_left", "swipe_right", "swipe_up", "swipe_down", "tap:233,238"],
+      "buttons": ["boot"]
+    },
+    {
+      "id": 8,
+      "name": "synastry",
+      "source_paths": ["sketches/Astrolabe/faces/synastry"],
+      "gestures": ["swipe_left", "swipe_right", "swipe_up", "swipe_down", "tap:233,233"],
+      "buttons": ["boot"]
+    },
+    {
+      "id": 9,
+      "name": "spectrum",
+      "source_paths": [
+        "sketches/Astrolabe/faces/spectrum",
+        "sketches/Astrolabe/pm_fft.cpp",
+        "sketches/Astrolabe/pm_audio_analyzer.cpp"
+      ],
+      "gestures": ["swipe_left", "swipe_right", "swipe_up", "swipe_down", "tap:233,233"],
+      "buttons": ["boot"]
+    },
+    {
+      "id": 10,
+      "name": "chakra",
+      "source_paths": ["sketches/Astrolabe/faces/chakra", "sketches/Astrolabe/pm_speaker.cpp"],
+      "gestures": ["swipe_left", "swipe_right", "swipe_up", "swipe_down", "tap:233,233"],
+      "buttons": ["boot"]
+    }
+  ]
+}

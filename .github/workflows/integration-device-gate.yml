@@ -79,6 +79,8 @@ jobs:
         id: ft
         env:
           ASTROLABE_FT_FACES: ${{ github.event_name == 'workflow_dispatch' && inputs.faces || '' }}
+          ASTROLABE_FT_MATRIX: tests/functional/faces_astrolabe_comprehensive.json
+          ASTROLABE_FT_SWIPE_NAV: "11"
         run: ./scripts/functional_test.py --port "$(./scripts/detect_upload_port.sh)"
         continue-on-error: true
 
