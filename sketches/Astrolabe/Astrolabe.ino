@@ -17,6 +17,7 @@
 #include "pm_mic.h"
 #include "pm_side_buttons.h"
 #include "pm_speaker.h"
+#include "pm_usb_uac.h"
 #include "pm_touch.h"
 #include "pm_spotify.h"
 #include "pm_voice.h"
@@ -563,6 +564,14 @@ void setup() {
   pm_screen_http_begin(gfx);
 
   ensure_pcm_buffer();
+
+#if defined(ASTROLABE_USB_UAC)
+  if (pm_usb_uac_begin()) {
+    Serial.println("USB UAC speaker ready (host output → ES8311)");
+  } else {
+    Serial.println("USB UAC init failed");
+  }
+#endif
 
   Serial.println("PocketMynah MVP ready");
 #endif

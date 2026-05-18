@@ -13,3 +13,10 @@ sketches/**/*.ino.cpp
 firmware-bare/.pio/
 
 vendor/
+
+# UAC env: copied by extra_script_uac_deps.py (source: uac/idf_component.yml)
+sketches/Astrolabe/idf_component.yml
+sketches/Astrolabe/managed_components/
+sdkconfig
+sdkconfig.old
+dependencies.lock
