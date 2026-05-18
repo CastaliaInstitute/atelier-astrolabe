@@ -18,7 +18,7 @@ enum class ClockFace : uint8_t {
   Castalia,
   /** Dual natal wheel/aspects for saved partner/family chart profiles. */
   Synastry,
-  /** Live FFT: mic (inner) + speaker/TTS (outer) spectrum bars. */
+  /** Polar audio visualizers; swipe up/down cycles mode on this face. */
   Spectrum,
   /** Chakra symbols + solfeggio tones; swipe up/down, tap toggles tone. */
   Chakra,

@@ -1,66 +1,43 @@
 #include "faces/spectrum/pm_face_spectrum.h"
 
+#include <Arduino.h>
+#include <cmath>
+#include <cstdio>
+
 #include "faces/shared/pm_face_draw.h"
+#include "faces/spectrum/pm_face_spectrum_viz.h"
 #include "pin_config.h"
 #include "pm_audio_analyzer.h"
-#include "pm_audio_route.h"
 #include "pm_display.h"
+#include "pm_wifi_ntp.h"
 
 static bool s_active = false;
+static int s_mode = 0;
+static float s_hue_spin = 0.f;
 
-/** Left top / left bottom / right center panels (466×466 round). */
-static constexpr int k_pad = 28;
-static constexpr int k_left_x = k_pad;
-static constexpr int k_left_w = 188;
-static constexpr int k_top_y = 36;
-static constexpr int k_top_h = 175;
-static constexpr int k_bot_y = 255;
-static constexpr int k_bot_h = 175;
-static constexpr int k_right_x = 258;
-static constexpr int k_right_w = 180;
-static constexpr int k_right_y = 128;
-static constexpr int k_right_h = 210;
-
-static void draw_panel_label(const char *text, int x, int y, int w, uint16_t fg) {
-  pm_gfx->setTextSize(1, 1);
-  int16_t x1, y1;
-  uint16_t tw, th;
-  pm_gfx->getTextBounds(text, 0, 0, &x1, &y1, &tw, &th);
-  pm_gfx->setCursor(x + (w - static_cast<int>(tw)) / 2, y);
-  pm_gfx->setTextColor(fg);
-  pm_gfx->print(text);
+static float clock_hue_deg(void) {
+  struct tm tm = {};
+  if (pm_time_valid()) {
+    pm_time_local(&tm);
+    const int sec = tm.tm_hour * 3600 + tm.tm_min * 60 + tm.tm_sec;
+    return static_cast<float>(sec) * (360.f / 86400.f);
+  }
+  return fmodf(static_cast<float>(millis()) * 0.02f, 360.f);
 }
 
-static void draw_bar_panel(int x, int y, int w, int h, const float *bands, int n_bands, float hue) {
-  if (!bands || n_bands <= 0 || w < 8 || h < 8) {
-    return;
-  }
-  const int bar_w = w / n_bands;
-  if (bar_w < 2) {
-    return;
-  }
-  const int base_y = y + h;
-  for (int b = 0; b < n_bands; ++b) {
-    const float v = bands[b];
-    if (v < 0.02f) {
-      continue;
-    }
-    int bh = static_cast<int>(v * static_cast<float>(h - 2));
-    if (bh < 2) {
-      bh = 2;
-    }
-    const int bx = x + b * bar_w;
-    const int by = base_y - bh;
-    const uint16_t col = pm_face_color565_from_hsv(pm_gfx, hue + static_cast<float>(b) * 2.2f, 0.88f,
-                                                   0.15f + v * 0.65f);
-    pm_gfx->fillRect(bx, by, bar_w - 1, bh, col);
-  }
+static void draw_mode_caption(int mode) {
+  char buf[40];
+  snprintf(buf, sizeof(buf), "%s %d/%d", pm_face_spectrum_mode_label(), mode + 1, PM_SPECTRUM_VIZ_COUNT);
+  pm_face_draw_centered_line(buf, 24, pm_gfx->color565(120, 130, 160), 1, 1);
 }
 
 void pm_face_spectrum_on_enter(void) {
   pm_audio_analyzer_reset();
   (void)pm_audio_analyzer_mic_begin();
+  pm_face_spectrum_viz_reset();
   s_active = true;
+  s_mode = 0;
+  s_hue_spin = 0.f;
 }
 
 void pm_face_spectrum_on_leave(void) {
@@ -71,34 +48,56 @@ void pm_face_spectrum_on_leave(void) {
   s_active = false;
 }
 
+void pm_face_spectrum_cycle(int delta) {
+  int v = s_mode + delta;
+  v = (v % PM_SPECTRUM_VIZ_COUNT + PM_SPECTRUM_VIZ_COUNT) % PM_SPECTRUM_VIZ_COUNT;
+  s_mode = v;
+}
+
+int pm_face_spectrum_mode(void) { return s_mode; }
+
+int pm_face_spectrum_mode_count(void) { return PM_SPECTRUM_VIZ_COUNT; }
+
+const char *pm_face_spectrum_mode_label(void) { return pm_face_spectrum_viz_label(s_mode); }
+
 void pm_face_spectrum_tick(void) {
   if (!s_active) {
     return;
   }
   pm_audio_analyzer_tick();
+  pm_face_spectrum_viz_tick(pm_audio_analyzer_get_level());
+  s_hue_spin += 0.35f;
+  if (s_hue_spin >= 360.f) {
+    s_hue_spin -= 360.f;
+  }
 }
 
 void pm_face_spectrum_draw(uint16_t bg) {
   (void)bg;
 
-  float low[PM_AUDIO_ANALYZER_BANDS];
-  float high[PM_AUDIO_ANALYZER_BANDS];
-  float out[PM_AUDIO_ANALYZER_BANDS];
-  pm_audio_analyzer_get_in_low(low, PM_AUDIO_ANALYZER_BANDS);
-  pm_audio_analyzer_get_in_high(high, PM_AUDIO_ANALYZER_BANDS);
-  pm_audio_analyzer_get_out(out, PM_AUDIO_ANALYZER_BANDS);
+  float mix[PM_AUDIO_ANALYZER_BANDS];
+  float wave[PM_AUDIO_WAVE_POINTS];
+  float hist[PM_AUDIO_SPEC_HISTORY * PM_AUDIO_ANALYZER_BANDS];
+  pm_audio_analyzer_get_mix(mix, PM_AUDIO_ANALYZER_BANDS);
+  pm_audio_analyzer_get_waveform(wave, PM_AUDIO_WAVE_POINTS);
+  pm_audio_analyzer_get_spec_history(hist, PM_AUDIO_SPEC_HISTORY, PM_AUDIO_ANALYZER_BANDS);
 
-  pm_gfx->fillScreen(RGB565_BLACK);
+  const int R = (LCD_WIDTH < LCD_HEIGHT ? LCD_WIDTH : LCD_HEIGHT) / 2 - 14;
+  const PmSpectrumVizCtx ctx = {
+      pm_face_lcd_cx,
+      pm_face_lcd_cy,
+      R,
+      clock_hue_deg(),
+      s_hue_spin,
+      mix,
+      PM_AUDIO_ANALYZER_BANDS,
+      wave,
+      PM_AUDIO_WAVE_POINTS,
+      hist,
+      PM_AUDIO_SPEC_HISTORY,
+      pm_audio_analyzer_get_level(),
+  };
 
-  char route_lbl[24];
-  pm_audio_route_label(route_lbl, sizeof(route_lbl));
-  draw_panel_label(route_lbl, k_right_x, 8, k_right_w, pm_gfx->color565(160, 170, 190));
-
-  draw_panel_label("MIC 1", k_left_x, k_top_y - 14, k_left_w, pm_gfx->color565(70, 190, 210));
-  draw_panel_label("MIC 2", k_left_x, k_bot_y - 14, k_left_w, pm_gfx->color565(90, 210, 200));
-  draw_panel_label("OUT", k_right_x, k_right_y + k_right_h + 6, k_right_w, pm_gfx->color565(220, 110, 200));
-
-  draw_bar_panel(k_left_x, k_top_y, k_left_w, k_top_h, low, PM_AUDIO_ANALYZER_BANDS, 155.f);
-  draw_bar_panel(k_left_x, k_bot_y, k_left_w, k_bot_h, high, PM_AUDIO_ANALYZER_BANDS, 185.f);
-  draw_bar_panel(k_right_x, k_right_y, k_right_w, k_right_h, out, PM_AUDIO_ANALYZER_BANDS, 285.f);
+  pm_face_spectrum_viz_draw(s_mode, ctx);
+  draw_mode_caption(s_mode);
 }
