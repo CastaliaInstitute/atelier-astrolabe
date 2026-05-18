@@ -1,6 +1,7 @@
 #include "pm_usb_uac.h"
 
 #include "esp_log.h"
+#include "pm_audio_route.h"
 #include "pm_speaker_pcm.h"
 #include "sdkconfig.h"
 
@@ -20,6 +21,9 @@ static bool s_pcm_open = false;
 static esp_err_t uac_output_cb(uint8_t *buf, size_t len, void *arg) {
   (void)arg;
   if (!buf || len == 0) {
+    return ESP_OK;
+  }
+  if (!pm_audio_route_output_usb()) {
     return ESP_OK;
   }
   if (!s_pcm_open) {
@@ -70,6 +74,17 @@ bool pm_usb_uac_ready(void) {
   return s_uac_ready;
 }
 
+void pm_usb_uac_release_speaker(void) {
+  if (s_pcm_open) {
+    pm_speaker_pcm_end();
+    s_pcm_open = false;
+  }
+}
+
+bool pm_usb_uac_speaker_active(void) {
+  return s_uac_ready && pm_audio_route_output_usb();
+}
+
 #elif CONFIG_UAC_SPEAKER_CHANNEL_NUM > 0 && !defined(ASTROLABE_QEMU)
 
 static const char *TAG = "pm_usb_uac";
@@ -83,6 +98,12 @@ bool pm_usb_uac_ready(void) {
   return false;
 }
 
+void pm_usb_uac_release_speaker(void) {}
+
+bool pm_usb_uac_speaker_active(void) {
+  return false;
+}
+
 #else
 
 bool pm_usb_uac_begin(void) {
@@ -90,6 +111,12 @@ bool pm_usb_uac_begin(void) {
 }
 
 bool pm_usb_uac_ready(void) {
+  return false;
+}
+
+void pm_usb_uac_release_speaker(void) {}
+
+bool pm_usb_uac_speaker_active(void) {
   return false;
 }
 

@@ -8,12 +8,13 @@ Make the Waveshare ESP32-S3 watch enumerate as a **USB speaker** (and later **mi
 |-------|--------|-----------|
 | **M1** | UAC **speaker** (host → watch), 48 kHz stereo | `waveshare_s3_175_uac` |
 | **M2** | UAC **microphone** (watch → host) | same |
-| **M3** | Audio arbiter vs voice/TTS; VBUS-gated mode; composite CDC+UAC | TBD |
+| **M3** | Audio arbiter vs voice/TTS; VBUS-gated mode; composite CDC+UAC | partial (`pm_audio_route`) |
 
 ## Firmware layout
 
 - `pm_speaker_pcm` — shared I2S TX / ES8311 PCM path
 - `pm_usb_uac` — `espressif/usb_device_uac` callbacks (M1: `output_cb` only); active when `CONFIG_UAC_SPEAKER_CHANNEL_NUM > 0` in `sdkconfig`
+- `pm_audio_route` — onboard vs USB speaker path (NVS); **swipe up** → USB, **swipe down** → onboard (skipped on Spotify / Synastry / Moon). Onboard mic + MP3/TTS when route is onboard; host UAC when route is USB.
 - Default CI env `waveshare_s3_175` — unchanged (no UAC, USB CDC console)
 
 ## Build and flash (UAC)

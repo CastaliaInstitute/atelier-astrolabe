@@ -3,6 +3,7 @@
 #include "faces/shared/pm_face_draw.h"
 #include "pin_config.h"
 #include "pm_audio_analyzer.h"
+#include "pm_audio_route.h"
 #include "pm_display.h"
 
 static bool s_active = false;
@@ -91,6 +92,10 @@ void pm_face_spectrum_draw(uint16_t bg) {
 
   pm_gfx->fillScreen(RGB565_BLACK);
   const uint16_t grid = pm_gfx->color565(40, 44, 52);
+
+  char route_lbl[24];
+  pm_audio_route_label(route_lbl, sizeof(route_lbl));
+  draw_panel_label(route_lbl, k_right_x, 8, k_right_w, pm_gfx->color565(160, 170, 190));
 
   draw_panel_label("MIC 1", k_left_x, k_top_y - 14, k_left_w, pm_gfx->color565(70, 190, 210));
   draw_panel_label("MIC 2", k_left_x, k_bot_y - 14, k_left_w, pm_gfx->color565(90, 210, 200));

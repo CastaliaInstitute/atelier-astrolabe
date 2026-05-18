@@ -17,6 +17,7 @@
 #include "pm_mic.h"
 #include "pm_side_buttons.h"
 #include "pm_speaker.h"
+#include "pm_audio_route.h"
 #include "pm_usb_uac.h"
 #include "pm_touch.h"
 #include "pm_spotify.h"
@@ -571,6 +572,8 @@ void setup() {
 
   ensure_pcm_buffer();
 
+  pm_audio_route_begin();
+
 #if defined(CONFIG_UAC_SPEAKER_CHANNEL_NUM) && CONFIG_UAC_SPEAKER_CHANNEL_NUM > 0
   if (pm_usb_uac_begin()) {
     Serial.println("USB UAC speaker ready (host output → ES8311)");
@@ -601,6 +604,15 @@ void loop() {
       g_clock_repaint_pending = true;
       g_gesture_banner[0] = '\0';
       Serial.printf("[gesture] face @ %d,%d\n", static_cast<int>(ge.x), static_cast<int>(ge.y));
+      continue;
+    } else if (g_state == AppState::kClock &&
+               pm_audio_route_handle_gesture(ge.kind, pm_faces_current(), g_gesture_banner,
+                                             sizeof(g_gesture_banner))) {
+      if (pm_faces_current() == ClockFace::Spectrum) {
+        pm_audio_analyzer_mic_end();
+        (void)pm_audio_analyzer_mic_begin();
+      }
+      g_clock_repaint_pending = true;
       continue;
     } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Spotify &&
                (ge.kind == PmGestureKind::SwipeUp || ge.kind == PmGestureKind::SwipeDown ||

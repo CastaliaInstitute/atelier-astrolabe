@@ -20,7 +20,9 @@ extern "C" {
 #include "faces/pm_faces.h"
 #include "pm_audio_analyzer.h"
 #include "pm_mic.h"
+#include "pm_audio_route.h"
 #include "pm_speaker_pcm.h"
+#include "pm_usb_uac.h"
 
 static const char *TAG = "pm_speaker";
 
@@ -328,7 +330,7 @@ static void speaker_task_ensure() {
 }
 
 bool pm_speaker_play_begin(const uint8_t *mp3, size_t mp3_len) {
-  if (pm_speaker_pcm_active()) {
+  if (pm_speaker_pcm_active() || pm_usb_uac_speaker_active()) {
     ESP_LOGW(TAG, "MP3 blocked: PCM/UAC owns speaker");
     s_speaker_status = PmSpeakerStatus::DoneFail;
     return false;

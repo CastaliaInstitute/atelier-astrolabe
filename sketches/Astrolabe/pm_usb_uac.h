@@ -7,3 +7,9 @@ bool pm_usb_uac_begin(void);
 
 /** True after successful UAC init (host may enumerate audio device). */
 bool pm_usb_uac_ready(void);
+
+/** Drop host speaker PCM when switching to onboard route. */
+void pm_usb_uac_release_speaker(void);
+
+/** True when host speaker data should drive ES8311 (route + callback active). */
+bool pm_usb_uac_speaker_active(void);
