@@ -40,6 +40,9 @@ static uint32_t s_play_est_ms = 1;
 static volatile uint32_t s_play_pcm_frames = 0;
 static volatile uint32_t s_play_pcm_hz = 0;
 
+static bool s_pcm_stream = false;
+static int s_stream_hz = 0;
+
 static esp_err_t es8311_board_init(int sample_hz) {
   if (!s_es) {
     s_es = es8311_create(I2C_NUM_0, ES8311_ADDRESS_0);
@@ -321,7 +324,61 @@ static void speaker_task_ensure() {
   xTaskCreatePinnedToCore(speaker_play_task, "spk_play", kSpeakerTaskStack, nullptr, 1, &s_speaker_task, 1);
 }
 
+bool pm_speaker_stream_begin(int sample_hz) {
+  if (sample_hz <= 0 || s_spk_task_busy || s_pcm_stream) {
+    return false;
+  }
+  if (!speaker_wait_idle(4000)) {
+    return false;
+  }
+  pm_mic_stop();
+  if (es8311_board_init(sample_hz) != ESP_OK) {
+    return false;
+  }
+  if (i2s_tx_begin(sample_hz, 2) != ESP_OK) {
+    return false;
+  }
+  s_stream_hz = sample_hz;
+  s_pcm_stream = true;
+  return true;
+}
+
+bool pm_speaker_stream_write(const int16_t *pcm, size_t sample_count) {
+  if (!s_pcm_stream || !pcm || sample_count == 0) {
+    return false;
+  }
+  static int16_t stereo_up[512 * 2];
+  size_t off = 0;
+  while (off < sample_count) {
+    const size_t chunk = (sample_count - off > 512u) ? 512u : (sample_count - off);
+    for (size_t i = 0; i < chunk; ++i) {
+      const int16_t s = pcm[off + i];
+      stereo_up[2 * i] = s;
+      stereo_up[2 * i + 1] = s;
+    }
+    if (i2s_write_all(stereo_up, chunk * 2) != ESP_OK) {
+      return false;
+    }
+    off += chunk;
+  }
+  return true;
+}
+
+void pm_speaker_stream_end(void) {
+  if (!s_pcm_stream) {
+    return;
+  }
+  i2s_drain_and_stop(s_stream_hz, 1);
+  s_pcm_stream = false;
+  s_stream_hz = 0;
+}
+
+bool pm_speaker_stream_active(void) { return s_pcm_stream; }
+
 bool pm_speaker_play_begin(const uint8_t *mp3, size_t mp3_len) {
+  if (s_pcm_stream) {
+    pm_speaker_stream_end();
+  }
   speaker_task_ensure();
   if (!s_speaker_task || !mp3 || mp3_len == 0) {
     s_speaker_status = PmSpeakerStatus::DoneFail;

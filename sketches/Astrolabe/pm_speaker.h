@@ -20,3 +20,9 @@ bool pm_speaker_play_mp3(const uint8_t *mp3, size_t mp3_len);
 
 /** Force poll() to leave Playing (does not stop the speaker task immediately). */
 void pm_speaker_abort(void);
+
+/** Live PCM playback @ 16 kHz mono (ESP-NOW mesh / walkie-talkie). Blocks MP3 until stream_end. */
+bool pm_speaker_stream_begin(int sample_hz);
+bool pm_speaker_stream_write(const int16_t *pcm, size_t sample_count);
+void pm_speaker_stream_end(void);
+bool pm_speaker_stream_active(void);

@@ -1,0 +1,6 @@
+{
+  "name": "mynah_mesh_protocol",
+  "version": "1.0.0",
+  "description": "ESP-NOW PCM mesh wire format (astrolabe watch + atom peer)",
+  "build": { "includeDir": "." }
+}
