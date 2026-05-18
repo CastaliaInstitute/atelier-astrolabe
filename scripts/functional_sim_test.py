@@ -180,17 +180,18 @@ def run_face(ser: QemuSerial, spec: dict, out_dir: Path) -> FaceResult:
 
 
 def launch_qemu(flash_bin: Path, qemu_bin: str, timeout_sec: int) -> QemuSerial:
+    # Espressif QEMU: -nographic routes UART to stdio; avoid -serial mon:stdio.
     cmd = [
         qemu_bin,
         "-nographic",
         "-machine",
         "esp32s3",
+        "-m",
+        "16M",
         "-drive",
         f"file={flash_bin},if=mtd,format=raw",
-        "-serial",
-        "mon:stdio",
-        "-monitor",
-        "none",
+        "-global",
+        "driver=esp32s3.gpio,property=strap_mode,value=0x04",
     ]
     proc = subprocess.Popen(
         cmd,
