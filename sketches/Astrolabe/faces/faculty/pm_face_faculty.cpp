@@ -44,7 +44,7 @@ void pm_face_faculty_draw(void) {
 
   if (!pm_faculty_active(&faculty)) {
     pm_face_draw_centered_line("No faculty saved", 190, c_hi, 2, 2);
-    pm_face_draw_centered_line("serial: faculty use einstein", 224, c_dim, 1, 1);
+    pm_face_draw_centered_line("serial: faculty use a.einstein", 224, c_dim, 1, 1);
     return;
   }
 

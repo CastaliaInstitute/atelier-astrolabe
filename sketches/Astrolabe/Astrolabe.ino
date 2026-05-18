@@ -495,6 +495,42 @@ static void poll_serial_birth_commands() {
         } else {
           Serial.printf("synastry: %s\n", g_gesture_banner);
         }
+      } else if (strcmp(line, "faculty list") == 0) {
+        pm_faculty_ensure_demo_seed();
+        Serial.println("faculty:");
+        PmFacultyProfile active = {};
+        const bool have_active = pm_faculty_active(&active);
+        for (int i = 0; i < kPmFacultySlots; ++i) {
+          PmFacultyProfile f = {};
+          if (pm_faculty_get_slot(i, &f)) {
+            Serial.printf("  %d%s: %s (%s)\n", i,
+                          (have_active && strcmp(active.slug, f.slug) == 0) ? "*" : "", f.name, f.slug);
+          }
+        }
+      } else if (strcmp(line, "faculty next") == 0 || strcmp(line, "faculty prev") == 0) {
+        PmFacultyProfile f = {};
+        const int delta = strcmp(line, "faculty next") == 0 ? 1 : -1;
+        if (pm_faculty_cycle_active(delta, &f)) {
+          Serial.printf("faculty: %s (%s)\n", f.name, f.slug);
+          (void)pm_faculty_tick_bust_fetch();
+        } else {
+          Serial.println("faculty: no recent faculty");
+        }
+        g_clock_repaint_pending = true;
+      } else if (strncmp(line, "faculty use ", 12) == 0) {
+        const char *p = line + 12;
+        while (*p == ' ') {
+          ++p;
+        }
+        if (pm_faculty_set_active_slug(p, nullptr)) {
+          PmFacultyProfile f = {};
+          (void)pm_faculty_active(&f);
+          Serial.printf("faculty: active %s (%s)\n", f.name, f.slug);
+          (void)pm_faculty_tick_bust_fetch();
+        } else {
+          Serial.println("faculty: usage: faculty use <slug>  (e.g. a.einstein or einstein)");
+        }
+        g_clock_repaint_pending = true;
       } else if (strcmp(line, "profiles seed") == 0) {
         pm_chart_profiles_ensure_demo_seed();
         Serial.printf("profiles: %d saved\n", pm_chart_profile_count());
@@ -569,6 +605,7 @@ void setup() {
   (void)pm_side_buttons_begin();
   pm_birth_ensure_demo();
   pm_chart_profiles_ensure_demo_seed();
+  pm_faculty_ensure_demo_seed();
   pm_home_gem_pulse_begin();
 
   if (pm_wifi_begin()) {
@@ -845,7 +882,7 @@ void loop() {
           g_clock_repaint_pending = true;
         }
         if (pm_faces_current() == ClockFace::Faculty) {
-          pm_faculty_ensure_seed();
+          pm_faculty_prepare_demo_view();
           (void)pm_faculty_tick_bust_fetch();
           pm_faculty_begin_bust_rise();
           g_clock_repaint_pending = true;

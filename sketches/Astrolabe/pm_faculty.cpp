@@ -63,7 +63,7 @@ static bool slug_sane(const char *slug) {
   }
   for (const char *p = slug; *p; ++p) {
     const unsigned char c = static_cast<unsigned char>(*p);
-    if (!(isalnum(c) || c == '-' || c == '_')) {
+    if (!(isalnum(c) || c == '-' || c == '_' || c == '.')) {
       return false;
     }
   }
@@ -80,6 +80,8 @@ static void sanitize_slug(const char *in, char *out, size_t cap) {
       const unsigned char c = static_cast<unsigned char>(*p);
       if (isalnum(c)) {
         out[o++] = static_cast<char>(tolower(c));
+      } else if (c == '.' && o > 0 && out[o - 1] != '.') {
+        out[o++] = '.';
       } else if ((c == '-' || c == '_' || c == ' ') && o > 0 && out[o - 1] != '-') {
         out[o++] = '-';
       }
@@ -89,6 +91,14 @@ static void sanitize_slug(const char *in, char *out, size_t cap) {
     --o;
   }
   out[o] = '\0';
+}
+
+static void pm_faculty_normalize_slug(const char *in, char *out, size_t cap) {
+  sanitize_slug(in, out, cap);
+  if (strcmp(out, "einstein") == 0) {
+    strncpy(out, "a.einstein", cap - 1);
+    out[cap - 1] = '\0';
+  }
 }
 
 void pm_faculty_label_from_slug(const char *slug, char *out, size_t cap) {
@@ -103,8 +113,8 @@ void pm_faculty_label_from_slug(const char *slug, char *out, size_t cap) {
   bool word_start = true;
   for (const char *p = slug; *p && o + 1 < cap; ++p) {
     unsigned char c = static_cast<unsigned char>(*p);
-    if (c == '-' || c == '_') {
-      if (o > 0 && out[o - 1] != ' ') {
+    if (c == '-' || c == '_' || c == '.') {
+      if (c != '.' && o > 0 && out[o - 1] != ' ') {
         out[o++] = ' ';
       }
       word_start = true;
@@ -273,7 +283,7 @@ bool pm_faculty_cycle_active(int delta, PmFacultyProfile *out) {
 
 bool pm_faculty_remember(const char *slug_in, const char *name_in) {
   char slug[32];
-  sanitize_slug(slug_in, slug, sizeof(slug));
+  pm_faculty_normalize_slug(slug_in, slug, sizeof(slug));
   if (!slug_sane(slug)) {
     return false;
   }
@@ -331,7 +341,7 @@ bool pm_faculty_remember(const char *slug_in, const char *name_in) {
 
 bool pm_faculty_set_active_slug(const char *slug, const char *name) {
   char clean[32];
-  sanitize_slug(slug, clean, sizeof(clean));
+  pm_faculty_normalize_slug(slug, clean, sizeof(clean));
   if (!slug_sane(clean)) {
     return false;
   }
@@ -402,7 +412,7 @@ void pm_faculty_ensure_seed(void) {
     return;
   }
   static const PmFacultyProfile kSeeds[] = {
-      {"einstein", "Einstein", "", "", true},
+      {"a.einstein", "Einstein", "", "", true},
       {"marie-curie", "Marie Curie", "", "", true},
       {"hypatia", "Hypatia", "", "", true},
       {"socrates", "Socrates", "", "", true},
@@ -416,6 +426,43 @@ void pm_faculty_ensure_seed(void) {
   }
   pref.putInt(kKeyActive, 0);
   pref.end();
+}
+
+void pm_faculty_ensure_demo_seed(void) {
+  pm_faculty_ensure_seed();
+  for (int i = 0; i < kPmFacultySlots; ++i) {
+    PmFacultyProfile legacy = {};
+    if (pm_faculty_get_slot(i, &legacy) && strcmp(legacy.slug, "einstein") == 0) {
+      (void)pm_faculty_remember("a.einstein", "Einstein");
+      break;
+    }
+  }
+  static const PmFacultyProfile kDemo[] = {
+      {"a.einstein", "Einstein", "", "", true},
+  };
+  for (const auto &seed : kDemo) {
+    bool found = false;
+    for (int i = 0; i < kPmFacultySlots; ++i) {
+      PmFacultyProfile slot = {};
+      if (pm_faculty_get_slot(i, &slot) && strcasecmp(slot.slug, seed.slug) == 0) {
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      (void)pm_faculty_remember(seed.slug, seed.name);
+    }
+  }
+}
+
+void pm_faculty_prepare_demo_view(void) {
+  pm_faculty_ensure_demo_seed();
+  static bool s_demo_faculty_started = false;
+  if (s_demo_faculty_started) {
+    return;
+  }
+  s_demo_faculty_started = true;
+  (void)pm_faculty_set_active_slug("a.einstein", "Einstein");
 }
 
 static void trim_supabase_url(char *url, size_t cap) {
