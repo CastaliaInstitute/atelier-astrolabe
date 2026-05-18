@@ -527,14 +527,12 @@ void setup() {
   Serial.begin(115200);
   delay(200);
 
+#ifndef ASTROLABE_QEMU
   Wire.begin(IIC_SDA, IIC_SCL);
+#endif
 
 #ifdef ASTROLABE_QEMU
-  (void)pm_touch_begin();
   pm_gesture_reset();
-  (void)pm_side_buttons_begin();
-  pm_birth_ensure_demo();
-  pm_chart_profiles_ensure_demo_seed();
   pm_display_bind(nullptr);
   ensure_pcm_buffer();
   Serial.println("PocketMynah MVP ready");
