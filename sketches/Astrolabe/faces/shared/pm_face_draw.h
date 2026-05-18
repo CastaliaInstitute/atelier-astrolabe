@@ -23,3 +23,18 @@ void pm_face_draw_now_bead(int cx, int cy, int r, uint16_t col);
 void pm_face_draw_thinking_progress_ring(float progress);
 void pm_face_draw_voice_waves_overlay(bool outward, uint32_t t_ms);
 void pm_face_draw_voice_wave_screen(bool outward, uint32_t t_ms, const char *label);
+
+/** Bottom-centered arc label band inside the 24h rainbow rim (default 90° = 25% of circle). */
+struct PmFaceBottomArcLabelStyle {
+  int r_px;                   /**< Polar radius; 0 → just inside rainbow inner edge. */
+  float arc_span_deg;         /**< Arc length in degrees; 0 → 90. */
+  float center_deg_clockwise; /**< Arc center, clockwise from top; 0 → 180 (bottom). */
+  uint8_t text_size_x;        /**< 0 → 1. */
+  uint8_t text_size_y;        /**< 0 → 1. */
+  uint16_t color;             /**< 0 → light foreground. */
+};
+
+void pm_face_draw_bottom_arc_label_static(const char *text, const PmFaceBottomArcLabelStyle *style);
+/** Marquee when text is wider than the arc; `scroll_px_per_sec` ≤ 0 uses default speed. */
+void pm_face_draw_bottom_arc_label_scroll(const char *text, uint32_t t_ms, float scroll_px_per_sec,
+                                          const PmFaceBottomArcLabelStyle *style);
