@@ -93,7 +93,9 @@
         "sketches/Astrolabe/pm_presence.cpp",
         "sketches/Astrolabe/pm_presence.h",
         "sketches/Astrolabe/pm_motion.cpp",
-        "sketches/Astrolabe/pm_motion.h"
+        "sketches/Astrolabe/pm_motion.h",
+        "sketches/Astrolabe/pm_presence_graph.cpp",
+        "sketches/Astrolabe/pm_presence_graph.h"
       ],
       "gestures": ["swipe_left", "swipe_right", "tap:233,233"],
       "buttons": []

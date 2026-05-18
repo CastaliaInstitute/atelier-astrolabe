@@ -1,5 +1,7 @@
 #include "pm_presence.h"
 
+#include "pm_presence_graph.h"
+
 #include <Arduino.h>
 #include <cmath>
 #include <cstring>
@@ -154,28 +156,16 @@ class PresenceScanCallbacks : public BLEAdvertisedDeviceCallbacks {
     const int8_t rssi = static_cast<int8_t>(advertisedDevice.getRSSI());
     upsert_peer(peer_id, rssi, now_ms);
     for (size_t i = 0; i < n_reports; ++i) {
-      if (reports[i].peer_id == s_self_id) {
-        /** Mutual sighting — small bearing nudge toward reporter (on-ring refinement). */
-        const int idx = find_peer(peer_id);
-        if (idx >= 0) {
-          const float toward = peer_base_angle_deg(peer_id) - s_yaw_offset_deg;
-          float delta = toward - s_peers[idx].angle_deg;
-          while (delta > 180.f) {
-            delta -= 360.f;
-          }
-          while (delta < -180.f) {
-            delta += 360.f;
-          }
-          s_peers[idx].angle_deg += delta * 0.08f;
-          while (s_peers[idx].angle_deg < 0.f) {
-            s_peers[idx].angle_deg += 360.f;
-          }
-          while (s_peers[idx].angle_deg >= 360.f) {
-            s_peers[idx].angle_deg -= 360.f;
-          }
-        }
-        (void)reports[i].rssi;
+      const uint32_t other = reports[i].peer_id;
+      if (other == 0 || other == peer_id) {
+        continue;
       }
+      if (other == s_self_id) {
+        continue;
+      }
+      /** Reporter heard another peer — inter-node edge for force-graph triangulation. */
+      upsert_peer(other, reports[i].rssi, now_ms);
+      pm_presence_graph_set_edge(peer_id, other, pm_presence_rssi_to_meters(reports[i].rssi), now_ms);
     }
   }
 };
@@ -246,9 +236,12 @@ void qemu_seed_peers(uint32_t now_ms) {
   if (s_peer_count > 0) {
     return;
   }
-  upsert_peer(0xA1B2C3D4u, -52, now_ms);
-  upsert_peer(0x11223344u, -68, now_ms);
-  upsert_peer(0xDEADBEEFu, -81, now_ms);
+  /** ~3 m, ~4 m, ~6 m from self; N1–N2 ~5 m (triangle for layout QA). */
+  upsert_peer(0xA1B2C3D4u, -58, now_ms);
+  upsert_peer(0x11223344u, -66, now_ms);
+  upsert_peer(0xDEADBEEFu, -76, now_ms);
+  pm_presence_graph_set_edge(0xA1B2C3D4u, 0x11223344u, 5.0f, now_ms);
+  pm_presence_graph_set_edge(0xA1B2C3D4u, 0xDEADBEEFu, 7.0f, now_ms);
 #else
   (void)now_ms;
 #endif

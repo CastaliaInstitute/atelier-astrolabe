@@ -16,12 +16,15 @@ Company ID **0xCA57** (Castalia). Payload after the 16-bit company ID:
 
 Scanners apply an exponential moving average (EMA) to observed RSSI. Advertisers embed up to three strongest recent peers so nearby watches can compare mutual observations (rough co-localization, not trilateration).
 
-## Radar face
+## Radar face (force graph)
 
-- **Center:** this device.
-- **Rings:** five distance bins from RSSI (−40 dBm near … −90 dBm far).
-- **Blips:** one per peer; radius from EMA RSSI; angle = stable hash(device_id) minus integrated **relative yaw** (degrees clockwise from top).
-- **6DOF IMU:** optional QMI8658-class part on shared I2C (`0x6B`). Firmware enables accel + gyro; **radar bearing uses gyro-Z integration only** (accel reserved for future tilt compensation). No magnetometer — do not expect north-up stability; drift is acceptable for “rotate watch to scan the ring.” Waveshare 1.75C reference SKU may ship without any IMU; RSSI-only mode still works.
+- **Center:** this device (fixed). **Nodes:** peers; appear and fade as BLE neighbors come and go.
+- **Edges:** spring rest lengths in meters from RSSI:
+  - **Self → peer:** our scan RSSI to that peer (e.g. ~3 m to N1, ~4 m to N2).
+  - **Peer → peer:** when N1’s advertisement reports N2’s RSSI, we add an undirected edge (e.g. N1–N2 ≈ 5 m). Mutual reports are EMA-averaged.
+- **Layout:** lightweight force-directed graph each frame — springs pull edge lengths toward measured ranges, repulsion separates nodes. The graph **relaxes** as edges appear, disappear, or update (dynamic force graph).
+- **Display:** edges drawn between nodes; self links from center; node label shows estimated range in meters.
+- **6DOF IMU:** optional gyro integrates **relative yaw**; the whole graph rotates in the body frame as you turn the watch (no magnetometer).
 
 ## Coexistence
 
