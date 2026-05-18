@@ -1,14 +1,9 @@
 #pragma once
 
 /**
- * Circadian 24h hue map for clock surfaces.
+ * Circadian 24h hue map for clock surfaces (solar loop, not raw HSV rainbow).
  *
- * Keyframes are in HSV degrees:
- *   00:00 -> 250 deg (indigo)
- *   06:00 ->  30 deg (warm dawn)
- *   12:00 -> 120 deg (daylight green)
- *   18:00 ->  30 deg (warm dusk)
- *   24:00 -> 250 deg (wrap to midnight)
+ * Twelve keyframes from midnight indigo through dawn rose/gold, noon green,
+ * afternoon cyan/blue, and evening violet — interpolated with shortest-path hue.
  */
 float pm_circadian_hue_from_seconds(float seconds_of_day);
-

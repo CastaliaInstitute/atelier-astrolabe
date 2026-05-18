@@ -1,28 +1,63 @@
 #include "faces/shared/pm_circadian_hue.h"
+
 #include <Arduino_GFX_Library.h>
+#include <cmath>
+#include <cstddef>
+
+#include "faces/shared/pm_face_draw.h"
+#include "pm_display.h"
 #include "pm_geo_tz.h"
 #include "pm_wifi_ntp.h"
 
-static uint16_t rgb565_plain(uint8_t r, uint8_t g, uint8_t b) {
-  return static_cast<uint16_t>(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3));
-}
-
 namespace {
 
-struct HueAnchor {
-  float hour;
-  uint8_t r;
-  uint8_t g;
-  uint8_t b;
+struct CircadianHueStop {
+  float second;
+  float hue;
 };
 
-constexpr HueAnchor kAnchors[] = {
-    {0.f, 0x1b, 0x12, 0x40},  {3.f, 0x14, 0x20, 0x50},  {6.f, 0xd9, 0x6f, 0x59},
-    {9.f, 0xf2, 0xc1, 0x4e},  {12.f, 0xdf, 0xf0, 0xa8}, {15.f, 0x55, 0xc7, 0xd8},
-    {18.f, 0x4b, 0x5b, 0xdc}, {21.f, 0x6d, 0x3f, 0xb5}, {24.f, 0x1b, 0x12, 0x40},
+static constexpr float kSecondsPerDay = 86400.0f;
+
+static constexpr CircadianHueStop kCircadianHueStops[] = {
+    {0.0f, 250.0f},
+    {3.0f * 3600.0f, 270.0f},
+    {5.0f * 3600.0f, 310.0f},
+    {6.0f * 3600.0f, 340.0f},
+    {8.0f * 3600.0f, 40.0f},
+    {10.0f * 3600.0f, 70.0f},
+    {12.0f * 3600.0f, 120.0f},
+    {15.0f * 3600.0f, 185.0f},
+    {17.0f * 3600.0f, 215.0f},
+    {19.0f * 3600.0f, 245.0f},
+    {21.0f * 3600.0f, 270.0f},
+    {kSecondsPerDay, 250.0f},
 };
 
-constexpr int kAnchorCount = static_cast<int>(sizeof(kAnchors) / sizeof(kAnchors[0]));
+float wrap_hue_degrees(float hue) {
+  hue = fmodf(hue, 360.0f);
+  if (hue < 0.0f) {
+    hue += 360.0f;
+  }
+  return hue;
+}
+
+float wrap_seconds_of_day(float seconds) {
+  seconds = fmodf(seconds, kSecondsPerDay);
+  if (seconds < 0.0f) {
+    seconds += kSecondsPerDay;
+  }
+  return seconds;
+}
+
+float shortest_hue_delta(float from, float to) {
+  float delta = wrap_hue_degrees(to) - wrap_hue_degrees(from);
+  if (delta > 180.0f) {
+    delta -= 360.0f;
+  } else if (delta < -180.0f) {
+    delta += 360.0f;
+  }
+  return delta;
+}
 
 float wrap_hour(float h) {
   while (h >= 24.f) {
@@ -32,24 +67,6 @@ float wrap_hour(float h) {
     h += 24.f;
   }
   return h;
-}
-
-void interpolate_rgb(float hour, uint8_t *r, uint8_t *g, uint8_t *b) {
-  hour = wrap_hour(hour);
-  for (int i = 0; i < kAnchorCount - 1; ++i) {
-    const float h0 = kAnchors[i].hour;
-    const float h1 = kAnchors[i + 1].hour;
-    if (hour >= h0 && hour < h1) {
-      const float t = (hour - h0) / (h1 - h0);
-      *r = static_cast<uint8_t>(kAnchors[i].r + t * static_cast<float>(kAnchors[i + 1].r - kAnchors[i].r));
-      *g = static_cast<uint8_t>(kAnchors[i].g + t * static_cast<float>(kAnchors[i + 1].g - kAnchors[i].g));
-      *b = static_cast<uint8_t>(kAnchors[i].b + t * static_cast<float>(kAnchors[i + 1].b - kAnchors[i].b));
-      return;
-    }
-  }
-  *r = kAnchors[kAnchorCount - 1].r;
-  *g = kAnchors[kAnchorCount - 1].g;
-  *b = kAnchors[kAnchorCount - 1].b;
 }
 
 float local_hour_from_unix(time_t unix_sec) {
@@ -62,42 +79,60 @@ float local_hour_from_unix(time_t unix_sec) {
 
 }  // namespace
 
+float pm_circadian_hue_from_seconds(float seconds_of_day) {
+  const float sec = wrap_seconds_of_day(seconds_of_day);
+  const size_t n = sizeof(kCircadianHueStops) / sizeof(kCircadianHueStops[0]);
+  for (size_t i = 0; i + 1 < n; ++i) {
+    const CircadianHueStop &a = kCircadianHueStops[i];
+    const CircadianHueStop &b = kCircadianHueStops[i + 1];
+    if (sec >= a.second && sec <= b.second) {
+      const float span = b.second - a.second;
+      const float t = span > 0.0f ? (sec - a.second) / span : 0.0f;
+      return wrap_hue_degrees(a.hue + shortest_hue_delta(a.hue, b.hue) * t);
+    }
+  }
+  return kCircadianHueStops[0].hue;
+}
+
+float pm_circadian_hue_from_hour(float hour_local) {
+  return pm_circadian_hue_from_seconds(wrap_hour(hour_local) * 3600.0f);
+}
+
 uint16_t pm_circadian_color565_at_hour(float hour_local) {
-  uint8_t r = 0;
-  uint8_t g = 0;
-  uint8_t b = 0;
-  interpolate_rgb(hour_local, &r, &g, &b);
-  return rgb565_plain(r, g, b);
+  const float hue = pm_circadian_hue_from_hour(hour_local);
+  return pm_face_color565_from_hsl(pm_gfx, hue, pm_face_hsl_bg_s, pm_face_hsl_bg_l);
 }
 
 uint16_t pm_circadian_color565_at_unix(time_t unix_sec) {
   return pm_circadian_color565_at_hour(local_hour_from_unix(unix_sec));
 }
 
+uint16_t pm_circadian_accent565_at_hour(float hour_local) {
+  const float hue = pm_circadian_hue_from_hour(hour_local);
+  return pm_face_color565_from_hsl(pm_gfx, hue, pm_face_hsl_accent_s, pm_face_hsl_accent_l);
+}
+
 const char *pm_circadian_hue_name_at_hour(float hour_local) {
   hour_local = wrap_hour(hour_local);
   if (hour_local < 5.f) {
-    return "Night";
+    return "Nocturne";
   }
-  if (hour_local < 7.f) {
-    return "Dawn";
+  if (hour_local < 8.f) {
+    return "Aurora";
   }
-  if (hour_local < 10.f) {
-    return "Gold Hour";
+  if (hour_local < 12.f) {
+    return "Solar";
   }
-  if (hour_local < 13.f) {
-    return "Midday";
+  if (hour_local < 15.f) {
+    return "Meridian";
   }
-  if (hour_local < 16.f) {
-    return "Cyan Hour";
-  }
-  if (hour_local < 19.f) {
-    return "Indigo Hour";
+  if (hour_local < 18.f) {
+    return "Zephyr";
   }
   if (hour_local < 21.f) {
-    return "Violet Hour";
+    return "Vesper";
   }
-  return "Late Night";
+  return "Oracle";
 }
 
 const char *pm_circadian_hue_name_now(void) {
