@@ -27,6 +27,7 @@ Edit this file when you start or finish work. Keep **In progress** to 1–3 item
 ## In progress
 
 - [~] **P1** Modular OTA (runtime + face-pack A/B, 32 MB) — Issue: [#60](https://github.com/CastaliaInstitute/astrolabe/issues/60), PR [#66](https://github.com/CastaliaInstitute/astrolabe/pull/66), [`docs/design/modular-ota.md`](design/modular-ota.md)
+- [~] **P1** **Faculty face** — ask-faculty clock face with STT routing, recent faculty, bust cache, and commonplace logging — Issue: [#35](https://github.com/CastaliaInstitute/astrolabe/issues/35)
 
 ---
 

@@ -48,6 +48,8 @@ FACE_BY_NAME = {
     "castalia": 7,
     "syn": 8,
     "synastry": 8,
+    "fac": 9,
+    "faculty": 9,
 }
 FACE_LABELS = (
     "ClassicAnalog",
@@ -59,6 +61,7 @@ FACE_LABELS = (
     "CalciferCountdown",
     "Castalia",
     "Synastry",
+    "Faculty",
 )
 
 

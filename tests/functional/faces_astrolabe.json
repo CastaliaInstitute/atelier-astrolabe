@@ -1,6 +1,6 @@
 {
   "sketch": "Astrolabe",
-  "face_count": 9,
+  "face_count": 10,
   "center": [233, 233],
   "faces": [
     {
@@ -64,6 +64,13 @@
       "name": "synastry",
       "source_paths": ["sketches/Astrolabe/faces/synastry"],
       "gestures": ["tap:233,233", "swipe_left"],
+      "buttons": []
+    },
+    {
+      "id": 9,
+      "name": "faculty",
+      "source_paths": ["sketches/Astrolabe/faces/faculty", "sketches/Astrolabe/pm_faculty.cpp", "sketches/Astrolabe/pm_faculty.h"],
+      "gestures": ["swipe_up", "swipe_down", "swipe_left"],
       "buttons": []
     }
   ]

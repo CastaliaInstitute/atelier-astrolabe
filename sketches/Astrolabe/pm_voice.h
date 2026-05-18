@@ -30,9 +30,15 @@ enum class PmVoiceStatus : int8_t { Idle = 0, Working = 1, DoneOk = 2, DoneFail 
 /** Non-blocking voice-pipeline request (poll with pm_voice_poll). */
 bool pm_voice_begin_message(const char *message, const char *system_instruction, PmVoiceResult *r);
 bool pm_voice_begin_pcm(const uint8_t *pcm, size_t pcm_len, const char *system_instruction, PmVoiceResult *r);
+/** Non-blocking faculty turn: STT -> faculty router -> ask-faculty, with local history/commonplace hints. */
+bool pm_voice_begin_faculty_pcm(const uint8_t *pcm, size_t pcm_len, const char *faculty_slug,
+                                const char *conversation_history, PmVoiceResult *r);
 /** Non-blocking `voice-pipeline` with `face=clock_agenda` (spoken CalDAV brief). */
 bool pm_voice_begin_clock_agenda(PmVoiceResult *r);
 PmVoiceStatus pm_voice_poll(void);
+
+const char *pm_voice_last_faculty_slug(void);
+const char *pm_voice_last_faculty_name(void);
 
 /** Unblock UI if voice_net is stuck (HTTP still runs until it finishes). */
 void pm_voice_abort(void);

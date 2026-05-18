@@ -31,6 +31,8 @@ static uint32_t s_voice_started_ms = 0;
 
 static const char *s_req_message = nullptr;
 static const char *s_req_system = nullptr;
+static const char *s_req_faculty_slug = nullptr;
+static const char *s_req_faculty_history = nullptr;
 static const uint8_t *s_req_pcm = nullptr;
 static size_t s_req_pcm_len = 0;
 static PmVoiceResult *s_req_result = nullptr;
@@ -38,7 +40,11 @@ static PmVoiceResult *s_req_result = nullptr;
 static char s_esc_msg[2048];
 static char s_esc_sys[768];
 static char s_esc_sys_pcm[6144];
+static char s_esc_faculty_slug[80];
+static char s_esc_faculty_history[1200];
 static char s_last_error[80] = "";
+static char s_last_faculty_slug[32] = "";
+static char s_last_faculty_name[48] = "";
 static const char *s_body_read_err = "bad response";
 
 static void body_read_set_err(const char *msg) {
@@ -62,6 +68,14 @@ static void voice_set_error(const char *msg) {
 
 const char *pm_voice_last_error() {
   return s_last_error[0] != '\0' ? s_last_error : "voice failed";
+}
+
+const char *pm_voice_last_faculty_slug(void) { return s_last_faculty_slug; }
+const char *pm_voice_last_faculty_name(void) { return s_last_faculty_name; }
+
+static void voice_clear_faculty_result(void) {
+  s_last_faculty_slug[0] = '\0';
+  s_last_faculty_name[0] = '\0';
 }
 
 void pm_voice_result_free(PmVoiceResult *r) {
@@ -431,6 +445,7 @@ static bool voice_post_message_inner(const char *message, const char *system_ins
   memset(r->reply, 0, sizeof(r->reply));
   r->mp3 = nullptr;
   r->mp3_len = 0;
+  voice_clear_faculty_result();
 
   if (strlen(MYNAH_SUPABASE_URL) == 0 || strlen(MYNAH_SUPABASE_ANON_KEY) == 0) {
     voice_set_error("no supabase config");
@@ -595,6 +610,7 @@ static bool voice_post_pcm_inner(const uint8_t *pcm, size_t pcm_len, const char 
   memset(r->reply, 0, sizeof(r->reply));
   r->mp3 = nullptr;
   r->mp3_len = 0;
+  voice_clear_faculty_result();
 
   if (strlen(MYNAH_SUPABASE_URL) == 0 || strlen(MYNAH_SUPABASE_ANON_KEY) == 0) {
     voice_set_error("no supabase config");
@@ -723,6 +739,150 @@ static bool voice_post_pcm_inner(const uint8_t *pcm, size_t pcm_len, const char 
   return true;
 }
 
+static bool voice_post_faculty_pcm_inner(const uint8_t *pcm, size_t pcm_len, const char *faculty_slug,
+                                         const char *conversation_history, PmVoiceResult *r) {
+  if (!r || !pcm || pcm_len == 0) {
+    voice_set_error("empty pcm");
+    return false;
+  }
+  memset(r->transcript, 0, sizeof(r->transcript));
+  memset(r->reply, 0, sizeof(r->reply));
+  r->mp3 = nullptr;
+  r->mp3_len = 0;
+  voice_clear_faculty_result();
+
+  if (strlen(MYNAH_SUPABASE_URL) == 0 || strlen(MYNAH_SUPABASE_ANON_KEY) == 0) {
+    voice_set_error("no supabase config");
+    return false;
+  }
+  (void)pm_castalia_auth_prepare_for_voice();
+
+  char base[160];
+  strncpy(base, MYNAH_SUPABASE_URL, sizeof(base) - 1);
+  base[sizeof(base) - 1] = '\0';
+  trim_supabase_url(base, sizeof(base));
+
+  char url[224];
+  snprintf(url, sizeof(url), "%s/functions/v1/voice-pipeline", base);
+
+  s_esc_faculty_slug[0] = '\0';
+  s_esc_faculty_history[0] = '\0';
+  const bool have_slug = faculty_slug && faculty_slug[0] != '\0';
+  const bool have_history = conversation_history && conversation_history[0] != '\0';
+  if (have_slug && !json_escape_string(faculty_slug, s_esc_faculty_slug, sizeof(s_esc_faculty_slug))) {
+    voice_set_error("faculty slug too long");
+    return false;
+  }
+  if (have_history &&
+      !json_escape_string(conversation_history, s_esc_faculty_history, sizeof(s_esc_faculty_history))) {
+    voice_set_error("history too long");
+    return false;
+  }
+
+  static const char kPrefix[] =
+      "{\"face\":\"faculty\",\"route\":\"ask-faculty\",\"languageCode\":\"en-US\","
+      "\"sampleRateHertz\":16000,\"logCommonplace\":true,\"commonplaceKind\":\"conversation\","
+      "\"commonplaceRoute\":\"ask-faculty\",\"audioBase64\":\"";
+  const size_t b64max = ((pcm_len + 2) / 3) * 4 + 4;
+  const size_t extra = (have_slug ? strlen(s_esc_faculty_slug) + 24 : 0) +
+                       (have_history ? strlen(s_esc_faculty_history) + 36 : 0) + 4;
+  const size_t body_cap = sizeof(kPrefix) - 1 + b64max + extra;
+  uint8_t *body = static_cast<uint8_t *>(
+      heap_caps_malloc(body_cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  if (!body) {
+    body = static_cast<uint8_t *>(malloc(body_cap));
+  }
+  if (!body) {
+    voice_set_error("oom body");
+    return false;
+  }
+  memcpy(body, kPrefix, sizeof(kPrefix) - 1);
+  size_t nout = 0;
+  if (mbedtls_base64_encode(body + sizeof(kPrefix) - 1, body_cap - (sizeof(kPrefix) - 1), &nout, pcm,
+                            pcm_len) != 0) {
+    free(body);
+    voice_set_error("b64 encode");
+    return false;
+  }
+  size_t body_len = (sizeof(kPrefix) - 1) + nout;
+  body[body_len++] = '"';
+  if (have_slug) {
+    const int n = snprintf(reinterpret_cast<char *>(body + body_len), body_cap - body_len,
+                           ",\"facultySlug\":\"%s\"", s_esc_faculty_slug);
+    if (n <= 0 || static_cast<size_t>(n) >= body_cap - body_len) {
+      free(body);
+      voice_set_error("body too large");
+      return false;
+    }
+    body_len += static_cast<size_t>(n);
+  }
+  if (have_history) {
+    const int n = snprintf(reinterpret_cast<char *>(body + body_len), body_cap - body_len,
+                           ",\"conversationHistory\":\"%s\"", s_esc_faculty_history);
+    if (n <= 0 || static_cast<size_t>(n) >= body_cap - body_len) {
+      free(body);
+      voice_set_error("body too large");
+      return false;
+    }
+    body_len += static_cast<size_t>(n);
+  }
+  if (body_len + 1 > body_cap) {
+    free(body);
+    voice_set_error("body too large");
+    return false;
+  }
+  body[body_len++] = '}';
+
+  WiFiClientSecure client;
+  HTTPClient http;
+  voice_begin_http(&client, &http);
+  if (!http.begin(client, url)) {
+    free(body);
+    voice_set_error("http begin");
+    return false;
+  }
+  http.addHeader("Content-Type", "application/json");
+  pm_castalia_auth_apply_headers(&http);
+
+  Serial.printf("pm_voice: faculty POST pcm=%u slug=%s history=%u B\n", static_cast<unsigned>(pcm_len),
+                have_slug ? faculty_slug : "-", static_cast<unsigned>(have_history ? strlen(conversation_history) : 0));
+  const int code = http.POST(body, body_len);
+  free(body);
+  if (code != 200) {
+    ESP_LOGW(TAG, "voice-pipeline (faculty) HTTP %d", code);
+    voice_set_http_error(code);
+    http.end();
+    return false;
+  }
+
+  char *resp = nullptr;
+  if (!read_http_json_body(&http, &resp, kVoiceRespMaxBytes)) {
+    voice_set_error(s_body_read_err);
+    http.end();
+    return false;
+  }
+  http.end();
+
+  extract_json_string_field(resp, "transcript", r->transcript, sizeof(r->transcript));
+  extract_json_string_field(resp, "reply", r->reply, sizeof(r->reply));
+  extract_json_string_field(resp, "facultySlug", s_last_faculty_slug, sizeof(s_last_faculty_slug));
+  if (!extract_json_string_field(resp, "facultyName", s_last_faculty_name, sizeof(s_last_faculty_name))) {
+    (void)extract_json_string_field(resp, "displayName", s_last_faculty_name, sizeof(s_last_faculty_name));
+  }
+  if (!extract_audio_base64(resp, &r->mp3, &r->mp3_len)) {
+    ESP_LOGI(TAG, "voice (faculty) text-only");
+  } else {
+    ESP_LOGI(TAG, "voice (faculty) mp3 %u bytes", static_cast<unsigned>(r->mp3_len));
+  }
+  free(resp);
+  if (!voice_result_ok(r)) {
+    voice_set_error("empty faculty reply");
+    return false;
+  }
+  voice_set_error(nullptr);
+  return true;
+}
+
 static bool voice_post_clock_agenda_inner(PmVoiceResult *r) {
   if (!r) {
     voice_set_error("no result");
@@ -732,6 +892,7 @@ static bool voice_post_clock_agenda_inner(PmVoiceResult *r) {
   memset(r->reply, 0, sizeof(r->reply));
   r->mp3 = nullptr;
   r->mp3_len = 0;
+  voice_clear_faculty_result();
 
   if (strlen(MYNAH_SUPABASE_URL) == 0 || strlen(MYNAH_SUPABASE_ANON_KEY) == 0) {
     voice_set_error("no supabase config");
@@ -814,6 +975,9 @@ static void voice_net_task(void *arg) {
       s_voice_ok = voice_post_pcm_inner(s_req_pcm, s_req_pcm_len, s_req_system, s_req_result);
     } else if (op == 3) {
       s_voice_ok = voice_post_clock_agenda_inner(s_req_result);
+    } else if (op == 4) {
+      s_voice_ok = voice_post_faculty_pcm_inner(s_req_pcm, s_req_pcm_len, s_req_faculty_slug,
+                                                s_req_faculty_history, s_req_result);
     } else {
       s_voice_ok = false;
     }
@@ -885,6 +1049,16 @@ bool pm_voice_begin_pcm(const uint8_t *pcm, size_t pcm_len, const char *system_i
   s_req_system = system_instruction;
   s_req_result = r;
   return voice_net_begin(2);
+}
+
+bool pm_voice_begin_faculty_pcm(const uint8_t *pcm, size_t pcm_len, const char *faculty_slug,
+                                const char *conversation_history, PmVoiceResult *r) {
+  s_req_pcm = pcm;
+  s_req_pcm_len = pcm_len;
+  s_req_faculty_slug = faculty_slug;
+  s_req_faculty_history = conversation_history;
+  s_req_result = r;
+  return voice_net_begin(4);
 }
 
 bool pm_voice_begin_clock_agenda(PmVoiceResult *r) {
