@@ -44,9 +44,12 @@ NAME_TO_IDX = {
     "audio": 9,
     "sound": 9,
     "chakra": 10,
-    "radar": 11,
-    "presence": 11,
-    "peers": 11,
+    "bowl": 11,
+    "tibetan": 11,
+    "tibetan_bowl": 11,
+    "radar": 12,
+    "presence": 12,
+    "peers": 12,
 }
 
 port, face = sys.argv[1], sys.argv[2].strip().lower()

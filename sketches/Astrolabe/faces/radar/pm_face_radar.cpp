@@ -49,6 +49,8 @@ void pm_face_radar_tick(uint32_t now_ms) {
 void pm_face_radar_draw(const struct tm *tm, bool valid) {
   (void)valid;
 
+  pm_gfx->fillScreen(pm_gfx->color565(12, 14, 18));
+
   const int rcx = pm_face_lcd_cx;
   const int rcy = pm_face_lcd_cy;
   const float ppm = pm_presence_graph_px_per_meter();

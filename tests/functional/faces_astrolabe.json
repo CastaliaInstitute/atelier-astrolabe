@@ -1,6 +1,6 @@
 {
   "sketch": "Astrolabe",
-  "face_count": 12,
+  "face_count": 13,
   "center": [233, 233],
   "faces": [
     {
@@ -87,6 +87,17 @@
     },
     {
       "id": 11,
+      "name": "bowl",
+      "source_paths": [
+        "sketches/Astrolabe/faces/tibetan_bowl",
+        "sketches/Astrolabe/pm_speaker.cpp",
+        "sketches/Astrolabe/pm_speaker.h"
+      ],
+      "gestures": ["tap:448,233", "swipe_up", "swipe_down", "swipe_left"],
+      "buttons": []
+    },
+    {
+      "id": 12,
       "name": "radar",
       "source_paths": [
         "sketches/Astrolabe/faces/radar",
