@@ -31,7 +31,7 @@ static const ChakraDef kChakras[] = {
     {"Crown", 200, 160, 255, 963.f},
 };
 
-static int s_index = 3;
+static int s_index = 0;
 static uint32_t s_ripple_start = 0;
 static uint32_t s_last_anim_ms = 0;
 static bool s_ripple_active = false;
@@ -97,7 +97,11 @@ int pm_face_chakra_cycle(int delta) {
   chakra_stop_tone();
   const int n = static_cast<int>(sizeof(kChakras) / sizeof(kChakras[0]));
   int v = s_index + delta;
-  v = (v % n + n) % n;
+  if (v < 0) {
+    v = 0;
+  } else if (v >= n) {
+    v = n - 1;
+  }
   s_index = v;
   return s_index;
 }
