@@ -18,6 +18,8 @@ enum class ClockFace : uint8_t {
   Castalia,
   /** Dual natal wheel/aspects for saved partner/family chart profiles. */
   Synastry,
+  /** Live FFT: mic (inner) + speaker/TTS (outer) spectrum bars. */
+  Spectrum,
   kNumFaces,
 };
 
@@ -29,3 +31,6 @@ bool pm_faces_banner_low(void);
 void pm_faces_draw(float thinking_progress = -1.f);
 uint16_t pm_faces_last_bg565(void);
 bool pm_faces_local_hm_changed(int hour, int min);
+
+/** False on Spectrum — PWR/BOOT are not used for voice STT/TTS on that face. */
+bool pm_faces_voice_input_enabled(void);

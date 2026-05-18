@@ -35,7 +35,9 @@
 #include "faces/moon/pm_face_moon.h"
 #include "faces/spotify/pm_face_spotify.h"
 #include "faces/calcifer/pm_face_calcifer.h"
+#include "faces/spectrum/pm_face_spectrum.h"
 #include "faces/synastry/pm_face_synastry.h"
+#include "pm_audio_analyzer.h"
 #include "pm_display.h"
 #include "pm_qa.h"
 #include "pm_home_gem_pulse.h"
@@ -361,10 +363,11 @@ static bool face_index_from_name(const char *name, int *out) {
   struct {
     const char *n;
     int idx;
-  } k[] = {{"classic", 0},  {"hue", 0},       {"analog", 0},    {"apocalypso", 1},
-           {"digital", 2},  {"spotify", 3},   {"astro", 4},       {"astrology", 4},
-           {"moon", 5},     {"calcifer", 6},  {"schedule", 6},  {"castalia", 7},
-           {"synastry", 8}, {"syn", 8}};
+  } k[] = {{"classic", 0},    {"hue", 0},         {"analog", 0},      {"apocalypso", 1},
+           {"digital", 2},    {"spotify", 3},     {"astro", 4},       {"astrology", 4},
+           {"moon", 5},       {"calcifer", 6},    {"schedule", 6},    {"castalia", 7},
+           {"synastry", 8},   {"syn", 8},         {"spectrum", 9},    {"fft", 9},
+           {"audio", 9},      {"sound", 9}};
   for (const auto &e : k) {
     if (strcasecmp(name, e.n) == 0) {
       *out = e.idx;
@@ -436,6 +439,7 @@ static void poll_serial_birth_commands() {
           Serial.println("qa: 6 calcifer");
           Serial.println("qa: 7 castalia");
           Serial.println("qa: 8 synastry");
+          Serial.println("qa: 9 spectrum");
         } else if (!pm_qa_inject_command(args)) {
           Serial.println("qa: usage: status | faces | inject …");
         }
@@ -457,7 +461,7 @@ static void poll_serial_birth_commands() {
           g_clock_repaint_pending = true;
           Serial.printf("face: %d\n", idx);
         } else {
-          Serial.println("face: usage: face <0-8|name>");
+          Serial.println("face: usage: face <0-9|name>");
         }
       } else if (strcmp(line, "astro") == 0) {
         if (pm_faces_current() != ClockFace::Astrology) {
@@ -698,7 +702,7 @@ void loop() {
       ptt_hold && s_ptt_press_ms != 0 && (now - s_ptt_press_ms >= MYNAH_PTT_ARM_MS);
 
   static uint32_t s_last_clock_boot_brief_ms = 0;
-  if (g_state == AppState::kClock && (side_ev & PM_SIDE_BTN_BOOT) &&
+  if (g_state == AppState::kClock && (side_ev & PM_SIDE_BTN_BOOT) && pm_faces_voice_input_enabled() &&
       pm_faces_current() != ClockFace::Astrology && pm_faces_current() != ClockFace::Synastry) {
     if (voice_last_play_begin()) {
       /* BOOT replay last TTS */
@@ -748,11 +752,28 @@ void loop() {
 
       static ClockFace s_prev_dial_face = ClockFace::kNumFaces;
       if (pm_faces_current() != s_prev_dial_face) {
+        if (s_prev_dial_face == ClockFace::Spectrum) {
+          pm_face_spectrum_on_leave();
+        }
         if (pm_faces_current() == ClockFace::Castalia) {
           pm_castalia_on_face_enter();
           g_clock_repaint_pending = true;
         }
+        if (pm_faces_current() == ClockFace::Spectrum) {
+          pm_face_spectrum_on_enter();
+          s_ptt_press_ms = 0;
+          g_clock_repaint_pending = true;
+        }
         s_prev_dial_face = pm_faces_current();
+      }
+
+      static uint32_t s_last_spectrum_ms = 0;
+      const bool spectrum_anim =
+          pm_faces_current() == ClockFace::Spectrum && g_state == AppState::kClock &&
+          (now - s_last_spectrum_ms >= 50u);
+      if (spectrum_anim) {
+        s_last_spectrum_ms = now;
+        pm_face_spectrum_tick();
       }
 
       if (pm_faces_current() == ClockFace::Castalia && wifi && pm_castalia_tick_pair_start()) {
@@ -793,7 +814,7 @@ void loop() {
 
       const bool sec_tick_paint =
           sec_tick && pm_faces_current() != ClockFace::Castalia && pm_faces_current() != ClockFace::CalciferCountdown &&
-          pm_faces_current() != ClockFace::Synastry;
+          pm_faces_current() != ClockFace::Synastry && pm_faces_current() != ClockFace::Spectrum;
       const bool calcifer_sec =
           pm_faces_current() == ClockFace::CalciferCountdown && valid && sec_tick;
 #if MYNAH_HUE_HOME_ONLY
@@ -810,7 +831,8 @@ void loop() {
 #endif
       const bool full_paint = !s_clock_paint_inited || slow_no_time || banner_chg || wifi_chg ||
                               g_clock_repaint_pending || local_hm_chg || spotify_stale || calcifer_stale ||
-                              sec_tick_paint || calcifer_sec || astro_repaint || gem_pulse_paint;
+                              sec_tick_paint || calcifer_sec || astro_repaint || spectrum_anim ||
+                              gem_pulse_paint;
 
       if (full_paint) {
         s_clock_paint_inited = true;
@@ -852,7 +874,7 @@ void loop() {
         g_clock_repaint_pending = true;
       }
 
-      if (ptt_armed && g_pcm) {
+      if (ptt_armed && g_pcm && pm_faces_voice_input_enabled()) {
         if (pm_faces_current() == ClockFace::Astrology) {
           if (!pm_wifi_connected()) {
             snprintf(g_gesture_banner, sizeof(g_gesture_banner), "astro: need WiFi");
@@ -933,9 +955,13 @@ void loop() {
       break;
     }
     case AppState::kRecording: {
-      const size_t frame_bytes = pm_mic_frame_samples() * sizeof(int16_t);
+      const size_t ns = pm_mic_frame_samples();
+      const size_t frame_bytes = ns * sizeof(int16_t);
+      int16_t raw[512 * 2];
       int16_t frame[512];
-      if (pm_mic_frame_samples() > sizeof(frame) / sizeof(frame[0]) || frame_bytes == 0) {
+      if (ns > sizeof(frame) / sizeof(frame[0]) ||
+          ns * static_cast<size_t>(pm_mic_i2s_channels()) > sizeof(raw) / sizeof(raw[0]) ||
+          frame_bytes == 0) {
         pm_mic_stop();
         s_rec_mic_on = false;
         recording_progress_end();
@@ -951,8 +977,9 @@ void loop() {
       }
       if (pm_ptt_button_held()) {
         size_t br = 0;
-        if (pm_mic_read_frame(frame, pm_mic_frame_samples(), &br) && br > 0 &&
+        if (pm_mic_read_frame(raw, ns, &br) && br > 0 &&
             g_pcm_len + frame_bytes <= MYNAH_VOICE_MAX_PCM_BYTES) {
+          pm_mic_pick_channel(raw, ns, 0, frame);
           memcpy(g_pcm + g_pcm_len, frame, frame_bytes);
           g_pcm_len += frame_bytes;
         }

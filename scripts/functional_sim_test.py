@@ -106,7 +106,10 @@ class QemuSerial:
     def wait_ready(self, timeout: float = 120.0) -> bool:
         deadline = time.time() + timeout
         while time.time() < deadline:
-            for ln in self._drain(0.2):
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                break
+            for ln in self._drain(min(remaining, 1.0)):
                 for pat in READY_PATTERNS:
                     if pat.search(ln):
                         return True

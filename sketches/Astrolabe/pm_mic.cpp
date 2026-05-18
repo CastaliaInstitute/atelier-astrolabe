@@ -9,11 +9,14 @@
 #include "pin_config.h"
 
 #define I2S_CH I2S_NUM_1
+#define PM_MIC_I2S_CHANNELS 2
 #define VAD_SAMPLE_RATE_HZ 16000
 #define VAD_FRAME_LENGTH_MS 30
 #define VAD_BUFFER_LENGTH (VAD_FRAME_LENGTH_MS * VAD_SAMPLE_RATE_HZ / 1000)
 
 static bool g_mic = false;
+
+int pm_mic_i2s_channels() { return PM_MIC_I2S_CHANNELS; }
 
 bool pm_mic_begin() {
   if (g_mic) {
@@ -91,11 +94,22 @@ bool pm_mic_read_frame(int16_t *out, size_t frame_samples, size_t *bytes_read) {
   if (!g_mic || !out || !bytes_read) {
     return false;
   }
-  const size_t want = frame_samples * sizeof(int16_t);
+  const size_t want =
+      frame_samples * static_cast<size_t>(PM_MIC_I2S_CHANNELS) * sizeof(int16_t);
   if (i2s_read(I2S_CH, reinterpret_cast<char *>(out), want, bytes_read, portMAX_DELAY) != ESP_OK) {
     return false;
   }
   return *bytes_read == want;
+}
+
+void pm_mic_pick_channel(const int16_t *interleaved, size_t frame_samples, int channel,
+                         int16_t *mono) {
+  if (!interleaved || !mono || channel < 0 || channel >= PM_MIC_I2S_CHANNELS) {
+    return;
+  }
+  for (size_t i = 0; i < frame_samples; ++i) {
+    mono[i] = interleaved[i * static_cast<size_t>(PM_MIC_I2S_CHANNELS) + static_cast<size_t>(channel)];
+  }
 }
 
 size_t pm_mic_frame_samples() { return VAD_BUFFER_LENGTH; }

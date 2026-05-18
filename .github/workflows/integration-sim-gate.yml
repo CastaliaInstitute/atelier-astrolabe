@@ -6,14 +6,14 @@
 name: Integration sim gate
 
 on:
+  pull_request:
+    branches: [integration]
   workflow_dispatch:
     inputs:
       ref:
         description: Git ref to test
         required: false
         default: integration
-  pull_request:
-    branches: [integration]
   workflow_run:
     workflows: [Firmware build]
     types: [completed]
@@ -28,8 +28,8 @@ jobs:
     name: QEMU sim test
     runs-on: ubuntu-latest
     if: >-
-      github.event_name == 'workflow_dispatch' ||
       github.event_name == 'pull_request' ||
+      github.event_name == 'workflow_dispatch' ||
       (
         github.event_name == 'workflow_run' &&
         github.event.workflow_run.conclusion == 'success' &&
