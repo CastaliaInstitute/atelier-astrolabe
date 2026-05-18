@@ -653,12 +653,9 @@ void loop() {
       g_clock_repaint_pending = true;
       continue;
     } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Spectrum &&
-               ge.kind == PmGestureKind::Tap) {
-      pm_face_spectrum_on_tap();
-      static const char *k_mode_labels[] = {"mandala", "spectrum", "petals"};
-      const int mi = pm_face_spectrum_mode();
-      snprintf(g_gesture_banner, sizeof(g_gesture_banner), "viz %s",
-               k_mode_labels[(mi >= 0 && mi < 3) ? mi : 0]);
+               (ge.kind == PmGestureKind::SwipeUp || ge.kind == PmGestureKind::SwipeDown)) {
+      pm_face_spectrum_cycle(ge.kind == PmGestureKind::SwipeUp ? 1 : -1);
+      snprintf(g_gesture_banner, sizeof(g_gesture_banner), "viz %s", pm_face_spectrum_mode_label());
       g_clock_repaint_pending = true;
       continue;
     } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Chakra &&

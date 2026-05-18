@@ -1,6 +1,7 @@
 #include "faces/spectrum/pm_face_spectrum.h"
 
 #include <cmath>
+#include <cstdio>
 
 #include "faces/shared/pm_face_draw.h"
 #include "pin_config.h"
@@ -8,29 +9,51 @@
 #include "pm_display.h"
 #include "pm_wifi_ntp.h"
 
+enum class VizMode : uint8_t {
+  Mandala = 0,
+  SpectrumRing,
+  Oscilloscope,
+  Spectrogram,
+  Petals,
+  Lissajous,
+  kCount,
+};
+
 static bool s_active = false;
-static int s_mode = 0;  // tap cycles: full mandala, spectrum ring, petals+scope
+static int s_mode = 0;
 static float s_hue_spin = 0.f;
 
 static constexpr int kCx = pm_face_lcd_cx;
 static constexpr int kCy = pm_face_lcd_cy;
 static constexpr int kR = (LCD_WIDTH < LCD_HEIGHT ? LCD_WIDTH : LCD_HEIGHT) / 2 - 14;
 
-/** Outer radial FFT bars (newest energy at rim). */
 static constexpr int kR_spec_outer = kR - 6;
 static constexpr int kR_spec_inner = kR - 44;
-
-/** Mandala spectrogram rings between spectrum and waveform. */
 static constexpr int kR_hist_outer = kR - 48;
 static constexpr int kR_hist_inner = kR - 108;
-
-/** Circular oscilloscope. */
 static constexpr int kR_wave = kR - 118;
 static constexpr int kR_wave_amp = 28;
-
-/** Petal + calm center. */
 static constexpr int kR_petal_base = 52;
 static constexpr int kR_center = 16;
+
+static const char *mode_label(int mode) {
+  switch (static_cast<VizMode>(mode)) {
+    case VizMode::Mandala:
+      return "mandala";
+    case VizMode::SpectrumRing:
+      return "spectrum";
+    case VizMode::Oscilloscope:
+      return "scope";
+    case VizMode::Spectrogram:
+      return "spectrogram";
+    case VizMode::Petals:
+      return "petals";
+    case VizMode::Lissajous:
+      return "lissajous";
+    default:
+      return "viz";
+  }
+}
 
 static float clock_hue_deg(void) {
   struct tm tm = {};
@@ -50,7 +73,12 @@ static void draw_background(void) {
   }
 }
 
-/** Subtle time bead on outer context ring. */
+static void draw_mode_caption(const char *name, int index, int total) {
+  char buf[32];
+  snprintf(buf, sizeof(buf), "%s %d/%d", name, index + 1, total);
+  pm_face_draw_centered_line(buf, 24, pm_gfx->color565(120, 130, 160), 1, 1);
+}
+
 static void draw_time_context_ring(float hue_base) {
   const float hue = hue_base + s_hue_spin;
   const uint16_t tick = pm_face_color565_from_hsv(pm_gfx, hue, 0.35f, 0.22f);
@@ -61,16 +89,17 @@ static void draw_time_context_ring(float hue_base) {
   pm_gfx->drawCircle(kCx, kCy, kR, pm_gfx->color565(28, 32, 48));
 }
 
-static void draw_spec_history_rings(const float *hist_rows, int nrows, int nbands, float hue_base) {
-  if (!hist_rows || nrows <= 0 || nbands <= 0) {
+static void draw_spec_history_rings(const float *hist_rows, int nrows, int nbands, float hue_base, int r_outer,
+                                  int r_inner) {
+  if (!hist_rows || nrows <= 0 || nbands <= 0 || r_outer <= r_inner) {
     return;
   }
-  const float dr = static_cast<float>(kR_hist_outer - kR_hist_inner) / static_cast<float>(nrows > 1 ? nrows - 1 : 1);
+  const float dr = static_cast<float>(r_outer - r_inner) / static_cast<float>(nrows > 1 ? nrows - 1 : 1);
   for (int row = 0; row < nrows; ++row) {
     const float t_row = static_cast<float>(row) / static_cast<float>(nrows > 1 ? nrows - 1 : 1);
-    const int r0 = kR_hist_outer - static_cast<int>(t_row * dr);
+    const int r0 = r_outer - static_cast<int>(t_row * dr);
     const int r1 = r0 - static_cast<int>(dr * 0.85f);
-    if (r1 < kR_hist_inner) {
+    if (r1 < r_inner) {
       continue;
     }
     const float *bands = hist_rows + row * nbands;
@@ -83,9 +112,8 @@ static void draw_spec_history_rings(const float *hist_rows, int nrows, int nband
       const float a0 = pm_face_deg_to_rad(static_cast<float>(b) * (360.f / static_cast<float>(nbands)));
       const float a1 = pm_face_deg_to_rad(static_cast<float>(b + 1) * (360.f / static_cast<float>(nbands)));
       const float span = a1 - a0;
-      const int steps = 3;
-      for (int s = 0; s < steps; ++s) {
-        const float u = (static_cast<float>(s) + 0.5f) / static_cast<float>(steps);
+      for (int s = 0; s < 3; ++s) {
+        const float u = (static_cast<float>(s) + 0.5f) / 3.f;
         const float ang = a0 + span * u;
         const uint16_t col =
             pm_face_color565_from_hsv(pm_gfx, hue_base + static_cast<float>(b) * 4.f + s_hue_spin, 0.7f,
@@ -96,8 +124,8 @@ static void draw_spec_history_rings(const float *hist_rows, int nrows, int nband
   }
 }
 
-static void draw_radial_spectrum_ring(const float *bands, int n_bands, float hue_base) {
-  if (!bands || n_bands <= 0) {
+static void draw_radial_spectrum_ring(const float *bands, int n_bands, float hue_base, int r_outer, int r_inner) {
+  if (!bands || n_bands <= 0 || r_outer <= r_inner) {
     return;
   }
   constexpr int k_slices = 48;
@@ -108,17 +136,17 @@ static void draw_radial_spectrum_ring(const float *bands, int n_bands, float hue
       continue;
     }
     const float a = pm_face_deg_to_rad(static_cast<float>(i) * (360.f / static_cast<float>(k_slices)));
-    const int extent = static_cast<int>(v * static_cast<float>(kR_spec_outer - kR_spec_inner));
-    const int r0 = kR_spec_inner;
-    const int r1 = kR_spec_inner + (extent < 4 ? 4 : extent);
+    const int extent = static_cast<int>(v * static_cast<float>(r_outer - r_inner));
+    const int r0 = r_inner;
+    const int r1 = r_inner + (extent < 4 ? 4 : extent);
     const uint16_t col = pm_face_color565_from_hsv(pm_gfx, hue_base + static_cast<float>(i) * 2.8f + s_hue_spin,
                                                    0.82f, 0.18f + v * 0.72f);
     pm_face_draw_radial_annulus_slice(kCx, kCy, a, r0, r1, col, v > 0.5f ? 3 : 2);
   }
 }
 
-static void draw_circular_oscilloscope(const float *wave, int n, float hue_base) {
-  if (!wave || n < 4) {
+static void draw_circular_oscilloscope(const float *wave, int n, float hue_base, int r_base, int r_amp) {
+  if (!wave || n < 4 || r_amp < 4) {
     return;
   }
   int px0 = 0;
@@ -129,7 +157,7 @@ static void draw_circular_oscilloscope(const float *wave, int n, float hue_base)
     const int ii = i < n ? i : 0;
     const float a = pm_face_deg_to_rad(static_cast<float>(ii) * (360.f / static_cast<float>(n)));
     const float v = wave[ii];
-    const int r = kR_wave + static_cast<int>(v * static_cast<float>(kR_wave_amp));
+    const int r = r_base + static_cast<int>(v * static_cast<float>(r_amp));
     const int px = kCx + static_cast<int>(cosf(a) * static_cast<float>(r));
     const int py = kCy + static_cast<int>(sinf(a) * static_cast<float>(r));
     if (have0) {
@@ -141,7 +169,7 @@ static void draw_circular_oscilloscope(const float *wave, int n, float hue_base)
   }
 }
 
-static void draw_petal_core(const float *bands, int n_bands, float level, float hue_base) {
+static void draw_petal_core(const float *bands, int n_bands, float level, float hue_base, int petal_base) {
   constexpr int k_petals = 7;
   float band_energy[k_petals];
   for (int p = 0; p < k_petals; ++p) {
@@ -154,15 +182,15 @@ static void draw_petal_core(const float *bands, int n_bands, float level, float 
     }
   }
   const uint16_t soft = pm_face_color565_from_hsv(pm_gfx, hue_base + s_hue_spin, 0.5f, 0.12f + level * 0.2f);
-  pm_gfx->fillCircle(kCx, kCy, kR_petal_base + 8, soft);
+  pm_gfx->fillCircle(kCx, kCy, petal_base + 8, soft);
 
   for (int p = 0; p < k_petals; ++p) {
     const float a = pm_face_deg_to_rad(static_cast<float>(p) * (360.f / static_cast<float>(k_petals)));
     const float v = band_energy[p];
-    const int reach = kR_petal_base + static_cast<int>(v * 36.f);
+    const int reach = petal_base + static_cast<int>(v * 48.f);
     const int tip_x = kCx + static_cast<int>(cosf(a) * static_cast<float>(reach));
     const int tip_y = kCy + static_cast<int>(sinf(a) * static_cast<float>(reach));
-    const int base_r = 10 + static_cast<int>(v * 8.f);
+    const int base_r = 12 + static_cast<int>(v * 10.f);
     const float px = -sinf(a);
     const float py = cosf(a);
     const int lx = kCx + static_cast<int>(px * static_cast<float>(base_r));
@@ -176,6 +204,31 @@ static void draw_petal_core(const float *bands, int n_bands, float level, float 
 
   const uint16_t core = pm_face_color565_from_hsv(pm_gfx, hue_base + 120.f + s_hue_spin, 0.4f, 0.08f + level * 0.35f);
   pm_gfx->fillCircle(kCx, kCy, kR_center + static_cast<int>(level * 10.f), core);
+}
+
+static void draw_lissajous(const float *wave, int n, float hue_base) {
+  if (!wave || n < 8) {
+    return;
+  }
+  const int span = kR - 36;
+  const int phase = n / 4;
+  const uint16_t col = pm_face_color565_from_hsv(pm_gfx, hue_base + 60.f + s_hue_spin, 0.72f, 0.62f);
+  int px0 = 0;
+  int py0 = 0;
+  bool have0 = false;
+  for (int i = 0; i <= n; ++i) {
+    const int ii = i < n ? i : 0;
+    const int jj = (ii + phase) % n;
+    const int px = kCx + static_cast<int>(wave[ii] * static_cast<float>(span));
+    const int py = kCy + static_cast<int>(wave[jj] * static_cast<float>(span));
+    if (have0) {
+      pm_gfx->drawLine(px0, py0, px, py, col);
+    }
+    px0 = px;
+    py0 = py;
+    have0 = true;
+  }
+  pm_gfx->drawCircle(kCx, kCy, span, pm_gfx->color565(32, 36, 52));
 }
 
 void pm_face_spectrum_on_enter(void) {
@@ -194,11 +247,18 @@ void pm_face_spectrum_on_leave(void) {
   s_active = false;
 }
 
-void pm_face_spectrum_on_tap(void) {
-  s_mode = (s_mode + 1) % 3;
+void pm_face_spectrum_cycle(int delta) {
+  const int n = static_cast<int>(VizMode::kCount);
+  int v = s_mode + delta;
+  v = (v % n + n) % n;
+  s_mode = v;
 }
 
 int pm_face_spectrum_mode(void) { return s_mode; }
+
+int pm_face_spectrum_mode_count(void) { return static_cast<int>(VizMode::kCount); }
+
+const char *pm_face_spectrum_mode_label(void) { return mode_label(s_mode); }
 
 void pm_face_spectrum_tick(void) {
   if (!s_active) {
@@ -222,20 +282,38 @@ void pm_face_spectrum_draw(uint16_t bg) {
   pm_audio_analyzer_get_spec_history(hist, PM_AUDIO_SPEC_HISTORY, PM_AUDIO_ANALYZER_BANDS);
   const float level = pm_audio_analyzer_get_level();
   const float hue_base = clock_hue_deg();
+  const int mode_count = static_cast<int>(VizMode::kCount);
 
   draw_background();
-  draw_time_context_ring(hue_base);
 
-  if (s_mode != 1) {
-    draw_spec_history_rings(hist, PM_AUDIO_SPEC_HISTORY, PM_AUDIO_ANALYZER_BANDS, hue_base + 200.f);
+  switch (static_cast<VizMode>(s_mode)) {
+    case VizMode::Mandala:
+      draw_time_context_ring(hue_base);
+      draw_spec_history_rings(hist, PM_AUDIO_SPEC_HISTORY, PM_AUDIO_ANALYZER_BANDS, hue_base + 200.f,
+                              kR_hist_outer, kR_hist_inner);
+      draw_radial_spectrum_ring(mix, PM_AUDIO_ANALYZER_BANDS, hue_base, kR_spec_outer, kR_spec_inner);
+      draw_circular_oscilloscope(wave, PM_AUDIO_WAVE_POINTS, hue_base, kR_wave, kR_wave_amp);
+      draw_petal_core(mix, PM_AUDIO_ANALYZER_BANDS, level, hue_base, kR_petal_base);
+      break;
+    case VizMode::SpectrumRing:
+      draw_radial_spectrum_ring(mix, PM_AUDIO_ANALYZER_BANDS, hue_base, kR - 8, kR_center + 8);
+      break;
+    case VizMode::Oscilloscope:
+      draw_circular_oscilloscope(wave, PM_AUDIO_WAVE_POINTS, hue_base, kR - 58, 46);
+      break;
+    case VizMode::Spectrogram:
+      draw_spec_history_rings(hist, PM_AUDIO_SPEC_HISTORY, PM_AUDIO_ANALYZER_BANDS, hue_base + 180.f, kR - 10,
+                              kR_center);
+      break;
+    case VizMode::Petals:
+      draw_petal_core(mix, PM_AUDIO_ANALYZER_BANDS, level, hue_base, kR - 70);
+      break;
+    case VizMode::Lissajous:
+      draw_lissajous(wave, PM_AUDIO_WAVE_POINTS, hue_base);
+      break;
+    default:
+      break;
   }
-  if (s_mode != 2) {
-    draw_radial_spectrum_ring(mix, PM_AUDIO_ANALYZER_BANDS, hue_base);
-  }
-  if (s_mode != 1) {
-    draw_circular_oscilloscope(wave, PM_AUDIO_WAVE_POINTS, hue_base);
-    draw_petal_core(mix, PM_AUDIO_ANALYZER_BANDS, level, hue_base);
-  } else {
-    draw_petal_core(mix, PM_AUDIO_ANALYZER_BANDS, level, hue_base);
-  }
+
+  draw_mode_caption(mode_label(s_mode), s_mode, mode_count);
 }
