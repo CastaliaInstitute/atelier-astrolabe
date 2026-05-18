@@ -8,67 +8,77 @@
 
 namespace {
 
-constexpr float k_bottom_arc_span_deg = 90.f;
-constexpr float k_bottom_arc_center_deg = 180.f;
-constexpr int k_bottom_arc_rim_inset_px = 10;
+constexpr int k_arc_label_rim_inset_px = 10;
 
-struct PmFaceBottomArcResolved {
+struct PmFaceArcLabelResolved {
   int cx;
   int cy;
   int r;
-  float start_rad;
-  float end_rad;
+  float start_deg;
+  float span_deg;
   float arc_len_px;
   uint8_t size_x;
   uint8_t size_y;
   uint16_t color;
 };
 
-void pm_face_resolve_bottom_arc_label(const PmFaceBottomArcLabelStyle *style, PmFaceBottomArcResolved *out) {
+float pm_face_arc_label_clockwise_span_deg(float start_deg, float end_deg) {
+  const float raw_span = end_deg - start_deg;
+  if (raw_span >= 359.5f || raw_span <= -359.5f) {
+    return 360.f;
+  }
+  const float s = fmodf(start_deg, 360.f);
+  const float sn = s < 0.f ? s + 360.f : s;
+  const float e = fmodf(end_deg, 360.f);
+  const float en = e < 0.f ? e + 360.f : e;
+  if (en >= sn) {
+    return en - sn;
+  }
+  return (360.f - sn) + en;
+}
+
+bool pm_face_resolve_arc_label(const PmFaceArcLabelStyle *style, PmFaceArcLabelResolved *out) {
+  if (!style) {
+    return false;
+  }
+
+  const float span_deg = pm_face_arc_label_clockwise_span_deg(style->start_deg, style->end_deg);
+  if (span_deg < 0.5f) {
+    return false;
+  }
+
   const int cx = LCD_WIDTH / 2;
   const int cy = LCD_HEIGHT / 2;
   const int R = min(LCD_WIDTH, LCD_HEIGHT) / 2;
   const int r_rainbow_inner = R - 4 - 5;
-
-  float span_deg = k_bottom_arc_span_deg;
-  float center_deg = k_bottom_arc_center_deg;
-  int r_px = r_rainbow_inner - k_bottom_arc_rim_inset_px;
+  int r_px = r_rainbow_inner - k_arc_label_rim_inset_px;
   uint8_t size_x = 1;
   uint8_t size_y = 1;
   uint16_t color = pm_gfx->color565(235, 232, 250);
 
-  if (style) {
-    if (style->r_px > 0) {
-      r_px = style->r_px;
-    }
-    if (style->arc_span_deg > 0.f) {
-      span_deg = style->arc_span_deg;
-    }
-    if (style->center_deg_clockwise > 0.f) {
-      center_deg = style->center_deg_clockwise;
-    }
-    if (style->text_size_x > 0) {
-      size_x = style->text_size_x;
-    }
-    if (style->text_size_y > 0) {
-      size_y = style->text_size_y;
-    }
-    if (style->color != 0) {
-      color = style->color;
-    }
+  if (style->r_px > 0) {
+    r_px = style->r_px;
+  }
+  if (style->text_size_x > 0) {
+    size_x = style->text_size_x;
+  }
+  if (style->text_size_y > 0) {
+    size_y = style->text_size_y;
+  }
+  if (style->color != 0) {
+    color = style->color;
   }
 
-  const float start_deg = center_deg - span_deg * 0.5f;
-  const float end_deg = center_deg + span_deg * 0.5f;
   out->cx = cx;
   out->cy = cy;
   out->r = r_px;
-  out->start_rad = pm_face_deg_to_rad(start_deg);
-  out->end_rad = pm_face_deg_to_rad(end_deg);
+  out->start_deg = style->start_deg;
+  out->span_deg = span_deg;
   out->arc_len_px = static_cast<float>(r_px) * span_deg * (pm_face_k_pi / 180.f);
   out->size_x = size_x;
   out->size_y = size_y;
   out->color = color;
+  return out->r >= 8 && out->arc_len_px >= 4.f;
 }
 
 uint16_t pm_face_measure_char_width(char ch, uint8_t size_x, uint8_t size_y) {
@@ -80,7 +90,12 @@ uint16_t pm_face_measure_char_width(char ch, uint8_t size_x, uint8_t size_y) {
   return w;
 }
 
-void pm_face_draw_char_on_arc(const PmFaceBottomArcResolved &arc, float ang, char ch) {
+float pm_face_arc_label_deg_at(const PmFaceArcLabelResolved &arc, float t) {
+  return arc.start_deg + arc.span_deg * t;
+}
+
+void pm_face_draw_char_on_arc(const PmFaceArcLabelResolved &arc, float t, char ch) {
+  const float ang = pm_face_deg_to_rad(pm_face_arc_label_deg_at(arc, t));
   char buf[2] = {ch, '\0'};
   pm_gfx->setTextSize(arc.size_x, arc.size_y);
   pm_gfx->setTextColor(arc.color);
@@ -93,15 +108,13 @@ void pm_face_draw_char_on_arc(const PmFaceBottomArcResolved &arc, float ang, cha
   pm_gfx->print(buf);
 }
 
-void pm_face_draw_bottom_arc_label_at_offset(const char *text, const PmFaceBottomArcLabelStyle *style,
-                                             float along_px) {
+void pm_face_draw_arc_label_at_offset(const char *text, const PmFaceArcLabelStyle *style, float along_px) {
   if (!text || text[0] == '\0') {
     return;
   }
 
-  PmFaceBottomArcResolved arc = {};
-  pm_face_resolve_bottom_arc_label(style, &arc);
-  if (arc.arc_len_px < 4.f || arc.r < 8) {
+  PmFaceArcLabelResolved arc = {};
+  if (!pm_face_resolve_arc_label(style, &arc)) {
     return;
   }
 
@@ -124,9 +137,8 @@ void pm_face_draw_bottom_arc_label_at_offset(const char *text, const PmFaceBotto
       const float cx_along = cursor + static_cast<float>(widths[i]) * 0.5f;
       if (cx_along >= -static_cast<float>(widths[i]) && cx_along <= arc.arc_len_px + static_cast<float>(widths[i])) {
         const float t = cx_along / arc.arc_len_px;
-        const float ang = arc.start_rad + t * (arc.end_rad - arc.start_rad);
-        if (ang >= arc.start_rad - 0.05f && ang <= arc.end_rad + 0.05f) {
-          pm_face_draw_char_on_arc(arc, ang, text[i]);
+        if (t >= -0.02f && t <= 1.02f) {
+          pm_face_draw_char_on_arc(arc, t, text[i]);
         }
       }
       cursor += static_cast<float>(widths[i]);
@@ -409,14 +421,13 @@ void pm_face_draw_voice_wave_screen(bool outward, uint32_t t_ms, const char *lab
   pm_gfx->flush();
 }
 
-void pm_face_draw_bottom_arc_label_static(const char *text, const PmFaceBottomArcLabelStyle *style) {
+void pm_face_draw_arc_label_static(const char *text, const PmFaceArcLabelStyle *style) {
   if (!text || text[0] == '\0') {
     return;
   }
 
-  PmFaceBottomArcResolved arc = {};
-  pm_face_resolve_bottom_arc_label(style, &arc);
-  if (arc.arc_len_px < 4.f || arc.r < 8) {
+  PmFaceArcLabelResolved arc = {};
+  if (!pm_face_resolve_arc_label(style, &arc)) {
     return;
   }
 
@@ -439,21 +450,19 @@ void pm_face_draw_bottom_arc_label_static(const char *text, const PmFaceBottomAr
   for (size_t i = 0; i < n; ++i) {
     const float cx_along = cursor + static_cast<float>(widths[i]) * 0.5f;
     const float t = cx_along / arc.arc_len_px;
-    const float ang = arc.start_rad + t * (arc.end_rad - arc.start_rad);
-    pm_face_draw_char_on_arc(arc, ang, text[i]);
+    pm_face_draw_char_on_arc(arc, t, text[i]);
     cursor += static_cast<float>(widths[i]);
   }
 }
 
-void pm_face_draw_bottom_arc_label_scroll(const char *text, uint32_t t_ms, float scroll_px_per_sec,
-                                          const PmFaceBottomArcLabelStyle *style) {
+void pm_face_draw_arc_label_scroll(const char *text, uint32_t t_ms, float scroll_px_per_sec,
+                                   const PmFaceArcLabelStyle *style) {
   if (!text || text[0] == '\0') {
     return;
   }
 
-  PmFaceBottomArcResolved arc = {};
-  pm_face_resolve_bottom_arc_label(style, &arc);
-  if (arc.arc_len_px < 4.f || arc.r < 8) {
+  PmFaceArcLabelResolved arc = {};
+  if (!pm_face_resolve_arc_label(style, &arc)) {
     return;
   }
 
@@ -470,7 +479,7 @@ void pm_face_draw_bottom_arc_label_scroll(const char *text, uint32_t t_ms, float
   const float speed = scroll_px_per_sec > 0.f ? scroll_px_per_sec : 28.f;
   const float loop = total_w + static_cast<float>(pm_face_measure_char_width(' ', arc.size_x, arc.size_y)) * 2.f;
   const float along = fmodf(static_cast<float>(t_ms) * 0.001f * speed, loop);
-  pm_face_draw_bottom_arc_label_at_offset(text, style, along);
+  pm_face_draw_arc_label_at_offset(text, style, along);
 }
 
 

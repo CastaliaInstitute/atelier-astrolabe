@@ -24,17 +24,22 @@ void pm_face_draw_thinking_progress_ring(float progress);
 void pm_face_draw_voice_waves_overlay(bool outward, uint32_t t_ms);
 void pm_face_draw_voice_wave_screen(bool outward, uint32_t t_ms, const char *label);
 
-/** Bottom-centered arc label band inside the 24h rainbow rim (default 90° = 25% of circle). */
-struct PmFaceBottomArcLabelStyle {
-  int r_px;                   /**< Polar radius; 0 → just inside rainbow inner edge. */
-  float arc_span_deg;         /**< Arc length in degrees; 0 → 90. */
-  float center_deg_clockwise; /**< Arc center, clockwise from top; 0 → 180 (bottom). */
-  uint8_t text_size_x;        /**< 0 → 1. */
-  uint8_t text_size_y;        /**< 0 → 1. */
-  uint16_t color;             /**< 0 → light foreground. */
+/**
+ * Arc label band along a circular path (per-face placement).
+ * Angles are clockwise from top (up = 0°/360°). Arc runs clockwise from start_deg to end_deg;
+ * when end < start after normalization, the arc wraps through 0° (e.g. 270→90 is the top half).
+ * Examples: 90–270 bottom half; -45–45 top quarter; 0–360 full ring.
+ */
+struct PmFaceArcLabelStyle {
+  float start_deg;     /**< Required. */
+  float end_deg;       /**< Required. */
+  int r_px;            /**< Polar radius; 0 → just inside rainbow inner edge. */
+  uint8_t text_size_x; /**< 0 → 1. */
+  uint8_t text_size_y; /**< 0 → 1. */
+  uint16_t color;      /**< 0 → light foreground. */
 };
 
-void pm_face_draw_bottom_arc_label_static(const char *text, const PmFaceBottomArcLabelStyle *style);
+void pm_face_draw_arc_label_static(const char *text, const PmFaceArcLabelStyle *style);
 /** Marquee when text is wider than the arc; `scroll_px_per_sec` ≤ 0 uses default speed. */
-void pm_face_draw_bottom_arc_label_scroll(const char *text, uint32_t t_ms, float scroll_px_per_sec,
-                                          const PmFaceBottomArcLabelStyle *style);
+void pm_face_draw_arc_label_scroll(const char *text, uint32_t t_ms, float scroll_px_per_sec,
+                                   const PmFaceArcLabelStyle *style);
