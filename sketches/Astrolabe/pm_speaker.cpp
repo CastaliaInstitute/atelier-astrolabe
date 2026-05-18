@@ -38,7 +38,8 @@ static volatile bool s_speaker_ok = false;
 static volatile PmSpeakerStatus s_speaker_status = PmSpeakerStatus::Idle;
 static const uint8_t *s_play_mp3 = nullptr;
 static size_t s_play_mp3_len = 0;
-static volatile uint8_t s_play_mode = 0; /** 0 = MP3, 1 = tone */
+static volatile uint8_t s_play_mode = 0; /** 0 = MP3, 1 = tone, 2 = bowl strike */
+static PmBowlStrike s_play_bowl = {};
 static float s_play_tone_hz = 528.f;
 static uint32_t s_play_tone_ms = 5000;
 static uint32_t s_play_start_ms = 0;
@@ -151,6 +152,93 @@ static void i2s_drain_and_stop(int out_hz, int out_channels) {
   i2s_stop(I2S_TX);
   vTaskDelay(pdMS_TO_TICKS(20));
   i2s_tx_stop();
+}
+
+static bool play_bowl_strike_streaming(const PmBowlStrike &bowl) {
+  if (bowl.fund_hz < 80.f || bowl.fund_hz > 1200.f || bowl.decay_ms < 200u) {
+    return false;
+  }
+  pm_mic_stop();
+
+  static constexpr int kToneHz = 22050;
+  if (es8311_board_init(kToneHz) != ESP_OK) {
+    ESP_LOGW(TAG, "es8311 init failed (bowl)");
+    return false;
+  }
+  if (i2s_tx_begin(kToneHz, 2) != ESP_OK) {
+    ESP_LOGW(TAG, "i2s begin failed (bowl)");
+    return false;
+  }
+
+  const float amp = bowl.amplitude < 0.15f ? 0.15f : (bowl.amplitude > 1.f ? 1.f : bowl.amplitude);
+  const float h2 = bowl.harm2 < 0.f ? 0.f : (bowl.harm2 > 0.9f ? 0.9f : bowl.harm2);
+  const float h3 = bowl.harm3 < 0.f ? 0.f : (bowl.harm3 > 0.7f ? 0.7f : bowl.harm3);
+  const float pan = bowl.pan < -1.f ? -1.f : (bowl.pan > 1.f ? 1.f : bowl.pan);
+  const float pan_l = cosf((pan + 1.f) * 0.78539816f);
+  const float pan_r = sinf((pan + 1.f) * 0.78539816f);
+  const float tau = static_cast<float>(bowl.decay_ms) / 1000.f;
+  const uint32_t total_samples =
+      static_cast<uint32_t>((static_cast<uint64_t>(bowl.decay_ms + 900u) * kToneHz) / 1000u);
+  const uint32_t attack = (kToneHz * 12u) / 1000u;
+
+  static int16_t buf[512 * 2];
+  double ph1 = 0.0;
+  double ph2 = 0.0;
+  double ph3 = 0.0;
+  const double inc1 =
+      (2.0 * 3.14159265358979323846 * static_cast<double>(bowl.fund_hz)) / static_cast<double>(kToneHz);
+  const double inc2 = inc1 * 2.015;
+  const double inc3 = inc1 * 3.03;
+  const double beat = (2.0 * 3.14159265358979323846 * 0.7) / static_cast<double>(kToneHz);
+  uint32_t written = 0;
+
+  s_play_pcm_hz = kToneHz;
+  s_play_pcm_frames = 0;
+  s_play_est_ms = bowl.decay_ms + 200u;
+
+  while (written < total_samples) {
+    esp_task_wdt_reset();
+    const size_t frame = (total_samples - written > 512u) ? 512u : (total_samples - written);
+    for (size_t i = 0; i < frame; ++i) {
+      const uint32_t pos = written + static_cast<uint32_t>(i);
+      const float t = static_cast<float>(pos) / static_cast<float>(kToneHz);
+      float env = expf(-t / tau) * amp;
+      if (pos < attack) {
+        env *= static_cast<float>(pos) / static_cast<float>(attack);
+      }
+      const float beat_mod = 1.f + 0.04f * sinf(static_cast<float>(beat * static_cast<double>(pos)));
+      const float s = static_cast<float>(
+          sin(ph1) + static_cast<double>(h2) * sin(ph2) + static_cast<double>(h3) * sin(ph3));
+      ph1 += inc1;
+      ph2 += inc2;
+      ph3 += inc3;
+      const float v = s * env * beat_mod * 0.55f;
+      int16_t l = static_cast<int16_t>(v * pan_l * 30000.f);
+      int16_t r = static_cast<int16_t>(v * pan_r * 30000.f);
+      if (l > 30000) {
+        l = 30000;
+      } else if (l < -30000) {
+        l = -30000;
+      }
+      if (r > 30000) {
+        r = 30000;
+      } else if (r < -30000) {
+        r = -30000;
+      }
+      buf[2 * i] = l;
+      buf[2 * i + 1] = r;
+    }
+    if (i2s_write_all(buf, frame * 2) != ESP_OK) {
+      i2s_tx_stop();
+      return false;
+    }
+    written += static_cast<uint32_t>(frame);
+    s_play_pcm_frames = written;
+  }
+
+  i2s_drain_and_stop(kToneHz, 2);
+  ESP_LOGI(TAG, "bowl %.1f Hz ~%u ms amp=%.2f", static_cast<double>(bowl.fund_hz), bowl.decay_ms, amp);
+  return true;
 }
 
 static bool play_tone_streaming(float hz, uint32_t duration_ms) {
@@ -396,6 +484,8 @@ static void speaker_play_task(void *arg) {
     s_speaker_status = PmSpeakerStatus::Playing;
     if (s_play_mode == 1) {
       s_speaker_ok = play_tone_streaming(s_play_tone_hz, s_play_tone_ms);
+    } else if (s_play_mode == 2) {
+      s_speaker_ok = play_bowl_strike_streaming(s_play_bowl);
     } else {
       s_speaker_ok = play_mp3_streaming(s_play_mp3, s_play_mp3_len);
     }
@@ -490,6 +580,28 @@ bool pm_speaker_play_tone_begin(float hz, uint32_t duration_ms) {
   s_play_pcm_frames = 0;
   s_play_pcm_hz = 0;
   s_tone_stop = false;
+  s_speaker_ok = false;
+  s_speaker_status = PmSpeakerStatus::Playing;
+  xTaskNotify(s_speaker_task, 1, eSetBits);
+  return true;
+}
+
+bool pm_speaker_play_bowl_strike_begin(const PmBowlStrike &strike) {
+  speaker_task_ensure();
+  if (!s_speaker_task || strike.fund_hz < 80.f || strike.decay_ms < 200u) {
+    s_speaker_status = PmSpeakerStatus::DoneFail;
+    return false;
+  }
+  if (!speaker_wait_idle(8000)) {
+    s_speaker_status = PmSpeakerStatus::DoneFail;
+    return false;
+  }
+  s_play_mode = 2;
+  s_play_bowl = strike;
+  s_play_start_ms = millis();
+  s_play_est_ms = strike.decay_ms + 200u;
+  s_play_pcm_frames = 0;
+  s_play_pcm_hz = 0;
   s_speaker_ok = false;
   s_speaker_status = PmSpeakerStatus::Playing;
   xTaskNotify(s_speaker_task, 1, eSetBits);

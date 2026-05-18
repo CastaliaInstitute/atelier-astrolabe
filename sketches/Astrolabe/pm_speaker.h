@@ -32,3 +32,16 @@ void pm_speaker_tone_stop(void);
 
 /** True while MP3 or tone playback is active. */
 bool pm_speaker_is_playing(void);
+
+/** Singing-bowl strike: decaying fundamental + inharmonic partials; pan from touch angle. */
+struct PmBowlStrike {
+  float fund_hz;
+  float harm2;
+  float harm3;
+  uint32_t decay_ms;
+  float amplitude;
+  /** -1 = left, +1 = right (from strike angle on the rim). */
+  float pan;
+};
+
+bool pm_speaker_play_bowl_strike_begin(const PmBowlStrike &strike);
