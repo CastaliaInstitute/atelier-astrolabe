@@ -29,6 +29,7 @@
 #include "pm_transit.h"
 #include "pm_castalia_auth.h"
 #include "pm_calcifer.h"
+#include "pm_rocket.h"
 #include "pm_commonplace.h"
 #include "pm_astro_highlight.h"
 #include "faces/pm_faces.h"
@@ -42,6 +43,7 @@
 #include "faces/spectrum/pm_face_spectrum.h"
 #include "faces/synastry/pm_face_synastry.h"
 #include "pm_audio_analyzer.h"
+#include "faces/rocket/pm_face_rocket.h"
 #include "pm_display.h"
 #include "pm_qa.h"
 #include "pm_home_gem_pulse.h"
@@ -104,6 +106,7 @@ static bool s_spotify_have_data = false;
 static uint32_t s_last_spotify_poll_ms = 0;
 
 static uint32_t s_last_calcifer_poll_ms = 0;
+static uint32_t s_last_rocket_poll_ms = 0;
 
 #ifndef MYNAH_SPOTIFY_POLL_MS
 #define MYNAH_SPOTIFY_POLL_MS 25000u
@@ -372,7 +375,8 @@ static bool face_index_from_name(const char *name, int *out) {
            {"moon", 5},       {"calcifer", 6},    {"schedule", 6},    {"castalia", 7},
            {"synastry", 8},   {"syn", 8},         {"spectrum", 9},    {"fft", 9},
            {"audio", 9},      {"sound", 9},       {"chakra", 10},
-           {"bowl", 11},      {"tibetan", 11},    {"tibetan_bowl", 11}};
+           {"bowl", 11},      {"tibetan", 11},    {"tibetan_bowl", 11},
+           {"rocket", 12},    {"launch", 12},     {"launchclock", 12}};
   for (const auto &e : k) {
     if (strcasecmp(name, e.n) == 0) {
       *out = e.idx;
@@ -447,6 +451,7 @@ static void poll_serial_birth_commands() {
           Serial.println("qa: 9 spectrum");
           Serial.println("qa: 10 chakra");
           Serial.println("qa: 11 bowl");
+          Serial.println("qa: 12 rocket");
         } else if (!pm_qa_inject_command(args)) {
           Serial.println("qa: usage: status | faces | inject …");
         }
@@ -468,7 +473,7 @@ static void poll_serial_birth_commands() {
           g_clock_repaint_pending = true;
           Serial.printf("face: %d\n", idx);
         } else {
-          Serial.println("face: usage: face <0-9|name>");
+          Serial.println("face: usage: face <0-12|name>");
         }
       } else if (strcmp(line, "astro") == 0) {
         if (pm_faces_current() != ClockFace::Astrology) {
@@ -731,6 +736,17 @@ void loop() {
         g_gesture_banner[0] = '\0';
       }
       g_clock_repaint_pending = true;
+    } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Rocket &&
+               ge.kind == PmGestureKind::Tap) {
+      if (pm_face_rocket_has_stream()) {
+        pm_face_rocket_toggle_stream_qr();
+        snprintf(g_gesture_banner, sizeof(g_gesture_banner),
+                 pm_face_rocket_stream_qr_visible() ? "launch: stream QR" : "launch: clock");
+        g_gesture_banner[sizeof(g_gesture_banner) - 1] = '\0';
+      } else {
+        snprintf(g_gesture_banner, sizeof(g_gesture_banner), "launch: no stream");
+      }
+      g_clock_repaint_pending = true;
     } else if (ge.kind != PmGestureKind::SwipeUp && ge.kind != PmGestureKind::SwipeDown) {
       snprintf(g_gesture_banner, sizeof(g_gesture_banner), "%s", gesture_label(ge.kind));
       Serial.printf("[gesture] %s @ %d,%d\n", g_gesture_banner, static_cast<int>(ge.x), static_cast<int>(ge.y));
@@ -870,6 +886,11 @@ void loop() {
       if (pm_faces_current() != ClockFace::CalciferCountdown) {
         s_calcifer_have_data = false;
       }
+      if (pm_faces_current() != ClockFace::Rocket) {
+        s_rocket_have_data = false;
+        pm_face_rocket_set_stream_qr_visible(false);
+        pm_rocket_pad_image_release();
+      }
 
       const bool spotify_stale =
           pm_faces_current() == ClockFace::Spotify && pm_wifi_connected() && s_spotify_have_data &&
@@ -878,6 +899,10 @@ void loop() {
       const bool calcifer_stale =
           pm_faces_current() == ClockFace::CalciferCountdown && pm_wifi_connected() && valid &&
           (!s_calcifer_have_data || (now - s_last_calcifer_poll_ms >= MYNAH_CALCIFER_POLL_MS));
+
+      const bool rocket_stale =
+          pm_faces_current() == ClockFace::Rocket && pm_wifi_connected() && valid &&
+          (!s_rocket_have_data || (now - s_last_rocket_poll_ms >= MYNAH_ROCKET_POLL_MS));
 
       static time_t s_prev_astro_epoch_min = -1;
       const time_t epoch_min_bucket = valid ? (epoch / 60) : -1;
@@ -894,9 +919,10 @@ void loop() {
           sec_tick && pm_faces_current() != ClockFace::Castalia && pm_faces_current() != ClockFace::CalciferCountdown &&
           pm_faces_current() != ClockFace::Synastry && pm_faces_current() != ClockFace::Spectrum &&
           pm_faces_current() != ClockFace::Chakra && pm_faces_current() != ClockFace::TibetanBowl &&
-          !home_gem_breath;
+          pm_faces_current() != ClockFace::Rocket && !home_gem_breath;
       const bool calcifer_sec =
           pm_faces_current() == ClockFace::CalciferCountdown && valid && sec_tick;
+      const bool rocket_sec = pm_faces_current() == ClockFace::Rocket && valid && sec_tick;
 #if MYNAH_HUE_HOME_ONLY
       bool gem_pulse_paint = false;
       if (home_gem_breath && !pm_gesture_touch_down()) {
@@ -911,8 +937,8 @@ void loop() {
 #endif
       const bool non_gem_paint = !s_clock_paint_inited || slow_no_time || banner_chg || wifi_chg ||
                                  g_clock_repaint_pending || local_hm_chg || spotify_stale || calcifer_stale ||
-                                 sec_tick_paint || calcifer_sec || astro_repaint || spectrum_anim ||
-                                 chakra_anim || bowl_anim;
+                                 rocket_stale || sec_tick_paint || calcifer_sec || rocket_sec || astro_repaint ||
+                                 spectrum_anim || chakra_anim || bowl_anim;
 #if MYNAH_HUE_HOME_ONLY
       const bool gem_only_paint = gem_pulse_paint && s_clock_paint_inited && !non_gem_paint;
       const bool full_paint = non_gem_paint || gem_pulse_paint;
@@ -947,6 +973,13 @@ void loop() {
             (void)pm_calcifer_fetch(&g_calcifer_ui, epoch);
             s_last_calcifer_poll_ms = now;
             s_calcifer_have_data = true;
+          }
+        }
+        if (pm_faces_current() == ClockFace::Rocket && pm_wifi_connected() && valid) {
+          if (!s_rocket_have_data || rocket_stale) {
+            (void)pm_rocket_fetch(&g_rocket_ui);
+            s_last_rocket_poll_ms = now;
+            s_rocket_have_data = true;
           }
         }
         if (pm_gfx) {
