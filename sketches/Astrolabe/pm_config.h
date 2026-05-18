@@ -57,6 +57,16 @@
 #define MYNAH_ROCKET_MAX_BYTES 65536
 #endif
 
+/** Max JPEG download size for launch / pad photo (LL2 CDN). */
+#ifndef MYNAH_ROCKET_IMAGE_MAX_BYTES
+#define MYNAH_ROCKET_IMAGE_MAX_BYTES 400000
+#endif
+
+/** Longest edge after decode (scaled down if larger). */
+#ifndef MYNAH_ROCKET_IMAGE_MAX_DIM
+#define MYNAH_ROCKET_IMAGE_MAX_DIM 240
+#endif
+
 /** 1 = fetch Swiss Ephemeris from ephemeris.castalia.institute when WiFi is up. */
 #ifndef MYNAH_EPHEMERIS_ENABLE
 #define MYNAH_EPHEMERIS_ENABLE 1

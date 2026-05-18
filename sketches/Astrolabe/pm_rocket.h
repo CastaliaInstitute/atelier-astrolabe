@@ -34,3 +34,12 @@ bool pm_rocket_fetch(PmRocketStatus *out);
 
 /** First valid launch in `status`, or nullptr. */
 const PmRocketLaunch *pm_rocket_next(const PmRocketStatus *status);
+
+/** Decoded launch/pad JPEG for the current primary launch (from last fetch). */
+bool pm_rocket_pad_image_ready(void);
+
+/** Draw photo centered, cover-scaled, dimmed (call before ring UI). */
+void pm_rocket_pad_image_draw_background(int cx, int cy, int cover_radius, uint16_t bg_color, float dim_alpha);
+
+/** Free decoded image (call when leaving Rocket face or primary launch changes). */
+void pm_rocket_pad_image_release(void);
