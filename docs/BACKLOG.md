@@ -51,7 +51,6 @@ Edit this file when you start or finish work. Keep **In progress** to 1–3 item
 Canonical design: [`castalian-rhythms.md`](castalian-rhythms.md). V0 defaults to local ephemeris + embedded interpretation KB + firmware fusion; Castalia services are optional enrichments.
 
 - [ ] **P1** **On-device natal, houses, transit aspects** — Issue [#62](https://github.com/CastaliaInstitute/astrolabe/issues/62): compute primary-profile chart facts locally from NVS birth/location data, NTP/RTC time, and `pm_transit`-class ephemeris helpers; include precision notes for unknown birth time/location.
-- [ ] **P1** **Embedded interpretation KB v0** — Issue [#63](https://github.com/CastaliaInstitute/astrolabe/issues/63): ship a compact structured KB for planets, signs, houses, aspects, transits, tags, and safety copy that firmware can select without remote prompts.
 - [ ] **P1** **On-device fusion and compact daily card** — Issue [#64](https://github.com/CastaliaInstitute/astrolabe/issues/64): deterministic firmware rules combine chart facts + KB snippets into a short cached card with title, themes, symbols, and confidence/precision text.
 - [ ] **P1** **Daily card clock face and Astrology BOOT** — Issue [#65](https://github.com/CastaliaInstitute/astrolabe/issues/65): present the compact card on-device and reuse it for the Astrology face BOOT brief; cloud/Mynah prose expansion remains optional.
 
@@ -141,6 +140,7 @@ Derived from [README limits](../README.md#limits-mvp) and [open questions](pocke
 
 ## Done
 
+- [x] **2026-05-18** Embedded interpretation KB v0: 100 source JSON entries, deterministic flash-data generator, `pm_rhythms_kb_lookup()`, and serial lookup commands. PR [#89](https://github.com/CastaliaInstitute/astrolabe/pull/89); Closes [#63](https://github.com/CastaliaInstitute/astrolabe/issues/63)
 - [x] **2026-05-17** Synastry clock face: dual-wheel partner/family charts, NVS chart profiles with demo seeds, up/down target cycling, and PWR/BOOT voice prompts. PR [#75](https://github.com/CastaliaInstitute/astrolabe/pull/75); Closes [#32](https://github.com/CastaliaInstitute/astrolabe/issues/32). Hardware QA on `integration` required before promotion to `main`.
 - [x] **2026-05-17** Castalian Rhythms V0 design doc/backlog epic: on-device-first architecture, embedded KB/fusion plan, and child issues [#62](https://github.com/CastaliaInstitute/astrolabe/issues/62)–[#65](https://github.com/CastaliaInstitute/astrolabe/issues/65). PR [#67](https://github.com/CastaliaInstitute/astrolabe/pull/67); Closes [#61](https://github.com/CastaliaInstitute/astrolabe/issues/61)
 - [x] **2026-05-17** Version clock face: git branch/SHA/date + GitHub commit QR (`pm_build_info.h`). PR [#59](https://github.com/CastaliaInstitute/astrolabe/pull/59); Closes [#58](https://github.com/CastaliaInstitute/astrolabe/issues/58)
