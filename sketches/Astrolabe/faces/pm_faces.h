@@ -24,6 +24,11 @@ enum class ClockFace : uint8_t {
 ClockFace pm_faces_current(void);
 void pm_faces_set(ClockFace face);
 void pm_faces_cycle(int delta);
+const char *pm_faces_name(ClockFace face);
+bool pm_faces_from_index(int idx, ClockFace *out);
+ClockFace pm_faces_default_load(void);
+bool pm_faces_default_save(ClockFace face);
+void pm_faces_apply_default(void);
 bool pm_faces_is_commonplace_home(void);
 bool pm_faces_banner_low(void);
 void pm_faces_draw(float thinking_progress = -1.f);

@@ -1,6 +1,7 @@
 #include "faces/pm_faces.h"
 
 #include <Arduino_GFX_Library.h>
+#include <Preferences.h>
 #include <cmath>
 #include <ctime>
 
@@ -21,12 +22,73 @@
 extern char g_gesture_banner[44];
 
 static ClockFace s_clock_face = ClockFace::ClassicAnalog;
+static constexpr const char *kNvsNs = "mynah";
+static constexpr const char *kKeyDefaultFace = "default_face";
 static uint16_t s_clock_bg565 = 0;
 static int s_analog_saved_local_h = -1;
 static int s_analog_saved_local_m = -1;
 
 ClockFace pm_faces_current(void) { return s_clock_face; }
 void pm_faces_set(ClockFace face) { s_clock_face = face; }
+
+const char *pm_faces_name(ClockFace face) {
+  switch (face) {
+    case ClockFace::ClassicAnalog:
+      return "classic";
+    case ClockFace::Apocalypso:
+      return "apocalypso";
+    case ClockFace::DigitalLocal:
+      return "digital";
+    case ClockFace::Spotify:
+      return "spotify";
+    case ClockFace::Astrology:
+      return "astrology";
+    case ClockFace::Moon:
+      return "moon";
+    case ClockFace::CalciferCountdown:
+      return "calcifer";
+    case ClockFace::Castalia:
+      return "castalia";
+    case ClockFace::Synastry:
+      return "synastry";
+    default:
+      return "unknown";
+  }
+}
+
+bool pm_faces_from_index(int idx, ClockFace *out) {
+  if (!out || idx < 0 || idx >= static_cast<int>(ClockFace::kNumFaces)) {
+    return false;
+  }
+  *out = static_cast<ClockFace>(idx);
+  return true;
+}
+
+ClockFace pm_faces_default_load(void) {
+  Preferences pref;
+  if (!pref.begin(kNvsNs, true)) {
+    return ClockFace::ClassicAnalog;
+  }
+  const int idx = pref.getInt(kKeyDefaultFace, static_cast<int>(ClockFace::ClassicAnalog));
+  pref.end();
+  ClockFace face = ClockFace::ClassicAnalog;
+  return pm_faces_from_index(idx, &face) ? face : ClockFace::ClassicAnalog;
+}
+
+bool pm_faces_default_save(ClockFace face) {
+  if (static_cast<int>(face) < 0 || static_cast<int>(face) >= static_cast<int>(ClockFace::kNumFaces)) {
+    return false;
+  }
+  Preferences pref;
+  if (!pref.begin(kNvsNs, false)) {
+    return false;
+  }
+  pref.putInt(kKeyDefaultFace, static_cast<int>(face));
+  pref.end();
+  return true;
+}
+
+void pm_faces_apply_default(void) { s_clock_face = pm_faces_default_load(); }
 
 void pm_faces_cycle(int delta) {
   int v = static_cast<int>(s_clock_face) + delta;

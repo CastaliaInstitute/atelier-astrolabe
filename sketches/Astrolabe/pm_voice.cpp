@@ -12,6 +12,7 @@
 #include "freertos/task.h"
 #include "pm_config.h"
 #include "pm_castalia_auth.h"
+#include "pm_supabase_config.h"
 
 static const char *TAG = "pm_voice";
 
@@ -432,16 +433,14 @@ static bool voice_post_message_inner(const char *message, const char *system_ins
   r->mp3 = nullptr;
   r->mp3_len = 0;
 
-  if (strlen(MYNAH_SUPABASE_URL) == 0 || strlen(MYNAH_SUPABASE_ANON_KEY) == 0) {
+  char base[160];
+  if (!pm_supabase_url_get(base, sizeof(base)) || strlen(MYNAH_SUPABASE_ANON_KEY) == 0) {
     voice_set_error("no supabase config");
     ESP_LOGW(TAG, "Supabase URL or anon key empty");
     return false;
   }
   (void)pm_castalia_auth_prepare_for_voice();
 
-  char base[160];
-  strncpy(base, MYNAH_SUPABASE_URL, sizeof(base) - 1);
-  base[sizeof(base) - 1] = '\0';
   trim_supabase_url(base, sizeof(base));
 
   char url[224];
@@ -596,16 +595,14 @@ static bool voice_post_pcm_inner(const uint8_t *pcm, size_t pcm_len, const char 
   r->mp3 = nullptr;
   r->mp3_len = 0;
 
-  if (strlen(MYNAH_SUPABASE_URL) == 0 || strlen(MYNAH_SUPABASE_ANON_KEY) == 0) {
+  char base[160];
+  if (!pm_supabase_url_get(base, sizeof(base)) || strlen(MYNAH_SUPABASE_ANON_KEY) == 0) {
     voice_set_error("no supabase config");
     ESP_LOGW(TAG, "Supabase URL or anon key empty");
     return false;
   }
   (void)pm_castalia_auth_prepare_for_voice();
 
-  char base[160];
-  strncpy(base, MYNAH_SUPABASE_URL, sizeof(base) - 1);
-  base[sizeof(base) - 1] = '\0';
   trim_supabase_url(base, sizeof(base));
 
   char url[224];
@@ -733,15 +730,13 @@ static bool voice_post_clock_agenda_inner(PmVoiceResult *r) {
   r->mp3 = nullptr;
   r->mp3_len = 0;
 
-  if (strlen(MYNAH_SUPABASE_URL) == 0 || strlen(MYNAH_SUPABASE_ANON_KEY) == 0) {
+  char base[160];
+  if (!pm_supabase_url_get(base, sizeof(base)) || strlen(MYNAH_SUPABASE_ANON_KEY) == 0) {
     voice_set_error("no supabase config");
     return false;
   }
   (void)pm_castalia_auth_prepare_for_voice();
 
-  char base[160];
-  strncpy(base, MYNAH_SUPABASE_URL, sizeof(base) - 1);
-  base[sizeof(base) - 1] = '\0';
   trim_supabase_url(base, sizeof(base));
 
   char url[224];

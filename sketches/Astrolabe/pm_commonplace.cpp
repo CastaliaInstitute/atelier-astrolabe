@@ -11,6 +11,7 @@
 #include "freertos/task.h"
 #include "pm_castalia_auth.h"
 #include "pm_config.h"
+#include "pm_supabase_config.h"
 
 static const char *TAG = "pm_commonplace";
 
@@ -133,7 +134,8 @@ static bool post_pcm_journal_inner(const uint8_t *pcm, size_t pcm_len) {
     set_error("empty pcm");
     return false;
   }
-  if (strlen(MYNAH_SUPABASE_URL) == 0 || strlen(MYNAH_SUPABASE_ANON_KEY) == 0) {
+  char base[160];
+  if (!pm_supabase_url_get(base, sizeof(base)) || strlen(MYNAH_SUPABASE_ANON_KEY) == 0) {
     set_error("no supabase config");
     return false;
   }
@@ -142,9 +144,6 @@ static bool post_pcm_journal_inner(const uint8_t *pcm, size_t pcm_len) {
     return false;
   }
 
-  char base[160];
-  strncpy(base, MYNAH_SUPABASE_URL, sizeof(base) - 1);
-  base[sizeof(base) - 1] = '\0';
   trim_supabase_url(base, sizeof(base));
 
   char url[240];

@@ -44,6 +44,28 @@ Pick the **Espressif CDC** serial device (e.g. macOS `/dev/cu.usbmodem1101`, USB
 
 If `secrets.local.h` is missing, the build uses the example file (empty strings): WiFi and voice calls will not work until you add a local secrets file.
 
+## LAN config UI
+
+When the Astrolabe firmware is connected to WiFi it starts a lightweight HTTP server on port 80
+and advertises an mDNS hostname:
+
+```text
+http://astrolabe-xxxx.local/settings
+```
+
+`xxxx` is derived from the last two bytes of the watch MAC address. The serial boot log also
+prints the settings URL and IP fallback. The same server keeps `/screen.bmp` available for QA.
+
+The settings page stores changes in NVS on the watch:
+
+- `/settings/wifi` - WiFi SSID/password. Saving queues a reconnect using the new NVS credentials.
+- `/settings/birth` - primary birth chart data used by astrology faces.
+- `/settings/family` - partner/child synastry profiles and active synastry target.
+- `/settings` - default startup face and optional Supabase URL override for development.
+
+The Supabase anon key remains build-time only in `secrets.local.h`; the LAN page can override only
+the base URL. The UI is intended for trusted LAN use.
+
 ## Castalia auth modes
 
 PocketMynah always sends Supabase's anon key as the `apikey` header. The

@@ -9,6 +9,7 @@
 #include "esp_log.h"
 #include "pm_castalia_auth.h"
 #include "pm_config.h"
+#include "pm_supabase_config.h"
 
 static const char *TAG = "pm_calcifer";
 
@@ -127,7 +128,8 @@ bool pm_calcifer_fetch(PmCalciferStatus *out, time_t epoch_seconds) {
   }
   memset(out, 0, sizeof(*out));
 
-  if (strlen(MYNAH_SUPABASE_URL) == 0 || strlen(MYNAH_SUPABASE_ANON_KEY) == 0) {
+  char base[160];
+  if (!pm_supabase_url_get(base, sizeof(base)) || strlen(MYNAH_SUPABASE_ANON_KEY) == 0) {
     snprintf(out->error, sizeof(out->error), "Supabase not configured");
     return false;
   }
@@ -136,9 +138,6 @@ bool pm_calcifer_fetch(PmCalciferStatus *out, time_t epoch_seconds) {
     epoch_seconds = time(nullptr);
   }
 
-  char base[160];
-  strncpy(base, MYNAH_SUPABASE_URL, sizeof(base) - 1);
-  base[sizeof(base) - 1] = '\0';
   trim_supabase_url(base, sizeof(base));
 
   char url[240];

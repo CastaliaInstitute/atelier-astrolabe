@@ -11,6 +11,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "pm_config.h"
+#include "pm_supabase_config.h"
 #include "pm_wifi_ntp.h"
 
 extern "C" {
@@ -233,12 +234,10 @@ static bool access_token_stale() {
 }
 
 static bool refresh_session_http() {
-  if (s_refresh[0] == '\0' || strlen(MYNAH_SUPABASE_URL) == 0) {
+  char base[160];
+  if (s_refresh[0] == '\0' || !pm_supabase_url_get(base, sizeof(base))) {
     return false;
   }
-  char base[160];
-  strncpy(base, MYNAH_SUPABASE_URL, sizeof(base) - 1);
-  base[sizeof(base) - 1] = '\0';
   trim_supabase_url(base, sizeof(base));
   char url[200];
   snprintf(url, sizeof(url), "%s/auth/v1/token?grant_type=refresh_token", base);
@@ -514,8 +513,10 @@ static bool http_get_text(const char *url, char *resp, size_t resp_cap) {
 
 static bool castalia_pair_start_http() {
   char base[160];
-  strncpy(base, MYNAH_SUPABASE_URL, sizeof(base) - 1);
-  base[sizeof(base) - 1] = '\0';
+  if (!pm_supabase_url_get(base, sizeof(base))) {
+    snprintf(s_status, sizeof(s_status), "Set Supabase URL");
+    return false;
+  }
   trim_supabase_url(base, sizeof(base));
   char url[220];
   snprintf(url, sizeof(url), "%s/functions/v1/mynah-castalia-link/start", base);
@@ -553,7 +554,8 @@ void pm_castalia_warmup_after_wifi() {
   if (!pm_wifi_connected()) {
     return;
   }
-  if (strlen(MYNAH_SUPABASE_URL) == 0 || strlen(MYNAH_SUPABASE_ANON_KEY) == 0) {
+  char base[160];
+  if (!pm_supabase_url_get(base, sizeof(base)) || strlen(MYNAH_SUPABASE_ANON_KEY) == 0) {
     return;
   }
   if (s_signin_url[0] != '\0' && s_qr_modules_valid) {
@@ -580,7 +582,8 @@ void pm_castalia_on_face_enter() {
     invalidate_qr_cache();
     return;
   }
-  if (strlen(MYNAH_SUPABASE_URL) == 0 || strlen(MYNAH_SUPABASE_ANON_KEY) == 0) {
+  char base[160];
+  if (!pm_supabase_url_get(base, sizeof(base)) || strlen(MYNAH_SUPABASE_ANON_KEY) == 0) {
     snprintf(s_status, sizeof(s_status), "Set MYNAH_SUPABASE_*");
     return;
   }
@@ -647,8 +650,9 @@ static bool pm_castalia_poll_pairing() {
   url_encode_component(s_pair_id, s_poll_enc_id, sizeof(s_poll_enc_id));
   url_encode_component(s_pair_secret, s_poll_enc_sec, sizeof(s_poll_enc_sec));
 
-  strncpy(s_poll_base, MYNAH_SUPABASE_URL, sizeof(s_poll_base) - 1);
-  s_poll_base[sizeof(s_poll_base) - 1] = '\0';
+  if (!pm_supabase_url_get(s_poll_base, sizeof(s_poll_base))) {
+    return false;
+  }
   trim_supabase_url(s_poll_base, sizeof(s_poll_base));
   snprintf(s_poll_url, sizeof(s_poll_url), "%s/functions/v1/mynah-castalia-link/poll?pair_id=%s&pair_secret=%s",
            s_poll_base, s_poll_enc_id, s_poll_enc_sec);

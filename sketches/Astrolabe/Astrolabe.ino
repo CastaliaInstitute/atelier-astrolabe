@@ -22,6 +22,7 @@
 #include "pm_voice.h"
 #include "pm_wifi_ntp.h"
 #include "pm_screen_http.h"
+#include "pm_settings.h"
 #include "pm_birth_nvs.h"
 #include "pm_chart_profiles.h"
 #include "pm_transit.h"
@@ -544,6 +545,7 @@ void setup() {
   (void)pm_side_buttons_begin();
   pm_birth_ensure_demo();
   pm_chart_profiles_ensure_demo_seed();
+  pm_faces_apply_default();
 
   if (pm_wifi_begin()) {
     pm_ntp_sync_blocking();
@@ -559,6 +561,13 @@ void setup() {
 
 void loop() {
   pm_screen_http_loop();
+  if (pm_wifi_tick_reconnect()) {
+    pm_settings_refresh_url();
+    pm_ntp_sync_blocking();
+    pm_castalia_warmup_after_wifi();
+    pm_screen_http_begin(gfx);
+    g_clock_repaint_pending = true;
+  }
   const uint32_t now = millis();
   poll_serial_birth_commands();
   const uint8_t side_ev = pm_side_buttons_poll(now);

@@ -4,6 +4,13 @@
 
 bool pm_wifi_begin();
 bool pm_wifi_connected();
+
+/** Queue reconnect with credentials from NVS (handled in pm_wifi_tick_reconnect). */
+void pm_wifi_request_reconnect(void);
+
+/** Run from loop(); returns true when a reconnect attempt finished. */
+bool pm_wifi_tick_reconnect(void);
+
 void pm_ntp_sync_blocking();
 /** If WiFi is up but clock never set, call occasionally (e.g. once per minute) to re-run SNTP. */
 void pm_ntp_retry_if_stale();
