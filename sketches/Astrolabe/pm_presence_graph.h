@@ -3,6 +3,8 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "pm_presence_locations.h"
+
 /** Convert smoothed RSSI (dBm) to estimated range in meters. */
 float pm_presence_rssi_to_meters(int8_t rssi_dbm);
 
@@ -19,11 +21,14 @@ void pm_presence_graph_reset(void);
 
 struct PmPresenceGraphNode {
   uint32_t device_id = 0;
+  PmPresenceGraphNodeKind kind = PmPresenceGraphNodeKind::MobilePeer;
   float x_m = 0.f;
   float y_m = 0.f;
   float dist_self_m = 0.f;
   /** 0..1 appearance blend when a node is new or stale. */
   float alpha = 0.f;
+  bool pinned = false;
+  char label[16] = {};
 };
 
 size_t pm_presence_graph_node_count(void);

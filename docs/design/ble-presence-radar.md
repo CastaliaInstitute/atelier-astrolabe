@@ -32,6 +32,22 @@ Scanners apply an exponential moving average (EMA) to observed RSSI. Advertisers
 - Scan duty cycles in the main loop; heavier work when the radar face is visible.
 - Disabled in `ASTROLABE_QEMU` builds (synthetic peers for sim gate).
 
+## Static location anchors (planned)
+
+Fixed **location beacons** (desk, room, doorway) sit alongside mobile watches in the same force graph.
+
+| Concept | Detail |
+|---------|--------|
+| **BLE id** | `0xA5000000 \| slot` — distinct from watch MAC-derived ids (`pm_presence_is_location_id`) |
+| **Catalog** | NVS namespace `mynah_loc`: name + optional surveyed `(x, y)` in **building frame** (meters) |
+| **Edges** | Self → location from scan RSSI; location ↔ watch when advertisements relay peer reports |
+| **Layout** | Surveyed locations are **pinned** (strong spring to NVS coordinates); gyro rotation applies to **mobile** nodes only so anchors stay fixed in the building frame |
+| **UI** | Square nodes + name label (e.g. `Desk`); circles remain mobile peers |
+
+Firmware scaffold: [`pm_presence_locations.{h,cpp}`](../sketches/Astrolabe/pm_presence_locations.cpp). QEMU demo: **Desk** at (0, 6) m when catalog is empty.
+
+**Later:** v2 manufacturer byte `node_kind=location`, Castalia hub sync of floor plans, USB provisioning of anchor coordinates.
+
 ## Future
 
 - Align payload with Android [`MynahBleCodec`](https://github.com/CastaliaInstitute/mynah) when home Mynah presence ships.

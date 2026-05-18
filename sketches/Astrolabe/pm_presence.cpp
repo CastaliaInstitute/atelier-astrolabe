@@ -1,6 +1,7 @@
 #include "pm_presence.h"
 
 #include "pm_presence_graph.h"
+#include "pm_presence_locations.h"
 
 #include <Arduino.h>
 #include <cmath>
@@ -240,6 +241,7 @@ void qemu_seed_peers(uint32_t now_ms) {
   upsert_peer(0xA1B2C3D4u, -58, now_ms);
   upsert_peer(0x11223344u, -66, now_ms);
   upsert_peer(0xDEADBEEFu, -76, now_ms);
+  upsert_peer(pm_presence_location_beacon_id(1), -62, now_ms);
   pm_presence_graph_set_edge(0xA1B2C3D4u, 0x11223344u, 5.0f, now_ms);
   pm_presence_graph_set_edge(0xA1B2C3D4u, 0xDEADBEEFu, 7.0f, now_ms);
 #else
@@ -258,6 +260,7 @@ bool pm_presence_begin(void) {
   if (s_self_id == 0) {
     s_self_id = static_cast<uint32_t>(esp_random()) | 1u;
   }
+  pm_presence_locations_begin();
 #if PM_PRESENCE_BLE
   BLEDevice::init("Astrolabe");
 

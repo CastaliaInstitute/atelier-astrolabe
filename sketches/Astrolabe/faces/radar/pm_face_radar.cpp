@@ -57,6 +57,7 @@ void pm_face_radar_draw(const struct tm *tm, bool valid) {
   const uint16_t c_self = pm_gfx->color565(120, 220, 255);
   const uint16_t c_label = pm_gfx->color565(150, 158, 170);
   const uint16_t c_peer = pm_gfx->color565(255, 196, 96);
+  const uint16_t c_loc = pm_gfx->color565(140, 200, 255);
 
   char title[24];
   if (valid && tm) {
@@ -124,12 +125,22 @@ void pm_face_radar_draw(const struct tm *tm, bool valid) {
     map_graph_xy(nd->x_m, nd->y_m, rcx, rcy, ppm, &px, &py);
     pm_gfx->drawLine(rcx, rcy, px, py, c_edge_self);
 
+    const bool is_loc = nd->kind == PmPresenceGraphNodeKind::LocationAnchor;
     const int r = static_cast<int>(lrintf(5.f + 3.f * nd->alpha));
-    pm_gfx->fillCircle(px, py, r, c_peer);
-    pm_gfx->drawCircle(px, py, r + 1, RGB565_WHITE);
+    if (is_loc) {
+      pm_gfx->fillRect(px - r, py - r, r * 2, r * 2, c_loc);
+      pm_gfx->drawRect(px - r - 1, py - r - 1, r * 2 + 2, r * 2 + 2, RGB565_WHITE);
+    } else {
+      pm_gfx->fillCircle(px, py, r, c_peer);
+      pm_gfx->drawCircle(px, py, r + 1, RGB565_WHITE);
+    }
 
-    char lab[12];
-    snprintf(lab, sizeof(lab), "%.0fm", static_cast<double>(nd->dist_self_m));
+    char lab[16];
+    if (is_loc && nd->label[0] != '\0') {
+      snprintf(lab, sizeof(lab), "%s", nd->label);
+    } else {
+      snprintf(lab, sizeof(lab), "%.0fm", static_cast<double>(nd->dist_self_m));
+    }
     pm_gfx->setTextSize(1, 1);
     pm_gfx->setTextColor(c_label);
     int16_t x1, y1;

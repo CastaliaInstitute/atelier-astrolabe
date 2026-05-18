@@ -5,11 +5,12 @@
 #include <cstring>
 
 #include "pm_presence.h"
+#include "pm_presence_locations.h"
 
 namespace {
 
 constexpr float kPi = 3.14159265f;
-constexpr size_t kMaxNodes = kPmPresenceMaxPeers;
+constexpr size_t kMaxNodes = kPmPresenceMaxPeers + kPmPresenceMaxLocations;
 constexpr size_t kMaxEdges = 20;
 constexpr uint32_t kEdgeStaleMs = 20000;
 constexpr float kSpringK = 0.85f;
@@ -19,6 +20,7 @@ constexpr float kDt = 0.18f;
 
 struct NodeState {
   uint32_t id = 0;
+  PmPresenceGraphNodeKind kind = PmPresenceGraphNodeKind::MobilePeer;
   float x = 0.f;
   float y = 0.f;
   float vx = 0.f;
@@ -26,6 +28,10 @@ struct NodeState {
   float dist_self = 3.f;
   float alpha = 0.f;
   uint32_t born_ms = 0;
+  bool pinned = false;
+  float pin_x = 0.f;
+  float pin_y = 0.f;
+  char label[16] = {};
 };
 
 struct EdgeState {
@@ -93,41 +99,95 @@ void expire_edges(uint32_t now_ms) {
   s_edge_count = w;
 }
 
+static void copy_node_state(NodeState &nd, const NodeState *old, uint32_t now_ms, float dist_self, uint32_t id) {
+  nd.dist_self = dist_self;
+  if (old) {
+    nd.x = old->x;
+    nd.y = old->y;
+    nd.vx = old->vx * 0.5f;
+    nd.vy = old->vy * 0.5f;
+    nd.born_ms = old->born_ms;
+    nd.alpha = old->alpha;
+    if (nd.alpha < 1.f) {
+      nd.alpha += 0.12f;
+    }
+  } else {
+    const float d = dist_self;
+    const float ang = (static_cast<float>((id * 137u) % 360u) - 90.f) * (kPi / 180.f);
+    nd.x = d * cosf(ang);
+    nd.y = d * sinf(ang);
+    nd.vx = 0.f;
+    nd.vy = 0.f;
+    nd.born_ms = now_ms;
+    nd.alpha = 0.25f;
+  }
+}
+
 void sync_nodes_from_peers(uint32_t now_ms) {
   NodeState next[kMaxNodes] = {};
   size_t next_n = 0;
   const size_t n_peers = pm_presence_peer_count();
   for (size_t i = 0; i < n_peers && next_n < kMaxNodes; ++i) {
     const PmPresencePeer *p = pm_presence_peer(i);
-    if (!p) {
+    if (!p || pm_presence_is_location_id(p->device_id)) {
       continue;
     }
     const int old = find_node(p->device_id);
     NodeState &nd = next[next_n];
     nd.id = p->device_id;
-    nd.dist_self = pm_presence_rssi_to_meters(p->rssi_ema);
-    if (old >= 0) {
-      nd.x = s_nodes[old].x;
-      nd.y = s_nodes[old].y;
-      nd.vx = s_nodes[old].vx * 0.5f;
-      nd.vy = s_nodes[old].vy * 0.5f;
-      nd.born_ms = s_nodes[old].born_ms;
-      nd.alpha = s_nodes[old].alpha;
-      if (nd.alpha < 1.f) {
-        nd.alpha += 0.12f;
+    nd.kind = PmPresenceGraphNodeKind::MobilePeer;
+    nd.pinned = false;
+    copy_node_state(nd, old >= 0 ? &s_nodes[old] : nullptr, now_ms, pm_presence_rssi_to_meters(p->rssi_ema), p->device_id);
+    ++next_n;
+  }
+
+  for (size_t li = 0; li < pm_presence_locations_count() && next_n < kMaxNodes; ++li) {
+    const PmPresenceLocationDef *loc = pm_presence_locations_get(li);
+    if (!loc) {
+      continue;
+    }
+    const PmPresencePeer *p = nullptr;
+    for (size_t pi = 0; pi < n_peers; ++pi) {
+      const PmPresencePeer *cand = pm_presence_peer(pi);
+      if (cand && cand->device_id == loc->beacon_id) {
+        p = cand;
+        break;
       }
-    } else {
-      const float d = nd.dist_self;
-      const float ang = (static_cast<float>((p->device_id * 137u) % 360u) - 90.f) * (kPi / 180.f);
-      nd.x = d * cosf(ang);
-      nd.y = d * sinf(ang);
+    }
+    if (!p) {
+      continue;
+    }
+    const int old = find_node(loc->beacon_id);
+    NodeState &nd = next[next_n];
+    nd.id = loc->beacon_id;
+    nd.kind = PmPresenceGraphNodeKind::LocationAnchor;
+    snprintf(nd.label, sizeof(nd.label), "%s", loc->name);
+    nd.dist_self = pm_presence_rssi_to_meters(p->rssi_ema);
+    nd.pinned = loc->has_anchor;
+    if (loc->has_anchor) {
+      nd.pin_x = loc->anchor_x_m;
+      nd.pin_y = loc->anchor_y_m;
+      if (old >= 0) {
+        nd.x = s_nodes[old].x;
+        nd.y = s_nodes[old].y;
+        nd.alpha = s_nodes[old].alpha;
+        if (nd.alpha < 1.f) {
+          nd.alpha += 0.12f;
+        }
+      } else {
+        nd.x = loc->anchor_x_m;
+        nd.y = loc->anchor_y_m;
+        nd.alpha = 0.35f;
+      }
       nd.vx = 0.f;
       nd.vy = 0.f;
       nd.born_ms = now_ms;
-      nd.alpha = 0.25f;
+    } else {
+      copy_node_state(nd, old >= 0 ? &s_nodes[old] : nullptr, now_ms, nd.dist_self, loc->beacon_id);
     }
     ++next_n;
   }
+
   memcpy(s_nodes, next, next_n * sizeof(NodeState));
   s_node_count = next_n;
 }
@@ -187,7 +247,15 @@ void layout_iterate(void) {
     }
   }
 
+  constexpr float kPinK = 2.2f;
   for (size_t i = 0; i < s_node_count; ++i) {
+    if (s_nodes[i].pinned) {
+      s_nodes[i].x += (s_nodes[i].pin_x - s_nodes[i].x) * kPinK * kDt;
+      s_nodes[i].y += (s_nodes[i].pin_y - s_nodes[i].y) * kPinK * kDt;
+      s_nodes[i].vx = 0.f;
+      s_nodes[i].vy = 0.f;
+      continue;
+    }
     s_nodes[i].vx = (s_nodes[i].vx + fx[i] * kDt) * kDamping;
     s_nodes[i].vy = (s_nodes[i].vy + fy[i] * kDt) * kDamping;
     s_nodes[i].x += s_nodes[i].vx * kDt;
@@ -279,6 +347,9 @@ void pm_presence_graph_rotate(float delta_deg) {
   const float c = cosf(rad);
   const float s = sinf(rad);
   for (size_t i = 0; i < s_node_count; ++i) {
+    if (s_nodes[i].pinned) {
+      continue;
+    }
     const float x = s_nodes[i].x;
     const float y = s_nodes[i].y;
     s_nodes[i].x = x * c - y * s;
@@ -304,10 +375,13 @@ const PmPresenceGraphNode *pm_presence_graph_node(size_t index) {
     return nullptr;
   }
   out.device_id = s_nodes[index].id;
+  out.kind = s_nodes[index].kind;
   out.x_m = s_nodes[index].x;
   out.y_m = s_nodes[index].y;
   out.dist_self_m = s_nodes[index].dist_self;
   out.alpha = s_nodes[index].alpha;
+  out.pinned = s_nodes[index].pinned;
+  snprintf(out.label, sizeof(out.label), "%s", s_nodes[index].label);
   return &out;
 }
 
