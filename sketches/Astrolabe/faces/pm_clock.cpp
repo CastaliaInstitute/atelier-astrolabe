@@ -48,9 +48,22 @@ void pm_faces_draw(float thinking_progress) {
       pm_time_valid() ? static_cast<float>(sec_of_day_for_hue) * (360.0f / 86400.0f)
                        : fmodf(static_cast<float>(millis()) * 0.0015f, 360.0f);
   const uint16_t bg_hsv = pm_face_color565_from_hsv(pm_gfx, hue, pm_face_hsv_s, pm_face_hsv_v);
-  const uint16_t bg = bg_hsv;
+  uint16_t bg = bg_hsv;
   if (s_clock_face != ClockFace::CalciferCountdown) {
+#if MYNAH_HUE_HOME_ONLY
+    if (s_clock_face == ClockFace::ClassicAnalog) {
+      const float hour_local =
+          pm_time_valid()
+              ? static_cast<float>(tm.tm_hour) + static_cast<float>(tm.tm_min) / 60.f +
+                    static_cast<float>(tm.tm_sec) / 3600.f
+              : fmodf(static_cast<float>(millis()) * 0.00025f, 24.f);
+      bg = pm_face_draw_home_gem_glow(hour_local, pm_time_valid());
+    } else {
+      pm_gfx->fillScreen(bg);
+    }
+#else
     pm_gfx->fillScreen(bg);
+#endif
   }
 
   switch (s_clock_face) {

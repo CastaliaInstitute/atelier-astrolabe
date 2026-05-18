@@ -23,3 +23,5 @@ void pm_face_draw_now_bead(int cx, int cy, int r, uint16_t col);
 void pm_face_draw_thinking_progress_ring(float progress);
 void pm_face_draw_voice_waves_overlay(bool outward, uint32_t t_ms);
 void pm_face_draw_voice_wave_screen(bool outward, uint32_t t_ms, const char *label);
+/** Radial “glowing gem” fill for hue-only home face; returns a representative bg565 sample. */
+uint16_t pm_face_draw_home_gem_glow(float hour_local, bool time_valid);
