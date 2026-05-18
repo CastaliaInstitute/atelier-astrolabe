@@ -49,6 +49,7 @@ struct YearTransitCache {
 };
 
 YearTransitCache s_cache = {};
+int s_selected_arc = -1;
 
 static bool leap_year(int y) {
   return (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0);
@@ -66,6 +67,36 @@ static int day_of_year_zero_based(uint16_t y, uint8_t m, uint8_t d) {
     ++v;
   }
   return v;
+}
+
+static void month_day_from_day(uint16_t year, float day, uint8_t *month_out, uint8_t *day_out) {
+  static const uint8_t k_days[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+  int d = static_cast<int>(floorf(day));
+  if (d < 0) {
+    d = 0;
+  }
+  const int yd = days_in_year(year);
+  if (d >= yd) {
+    d = yd - 1;
+  }
+  uint8_t month = 1;
+  for (uint8_t i = 0; i < 12; ++i) {
+    uint8_t dim = k_days[i];
+    if (i == 1 && leap_year(year)) {
+      dim = 29;
+    }
+    if (d < dim) {
+      month = static_cast<uint8_t>(i + 1);
+      break;
+    }
+    d -= dim;
+  }
+  if (month_out) {
+    *month_out = month;
+  }
+  if (day_out) {
+    *day_out = static_cast<uint8_t>(d + 1);
+  }
 }
 
 static void make_utc_midmonth(uint16_t year, uint8_t month, struct tm *out) {
@@ -169,6 +200,7 @@ static bool add_or_merge_arc(uint16_t year, const PmTransitAspect *a, float cent
 
 static bool rebuild_cache(uint16_t year, const PmBirthSpec *birth) {
   memset(&s_cache, 0, sizeof(s_cache));
+  s_selected_arc = -1;
   s_cache.year = year;
   if (!birth || !birth->valid) {
     s_cache.ready = true;
@@ -219,6 +251,9 @@ static bool rebuild_cache(uint16_t year, const PmBirthSpec *birth) {
   });
 
   s_cache.ready = true;
+  if (s_cache.arc_count > 0) {
+    s_selected_arc = 0;
+  }
   return true;
 }
 
@@ -307,6 +342,14 @@ static const char *body_label(PmEphemBody b) {
   }
 }
 
+static const YearArc *selected_arc(void) {
+  if (!s_cache.ready || s_cache.arc_count == 0 || s_selected_arc < 0 ||
+      s_selected_arc >= static_cast<int>(s_cache.arc_count)) {
+    return nullptr;
+  }
+  return &s_cache.arcs[s_selected_arc];
+}
+
 static void draw_legend(void) {
   int y = 312;
   pm_gfx->setTextSize(1, 1);
@@ -323,7 +366,70 @@ static void draw_legend(void) {
   }
 }
 
+static void draw_selected_card(uint16_t year) {
+  const YearArc *arc = selected_arc();
+  if (!arc) {
+    draw_legend();
+    return;
+  }
+
+  uint8_t sm = 1, sd = 1, em = 1, ed = 1;
+  month_day_from_day(year, arc->start_day, &sm, &sd);
+  month_day_from_day(year, arc->end_day, &em, &ed);
+
+  pm_gfx->fillRoundRect(42, 300, LCD_WIDTH - 84, 64, 10, pm_gfx->color565(13, 17, 31));
+  pm_gfx->drawRoundRect(42, 300, LCD_WIDTH - 84, 64, 10, aspect_color(arc->aspect));
+  pm_gfx->setTextSize(1, 1);
+  pm_gfx->setTextColor(pm_gfx->color565(232, 236, 248));
+
+  char title[44];
+  snprintf(title, sizeof(title), "%s", arc->title);
+  pm_gfx->setCursor(58, 310);
+  pm_gfx->print(title);
+
+  char detail[54];
+  snprintf(detail, sizeof(detail), "%02u/%02u-%02u/%02u  %s  orb %.1f", sm, sd, em, ed, arc->duration, arc->orb);
+  pm_gfx->setCursor(58, 326);
+  pm_gfx->setTextColor(pm_gfx->color565(178, 188, 214));
+  pm_gfx->print(detail);
+
+  char hint[50];
+  snprintf(hint, sizeof(hint), "%u/%u  swipe up/down", static_cast<unsigned>(s_selected_arc + 1),
+           static_cast<unsigned>(s_cache.arc_count));
+  pm_gfx->setCursor(58, 342);
+  pm_gfx->setTextColor(pm_gfx->color565(136, 150, 182));
+  pm_gfx->print(hint);
+}
+
 }  // namespace
+
+bool pm_face_year_transits_cycle_selected(int delta) {
+  if (!s_cache.ready || s_cache.arc_count == 0) {
+    return false;
+  }
+  if (s_selected_arc < 0 || s_selected_arc >= static_cast<int>(s_cache.arc_count)) {
+    s_selected_arc = 0;
+    return true;
+  }
+  const int n = static_cast<int>(s_cache.arc_count);
+  int next = s_selected_arc + delta;
+  next = (next % n + n) % n;
+  s_selected_arc = next;
+  return true;
+}
+
+bool pm_face_year_transits_selected_summary(char *buf, size_t cap) {
+  if (!buf || cap == 0) {
+    return false;
+  }
+  const YearArc *arc = selected_arc();
+  if (!arc) {
+    snprintf(buf, cap, "year: no arcs");
+    return false;
+  }
+  snprintf(buf, cap, "%.28s %.10s", arc->title, arc->duration);
+  return true;
+}
 
 void pm_face_year_transits_draw(const struct tm *tm_local, bool valid_local) {
   const int cx = LCD_WIDTH / 2;
@@ -375,7 +481,13 @@ void pm_face_year_transits_draw(const struct tm *tm_local, bool valid_local) {
     const int r = r_outer - 18 - lane * 22;
     const float start_deg = day_to_deg(arc.start_day, year_days);
     const float end_deg = day_to_deg(arc.end_day, year_days);
-    draw_arc_segment(cx, cy, r, start_deg, end_deg, aspect_color(arc.aspect), 2);
+    const bool selected = static_cast<int>(i) == s_selected_arc;
+    draw_arc_segment(cx, cy, r, start_deg, end_deg,
+                     selected ? pm_gfx->color565(255, 255, 255) : aspect_color(arc.aspect),
+                     selected ? 4 : 2);
+    if (selected) {
+      draw_arc_segment(cx, cy, r, start_deg, end_deg, aspect_color(arc.aspect), 2);
+    }
   }
 
   const float now_day = static_cast<float>(tm_local->tm_yday) +
@@ -401,6 +513,6 @@ void pm_face_year_transits_draw(const struct tm *tm_local, bool valid_local) {
     char count[28];
     snprintf(count, sizeof(count), "%u named arcs", static_cast<unsigned>(s_cache.arc_count));
     pm_face_draw_centered_line(count, cy + 12, c_dim, 1, 1);
-    draw_legend();
+    draw_selected_card(year);
   }
 }
