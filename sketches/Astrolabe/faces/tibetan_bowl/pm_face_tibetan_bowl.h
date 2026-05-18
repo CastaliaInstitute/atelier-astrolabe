@@ -2,23 +2,23 @@
 
 #include <cstdint>
 
-/** Draw singing-bowl face (preset label + bowl graphic + rim-drag feedback). */
 void pm_face_tibetan_bowl_draw(void);
 
-/** Swipe up/down: cycle bowl presets. Returns new index 0..n-1. */
-int pm_face_tibetan_bowl_cycle(int delta);
-
-/**
- * Poll touch each frame: finger drag on the 24h rainbow rim excites the bowl.
- * Returns true when the face should repaint (finger/ripple animation).
- */
+/** Poll touch: rim drag sustains bowl; center tap strikes. Returns true if repaint needed. */
 bool pm_face_tibetan_bowl_touch_tick(uint32_t now_ms);
 
-/** After a rim drag stroke, skip one horizontal face-swipe (tangential motion). */
+/** After a tangential rim drag, skip one horizontal face-swipe. */
 bool pm_face_tibetan_bowl_consume_rim_swipe_block(void);
+
+/** Swipe up/down on face: brighten / darken overtones. */
+void pm_face_tibetan_bowl_brightness_delta(float delta);
 
 void pm_face_tibetan_bowl_stop(void);
 
 bool pm_face_tibetan_bowl_anim_tick(uint32_t now_ms);
 
-int pm_face_tibetan_bowl_index(void);
+/** Resonator energy 0..1 for visuals. */
+float pm_face_tibetan_bowl_energy(void);
+
+/** Current chakra region 0..6 around the rim. */
+int pm_face_tibetan_bowl_chakra_index(void);

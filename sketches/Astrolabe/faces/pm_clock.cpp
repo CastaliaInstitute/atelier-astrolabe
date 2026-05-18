@@ -144,7 +144,8 @@ void pm_faces_draw(float thinking_progress) {
 
   /** Rainbow annulus last (Moon/Daywheel draw their own; skip Castalia — QR repaint was tripping WDT/stack). */
   if (s_clock_face != ClockFace::Castalia && s_clock_face != ClockFace::Moon &&
-      s_clock_face != ClockFace::CalciferCountdown && s_clock_face != ClockFace::Spectrum) {
+      s_clock_face != ClockFace::CalciferCountdown && s_clock_face != ClockFace::Spectrum &&
+      s_clock_face != ClockFace::TibetanBowl) {
     pm_face_draw_circumference_rainbow_24h(pm_time_valid());
     if (thinking_progress >= 0.f) {
       pm_face_draw_thinking_progress_ring(thinking_progress);

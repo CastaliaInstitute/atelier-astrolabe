@@ -683,9 +683,13 @@ void loop() {
       continue;
     } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::TibetanBowl &&
                (ge.kind == PmGestureKind::SwipeUp || ge.kind == PmGestureKind::SwipeDown)) {
-      pm_face_tibetan_bowl_cycle(ge.kind == PmGestureKind::SwipeUp ? 1 : -1);
-      snprintf(g_gesture_banner, sizeof(g_gesture_banner), "bowl %d/4",
-               pm_face_tibetan_bowl_index() + 1);
+      pm_face_tibetan_bowl_brightness_delta(ge.kind == PmGestureKind::SwipeUp ? 0.1f : -0.1f);
+      snprintf(g_gesture_banner, sizeof(g_gesture_banner), "brightness");
+      g_clock_repaint_pending = true;
+      continue;
+    } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::TibetanBowl &&
+               ge.kind == PmGestureKind::Tap) {
+      pm_face_tibetan_bowl_touch_tick(now);
       g_clock_repaint_pending = true;
       continue;
     } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Moon &&
