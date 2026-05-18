@@ -26,9 +26,8 @@ GitHub: set the repo **default branch for pull requests** to **`integration`** (
 
 **Branch protection (recommended)** on `integration`:
 
-- Required status check: **Firmware build**
-- Optional: require **Integration device gate** after enabling `ENABLE_INTEGRATION_DEVICE_GATE`
-- Do not allow bypassing for face PRs without a linked functional test report
+- Required status checks: **Firmware build** + **Integration sim gate** (`ENABLE_INTEGRATION_SIM_GATE=true`)
+- **Integration device gate** runs on m1 after each build but is **not** a merge requirement — it gates promotion to **`main`**
 
 ## Roles
 
@@ -123,7 +122,8 @@ After the PR merges to **`integration`**, run **hardware QA** on **`integration`
 | Workflow | Runner | What |
 |----------|--------|------|
 | [Firmware build](../.github/workflows/firmware-build.yml) | `ubuntu-latest` | `./scripts/build.sh`; uploads `firmware.bin` artifact |
-| [**Integration device gate**](../.github/workflows/integration-device-gate.yml) | **`self-hosted` + `astrolabe-watch`** | **Recommended:** flash → full functional test (one lock, one job) |
+| [**Integration sim gate**](../.github/workflows/integration-sim-gate.yml) | `ubuntu-latest` | QEMU serial tests — **required for merge to `integration`** |
+| [**Integration device gate**](../.github/workflows/integration-device-gate.yml) | **`self-hosted` + `astrolabe-watch`** (m1) | Flash → full hardware functional test — **required for `main` promotion**, not merge |
 | [Firmware flash](../.github/workflows/firmware-flash.yml) | **`self-hosted` + `astrolabe-watch`** | Manual / legacy `ENABLE_INTEGRATION_FLASH` only |
 | [Firmware functional test](../.github/workflows/firmware-functional-test.yml) | **`self-hosted` + `astrolabe-watch`** | Manual dispatch only |
 | [Firmware hardware QA](../.github/workflows/firmware-hardware-qa.yml) | **`self-hosted` + `astrolabe-watch`** | Manual: one face screenshot → issue |
@@ -138,10 +138,16 @@ GitHub **cloud** runners cannot see USB. To flash in CI, register a [self-hosted
 4. Secrets: `ASTROLABE_SECRETS_FILE` on the Mac (default `~/GitHub/astrolabe/include/secrets.local.h`) or GitHub Actions secrets.
 5. Plug in the watch (**303A:1001**); optional `ASTROLABE_UPLOAD_PORT` in LaunchAgent.
 
-**Integration device gate (recommended)**
+**Integration sim gate (merge to `integration`)**
+
+- Set repo variable **`ENABLE_INTEGRATION_SIM_GATE=true`**
+- After each green **Firmware build** on `integration`: QEMU build (`waveshare_s3_175_qemu`) + serial face matrix ([`faces_qemu.json`](../tests/functional/faces_qemu.json)).
+- Reports: `artifacts/functional-sim/latest/report.json` with `"gate": "sim"`.
+
+**Integration device gate (promote to `main`)**
 
 - Set repo variable **`ENABLE_INTEGRATION_DEVICE_GATE=true`**
-- After each green **Firmware build** on `integration`: one job flashes and runs the full face matrix.
+- After each green **Firmware build** on `integration`: m1 flashes and runs the full hardware matrix (informational on `integration`; required before `./scripts/promote-integration.sh`).
 - All device workflows share concurrency group **`astrolabe-watch-device`** (no parallel flash + test).
 
 **Legacy / manual**
@@ -192,7 +198,7 @@ Matrix: [`tests/functional/faces_astrolabe.json`](../tests/functional/faces_astr
 3. **Unmerge** — only if `ASTROLABE_FT_UNMERGE_PUSH=1` (default **off**); approve via `astrolabe-watch` environment
 4. **Fix agent** — optional `ASTROLABE_FT_DISPATCH_AGENT=1`
 
-**Promotion** — `./scripts/promote-integration.sh --flash-ok` requires `artifacts/functional/latest/report.json` with `failed: 0` matching `integration` HEAD (`--skip-functional` to override).
+**Promotion** — `./scripts/promote-integration.sh --flash-ok` requires a **hardware** report (`artifacts/functional/latest/report.json`, `"gate": "hardware"`, `failed: 0`) matching `integration` HEAD (`--skip-functional` to override).
 
 Secrets: `include/secrets.local.h` on the laptop (`ASTROLABE_SECRETS_FILE`) or GitHub Actions secrets `MYNAH_WIFI_*` / `MYNAH_SUPABASE_*`.
 

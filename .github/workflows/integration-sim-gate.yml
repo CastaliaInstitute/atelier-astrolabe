@@ -1,0 +1,66 @@
+# QEMU serial sim gate — required for merging to integration (ubuntu, no USB).
+# Hardware device gate remains for promotion to main (self-hosted m1).
+#
+# Enable: repo variable ENABLE_INTEGRATION_SIM_GATE=true
+#
+name: Integration sim gate
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref to test
+        required: false
+        default: integration
+  workflow_run:
+    workflows: [Firmware build]
+    types: [completed]
+    branches: [integration]
+
+concurrency:
+  group: astrolabe-qemu-sim-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sim-gate:
+    name: QEMU sim test
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event_name == 'workflow_run' &&
+        github.event.workflow_run.conclusion == 'success' &&
+        vars.ENABLE_INTEGRATION_SIM_GATE == 'true'
+      )
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.event.workflow_run.head_sha }}
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-sim-${{ runner.os }}-${{ hashFiles('platformio.ini', 'scripts/build.sh') }}
+          restore-keys: |
+            pio-sim-${{ runner.os }}-
+
+      - name: Install tools
+        run: |
+          pip install platformio pyserial
+          sudo apt-get update -qq
+          sudo apt-get install -y libglib2.0-0 libpixman-1-0 libsdl2-2.0-0 libslirp0
+
+      - name: QEMU sim functional test
+        env:
+          PLATFORMIO_BUILD_DIR: /tmp/astrolabe-pio-qemu-${{ github.run_id }}
+        run: bash ./scripts/ci-qemu-sim.sh
+
+      - name: Upload sim report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sim-gate-${{ github.run_id }}
+          path: artifacts/functional-sim/
+          retention-days: 14
+          if-no-files-found: ignore

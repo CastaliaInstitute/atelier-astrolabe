@@ -529,6 +529,16 @@ void setup() {
 
   Wire.begin(IIC_SDA, IIC_SCL);
 
+#ifdef ASTROLABE_QEMU
+  (void)pm_touch_begin();
+  pm_gesture_reset();
+  (void)pm_side_buttons_begin();
+  pm_birth_ensure_demo();
+  pm_chart_profiles_ensure_demo_seed();
+  pm_display_bind(nullptr);
+  ensure_pcm_buffer();
+  Serial.println("PocketMynah MVP ready");
+#else
   if (!gfx->begin()) {
     Serial.println("gfx->begin() failed");
     while (true) {
@@ -555,10 +565,13 @@ void setup() {
   ensure_pcm_buffer();
 
   Serial.println("PocketMynah MVP ready");
+#endif
 }
 
 void loop() {
+#ifndef ASTROLABE_QEMU
   pm_screen_http_loop();
+#endif
   const uint32_t now = millis();
   poll_serial_birth_commands();
   const uint8_t side_ev = pm_side_buttons_poll(now);
@@ -812,7 +825,9 @@ void loop() {
             s_calcifer_have_data = true;
           }
         }
-        pm_faces_draw();
+        if (pm_gfx) {
+          pm_faces_draw();
+        }
         if (!valid) {
           s_last_no_time_redraw = now;
         }

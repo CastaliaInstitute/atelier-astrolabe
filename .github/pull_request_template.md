@@ -14,14 +14,14 @@ Closes #
 
 - [ ] `./scripts/build.sh` (or `pio run -e waveshare_s3_175`)
 - [ ] **Clock faces / touch / buttons touched?**
-  - [ ] **Integration device gate** green on this SHA, or
-  - [ ] `./scripts/functional_test.py --flash` with `artifacts/functional/latest/report.json` linked below
-- [ ] Flashed / smoke-tested on hardware (if applicable)
+  - [ ] **Integration sim gate** green (QEMU) — required to merge
+  - [ ] Optional before **main** promotion: **Integration device gate** on m1 or `./scripts/functional_test.py --flash`
+- [ ] Flashed / smoke-tested on hardware before promoting to `main` (if applicable)
 - [ ] Optional visual QA: `screen.bmp` ([`hardware-qa.mdc`](.cursor/rules/hardware-qa.mdc))
 
-## Device gate
+## Gates
 
-<!-- Link workflow run or report path when faces/* changed -->
+<!-- Sim gate run (merge). Hardware device gate run (promotion to main). -->
 
 ## Notes
 

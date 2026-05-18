@@ -1,7 +1,8 @@
-# Recommended integration hardware gate: one job, one lock, flash then full functional test.
+# Hardware gate on m1 (astrolabe-watch): flash + full functional test.
+# Required for promotion to main (promote-integration.sh), NOT for merging to integration.
+# Sim gate (.github/workflows/integration-sim-gate.yml) is the merge blocker on integration.
 #
 # Enable: repo variable ENABLE_INTEGRATION_DEVICE_GATE=true
-# Replaces parallel ENABLE_INTEGRATION_FLASH + ENABLE_INTEGRATION_FUNCTIONAL_TEST triggers.
 #
 name: Integration device gate
 
