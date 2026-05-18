@@ -27,6 +27,7 @@ Edit this file when you start or finish work. Keep **In progress** to 1–3 item
 ## In progress
 
 - [~] **P1** Modular OTA (runtime + face-pack A/B, 32 MB) — Issue: [#60](https://github.com/CastaliaInstitute/astrolabe/issues/60), PR [#66](https://github.com/CastaliaInstitute/astrolabe/pull/66), [`docs/design/modular-ota.md`](design/modular-ota.md)
+- [~] **P1** TLS: replace `WiFiClientSecure::setInsecure()` with CA pinning / bundle — Issue: [#47](https://github.com/CastaliaInstitute/astrolabe/issues/47)
 
 ---
 
@@ -119,7 +120,6 @@ Derived from [README limits](../README.md#limits-mvp) and [open questions](pocke
 
 - [ ] **P1** **mDNS + LAN config page** — advertise **`astrolabe-xxxx.local`** on the LAN (`ESPmDNS`, `xxxx` = short id from MAC/chip id). While on Wi‑Fi, run a lightweight **HTTP config UI** (ESPAsyncWebServer or `WebServer`) at that hostname: edit **NVS-backed** settings without serial — Wi‑Fi creds (if not compile-time only), user **birth** (`pm_birth_nvs`), **synastry profiles**, default face, optional Supabase URL override for dev. POST saves → NVS commit → confirm in UI. Document URL in README; require LAN or simple setup-token if adding auth later.
 
-- [ ] **P1** TLS: replace `WiFiClientSecure::setInsecure()` with CA pinning / bundle
 - [x] **P1** Voice: handle `voice-pipeline` responses without `audioBase64` (plain `ask-faculty`-only)
 - [ ] **P1** Auth: document anon-only vs signed-in behavior in README once Castalia flow is stable — Issue [#5](https://github.com/CastaliaInstitute/astrolabe/issues/5)
 - [x] **P1** Classic analog clock face: center dial on round display and use full-screen safe area (466×466); fix layout/offset in `Astrolabe.ino` analog draw path

@@ -12,6 +12,7 @@
 #include "freertos/task.h"
 #include "pm_config.h"
 #include "pm_castalia_auth.h"
+#include "pm_tls.h"
 
 static const char *TAG = "pm_voice";
 
@@ -346,7 +347,7 @@ static bool voice_post_message_inner(const char *message, const char *system_ins
   }
 
   WiFiClientSecure client;
-  client.setInsecure();
+  pm_tls_configure_client(client);
   HTTPClient http;
   http.setTimeout(static_cast<uint16_t>(kVoiceHttpTimeoutMs > 60000u ? 60000u : kVoiceHttpTimeoutMs));
   if (!http.begin(client, url)) {
@@ -481,7 +482,7 @@ static bool voice_post_pcm_inner(const uint8_t *pcm, size_t pcm_len, const char 
   body[body_len++] = '}';
 
   WiFiClientSecure client;
-  client.setInsecure();
+  pm_tls_configure_client(client);
   HTTPClient http;
   http.setTimeout(static_cast<uint16_t>(kVoiceHttpTimeoutMs > 60000u ? 60000u : kVoiceHttpTimeoutMs));
   if (!http.begin(client, url)) {
@@ -564,7 +565,7 @@ static bool voice_post_clock_agenda_inner(PmVoiceResult *r) {
            static_cast<long long>(epoch));
 
   WiFiClientSecure client;
-  client.setInsecure();
+  pm_tls_configure_client(client);
   HTTPClient http;
   http.setTimeout(static_cast<uint16_t>(kVoiceHttpTimeoutMs > 60000u ? 60000u : kVoiceHttpTimeoutMs));
   if (!http.begin(client, url)) {

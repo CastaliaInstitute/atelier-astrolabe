@@ -11,6 +11,7 @@
 #include "freertos/task.h"
 #include "pm_castalia_auth.h"
 #include "pm_config.h"
+#include "pm_tls.h"
 
 static const char *TAG = "pm_commonplace";
 
@@ -177,7 +178,7 @@ static bool post_pcm_journal_inner(const uint8_t *pcm, size_t pcm_len) {
   body[body_len++] = '}';
 
   WiFiClientSecure client;
-  client.setInsecure();
+  pm_tls_configure_client(client);
   client.setTimeout(120);
   HTTPClient http;
   http.setTimeout(65535);

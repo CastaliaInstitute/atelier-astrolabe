@@ -9,6 +9,7 @@
 #include "esp_log.h"
 #include "pm_config.h"
 #include "pm_castalia_auth.h"
+#include "pm_tls.h"
 
 static const char *TAG = "pm_spotify";
 
@@ -90,7 +91,7 @@ static bool post_action(const char *action, PmSpotifyStatus *out) {
   snprintf(body, sizeof(body), "{\"action\":\"%s\"}", action);
 
   WiFiClientSecure client;
-  client.setInsecure();
+  pm_tls_configure_client(client);
   HTTPClient http;
   http.setTimeout(20000);
   if (!http.begin(client, url)) {
