@@ -93,24 +93,7 @@ static void chakra_stop_tone(void) {
   s_ripple_active = false;
 }
 
-int pm_face_chakra_cycle(int delta) {
-  chakra_stop_tone();
-  const int n = static_cast<int>(sizeof(kChakras) / sizeof(kChakras[0]));
-  int v = s_index + delta;
-  if (v < 0) {
-    v = 0;
-  } else if (v >= n) {
-    v = n - 1;
-  }
-  s_index = v;
-  return s_index;
-}
-
-bool pm_face_chakra_toggle_tone(void) {
-  if (s_chakra_tone_on || pm_speaker_is_playing()) {
-    chakra_stop_tone();
-    return true;
-  }
+static bool chakra_start_tone(void) {
   const ChakraDef &ch = kChakras[s_index];
   s_ripple_active = true;
   s_ripple_start = millis();
@@ -120,6 +103,34 @@ bool pm_face_chakra_toggle_tone(void) {
   }
   s_chakra_tone_on = true;
   return true;
+}
+
+int pm_face_chakra_cycle(int delta) {
+  const int n = static_cast<int>(sizeof(kChakras) / sizeof(kChakras[0]));
+  int v = s_index + delta;
+  if (v < 0) {
+    v = 0;
+  } else if (v >= n) {
+    v = n - 1;
+  }
+  if (v == s_index) {
+    return s_index;
+  }
+  const bool was_playing = s_chakra_tone_on || pm_speaker_is_playing();
+  chakra_stop_tone();
+  s_index = v;
+  if (was_playing) {
+    (void)chakra_start_tone();
+  }
+  return s_index;
+}
+
+bool pm_face_chakra_toggle_tone(void) {
+  if (s_chakra_tone_on || pm_speaker_is_playing()) {
+    chakra_stop_tone();
+    return true;
+  }
+  return chakra_start_tone();
 }
 
 bool pm_face_chakra_anim_tick(uint32_t now_ms) {
