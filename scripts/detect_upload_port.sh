@@ -3,12 +3,19 @@
 # Set ASTROLABE_UPLOAD_PORT to skip detection.
 set -euo pipefail
 
-if [[ -n "${ASTROLABE_UPLOAD_PORT:-}" ]]; then
+port_available() {
+  [[ -n "${1:-}" && -e "$1" ]]
+}
+
+if port_available "${ASTROLABE_UPLOAD_PORT:-}"; then
   echo "$ASTROLABE_UPLOAD_PORT"
   exit 0
 fi
+if [[ -n "${ASTROLABE_UPLOAD_PORT:-}" ]]; then
+  echo "→ ASTROLABE_UPLOAD_PORT=${ASTROLABE_UPLOAD_PORT} missing; auto-detecting" >&2
+fi
 
-if [[ -n "${UPLOAD_PORT:-}" ]]; then
+if port_available "${UPLOAD_PORT:-}"; then
   echo "$UPLOAD_PORT"
   exit 0
 fi

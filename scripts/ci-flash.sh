@@ -23,9 +23,6 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-PORT="$(./scripts/detect_upload_port.sh)"
-echo "→ upload port: ${PORT}"
-
 ENV="${PIO_ENV:-waveshare_s3_175}"
 BUILD_DIR="${PLATFORMIO_BUILD_DIR:-/tmp/astrolabe-pio-build}"
 BIN="${BUILD_DIR}/${ENV}/firmware.bin"
@@ -40,6 +37,10 @@ if [[ ! -f "$BIN" ]]; then
   exit 1
 fi
 
+# Detect after build — USB port can re-enumerate during long compiles.
+PORT="$(./scripts/detect_upload_port.sh)"
+export ASTROLABE_UPLOAD_PORT="$PORT"
+echo "→ upload port: ${PORT}"
 echo "→ upload ${BIN}"
 pio run -e "$ENV" -t upload --upload-port "$PORT" -j 1
 
