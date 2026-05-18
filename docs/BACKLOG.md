@@ -27,7 +27,6 @@ Edit this file when you start or finish work. Keep **In progress** to 1–3 item
 ## In progress
 
 - [~] **P1** Modular OTA (runtime + face-pack A/B, 32 MB) — Issue: [#60](https://github.com/CastaliaInstitute/astrolabe/issues/60), PR [#66](https://github.com/CastaliaInstitute/astrolabe/pull/66), [`docs/design/modular-ota.md`](design/modular-ota.md)
-- [~] **P1** **Embedded interpretation KB v0** — Issue: [#63](https://github.com/CastaliaInstitute/astrolabe/issues/63): ship a compact structured KB for planets, signs, houses, aspects, transits, tags, and safety copy that firmware can select without remote prompts.
 
 ---
 
@@ -141,6 +140,7 @@ Derived from [README limits](../README.md#limits-mvp) and [open questions](pocke
 
 ## Done
 
+- [x] **2026-05-18** Embedded interpretation KB v0: 100 source JSON entries, deterministic flash-data generator, `pm_rhythms_kb_lookup()`, and serial lookup commands. PR [#89](https://github.com/CastaliaInstitute/astrolabe/pull/89); Closes [#63](https://github.com/CastaliaInstitute/astrolabe/issues/63)
 - [x] **2026-05-17** Synastry clock face: dual-wheel partner/family charts, NVS chart profiles with demo seeds, up/down target cycling, and PWR/BOOT voice prompts. PR [#75](https://github.com/CastaliaInstitute/astrolabe/pull/75); Closes [#32](https://github.com/CastaliaInstitute/astrolabe/issues/32). Hardware QA on `integration` required before promotion to `main`.
 - [x] **2026-05-17** Castalian Rhythms V0 design doc/backlog epic: on-device-first architecture, embedded KB/fusion plan, and child issues [#62](https://github.com/CastaliaInstitute/astrolabe/issues/62)–[#65](https://github.com/CastaliaInstitute/astrolabe/issues/65). PR [#67](https://github.com/CastaliaInstitute/astrolabe/pull/67); Closes [#61](https://github.com/CastaliaInstitute/astrolabe/issues/61)
 - [x] **2026-05-17** Version clock face: git branch/SHA/date + GitHub commit QR (`pm_build_info.h`). PR [#59](https://github.com/CastaliaInstitute/astrolabe/pull/59); Closes [#58](https://github.com/CastaliaInstitute/astrolabe/issues/58)
