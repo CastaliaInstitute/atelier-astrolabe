@@ -103,8 +103,6 @@ Design: [`docs/mynah-spotify-face.md`](mynah-spotify-face.md). **Swipe explores,
 
 - [ ] **P2** **Koi pond face** — optional `ClockFace`: animated pond (water ripple/refraction effects, drifting koi sprites); idle ambient mode when not interacting; keep CPU/GPU budget modest on ESP32-S3 + CO5300 canvas
 
-- [~] **P2** **Tibetan bowl face** — `ClockFace::TibetanBowl`: **drag the rim** to sustain a resonator (angle → chakra pitch blend, speed → excitation, radius → purity); **tap center** to strike; lift to decay. Additive I2S partials + shimmer in `pm_speaker`. Swipe up/down = overtone brightness. Visual: bronze bowl, chakra sectors, standing-wave lobes, finger trail.
-
 - [~] **P2** **Sound mandala / Spectrum face** — `ClockFace::Spectrum`: three FFT panels (ES7210 mic ch0/ch1 left, speaker OUT right); auto capture; PWR/BOOT voice off on face. Mandala polish TBD.
 
 ### Alethiometer face
