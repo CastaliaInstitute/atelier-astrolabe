@@ -14,6 +14,7 @@
 #include "pin_config.h"
 #include "pm_config.h"
 #include "pm_gesture.h"
+#include "pm_mesh_audio.h"
 #include "pm_mic.h"
 #include "pm_side_buttons.h"
 #include "pm_speaker.h"
@@ -416,6 +417,12 @@ static void poll_serial_birth_commands() {
           }
         }
         g_clock_repaint_pending = true;
+      } else if (strncmp(line, "mesh ", 5) == 0) {
+        const char *args = line + 5;
+        while (*args == ' ') {
+          ++args;
+        }
+        (void)pm_mesh_serial_command(args);
       } else if (strncmp(line, "qa ", 3) == 0) {
         const char *args = line + 3;
         while (*args == ' ') {
@@ -561,6 +568,7 @@ void setup() {
     pm_ntp_sync_blocking();
     pm_castalia_warmup_after_wifi();
   }
+  (void)pm_mesh_begin();
   pm_display_bind(gfx);
   pm_screen_http_begin(gfx);
 
@@ -573,6 +581,9 @@ void setup() {
 void loop() {
 #ifndef ASTROLABE_QEMU
   pm_screen_http_loop();
+  pm_mesh_poll();
+  pm_mesh_discovery_tick(millis());
+  pm_mesh_tx_tick();
 #endif
   const uint32_t now = millis();
   poll_serial_birth_commands();

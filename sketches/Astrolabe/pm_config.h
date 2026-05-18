@@ -92,3 +92,13 @@
 #ifndef MYNAH_STARS_CATALOG_MAX_BYTES
 #define MYNAH_STARS_CATALOG_MAX_BYTES (16384)
 #endif
+
+/** ESP-NOW mesh: discover peers and stream 16 kHz PCM (walkie-talkie). */
+#ifndef MYNAH_MESH_ENABLE
+#define MYNAH_MESH_ENABLE 1
+#endif
+
+/** Device role: 1=watch (astrolabe), 2=atom — see lib/mynah_mesh_protocol/. */
+#ifndef MYNAH_MESH_DEVICE_ROLE
+#define MYNAH_MESH_DEVICE_ROLE 1
+#endif
