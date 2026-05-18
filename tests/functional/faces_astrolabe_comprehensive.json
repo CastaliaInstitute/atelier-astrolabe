@@ -1,6 +1,6 @@
 {
   "sketch": "Astrolabe",
-  "face_count": 12,
+  "face_count": 13,
   "center": [233, 233],
   "description": "Full swipe matrix (L/R/U/D) + buttons on every face; crash + screenshot gate.",
   "faces": [
@@ -87,6 +87,16 @@
     },
     {
       "id": 11,
+      "name": "bowl",
+      "source_paths": [
+        "sketches/Astrolabe/faces/tibetan_bowl",
+        "sketches/Astrolabe/pm_speaker.cpp"
+      ],
+      "gestures": ["tap:448,233", "swipe_left", "swipe_right", "swipe_up", "swipe_down"],
+      "buttons": []
+    },
+    {
+      "id": 12,
       "name": "weather",
       "source_paths": ["sketches/Astrolabe/faces/weather", "sketches/Astrolabe/pm_weather.cpp"],
       "gestures": ["swipe_left", "swipe_right", "swipe_up", "swipe_down", "tap:233,233"],

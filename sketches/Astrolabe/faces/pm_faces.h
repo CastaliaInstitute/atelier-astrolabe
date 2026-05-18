@@ -22,6 +22,8 @@ enum class ClockFace : uint8_t {
   Spectrum,
   /** Chakra symbols + solfeggio tones; swipe up/down, tap toggles tone. */
   Chakra,
+  /** Singing bowl; drag rainbow rim to strike, swipe up/down for presets. */
+  TibetanBowl,
   /** 24h radial temp + humidity rings; current conditions center. */
   Weather,
   kNumFaces,
