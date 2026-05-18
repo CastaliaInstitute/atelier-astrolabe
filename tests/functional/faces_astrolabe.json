@@ -75,7 +75,7 @@
         "sketches/Astrolabe/pm_fft.cpp",
         "sketches/Astrolabe/pm_audio_analyzer.cpp"
       ],
-      "gestures": ["swipe_left", "swipe_right", "tap:233,233"],
+      "gestures": ["swipe_left", "swipe_right", "swipe_up", "swipe_down", "tap:233,233"],
       "buttons": []
     },
     {

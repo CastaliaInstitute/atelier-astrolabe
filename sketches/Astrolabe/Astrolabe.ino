@@ -707,6 +707,12 @@ void loop() {
       }
       g_clock_repaint_pending = true;
       continue;
+    } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Spectrum &&
+               (ge.kind == PmGestureKind::SwipeUp || ge.kind == PmGestureKind::SwipeDown)) {
+      pm_face_spectrum_cycle(ge.kind == PmGestureKind::SwipeUp ? 1 : -1);
+      snprintf(g_gesture_banner, sizeof(g_gesture_banner), "viz %s", pm_face_spectrum_mode_label());
+      g_clock_repaint_pending = true;
+      continue;
     } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Chakra &&
                (ge.kind == PmGestureKind::SwipeUp || ge.kind == PmGestureKind::SwipeDown)) {
       pm_face_chakra_cycle(ge.kind == PmGestureKind::SwipeDown ? 1 : -1);
