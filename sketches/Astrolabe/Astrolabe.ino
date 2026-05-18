@@ -571,7 +571,7 @@ void setup() {
 
   ensure_pcm_buffer();
 
-#if defined(ASTROLABE_USB_UAC)
+#if defined(CONFIG_UAC_SPEAKER_CHANNEL_NUM) && CONFIG_UAC_SPEAKER_CHANNEL_NUM > 0
   if (pm_usb_uac_begin()) {
     Serial.println("USB UAC speaker ready (host output → ES8311)");
   } else {

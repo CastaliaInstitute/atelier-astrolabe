@@ -17,6 +17,15 @@ vendor/
 # UAC env: copied by extra_script_uac_deps.py (source: uac/idf_component.yml)
 sketches/Astrolabe/idf_component.yml
 sketches/Astrolabe/managed_components/
+managed_components/
+components/espressif__*
+uac/idf_bootstrap/build/
+uac/idf_bootstrap/sdkconfig
+uac/idf_bootstrap/sdkconfig.old
 sdkconfig
+sdkconfig.*
+!sdkconfig.uac.defaults
 sdkconfig.old
+compile_commands.json
+.dummy/
 dependencies.lock

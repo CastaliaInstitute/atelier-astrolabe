@@ -2,16 +2,11 @@
 
 #include "esp_log.h"
 #include "pm_speaker_pcm.h"
+#include "sdkconfig.h"
 
-#if defined(ASTROLABE_USB_UAC) && !defined(ASTROLABE_QEMU)
+#if CONFIG_UAC_SPEAKER_CHANNEL_NUM > 0 && !defined(ASTROLABE_QEMU) && __has_include("usb_device_uac.h")
 
-#if __has_include("usb_device_uac.h")
 #include "usb_device_uac.h"
-#define ASTROLABE_USB_UAC_LINKED 1
-#else
-#define ASTROLABE_USB_UAC_LINKED 0
-#warning "usb_device_uac not found — install IDF component (see docs/design/usb-audio-gadget.md)"
-#endif
 
 static const char *TAG = "pm_usb_uac";
 
@@ -21,8 +16,6 @@ static const char *TAG = "pm_usb_uac";
 
 static bool s_uac_ready = false;
 static bool s_pcm_open = false;
-
-#if ASTROLABE_USB_UAC_LINKED
 
 static esp_err_t uac_output_cb(uint8_t *buf, size_t len, void *arg) {
   (void)arg;
@@ -51,13 +44,7 @@ static void uac_set_volume_cb(uint32_t volume, void *arg) {
   ESP_LOGI(TAG, "volume=%lu", static_cast<unsigned long>(volume));
 }
 
-#endif
-
 bool pm_usb_uac_begin(void) {
-#if !ASTROLABE_USB_UAC_LINKED
-  ESP_LOGW(TAG, "UAC build flag set but usb_device_uac component not linked");
-  return false;
-#else
   if (s_uac_ready) {
     return true;
   }
@@ -77,15 +64,23 @@ bool pm_usb_uac_begin(void) {
   s_uac_ready = true;
   ESP_LOGI(TAG, "USB UAC speaker @ %d Hz", ASTROLABE_UAC_SAMPLE_HZ);
   return true;
-#endif
 }
 
 bool pm_usb_uac_ready(void) {
-#if ASTROLABE_USB_UAC_LINKED
   return s_uac_ready;
-#else
+}
+
+#elif CONFIG_UAC_SPEAKER_CHANNEL_NUM > 0 && !defined(ASTROLABE_QEMU)
+
+static const char *TAG = "pm_usb_uac";
+
+bool pm_usb_uac_begin(void) {
+  ESP_LOGW(TAG, "UAC enabled but usb_device_uac not available (build waveshare_s3_175_uac, run hybrid once)");
   return false;
-#endif
+}
+
+bool pm_usb_uac_ready(void) {
+  return false;
 }
 
 #else
