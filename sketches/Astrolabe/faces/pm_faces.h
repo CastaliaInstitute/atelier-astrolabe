@@ -18,6 +18,8 @@ enum class ClockFace : uint8_t {
   Castalia,
   /** Dual natal wheel/aspects for saved partner/family chart profiles. */
   Synastry,
+  /** ask-faculty conversations with recent faculty and portrait cache. */
+  Faculty,
   kNumFaces,
 };
 
