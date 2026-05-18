@@ -37,30 +37,36 @@ if [[ ! -f "$BIN" ]]; then
   exit 1
 fi
 
-# Detect after build — USB port can re-enumerate during long compiles.
+# USB port can re-enumerate during long compiles; optional hub VBUS cycle before upload.
+bash ./scripts/usb-power-cycle-watch.sh || true
 PORT="$(./scripts/detect_upload_port.sh)"
 export ASTROLABE_UPLOAD_PORT="$PORT"
 echo "→ upload port: ${PORT}"
 echo "→ upload ${BIN}"
-echo "→ if upload fails: hold BOOT, tap PWR (or plug USB), release BOOT when esptool connects"
 
 upload_once() {
   pio run -e "$ENV" -t upload --upload-port "$PORT" -j 1 "$@"
 }
 
-if command -v "${ASTROLABE_CI_VENV:-$HOME/.astrolabe-ci-venv}/bin/python" >/dev/null 2>&1; then
+preupload_reset() {
+  bash ./scripts/preupload-esptool-reset.sh "$PORT" 2>/dev/null || true
   bash ./scripts/preupload-boot-pulse.sh "$PORT" 2>/dev/null || true
-fi
+}
 
 TRIES="${ASTROLABE_UPLOAD_TRIES:-3}"
 ok=0
 for ((i = 1; i <= TRIES; i++)); do
   echo "→ upload attempt ${i}/${TRIES}"
-  [[ "$i" -gt 1 ]] && { bash ./scripts/preupload-boot-pulse.sh "$PORT" 2>/dev/null || true; sleep 2; }
+  [[ "$i" -gt 1 ]] && bash ./scripts/usb-power-cycle-watch.sh || true
+  PORT="$(./scripts/detect_upload_port.sh)"
+  export ASTROLABE_UPLOAD_PORT="$PORT"
+  preupload_reset
   upload_once && ok=1 && break
+  sleep 2
 done
 if [[ "$ok" != "1" ]]; then
-  echo "error: upload failed after ${TRIES} attempts — put watch in download mode (hold BOOT, tap PWR)" >&2
+  echo "error: upload failed after ${TRIES} attempts" >&2
+  echo "  Try: hold BOOT, tap PWR during upload, or check ASTROLABE_UHUBCTL_* hub settings" >&2
   exit 1
 fi
 
