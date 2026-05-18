@@ -21,7 +21,7 @@ import time
 
 import serial
 
-# Keep in sync with face_index_from_name() in PocketMynah.ino
+# Keep in sync with serial face aliases in Astrolabe.ino
 NAME_TO_IDX = {
     "classic": 0,
     "hue": 0,
@@ -37,6 +37,7 @@ NAME_TO_IDX = {
     "castalia": 7,
     "syn": 8,
     "synastry": 8,
+    "hafez": 9,
 }
 
 port, face = sys.argv[1], sys.argv[2].strip().lower()

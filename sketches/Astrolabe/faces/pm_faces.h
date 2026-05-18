@@ -18,6 +18,8 @@ enum class ClockFace : uint8_t {
   Castalia,
   /** Dual natal wheel/aspects for saved partner/family chart profiles. */
   Synastry,
+  /** Daily Hafez quote + generated art metadata from `hafez-daily`. */
+  Hafez,
   kNumFaces,
 };
 

@@ -18,3 +18,4 @@
  * SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET, SPOTIFY_REFRESH_TOKEN.
  * Refresh token must include scopes: user-read-playback-state, user-modify-playback-state
  * (controls whichever device is active in Spotify; the watch is not a Connect receiver). */
+/* Hafez face: deploy `hafez-daily` and seed table `public.hafez_quotes`. */

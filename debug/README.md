@@ -16,7 +16,7 @@ Use the **debug** PlatformIO env (`waveshare_s3_175_debug`) — same firmware wi
 
 ```bash
 pio run -e waveshare_s3_175_debug   # once
-./scripts/jtag_set_face.sh moon      # 0–7 or name
+./scripts/jtag_set_face.sh moon      # 0–9 or name
 ```
 
 MCP: `astrolabe_debug_set_face(face="astro")`

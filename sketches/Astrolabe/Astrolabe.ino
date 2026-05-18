@@ -27,6 +27,7 @@
 #include "pm_transit.h"
 #include "pm_castalia_auth.h"
 #include "pm_calcifer.h"
+#include "pm_hafez.h"
 #include "pm_commonplace.h"
 #include "pm_astro_highlight.h"
 #include "faces/pm_faces.h"
@@ -36,6 +37,7 @@
 #include "faces/spotify/pm_face_spotify.h"
 #include "faces/calcifer/pm_face_calcifer.h"
 #include "faces/synastry/pm_face_synastry.h"
+#include "faces/hafez/pm_face_hafez.h"
 #include "pm_display.h"
 #include "pm_qa.h"
 
@@ -97,9 +99,15 @@ static bool s_spotify_have_data = false;
 static uint32_t s_last_spotify_poll_ms = 0;
 
 static uint32_t s_last_calcifer_poll_ms = 0;
+static uint32_t s_last_hafez_poll_ms = 0;
+static uint32_t s_hafez_day_key = 0;
 
 #ifndef MYNAH_SPOTIFY_POLL_MS
 #define MYNAH_SPOTIFY_POLL_MS 25000u
+#endif
+
+#ifndef MYNAH_HAFEZ_POLL_MS
+#define MYNAH_HAFEZ_POLL_MS (6u * 60u * 60u * 1000u)
 #endif
 
 /** Spotify transport row (must match draw_spotify_face hit zones). */
@@ -363,7 +371,7 @@ static bool face_index_from_name(const char *name, int *out) {
   } k[] = {{"classic", 0},  {"hue", 0},       {"analog", 0},    {"apocalypso", 1},
            {"digital", 2},  {"spotify", 3},   {"astro", 4},       {"astrology", 4},
            {"moon", 5},     {"calcifer", 6},  {"schedule", 6},  {"castalia", 7},
-           {"synastry", 8}, {"syn", 8}};
+           {"synastry", 8}, {"syn", 8},       {"hafez", 9}};
   for (const auto &e : k) {
     if (strcasecmp(name, e.n) == 0) {
       *out = e.idx;
@@ -433,6 +441,7 @@ static void poll_serial_birth_commands() {
           Serial.println("qa: 6 calcifer");
           Serial.println("qa: 7 castalia");
           Serial.println("qa: 8 synastry");
+          Serial.println("qa: 9 hafez");
         } else if (!pm_qa_inject_command(args)) {
           Serial.println("qa: usage: status | faces | inject …");
         }
@@ -454,7 +463,7 @@ static void poll_serial_birth_commands() {
           g_clock_repaint_pending = true;
           Serial.printf("face: %d\n", idx);
         } else {
-          Serial.println("face: usage: face <0-8|name>");
+          Serial.println("face: usage: face <0-9|name>");
         }
       } else if (strcmp(line, "astro") == 0) {
         if (pm_faces_current() != ClockFace::Astrology) {
@@ -754,6 +763,9 @@ void loop() {
       const bool wifi_chg = (wifi != s_prev_wifi);
       const bool local_hm_chg =
           valid && pm_faces_local_hm_changed(tm_now.tm_hour, tm_now.tm_min);
+      const uint32_t today_key =
+          valid ? static_cast<uint32_t>((tm_now.tm_year + 1900) * 10000 + (tm_now.tm_mon + 1) * 100 + tm_now.tm_mday)
+                : 0u;
 
       if (pm_faces_current() != ClockFace::Spotify) {
         s_spotify_have_data = false;
@@ -769,20 +781,30 @@ void loop() {
       const bool calcifer_stale =
           pm_faces_current() == ClockFace::CalciferCountdown && pm_wifi_connected() && valid &&
           (!s_calcifer_have_data || (now - s_last_calcifer_poll_ms >= MYNAH_CALCIFER_POLL_MS));
+      const bool hafez_day_roll = pm_faces_current() == ClockFace::Hafez && valid && s_hafez_day_key != 0 &&
+                                  today_key != s_hafez_day_key;
+      const bool hafez_retry = pm_faces_current() == ClockFace::Hafez && pm_wifi_connected() && valid &&
+                               s_hafez_have_data && !g_hafez_ui.ok &&
+                               (now - s_last_hafez_poll_ms >= 120000u);
+      const bool hafez_stale =
+          pm_faces_current() == ClockFace::Hafez && pm_wifi_connected() && valid &&
+          (!s_hafez_have_data || hafez_day_roll || hafez_retry ||
+           (now - s_last_hafez_poll_ms >= MYNAH_HAFEZ_POLL_MS));
 
       static time_t s_prev_astro_epoch_min = -1;
       const time_t epoch_min_bucket = valid ? (epoch / 60) : -1;
       const bool astro_repaint =
           pm_faces_current() == ClockFace::Astrology && valid && epoch_min_bucket != s_prev_astro_epoch_min;
 
-      const bool sec_tick_paint =
-          sec_tick && pm_faces_current() != ClockFace::Castalia && pm_faces_current() != ClockFace::CalciferCountdown &&
-          pm_faces_current() != ClockFace::Synastry;
+      const bool sec_tick_paint = sec_tick && pm_faces_current() != ClockFace::Castalia &&
+                                  pm_faces_current() != ClockFace::CalciferCountdown &&
+                                  pm_faces_current() != ClockFace::Synastry &&
+                                  pm_faces_current() != ClockFace::Hafez;
       const bool calcifer_sec =
           pm_faces_current() == ClockFace::CalciferCountdown && valid && sec_tick;
       const bool full_paint = !s_clock_paint_inited || slow_no_time || banner_chg || wifi_chg ||
                               g_clock_repaint_pending || local_hm_chg || spotify_stale || calcifer_stale ||
-                              sec_tick_paint || calcifer_sec || astro_repaint;
+                              hafez_stale || sec_tick_paint || calcifer_sec || astro_repaint;
 
       if (full_paint) {
         s_clock_paint_inited = true;
@@ -810,6 +832,14 @@ void loop() {
             (void)pm_calcifer_fetch(&g_calcifer_ui, epoch);
             s_last_calcifer_poll_ms = now;
             s_calcifer_have_data = true;
+          }
+        }
+        if (pm_faces_current() == ClockFace::Hafez && pm_wifi_connected() && valid) {
+          if (!s_hafez_have_data || hafez_stale) {
+            (void)pm_hafez_fetch(&g_hafez_ui, epoch);
+            s_last_hafez_poll_ms = now;
+            s_hafez_have_data = true;
+            s_hafez_day_key = g_hafez_ui.day_key != 0 ? g_hafez_ui.day_key : today_key;
           }
         }
         pm_faces_draw();

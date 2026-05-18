@@ -4,7 +4,7 @@
 # Or: astrolabe_debug_set_face MCP tool
 #
 # Face indices: 0 ClassicAnalog, 1 Apocalypso, 2 DigitalLocal, 3 Spotify,
-#               4 Astrology, 5 Moon, 6 CalciferCountdown, 7 Castalia
+#               4 Astrology, 5 Moon, 6 CalciferCountdown, 7 Castalia, 8 Hafez
 
 set pagination off
 set remotetimeout 60

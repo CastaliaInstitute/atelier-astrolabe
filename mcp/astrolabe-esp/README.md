@@ -21,7 +21,7 @@ Add `astrolabe-esp` to **`~/.cursor/mcp.json`** (see `./install-cursor-mcp.sh` f
 | **`astrolabe_jtag_gdb`** | Halt / backtrace / inject via GDB (needs `waveshare_s3_175_debug` ELF). |
 | **`astrolabe_console_monitor`** | Serial capture **and** short OpenOCD log in parallel. |
 | **`astrolabe_debug_gdb`** | Low-level GDB batch (custom commands). |
-| **`astrolabe_debug_set_face`** | JTAG: set `s_clock_face` (0–7 or `astro`, `moon`, …) + repaint. |
+| **`astrolabe_debug_set_face`** | JTAG: set `s_clock_face` (0–9 or `astro`, `synastry`, `hafez`, …) + repaint. |
 | **`astrolabe_debug_inject_astro_boot`** | Same as `astrolabe_debug_set_face(4)`. |
 
 **Important:** On ESP32-S3, **printf still goes to USB serial**, not JTAG. Use serial tools for console text; use JTAG tools to stop/inspect the CPU.

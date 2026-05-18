@@ -24,7 +24,7 @@ pick() {
   fi
 }
 
-for name in synastry syn moon castalia calcifer schedule spotify astro astrology apocalypso digital classic analog hue; do
+for name in synastry syn moon hafez castalia calcifer schedule spotify astro astrology apocalypso digital classic analog hue; do
   pick "$name"
 done
 

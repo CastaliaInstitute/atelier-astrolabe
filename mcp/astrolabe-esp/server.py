@@ -48,6 +48,7 @@ FACE_BY_NAME = {
     "castalia": 7,
     "syn": 8,
     "synastry": 8,
+    "hafez": 9,
 }
 FACE_LABELS = (
     "ClassicAnalog",
@@ -59,6 +60,7 @@ FACE_LABELS = (
     "CalciferCountdown",
     "Castalia",
     "Synastry",
+    "Hafez",
 )
 
 
@@ -449,7 +451,7 @@ def _resolve_face_index(face: int | str) -> int:
             idx = int(key)
         elif key not in FACE_BY_NAME:
             raise ValueError(
-                f"Unknown face {face!r}. Use 0–7 or: {', '.join(sorted(set(FACE_BY_NAME)))}"
+                f"Unknown face {face!r}. Use 0–9 or: {', '.join(sorted(set(FACE_BY_NAME)))}"
             )
         else:
             idx = FACE_BY_NAME[key]
@@ -462,7 +464,7 @@ def _resolve_face_index(face: int | str) -> int:
 async def astrolabe_debug_set_face(face: int | str = 4, repaint: bool = True) -> str:
     """
     Halt via JTAG/GDB and set clock face (debug ELF only: waveshare_s3_175_debug).
-    face: 0–7 or name (astro, moon, classic, …). Sets s_clock_face + g_clock_repaint_pending.
+    face: 0–9 or name (astro, moon, synastry, hafez, classic, …). Sets s_clock_face + g_clock_repaint_pending.
     """
     try:
         idx = _resolve_face_index(face)

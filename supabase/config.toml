@@ -1,0 +1,4 @@
+project_id = "astrolabe"
+
+[functions.hafez-daily]
+verify_jwt = false
