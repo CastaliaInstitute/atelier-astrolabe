@@ -9,20 +9,22 @@
 static size_t s_in_fill = 0;
 static size_t s_out_fill = 0;
 
-static float s_in_disp[PM_AUDIO_ANALYZER_BANDS];
+static float s_in_low[PM_AUDIO_ANALYZER_BANDS];
+static float s_in_high[PM_AUDIO_ANALYZER_BANDS];
 static float s_out_disp[PM_AUDIO_ANALYZER_BANDS];
 
-static void fft_to_bands(const int16_t *block, float *disp) {
-  static float mag[PM_FFT_BINS];
-  pm_fft_compute_magnitude(block, mag, PM_FFT_BINS);
-
+static void mag_to_bands(const float *mag, int mag_bins, int k_start, int k_end, float *disp) {
+  const int span = k_end - k_start;
+  if (span <= 0) {
+    return;
+  }
   float peak = 1.f;
   for (int b = 0; b < PM_AUDIO_ANALYZER_BANDS; ++b) {
-    const int k0 = 1 + (b * (PM_FFT_BINS - 2)) / PM_AUDIO_ANALYZER_BANDS;
-    const int k1 = 1 + ((b + 1) * (PM_FFT_BINS - 2)) / PM_AUDIO_ANALYZER_BANDS;
+    const int k0 = k_start + (b * span) / PM_AUDIO_ANALYZER_BANDS;
+    const int k1 = k_start + ((b + 1) * span) / PM_AUDIO_ANALYZER_BANDS;
     float sum = 0.f;
     int cnt = 0;
-    for (int k = k0; k < k1 && k < PM_FFT_BINS; ++k) {
+    for (int k = k0; k < k1 && k < mag_bins; ++k) {
       sum += mag[k];
       ++cnt;
     }
@@ -48,17 +50,24 @@ static void fft_to_bands(const int16_t *block, float *disp) {
 }
 
 static void process_block_in(const int16_t *block) {
-  fft_to_bands(block, s_in_disp);
+  static float mag[PM_FFT_BINS];
+  pm_fft_compute_magnitude(block, mag, PM_FFT_BINS);
+  const int mid = PM_FFT_BINS / 2;
+  mag_to_bands(mag, PM_FFT_BINS, 1, mid, s_in_low);
+  mag_to_bands(mag, PM_FFT_BINS, mid, PM_FFT_BINS, s_in_high);
 }
 
 static void process_block_out(const int16_t *block) {
-  fft_to_bands(block, s_out_disp);
+  static float mag[PM_FFT_BINS];
+  pm_fft_compute_magnitude(block, mag, PM_FFT_BINS);
+  mag_to_bands(mag, PM_FFT_BINS, 1, PM_FFT_BINS, s_out_disp);
 }
 
 void pm_audio_analyzer_reset(void) {
   s_in_fill = 0;
   s_out_fill = 0;
-  memset(s_in_disp, 0, sizeof(s_in_disp));
+  memset(s_in_low, 0, sizeof(s_in_low));
+  memset(s_in_high, 0, sizeof(s_in_high));
   memset(s_out_disp, 0, sizeof(s_out_disp));
   pm_fft_init();
 }
@@ -96,9 +105,14 @@ void pm_audio_analyzer_feed_out(const int16_t *pcm, size_t num_s16, int channels
   }
 }
 
-void pm_audio_analyzer_get_in(float *bands, size_t count) {
+void pm_audio_analyzer_get_in_low(float *bands, size_t count) {
   const size_t n = count < PM_AUDIO_ANALYZER_BANDS ? count : PM_AUDIO_ANALYZER_BANDS;
-  memcpy(bands, s_in_disp, n * sizeof(float));
+  memcpy(bands, s_in_low, n * sizeof(float));
+}
+
+void pm_audio_analyzer_get_in_high(float *bands, size_t count) {
+  const size_t n = count < PM_AUDIO_ANALYZER_BANDS ? count : PM_AUDIO_ANALYZER_BANDS;
+  memcpy(bands, s_in_high, n * sizeof(float));
 }
 
 void pm_audio_analyzer_get_out(float *bands, size_t count) {
@@ -116,7 +130,7 @@ void pm_audio_analyzer_mic_end(void) {
   pm_mic_stop();
 }
 
-void pm_audio_analyzer_tick(bool mirror_to_out) {
+void pm_audio_analyzer_tick(void) {
   static int16_t frame[512];
   const size_t ns = pm_mic_frame_samples();
   if (ns > sizeof(frame) / sizeof(frame[0])) {
@@ -125,32 +139,26 @@ void pm_audio_analyzer_tick(bool mirror_to_out) {
   size_t br = 0;
   if (pm_mic_read_frame(frame, ns, &br)) {
     pm_audio_analyzer_feed_in(frame, ns);
-    if (mirror_to_out) {
-      pm_audio_analyzer_feed_out(frame, ns, 1);
-    }
   }
-  if (!mirror_to_out) {
-    for (int b = 0; b < PM_AUDIO_ANALYZER_BANDS; ++b) {
-      s_out_disp[b] *= 0.9f;
-    }
+  for (int b = 0; b < PM_AUDIO_ANALYZER_BANDS; ++b) {
+    s_out_disp[b] *= 0.92f;
   }
 }
 
 #else
 
-void pm_audio_analyzer_tick(bool mirror_to_out) {
-  (void)mirror_to_out;
+void pm_audio_analyzer_tick(void) {
   static uint32_t s_phase = 0;
   s_phase += 17;
   static int16_t fake[PM_FFT_N];
   for (int i = 0; i < PM_FFT_N; ++i) {
-    const float t = static_cast<float>(s_phase + static_cast<uint32_t>(i)) * 0.11f;
-    fake[i] = static_cast<int16_t>(8000.f * sinf(t));
+    const float t = static_cast<float>(s_phase + static_cast<uint32_t>(i)) * 0.05f;
+    fake[i] = static_cast<int16_t>(9000.f * sinf(t));
   }
   pm_audio_analyzer_feed_in(fake, PM_FFT_N);
   for (int i = 0; i < PM_FFT_N; ++i) {
-    const float t = static_cast<float>(s_phase + static_cast<uint32_t>(i)) * 0.07f + 1.f;
-    fake[i] = static_cast<int16_t>(6000.f * sinf(t));
+    const float t = static_cast<float>(s_phase + static_cast<uint32_t>(i)) * 0.19f;
+    fake[i] = static_cast<int16_t>(7000.f * sinf(t));
   }
   pm_audio_analyzer_feed_out(fake, PM_FFT_N, 1);
 }

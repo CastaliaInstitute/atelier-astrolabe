@@ -100,7 +100,7 @@ Design: [`docs/mynah-spotify-face.md`](mynah-spotify-face.md). **Swipe explores,
 
 - [ ] **P2** **Tibetan bowl face** — new `ClockFace`: **touch the screen circumference** (polar hit-test on outer ring) to strike/play a singing-bowl tone; map touch angle → phase/pan and strike intensity → amplitude/decay. Synthesize fundamentals + harmonics via I2S (`pm_speaker` / ES8311) or precomputed samples in flash. **Swipe up/down** cycles **bowl presets** (different base frequency, decay, overtone mix). Visual: bowl graphic + ripple on strike. Respect existing gesture face-swipe zones so bowl face does not fight global navigation.
 
-- [~] **P2** **Sound mandala / Spectrum face** — `ClockFace::Spectrum`: dual radial FFT (**IN** mic inner, **OUT** mic mirror + speaker/TTS outer), auto capture on face enter; PWR/BOOT voice disabled on this face. Mandala polish TBD.
+- [~] **P2** **Sound mandala / Spectrum face** — `ClockFace::Spectrum`: three FFT bar panels (IN lo/hi left, OUT right); auto mic + speaker tap; PWR/BOOT voice off on face. Mandala polish TBD.
 
 ### Alethiometer face
 

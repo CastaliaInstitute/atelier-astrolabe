@@ -1,13 +1,62 @@
 #include "faces/spectrum/pm_face_spectrum.h"
 
-#include <cmath>
-
-#include "faces/shared/pm_face_draw.h"
+#include "faces/shared/pm_face_draw.h"  // pm_face_color565_from_hsv
 #include "pin_config.h"
 #include "pm_audio_analyzer.h"
 #include "pm_display.h"
 
 static bool s_active = false;
+
+/** Left top / left bottom / right center panels (466×466 round). */
+static constexpr int k_pad = 28;
+static constexpr int k_left_x = k_pad;
+static constexpr int k_left_w = 188;
+static constexpr int k_top_y = 36;
+static constexpr int k_top_h = 175;
+static constexpr int k_bot_y = 255;
+static constexpr int k_bot_h = 175;
+static constexpr int k_right_x = 258;
+static constexpr int k_right_w = 180;
+static constexpr int k_right_y = 128;
+static constexpr int k_right_h = 210;
+
+static void draw_panel_label(const char *text, int x, int y, int w, uint16_t fg) {
+  pm_gfx->setTextSize(1, 1);
+  int16_t x1, y1;
+  uint16_t tw, th;
+  pm_gfx->getTextBounds(text, 0, 0, &x1, &y1, &tw, &th);
+  pm_gfx->setCursor(x + (w - static_cast<int>(tw)) / 2, y);
+  pm_gfx->setTextColor(fg);
+  pm_gfx->print(text);
+}
+
+static void draw_bar_panel(int x, int y, int w, int h, const float *bands, int n_bands, float hue,
+                           uint16_t grid_col) {
+  if (!bands || n_bands <= 0 || w < 8 || h < 8) {
+    return;
+  }
+  pm_gfx->drawRect(x, y, w, h, grid_col);
+  const int bar_w = (w - 4) / n_bands;
+  if (bar_w < 2) {
+    return;
+  }
+  const int base_y = y + h - 2;
+  for (int b = 0; b < n_bands; ++b) {
+    const float v = bands[b];
+    if (v < 0.02f) {
+      continue;
+    }
+    int bh = static_cast<int>(v * static_cast<float>(h - 6));
+    if (bh < 2) {
+      bh = 2;
+    }
+    const int bx = x + 2 + b * bar_w;
+    const int by = base_y - bh;
+    const uint16_t col = pm_face_color565_from_hsv(pm_gfx, hue + static_cast<float>(b) * 2.2f, 0.88f,
+                                                   0.15f + v * 0.65f);
+    pm_gfx->fillRect(bx, by, bar_w - 1, bh, col);
+  }
+}
 
 void pm_face_spectrum_on_enter(void) {
   pm_audio_analyzer_reset();
@@ -27,42 +76,27 @@ void pm_face_spectrum_tick(void) {
   if (!s_active) {
     return;
   }
-  pm_audio_analyzer_tick(true);
+  pm_audio_analyzer_tick();
 }
 
 void pm_face_spectrum_draw(uint16_t bg) {
   (void)bg;
 
-  const int cx = LCD_WIDTH / 2;
-  const int cy = LCD_HEIGHT / 2;
-
-  float bins_in[PM_AUDIO_ANALYZER_BANDS];
-  float bins_out[PM_AUDIO_ANALYZER_BANDS];
-  pm_audio_analyzer_get_in(bins_in, PM_AUDIO_ANALYZER_BANDS);
-  pm_audio_analyzer_get_out(bins_out, PM_AUDIO_ANALYZER_BANDS);
+  float low[PM_AUDIO_ANALYZER_BANDS];
+  float high[PM_AUDIO_ANALYZER_BANDS];
+  float out[PM_AUDIO_ANALYZER_BANDS];
+  pm_audio_analyzer_get_in_low(low, PM_AUDIO_ANALYZER_BANDS);
+  pm_audio_analyzer_get_in_high(high, PM_AUDIO_ANALYZER_BANDS);
+  pm_audio_analyzer_get_out(out, PM_AUDIO_ANALYZER_BANDS);
 
   pm_gfx->fillScreen(RGB565_BLACK);
+  const uint16_t grid = pm_gfx->color565(40, 44, 52);
 
-  constexpr int k_bands = PM_AUDIO_ANALYZER_BANDS;
-  constexpr float k_step = pm_face_k_two_pi / static_cast<float>(k_bands);
-  constexpr int k_r_in0 = 52;
-  constexpr int k_r_in1 = 128;
-  constexpr int k_r_out0 = 142;
-  constexpr int k_r_out1 = 218;
+  draw_panel_label("IN LO", k_left_x, k_top_y - 14, k_left_w, pm_gfx->color565(70, 190, 210));
+  draw_panel_label("IN HI", k_left_x, k_bot_y - 14, k_left_w, pm_gfx->color565(90, 210, 200));
+  draw_panel_label("OUT", k_right_x, k_right_y + k_right_h + 6, k_right_w, pm_gfx->color565(220, 110, 200));
 
-  for (int b = 0; b < k_bands; ++b) {
-    const float ang = -pm_face_k_pi / 2.f + static_cast<float>(b) * k_step;
-    const float vi = bins_in[b];
-    const int ri1 = k_r_in0 + static_cast<int>(vi * static_cast<float>(k_r_in1 - k_r_in0));
-    const uint16_t cin = pm_face_color565_from_hsv(pm_gfx, 165.f + vi * 55.f, 0.85f, 0.12f + vi * 0.55f);
-    pm_face_draw_radial_annulus_slice(cx, cy, ang, k_r_in0, ri1 > k_r_in0 ? ri1 : k_r_in0 + 1, cin, 2);
-
-    const float vo = bins_out[b];
-    const int ro1 = k_r_out0 + static_cast<int>(vo * static_cast<float>(k_r_out1 - k_r_out0));
-    const uint16_t cout = pm_face_color565_from_hsv(pm_gfx, 285.f + vo * 45.f, 0.9f, 0.1f + vo * 0.6f);
-    pm_face_draw_radial_annulus_slice(cx, cy, ang, k_r_out0, ro1 > k_r_out0 ? ro1 : k_r_out0 + 1, cout, 2);
-  }
-
-  pm_face_draw_centered_line("IN", cy - 12, pm_gfx->color565(80, 200, 220), 1, 1);
-  pm_face_draw_centered_line("OUT", cy + 22, pm_gfx->color565(220, 120, 200), 1, 1);
+  draw_bar_panel(k_left_x, k_top_y, k_left_w, k_top_h, low, PM_AUDIO_ANALYZER_BANDS, 155.f, grid);
+  draw_bar_panel(k_left_x, k_bot_y, k_left_w, k_bot_h, high, PM_AUDIO_ANALYZER_BANDS, 185.f, grid);
+  draw_bar_panel(k_right_x, k_right_y, k_right_w, k_right_h, out, PM_AUDIO_ANALYZER_BANDS, 285.f, grid);
 }
