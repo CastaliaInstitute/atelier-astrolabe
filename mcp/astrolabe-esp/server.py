@@ -59,6 +59,9 @@ FACE_BY_NAME = {
     "rocket": 12,
     "launch": 12,
     "launchclock": 12,
+    "radar": 13,
+    "presence": 13,
+    "peers": 13,
 }
 FACE_LABELS = (
     "ClassicAnalog",
@@ -74,6 +77,7 @@ FACE_LABELS = (
     "Chakra",
     "TibetanBowl",
     "LaunchClock",
+    "Radar",
 )
 
 

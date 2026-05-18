@@ -1,6 +1,6 @@
 {
   "sketch": "Astrolabe",
-  "face_count": 12,
+  "face_count": 14,
   "center": [233, 233],
   "faces": [
     {
@@ -94,6 +94,36 @@
         "sketches/Astrolabe/pm_speaker.h"
       ],
       "gestures": ["tap:448,233", "swipe_up", "swipe_down", "swipe_left"],
+      "buttons": []
+    },
+    {
+      "id": 12,
+      "name": "rocket",
+      "source_paths": [
+        "sketches/Astrolabe/faces/rocket",
+        "sketches/Astrolabe/pm_rocket.cpp",
+        "sketches/Astrolabe/pm_rocket.h"
+      ],
+      "gestures": ["tap:233,233", "swipe_left"],
+      "buttons": []
+    },
+    {
+      "id": 13,
+      "name": "radar",
+      "source_paths": [
+        "sketches/Astrolabe/faces/radar",
+        "sketches/Astrolabe/pm_presence.cpp",
+        "sketches/Astrolabe/pm_presence.h",
+        "sketches/Astrolabe/pm_presence_adv.cpp",
+        "sketches/Astrolabe/pm_presence_adv.h",
+        "sketches/Astrolabe/pm_motion.cpp",
+        "sketches/Astrolabe/pm_motion.h",
+        "sketches/Astrolabe/pm_presence_graph.cpp",
+        "sketches/Astrolabe/pm_presence_graph.h",
+        "sketches/Astrolabe/pm_presence_locations.cpp",
+        "sketches/Astrolabe/pm_presence_locations.h"
+      ],
+      "gestures": ["swipe_left", "swipe_right", "tap:233,233"],
       "buttons": []
     }
   ]
