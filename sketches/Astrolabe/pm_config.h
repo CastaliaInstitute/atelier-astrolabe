@@ -75,6 +75,10 @@
 #define MYNAH_CALCIFER_POLL_MS 45000u
 #endif
 
+#ifndef MYNAH_WEATHER_POLL_MS
+#define MYNAH_WEATHER_POLL_MS 900000u
+#endif
+
 /** Launch Library 2 poll interval while Rocket face is visible. */
 #ifndef MYNAH_ROCKET_POLL_MS
 #define MYNAH_ROCKET_POLL_MS 120000u

@@ -30,6 +30,8 @@ enum class ClockFace : uint8_t {
   Radar,
   /** ask-faculty conversations; swipe up/down cycles recent faculty. */
   Faculty,
+  /** 24h radial temp + humidity rings; current conditions center. */
+  Weather,
   kNumFaces,
 };
 

@@ -40,6 +40,8 @@
 #include "faces/moon/pm_face_moon.h"
 #include "faces/spotify/pm_face_spotify.h"
 #include "faces/calcifer/pm_face_calcifer.h"
+#include "faces/weather/pm_face_weather.h"
+#include "pm_weather.h"
 #include "faces/spectrum/pm_face_spectrum.h"
 #include "faces/synastry/pm_face_synastry.h"
 #include "faces/radar/pm_face_radar.h"
@@ -110,6 +112,8 @@ static bool s_spotify_have_data = false;
 static uint32_t s_last_spotify_poll_ms = 0;
 
 static uint32_t s_last_calcifer_poll_ms = 0;
+static bool s_weather_have_data = false;
+static uint32_t s_last_weather_poll_ms = 0;
 static uint32_t s_last_rocket_poll_ms = 0;
 
 #ifndef MYNAH_SPOTIFY_POLL_MS
@@ -382,7 +386,8 @@ static bool face_index_from_name(const char *name, int *out) {
            {"bowl", 11},      {"tibetan", 11},    {"tibetan_bowl", 11},
            {"rocket", 12},    {"launch", 12},     {"launchclock", 12},
            {"radar", 13},     {"presence", 13},   {"peers", 13},
-           {"faculty", 14},   {"fac", 14}};
+           {"faculty", 14},   {"fac", 14},
+           {"weather", 15}};
   for (const auto &e : k) {
     if (strcasecmp(name, e.n) == 0) {
       *out = e.idx;
@@ -460,6 +465,7 @@ static void poll_serial_birth_commands() {
           Serial.println("qa: 12 rocket");
           Serial.println("qa: 13 radar");
           Serial.println("qa: 14 faculty");
+          Serial.println("qa: 15 weather");
         } else if (!pm_qa_inject_command(args)) {
           Serial.println("qa: usage: status | faces | inject …");
         }
@@ -481,7 +487,7 @@ static void poll_serial_birth_commands() {
           g_clock_repaint_pending = true;
           Serial.printf("face: %d\n", idx);
         } else {
-          Serial.println("face: usage: face <0-14|name>");
+          Serial.println("face: usage: face <0-15|name>");
         }
       } else if (strcmp(line, "astro") == 0) {
         if (pm_faces_current() != ClockFace::Astrology) {
@@ -968,6 +974,9 @@ void loop() {
       if (pm_faces_current() != ClockFace::CalciferCountdown) {
         s_calcifer_have_data = false;
       }
+      if (pm_faces_current() != ClockFace::Weather) {
+        s_weather_have_data = false;
+      }
       if (pm_faces_current() != ClockFace::Rocket) {
         s_rocket_have_data = false;
         pm_face_rocket_set_stream_qr_visible(false);
@@ -982,6 +991,9 @@ void loop() {
           pm_faces_current() == ClockFace::CalciferCountdown && pm_wifi_connected() && valid &&
           (!s_calcifer_have_data || (now - s_last_calcifer_poll_ms >= MYNAH_CALCIFER_POLL_MS));
 
+      const bool weather_stale =
+          pm_faces_current() == ClockFace::Weather &&
+          (!s_weather_have_data || (now - s_last_weather_poll_ms >= MYNAH_WEATHER_POLL_MS));
       const bool rocket_stale =
           pm_faces_current() == ClockFace::Rocket && pm_wifi_connected() && valid &&
           (!s_rocket_have_data || (now - s_last_rocket_poll_ms >= MYNAH_ROCKET_POLL_MS));
@@ -1022,8 +1034,9 @@ void loop() {
 #endif
       const bool non_gem_paint = !s_clock_paint_inited || slow_no_time || banner_chg || wifi_chg ||
                                  g_clock_repaint_pending || local_hm_chg || spotify_stale || calcifer_stale ||
-                                 rocket_stale || sec_tick_paint || calcifer_sec || rocket_sec || astro_repaint ||
-                                 spectrum_anim || chakra_anim || bowl_anim || radar_anim || faculty_anim;
+                                 weather_stale || rocket_stale || sec_tick_paint || calcifer_sec || rocket_sec ||
+                                 astro_repaint || spectrum_anim || chakra_anim || bowl_anim || radar_anim ||
+                                 faculty_anim;
 #if MYNAH_HUE_HOME_ONLY
       const bool gem_only_paint = gem_pulse_paint && s_clock_paint_inited && !non_gem_paint;
       const bool full_paint = non_gem_paint || gem_pulse_paint;
@@ -1058,6 +1071,13 @@ void loop() {
             (void)pm_calcifer_fetch(&g_calcifer_ui, epoch);
             s_last_calcifer_poll_ms = now;
             s_calcifer_have_data = true;
+          }
+        }
+        if (pm_faces_current() == ClockFace::Weather) {
+          if (!s_weather_have_data || weather_stale) {
+            (void)pm_weather_fetch(&g_weather_ui);
+            s_last_weather_poll_ms = now;
+            s_weather_have_data = true;
           }
         }
         if (pm_faces_current() == ClockFace::Rocket && pm_wifi_connected() && valid) {

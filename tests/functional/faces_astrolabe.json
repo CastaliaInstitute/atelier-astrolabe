@@ -1,6 +1,6 @@
 {
   "sketch": "Astrolabe",
-  "face_count": 15,
+  "face_count": 16,
   "center": [233, 233],
   "faces": [
     {
@@ -136,6 +136,13 @@
       ],
       "gestures": ["swipe_up", "swipe_down", "swipe_left"],
       "buttons": []
+    },
+    {
+      "id": 15,
+      "name": "weather",
+      "source_paths": ["sketches/Astrolabe/faces/weather", "sketches/Astrolabe/pm_weather.cpp"],
+      "gestures": ["swipe_left", "swipe_right", "tap:233,233"],
+      "buttons": ["boot"]
     }
   ]
 }

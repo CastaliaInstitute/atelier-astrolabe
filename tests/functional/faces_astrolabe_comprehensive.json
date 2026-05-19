@@ -1,6 +1,6 @@
 {
   "sketch": "Astrolabe",
-  "face_count": 11,
+  "face_count": 16,
   "center": [233, 233],
   "description": "Full swipe matrix (L/R/U/D) + buttons on every face; crash + screenshot gate.",
   "faces": [
@@ -82,6 +82,64 @@
       "id": 10,
       "name": "chakra",
       "source_paths": ["sketches/Astrolabe/faces/chakra", "sketches/Astrolabe/pm_speaker.cpp"],
+      "gestures": ["swipe_left", "swipe_right", "swipe_up", "swipe_down", "tap:233,233"],
+      "buttons": ["boot"]
+    },
+    {
+      "id": 11,
+      "name": "bowl",
+      "source_paths": [
+        "sketches/Astrolabe/faces/tibetan_bowl",
+        "sketches/Astrolabe/pm_speaker.cpp"
+      ],
+      "gestures": ["tap:448,233", "swipe_left", "swipe_right", "swipe_up", "swipe_down"],
+      "buttons": []
+    },
+    {
+      "id": 12,
+      "name": "rocket",
+      "source_paths": [
+        "sketches/Astrolabe/faces/rocket",
+        "sketches/Astrolabe/pm_rocket.cpp",
+        "sketches/Astrolabe/pm_rocket.h"
+      ],
+      "gestures": ["tap:233,233", "swipe_left", "swipe_right", "swipe_up", "swipe_down"],
+      "buttons": []
+    },
+    {
+      "id": 13,
+      "name": "radar",
+      "source_paths": [
+        "sketches/Astrolabe/faces/radar",
+        "sketches/Astrolabe/pm_presence.cpp",
+        "sketches/Astrolabe/pm_presence.h",
+        "sketches/Astrolabe/pm_presence_adv.cpp",
+        "sketches/Astrolabe/pm_presence_adv.h",
+        "sketches/Astrolabe/pm_motion.cpp",
+        "sketches/Astrolabe/pm_motion.h",
+        "sketches/Astrolabe/pm_presence_graph.cpp",
+        "sketches/Astrolabe/pm_presence_graph.h",
+        "sketches/Astrolabe/pm_presence_locations.cpp",
+        "sketches/Astrolabe/pm_presence_locations.h"
+      ],
+      "gestures": ["swipe_left", "swipe_right", "swipe_up", "swipe_down", "tap:233,233"],
+      "buttons": []
+    },
+    {
+      "id": 14,
+      "name": "faculty",
+      "source_paths": [
+        "sketches/Astrolabe/faces/faculty",
+        "sketches/Astrolabe/pm_faculty.cpp",
+        "sketches/Astrolabe/pm_faculty.h"
+      ],
+      "gestures": ["swipe_up", "swipe_down", "swipe_left", "swipe_right", "tap:233,233"],
+      "buttons": []
+    },
+    {
+      "id": 15,
+      "name": "weather",
+      "source_paths": ["sketches/Astrolabe/faces/weather", "sketches/Astrolabe/pm_weather.cpp"],
       "gestures": ["swipe_left", "swipe_right", "swipe_up", "swipe_down", "tap:233,233"],
       "buttons": ["boot"]
     }

@@ -51,6 +51,9 @@ NAME_TO_IDX = {
     "radar": 13,
     "presence": 13,
     "peers": 13,
+    "faculty": 14,
+    "fac": 14,
+    "weather": 15,
 }
 
 port, face = sys.argv[1], sys.argv[2].strip().lower()
