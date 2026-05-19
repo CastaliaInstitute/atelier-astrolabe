@@ -3,7 +3,7 @@
 #include <cstdint>
 
 /** Total swipeable visualizer modes on the Spectrum face. */
-#define PM_SPECTRUM_VIZ_COUNT 20
+#define PM_SPECTRUM_VIZ_COUNT 17
 
 struct PmSpectrumVizCtx {
   int cx;
