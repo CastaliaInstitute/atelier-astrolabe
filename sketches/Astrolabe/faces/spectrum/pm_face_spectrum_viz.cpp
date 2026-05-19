@@ -4,12 +4,10 @@
 #include <cmath>
 #include <cstring>
 
-#include "faces/moon/pm_moon_draw.h"
 #include "faces/shared/pm_face_draw.h"
 #include "pm_audio_analyzer.h"
 #include "pm_display.h"
 #include "pm_home_gem_pulse.h"
-#include "pm_transit.h"
 #include "pm_wifi_ntp.h"
 
 namespace {
@@ -29,9 +27,6 @@ enum class VizId : uint8_t {
   Plasma,
   Firefly,
   PulseRipple,
-  TransitWheel,
-  AspectMandala,
-  MoonGem,
   Starfield,
   Kaleidoscope,
   Cellular,
@@ -41,8 +36,7 @@ enum class VizId : uint8_t {
 static const char *const k_labels[] = {
     "mandala",    "spectrum",  "scope",     "spectrogram", "petals",   "lissajous",
     "breath",     "halo",      "rose",      "spiro",       "phyllota", "plasma",
-    "firefly",    "ripple",    "transit",   "aspects",     "moon",     "stars",
-    "kaleido",    "cellular",
+    "firefly",    "ripple",    "stars",     "kaleido",     "cellular",
 };
 
 static constexpr int kR_center = 16;
@@ -61,10 +55,6 @@ static float s_ripples[6];
 static uint8_t s_cells[72];
 static bool s_cells_init = false;
 static float s_phy_bright[140];
-
-static float lon_to_ang(double lon_deg) {
-  return static_cast<float>(pm_face_k_pi + lon_deg * (pm_face_k_pi / 180.0));
-}
 
 static void draw_background(int cx, int cy, int R) {
   pm_gfx->fillScreen(pm_gfx->color565(4, 6, 14));
@@ -358,111 +348,6 @@ static void draw_ripples(const PmSpectrumVizCtx &c) {
   }
 }
 
-static bool fetch_transit(PmTransitPositions *tp) {
-  if (!tp) {
-    return false;
-  }
-  struct tm utc = {};
-  if (!pm_time_valid()) {
-    tp->ok = false;
-    return false;
-  }
-  pm_time_utc(&utc);
-  pm_transit_compute_utc(&utc, tp);
-  return tp->ok;
-}
-
-static void draw_transit_wheel(const PmSpectrumVizCtx &c) {
-  PmTransitPositions tp = {};
-  if (!fetch_transit(&tp)) {
-    pm_face_draw_centered_line("need UTC time", c.cy, pm_gfx->color565(140, 150, 170), 1, 1);
-    return;
-  }
-  const int r_outer = c.R - 12;
-  const int r_in = r_outer * 42 / 100;
-  pm_gfx->drawCircle(c.cx, c.cy, r_outer, pm_gfx->color565(55, 62, 78));
-  pm_gfx->drawCircle(c.cx, c.cy, r_in, pm_gfx->color565(40, 46, 60));
-  for (int s = 0; s < 12; ++s) {
-    const float a = static_cast<float>(s) * (pm_face_k_two_pi / 12.f) - pm_face_k_pi * 0.5f;
-    const int x = c.cx + static_cast<int>(cosf(a) * static_cast<float>(r_outer));
-    const int y = c.cy + static_cast<int>(sinf(a) * static_cast<float>(r_outer));
-    pm_gfx->drawLine(c.cx, c.cy, x, y, pm_gfx->color565(70, 78, 96));
-  }
-  static const uint16_t k_cols[kPmBodyCount] = {
-      pm_gfx->color565(255, 210, 90),  pm_gfx->color565(200, 210, 230), pm_gfx->color565(180, 180, 190),
-      pm_gfx->color565(255, 190, 140), pm_gfx->color565(230, 90, 70),   pm_gfx->color565(220, 180, 120),
-      pm_gfx->color565(190, 170, 140),
-  };
-  const int r_plan = r_in + (r_outer - r_in) * 55 / 100;
-  for (int bi = 0; bi < kPmBodyCount; ++bi) {
-    const float ang = lon_to_ang(tp.lon[bi]);
-    const int px = c.cx + static_cast<int>(cosf(ang) * static_cast<float>(r_plan));
-    const int py = c.cy + static_cast<int>(sinf(ang) * static_cast<float>(r_plan));
-    pm_gfx->fillCircle(px, py, bi == kPmBodySun ? 7 : 5, k_cols[bi]);
-  }
-}
-
-static float aspect_delta(double a, double b) {
-  double d = fabs(a - b);
-  while (d >= 180.0) {
-    d -= 180.0;
-  }
-  if (d > 90.0) {
-    d = 180.0 - d;
-  }
-  return static_cast<float>(d);
-}
-
-static void draw_aspect_mandala(const PmSpectrumVizCtx &c) {
-  PmTransitPositions tp = {};
-  if (!fetch_transit(&tp)) {
-    pm_face_draw_centered_line("need UTC time", c.cy, pm_gfx->color565(140, 150, 170), 1, 1);
-    return;
-  }
-  const int r_ring = c.R - 36;
-  float pos_ang[kPmBodyCount];
-  int px[kPmBodyCount];
-  int py[kPmBodyCount];
-  for (int bi = 0; bi < kPmBodyCount; ++bi) {
-    pos_ang[bi] = lon_to_ang(tp.lon[bi]);
-    px[bi] = c.cx + static_cast<int>(cosf(pos_ang[bi]) * static_cast<float>(r_ring));
-    py[bi] = c.cy + static_cast<int>(sinf(pos_ang[bi]) * static_cast<float>(r_ring));
-    pm_gfx->fillCircle(px[bi], py[bi], 4, pm_gfx->color565(200, 205, 220));
-  }
-  static const float k_targets[] = {0.f, 60.f, 90.f, 120.f, 180.f};
-  for (int i = 0; i < kPmBodyCount; ++i) {
-    for (int j = i + 1; j < kPmBodyCount; ++j) {
-      const float d = aspect_delta(tp.lon[i], tp.lon[j]);
-      bool hit = false;
-      for (float tgt : k_targets) {
-        if (fabsf(d - tgt) < 8.f) {
-          hit = true;
-          break;
-        }
-      }
-      if (!hit) {
-        continue;
-      }
-      const uint16_t col = pm_face_color565_from_hsv(pm_gfx, c.hue_base + d + c.hue_spin, 0.55f, 0.35f);
-      pm_gfx->drawLine(px[i], py[i], px[j], py[j], col);
-    }
-  }
-}
-
-static void draw_moon_gem(const PmSpectrumVizCtx &c) {
-  PmTransitPositions tp = {};
-  if (!fetch_transit(&tp)) {
-    pm_face_draw_centered_line("need UTC time", c.cy, pm_gfx->color565(140, 150, 170), 1, 1);
-    return;
-  }
-  draw_spectrum_ring(c, c.R - 6, c.R - 28);
-  float illum = 0.5f;
-  bool waxing = true;
-  if (pm_moon_phase_from_transit(&tp, &illum, &waxing, nullptr)) {
-    pm_moon_draw_disk(pm_gfx, c.cx, c.cy, c.R / 2, illum, waxing, true);
-  }
-}
-
 static void draw_starfield(const PmSpectrumVizCtx &c) {
   const float rot = static_cast<float>(millis()) * 0.00025f;
   constexpr int k_stars = 48;
@@ -661,15 +546,6 @@ void pm_face_spectrum_viz_draw(int mode, const PmSpectrumVizCtx &c) {
     case VizId::PulseRipple:
       draw_ripples(c);
       draw_breath_orb(c);
-      break;
-    case VizId::TransitWheel:
-      draw_transit_wheel(c);
-      break;
-    case VizId::AspectMandala:
-      draw_aspect_mandala(c);
-      break;
-    case VizId::MoonGem:
-      draw_moon_gem(c);
       break;
     case VizId::Starfield:
       draw_starfield(c);
