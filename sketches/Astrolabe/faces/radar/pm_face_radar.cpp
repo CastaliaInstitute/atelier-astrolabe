@@ -20,9 +20,16 @@ static void map_graph_xy(float x_m, float y_m, int rcx, int rcy, float ppm, int 
 void pm_face_radar_on_enter(void) {
   s_last_motion_ms = 0;
   pm_presence_graph_reset();
+  if (!pm_presence_ble_begin()) {
+    pm_presence_seed_demo_peers(millis());
+  }
+  pm_presence_ble_set_radar_active(true);
 }
 
-void pm_face_radar_on_leave(void) {}
+void pm_face_radar_on_leave(void) {
+  pm_presence_ble_set_radar_active(false);
+  pm_presence_ble_end();
+}
 
 void pm_face_radar_tick(uint32_t now_ms) {
   if (s_last_motion_ms == 0) {
@@ -156,7 +163,13 @@ void pm_face_radar_draw(const struct tm *tm, bool valid) {
   pm_gfx->drawCircle(rcx, rcy, 7, RGB565_WHITE);
 
   char footer[48];
-  snprintf(footer, sizeof(footer), "%u node%s %u edge%s", static_cast<unsigned>(n), n == 1 ? "" : "s",
-           static_cast<unsigned>(n_edges), n_edges == 1 ? "" : "s");
+  if (pm_presence_ble_failed()) {
+    snprintf(footer, sizeof(footer), "BLE off · demo layout");
+  } else if (!pm_presence_ble_is_ready()) {
+    snprintf(footer, sizeof(footer), "BLE starting…");
+  } else {
+    snprintf(footer, sizeof(footer), "%u node%s %u edge%s", static_cast<unsigned>(n), n == 1 ? "" : "s",
+             static_cast<unsigned>(n_edges), n_edges == 1 ? "" : "s");
+  }
   pm_face_draw_centered_line(footer, 318, c_label, 1, 1);
 }

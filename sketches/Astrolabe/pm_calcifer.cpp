@@ -6,10 +6,10 @@
 #include <cstdio>
 #include <cstring>
 
-#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "pm_castalia_auth.h"
 #include "pm_config.h"
+#include "pm_heap.h"
 
 static const char *TAG = "pm_calcifer";
 
@@ -132,6 +132,10 @@ bool pm_calcifer_fetch(PmCalciferStatus *out, time_t epoch_seconds) {
     snprintf(out->error, sizeof(out->error), "Supabase not configured");
     return false;
   }
+  if (!pm_heap_tls_ready(MYNAH_FACE_FETCH_MIN_HEAP, "calcifer")) {
+    snprintf(out->error, sizeof(out->error), "low memory");
+    return false;
+  }
 
   if (epoch_seconds <= 0) {
     epoch_seconds = time(nullptr);
@@ -168,11 +172,7 @@ bool pm_calcifer_fetch(PmCalciferStatus *out, time_t epoch_seconds) {
     return false;
   }
 
-  char *resp = static_cast<char *>(
-      heap_caps_malloc(static_cast<size_t>(streamLen) + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-  if (!resp) {
-    resp = static_cast<char *>(malloc(static_cast<size_t>(streamLen) + 1));
-  }
+  char *resp = static_cast<char *>(pm_heap_alloc_response(static_cast<size_t>(streamLen) + 1));
   if (!resp) {
     http.end();
     snprintf(out->error, sizeof(out->error), "alloc");

@@ -19,6 +19,7 @@ Add `astrolabe-esp` to **`~/.cursor/mcp.json`** (see `./install-cursor-mcp.sh` f
 | **`astrolabe_monitor`** | Alias for serial monitor. |
 | **`astrolabe_jtag_openocd`** | OpenOCD adapter log only (link bring-up). |
 | **`astrolabe_jtag_gdb`** | Halt / backtrace / inject via GDB (needs `waveshare_s3_175_debug` ELF). |
+| **`astrolabe_console_review`** | **Preferred:** serial capture + triage → `artifacts/monitor/latest.log` + `latest-review.json`. |
 | **`astrolabe_console_monitor`** | Serial capture **and** short OpenOCD log in parallel. |
 | **`astrolabe_debug_gdb`** | Low-level GDB batch (custom commands). |
 | **`astrolabe_debug_set_face`** | JTAG: set `s_clock_face` (0–7 or `astro`, `moon`, …) + repaint. |
@@ -39,7 +40,8 @@ Add `astrolabe-esp` to **`~/.cursor/mcp.json`** (see `./install-cursor-mcp.sh` f
 
 ```bash
 ./scripts/monitor_serial.sh          # live pio monitor
-./scripts/monitor_capture.sh 60      # log to artifacts/monitor/
+./scripts/console_review.sh 30       # capture + triage → artifacts/monitor/latest.*
+./scripts/monitor_capture.sh 60      # raw log to artifacts/monitor/
 ./scripts/monitor_jtag_gdb.sh        # pio debug
 ```
 

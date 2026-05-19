@@ -32,6 +32,12 @@ bool pm_voice_begin_message(const char *message, const char *system_instruction,
 bool pm_voice_begin_pcm(const uint8_t *pcm, size_t pcm_len, const char *system_instruction, PmVoiceResult *r);
 /** Non-blocking `voice-pipeline` with `face=clock_agenda` (spoken CalDAV brief). */
 bool pm_voice_begin_clock_agenda(PmVoiceResult *r);
+/** Non-blocking daily briefing (`face=daily_briefing`, raw MP3 response). */
+bool pm_voice_begin_daily_briefing(PmVoiceResult *r);
+/** True when the last daily briefing played audio over HTTP while downloading (no r->mp3 buffer). */
+bool pm_voice_daily_briefing_streamed(void);
+/** True while daily briefing is actively decoding/playing the HTTP MPEG body. */
+bool pm_voice_daily_briefing_streaming_play(void);
 PmVoiceStatus pm_voice_poll(void);
 
 /** Unblock UI if voice_net is stuck (HTTP still runs until it finishes). */

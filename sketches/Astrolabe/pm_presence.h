@@ -21,8 +21,22 @@ constexpr size_t kPmPresenceMaxPeers = 8;
 
 uint32_t pm_presence_self_id(void);
 
-/** Initialize BLE advertise + scan (no-op stub on QEMU). */
+/** Self id + location catalog. */
 bool pm_presence_begin(void);
+
+/** Call once in setup before WiFi (BT controller must start before WiFi for coex). */
+/** Start BLE advertise + scan when Radar face opens (no-op stub on QEMU). */
+bool pm_presence_ble_begin(void);
+bool pm_presence_ble_is_ready(void);
+bool pm_presence_ble_failed(void);
+
+/** Start/stop scan+advertise while the Radar face is visible (avoids BLE callbacks during other faces). */
+void pm_presence_ble_set_radar_active(bool active);
+/** Stop BLE and return controller/host heap after leaving Radar. Reinitialized on next Radar entry. */
+void pm_presence_ble_end(void);
+
+/** Demo peers for QEMU or when BLE init fails (radar UI still usable). */
+void pm_presence_seed_demo_peers(uint32_t now_ms);
 
 /** Poll scan results, refresh advertisement payload, expire stale peers. */
 void pm_presence_tick(uint32_t now_ms);

@@ -3,16 +3,17 @@
 #include <Arduino_GFX_Library.h>
 #include <HTTPClient.h>
 #include <JPEGDEC.h>
+#include <WiFiClient.h>
 #include <WiFiClientSecure.h>
 #include <cstdio>
 #include <cstring>
 #include <time.h>
 
-#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "pin_config.h"
 #include "pm_config.h"
 #include "pm_display.h"
+#include "pm_heap.h"
 
 static const char *TAG = "pm_rocket";
 
@@ -272,6 +273,9 @@ static bool http_download_binary(const char *url, uint8_t **out_buf, size_t *out
   }
   *out_buf = nullptr;
   *out_len = 0;
+  if (!pm_heap_tls_ready(MYNAH_ROCKET_MIN_FETCH_HEAP, "rocket image")) {
+    return false;
+  }
 
   WiFiClientSecure client;
   client.setInsecure();
@@ -291,11 +295,7 @@ static bool http_download_binary(const char *url, uint8_t **out_buf, size_t *out
     return false;
   }
 
-  uint8_t *buf = static_cast<uint8_t *>(
-      heap_caps_malloc(static_cast<size_t>(len), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-  if (!buf) {
-    buf = static_cast<uint8_t *>(malloc(static_cast<size_t>(len)));
-  }
+  uint8_t *buf = static_cast<uint8_t *>(pm_heap_alloc_response(static_cast<size_t>(len)));
   if (!buf) {
     http.end();
     return false;
@@ -383,10 +383,7 @@ static bool pad_decode_jpeg(const uint8_t *data, size_t len) {
   s_pad_w = w;
   s_pad_h = h;
   const size_t px = static_cast<size_t>(w) * static_cast<size_t>(h);
-  s_pad_fb = static_cast<uint16_t *>(heap_caps_malloc(px * sizeof(uint16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-  if (!s_pad_fb) {
-    s_pad_fb = static_cast<uint16_t *>(malloc(px * sizeof(uint16_t)));
-  }
+  s_pad_fb = static_cast<uint16_t *>(pm_heap_alloc_response(px * sizeof(uint16_t)));
   if (!s_pad_fb) {
     jpg.close();
     pad_image_free_fb();
@@ -530,11 +527,7 @@ static bool read_http_body(HTTPClient &http, int streamLen, char **out_resp, siz
   if (!out_resp || !out_rd || streamLen <= 0) {
     return false;
   }
-  char *resp = static_cast<char *>(
-      heap_caps_malloc(static_cast<size_t>(streamLen) + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-  if (!resp) {
-    resp = static_cast<char *>(malloc(static_cast<size_t>(streamLen) + 1));
-  }
+  char *resp = static_cast<char *>(pm_heap_alloc_response(static_cast<size_t>(streamLen) + 1));
   if (!resp) {
     return false;
   }
@@ -568,6 +561,9 @@ static bool fetch_launch_detail(PmRocketLaunch *launch) {
 
   char url[120];
   snprintf(url, sizeof(url), "https://ll.thespacedevs.com/2.2.0/launch/%s/", launch->id);
+  if (!pm_heap_tls_ready(MYNAH_ROCKET_MIN_FETCH_HEAP, "rocket detail")) {
+    return false;
+  }
 
   WiFiClientSecure client;
   client.setInsecure();
@@ -685,6 +681,11 @@ bool pm_rocket_fetch(PmRocketStatus *out) {
     return false;
   }
   memset(out, 0, sizeof(*out));
+  if (!pm_heap_tls_ready(MYNAH_ROCKET_MIN_FETCH_HEAP, "rocket")) {
+    snprintf(out->error, sizeof(out->error), "low memory");
+    pm_rocket_pad_image_release();
+    return false;
+  }
 
   WiFiClientSecure client;
   client.setInsecure();
@@ -705,11 +706,7 @@ bool pm_rocket_fetch(PmRocketStatus *out) {
     return false;
   }
 
-  char *resp = static_cast<char *>(
-      heap_caps_malloc(static_cast<size_t>(streamLen) + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-  if (!resp) {
-    resp = static_cast<char *>(malloc(static_cast<size_t>(streamLen) + 1));
-  }
+  char *resp = static_cast<char *>(pm_heap_alloc_response(static_cast<size_t>(streamLen) + 1));
   if (!resp) {
     http.end();
     snprintf(out->error, sizeof(out->error), "alloc");

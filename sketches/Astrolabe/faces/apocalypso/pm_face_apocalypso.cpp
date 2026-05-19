@@ -6,8 +6,7 @@
 #include "pm_display.h"
 
 void pm_face_apocalypso_draw(const struct tm *tm, bool valid) {
-  (void)tm;
-  (void)valid;
+  pm_gfx->fillScreen(pm_gfx->color565(8, 10, 18));
 
   const uint16_t c_ring = pm_gfx->color565(55, 65, 82);
   const uint16_t c_spoke = pm_gfx->color565(72, 84, 102);
@@ -34,7 +33,9 @@ void pm_face_apocalypso_draw(const struct tm *tm, bool valid) {
 
   const int rcx = LCD_WIDTH / 2;
   const int rcy = LCD_HEIGHT / 2;
-  const int rmax = 120;
+  const int R = min(LCD_WIDTH, LCD_HEIGHT) / 2;
+  /** Full-disk chart: outer axis labels sit ~36 px outside rmax. */
+  const int rmax = R - 44;
   constexpr int k_axes = 12;
 
   char ttop[8];
@@ -44,8 +45,8 @@ void pm_face_apocalypso_draw(const struct tm *tm, bool valid) {
     snprintf(ttop, sizeof(ttop), "%s", "--:--");
   }
   const uint16_t c_green = pm_gfx->color565(0x56, 0xd3, 0x64);
-  pm_face_draw_centered_line(ttop, 66, c_green, 1, 1);
-  pm_face_draw_centered_line("RISK PROFILE", 86, c_pct, 1, 1);
+  pm_face_draw_centered_line(ttop, 18, c_green, 1, 1);
+  pm_face_draw_centered_line("RISK PROFILE", 34, c_pct, 1, 1);
 
   for (int ring = 1; ring <= 5; ++ring) {
     const int rr = (rmax * ring) / 5;

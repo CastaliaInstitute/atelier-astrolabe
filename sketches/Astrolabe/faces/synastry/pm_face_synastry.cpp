@@ -316,7 +316,7 @@ bool pm_face_synastry_build_voice_message(char *buf, size_t cap) {
   }
   size_t off = 0;
   if (!append_text(buf, cap, &off,
-                   "Pocket Mynah synastry snapshot. Positions use Castalia ephemeris server data when online, "
+                   "Mynah Astrolabe synastry snapshot. Positions use Castalia ephemeris server data when online, "
                    "with local ephemeris fallback. User birth: %04u-%02u-%02u %02u:%02u local at %s. "
                    "Target: %s (%s), %04u-%02u-%02u %02u:%02u local at %s. ",
                    s_user_birth.year, s_user_birth.month, s_user_birth.day, s_user_birth.hour,

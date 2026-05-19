@@ -4,6 +4,7 @@
 #include <HTTPClient.h>
 #include <JPEGDEC.h>
 #include <Preferences.h>
+#include <WiFiClient.h>
 #include <WiFiClientSecure.h>
 #include <ctype.h>
 #include <math.h>
@@ -12,13 +13,13 @@
 #include <string.h>
 #include <strings.h>
 
-#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "pin_config.h"
 #include "pm_castalia_auth.h"
 #include "pm_config.h"
+#include "pm_heap.h"
 #include "pm_display.h"
 #include "pm_wifi_ntp.h"
 
@@ -404,7 +405,7 @@ bool pm_faculty_build_history(char *out, size_t cap) {
 
 void pm_faculty_ensure_seed(void) {
   static bool s_seed_checked = false;
-  if (s_seed_checked && pm_faculty_count() > 0) {
+  if (s_seed_checked) {
     return;
   }
   s_seed_checked = true;
@@ -495,10 +496,7 @@ static bool read_binary_body(HTTPClient *http, uint8_t **out, size_t *out_len) {
     return false;
   }
   const size_t cap = declared > 0 ? static_cast<size_t>(declared) : kBustMaxBytes;
-  uint8_t *buf = static_cast<uint8_t *>(heap_caps_malloc(cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-  if (!buf) {
-    buf = static_cast<uint8_t *>(malloc(cap));
-  }
+  uint8_t *buf = static_cast<uint8_t *>(pm_heap_alloc_response(cap));
   if (!buf) {
     bust_set_error("oom bust");
     return false;
@@ -630,6 +628,10 @@ bool pm_faculty_tick_bust_fetch(void) {
   if (!pm_wifi_connected()) {
     return false;
   }
+  if (!pm_heap_tls_ready(MYNAH_FACULTY_MIN_FETCH_HEAP, "faculty")) {
+    bust_set_error("low memory");
+    return false;
+  }
   bust_task_ensure();
   if (!s_bust_task) {
     return false;
@@ -670,6 +672,20 @@ static void bust_free_decoded(void) {
   s_decoded_slug[0] = '\0';
 }
 
+void pm_faculty_release_bust_cache(void) {
+  bust_free_decoded();
+  if (s_bust_status == PmFacultyBustStatus::Working) {
+    return;
+  }
+  free(s_bust_bytes);
+  s_bust_bytes = nullptr;
+  s_bust_len = 0;
+  s_bust_slug[0] = '\0';
+  s_bust_req_slug[0] = '\0';
+  s_bust_done = false;
+  s_bust_status = PmFacultyBustStatus::Idle;
+}
+
 static int bust_jpeg_draw(JPEGDRAW *pDraw) {
   if (!s_decoded_fb || s_decoded_w <= 0 || s_decoded_h <= 0 || !pDraw) {
     return 0;
@@ -703,10 +719,7 @@ static bool bust_try_decode_for_slug(const char *slug) {
   s_decoded_w = w;
   s_decoded_h = h;
   const size_t px = static_cast<size_t>(w) * static_cast<size_t>(h);
-  s_decoded_fb = static_cast<uint16_t *>(heap_caps_malloc(px * sizeof(uint16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-  if (!s_decoded_fb) {
-    s_decoded_fb = static_cast<uint16_t *>(malloc(px * sizeof(uint16_t)));
-  }
+  s_decoded_fb = static_cast<uint16_t *>(pm_heap_alloc_response(px * sizeof(uint16_t)));
   if (!s_decoded_fb) {
     jpg.close();
     bust_free_decoded();

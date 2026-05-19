@@ -5,8 +5,10 @@
 #include <cstring>
 
 #include "Arduino_GFX_Library.h"
+#include "esp32-hal-tinyusb.h"
 #include "esp_heap_caps.h"
 
+#include "pm_log.h"
 #include "pm_wifi_ntp.h"
 
 static WebServer s_server(80);
@@ -30,10 +32,56 @@ static void handle_root() {
       "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" "
       "content=\"width=device-width,initial-scale=1\"><title>Astrolabe</title></head>"
       "<body style=\"margin:0;background:#111;color:#ccc;font-family:system-ui,sans-serif;\">"
-      "<p style=\"padding:10px;\">Frame grab: <a href=\"/screen.bmp\" style=\"color:#8cf\">screen.bmp</a></p>"
+      "<p style=\"padding:10px;\">Astrolabe: <a href=\"http://astrolabe.local/\" style=\"color:#8cf\">astrolabe.local</a> "
+      "| <a href=\"/screen.bmp\" style=\"color:#8cf\">screen.bmp</a> "
+      "| <a href=\"/logs\" style=\"color:#8cf\">logs</a></p>"
       "<img src=\"/screen.bmp\" style=\"width:100%;max-width:466px;height:auto;display:block;margin:0 auto;\" "
       "alt=\"screen\"></body></html>";
   s_server.send_P(200, "text/html", kHtml);
+}
+
+static void http_send_log_chunk(const char *data, size_t len) {
+  if (data && len > 0) {
+    s_server.sendContent(data, len);
+  }
+}
+
+static void handle_logs_txt() {
+  if (!pm_wifi_connected()) {
+    s_server.send(503, "text/plain", "logs unavailable");
+    return;
+  }
+  s_server.setContentLength(CONTENT_LENGTH_UNKNOWN);
+  s_server.send(200, "text/plain", "");
+  pm_log_stream_to_http(http_send_log_chunk);
+  s_server.sendContent("");
+}
+
+static void handle_logs() {
+  if (!pm_wifi_connected()) {
+    s_server.send(503, "text/plain", "logs unavailable");
+    return;
+  }
+  s_server.setContentLength(CONTENT_LENGTH_UNKNOWN);
+  s_server.send(200, "text/html; charset=utf-8", "");
+  s_server.sendContent(
+      "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" "
+      "content=\"width=device-width,initial-scale=1\"><meta http-equiv=\"refresh\" content=\"2\">"
+      "<title>Astrolabe Logs</title></head><body style=\"margin:0;background:#0b0c10;color:#d7dde8;"
+      "font:13px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;\">"
+      "<div style=\"position:sticky;top:0;background:#151821;padding:8px 10px;\">"
+      "<a href=\"/\" style=\"color:#8cf\">screen</a> <a href=\"/logs.txt\" style=\"color:#8cf\">logs.txt</a>"
+      "</div><pre style=\"white-space:pre-wrap;margin:0;padding:10px;\">");
+  pm_log_stream_to_http(http_send_log_chunk);
+  s_server.sendContent("</pre></body></html>");
+  s_server.sendContent("");
+}
+
+static void handle_bootloader() {
+  pm_log_printf(false, "http: entering USB CDC bootloader");
+  s_server.send(200, "text/plain", "entering bootloader\n");
+  delay(100);
+  usb_persist_restart(RESTART_BOOTLOADER);
 }
 
 static void handle_screen_bmp() {
@@ -128,9 +176,15 @@ void pm_screen_http_begin(Arduino_Canvas *canvas) {
   }
   s_server.on("/", HTTP_GET, handle_root);
   s_server.on("/screen.bmp", HTTP_GET, handle_screen_bmp);
+  s_server.on("/logs", HTTP_GET, handle_logs);
+  s_server.on("/logs.txt", HTTP_GET, handle_logs_txt);
+  s_server.on("/bootloader", HTTP_POST, handle_bootloader);
   s_server.begin();
   s_http_started = true;
-  Serial.printf("Screen over WiFi: http://%s/  (GET /screen.bmp)\n", WiFi.localIP().toString().c_str());
+  pm_log_printf(false, "http: ready http://%s/ ip=%s", pm_wifi_mdns_name(),
+                WiFi.localIP().toString().c_str());
+  Serial.printf("Screen over WiFi: http://%s/ or http://%s/  (GET /screen.bmp)\n",
+                pm_wifi_mdns_name(), WiFi.localIP().toString().c_str());
 }
 
 void pm_screen_http_loop() {

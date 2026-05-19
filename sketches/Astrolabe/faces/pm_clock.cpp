@@ -2,6 +2,7 @@
 
 #include <Arduino_GFX_Library.h>
 #include <cmath>
+#include <cstring>
 #include <ctime>
 
 #include "faces/apocalypso/pm_face_apocalypso.h"
@@ -23,9 +24,16 @@
 #include "faces/weather/pm_face_weather.h"
 #include "pm_config.h"
 #include "pm_display.h"
+#include "pm_ephemeris.h"
+#include "pm_faculty.h"
+#include "pm_settings.h"
 #include "pm_wifi_ntp.h"
 
 extern char g_gesture_banner[44];
+
+static bool pm_faces_skip_in_dial(ClockFace face) {
+  return face == ClockFace::Castalia || face == ClockFace::Settings;
+}
 
 static ClockFace s_clock_face = ClockFace::ClassicAnalog;
 static uint16_t s_clock_bg565 = 0;
@@ -43,36 +51,103 @@ static float pm_faces_home_hue_deg(void) {
   return fmodf(static_cast<float>(millis()) * 0.0015f, 360.0f);
 }
 
-ClockFace pm_faces_current(void) { return s_clock_face; }
-void pm_faces_set(ClockFace face) {
-  if (s_clock_face == ClockFace::Chakra && face != ClockFace::Chakra) {
-    pm_face_chakra_stop();
+static void pm_faces_on_leave(ClockFace from, ClockFace to) {
+  (void)to;
+  switch (from) {
+    case ClockFace::Spotify:
+      memset(&g_spotify_ui, 0, sizeof(g_spotify_ui));
+      break;
+    case ClockFace::Astrology:
+    case ClockFace::Synastry:
+      pm_ephemeris_release_cache();
+      break;
+    case ClockFace::CalciferCountdown:
+      memset(&g_calcifer_ui, 0, sizeof(g_calcifer_ui));
+      s_calcifer_have_data = false;
+      break;
+    case ClockFace::Spectrum:
+      pm_face_spectrum_on_leave();
+      break;
+    case ClockFace::Chakra:
+      pm_face_chakra_stop();
+      break;
+    case ClockFace::TibetanBowl:
+      pm_face_tibetan_bowl_stop();
+      break;
+    case ClockFace::Rocket:
+      memset(&g_rocket_ui, 0, sizeof(g_rocket_ui));
+      s_rocket_have_data = false;
+      pm_face_rocket_set_stream_qr_visible(false);
+      pm_rocket_pad_image_release();
+      break;
+    case ClockFace::Radar:
+      pm_face_radar_on_leave();
+      break;
+    case ClockFace::Faculty:
+      pm_faculty_release_bust_cache();
+      break;
+    case ClockFace::Weather:
+      memset(&g_weather_ui, 0, sizeof(g_weather_ui));
+      break;
+    default:
+      break;
   }
-  if (s_clock_face == ClockFace::TibetanBowl && face != ClockFace::TibetanBowl) {
-    pm_face_tibetan_bowl_stop();
-  }
-  s_clock_face = face;
 }
 
-static void pm_faces_radar_leave_if_needed(ClockFace from, ClockFace to) {
-  if (from == ClockFace::Radar && to != ClockFace::Radar) {
-    pm_face_radar_on_leave();
+static void pm_faces_on_enter(ClockFace face, ClockFace from) {
+  (void)from;
+  switch (face) {
+    case ClockFace::Spectrum:
+      pm_face_spectrum_on_enter();
+      break;
+    case ClockFace::Radar:
+      pm_face_radar_on_enter();
+      break;
+    case ClockFace::Faculty:
+      break;
+    default:
+      break;
   }
+}
+
+static void pm_faces_transition_to(ClockFace face) {
+  const ClockFace prev = s_clock_face;
+  if (prev == face) {
+    return;
+  }
+  pm_faces_on_leave(prev, face);
+  s_clock_face = face;
+  pm_faces_on_enter(face, prev);
+}
+
+ClockFace pm_faces_current(void) { return s_clock_face; }
+void pm_faces_set(ClockFace face) {
+  if (face == ClockFace::Castalia) {
+    face = ClockFace::Settings;
+    pm_settings_set_page(SettingsPage::Castalia);
+  }
+  pm_faces_transition_to(face);
+}
+
+void pm_faces_open_settings(void) {
+  pm_settings_set_page(SettingsPage::WiFi);
+  pm_faces_set(ClockFace::Settings);
+}
+
+bool pm_faces_castalia_active(void) {
+  return s_clock_face == ClockFace::Settings && pm_settings_page() == SettingsPage::Castalia;
 }
 
 void pm_faces_cycle(int delta) {
-  const ClockFace prev = s_clock_face;
-  if (s_clock_face == ClockFace::Chakra) {
-    pm_face_chakra_stop();
+  if (s_clock_face == ClockFace::Settings) {
+    return;
   }
-  if (s_clock_face == ClockFace::TibetanBowl) {
-    pm_face_tibetan_bowl_stop();
-  }
-  int v = static_cast<int>(s_clock_face) + delta;
+  int v = static_cast<int>(s_clock_face);
   const int n = static_cast<int>(ClockFace::kNumFaces);
-  v = (v % n + n) % n;
-  s_clock_face = static_cast<ClockFace>(v);
-  pm_faces_radar_leave_if_needed(prev, s_clock_face);
+  do {
+    v = (v + delta + n) % n;
+  } while (pm_faces_skip_in_dial(static_cast<ClockFace>(v)));
+  pm_faces_transition_to(static_cast<ClockFace>(v));
 }
 
 
@@ -89,10 +164,11 @@ void pm_faces_draw(float thinking_progress) {
                        : fmodf(static_cast<float>(millis()) * 0.0015f, 360.0f);
   const uint16_t bg_hsv = pm_face_color565_from_hsv(pm_gfx, hue, pm_face_hsv_s, pm_face_hsv_v);
   uint16_t bg = bg_hsv;
-  if (s_clock_face != ClockFace::CalciferCountdown && s_clock_face != ClockFace::Spectrum &&
-      s_clock_face != ClockFace::Chakra && s_clock_face != ClockFace::TibetanBowl &&
-      s_clock_face != ClockFace::Rocket && s_clock_face != ClockFace::Radar &&
-      s_clock_face != ClockFace::Faculty && s_clock_face != ClockFace::Weather) {
+  if (s_clock_face != ClockFace::Apocalypso && s_clock_face != ClockFace::CalciferCountdown &&
+      s_clock_face != ClockFace::Spectrum && s_clock_face != ClockFace::Chakra &&
+      s_clock_face != ClockFace::TibetanBowl && s_clock_face != ClockFace::Rocket &&
+      s_clock_face != ClockFace::Radar && s_clock_face != ClockFace::Faculty &&
+      s_clock_face != ClockFace::Weather) {
 #if MYNAH_HUE_HOME_ONLY
     if (s_clock_face == ClockFace::ClassicAnalog) {
       bg = pm_face_draw_home_gem_glow(hue);
@@ -127,7 +203,11 @@ void pm_faces_draw(float thinking_progress) {
       pm_face_calcifer_draw();
       break;
     case ClockFace::Castalia:
-      pm_face_castalia_draw();
+      pm_settings_set_page(SettingsPage::Castalia);
+      pm_settings_draw();
+      break;
+    case ClockFace::Settings:
+      pm_settings_draw();
       break;
     case ClockFace::Synastry:
       pm_face_synastry_draw(&tm, pm_time_valid());
@@ -167,10 +247,11 @@ void pm_faces_draw(float thinking_progress) {
   const int banner_y = (s_clock_face == ClockFace::Apocalypso || s_clock_face == ClockFace::Spotify ||
                         s_clock_face == ClockFace::Astrology || s_clock_face == ClockFace::Moon ||
                         s_clock_face == ClockFace::CalciferCountdown || s_clock_face == ClockFace::Castalia ||
-                        s_clock_face == ClockFace::Synastry || s_clock_face == ClockFace::Spectrum ||
-                        s_clock_face == ClockFace::Chakra || s_clock_face == ClockFace::TibetanBowl ||
-                        s_clock_face == ClockFace::Rocket || s_clock_face == ClockFace::Radar ||
-                        s_clock_face == ClockFace::Faculty || s_clock_face == ClockFace::Weather)
+                        s_clock_face == ClockFace::Settings || s_clock_face == ClockFace::Synastry ||
+                        s_clock_face == ClockFace::Spectrum || s_clock_face == ClockFace::Chakra ||
+                        s_clock_face == ClockFace::TibetanBowl || s_clock_face == ClockFace::Rocket ||
+                        s_clock_face == ClockFace::Radar || s_clock_face == ClockFace::Faculty ||
+                        s_clock_face == ClockFace::Weather)
                            ? 352
                            : 320;
   if (MYNAH_DEBUG_GESTURES && g_gesture_banner[0] != '\0') {
@@ -178,7 +259,8 @@ void pm_faces_draw(float thinking_progress) {
   }
 
   /** Rainbow annulus last (Moon/Daywheel draw their own; skip Castalia — QR repaint was tripping WDT/stack). */
-  if (s_clock_face != ClockFace::Castalia && s_clock_face != ClockFace::Moon &&
+  if (!pm_faces_castalia_active() && s_clock_face != ClockFace::Moon &&
+      s_clock_face != ClockFace::Apocalypso && s_clock_face != ClockFace::Spotify &&
       s_clock_face != ClockFace::CalciferCountdown && s_clock_face != ClockFace::Spectrum &&
       s_clock_face != ClockFace::TibetanBowl && s_clock_face != ClockFace::Rocket &&
       s_clock_face != ClockFace::Radar && s_clock_face != ClockFace::Faculty &&
@@ -213,19 +295,19 @@ bool pm_faces_banner_low(void) {
   const ClockFace f = s_clock_face;
   return f == ClockFace::Apocalypso || f == ClockFace::Spotify || f == ClockFace::Astrology ||
          f == ClockFace::Moon || f == ClockFace::CalciferCountdown || f == ClockFace::Castalia ||
-         f == ClockFace::Synastry || f == ClockFace::Spectrum || f == ClockFace::Chakra ||
-         f == ClockFace::TibetanBowl || f == ClockFace::Rocket || f == ClockFace::Radar ||
-         f == ClockFace::Faculty || f == ClockFace::Weather;
+         f == ClockFace::Settings || f == ClockFace::Synastry || f == ClockFace::Spectrum ||
+         f == ClockFace::Chakra || f == ClockFace::TibetanBowl || f == ClockFace::Rocket ||
+         f == ClockFace::Radar || f == ClockFace::Faculty || f == ClockFace::Weather;
 }
 
 uint16_t pm_faces_last_bg565(void) { return s_clock_bg565; }
 
 bool pm_faces_local_hm_changed(int hour, int min) {
-  if (s_clock_face == ClockFace::Castalia || s_clock_face == ClockFace::Synastry ||
-      s_clock_face == ClockFace::Spectrum || s_clock_face == ClockFace::Chakra ||
-      s_clock_face == ClockFace::TibetanBowl || s_clock_face == ClockFace::Rocket ||
-      s_clock_face == ClockFace::Radar || s_clock_face == ClockFace::Faculty ||
-      s_clock_face == ClockFace::Weather) {
+  if (s_clock_face == ClockFace::Settings || s_clock_face == ClockFace::Castalia ||
+      s_clock_face == ClockFace::Synastry || s_clock_face == ClockFace::Spectrum ||
+      s_clock_face == ClockFace::Chakra || s_clock_face == ClockFace::TibetanBowl ||
+      s_clock_face == ClockFace::Rocket || s_clock_face == ClockFace::Radar ||
+      s_clock_face == ClockFace::Faculty || s_clock_face == ClockFace::Weather) {
     return false;
   }
   return s_analog_saved_local_h < 0 || hour != s_analog_saved_local_h || min != s_analog_saved_local_m;

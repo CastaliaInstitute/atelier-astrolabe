@@ -1,17 +1,18 @@
 #include "pm_weather.h"
 
 #include <HTTPClient.h>
+#include <WiFiClient.h>
 #include <WiFiClientSecure.h>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <ctime>
 
-#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "pm_castalia_auth.h"
 #include "pm_config.h"
 #include "pm_geo_tz.h"
+#include "pm_heap.h"
 #include "pm_wifi_ntp.h"
 
 static const char *TAG = "pm_weather";
@@ -223,6 +224,11 @@ bool pm_weather_fetch(PmWeatherStatus *out) {
     pm_weather_fill_demo(out, local_hour);
     return out->ok;
   }
+  if (!pm_heap_tls_ready(MYNAH_FACE_FETCH_MIN_HEAP, "weather")) {
+    snprintf(out->error, sizeof(out->error), "low memory");
+    pm_weather_fill_demo(out, local_hour);
+    return out->ok;
+  }
 
   char base[160];
   strncpy(base, MYNAH_SUPABASE_URL, sizeof(base) - 1);
@@ -258,11 +264,7 @@ bool pm_weather_fetch(PmWeatherStatus *out) {
     return out->ok;
   }
 
-  char *resp = static_cast<char *>(
-      heap_caps_malloc(static_cast<size_t>(streamLen) + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-  if (!resp) {
-    resp = static_cast<char *>(malloc(static_cast<size_t>(streamLen) + 1));
-  }
+  char *resp = static_cast<char *>(pm_heap_alloc_response(static_cast<size_t>(streamLen) + 1));
   if (!resp) {
     http.end();
     snprintf(out->error, sizeof(out->error), "alloc");

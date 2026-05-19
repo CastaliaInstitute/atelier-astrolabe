@@ -39,6 +39,8 @@ bool pm_faculty_bust_animating(void);
 void pm_faculty_draw_bust(void);
 /** Call when the active faculty slug changes (cycle / set active). */
 void pm_faculty_on_active_changed(void);
+/** Release cached portrait bytes/decoded framebuffer when leaving Faculty. */
+void pm_faculty_release_bust_cache(void);
 PmFacultyBustStatus pm_faculty_bust_status(void);
 const char *pm_faculty_bust_slug(void);
 size_t pm_faculty_bust_size(void);

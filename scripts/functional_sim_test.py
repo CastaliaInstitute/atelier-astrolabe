@@ -28,7 +28,7 @@ CRASH_PATTERNS = [
 ]
 
 READY_PATTERNS = [
-    re.compile(r"PocketMynah MVP ready", re.I),
+    re.compile(r"Mynah Astrolabe ready", re.I),
     re.compile(r"Astrolabe ready", re.I),
 ]
 

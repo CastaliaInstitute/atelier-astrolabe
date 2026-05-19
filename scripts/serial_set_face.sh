@@ -21,7 +21,7 @@ import time
 
 import serial
 
-# Keep in sync with pm_faces_index_from_name() in faces/pm_clock.cpp
+# Keep in sync with face_index_from_name() in sketches/Astrolabe/Astrolabe.ino.
 NAME_TO_IDX = {
     "classic": 0,
     "hue": 0,
@@ -35,25 +35,29 @@ NAME_TO_IDX = {
     "calcifer": 6,
     "schedule": 6,
     "castalia": 7,
-    "syn": 8,
-    "synastry": 8,
-    "spectrum": 9,
-    "fft": 9,
-    "audio": 9,
-    "sound": 9,
-    "chakra": 10,
-    "bowl": 11,
-    "tibetan": 11,
-    "tibetan_bowl": 11,
-    "rocket": 12,
-    "launch": 12,
-    "launchclock": 12,
-    "radar": 13,
-    "presence": 13,
-    "peers": 13,
-    "faculty": 14,
-    "fac": 14,
-    "weather": 15,
+    "settings": 8,
+    "wifi": 8,
+    "syn": 9,
+    "synastry": 9,
+    "spectrum": 10,
+    "fft": 10,
+    "audio": 10,
+    "sound": 10,
+    "chakra": 11,
+    "bowl": 12,
+    "tibetan": 12,
+    "tibetan_bowl": 12,
+    "rocket": 13,
+    "launch": 13,
+    "launchclock": 13,
+    "radar": 14,
+    "presence": 14,
+    "peers": 14,
+    "locator": 14,
+    "locations": 14,
+    "faculty": 15,
+    "fac": 15,
+    "weather": 16,
 }
 
 port, face = sys.argv[1], sys.argv[2].strip().lower()

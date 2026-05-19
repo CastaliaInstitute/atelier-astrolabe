@@ -1,9 +1,11 @@
 #include "pm_speaker.h"
 
+#include <WiFiClient.h>
 #include <math.h>
 #include <string.h>
 
 #include "driver/gpio.h"
+#include "esp_heap_caps.h"
 #include "driver/i2c.h"
 #include "driver/i2s.h"
 #include "esp_check.h"
@@ -30,7 +32,7 @@ static const char *TAG = "pm_speaker";
 #define I2S_TX I2S_NUM_0
 static constexpr uint32_t kSpeakerTaskStack = 49152;
 static constexpr int kSpeakerVolume = 70;
-static constexpr uint32_t kMaxPlaySeconds = 180u;
+static uint32_t s_max_play_seconds = 180u;
 
 static es8311_handle_t s_es = nullptr;
 static bool s_es_inited = false;
@@ -65,6 +67,7 @@ static uint32_t s_play_est_ms = 1;
 static volatile uint32_t s_play_pcm_frames = 0;
 static volatile uint32_t s_play_pcm_hz = 0;
 static volatile bool s_tone_stop = false;
+static volatile bool s_http_mp3_stream_active = false;
 
 static esp_err_t es8311_board_init(int sample_hz) {
   if (!s_es) {
@@ -174,6 +177,8 @@ static void i2s_drain_and_stop(int out_hz, int out_channels) {
   vTaskDelay(pdMS_TO_TICKS(20));
   i2s_tx_stop();
 }
+
+static bool speaker_wait_idle(uint32_t timeout_ms);
 
 static float bowl_voice_read_energy(void) { return s_bowl.energy; }
 
@@ -295,7 +300,7 @@ static bool play_bowl_voice_streaming(void) {
       silent_frames = 0;
     }
 
-    if (written > kToneHz * static_cast<uint32_t>(kMaxPlaySeconds)) {
+    if (written > kToneHz * s_max_play_seconds) {
       break;
     }
   }
@@ -482,8 +487,8 @@ static bool play_mp3_streaming(const uint8_t *mp3, size_t mp3_len) {
     const int nch = info.channels;
     pcm_frames_at_hz += static_cast<uint32_t>(samples_per_ch);
     s_play_pcm_frames = pcm_frames_at_hz;
-    if (out_hz > 0 && pcm_frames_at_hz / static_cast<uint32_t>(out_hz) > kMaxPlaySeconds) {
-      ESP_LOGW(TAG, "playback capped at %us", static_cast<unsigned>(kMaxPlaySeconds));
+    if (out_hz > 0 && pcm_frames_at_hz / static_cast<uint32_t>(out_hz) > s_max_play_seconds) {
+      ESP_LOGW(TAG, "playback capped at %us", static_cast<unsigned>(s_max_play_seconds));
       break;
     }
 
@@ -530,6 +535,274 @@ static bool play_mp3_streaming(const uint8_t *mp3, size_t mp3_len) {
   return i2s_ready;
 }
 
+static constexpr size_t kHttpMp3BufCap = 24576u;
+static constexpr size_t kHttpMp3RefillLow = 4096u;
+
+bool pm_speaker_play_mp3_http_stream(WiFiClient *stream, int content_length, volatile bool *cancel) {
+  s_http_mp3_stream_active = false;
+  if (!stream) {
+    return false;
+  }
+  if (pm_speaker_pcm_active() || pm_usb_uac_speaker_active()) {
+    ESP_LOGW(TAG, "HTTP MP3 blocked: PCM/UAC owns speaker");
+    return false;
+  }
+  if (!speaker_wait_idle(8000)) {
+    ESP_LOGW(TAG, "HTTP MP3: speaker busy");
+    return false;
+  }
+
+  uint8_t *buf = static_cast<uint8_t *>(
+      heap_caps_malloc(kHttpMp3BufCap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  if (!buf) {
+    buf = static_cast<uint8_t *>(malloc(kHttpMp3BufCap));
+  }
+  if (!buf) {
+    return false;
+  }
+
+  if (pm_faces_current() != ClockFace::Spectrum) {
+    pm_mic_stop();
+  }
+
+  mp3dec_t dec;
+  mp3dec_init(&dec);
+
+  size_t fill = 0;
+  size_t total_rx = 0;
+  bool i2s_ready = false;
+  int out_hz = 0;
+  int out_channels = 0;
+  uint32_t pcm_frames_at_hz = 0;
+  bool got_audio = false;
+
+  const uint32_t deadline = millis() + 680000u;
+  uint32_t last_rx_ms = millis();
+
+  static int16_t pcm[MINIMP3_MAX_SAMPLES_PER_FRAME];
+  static int16_t stereo_up[MINIMP3_MAX_SAMPLES_PER_FRAME];
+
+  auto body_complete = [&]() -> bool {
+    if (content_length > 0) {
+      return total_rx >= static_cast<size_t>(content_length);
+    }
+    return !stream->connected() && stream->available() <= 0;
+  };
+
+  auto refill = [&]() -> bool {
+    while (fill < kHttpMp3BufCap) {
+      if (cancel && *cancel) {
+        return false;
+      }
+      if (content_length > 0 && total_rx >= static_cast<size_t>(content_length)) {
+        break;
+      }
+      const int avail = stream->available();
+      if (avail <= 0) {
+        if (body_complete()) {
+          break;
+        }
+        if (fill > 0 && last_rx_ms != 0 && (millis() - last_rx_ms) > 90000u) {
+          ESP_LOGW(TAG, "HTTP MP3 read stalled");
+          return false;
+        }
+        if (static_cast<int32_t>(millis() - deadline) >= 0) {
+          ESP_LOGW(TAG, "HTTP MP3 read timeout");
+          return false;
+        }
+        delay(5);
+        esp_task_wdt_reset();
+        continue;
+      }
+      const size_t room = kHttpMp3BufCap - fill;
+      const size_t take = static_cast<size_t>(avail) < room ? static_cast<size_t>(avail) : room;
+      const int n = stream->readBytes(buf + fill, take);
+      if (n > 0) {
+        fill += static_cast<size_t>(n);
+        total_rx += static_cast<size_t>(n);
+        last_rx_ms = millis();
+        if (total_rx >= 65536u && (total_rx - static_cast<size_t>(n)) < 65536u) {
+          Serial.printf("voice: MP3 stream %u B…\n", static_cast<unsigned>(total_rx));
+        } else if (total_rx / 65536u > (total_rx - static_cast<size_t>(n)) / 65536u) {
+          Serial.printf("voice: MP3 stream %u B…\n", static_cast<unsigned>(total_rx));
+        }
+      } else {
+        delay(2);
+      }
+    }
+    return true;
+  };
+
+  Serial.println("voice: streaming MP3 playback…");
+  if (content_length > 0) {
+    Serial.printf("voice: MP3 Content-Length %d\n", content_length);
+  }
+
+  for (;;) {
+    esp_task_wdt_reset();
+    if (cancel && *cancel) {
+      free(buf);
+      s_http_mp3_stream_active = false;
+      if (i2s_ready) {
+        i2s_drain_and_stop(out_hz, out_channels);
+      }
+      return false;
+    }
+
+    if (fill < kHttpMp3RefillLow && !body_complete()) {
+      if (!refill()) {
+        free(buf);
+        if (i2s_ready) {
+          i2s_drain_and_stop(out_hz, out_channels);
+        }
+        return false;
+      }
+    }
+
+    if (fill < 4) {
+      if (body_complete()) {
+        break;
+      }
+      if (!refill()) {
+        free(buf);
+        if (i2s_ready) {
+          i2s_drain_and_stop(out_hz, out_channels);
+        }
+        return false;
+      }
+      if (fill < 4) {
+        continue;
+      }
+    }
+
+    int bytes_left = static_cast<int>(fill);
+    mp3dec_frame_info_t info = {};
+    const int samples_per_ch = mp3dec_decode_frame(&dec, buf, bytes_left, pcm, &info);
+    if (info.frame_bytes <= 0) {
+      if (bytes_left > 0) {
+        int skip = 1;
+        if (bytes_left >= 10 && buf[0] == 'I' && buf[1] == 'D' && buf[2] == '3') {
+          skip = ((buf[6] & 0x7f) << 21) | ((buf[7] & 0x7f) << 14) | ((buf[8] & 0x7f) << 7) | (buf[9] & 0x7f);
+          if (skip < 10) {
+            skip = 10;
+          }
+          if (skip > bytes_left) {
+            skip = bytes_left;
+          }
+        } else {
+          const int sync = mp3_scan_sync(buf, bytes_left);
+          if (sync > 0) {
+            skip = sync;
+          }
+        }
+        fill -= static_cast<size_t>(skip);
+        memmove(buf, buf + skip, fill);
+        if (!body_complete() && fill < kHttpMp3RefillLow) {
+          continue;
+        }
+      }
+      if (body_complete()) {
+        break;
+      }
+      if (!refill()) {
+        free(buf);
+        if (i2s_ready) {
+          i2s_drain_and_stop(out_hz, out_channels);
+        }
+        return false;
+      }
+      continue;
+    }
+
+    fill -= static_cast<size_t>(info.frame_bytes);
+    memmove(buf, buf + info.frame_bytes, fill);
+
+    if (samples_per_ch <= 0) {
+      continue;
+    }
+    got_audio = true;
+    if (!s_http_mp3_stream_active) {
+      s_http_mp3_stream_active = true;
+      Serial.println("briefing: audio stream active");
+    }
+
+    if (!i2s_ready) {
+      if (info.hz <= 0 || info.channels <= 0) {
+        continue;
+      }
+      out_hz = info.hz;
+      out_channels = info.channels;
+      if (es8311_board_init(out_hz) != ESP_OK) {
+        ESP_LOGW(TAG, "es8311 init failed (HTTP stream)");
+        free(buf);
+        return false;
+      }
+      const int i2s_ch = (out_channels == 1) ? 2 : out_channels;
+      if (i2s_tx_begin(out_hz, i2s_ch) != ESP_OK) {
+        ESP_LOGW(TAG, "i2s begin failed (HTTP stream)");
+        free(buf);
+        return false;
+      }
+      i2s_ready = true;
+    } else if (info.channels > 0 && info.channels != out_channels) {
+      ESP_LOGW(TAG, "mp3 channel change %d -> %d", out_channels, info.channels);
+      break;
+    } else if (info.hz > 0 && info.hz != out_hz) {
+      const int diff = info.hz > out_hz ? info.hz - out_hz : out_hz - info.hz;
+      if (diff > 200) {
+        ESP_LOGW(TAG, "mp3 rate change %d -> %d", out_hz, info.hz);
+        break;
+      }
+    }
+
+    const int nch = info.channels;
+    pcm_frames_at_hz += static_cast<uint32_t>(samples_per_ch);
+    if (out_hz > 0 && pcm_frames_at_hz / static_cast<uint32_t>(out_hz) > s_max_play_seconds) {
+      ESP_LOGW(TAG, "HTTP stream playback capped at %us", static_cast<unsigned>(s_max_play_seconds));
+      break;
+    }
+
+    if (nch == 1) {
+      const size_t n = static_cast<size_t>(samples_per_ch);
+      if (n * 2 > MINIMP3_MAX_SAMPLES_PER_FRAME) {
+        break;
+      }
+      for (size_t i = 0; i < n; ++i) {
+        const int16_t s = pcm[i];
+        stereo_up[2 * i] = s;
+        stereo_up[2 * i + 1] = s;
+      }
+      if (i2s_write_all(stereo_up, n * 2) != ESP_OK) {
+        free(buf);
+        i2s_tx_stop();
+        return false;
+      }
+    } else {
+      const size_t pcm_s16 = static_cast<size_t>(samples_per_ch) * static_cast<size_t>(nch);
+      if (pcm_s16 > MINIMP3_MAX_SAMPLES_PER_FRAME) {
+        break;
+      }
+      if (i2s_write_all(pcm, pcm_s16) != ESP_OK) {
+        free(buf);
+        i2s_tx_stop();
+        return false;
+      }
+    }
+  }
+
+  free(buf);
+  s_http_mp3_stream_active = false;
+
+  if (i2s_ready && out_hz > 0) {
+    i2s_drain_and_stop(out_hz, out_channels);
+    ESP_LOGI(TAG, "HTTP stream played ~%u ms (%u frames @ %d Hz), rx %u B",
+             (pcm_frames_at_hz * 1000u) / static_cast<uint32_t>(out_hz), pcm_frames_at_hz, out_hz,
+             static_cast<unsigned>(total_rx));
+  }
+
+  return got_audio && i2s_ready;
+}
+
 static bool speaker_wait_idle(uint32_t timeout_ms) {
   const uint32_t deadline = millis() + timeout_ms;
   while (s_spk_task_busy) {
@@ -570,10 +843,24 @@ static uint32_t estimate_mp3_duration_ms(size_t mp3_len) {
   if (ms < 2000u) {
     return 2000u;
   }
-  if (ms > kMaxPlaySeconds * 1000u) {
-    return kMaxPlaySeconds * 1000u;
+  if (ms > s_max_play_seconds * 1000u) {
+    return s_max_play_seconds * 1000u;
   }
   return ms;
+}
+
+void pm_speaker_set_max_play_seconds(uint32_t sec) {
+  if (sec < 30u) {
+    sec = 30u;
+  }
+  if (sec > 900u) {
+    sec = 900u;
+  }
+  s_max_play_seconds = sec;
+}
+
+uint32_t pm_speaker_max_play_seconds(void) {
+  return s_max_play_seconds;
 }
 
 static void speaker_task_ensure() {
@@ -747,6 +1034,10 @@ bool pm_speaker_is_playing(void) {
   return s_speaker_status == PmSpeakerStatus::Playing || s_spk_task_busy;
 }
 
+bool pm_speaker_http_stream_active(void) {
+  return s_http_mp3_stream_active;
+}
+
 float pm_speaker_play_progress(void) {
   if (s_speaker_status == PmSpeakerStatus::DoneOk) {
     return 1.f;
@@ -780,7 +1071,7 @@ bool pm_speaker_play_mp3(const uint8_t *mp3, size_t mp3_len) {
     return false;
   }
   const uint32_t timeout_ms =
-      kMaxPlaySeconds * 1000u + 15000u + static_cast<uint32_t>((mp3_len / 4000u) * 1000u);
+      s_max_play_seconds * 1000u + 15000u + static_cast<uint32_t>((mp3_len / 4000u) * 1000u);
   const uint32_t deadline = millis() + timeout_ms;
   for (;;) {
     const PmSpeakerStatus st = pm_speaker_poll();

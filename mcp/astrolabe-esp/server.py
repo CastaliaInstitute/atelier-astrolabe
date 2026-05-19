@@ -10,7 +10,15 @@ import time
 from pathlib import Path
 from typing import Optional
 
+import sys
+
+_MCP_DIR = Path(__file__).resolve().parent
+if str(_MCP_DIR) not in sys.path:
+    sys.path.insert(0, str(_MCP_DIR))
+
 from mcp.server.fastmcp import FastMCP
+
+from console_analysis import analyze_serial_lines, format_review_report, publish_latest_artifacts
 
 _DEFAULT_ROOT = Path(__file__).resolve().parents[2]
 REPO_ROOT = Path(
@@ -151,10 +159,12 @@ def _serial_capture(
     send_line: str,
     reset_boot: bool,
     log_path: Path,
+    stop_pattern: str = "",
 ) -> tuple[list[str], str]:
     import serial
 
     lines: list[str] = []
+    stop_pat = stop_pattern.strip()
     ser = serial.Serial(dev, baud, timeout=0.25)
     try:
         ser.reset_input_buffer()
@@ -181,9 +191,58 @@ def _serial_capture(
                     ln = ln.rstrip()
                     if ln:
                         lines.append(ln)
+                if stop_pat and stop_pat in text:
+                    lines.append(f">> stop: matched {stop_pat!r}")
+                    break
     finally:
         ser.close()
     return lines, str(log_path)
+
+
+async def _capture_and_review(
+    *,
+    duration_sec: int,
+    port: str,
+    baud: int,
+    reset_boot: bool,
+    send_line: str,
+    log_file: str,
+    stop_pattern: str,
+    tail_lines: int,
+) -> str:
+    try:
+        import serial  # noqa: F401
+    except ImportError:
+        return "pyserial missing in MCP venv — run mcp/astrolabe-esp/setup.sh"
+
+    try:
+        dev = _resolve_port(port)
+    except RuntimeError as e:
+        return str(e)
+
+    duration_sec = max(5, min(int(duration_sec), 600))
+    tail_lines = max(20, min(int(tail_lines), 200))
+    log_path = Path(log_file.strip()) if log_file.strip() else _default_serial_log_path()
+
+    lines, log_file_str = await asyncio.to_thread(
+        _serial_capture,
+        dev,
+        baud,
+        duration_sec,
+        send_line,
+        reset_boot,
+        log_path,
+        stop_pattern,
+    )
+    review = analyze_serial_lines(lines)
+    latest_log, latest_json = publish_latest_artifacts(MONITOR_DIR, log_file_str, review)
+    report = format_review_report(
+        review, port=dev, log_path=log_file_str, tail_lines=lines[-tail_lines:]
+    )
+    return (
+        f"mode=console_review\nlatest_log={latest_log}\nlatest_review={latest_json}\n"
+        f"review_json={review}\n---\n{report}"
+    )
 
 
 def _openocd_capture(duration_sec: int, log_path: Path) -> tuple[int, str]:
@@ -303,12 +362,41 @@ async def astrolabe_serial_monitor(
     log_path = Path(log_file.strip()) if log_file.strip() else _default_serial_log_path()
 
     lines, log_file_str = await asyncio.to_thread(
-        _serial_capture, dev, baud, duration_sec, send_line, reset_boot, log_path
+        _serial_capture, dev, baud, duration_sec, send_line, reset_boot, log_path, ""
     )
     body = _format_log_body(lines)
     return (
         f"mode=serial\nport={dev}\nbaud={baud}\nlog={log_file_str}\nlines={len(lines)}\n"
-        f"note=JTAG does not replace CDC; use astrolabe_jtag_* for debug halt/GDB.\n---\n{body}"
+        f"note=JTAG does not replace CDC; use astrolabe_jtag_* for debug halt/GDB.\n"
+        f"tip=use astrolabe_console_review for automatic triage.\n---\n{body}"
+    )
+
+
+@mcp.tool()
+async def astrolabe_console_review(
+    duration_sec: int = 30,
+    port: str = "",
+    baud: int = DEFAULT_BAUD,
+    reset_boot: bool = True,
+    send_line: str = "",
+    stop_pattern: str = "",
+    log_file: str = "",
+    tail_lines: int = 80,
+) -> str:
+    """
+    Capture USB serial, triage boot health (panics, reboot loops, WiFi+BT coexistence),
+    and write artifacts/monitor/latest.log + latest-review.json.
+    Prefer this over raw astrolabe_serial_monitor when debugging crashes or after flash.
+    """
+    return await _capture_and_review(
+        duration_sec=duration_sec,
+        port=port,
+        baud=baud,
+        reset_boot=reset_boot,
+        send_line=send_line,
+        log_file=log_file,
+        stop_pattern=stop_pattern,
+        tail_lines=tail_lines,
     )
 
 
@@ -549,10 +637,14 @@ async def astrolabe_build_upload_monitor(
 ) -> str:
     """Upload then capture serial console (common TTS debug flow)."""
     up = await astrolabe_upload(env=env, port=port)
-    mon = await astrolabe_serial_monitor(
-        duration_sec=monitor_sec, send_line=send_line, port=port, reset_boot=True
+    mon = await astrolabe_console_review(
+        duration_sec=monitor_sec,
+        send_line=send_line,
+        port=port,
+        reset_boot=True,
+        stop_pattern="Mynah Astrolabe ready",
     )
-    return f"=== upload ===\n{up}\n\n=== monitor ===\n{mon}"
+    return f"=== upload ===\n{up}\n\n=== console_review ===\n{mon}"
 
 
 if __name__ == "__main__":

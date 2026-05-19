@@ -5,9 +5,18 @@
 
 #include "pm_speaker_pcm.h"
 #include "pm_usb_uac.h"
+#include "pm_log.h"
 #include "sdkconfig.h"
 
 static PmAudioRoute s_route = PmAudioRoute::Onboard;
+
+static constexpr PmAudioRoute default_route() {
+#if defined(ASTROLABE_UAC_DEFAULT_ROUTE_USB) && ASTROLABE_UAC_DEFAULT_ROUTE_USB
+  return PmAudioRoute::Usb;
+#else
+  return PmAudioRoute::Onboard;
+#endif
+}
 
 static bool uac_compiled(void) {
 #if defined(CONFIG_UAC_SPEAKER_CHANNEL_NUM) && CONFIG_UAC_SPEAKER_CHANNEL_NUM > 0
@@ -18,17 +27,24 @@ static bool uac_compiled(void) {
 }
 
 void pm_audio_route_begin(void) {
-  s_route = PmAudioRoute::Onboard;
+  s_route = default_route();
+  pm_log_printf(false, "audio-route: begin default=%s uac=%d",
+                s_route == PmAudioRoute::Usb ? "USB" : "onboard", uac_compiled() ? 1 : 0);
   if (!uac_compiled()) {
     return;
   }
+#if defined(ASTROLABE_UAC_DEFAULT_ROUTE_USB) && ASTROLABE_UAC_DEFAULT_ROUTE_USB
+  pm_log_printf(false, "audio-route: using build default USB");
+  return;
+#endif
   Preferences pref;
   if (!pref.begin("audio_rt", true)) {
     return;
   }
-  const uint8_t v = pref.getUChar("route", static_cast<uint8_t>(PmAudioRoute::Onboard));
+  const uint8_t v = pref.getUChar("route", static_cast<uint8_t>(default_route()));
   pref.end();
   s_route = (v == static_cast<uint8_t>(PmAudioRoute::Usb)) ? PmAudioRoute::Usb : PmAudioRoute::Onboard;
+  pm_log_printf(false, "audio-route: loaded %s", s_route == PmAudioRoute::Usb ? "USB" : "onboard");
 }
 
 bool pm_audio_route_uac_available(void) {
@@ -61,6 +77,7 @@ void pm_audio_route_set(PmAudioRoute route) {
   }
   s_route = route;
   persist_route(s_route);
+  pm_log_printf(false, "audio-route: set %s", s_route == PmAudioRoute::Usb ? "USB" : "onboard");
   if (s_route == PmAudioRoute::Onboard) {
     pm_usb_uac_release_speaker();
     pm_speaker_pcm_end();
@@ -76,7 +93,8 @@ bool pm_audio_route_input_usb(void) {
 }
 
 static bool face_uses_vertical_swipes(ClockFace face) {
-  return face == ClockFace::Spotify || face == ClockFace::Synastry || face == ClockFace::Moon;
+  return face == ClockFace::Spotify || face == ClockFace::Synastry || face == ClockFace::Moon ||
+         face == ClockFace::Settings;
 }
 
 bool pm_audio_route_handle_gesture(PmGestureKind kind, ClockFace face, char *banner, size_t banner_len) {

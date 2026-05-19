@@ -3,6 +3,7 @@
 #include "pm_presence_adv.h"
 #include "pm_presence_graph.h"
 #include "pm_presence_locations.h"
+#include "pm_wifi_ntp.h"
 
 #include <Arduino.h>
 #include <cmath>
@@ -15,6 +16,11 @@
 #include <BLEDevice.h>
 #include <BLEScan.h>
 #include <BLEUtils.h>
+
+#include "esp32-hal-bt.h"
+#include "esp_bt.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #define PM_PRESENCE_BLE 1
 #else
 #define PM_PRESENCE_BLE 0
@@ -102,6 +108,9 @@ void expire_peers(uint32_t now_ms) {
 
 BLEScan *s_scan = nullptr;
 bool s_ble_ready = false;
+bool s_ble_init_failed = false;
+bool s_ble_radar_active = false;
+TaskHandle_t s_ble_init_task = nullptr;
 
 class PresenceScanCallbacks : public BLEAdvertisedDeviceCallbacks {
   void onResult(BLEAdvertisedDevice advertisedDevice) override {
@@ -176,44 +185,38 @@ void refresh_advertisement(void) {
   memcpy(mfg + 2, payload, len);
   BLEAdvertisementData adv;
   adv.setFlags(0x06);
-  adv.setManufacturerData(std::string(reinterpret_cast<char *>(mfg), len + 2));
+  adv.setManufacturerData(std::string(reinterpret_cast<const char *>(mfg), len + 2));
   BLEAdvertising *const advertising = BLEDevice::getAdvertising();
   advertising->setAdvertisementData(adv);
   advertising->start();
 }
 
-#endif  // PM_PRESENCE_BLE
-
-void qemu_seed_peers(uint32_t now_ms) {
-#ifdef ASTROLABE_QEMU
-  if (s_peer_count > 0) {
-    return;
+bool presence_bt_controller_start(void) {
+  if (btStarted()) {
+    return true;
   }
-  /** ~3 m, ~4 m, ~6 m from self; N1–N2 ~5 m (triangle for layout QA). */
-  upsert_peer(0xA1B2C3D4u, -58, now_ms, PmPresenceGraphNodeKind::MobilePeer);
-  upsert_peer(0x11223344u, -66, now_ms, PmPresenceGraphNodeKind::MobilePeer);
-  upsert_peer(0xDEADBEEFu, -76, now_ms, PmPresenceGraphNodeKind::MobilePeer);
-  upsert_peer(pm_presence_location_beacon_id(1), -62, now_ms, PmPresenceGraphNodeKind::LocationAnchor);
-  pm_presence_graph_set_edge(0xA1B2C3D4u, 0x11223344u, 5.0f, now_ms);
-  pm_presence_graph_set_edge(0xA1B2C3D4u, 0xDEADBEEFu, 7.0f, now_ms);
-#else
-  (void)now_ms;
+  pm_wifi_enable_bt_coexistence();
+#ifndef CONFIG_BT_CLASSIC_ENABLED
+  esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT);
 #endif
+  if (!btStart()) {
+    Serial.println("presence: btStart failed");
+    return false;
+  }
+  return true;
 }
 
-}  // namespace
-
-uint32_t pm_presence_self_id(void) { return s_self_id; }
-
-bool pm_presence_begin(void) {
-  uint8_t mac[6] = {};
-  esp_read_mac(mac, ESP_MAC_BT);
-  s_self_id = device_id_from_mac(mac);
-  if (s_self_id == 0) {
-    s_self_id = static_cast<uint32_t>(esp_random()) | 1u;
+bool presence_ble_ensure(void) {
+  if (s_ble_ready) {
+    return true;
   }
-  pm_presence_locations_begin();
-#if PM_PRESENCE_BLE
+  if (s_ble_init_failed) {
+    return false;
+  }
+  if (!btStarted() && !presence_bt_controller_start()) {
+    s_ble_init_failed = true;
+    return false;
+  }
   BLEDevice::init("Astrolabe");
 
   BLEServer *server = BLEDevice::createServer();
@@ -230,17 +233,157 @@ bool pm_presence_begin(void) {
   s_ble_ready = true;
   Serial.printf("presence: BLE id=%08x\n", static_cast<unsigned>(s_self_id));
   return true;
+}
+
+#endif  // PM_PRESENCE_BLE
+
+void presence_seed_demo_peers(uint32_t now_ms) {
+  if (s_peer_count > 0) {
+    return;
+  }
+  /** ~3 m, ~4 m, ~6 m from self; N1–N2 ~5 m (triangle for layout QA). */
+  upsert_peer(0xA1B2C3D4u, -58, now_ms, PmPresenceGraphNodeKind::MobilePeer);
+  upsert_peer(0x11223344u, -66, now_ms, PmPresenceGraphNodeKind::MobilePeer);
+  upsert_peer(0xDEADBEEFu, -76, now_ms, PmPresenceGraphNodeKind::MobilePeer);
+  upsert_peer(pm_presence_location_beacon_id(1), -62, now_ms, PmPresenceGraphNodeKind::LocationAnchor);
+  pm_presence_graph_set_edge(0xA1B2C3D4u, 0x11223344u, 5.0f, now_ms);
+  pm_presence_graph_set_edge(0xA1B2C3D4u, 0xDEADBEEFu, 7.0f, now_ms);
+}
+
+}  // namespace
+
+uint32_t pm_presence_self_id(void) { return s_self_id; }
+
+bool pm_presence_begin(void) {
+  uint8_t mac[6] = {};
+  esp_read_mac(mac, ESP_MAC_BT);
+  s_self_id = device_id_from_mac(mac);
+  if (s_self_id == 0) {
+    s_self_id = static_cast<uint32_t>(esp_random()) | 1u;
+  }
+  pm_presence_locations_begin();
+#if PM_PRESENCE_BLE
+  Serial.printf("presence: id=%08x (BLE starts on Radar face)\n", static_cast<unsigned>(s_self_id));
+  return true;
 #else
   Serial.printf("presence: stub id=%08x\n", static_cast<unsigned>(s_self_id));
   return false;
 #endif
 }
 
+static void presence_ble_init_task(void *arg) {
+  (void)arg;
+  if (!presence_ble_ensure()) {
+    s_ble_init_failed = true;
+    Serial.println("presence: BLE host init failed");
+  }
+  s_ble_init_task = nullptr;
+  vTaskDelete(nullptr);
+}
+
+bool pm_presence_ble_begin(void) {
+#if PM_PRESENCE_BLE
+  if (s_ble_init_failed) {
+    return false;
+  }
+  if (s_ble_ready) {
+    return true;
+  }
+  if (s_ble_init_task != nullptr) {
+    return true;
+  }
+  constexpr uint32_t kBleInitStack = 10240u;
+  if (xTaskCreatePinnedToCore(presence_ble_init_task, "ble_init", kBleInitStack, nullptr, 1,
+                              &s_ble_init_task, 0) != pdPASS) {
+    Serial.println("presence: ble_init task create failed");
+    if (!presence_ble_ensure()) {
+      s_ble_init_failed = true;
+      return false;
+    }
+  }
+  return true;
+#else
+  return false;
+#endif
+}
+
+bool pm_presence_ble_is_ready(void) {
+#if PM_PRESENCE_BLE
+  return s_ble_ready;
+#else
+  return false;
+#endif
+}
+
+bool pm_presence_ble_failed(void) {
+#if PM_PRESENCE_BLE
+  return s_ble_init_failed;
+#else
+  return false;
+#endif
+}
+
+void pm_presence_ble_set_radar_active(bool active) {
+#if PM_PRESENCE_BLE
+  s_ble_radar_active = active;
+  if (!s_ble_ready) {
+    return;
+  }
+  if (!active) {
+    if (s_scan) {
+      s_scan->stop();
+    }
+    BLEAdvertising *adv = BLEDevice::getAdvertising();
+    if (adv) {
+      adv->stop();
+    }
+    Serial.println("presence: BLE paused (left Radar)");
+    return;
+  }
+  refresh_advertisement();
+  Serial.println("presence: BLE active (Radar)");
+#else
+  (void)active;
+#endif
+}
+
+void pm_presence_ble_end(void) {
+#if PM_PRESENCE_BLE
+  s_ble_radar_active = false;
+  if (s_ble_init_task != nullptr) {
+    return;
+  }
+  if (!s_ble_ready) {
+    return;
+  }
+  if (s_scan) {
+    s_scan->stop();
+  }
+  BLEAdvertising *adv = BLEDevice::getAdvertising();
+  if (adv) {
+    adv->stop();
+  }
+  BLEDevice::deinit(false);
+  s_scan = nullptr;
+  s_ble_ready = false;
+  s_last_scan_ms = 0;
+  Serial.println("presence: BLE deinit (left Radar)");
+#endif
+}
+
+void pm_presence_seed_demo_peers(uint32_t now_ms) { presence_seed_demo_peers(now_ms); }
+
 void pm_presence_tick(uint32_t now_ms) {
-  qemu_seed_peers(now_ms);
+#if defined(ASTROLABE_QEMU)
+  presence_seed_demo_peers(now_ms);
+#elif PM_PRESENCE_BLE
+  if (s_ble_init_failed && s_peer_count == 0) {
+    presence_seed_demo_peers(now_ms);
+  }
+#endif
 
 #if PM_PRESENCE_BLE
-  if (s_ble_ready && s_scan && now_ms - s_last_scan_ms >= kScanPeriodMs) {
+  if (s_ble_ready && s_ble_radar_active && s_scan && now_ms - s_last_scan_ms >= kScanPeriodMs) {
     s_last_scan_ms = now_ms;
     s_scan->start(1, false);
     refresh_advertisement();

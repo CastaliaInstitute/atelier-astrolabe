@@ -70,6 +70,8 @@ if [[ "$ok" != "1" ]]; then
   exit 1
 fi
 
+bash ./scripts/postupload-watchdog-reset.sh "$PORT" || true
+
 if [[ "$SMOKE_SEC" -gt 0 ]] && command -v timeout >/dev/null 2>&1; then
   echo "→ serial smoke (${SMOKE_SEC}s)"
   timeout "${SMOKE_SEC}" pio device monitor -e "$ENV" --port "$PORT" --baud 115200 --echo || true

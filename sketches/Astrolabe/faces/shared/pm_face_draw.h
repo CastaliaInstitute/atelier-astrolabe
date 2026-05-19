@@ -29,6 +29,13 @@ void pm_face_draw_now_bead(int cx, int cy, int r, uint16_t col);
 void pm_face_draw_thinking_progress_ring(float progress);
 void pm_face_draw_voice_waves_overlay(bool outward, uint32_t t_ms);
 void pm_face_draw_voice_wave_screen(bool outward, uint32_t t_ms, const char *label);
+/**
+ * Home gem for daily briefing. `show_ripples` only while audio is playing (not during HTTP wait).
+ * `thinking_progress` in 0..1 shows prep ring; < 0 hides it.
+ */
+void pm_face_draw_home_briefing_screen(bool show_ripples, uint32_t t_ms, float thinking_progress,
+                                        const char *label);
+float pm_face_home_hue_deg(void);
 /** Radial “glowing gem” fill; `hue_deg_24h` = seconds-of-day × (360/86400), same as home/rim. */
 uint16_t pm_face_draw_home_gem_glow(float hue_deg_24h);
 /** Breath frame: gem disc only (does not redraw rainbow or fillScreen). */

@@ -13,6 +13,8 @@
 #include "freertos/task.h"
 #include "pm_config.h"
 #include "pm_castalia_auth.h"
+#include "pm_daily_briefing.h"
+#include "pm_speaker.h"
 
 static const char *TAG = "pm_voice";
 
@@ -21,13 +23,17 @@ static constexpr uint32_t kVoiceNetTaskStack = 32768;
 static constexpr uint32_t kVoiceHttpTimeoutMs = 660000;
 /** voice-pipeline JSON + base64 MP3. */
 static constexpr size_t kVoiceRespMaxBytes = 2560u * 1024u;
+/** Raw MPEG body for long daily briefing TTS. */
+static constexpr size_t kVoiceMp3MaxBytes = 6u * 1024u * 1024u;
 
 static TaskHandle_t s_voice_task = nullptr;
 static volatile bool s_voice_done = false;
 static volatile bool s_voice_ok = false;
 static volatile PmVoiceStatus s_voice_status = PmVoiceStatus::Idle;
-static volatile uint8_t s_voice_op = 0; /** 1 = message, 2 = pcm */
+static volatile uint8_t s_voice_op = 0; /** 1 = message, 2 = pcm, 3 = clock_agenda, 4 = daily_briefing */
 static volatile bool s_voice_cancel = false;
+static volatile bool s_daily_briefing_streamed = false;
+static volatile bool s_daily_briefing_streaming_play = false;
 static uint32_t s_voice_started_ms = 0;
 
 static const char *s_req_message = nullptr;
@@ -168,6 +174,9 @@ static bool voice_result_ok(PmVoiceResult *r) {
     return false;
   }
   if (r->mp3 && r->mp3_len >= 64) {
+    return true;
+  }
+  if (s_daily_briefing_streamed) {
     return true;
   }
   return r->reply[0] != '\0' || r->transcript[0] != '\0';
@@ -379,6 +388,121 @@ static bool read_http_json_body(HTTPClient *http, char **out_resp, size_t max_ca
   *out_resp = buf;
   Serial.printf("voice: body complete %u B (declared %d)\n", static_cast<unsigned>(rd), declared);
   ESP_LOGI(TAG, "HTTP body %u bytes (declared %d)", static_cast<unsigned>(rd), declared);
+  return true;
+}
+
+static bool read_http_mp3_body(HTTPClient *http, uint8_t **out_mp3, size_t *out_len) {
+  if (!http || !out_mp3 || !out_len) {
+    return false;
+  }
+  *out_mp3 = nullptr;
+  *out_len = 0;
+
+  const int declared = http->getSize();
+  WiFiClient *stream = http->getStreamPtr();
+  if (!stream) {
+    return false;
+  }
+  if (declared > 0 && static_cast<size_t>(declared) > kVoiceMp3MaxBytes) {
+    ESP_LOGW(TAG, "MP3 Content-Length %d exceeds cap", declared);
+    return false;
+  }
+
+  uint8_t *buf = static_cast<uint8_t *>(
+      heap_caps_malloc(kVoiceMp3MaxBytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  if (!buf) {
+    buf = static_cast<uint8_t *>(malloc(kVoiceMp3MaxBytes));
+  }
+  if (!buf) {
+    return false;
+  }
+
+  size_t rd = 0;
+  const size_t read_cap = kVoiceMp3MaxBytes;
+  const size_t target_len = (declared > 0) ? static_cast<size_t>(declared) : 0;
+  const uint32_t deadline = millis() + 680000u;
+  uint32_t last_rx_ms = 0;
+  uint32_t last_prog_rd = 0;
+  body_read_set_err("bad response");
+
+  Serial.println("voice: reading MP3 body…");
+  if (declared > 0) {
+    Serial.printf("voice: MP3 Content-Length %d\n", declared);
+  }
+
+  for (;;) {
+    esp_task_wdt_reset();
+    if (s_voice_cancel) {
+      free(buf);
+      body_read_set_err("cancelled");
+      return false;
+    }
+    if (static_cast<int32_t>(millis() - deadline) >= 0) {
+      body_read_set_err("read timeout");
+      break;
+    }
+
+    const int avail = stream->available();
+    if (avail > 0) {
+      if (rd >= read_cap) {
+        body_read_set_err("reply too large");
+        break;
+      }
+      const size_t take =
+          static_cast<size_t>(avail) < (read_cap - rd) ? static_cast<size_t>(avail) : (read_cap - rd);
+      const int n = stream->readBytes(buf + rd, take);
+      if (n > 0) {
+        rd += static_cast<size_t>(n);
+        last_rx_ms = millis();
+        if (rd - last_prog_rd >= 65536u) {
+          Serial.printf("voice: MP3 recv %u B…\n", static_cast<unsigned>(rd));
+          last_prog_rd = rd;
+        }
+        if (target_len > 0 && rd >= target_len) {
+          break;
+        }
+        continue;
+      }
+    }
+
+    if (!http->connected() && stream->available() == 0) {
+      break;
+    }
+
+    if (rd > 0 && last_rx_ms != 0) {
+      const uint32_t idle = millis() - last_rx_ms;
+      const uint32_t idle_limit = rd > 1048576u ? 90000u : 25000u;
+      if (idle > idle_limit) {
+        body_read_set_err("read stalled");
+        break;
+      }
+    }
+    delay(5);
+  }
+
+  for (uint8_t drain = 0; drain < 64 && stream->available() > 0 && rd < read_cap; ++drain) {
+    const int n = stream->readBytes(buf + rd, read_cap - rd);
+    if (n > 0) {
+      rd += static_cast<size_t>(n);
+    } else {
+      delay(5);
+    }
+  }
+
+  if (rd < 64) {
+    free(buf);
+    body_read_set_err("bad response (empty)");
+    return false;
+  }
+  if (target_len > 0 && rd < target_len) {
+    free(buf);
+    body_read_set_err("bad response (truncated)");
+    return false;
+  }
+
+  *out_mp3 = buf;
+  *out_len = rd;
+  Serial.printf("voice: MP3 complete %u B\n", static_cast<unsigned>(rd));
   return true;
 }
 
@@ -724,6 +848,175 @@ static bool voice_post_pcm_inner(const uint8_t *pcm, size_t pcm_len, const char 
   return true;
 }
 
+static bool voice_post_daily_briefing_inner(PmVoiceResult *r) {
+  if (!r) {
+    voice_set_error("no result");
+    return false;
+  }
+  memset(r->transcript, 0, sizeof(r->transcript));
+  memset(r->reply, 0, sizeof(r->reply));
+  r->mp3 = nullptr;
+  r->mp3_len = 0;
+
+  if (strlen(MYNAH_SUPABASE_URL) == 0 || strlen(MYNAH_SUPABASE_ANON_KEY) == 0) {
+    voice_set_error("no supabase config");
+    return false;
+  }
+  (void)pm_castalia_auth_prepare_for_voice();
+
+  static constexpr size_t kFactsCap = 8192;
+  char *facts = static_cast<char *>(heap_caps_malloc(kFactsCap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  if (!facts) {
+    facts = static_cast<char *>(malloc(kFactsCap));
+  }
+  if (!facts) {
+    voice_set_error("oom facts");
+    return false;
+  }
+  if (!pm_daily_briefing_build_device_facts(facts, kFactsCap)) {
+    facts[0] = '\0';
+  }
+
+  char *esc_facts = nullptr;
+  bool esc_heap = false;
+  const size_t esc_cap = strlen(facts) * 2 + 16;
+  if (esc_cap <= sizeof(s_esc_msg)) {
+    if (!json_escape_string(facts, s_esc_msg, sizeof(s_esc_msg))) {
+      free(facts);
+      voice_set_error("facts too long");
+      return false;
+    }
+    esc_facts = s_esc_msg;
+  } else {
+    esc_facts = static_cast<char *>(heap_caps_malloc(esc_cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!esc_facts) {
+      esc_facts = static_cast<char *>(malloc(esc_cap));
+    }
+    if (!esc_facts || !json_escape_string(facts, esc_facts, esc_cap)) {
+      free(facts);
+      free(esc_facts);
+      voice_set_error("facts too long");
+      return false;
+    }
+    esc_heap = true;
+  }
+  free(facts);
+
+  const time_t epoch = time(nullptr);
+  const size_t body_cap = strlen(esc_facts) + 192;
+  char *body = static_cast<char *>(heap_caps_malloc(body_cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  if (!body) {
+    body = static_cast<char *>(malloc(body_cap));
+  }
+  if (!body) {
+    if (esc_heap) {
+      free(esc_facts);
+    }
+    voice_set_error("oom body");
+    return false;
+  }
+
+  int n;
+  if (esc_facts[0] != '\0') {
+    n = snprintf(body, body_cap,
+                 "{\"face\":\"daily_briefing\",\"epochSeconds\":%lld,"
+                 "\"briefingFacts\":\"%s\",\"responseFormat\":\"mp3\"}",
+                 static_cast<long long>(epoch), esc_facts);
+  } else {
+    n = snprintf(body, body_cap,
+                 "{\"face\":\"daily_briefing\",\"epochSeconds\":%lld,\"responseFormat\":\"mp3\"}",
+                 static_cast<long long>(epoch));
+  }
+  if (esc_heap) {
+    free(esc_facts);
+  }
+  if (n <= 0 || static_cast<size_t>(n) >= body_cap) {
+    free(body);
+    voice_set_error("body too large");
+    return false;
+  }
+
+  char base[160];
+  strncpy(base, MYNAH_SUPABASE_URL, sizeof(base) - 1);
+  base[sizeof(base) - 1] = '\0';
+  trim_supabase_url(base, sizeof(base));
+  char url[224];
+  snprintf(url, sizeof(url), "%s/functions/v1/voice-pipeline", base);
+
+  WiFiClientSecure client;
+  HTTPClient http;
+  voice_begin_http(&client, &http);
+  if (!http.begin(client, url)) {
+    free(body);
+    voice_set_error("http begin");
+    return false;
+  }
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("Accept", "audio/mpeg");
+  pm_castalia_auth_apply_headers(&http);
+
+  Serial.printf("voice: POST daily_briefing (%u B)…\n", static_cast<unsigned>(n));
+  const int code = http.POST(reinterpret_cast<uint8_t *>(body), static_cast<size_t>(n));
+  free(body);
+  Serial.printf("voice: HTTP %d (daily_briefing)\n", code);
+
+  if (code != 200) {
+    WiFiClient *stream = http.getStreamPtr();
+    if (stream && stream->available()) {
+      char errsnippet[160] = "";
+      const size_t n = stream->readBytes(errsnippet, sizeof(errsnippet) - 1);
+      errsnippet[n] = '\0';
+      Serial.printf("voice: daily_briefing err: %s\n", errsnippet);
+    }
+    voice_set_http_error(code);
+    http.end();
+    return false;
+  }
+
+  const String ctype = http.header("Content-Type");
+  if (ctype.indexOf("audio/mpeg") < 0 && ctype.indexOf("audio/mp3") < 0) {
+    ESP_LOGW(TAG, "daily_briefing unexpected Content-Type: %s", ctype.c_str());
+  }
+  char reply_hdr[sizeof(r->reply)] = "";
+  const String reply_raw = http.header("X-Voice-Reply");
+  if (reply_raw.length() > 0) {
+    reply_raw.toCharArray(reply_hdr, sizeof(reply_hdr));
+  }
+
+  WiFiClient *stream = http.getStreamPtr();
+  const int declared = http.getSize();
+  s_daily_briefing_streamed = false;
+  s_daily_briefing_streaming_play = false;
+  if (!stream) {
+    voice_set_error("no stream");
+    http.end();
+    return false;
+  }
+  s_daily_briefing_streaming_play = true;
+  if (!pm_speaker_play_mp3_http_stream(stream, declared, &s_voice_cancel)) {
+    s_daily_briefing_streaming_play = false;
+    voice_set_error(s_voice_cancel ? "cancelled" : "stream playback failed");
+    http.end();
+    return false;
+  }
+  http.end();
+  s_daily_briefing_streaming_play = false;
+  s_daily_briefing_streamed = true;
+
+  strncpy(r->transcript, "daily briefing", sizeof(r->transcript) - 1);
+  if (reply_hdr[0] != '\0') {
+    strncpy(r->reply, reply_hdr, sizeof(r->reply) - 1);
+  }
+
+  if (!voice_result_ok(r)) {
+    voice_set_error("empty briefing audio");
+    return false;
+  }
+  voice_set_error(nullptr);
+  ESP_LOGI(TAG, "daily briefing streamed");
+  return true;
+}
+
 static bool voice_post_clock_agenda_inner(PmVoiceResult *r) {
   if (!r) {
     voice_set_error("no result");
@@ -815,6 +1108,16 @@ static void voice_net_task(void *arg) {
       s_voice_ok = voice_post_pcm_inner(s_req_pcm, s_req_pcm_len, s_req_system, s_req_result);
     } else if (op == 3) {
       s_voice_ok = voice_post_clock_agenda_inner(s_req_result);
+    } else if (op == 4) {
+      Serial.println("voice: POST daily_briefing…");
+      s_voice_ok = voice_post_daily_briefing_inner(s_req_result);
+      if (s_voice_ok && s_req_result && s_req_result->mp3_len > 0) {
+        Serial.printf("voice: daily_briefing ok mp3=%u B\n",
+                      static_cast<unsigned>(s_req_result->mp3_len));
+      } else {
+        Serial.printf("voice: daily_briefing %s (%s)\n", s_voice_ok ? "ok" : "fail",
+                      s_last_error[0] ? s_last_error : "-");
+      }
     } else {
       s_voice_ok = false;
     }
@@ -847,6 +1150,8 @@ static bool voice_net_begin(uint8_t op) {
     return false;
   }
   s_voice_cancel = false;
+  s_daily_briefing_streamed = false;
+  s_daily_briefing_streaming_play = false;
   s_voice_started_ms = millis();
   s_voice_op = op;
   s_voice_done = false;
@@ -893,8 +1198,21 @@ bool pm_voice_begin_clock_agenda(PmVoiceResult *r) {
   return voice_net_begin(3);
 }
 
+bool pm_voice_begin_daily_briefing(PmVoiceResult *r) {
+  s_req_result = r;
+  return voice_net_begin(4);
+}
+
 PmVoiceStatus pm_voice_poll(void) {
   return s_voice_status;
+}
+
+bool pm_voice_daily_briefing_streamed(void) {
+  return s_daily_briefing_streamed;
+}
+
+bool pm_voice_daily_briefing_streaming_play(void) {
+  return s_daily_briefing_streaming_play;
 }
 
 void pm_voice_abort(void) {

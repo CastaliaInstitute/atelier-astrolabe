@@ -182,7 +182,7 @@ bool pm_face_astrology_build_voice_message(char *buf, size_t cap) {
 
   int n = snprintf(
       buf, cap,
-      "Pocket Mynah transit snapshot for %04d-%02d-%02d %02d:%02d local. Tropical longitudes (approx deg): ",
+      "Mynah Astrolabe transit snapshot for %04d-%02d-%02d %02d:%02d local. Tropical longitudes (approx deg): ",
       loc.tm_year + 1900, loc.tm_mon + 1, loc.tm_mday, loc.tm_hour, loc.tm_min);
   if (n < 0 || static_cast<size_t>(n) >= cap) {
     return false;

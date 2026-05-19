@@ -6,10 +6,10 @@
 #include <cstring>
 #include <cstdio>
 
-#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "pm_config.h"
 #include "pm_castalia_auth.h"
+#include "pm_heap.h"
 
 static const char *TAG = "pm_spotify";
 
@@ -78,6 +78,10 @@ static bool post_action(const char *action, PmSpotifyStatus *out) {
     snprintf(out->error, sizeof(out->error), "Supabase not configured");
     return false;
   }
+  if (!pm_heap_tls_ready(MYNAH_SPOTIFY_MIN_FETCH_HEAP, "spotify")) {
+    snprintf(out->error, sizeof(out->error), "low memory");
+    return false;
+  }
 
   char base[160];
   strncpy(base, MYNAH_SUPABASE_URL, sizeof(base) - 1);
@@ -111,11 +115,7 @@ static bool post_action(const char *action, PmSpotifyStatus *out) {
     return false;
   }
 
-  char *resp = static_cast<char *>(
-      heap_caps_malloc(static_cast<size_t>(streamLen) + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-  if (!resp) {
-    resp = static_cast<char *>(malloc(static_cast<size_t>(streamLen) + 1));
-  }
+  char *resp = static_cast<char *>(pm_heap_alloc_response(static_cast<size_t>(streamLen) + 1));
   if (!resp) {
     http.end();
     snprintf(out->error, sizeof(out->error), "alloc");

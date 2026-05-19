@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Arduino.h>
+#include <WiFiClient.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -18,6 +19,13 @@ float pm_speaker_play_progress(void);
 /** Block until playback finishes or times out. */
 bool pm_speaker_play_mp3(const uint8_t *mp3, size_t mp3_len);
 
+/**
+ * Decode and play MPEG audio while reading from an open HTTP response body.
+ * Blocks the caller; intended for voice_net during daily briefing (no full-file buffer).
+ * `content_length` is HTTP Content-Length, or -1 if unknown (read until idle disconnect).
+ */
+bool pm_speaker_play_mp3_http_stream(WiFiClient *stream, int content_length, volatile bool *cancel);
+
 /** Force poll() to leave Playing (does not stop the speaker task immediately). */
 void pm_speaker_abort(void);
 
@@ -32,6 +40,9 @@ void pm_speaker_tone_stop(void);
 
 /** True while MP3, tone, or bowl voice playback is active. */
 bool pm_speaker_is_playing(void);
+
+/** True while daily-briefing HTTP stream is actively decoding to I2S (not just waiting on network). */
+bool pm_speaker_http_stream_active(void);
 
 /** Per-frame bowl resonator control (call from touch loop on the bowl face). */
 struct PmBowlVoiceCtrl {
@@ -55,3 +66,7 @@ float pm_speaker_bowl_voice_energy(void);
 
 /** True while the bowl voice task is sounding or decaying. */
 bool pm_speaker_bowl_voice_active(void);
+
+/** Default 180s; daily briefing may raise to 600s before long MP3 play. */
+void pm_speaker_set_max_play_seconds(uint32_t sec);
+uint32_t pm_speaker_max_play_seconds(void);

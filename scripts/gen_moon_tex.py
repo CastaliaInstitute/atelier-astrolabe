@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate 466x466 greyscale moon texture for PocketMynah (LCD size)."""
+"""Generate 466x466 greyscale moon texture for Mynah Astrolabe (LCD size)."""
 
 from __future__ import annotations
 
@@ -11,9 +11,9 @@ from pathlib import Path
 
 SIZE = 466
 ROOT = Path(__file__).resolve().parents[1]
-OUT_PNG = ROOT / "sketches" / "PocketMynah" / "assets" / "moon_466_gray.png"
-OUT_H = ROOT / "sketches" / "PocketMynah" / "pm_moon_tex.h"
-OUT_C = ROOT / "sketches" / "PocketMynah" / "pm_moon_tex.c"
+OUT_PNG = ROOT / "sketches" / "Astrolabe" / "assets" / "moon_466_gray.png"
+OUT_H = ROOT / "sketches" / "Astrolabe" / "pm_moon_tex.h"
+OUT_C = ROOT / "sketches" / "Astrolabe" / "pm_moon_tex.c"
 
 
 def make_texture() -> list[int]:

@@ -3,6 +3,15 @@
 #include <Arduino.h>
 
 bool pm_wifi_begin();
+const char *pm_wifi_hostname();
+const char *pm_wifi_mdns_name();
+/**
+ * Required before starting the BT controller while WiFi is up (Radar / presence BLE).
+ * Enables WiFi modem sleep (WIFI_PS_MIN_MODEM) so WiFi + BLE coexistence does not abort().
+ */
+void pm_wifi_enable_bt_coexistence(void);
+/** Detect connect/disconnect; plays connect chime once per link-up. Call from loop(). */
+void pm_wifi_poll(void);
 bool pm_wifi_connected();
 void pm_ntp_sync_blocking();
 /** If WiFi is up but clock never set, call occasionally (e.g. once per minute) to re-run SNTP. */

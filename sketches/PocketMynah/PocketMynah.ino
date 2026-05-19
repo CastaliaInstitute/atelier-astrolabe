@@ -1,4 +1,4 @@
-// PocketMynah MVP: WiFi + NTP hue clock + hold-to-talk (Supabase voice-pipeline: STT / LLM / TTS).
+// Mynah Astrolabe: WiFi + NTP hue clock + hold-to-talk (Supabase voice-pipeline: STT / LLM / TTS).
 
 #include <Arduino.h>
 #include <Arduino_GFX_Library.h>
@@ -824,7 +824,7 @@ static bool build_moon_voice_message(char *buf, size_t cap) {
   const char *nm = moon_phase_name_from_elong_deg(el);
   const int n = snprintf(
       buf, cap,
-      "Pocket Mynah round watch. Local %04d-%02d-%02d %02d:%02d. Sun-Moon elongation ~%.0f deg "
+      "Mynah Astrolabe round watch. Local %04d-%02d-%02d %02d:%02d. Sun-Moon elongation ~%.0f deg "
       "(illum ~%d%%, %s). Phase: \"%s\". In 3-5 short spoken sentences: name the phase, brief geometry, "
       "a poetic note. No medical, legal, or fortune-telling advice.",
       loc.tm_year + 1900, loc.tm_mon + 1, loc.tm_mday, loc.tm_hour, loc.tm_min, el,
@@ -1812,7 +1812,7 @@ static bool build_astrology_voice_message(char *buf, size_t cap) {
 
   int n = snprintf(
       buf, cap,
-      "Pocket Mynah transit snapshot for %04d-%02d-%02d %02d:%02d local. Tropical longitudes (%s deg): ",
+      "Mynah Astrolabe transit snapshot for %04d-%02d-%02d %02d:%02d local. Tropical longitudes (%s deg): ",
       loc.tm_year + 1900, loc.tm_mon + 1, loc.tm_mday, loc.tm_hour, loc.tm_min,
       remote_tp ? "Castalia ephemeris" : "approx");
   if (n < 0 || static_cast<size_t>(n) >= cap) {
@@ -2120,7 +2120,7 @@ void setup() {
 
   ensure_pcm_buffer();
 
-  Serial.println("PocketMynah MVP ready");
+  Serial.println("Mynah Astrolabe ready");
 }
 
 void loop() {

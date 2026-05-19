@@ -14,8 +14,10 @@ enum class ClockFace : uint8_t {
   Moon,
   /** Hue Daywheel — rolling 12h calendar via `calcifer-status`. */
   CalciferCountdown,
-  /** QR → castalia.institute Google sign-in; tokens stored on watch for Edge Functions. */
+  /** Legacy serial index; opens Settings → Castalia page. Not in swipe dial. */
   Castalia,
+  /** Settings hub (home swipe down): WiFi + Castalia QR; swipe ← → between pages. */
+  Settings,
   /** Dual natal wheel/aspects for saved partner/family chart profiles. */
   Synastry,
   /** Polar audio visualizers; swipe up/down cycles mode on this face. */
@@ -38,6 +40,8 @@ enum class ClockFace : uint8_t {
 ClockFace pm_faces_current(void);
 void pm_faces_set(ClockFace face);
 void pm_faces_cycle(int delta);
+void pm_faces_open_settings(void);
+bool pm_faces_castalia_active(void);
 bool pm_faces_is_commonplace_home(void);
 bool pm_faces_banner_low(void);
 void pm_faces_draw(float thinking_progress = -1.f);

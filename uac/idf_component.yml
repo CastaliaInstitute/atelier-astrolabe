@@ -1,2 +1,3 @@
 dependencies:
-  espressif/usb_device_uac: "1.2.3"
+  espressif/usb_device_uac:
+    path: overlay_usb_device_uac

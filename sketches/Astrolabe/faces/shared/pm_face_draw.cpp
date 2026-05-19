@@ -1,5 +1,6 @@
 #include "faces/shared/pm_face_draw.h"
 #include "faces/shared/pm_circadian_hue.h"
+#include "esp_task_wdt.h"
 #include <cmath>
 #include "pin_config.h"
 #include "pm_config.h"
@@ -160,6 +161,84 @@ void gem_fill_radial_dithered(int cx, int cy, int r_max, float hue_deg, float pu
       }
       const float t = sqrtf(static_cast<float>(d2)) * inv_r_max;
       pm_gfx->drawPixel(x, y, gem_color_at_radius(x, y, t, hue_deg, pulse_b));
+    }
+  }
+}
+
+uint16_t gem_color_at_radius_briefing(int x, int y, float t, float hue_deg, float pulse_b, float wave_phase) {
+  constexpr float k_peak_v = 0.40f;
+  const float glow = gem_radial_glow(t);
+  float v = pm_face_hsv_v + (k_peak_v - pm_face_hsv_v) * glow;
+  v += (static_cast<float>((frost_hash(x, y) >> 8) & 255u) - 127.5f) / 6144.f;
+
+  constexpr float k_wavelength = 0.13f;
+  const float ripple_r = sinf(wave_phase + pm_face_k_two_pi * (t / k_wavelength));
+  const float ripple_2d =
+      sinf(wave_phase * 1.09f + pm_face_k_two_pi * (t / (k_wavelength * 0.88f) + 0.12f * cosf(t * 11.f)));
+  v *= 1.f + 0.24f * ripple_r + 0.14f * ripple_2d;
+
+  v *= pulse_b;
+  if (v > 1.f) {
+    v = 1.f;
+  }
+  if (v < 0.f) {
+    v = 0.f;
+  }
+  const float sat = pm_face_hsv_s * (0.82f + 0.18f * glow);
+  float r, g, b;
+  hsv_to_rgb255(hue_deg, sat, v, r, g, b);
+  if (t > 0.58f) {
+    const float edge = smoothstep01((t - 0.58f) / 0.42f);
+    float vr, vg, vb;
+    hsv_to_rgb255(hue_deg, pm_face_hsv_s * 0.48f, 0.02f, vr, vg, vb);
+    const float iv = 1.f - edge;
+    r = r * iv + vr * edge;
+    g = g * iv + vg * edge;
+    b = b * iv + vb * edge;
+  }
+  return rgb255_ordered_dither_565(x, y, r, g, b);
+}
+
+void gem_fill_briefing_ripples(int cx, int cy, int r_max, float hue_deg, float pulse_b, float wave_phase) {
+  const int r_max2 = r_max * r_max;
+  const float inv_r_max = 1.f / static_cast<float>(r_max);
+  const int y0 = cy - r_max;
+  const int y1 = cy + r_max;
+  constexpr int kStep = 2;
+  uint32_t wdt_row = 0;
+  for (int y = y0; y <= y1; y += kStep) {
+    const int dy = y - cy;
+    const int dy2 = dy * dy;
+    if (dy2 > r_max2) {
+      continue;
+    }
+    if ((++wdt_row & 7u) == 0u) {
+      esp_task_wdt_reset();
+    }
+    const int half = static_cast<int>(lrintf(sqrtf(static_cast<float>(r_max2 - dy2))));
+    int xa = cx - half;
+    int xb = cx + half;
+    if (xa < 0) {
+      xa = 0;
+    }
+    if (xb >= LCD_WIDTH) {
+      xb = LCD_WIDTH - 1;
+    }
+    for (int x = xa; x <= xb; x += kStep) {
+      const int dx = x - cx;
+      const int d2 = dx * dx + dy2;
+      if (d2 > r_max2) {
+        continue;
+      }
+      const float t = sqrtf(static_cast<float>(d2)) * inv_r_max;
+      const uint16_t col = gem_color_at_radius_briefing(x, y, t, hue_deg, pulse_b, wave_phase);
+      pm_gfx->drawPixel(x, y, col);
+      if (kStep > 1 && x + 1 <= xb) {
+        pm_gfx->drawPixel(x + 1, y, col);
+      }
+      if (kStep > 1 && y + 1 <= y1) {
+        pm_gfx->drawPixel(x, y + 1, col);
+      }
     }
   }
 }
@@ -508,6 +587,44 @@ void pm_face_draw_voice_wave_screen(bool outward, uint32_t t_ms, const char *lab
     pm_face_draw_circumference_rainbow_24h(true);
   }
   pm_face_draw_voice_waves_overlay(outward, t_ms);
+  if (label && label[0] != '\0') {
+    pm_gfx->fillRect(0, 0, LCD_WIDTH, 40, pm_gfx->color565(10, 12, 22));
+    pm_face_draw_centered_line(label, 12, pm_gfx->color565(215, 205, 255), 1, 1);
+  }
+  pm_gfx->flush();
+}
+
+float pm_face_home_hue_deg(void) {
+  struct tm tm = {};
+  int sec_of_day = 0;
+  if (pm_time_valid()) {
+    pm_time_local(&tm);
+    sec_of_day = tm.tm_hour * 3600 + tm.tm_min * 60 + tm.tm_sec;
+    return static_cast<float>(sec_of_day) * (360.0f / 86400.0f);
+  }
+  return fmodf(static_cast<float>(millis()) * 0.0015f, 360.0f);
+}
+
+void pm_face_draw_home_briefing_screen(bool show_ripples, uint32_t t_ms, float thinking_progress,
+                                        const char *label) {
+  const float hue = pm_face_home_hue_deg();
+  (void)pm_face_draw_home_gem_glow(hue);
+
+  if (show_ripples) {
+    const int cx = pm_face_lcd_cx;
+    const int cy = pm_face_lcd_cy;
+    const int r_max = min(LCD_WIDTH, LCD_HEIGHT) / 2 - 14;
+    const float pulse_b = pm_home_gem_pulse_brightness(t_ms);
+    const float wave_phase = static_cast<float>(t_ms) * 0.0115f;
+    gem_fill_briefing_ripples(cx, cy, r_max, hue, pulse_b, wave_phase);
+  }
+
+  if (pm_time_valid()) {
+    pm_face_draw_circumference_rainbow_24h(true);
+  }
+  if (thinking_progress >= 0.f) {
+    pm_face_draw_thinking_progress_ring(thinking_progress);
+  }
   if (label && label[0] != '\0') {
     pm_gfx->fillRect(0, 0, LCD_WIDTH, 40, pm_gfx->color565(10, 12, 22));
     pm_face_draw_centered_line(label, 12, pm_gfx->color565(215, 205, 255), 1, 1);

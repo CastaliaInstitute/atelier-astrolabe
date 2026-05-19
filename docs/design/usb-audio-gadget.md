@@ -46,7 +46,7 @@ The first `waveshare_s3_175_uac` build runs a **hybrid IDF compile** (~5–10 mi
 ## Host test (M1)
 
 1. Flash `waveshare_s3_175_uac`, plug USB-C on the **OTG** port (GPIO19/20), not Serial/JTAG only.
-2. On macOS: **Audio MIDI Setup** — select **Astrolabe UAC** as output.
+2. On macOS: **Audio MIDI Setup** — select **Astrolabe** as output.
 3. Play audio; sound should route to the watch speaker via `pm_speaker_pcm`.
 
 ## USB / debug notes

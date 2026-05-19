@@ -1,17 +1,21 @@
-"""Emit pm_build_info.h with git branch, SHA, and GitHub QR URL for the Version face."""
+"""Emit pm_build_info.h with git branch, SHA, commit message, and GitHub QR URL."""
 Import("env")
 
 import subprocess
 from pathlib import Path
 
 REPO = "CastaliaInstitute/astrolabe"
-OUT = Path(env["PROJECT_DIR"]) / "sketches" / "PocketMynah" / "pm_build_info.h"
+ROOT = Path(env["PROJECT_DIR"])
+OUT_PATHS = [
+    ROOT / "sketches" / "Astrolabe" / "pm_build_info.h",
+]
+COMMIT_MSG_MAX = 480
 
 
 def _run_git(*args: str) -> str:
     try:
         return (
-            subprocess.check_output(["git", *args], cwd=env["PROJECT_DIR"], stderr=subprocess.DEVNULL)
+            subprocess.check_output(["git", *args], cwd=str(ROOT), stderr=subprocess.DEVNULL)
             .decode("utf-8", errors="replace")
             .strip()
         )
@@ -20,7 +24,26 @@ def _run_git(*args: str) -> str:
 
 
 def _c_escape(s: str) -> str:
-    return s.replace("\\", "\\\\").replace('"', '\\"')
+    return (
+        s.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("\r", " ")
+        .replace("\n", " ")
+        .replace("\t", " ")
+    )
+
+
+def _commit_message() -> str:
+    """Subject + body of HEAD, flattened for a C string."""
+    subject = _run_git("log", "-1", "--format=%s") or ""
+    body = _run_git("log", "-1", "--format=%b") or ""
+    msg = subject
+    if body:
+        msg = f"{subject}. {body}" if subject else body
+    msg = " ".join(msg.split())
+    if len(msg) > COMMIT_MSG_MAX:
+        msg = msg[: COMMIT_MSG_MAX - 1].rstrip() + "…"
+    return msg
 
 
 def emit_build_info():
@@ -29,6 +52,7 @@ def emit_build_info():
     branch = _run_git("rev-parse", "--abbrev-ref", "HEAD") or "unknown"
     dirty = _run_git("status", "--porcelain") != ""
     date = _run_git("show", "-s", "--format=%cs", "HEAD") or "unknown"
+    commit_msg = _commit_message()
 
     if branch == "HEAD":
         branch = "detached"
@@ -46,10 +70,14 @@ def emit_build_info():
         f'#define PM_BUILD_BRANCH "{_c_escape(branch)}"',
         f"#define PM_BUILD_DIRTY {1 if dirty else 0}",
         f'#define PM_BUILD_DATE "{_c_escape(date)}"',
+        f'#define PM_BUILD_COMMIT_MSG "{_c_escape(commit_msg)}"',
         f'#define PM_BUILD_QR_URL "{_c_escape(qr_url)}"',
         "",
     ]
-    OUT.write_text("\n".join(lines), encoding="utf-8")
+    text = "\n".join(lines)
+    for out in OUT_PATHS:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(text, encoding="utf-8")
 
 
 emit_build_info()

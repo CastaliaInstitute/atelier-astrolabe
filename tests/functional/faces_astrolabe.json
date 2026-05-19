@@ -1,6 +1,6 @@
 {
   "sketch": "Astrolabe",
-  "face_count": 16,
+  "face_count": 17,
   "center": [233, 233],
   "faces": [
     {
@@ -57,18 +57,30 @@
       "name": "castalia",
       "source_paths": ["sketches/Astrolabe/faces/castalia", "sketches/Astrolabe/pm_castalia_auth.cpp", "sketches/Astrolabe/pm_castalia_auth.h"],
       "paint_sec": 0.35,
-      "gestures": ["swipe_left"],
+      "gestures": [],
+      "note": "Reached via Settings hub (swipe down on home), not dial L/R",
       "buttons": []
     },
     {
       "id": 8,
+      "name": "settings",
+      "source_paths": [
+        "sketches/Astrolabe/pm_settings.cpp",
+        "sketches/Astrolabe/pm_settings.h",
+        "sketches/Astrolabe/faces/settings"
+      ],
+      "gestures": ["swipe_down:233,350", "swipe_left", "swipe_right", "swipe_up"],
+      "buttons": []
+    },
+    {
+      "id": 9,
       "name": "synastry",
       "source_paths": ["sketches/Astrolabe/faces/synastry"],
       "gestures": ["tap:233,233", "swipe_left"],
       "buttons": []
     },
     {
-      "id": 9,
+      "id": 10,
       "name": "spectrum",
       "source_paths": [
         "sketches/Astrolabe/faces/spectrum",
@@ -79,14 +91,14 @@
       "buttons": []
     },
     {
-      "id": 10,
+      "id": 11,
       "name": "chakra",
       "source_paths": ["sketches/Astrolabe/faces/chakra", "sketches/Astrolabe/pm_speaker.cpp", "sketches/Astrolabe/pm_speaker.h"],
       "gestures": ["tap:233,233", "swipe_up", "swipe_down", "swipe_left"],
       "buttons": []
     },
     {
-      "id": 11,
+      "id": 12,
       "name": "bowl",
       "source_paths": [
         "sketches/Astrolabe/faces/tibetan_bowl",
@@ -97,7 +109,7 @@
       "buttons": []
     },
     {
-      "id": 12,
+      "id": 13,
       "name": "rocket",
       "source_paths": [
         "sketches/Astrolabe/faces/rocket",
@@ -108,7 +120,7 @@
       "buttons": []
     },
     {
-      "id": 13,
+      "id": 14,
       "name": "radar",
       "source_paths": [
         "sketches/Astrolabe/faces/radar",
@@ -127,7 +139,7 @@
       "buttons": []
     },
     {
-      "id": 14,
+      "id": 15,
       "name": "faculty",
       "source_paths": [
         "sketches/Astrolabe/faces/faculty",
@@ -138,7 +150,7 @@
       "buttons": []
     },
     {
-      "id": 15,
+      "id": 16,
       "name": "weather",
       "source_paths": ["sketches/Astrolabe/faces/weather", "sketches/Astrolabe/pm_weather.cpp"],
       "gestures": ["swipe_left", "swipe_right", "tap:233,233"],

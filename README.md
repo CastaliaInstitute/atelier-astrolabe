@@ -2,16 +2,16 @@
 
 PlatformIO firmware for the Waveshare **[ESP32-S3-Touch-AMOLED-1.75C](https://github.com/waveshareteam/ESP32-S3-Touch-AMOLED-1.75C)** class board. Product notes: [`docs/design/pocketwatch.md`](../docs/design/pocketwatch.md).
 
-## Default sketch: PocketMynah MVP
+## Default sketch: Mynah Astrolabe
 
 | Path | Role |
 |------|------|
-| [`sketches/PocketMynah/`](sketches/PocketMynah/) | **WiFi** + **NTP** hue clock faces (analog, Apocalypso, digital, Spotify, **Astrology**, **Moon**, **schedule** countdown, **Castalia** QR, **Settings** LAN config QR, **Version** build info + GitHub QR); **PWR hold** = STT, **BOOT** = replay last TTS (or CalDAV agenda on analog/digital/schedule); **voice-pipeline** with Castalia JWT. **Gestures**: swipe to change face. |
+| [`sketches/Astrolabe/`](sketches/Astrolabe/) | **WiFi** + **NTP** hue clock faces (analog, Apocalypso, digital, Spotify, **Astrology**, **Moon**, **schedule** countdown, **Castalia** QR, **Settings** LAN config QR, **Version** build info + GitHub QR); **PWR hold** = STT, **BOOT** = replay last TTS (or CalDAV agenda on analog/digital/schedule); **voice-pipeline** with Castalia JWT. **Gestures**: swipe to change face. |
 | [`sketches/01_HelloWorld/`](sketches/01_HelloWorld/) | Minimal display sanity check; set `src_dir` in [`platformio.ini`](platformio.ini) to switch back. |
 | [`lib/waveshare_board_audio/`](lib/waveshare_board_audio/) | Vendor **ES7210** / **ES8311** sources from the Waveshare tree (MIT / Apache-2.0). |
 | [`lib/minimp3/`](lib/minimp3/) | [lieff/minimp3](https://github.com/lieff/minimp3) (public domain) for decoding TTS MP3. |
 | [`platformio.ini`](platformio.ini) | GFX **1.5.0**, `lewisxhe/SensorLib` (CST92xx touch), flash/PSRAM, optional `upload_port`. |
-| [`sketches/PocketMynah/pm_gesture.cpp`](sketches/PocketMynah/pm_gesture.cpp) | Software gesture + multitap on `pm_touch_sample()`; tunable `MYNAH_GESTURE_*` constants in-file. |
+| [`sketches/Astrolabe/pm_gesture.cpp`](sketches/Astrolabe/pm_gesture.cpp) | Software gesture + multitap on `pm_touch_sample()`; tunable `MYNAH_GESTURE_*` constants in-file. |
 
 GFX note: CO5300 is constructed with **`false`** for the IPS argument (GFX 1.5.0 vs Waveshare’s newer GFX).
 
@@ -46,14 +46,14 @@ If `secrets.local.h` is missing, the build uses the example file (empty strings)
 
 ## Castalia auth modes
 
-PocketMynah always sends Supabase's anon key as the `apikey` header. The
+Mynah Astrolabe always sends Supabase's anon key as the `apikey` header. The
 `Authorization` bearer is selected by
-[`pm_castalia_auth`](sketches/PocketMynah/pm_castalia_auth.h):
+[`pm_castalia_auth`](sketches/Astrolabe/pm_castalia_auth.h):
 
 - **Anonymous / not signed in**: `Authorization: Bearer <MYNAH_SUPABASE_ANON_KEY>`.
   This is the bootstrapping mode used before the watch has a Castalia session.
 - **Signed in**: swipe to the
-  [`Castalia` sign-in face](sketches/PocketMynah/PocketMynah.ino), scan the QR
+  [`Castalia` sign-in face](sketches/Astrolabe/Astrolabe.ino), scan the QR
   code, and complete Google sign-in on `castalia.institute`. The watch stores the
   returned Supabase access and refresh tokens in NVS, refreshes stale sessions in
   the background, and uses `Authorization: Bearer <Castalia JWT>` while the

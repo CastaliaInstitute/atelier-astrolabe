@@ -4,7 +4,6 @@
 #include <WiFi.h>
 #include <WiFiClient.h>
 #include <WiFiClientSecure.h>
-#include <esp_heap_caps.h>
 #include <esp_log.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,6 +11,7 @@
 #include <time.h>
 
 #include "pm_config.h"
+#include "pm_heap.h"
 
 static const char *TAG = "pm_ephem";
 
@@ -31,6 +31,18 @@ bool pm_ephemeris_last_from_network(void) {
   const bool v = s_last_from_network;
   s_last_from_network = false;
   return v;
+}
+
+void pm_ephemeris_release_cache(void) {
+  if (s_month_json) {
+    free(s_month_json);
+    s_month_json = nullptr;
+  }
+  s_month_json_cap = 0;
+  s_month_key[0] = '\0';
+  s_cache = {};
+  s_cache_epoch_min = -1;
+  s_last_from_network = false;
 }
 
 static double norm360(double lon) {
@@ -145,6 +157,9 @@ static bool ensure_month_loaded(const char *month_key) {
   if (WiFi.status() != WL_CONNECTED) {
     return false;
   }
+  if (!pm_heap_tls_ready(MYNAH_EPHEMERIS_MIN_FETCH_HEAP, "ephemeris")) {
+    return false;
+  }
 
   char url[192];
   snprintf(url, sizeof(url), "%s/%s.json", MYNAH_EPHEMERIS_DATA_BASE, month_key);
@@ -174,11 +189,7 @@ static bool ensure_month_loaded(const char *month_key) {
       s_month_json = nullptr;
     }
     s_month_json_cap = static_cast<size_t>(len) + 1u;
-    s_month_json = static_cast<char *>(
-        heap_caps_malloc(s_month_json_cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-    if (!s_month_json) {
-      s_month_json = static_cast<char *>(malloc(s_month_json_cap));
-    }
+    s_month_json = static_cast<char *>(pm_heap_alloc_response(s_month_json_cap));
   }
   if (!s_month_json) {
     http.end();

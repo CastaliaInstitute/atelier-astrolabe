@@ -1,30 +1,50 @@
 ---
-description: Use astrolabe-esp MCP for watch serial console, JTAG/GDB, upload, and face screenshots
+description: Use astrolabe-esp MCP for watch serial console, JTAG/GDB, upload, and automatic log triage
 globs: sketches/**/*,src/**/*,include/**/*,mcp/astrolabe-esp/**/*
 alwaysApply: false
 ---
 
 # Astrolabe ESP MCP
 
-When debugging Astrolabe on hardware:
+When debugging Astrolabe on hardware, **do not guess** from compile-only checks — capture and review the USB console.
 
-## Device console
+## Automatic console review (default)
+
+| Situation | Tool |
+|-----------|------|
+| After flash, boot check, crash repro, face swipe bug | **`astrolabe_console_review`** |
+| Raw log only (no triage) | `astrolabe_serial_monitor` |
+| Upload + boot triage | `astrolabe_build_upload_monitor` |
+
+**`astrolabe_console_review`** captures serial, detects panics/reboot loops/WiFi+BT coexistence, and writes:
+
+- `artifacts/monitor/latest.log` — full text
+- `artifacts/monitor/latest-review.json` — `boot_ok`, `issues`, sample errors
+
+Typical calls:
+
+- Boot after flash: `duration_sec=30`, `reset_boot=true`, `stop_pattern="PocketMynah MVP ready"`
+- Repro without reset: `reset_boot=false`, `duration_sec=20`
+- Inject serial command: `send_line="face 3"` (QA face index)
+
+Read `status=HEALTHY` vs `NEEDS ATTENTION` and `issues=` in the tool result before continuing.
+
+Shell fallback: `./scripts/console_review.sh 30`
+
+## Other tools
 
 | Need | MCP tool |
 |------|----------|
-| Boot log, `Serial`, ESP_LOG, panics | **`astrolabe_serial_monitor`** (USB CDC 115200) |
-| Serial + confirm JTAG adapter | **`astrolabe_console_monitor`** |
-| OpenOCD link only | **`astrolabe_jtag_openocd`** |
-| Halt, backtrace, inject face | **`astrolabe_jtag_gdb`** / **`astrolabe_debug_gdb`** |
+| Serial + JTAG adapter smoke test | `astrolabe_console_monitor` |
+| OpenOCD link only | `astrolabe_jtag_openocd` |
+| Halt / backtrace / inject face | `astrolabe_jtag_gdb` / `astrolabe_debug_gdb` |
+| List `/dev/cu.usbmodem*` | `astrolabe_list_ports` |
+| Flash | `astrolabe_upload` / `astrolabe_build` |
 
-JTAG does **not** stream printf — always pair GDB with **`astrolabe_serial_monitor`** (or `./scripts/monitor_serial.sh` in a second terminal).
-
-1. **`astrolabe_list_ports`** — confirm `/dev/cu.usbmodem*` before upload/monitor.
-2. **`astrolabe_serial_monitor`** — `reset_boot: true` for fresh boot log; logs under `artifacts/monitor/`.
-3. **`astrolabe_upload`** / **`astrolabe_build`** — flash `waveshare_s3_175` (or `_debug` for GDB).
+JTAG does **not** stream `printf` — pair GDB with **`astrolabe_console_review`**.
 
 ## Clock-face QA
 
-Follow [hardware-qa.mdc](hardware-qa.mdc): upload → show face → `screen.bmp` → evaluate.
+Follow [hardware-qa.mdc](hardware-qa.mdc): upload → `astrolabe_console_review` (boot ok) → show face → `screen.bmp`.
 
-Reload MCP if tools are missing (`mcp/astrolabe-esp/setup.sh`, entry in `~/.cursor/mcp.json`).
+Reload MCP after changing `mcp/astrolabe-esp/` (`./mcp/astrolabe-esp/setup.sh`, entry in `~/.cursor/mcp.json`).

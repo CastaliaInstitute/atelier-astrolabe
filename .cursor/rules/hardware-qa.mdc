@@ -63,6 +63,8 @@ Record outcome in the commit message, PR, or **Done** line on the backlog item. 
 
 ## Functional test (all faces)
 
+After flash or when investigating crashes, run **`astrolabe_console_review`** (MCP) or `./scripts/console_review.sh 30` and confirm `boot_ok` / no `issues` in `artifacts/monitor/latest-review.json`.
+
 After large face or input-handler changes, run the full matrix (screenshot + injected touch/button, serial crash watch):
 
 ```bash

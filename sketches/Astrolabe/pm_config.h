@@ -16,6 +16,11 @@
 #define MYNAH_WIFI_NVS_DEFAULT_PASS "thechateau"
 #endif
 
+/** Wearer display name (NVS `user_name`; serial: `name Daniel`). */
+#ifndef MYNAH_USER_NAME_DEFAULT
+#define MYNAH_USER_NAME_DEFAULT "Daniel"
+#endif
+
 #ifndef MYNAH_VOICE_MAX_PCM_BYTES
 #define MYNAH_VOICE_MAX_PCM_BYTES (16000 * 2 * 5)
 #endif
@@ -100,6 +105,41 @@
 /** Longest edge after decode (scaled down if larger). */
 #ifndef MYNAH_ROCKET_IMAGE_MAX_DIM
 #define MYNAH_ROCKET_IMAGE_MAX_DIM 240
+#endif
+
+/** Skip Rocket HTTPS refresh when BLE/Radar has left too little heap for TLS. */
+#ifndef MYNAH_ROCKET_MIN_FETCH_HEAP
+#define MYNAH_ROCKET_MIN_FETCH_HEAP 140000u
+#endif
+
+/** Skip Faculty portrait HTTPS refresh when Radar/BLE leaves too little heap for TLS. */
+#ifndef MYNAH_FACULTY_MIN_FETCH_HEAP
+#define MYNAH_FACULTY_MIN_FETCH_HEAP 140000u
+#endif
+
+/** Skip Spotify HTTPS calls when internal heap is too low for TLS. */
+#ifndef MYNAH_SPOTIFY_MIN_FETCH_HEAP
+#define MYNAH_SPOTIFY_MIN_FETCH_HEAP 140000u
+#endif
+
+/** Skip foreground HTTPS refreshes on face load when loopTask memory is constrained. */
+#ifndef MYNAH_FACE_FETCH_MIN_HEAP
+#define MYNAH_FACE_FETCH_MIN_HEAP 140000u
+#endif
+
+/** Skip ephemeris HTTPS month loads when loopTask/TLS memory is constrained. */
+#ifndef MYNAH_EPHEMERIS_MIN_FETCH_HEAP
+#define MYNAH_EPHEMERIS_MIN_FETCH_HEAP 140000u
+#endif
+
+/** TLS is fragile when internal heap is fragmented even if total free looks okay. */
+#ifndef MYNAH_TLS_MIN_LARGEST_INTERNAL
+#define MYNAH_TLS_MIN_LARGEST_INTERNAL 36000u
+#endif
+
+/** Never let response-buffer fallback malloc drain internal RAM below this reserve. */
+#ifndef MYNAH_RESPONSE_INTERNAL_FLOOR
+#define MYNAH_RESPONSE_INTERNAL_FLOOR 90000u
 #endif
 
 /** 1 = fetch Swiss Ephemeris from ephemeris.castalia.institute when WiFi is up. */
