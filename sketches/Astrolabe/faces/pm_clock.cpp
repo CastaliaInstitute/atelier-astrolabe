@@ -11,6 +11,7 @@
 #include "faces/chakra/pm_face_chakra.h"
 #include "faces/classic_analog/pm_face_classic_analog.h"
 #include "faces/digital/pm_face_digital.h"
+#include "faces/faculty/pm_face_faculty.h"
 #include "faces/moon/pm_face_moon.h"
 #include "faces/shared/pm_face_draw.h"
 #include "faces/rocket/pm_face_rocket.h"
@@ -91,7 +92,7 @@ void pm_faces_draw(float thinking_progress) {
   if (s_clock_face != ClockFace::CalciferCountdown && s_clock_face != ClockFace::Spectrum &&
       s_clock_face != ClockFace::Chakra && s_clock_face != ClockFace::TibetanBowl &&
       s_clock_face != ClockFace::Rocket && s_clock_face != ClockFace::Radar &&
-      s_clock_face != ClockFace::Weather) {
+      s_clock_face != ClockFace::Faculty && s_clock_face != ClockFace::Weather) {
 #if MYNAH_HUE_HOME_ONLY
     if (s_clock_face == ClockFace::ClassicAnalog) {
       bg = pm_face_draw_home_gem_glow(hue);
@@ -146,6 +147,9 @@ void pm_faces_draw(float thinking_progress) {
     case ClockFace::Radar:
       pm_face_radar_draw(&tm, pm_time_valid());
       break;
+    case ClockFace::Faculty:
+      pm_face_faculty_draw();
+      break;
     case ClockFace::Weather: {
       int lh = 0;
       int lm = 0;
@@ -166,7 +170,7 @@ void pm_faces_draw(float thinking_progress) {
                         s_clock_face == ClockFace::Synastry || s_clock_face == ClockFace::Spectrum ||
                         s_clock_face == ClockFace::Chakra || s_clock_face == ClockFace::TibetanBowl ||
                         s_clock_face == ClockFace::Rocket || s_clock_face == ClockFace::Radar ||
-                        s_clock_face == ClockFace::Weather)
+                        s_clock_face == ClockFace::Faculty || s_clock_face == ClockFace::Weather)
                            ? 352
                            : 320;
   if (MYNAH_DEBUG_GESTURES && g_gesture_banner[0] != '\0') {
@@ -177,7 +181,8 @@ void pm_faces_draw(float thinking_progress) {
   if (s_clock_face != ClockFace::Castalia && s_clock_face != ClockFace::Moon &&
       s_clock_face != ClockFace::CalciferCountdown && s_clock_face != ClockFace::Spectrum &&
       s_clock_face != ClockFace::TibetanBowl && s_clock_face != ClockFace::Rocket &&
-      s_clock_face != ClockFace::Radar && s_clock_face != ClockFace::Weather) {
+      s_clock_face != ClockFace::Radar && s_clock_face != ClockFace::Faculty &&
+      s_clock_face != ClockFace::Weather) {
     pm_face_draw_circumference_rainbow_24h(pm_time_valid());
     if (thinking_progress >= 0.f) {
       pm_face_draw_thinking_progress_ring(thinking_progress);
@@ -210,7 +215,7 @@ bool pm_faces_banner_low(void) {
          f == ClockFace::Moon || f == ClockFace::CalciferCountdown || f == ClockFace::Castalia ||
          f == ClockFace::Synastry || f == ClockFace::Spectrum || f == ClockFace::Chakra ||
          f == ClockFace::TibetanBowl || f == ClockFace::Rocket || f == ClockFace::Radar ||
-         f == ClockFace::Weather;
+         f == ClockFace::Faculty || f == ClockFace::Weather;
 }
 
 uint16_t pm_faces_last_bg565(void) { return s_clock_bg565; }
@@ -219,7 +224,8 @@ bool pm_faces_local_hm_changed(int hour, int min) {
   if (s_clock_face == ClockFace::Castalia || s_clock_face == ClockFace::Synastry ||
       s_clock_face == ClockFace::Spectrum || s_clock_face == ClockFace::Chakra ||
       s_clock_face == ClockFace::TibetanBowl || s_clock_face == ClockFace::Rocket ||
-      s_clock_face == ClockFace::Radar || s_clock_face == ClockFace::Weather) {
+      s_clock_face == ClockFace::Radar || s_clock_face == ClockFace::Faculty ||
+      s_clock_face == ClockFace::Weather) {
     return false;
   }
   return s_analog_saved_local_h < 0 || hour != s_analog_saved_local_h || min != s_analog_saved_local_m;

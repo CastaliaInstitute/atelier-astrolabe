@@ -28,6 +28,8 @@ enum class ClockFace : uint8_t {
   Rocket,
   /** BLE peer radar: force graph + 6DOF gyro bearing (no magnetometer). */
   Radar,
+  /** ask-faculty conversations; swipe up/down cycles recent faculty. */
+  Faculty,
   /** 24h radial temp + humidity rings; current conditions center. */
   Weather,
   kNumFaces,
