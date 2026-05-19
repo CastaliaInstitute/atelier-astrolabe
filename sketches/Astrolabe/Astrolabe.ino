@@ -45,6 +45,7 @@
 #include "faces/radar/pm_face_radar.h"
 #include "pm_presence.h"
 #include "pm_motion.h"
+#include "pm_faculty.h"
 #include "pm_audio_analyzer.h"
 #include "faces/rocket/pm_face_rocket.h"
 #include "pm_display.h"
@@ -380,7 +381,8 @@ static bool face_index_from_name(const char *name, int *out) {
            {"audio", 9},      {"sound", 9},       {"chakra", 10},
            {"bowl", 11},      {"tibetan", 11},    {"tibetan_bowl", 11},
            {"rocket", 12},    {"launch", 12},     {"launchclock", 12},
-           {"radar", 13},     {"presence", 13},   {"peers", 13}};
+           {"radar", 13},     {"presence", 13},   {"peers", 13},
+           {"faculty", 14},   {"fac", 14}};
   for (const auto &e : k) {
     if (strcasecmp(name, e.n) == 0) {
       *out = e.idx;
@@ -457,6 +459,7 @@ static void poll_serial_birth_commands() {
           Serial.println("qa: 11 bowl");
           Serial.println("qa: 12 rocket");
           Serial.println("qa: 13 radar");
+          Serial.println("qa: 14 faculty");
         } else if (!pm_qa_inject_command(args)) {
           Serial.println("qa: usage: status | faces | inject …");
         }
@@ -478,7 +481,7 @@ static void poll_serial_birth_commands() {
           g_clock_repaint_pending = true;
           Serial.printf("face: %d\n", idx);
         } else {
-          Serial.println("face: usage: face <0-13|name>");
+          Serial.println("face: usage: face <0-14|name>");
         }
       } else if (strcmp(line, "astro") == 0) {
         if (pm_faces_current() != ClockFace::Astrology) {
@@ -502,6 +505,42 @@ static void poll_serial_birth_commands() {
         } else {
           Serial.printf("synastry: %s\n", g_gesture_banner);
         }
+      } else if (strcmp(line, "faculty list") == 0) {
+        pm_faculty_ensure_demo_seed();
+        Serial.println("faculty:");
+        PmFacultyProfile active = {};
+        const bool have_active = pm_faculty_active(&active);
+        for (int i = 0; i < kPmFacultySlots; ++i) {
+          PmFacultyProfile f = {};
+          if (pm_faculty_get_slot(i, &f)) {
+            Serial.printf("  %d%s: %s (%s)\n", i,
+                          (have_active && strcmp(active.slug, f.slug) == 0) ? "*" : "", f.name, f.slug);
+          }
+        }
+      } else if (strcmp(line, "faculty next") == 0 || strcmp(line, "faculty prev") == 0) {
+        PmFacultyProfile f = {};
+        const int delta = strcmp(line, "faculty next") == 0 ? 1 : -1;
+        if (pm_faculty_cycle_active(delta, &f)) {
+          Serial.printf("faculty: %s (%s)\n", f.name, f.slug);
+          (void)pm_faculty_tick_bust_fetch();
+        } else {
+          Serial.println("faculty: no recent faculty");
+        }
+        g_clock_repaint_pending = true;
+      } else if (strncmp(line, "faculty use ", 12) == 0) {
+        const char *p = line + 12;
+        while (*p == ' ') {
+          ++p;
+        }
+        if (pm_faculty_set_active_slug(p, nullptr)) {
+          PmFacultyProfile f = {};
+          (void)pm_faculty_active(&f);
+          Serial.printf("faculty: active %s (%s)\n", f.name, f.slug);
+          (void)pm_faculty_tick_bust_fetch();
+        } else {
+          Serial.println("faculty: usage: faculty use <slug>  (e.g. a.einstein or einstein)");
+        }
+        g_clock_repaint_pending = true;
       } else if (strcmp(line, "profiles seed") == 0) {
         pm_chart_profiles_ensure_demo_seed();
         Serial.printf("profiles: %d saved\n", pm_chart_profile_count());
@@ -576,6 +615,7 @@ void setup() {
   (void)pm_side_buttons_begin();
   pm_birth_ensure_demo();
   pm_chart_profiles_ensure_demo_seed();
+  pm_faculty_ensure_demo_seed();
   pm_home_gem_pulse_begin();
 
   if (pm_wifi_begin()) {
@@ -733,6 +773,17 @@ void loop() {
       pm_face_tibetan_bowl_touch_tick(now);
       g_clock_repaint_pending = true;
       continue;
+    } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Faculty &&
+               (ge.kind == PmGestureKind::SwipeUp || ge.kind == PmGestureKind::SwipeDown)) {
+      PmFacultyProfile faculty = {};
+      if (pm_faculty_cycle_active(ge.kind == PmGestureKind::SwipeUp ? 1 : -1, &faculty)) {
+        snprintf(g_gesture_banner, sizeof(g_gesture_banner), "faculty: %.25s", faculty.name);
+        (void)pm_faculty_tick_bust_fetch();
+      } else {
+        snprintf(g_gesture_banner, sizeof(g_gesture_banner), "faculty: no recents");
+      }
+      g_clock_repaint_pending = true;
+      continue;
     } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Moon &&
                (ge.kind == PmGestureKind::SwipeUp || ge.kind == PmGestureKind::SwipeDown)) {
       pm_faces_cycle(ge.kind == PmGestureKind::SwipeUp ? 1 : -1);
@@ -868,6 +919,12 @@ void loop() {
           pm_face_radar_on_enter();
           g_clock_repaint_pending = true;
         }
+        if (pm_faces_current() == ClockFace::Faculty) {
+          pm_faculty_prepare_demo_view();
+          (void)pm_faculty_tick_bust_fetch();
+          pm_faculty_begin_bust_rise();
+          g_clock_repaint_pending = true;
+        }
         s_prev_dial_face = pm_faces_current();
       }
 
@@ -938,6 +995,8 @@ void loop() {
           pm_faces_current() == ClockFace::Chakra && pm_face_chakra_anim_tick(now);
       const bool bowl_anim =
           pm_faces_current() == ClockFace::TibetanBowl && pm_face_tibetan_bowl_anim_tick(now);
+      const bool faculty_anim =
+          pm_faces_current() == ClockFace::Faculty && pm_faculty_tick(now);
       const bool home_gem_breath =
           pm_faces_current() == ClockFace::ClassicAnalog && pm_home_gem_pulse_enabled();
       const bool sec_tick_paint =
@@ -945,7 +1004,7 @@ void loop() {
           pm_faces_current() != ClockFace::Synastry && pm_faces_current() != ClockFace::Spectrum &&
           pm_faces_current() != ClockFace::Chakra && pm_faces_current() != ClockFace::TibetanBowl &&
           pm_faces_current() != ClockFace::Rocket && pm_faces_current() != ClockFace::Radar &&
-          !home_gem_breath;
+          pm_faces_current() != ClockFace::Faculty && !home_gem_breath;
       const bool calcifer_sec =
           pm_faces_current() == ClockFace::CalciferCountdown && valid && sec_tick;
       const bool rocket_sec = pm_faces_current() == ClockFace::Rocket && valid && sec_tick;
@@ -964,7 +1023,7 @@ void loop() {
       const bool non_gem_paint = !s_clock_paint_inited || slow_no_time || banner_chg || wifi_chg ||
                                  g_clock_repaint_pending || local_hm_chg || spotify_stale || calcifer_stale ||
                                  rocket_stale || sec_tick_paint || calcifer_sec || rocket_sec || astro_repaint ||
-                                 spectrum_anim || chakra_anim || bowl_anim || radar_anim;
+                                 spectrum_anim || chakra_anim || bowl_anim || radar_anim || faculty_anim;
 #if MYNAH_HUE_HOME_ONLY
       const bool gem_only_paint = gem_pulse_paint && s_clock_paint_inited && !non_gem_paint;
       const bool full_paint = non_gem_paint || gem_pulse_paint;
