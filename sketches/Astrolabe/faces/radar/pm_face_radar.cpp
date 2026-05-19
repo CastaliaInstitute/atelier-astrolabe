@@ -28,7 +28,6 @@ void pm_face_radar_on_enter(void) {
 
 void pm_face_radar_on_leave(void) {
   pm_presence_ble_set_radar_active(false);
-  pm_presence_ble_end();
 }
 
 void pm_face_radar_tick(uint32_t now_ms) {

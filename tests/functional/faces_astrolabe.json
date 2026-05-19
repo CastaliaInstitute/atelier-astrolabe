@@ -1,6 +1,6 @@
 {
   "sketch": "Astrolabe",
-  "face_count": 17,
+  "face_count": 19,
   "center": [233, 233],
   "faces": [
     {
@@ -155,6 +155,20 @@
       "source_paths": ["sketches/Astrolabe/faces/weather", "sketches/Astrolabe/pm_weather.cpp"],
       "gestures": ["swipe_left", "swipe_right", "tap:233,233"],
       "buttons": ["boot"]
+    },
+    {
+      "id": 17,
+      "name": "quotes",
+      "source_paths": ["sketches/Astrolabe/faces/quotes", "sketches/Astrolabe/pm_quotes.cpp", "sketches/Astrolabe/pm_faculty.cpp"],
+      "gestures": ["swipe_left", "swipe_right", "tap:233,233"],
+      "buttons": []
+    },
+    {
+      "id": 18,
+      "name": "transits",
+      "source_paths": ["sketches/Astrolabe/faces/live_transits", "sketches/Astrolabe/pm_transit.cpp", "sketches/Astrolabe/pm_transit.h"],
+      "gestures": ["swipe_left", "swipe_right", "tap:233,233"],
+      "buttons": []
     }
   ]
 }

@@ -124,6 +124,14 @@ bool pm_wifi_begin() {
   return connected;
 }
 
+bool pm_wifi_reconnect() {
+  s_wifi_link_chimed = false;
+  pm_wifi_mdns_end();
+  WiFi.disconnect(false, true);
+  delay(250);
+  return pm_wifi_begin();
+}
+
 void pm_wifi_poll(void) {
   const bool connected = pm_wifi_connected();
   if (connected) {
@@ -142,19 +150,33 @@ bool pm_wifi_connected() { return WiFi.status() == WL_CONNECTED; }
 static void ntp_start() {
   setenv("TZ", "UTC0", 1);
   tzset();
-  configTime(0, 0, "pool.ntp.org", "time.google.com", "time.cloudflare.com");
+  configTime(0, 0, "time.google.com", "time.cloudflare.com", "pool.ntp.org");
 }
 
 void pm_ntp_sync_blocking() {
   if (!pm_wifi_connected()) {
     return;
   }
-  (void)pm_geo_tz_refresh_from_ip();
+  const bool tz_ok = pm_geo_tz_refresh_from_ip();
   ntp_start();
   struct tm ti = {};
-  for (int i = 0; i < 120 && time(nullptr) < 1000000000; ++i) {
+  for (int i = 0; i < 120 && !pm_time_valid(); ++i) {
     (void)getLocalTime(&ti, 500);
     delay(50);
+  }
+  if (pm_time_valid()) {
+    struct tm utc = {};
+    struct tm local = {};
+    pm_time_utc(&utc);
+    pm_time_local(&local);
+    char utc_s[28];
+    char local_s[28];
+    strftime(utc_s, sizeof(utc_s), "%Y-%m-%dT%H:%M:%SZ", &utc);
+    strftime(local_s, sizeof(local_s), "%Y-%m-%d %H:%M:%S", &local);
+    pm_log_printf(false, "ntp: synced utc=%s local=%s offset_sec=%ld tz=%s", utc_s, local_s,
+                  static_cast<long>(pm_geo_tz_offset_sec()), tz_ok ? "ok" : "fallback");
+  } else {
+    pm_log_printf(false, "ntp: sync failed");
   }
 }
 
@@ -168,7 +190,7 @@ void pm_ntp_retry_if_stale() {
   (void)getLocalTime(&ti, 800);
 }
 
-bool pm_time_valid() { return time(nullptr) > 1000000000; }
+bool pm_time_valid() { return time(nullptr) >= static_cast<time_t>(MYNAH_TIME_VALID_MIN_EPOCH); }
 
 void pm_time_utc(struct tm *out_tm) {
   const time_t t = time(nullptr);

@@ -61,11 +61,16 @@ uint16_t humidity_color(const PmWeatherHour &h) {
   return pm_face_color565_from_hsv(pm_gfx, 195.f, 0.35f + 0.4f * rh, 0.12f + 0.2f * rh);
 }
 
-int hour_for_slice(int slice) {
-  return (slice * k_hours) / k_slices;
+int hour_for_slice(int slice) { return (slice * k_hours) / k_slices; }
+
+bool slice_is_before_now(int slice, int local_hour, int local_min) {
+  const int slice_mid_min = (slice * 30) + 15;
+  const int now_min = local_hour * 60 + local_min;
+  return slice_mid_min < now_min;
 }
 
-void draw_slice_ring(int r_inner, int r_outer, uint16_t (*color_fn)(int hour), int highlight_hour) {
+void draw_slice_ring(int r_inner, int r_outer, uint16_t (*color_fn)(int hour), int highlight_hour, int local_hour,
+                     int local_min) {
   const int cx = pm_face_lcd_cx;
   const int cy = pm_face_lcd_cy;
   const uint16_t c_track = pm_gfx->color565(8, 12, 22);
@@ -74,6 +79,9 @@ void draw_slice_ring(int r_inner, int r_outer, uint16_t (*color_fn)(int hour), i
   for (int s = 0; s < k_slices; ++s) {
     const int h = hour_for_slice(s);
     uint16_t col = color_fn(h);
+    if (local_hour >= 0 && slice_is_before_now(s, local_hour, local_min)) {
+      col = blend565(col, c_track, 0.58f);
+    }
     if (h == highlight_hour) {
       col = blend565(col, pm_gfx->color565(255, 252, 240), 0.35f);
     }
@@ -100,6 +108,43 @@ void draw_slice_ring(int r_inner, int r_outer, uint16_t (*color_fn)(int hour), i
 
 uint16_t temp_slice_color(int hour) { return temp_color(g_weather_ui.hourly[hour].temp_c); }
 uint16_t hum_slice_color(int hour) { return humidity_color(g_weather_ui.hourly[hour]); }
+
+void draw_24h_time_labels(bool time_valid, int local_hour, int local_min) {
+  const int cx = pm_face_lcd_cx;
+  const int cy = pm_face_lcd_cy;
+  const int R = min(LCD_WIDTH, LCD_HEIGHT) / 2;
+  const int r_label = R - 25;
+  const uint16_t c_future = pm_gfx->color565(185, 198, 220);
+  const uint16_t c_past = pm_gfx->color565(55, 64, 82);
+  const uint16_t c_now = pm_gfx->color565(255, 252, 235);
+
+  pm_gfx->setTextSize(1, 1);
+  for (int h = 0; h < k_hours; ++h) {
+    const float deg = slice_start_deg(h * 2);
+    const float ang = pm_face_deg_to_rad(deg);
+    char label[3];
+    snprintf(label, sizeof(label), "%02d", h);
+    int16_t x1, y1;
+    uint16_t w, th;
+    pm_gfx->getTextBounds(label, 0, 0, &x1, &y1, &w, &th);
+    const int x = cx + static_cast<int>(lrintf(cosf(ang) * static_cast<float>(r_label))) - static_cast<int>(w) / 2;
+    const int y = cy + static_cast<int>(lrintf(sinf(ang) * static_cast<float>(r_label))) - static_cast<int>(th) / 2;
+
+    uint16_t col = c_future;
+    if (time_valid) {
+      const int hour_min = h * 60;
+      const int now_min = local_hour * 60 + local_min;
+      if (h == local_hour) {
+        col = c_now;
+      } else if (hour_min < now_min) {
+        col = c_past;
+      }
+    }
+    pm_gfx->setTextColor(col);
+    pm_gfx->setCursor(x, y);
+    pm_gfx->print(label);
+  }
+}
 
 SkyIcon icon_from_condition(const char *cond) {
   if (!cond || !cond[0]) {
@@ -307,8 +352,9 @@ void pm_face_weather_draw(bool time_valid, int local_hour, int local_min) {
   const int r_temp_inner = r_temp_outer - 16;
   const int r_center = r_temp_inner - 12;
 
-  draw_slice_ring(r_hum_inner, r_hum_outer, hum_slice_color, highlight);
-  draw_slice_ring(r_temp_inner, r_temp_outer, temp_slice_color, highlight);
+  draw_slice_ring(r_hum_inner, r_hum_outer, hum_slice_color, highlight, time_valid ? local_hour : -1, local_min);
+  draw_slice_ring(r_temp_inner, r_temp_outer, temp_slice_color, highlight, time_valid ? local_hour : -1, local_min);
+  draw_24h_time_labels(time_valid, local_hour, local_min);
   draw_ring_legends(r_hum_inner, r_hum_outer, r_temp_inner, r_temp_outer);
 
   if (time_valid) {

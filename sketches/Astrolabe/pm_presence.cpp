@@ -31,6 +31,7 @@ namespace {
 constexpr uint8_t kMaxAdvReports = kPmPresenceAdvMaxReports;
 constexpr uint32_t kPeerStaleMs = 15000;
 constexpr uint32_t kScanPeriodMs = 400;
+constexpr uint32_t kBleDeinitGraceMs = 750;
 constexpr float kRssiEmaAlpha = 0.35f;
 
 uint32_t s_self_id = 0;
@@ -110,6 +111,7 @@ BLEScan *s_scan = nullptr;
 bool s_ble_ready = false;
 bool s_ble_init_failed = false;
 bool s_ble_radar_active = false;
+uint32_t s_ble_deinit_at_ms = 0;
 TaskHandle_t s_ble_init_task = nullptr;
 
 class PresenceScanCallbacks : public BLEAdvertisedDeviceCallbacks {
@@ -326,6 +328,7 @@ bool pm_presence_ble_failed(void) {
 void pm_presence_ble_set_radar_active(bool active) {
 #if PM_PRESENCE_BLE
   s_ble_radar_active = active;
+  s_ble_deinit_at_ms = 0;
   if (!s_ble_ready) {
     return;
   }
@@ -337,6 +340,7 @@ void pm_presence_ble_set_radar_active(bool active) {
     if (adv) {
       adv->stop();
     }
+    s_ble_deinit_at_ms = millis() + kBleDeinitGraceMs;
     Serial.println("presence: BLE paused (left Radar)");
     return;
   }
@@ -367,6 +371,7 @@ void pm_presence_ble_end(void) {
   s_scan = nullptr;
   s_ble_ready = false;
   s_last_scan_ms = 0;
+  s_ble_deinit_at_ms = 0;
   Serial.println("presence: BLE deinit (left Radar)");
 #endif
 }
@@ -383,6 +388,10 @@ void pm_presence_tick(uint32_t now_ms) {
 #endif
 
 #if PM_PRESENCE_BLE
+  if (s_ble_ready && !s_ble_radar_active && s_ble_deinit_at_ms != 0 &&
+      static_cast<int32_t>(now_ms - s_ble_deinit_at_ms) >= 0) {
+    pm_presence_ble_end();
+  }
   if (s_ble_ready && s_ble_radar_active && s_scan && now_ms - s_last_scan_ms >= kScanPeriodMs) {
     s_last_scan_ms = now_ms;
     s_scan->start(1, false);

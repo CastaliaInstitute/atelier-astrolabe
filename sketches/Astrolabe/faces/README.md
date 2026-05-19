@@ -24,6 +24,7 @@ Each face is a self-contained module under `faces/<name>/`. The app shell (`Astr
 | `radar/` | BLE peer radar — RSSI rings + gyro bearing |
 | `faculty/` | ask-faculty recents + bust portrait |
 | `weather/` | 24h radial temp + humidity rings, current conditions center |
+| `quotes/` | Quote of the day + faculty bust |
 
 ## Public API per face
 

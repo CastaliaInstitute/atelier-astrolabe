@@ -3,6 +3,8 @@
 #include <Arduino.h>
 
 bool pm_wifi_begin();
+/** Disconnect and reconnect using credentials currently stored in NVS/build config. */
+bool pm_wifi_reconnect();
 const char *pm_wifi_hostname();
 const char *pm_wifi_mdns_name();
 /**

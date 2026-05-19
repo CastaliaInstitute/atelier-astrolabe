@@ -31,12 +31,16 @@ bool pm_faculty_build_history(char *out, size_t cap);
 void pm_faculty_label_from_slug(const char *slug, char *out, size_t cap);
 
 bool pm_faculty_tick_bust_fetch(void);
+/** Fetch/caches a bust for an explicit faculty slug without changing the active Faculty face recents. */
+bool pm_faculty_request_bust(const char *slug);
 /** Poll fetch completion, decode JPEG, advance rise animation. Returns true if UI should repaint. */
 bool pm_faculty_tick(uint32_t now_ms);
 void pm_faculty_begin_bust_rise(void);
 bool pm_faculty_bust_animating(void);
 /** Draw portrait (JPEG or placeholder) rising from bottom; ~half screen tall. */
 void pm_faculty_draw_bust(void);
+/** Draw portrait/placeholder for a supplied faculty profile without reading active recents. */
+void pm_faculty_draw_bust_for(const PmFacultyProfile *faculty);
 /** Call when the active faculty slug changes (cycle / set active). */
 void pm_faculty_on_active_changed(void);
 /** Release cached portrait bytes/decoded framebuffer when leaving Faculty. */

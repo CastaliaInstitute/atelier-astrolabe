@@ -84,6 +84,10 @@
 #define MYNAH_WEATHER_POLL_MS 900000u
 #endif
 
+#ifndef MYNAH_QUOTES_POLL_MS
+#define MYNAH_QUOTES_POLL_MS 3600000u
+#endif
+
 /** Launch Library 2 poll interval while Rocket face is visible. */
 #ifndef MYNAH_ROCKET_POLL_MS
 #define MYNAH_ROCKET_POLL_MS 120000u
@@ -115,6 +119,23 @@
 /** Skip Faculty portrait HTTPS refresh when Radar/BLE leaves too little heap for TLS. */
 #ifndef MYNAH_FACULTY_MIN_FETCH_HEAP
 #define MYNAH_FACULTY_MIN_FETCH_HEAP 140000u
+#endif
+#ifndef MYNAH_FACULTY_BUST_WIDTH
+#define MYNAH_FACULTY_BUST_WIDTH 192
+#endif
+#ifndef MYNAH_FACULTY_BUST_HEIGHT
+#define MYNAH_FACULTY_BUST_HEIGHT 240
+#endif
+#ifndef MYNAH_FACULTY_BUST_QUALITY
+#define MYNAH_FACULTY_BUST_QUALITY 72
+#endif
+#ifndef MYNAH_FACULTY_BUST_ORIGIN
+#define MYNAH_FACULTY_BUST_ORIGIN MYNAH_CASTALIA_WEB_ORIGIN
+#endif
+
+/** Reject unsynced/stale RTC values older than 2024-01-01 UTC. */
+#ifndef MYNAH_TIME_VALID_MIN_EPOCH
+#define MYNAH_TIME_VALID_MIN_EPOCH 1704067200
 #endif
 
 /** Skip Spotify HTTPS calls when internal heap is too low for TLS. */

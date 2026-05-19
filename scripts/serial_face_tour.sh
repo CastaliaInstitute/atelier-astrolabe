@@ -27,7 +27,8 @@ CRASH = re.compile(
 
 port = sys.argv[1]
 dwell_ms = int(sys.argv[2])
-timeout = max(30.0, (17 * dwell_ms / 1000.0) + 18.0)
+face_count = 19
+timeout = max(30.0, (face_count * dwell_ms / 1000.0) + 18.0)
 
 ser = serial.Serial(port, 115200, timeout=0.25)
 try:
@@ -59,7 +60,7 @@ try:
             if m:
                 seen.add(int(m.group(1)))
             if line == "tour: done":
-                missing = [i for i in range(17) if i not in seen]
+                missing = [i for i in range(face_count) if i not in seen]
                 if not started:
                     print("serial_face_tour: tour did not start", file=sys.stderr)
                     sys.exit(1)

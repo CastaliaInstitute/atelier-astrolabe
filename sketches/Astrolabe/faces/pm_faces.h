@@ -34,6 +34,10 @@ enum class ClockFace : uint8_t {
   Faculty,
   /** 24h radial temp + humidity rings; current conditions center. */
   Weather,
+  /** Castalia quote of the day + tiny faculty bust. */
+  Quotes,
+  /** Live transits: now + next Moon sign ingress as paired celestial spheres. */
+  LiveTransits,
   kNumFaces,
 };
 

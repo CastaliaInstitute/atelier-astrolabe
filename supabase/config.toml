@@ -1,0 +1,7 @@
+# Astrolabe: voice-pipeline (ported from mynah; deploy to the same Supabase project as Android Mynah).
+
+[functions.voice-pipeline]
+verify_jwt = true
+
+[functions.faculty-bust]
+verify_jwt = true

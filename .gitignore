@@ -12,6 +12,9 @@ sketches/Astrolabe/pm_build_info.h
 .pio-build-w175/
 sketches/**/*.ino.cpp
 firmware-bare/.pio/
+supabase/.temp/
+__pycache__/
+*.pyc
 
 vendor/
 

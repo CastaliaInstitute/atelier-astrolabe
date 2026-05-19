@@ -466,7 +466,7 @@ void pm_faculty_prepare_demo_view(void) {
   (void)pm_faculty_set_active_slug("a.einstein", "Einstein");
 }
 
-static void trim_supabase_url(char *url, size_t cap) {
+static void trim_base_url(char *url, size_t cap) {
   if (!url || cap == 0) {
     return;
   }
@@ -545,19 +545,20 @@ static bool fetch_bust_inner(const char *slug) {
     bust_set_error("no wifi");
     return false;
   }
-  if (strlen(MYNAH_SUPABASE_URL) == 0 || strlen(MYNAH_SUPABASE_ANON_KEY) == 0) {
-    bust_set_error("no supabase");
+  if (strlen(MYNAH_FACULTY_BUST_ORIGIN) == 0) {
+    bust_set_error("no bust host");
     return false;
   }
   (void)pm_castalia_auth_prepare_for_voice();
 
   char base[160];
-  strncpy(base, MYNAH_SUPABASE_URL, sizeof(base) - 1);
+  strncpy(base, MYNAH_FACULTY_BUST_ORIGIN, sizeof(base) - 1);
   base[sizeof(base) - 1] = '\0';
-  trim_supabase_url(base, sizeof(base));
+  trim_base_url(base, sizeof(base));
 
   char url[240];
-  snprintf(url, sizeof(url), "%s/functions/v1/faculty-bust?faculty=%s", base, slug);
+  snprintf(url, sizeof(url), "%s/api/faculty-bust/?faculty=%s&w=%d&h=%d&q=%d", base, slug,
+           MYNAH_FACULTY_BUST_WIDTH, MYNAH_FACULTY_BUST_HEIGHT, MYNAH_FACULTY_BUST_QUALITY);
 
   WiFiClientSecure client;
   client.setInsecure();
@@ -569,6 +570,7 @@ static bool fetch_bust_inner(const char *slug) {
     return false;
   }
   pm_castalia_auth_apply_headers(&http);
+  http.addHeader("Accept", "image/jpeg,image/*;q=0.8,*/*;q=0.1");
   const int code = http.GET();
   if (code != 200) {
     ESP_LOGW(TAG, "faculty-bust HTTP %d", code);
@@ -619,10 +621,18 @@ bool pm_faculty_tick_bust_fetch(void) {
   if (!pm_faculty_active(&cur)) {
     return false;
   }
+  return pm_faculty_request_bust(cur.slug);
+}
+
+bool pm_faculty_request_bust(const char *slug) {
+  if (!slug_sane(slug)) {
+    bust_set_error("bad slug");
+    return false;
+  }
   if (s_bust_status == PmFacultyBustStatus::Working) {
     return false;
   }
-  if (s_bust_len > 0 && strcmp(s_bust_slug, cur.slug) == 0) {
+  if (s_bust_len > 0 && strcmp(s_bust_slug, slug) == 0) {
     return false;
   }
   if (!pm_wifi_connected()) {
@@ -636,7 +646,7 @@ bool pm_faculty_tick_bust_fetch(void) {
   if (!s_bust_task) {
     return false;
   }
-  strncpy(s_bust_req_slug, cur.slug, sizeof(s_bust_req_slug) - 1);
+  strncpy(s_bust_req_slug, slug, sizeof(s_bust_req_slug) - 1);
   s_bust_req_slug[sizeof(s_bust_req_slug) - 1] = '\0';
   s_bust_done = false;
   s_bust_status = PmFacultyBustStatus::Working;
@@ -866,21 +876,25 @@ void pm_faculty_begin_bust_rise(void) {
 bool pm_faculty_bust_animating(void) { return s_rise_active; }
 
 void pm_faculty_draw_bust(void) {
-  if (!pm_gfx) {
-    return;
-  }
   PmFacultyProfile faculty = {};
   if (!pm_faculty_active(&faculty)) {
     return;
   }
-  if (strcmp(s_decoded_slug, faculty.slug) != 0) {
+  pm_faculty_draw_bust_for(&faculty);
+}
+
+void pm_faculty_draw_bust_for(const PmFacultyProfile *faculty) {
+  if (!pm_gfx || !faculty || !faculty->valid) {
+    return;
+  }
+  if (strcmp(s_decoded_slug, faculty->slug) != 0) {
     bust_free_decoded();
   }
-  (void)bust_try_decode_for_slug(faculty.slug);
+  (void)bust_try_decode_for_slug(faculty->slug);
 
   int draw_w = (LCD_WIDTH - 40) * 3 / 4;
   int draw_h = kBustMaxDrawH;
-  if (s_decoded_fb && strcmp(s_decoded_slug, faculty.slug) == 0) {
+  if (s_decoded_fb && strcmp(s_decoded_slug, faculty->slug) == 0) {
     bust_compute_draw_size(s_decoded_w, s_decoded_h, &draw_w, &draw_h);
   }
 
@@ -888,11 +902,11 @@ void pm_faculty_draw_bust(void) {
   const int bottom_y = kBustRestBottom + bust_rise_offset_px(draw_h, rise_t);
   const int cx = LCD_WIDTH / 2;
 
-  if (s_decoded_fb && strcmp(s_decoded_slug, faculty.slug) == 0) {
+  if (s_decoded_fb && strcmp(s_decoded_slug, faculty->slug) == 0) {
     bust_draw_scaled_jpeg(cx, bottom_y, draw_w, draw_h);
     return;
   }
-  bust_draw_placeholder(faculty, cx, bottom_y, draw_h);
+  bust_draw_placeholder(*faculty, cx, bottom_y, draw_h);
 }
 
 bool pm_faculty_tick(uint32_t now_ms) {
