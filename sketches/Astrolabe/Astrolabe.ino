@@ -43,6 +43,7 @@
 #include "faces/chakra/pm_face_chakra.h"
 #include "faces/tibetan_bowl/pm_face_tibetan_bowl.h"
 #include "faces/moon/pm_face_moon.h"
+#include "faces/tarot/pm_face_tarot.h"
 #include "faces/spotify/pm_face_spotify.h"
 #include "faces/calcifer/pm_face_calcifer.h"
 #include "faces/weather/pm_face_weather.h"
@@ -560,7 +561,8 @@ static bool face_index_from_name(const char *name, int *out) {
            {"presence", 14},   {"peers", 14},       {"locator", 14},     {"locations", 14},
            {"faculty", 15},    {"fac", 15},         {"weather", 16},    {"quotes", 17},
            {"quote", 17},      {"qotd", 17},        {"transits", 18},   {"live_transits", 18},
-           {"live-transits", 18}, {"live", 18}};
+           {"live-transits", 18}, {"live", 18},      {"tarot", 19},      {"cards", 19},
+           {"card", 19},       {"arcana", 19}};
   for (const auto &e : k) {
     if (strcasecmp(name, e.n) == 0) {
       *out = e.idx;
@@ -619,6 +621,8 @@ static const FaceTourInfo k_face_tour[] = {
      "quote refresh can run", "offline demo quote only", true, false},
     {"transits", "live planetary spheres and next Moon ingress", "live transits and the next Moon ingress",
      "time and ephemeris are ready", "needs time for live transits", false, true},
+    {"tarot", "daily Major Arcana card and deck browser", "the active Major Arcana card",
+     "drawing local Major Arcana", "drawing local Major Arcana", false, false},
 };
 
 static const FaceTourInfo *face_tour_info(int idx) {
@@ -879,6 +883,20 @@ static bool face_voice_build_prompt(const FaceTourInfo *info, int idx, char *msg
                "live planets and the next Moon ingress.",
                when, health);
       break;
+    case ClockFace::Tarot: {
+      struct tm local = {};
+      const bool valid = pm_time_valid();
+      if (valid) {
+        pm_time_local(&local);
+      }
+      const int tarot_idx = pm_face_tarot_index(&local, valid);
+      snprintf(msg, msg_cap,
+               "Face: tarot. Active Major Arcana card: %02d %s. Asset manifest: %s. Give a concise tarot "
+               "reading for the watch face: one omen, one counsel, and one image. Make it reflective, not "
+               "deterministic.",
+               tarot_idx, pm_face_tarot_title(tarot_idx), pm_face_tarot_manifest_url());
+      break;
+    }
     default:
       snprintf(msg, msg_cap, "Face: %s. Purpose: %s. Current state: %s. Speak one concise useful note.",
                info->name, info->summary, health);
@@ -1385,6 +1403,7 @@ static void poll_serial_birth_commands() {
           Serial.println("qa: 16 weather");
           Serial.println("qa: 17 quotes");
           Serial.println("qa: 18 transits");
+          Serial.println("qa: 19 tarot");
         } else if (strncmp(args, "tour", 4) == 0 && (args[4] == '\0' || args[4] == ' ')) {
           handle_tour_command(args + 4);
         } else if (!pm_qa_inject_command(args)) {
@@ -1806,6 +1825,25 @@ void loop() {
         g_gesture_banner[0] = '\0';
       }
       g_clock_repaint_pending = true;
+    } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Tarot &&
+               (ge.kind == PmGestureKind::SwipeUp || ge.kind == PmGestureKind::SwipeDown)) {
+      pm_face_tarot_cycle(ge.kind == PmGestureKind::SwipeUp ? 1 : -1);
+      struct tm local = {};
+      const bool valid = pm_time_valid();
+      if (valid) {
+        pm_time_local(&local);
+      }
+      const int tarot_idx = pm_face_tarot_index(&local, valid);
+      snprintf(g_gesture_banner, sizeof(g_gesture_banner), "tarot %02d %.24s", tarot_idx,
+               pm_face_tarot_title(tarot_idx));
+      g_clock_repaint_pending = true;
+      continue;
+    } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Tarot &&
+               ge.kind == PmGestureKind::Tap) {
+      pm_face_tarot_reset_daily();
+      snprintf(g_gesture_banner, sizeof(g_gesture_banner), "tarot: daily");
+      g_clock_repaint_pending = true;
+      continue;
     } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Rocket &&
                (ge.kind == PmGestureKind::SwipeUp || ge.kind == PmGestureKind::SwipeDown)) {
       if (pm_face_rocket_cycle_launch(ge.kind == PmGestureKind::SwipeUp ? 1 : -1)) {
@@ -2024,7 +2062,7 @@ void loop() {
           pm_faces_current() != ClockFace::Chakra && pm_faces_current() != ClockFace::TibetanBowl &&
           pm_faces_current() != ClockFace::Rocket && pm_faces_current() != ClockFace::Radar &&
           pm_faces_current() != ClockFace::Faculty && pm_faces_current() != ClockFace::Quotes &&
-          pm_faces_current() != ClockFace::LiveTransits &&
+          pm_faces_current() != ClockFace::LiveTransits && pm_faces_current() != ClockFace::Tarot &&
           !home_gem_breath;
       const bool calcifer_sec =
           pm_faces_current() == ClockFace::CalciferCountdown && valid && sec_tick;
