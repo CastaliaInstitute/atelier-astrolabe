@@ -2,6 +2,7 @@
 
 #include <ESPmDNS.h>
 #include <WiFi.h>
+#include <esp_bt.h>
 #include <esp_log.h>
 #include <esp_wifi.h>
 #include <stdlib.h>
@@ -107,8 +108,11 @@ bool pm_wifi_begin() {
   }
   WiFi.mode(WIFI_STA);
   WiFi.setHostname(ASTROLABE_MDNS_HOSTNAME);
-  WiFi.setSleep(true);
-  (void)esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
+  const bool bt_enabled = esp_bt_controller_get_status() == ESP_BT_CONTROLLER_STATUS_ENABLED;
+  WiFi.setSleep(bt_enabled);
+  if (bt_enabled) {
+    (void)esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
+  }
   WiFi.begin(ssid, pass);
   const uint32_t start = millis();
   while (WiFi.status() != WL_CONNECTED && (millis() - start) < kWifiTimeoutMs) {
