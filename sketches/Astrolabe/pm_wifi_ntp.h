@@ -7,6 +7,8 @@ bool pm_wifi_begin();
 bool pm_wifi_reconnect();
 const char *pm_wifi_hostname();
 const char *pm_wifi_mdns_name();
+const char *pm_wifi_mac_suffix();
+const char *pm_wifi_mac_string();
 /**
  * Required before starting the BT controller while WiFi is up (Radar / presence BLE).
  * Enables WiFi modem sleep (WIFI_PS_MIN_MODEM) so WiFi + BLE coexistence does not abort().

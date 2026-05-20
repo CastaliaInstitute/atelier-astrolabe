@@ -1,0 +1,677 @@
+{
+  "timestamp": "20260520-050332",
+  "port": "/dev/cu.usbmodem1401",
+  "ip": "192.168.86.182",
+  "command": "qa tour tts 1200",
+  "result": "done",
+  "seen_count": 19,
+  "seen": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18
+  ],
+  "tts_ok_count": 7,
+  "screenshot_ok_count": 1,
+  "screenshot_count": 19,
+  "crash_count": 0,
+  "error_count": 58,
+  "faces": [
+    {
+      "id": 0,
+      "name": "classic",
+      "heap": 140392,
+      "largest": 122868,
+      "psram": 7732711,
+      "screenshot": {
+        "id": 0,
+        "name": "classic",
+        "ok": false,
+        "detail": "blank-looking",
+        "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-050332/00-classic.bmp",
+        "elapsed_ms": 11222
+      },
+      "tts_started": true,
+      "post_body_bytes": 626,
+      "http": 200,
+      "mp3_bytes": 266688,
+      "tts_ok": true
+    },
+    {
+      "id": 1,
+      "name": "apocalypso",
+      "heap": 106468,
+      "largest": 49140,
+      "psram": 7732711,
+      "screenshot": {
+        "id": 1,
+        "name": "apocalypso",
+        "ok": false,
+        "detail": "blank-looking",
+        "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-050332/01-apocalypso.bmp",
+        "elapsed_ms": 9448
+      },
+      "tts_started": true,
+      "post_body_bytes": 635,
+      "http": 200,
+      "mp3_bytes": 245952,
+      "tts_ok": true
+    },
+    {
+      "id": 2,
+      "name": "digital",
+      "heap": 105808,
+      "largest": 49140,
+      "psram": 7732711,
+      "screenshot": {
+        "id": 2,
+        "name": "digital",
+        "ok": false,
+        "detail": "blank-looking",
+        "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-050332/02-digital.bmp",
+        "elapsed_ms": 6427
+      },
+      "tts_started": true,
+      "post_body_bytes": 626,
+      "http": 200,
+      "mp3_bytes": 249216,
+      "tts_ok": true
+    },
+    {
+      "id": 3,
+      "name": "spotify",
+      "heap": 106040,
+      "largest": 49140,
+      "psram": 7732711,
+      "screenshot": {
+        "id": 3,
+        "name": "spotify",
+        "ok": false,
+        "detail": "blank-looking",
+        "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-050332/03-spotify.bmp",
+        "elapsed_ms": 3455
+      },
+      "tts_started": true,
+      "post_body_bytes": 621,
+      "http": 200,
+      "mp3_bytes": 218688,
+      "tts_ok": true
+    },
+    {
+      "id": 4,
+      "name": "astro",
+      "heap": 105820,
+      "largest": 49140,
+      "psram": 7732711,
+      "screenshot": {
+        "id": 4,
+        "name": "astro",
+        "ok": false,
+        "detail": "blank-looking",
+        "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-050332/04-astro.bmp",
+        "elapsed_ms": 3677
+      },
+      "tts_started": true,
+      "post_body_bytes": 1266,
+      "http": 200,
+      "mp3_bytes": 62208,
+      "tts_ok": true
+    },
+    {
+      "id": 5,
+      "name": "moon",
+      "heap": 105300,
+      "largest": 49140,
+      "psram": 7732711,
+      "screenshot": {
+        "id": 5,
+        "name": "moon",
+        "ok": false,
+        "detail": "blank-looking",
+        "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-050332/05-moon.bmp",
+        "elapsed_ms": 3612
+      },
+      "tts_started": true,
+      "post_body_bytes": 993,
+      "http": 200,
+      "mp3_bytes": 277056,
+      "tts_ok": true
+    },
+    {
+      "id": 6,
+      "name": "calcifer",
+      "heap": 105300,
+      "largest": 49140,
+      "psram": 7732711,
+      "screenshot": {
+        "id": 6,
+        "name": "calcifer",
+        "ok": true,
+        "detail": "466x466 652454B",
+        "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-050332/06-calcifer.bmp",
+        "elapsed_ms": 3129
+      },
+      "tts_started": true,
+      "post_body_bytes": 618,
+      "http": 200,
+      "mp3_bytes": 293568,
+      "tts_ok": true
+    },
+    {
+      "id": 7,
+      "name": "castalia",
+      "heap": 105300,
+      "largest": 49140,
+      "psram": 7732711,
+      "screenshot": {
+        "id": 7,
+        "name": "castalia",
+        "ok": false,
+        "detail": "blank-looking",
+        "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-050332/07-castalia.bmp",
+        "elapsed_ms": 5497
+      },
+      "tts_started": true,
+      "post_body_bytes": 607,
+      "errors": [
+        "[305556][E][ssl_client.cpp:37] _handle_error(): [start_ssl_client():264]: (-32512) SSL - Memory allocation failed",
+        "[305558][E][ssl_client.cpp:37] _handle_error(): [start_ssl_client():264]: (-32512) SSL - Memory allocation failed",
+        "voice: HTTP -1 (message)",
+        "[306959][E][ssl_client.cpp:37] _handle_error(): [start_ssl_client():264]: (-32512) SSL - Memory allocation failed",
+        "voice: HTTP -1 (message)",
+        "voice: message fail (HTTP -1)",
+        "tour: narrate failed 7 err=HTTP -1"
+      ]
+    },
+    {
+      "id": 8,
+      "name": "settings",
+      "heap": 69352,
+      "largest": 17396,
+      "psram": 7732711,
+      "screenshot": {
+        "id": 8,
+        "name": "settings",
+        "ok": false,
+        "detail": "blank-looking",
+        "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-050332/08-settings.bmp",
+        "elapsed_ms": 2637
+      },
+      "tts_started": true,
+      "post_body_bytes": 610,
+      "errors": [
+        "[311590][E][ssl_client.cpp:37] _handle_error(): [start_ssl_client():264]: (-32512) SSL - Memory allocation failed",
+        "voice: HTTP -1 (message)",
+        "[312949][E][ssl_client.cpp:37] _handle_error(): [start_ssl_client():264]: (-32512) SSL - Memory allocation failed",
+        "voice: HTTP -1 (message)",
+        "voice: message fail (HTTP -1)",
+        "tour: narrate failed 8 err=HTTP -1"
+      ]
+    },
+    {
+      "id": 9,
+      "name": "synastry",
+      "heap": 65700,
+      "largest": 17396,
+      "psram": 7732711,
+      "screenshot": {
+        "id": 9,
+        "name": "synastry",
+        "ok": false,
+        "detail": "blank-looking",
+        "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-050332/09-synastry.bmp",
+        "elapsed_ms": 4302
+      },
+      "tts_started": true,
+      "post_body_bytes": 606,
+      "errors": [
+        "[315083][E][ssl_client.cpp:37] _handle_error(): [start_ssl_client():264]: (-32512) SSL - Memory allocation failed",
+        "voice: HTTP -1 (message)",
+        "[316449][E][ssl_client.cpp:37] _handle_error(): [start_ssl_client():264]: (-32512) SSL - Memory allocation failed",
+        "voice: HTTP -1 (message)",
+        "voice: message fail (HTTP -1)",
+        "tour: narrate failed 9 err=HTTP -1"
+      ]
+    },
+    {
+      "id": 10,
+      "name": "spectrum",
+      "heap": 70188,
+      "largest": 17396,
+      "psram": 7732711,
+      "screenshot": {
+        "id": 10,
+        "name": "spectrum",
+        "ok": false,
+        "detail": "blank-looking",
+        "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-050332/10-spectrum.bmp",
+        "elapsed_ms": 5659
+      },
+      "tts_started": true,
+      "post_body_bytes": 601,
+      "errors": [
+        "[320364][E][ssl_client.cpp:37] _handle_error(): [start_ssl_client():264]: (-32512) SSL - Memory allocation failed",
+        "voice: HTTP -1 (message)",
+        "[321715][E][ssl_client.cpp:37] _handle_error(): [start_ssl_client():264]: (-32512) SSL - Memory allocation failed",
+        "voice: HTTP -1 (message)",
+        "voice: message fail (HTTP -1)",
+        "tour: narrate failed 10 err=HTTP -1"
+      ]
+    },
+    {
+      "id": 11,
+      "name": "chakra",
+      "heap": 60892,
+      "largest": 17396,
+      "psram": 7732711,
+      "screenshot": {
+        "id": 11,
+        "name": "chakra",
+        "ok": false,
+        "detail": "TimeoutError: timed out",
+        "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-050332/11-chakra.bmp",
+        "elapsed_ms": 8358
+      },
+      "tts_started": true,
+      "post_body_bytes": 593,
+      "errors": [
+        "voice: HTTP -1 (message)",
+        "voice: HTTP -1 (message)",
+        "voice: message fail (HTTP -1)",
+        "tour: narrate failed 11 err=HTTP -1"
+      ]
+    },
+    {
+      "id": 12,
+      "name": "bowl",
+      "heap": 62128,
+      "largest": 17396,
+      "psram": 7732711,
+      "screenshot": {
+        "id": 12,
+        "name": "bowl",
+        "ok": false,
+        "detail": "URLError: <urlopen error timed out>",
+        "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-050332/12-bowl.bmp",
+        "elapsed_ms": 8004
+      },
+      "tts_started": true,
+      "post_body_bytes": 566,
+      "errors": [
+        "voice: HTTP -1 (message)",
+        "voice: HTTP -1 (message)",
+        "voice: message fail (HTTP -1)",
+        "tour: narrate failed 12 err=HTTP -1"
+      ]
+    },
+    {
+      "id": 13,
+      "name": "rocket",
+      "heap": 61972,
+      "largest": 17396,
+      "psram": 7732711,
+      "screenshot": {
+        "id": 13,
+        "name": "rocket",
+        "ok": false,
+        "detail": "URLError: <urlopen error timed out>",
+        "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-050332/13-rocket.bmp",
+        "elapsed_ms": 8003
+      },
+      "tts_started": true,
+      "post_body_bytes": 569,
+      "errors": [
+        "voice: HTTP -1 (message)",
+        "voice: HTTP -1 (message)",
+        "voice: message fail (HTTP -1)",
+        "tour: narrate failed 13 err=HTTP -1"
+      ]
+    },
+    {
+      "id": 14,
+      "name": "radar",
+      "heap": 61808,
+      "largest": 17396,
+      "psram": 7732711,
+      "screenshot": {
+        "id": 14,
+        "name": "radar",
+        "ok": false,
+        "detail": "URLError: <urlopen error timed out>",
+        "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-050332/14-radar.bmp",
+        "elapsed_ms": 8003
+      },
+      "tts_started": true,
+      "post_body_bytes": 579,
+      "errors": [
+        "voice: HTTP -1 (message)",
+        "voice: HTTP -1 (message)",
+        "voice: message fail (HTTP -1)",
+        "tour: narrate failed 14 err=HTTP -1"
+      ]
+    },
+    {
+      "id": 15,
+      "name": "faculty",
+      "heap": 61944,
+      "largest": 17396,
+      "psram": 7732711,
+      "screenshot": {
+        "id": 15,
+        "name": "faculty",
+        "ok": false,
+        "detail": "URLError: <urlopen error timed out>",
+        "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-050332/15-faculty.bmp",
+        "elapsed_ms": 8006
+      },
+      "tts_started": true,
+      "post_body_bytes": 603,
+      "errors": [
+        "voice: HTTP -1 (message)",
+        "voice: HTTP -1 (message)",
+        "voice: message fail (HTTP -1)",
+        "tour: narrate failed 15 err=HTTP -1"
+      ]
+    },
+    {
+      "id": 16,
+      "name": "weather",
+      "heap": 61956,
+      "largest": 17396,
+      "psram": 7732711,
+      "screenshot": {
+        "id": 16,
+        "name": "weather",
+        "ok": false,
+        "detail": "URLError: <urlopen error timed out>",
+        "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-050332/16-weather.bmp",
+        "elapsed_ms": 8003
+      },
+      "tts_started": true,
+      "post_body_bytes": 552,
+      "errors": [
+        "voice: HTTP -1 (message)",
+        "voice: HTTP -1 (message)",
+        "voice: message fail (HTTP -1)",
+        "tour: narrate failed 16 err=HTTP -1"
+      ]
+    },
+    {
+      "id": 17,
+      "name": "quotes",
+      "heap": 62484,
+      "largest": 17396,
+      "psram": 7732711,
+      "screenshot": {
+        "id": 17,
+        "name": "quotes",
+        "ok": false,
+        "detail": "URLError: <urlopen error timed out>",
+        "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-050332/17-quotes.bmp",
+        "elapsed_ms": 8005
+      },
+      "tts_started": true,
+      "post_body_bytes": 557,
+      "errors": [
+        "voice: HTTP -1 (message)",
+        "voice: HTTP -1 (message)",
+        "voice: message fail (HTTP -1)",
+        "tour: narrate failed 17 err=HTTP -1"
+      ]
+    },
+    {
+      "id": 18,
+      "name": "transits",
+      "heap": 62476,
+      "largest": 17396,
+      "psram": 7732711,
+      "screenshot": {
+        "id": 18,
+        "name": "transits",
+        "ok": false,
+        "detail": "URLError: <urlopen error timed out>",
+        "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-050332/18-transits.bmp",
+        "elapsed_ms": 8007
+      },
+      "tts_started": true,
+      "post_body_bytes": 634,
+      "errors": [
+        "voice: HTTP -1 (message)",
+        "voice: HTTP -1 (message)",
+        "voice: message fail (HTTP -1)",
+        "tour: narrate failed 18 err=HTTP -1"
+      ]
+    }
+  ],
+  "screenshots": [
+    {
+      "id": 0,
+      "name": "classic",
+      "ok": false,
+      "detail": "blank-looking",
+      "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-050332/00-classic.bmp",
+      "elapsed_ms": 11222
+    },
+    {
+      "id": 1,
+      "name": "apocalypso",
+      "ok": false,
+      "detail": "blank-looking",
+      "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-050332/01-apocalypso.bmp",
+      "elapsed_ms": 9448
+    },
+    {
+      "id": 2,
+      "name": "digital",
+      "ok": false,
+      "detail": "blank-looking",
+      "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-050332/02-digital.bmp",
+      "elapsed_ms": 6427
+    },
+    {
+      "id": 3,
+      "name": "spotify",
+      "ok": false,
+      "detail": "blank-looking",
+      "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-050332/03-spotify.bmp",
+      "elapsed_ms": 3455
+    },
+    {
+      "id": 4,
+      "name": "astro",
+      "ok": false,
+      "detail": "blank-looking",
+      "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-050332/04-astro.bmp",
+      "elapsed_ms": 3677
+    },
+    {
+      "id": 5,
+      "name": "moon",
+      "ok": false,
+      "detail": "blank-looking",
+      "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-050332/05-moon.bmp",
+      "elapsed_ms": 3612
+    },
+    {
+      "id": 6,
+      "name": "calcifer",
+      "ok": true,
+      "detail": "466x466 652454B",
+      "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-050332/06-calcifer.bmp",
+      "elapsed_ms": 3129
+    },
+    {
+      "id": 7,
+      "name": "castalia",
+      "ok": false,
+      "detail": "blank-looking",
+      "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-050332/07-castalia.bmp",
+      "elapsed_ms": 5497
+    },
+    {
+      "id": 8,
+      "name": "settings",
+      "ok": false,
+      "detail": "blank-looking",
+      "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-050332/08-settings.bmp",
+      "elapsed_ms": 2637
+    },
+    {
+      "id": 9,
+      "name": "synastry",
+      "ok": false,
+      "detail": "blank-looking",
+      "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-050332/09-synastry.bmp",
+      "elapsed_ms": 4302
+    },
+    {
+      "id": 10,
+      "name": "spectrum",
+      "ok": false,
+      "detail": "blank-looking",
+      "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-050332/10-spectrum.bmp",
+      "elapsed_ms": 5659
+    },
+    {
+      "id": 11,
+      "name": "chakra",
+      "ok": false,
+      "detail": "TimeoutError: timed out",
+      "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-050332/11-chakra.bmp",
+      "elapsed_ms": 8358
+    },
+    {
+      "id": 12,
+      "name": "bowl",
+      "ok": false,
+      "detail": "URLError: <urlopen error timed out>",
+      "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-050332/12-bowl.bmp",
+      "elapsed_ms": 8004
+    },
+    {
+      "id": 13,
+      "name": "rocket",
+      "ok": false,
+      "detail": "URLError: <urlopen error timed out>",
+      "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-050332/13-rocket.bmp",
+      "elapsed_ms": 8003
+    },
+    {
+      "id": 14,
+      "name": "radar",
+      "ok": false,
+      "detail": "URLError: <urlopen error timed out>",
+      "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-050332/14-radar.bmp",
+      "elapsed_ms": 8003
+    },
+    {
+      "id": 15,
+      "name": "faculty",
+      "ok": false,
+      "detail": "URLError: <urlopen error timed out>",
+      "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-050332/15-faculty.bmp",
+      "elapsed_ms": 8006
+    },
+    {
+      "id": 16,
+      "name": "weather",
+      "ok": false,
+      "detail": "URLError: <urlopen error timed out>",
+      "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-050332/16-weather.bmp",
+      "elapsed_ms": 8003
+    },
+    {
+      "id": 17,
+      "name": "quotes",
+      "ok": false,
+      "detail": "URLError: <urlopen error timed out>",
+      "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-050332/17-quotes.bmp",
+      "elapsed_ms": 8005
+    },
+    {
+      "id": 18,
+      "name": "transits",
+      "ok": false,
+      "detail": "URLError: <urlopen error timed out>",
+      "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-050332/18-transits.bmp",
+      "elapsed_ms": 8007
+    }
+  ],
+  "crashes": [],
+  "errors_tail": [
+    "[  5136][E][Preferences.cpp:50] begin(): nvs_open failed: NOT_FOUND",
+    "[305556][E][ssl_client.cpp:37] _handle_error(): [start_ssl_client():264]: (-32512) SSL - Memory allocation failed",
+    "[305558][E][ssl_client.cpp:37] _handle_error(): [start_ssl_client():264]: (-32512) SSL - Memory allocation failed",
+    "voice: HTTP -1 (message)",
+    "[306959][E][ssl_client.cpp:37] _handle_error(): [start_ssl_client():264]: (-32512) SSL - Memory allocation failed",
+    "voice: HTTP -1 (message)",
+    "voice: message fail (HTTP -1)",
+    "tour: narrate failed 7 err=HTTP -1",
+    "[311590][E][ssl_client.cpp:37] _handle_error(): [start_ssl_client():264]: (-32512) SSL - Memory allocation failed",
+    "voice: HTTP -1 (message)",
+    "[312949][E][ssl_client.cpp:37] _handle_error(): [start_ssl_client():264]: (-32512) SSL - Memory allocation failed",
+    "voice: HTTP -1 (message)",
+    "voice: message fail (HTTP -1)",
+    "tour: narrate failed 8 err=HTTP -1",
+    "[315083][E][ssl_client.cpp:37] _handle_error(): [start_ssl_client():264]: (-32512) SSL - Memory allocation failed",
+    "voice: HTTP -1 (message)",
+    "[316449][E][ssl_client.cpp:37] _handle_error(): [start_ssl_client():264]: (-32512) SSL - Memory allocation failed",
+    "voice: HTTP -1 (message)",
+    "voice: message fail (HTTP -1)",
+    "tour: narrate failed 9 err=HTTP -1",
+    "[320364][E][ssl_client.cpp:37] _handle_error(): [start_ssl_client():264]: (-32512) SSL - Memory allocation failed",
+    "voice: HTTP -1 (message)",
+    "[321715][E][ssl_client.cpp:37] _handle_error(): [start_ssl_client():264]: (-32512) SSL - Memory allocation failed",
+    "voice: HTTP -1 (message)",
+    "voice: message fail (HTTP -1)",
+    "tour: narrate failed 10 err=HTTP -1",
+    "voice: HTTP -1 (message)",
+    "voice: HTTP -1 (message)",
+    "voice: message fail (HTTP -1)",
+    "tour: narrate failed 11 err=HTTP -1",
+    "voice: HTTP -1 (message)",
+    "voice: HTTP -1 (message)",
+    "voice: message fail (HTTP -1)",
+    "tour: narrate failed 12 err=HTTP -1",
+    "voice: HTTP -1 (message)",
+    "voice: HTTP -1 (message)",
+    "voice: message fail (HTTP -1)",
+    "tour: narrate failed 13 err=HTTP -1",
+    "voice: HTTP -1 (message)",
+    "voice: HTTP -1 (message)",
+    "voice: message fail (HTTP -1)",
+    "tour: narrate failed 14 err=HTTP -1",
+    "voice: HTTP -1 (message)",
+    "voice: HTTP -1 (message)",
+    "voice: message fail (HTTP -1)",
+    "tour: narrate failed 15 err=HTTP -1",
+    "voice: HTTP -1 (message)",
+    "voice: HTTP -1 (message)",
+    "voice: message fail (HTTP -1)",
+    "tour: narrate failed 16 err=HTTP -1",
+    "voice: HTTP -1 (message)",
+    "voice: HTTP -1 (message)",
+    "voice: message fail (HTTP -1)",
+    "tour: narrate failed 17 err=HTTP -1",
+    "voice: HTTP -1 (message)",
+    "voice: HTTP -1 (message)",
+    "voice: message fail (HTTP -1)",
+    "tour: narrate failed 18 err=HTTP -1"
+  ],
+  "serial_log": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-050332/serial-timestamped.log"
+}

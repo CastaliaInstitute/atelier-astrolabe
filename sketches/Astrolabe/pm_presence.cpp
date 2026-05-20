@@ -6,6 +6,7 @@
 #include "pm_wifi_ntp.h"
 
 #include <Arduino.h>
+#include <ESPmDNS.h>
 #include <cmath>
 #include <cstring>
 
@@ -31,6 +32,7 @@ namespace {
 constexpr uint8_t kMaxAdvReports = kPmPresenceAdvMaxReports;
 constexpr uint32_t kPeerStaleMs = 15000;
 constexpr uint32_t kScanPeriodMs = 400;
+constexpr uint32_t kMdnsScanPeriodMs = 15000;
 constexpr uint32_t kBleDeinitGraceMs = 750;
 constexpr float kRssiEmaAlpha = 0.35f;
 
@@ -39,7 +41,9 @@ PmPresencePeer s_peers[kPmPresenceMaxPeers];
 size_t s_peer_count = 0;
 float s_yaw_offset_deg = 0.f;
 uint32_t s_last_scan_ms = 0;
+uint32_t s_last_mdns_scan_ms = 0;
 float s_last_yaw_deg = 0.f;
+bool s_presence_radar_active = false;
 
 uint32_t device_id_from_mac(const uint8_t mac[6]) {
   return (static_cast<uint32_t>(mac[3]) << 24) | (static_cast<uint32_t>(mac[4]) << 16) |
@@ -57,6 +61,35 @@ int find_peer(uint32_t id) {
     }
   }
   return -1;
+}
+
+bool parse_mac_suffix(const char *host, uint8_t out[3]) {
+  if (!host || !out) {
+    return false;
+  }
+  const size_t len = strlen(host);
+  if (len < 8 || host[len - 7] != '-') {
+    return false;
+  }
+  const char *p = host + len - 6;
+  for (int i = 0; i < 6; ++i) {
+    const char c = p[i];
+    if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) {
+      return false;
+    }
+  }
+  char tmp[3] = {};
+  for (int i = 0; i < 3; ++i) {
+    tmp[0] = p[i * 2];
+    tmp[1] = p[i * 2 + 1];
+    out[i] = static_cast<uint8_t>(strtoul(tmp, nullptr, 16));
+  }
+  return true;
+}
+
+uint32_t device_id_from_suffix(const uint8_t suffix[3]) {
+  return (static_cast<uint32_t>(suffix[0]) << 24) | (static_cast<uint32_t>(suffix[1]) << 16) |
+         (static_cast<uint32_t>(suffix[2]) << 8) | 0xA5u;
 }
 
 void upsert_peer(uint32_t id, int8_t rssi, uint32_t now_ms, PmPresenceGraphNodeKind kind) {
@@ -90,6 +123,38 @@ void upsert_peer(uint32_t id, int8_t rssi, uint32_t now_ms, PmPresenceGraphNodeK
                                    (1.f - kRssiEmaAlpha) * static_cast<float>(s_peers[idx].rssi_ema)));
   }
   s_peers[idx].last_seen_ms = now_ms;
+}
+
+void scan_mdns_peers(uint32_t now_ms) {
+  if (!s_presence_radar_active || !pm_wifi_connected() || now_ms - s_last_mdns_scan_ms < kMdnsScanPeriodMs) {
+    return;
+  }
+  s_last_mdns_scan_ms = now_ms;
+  const int n = MDNS.queryService("http", "tcp");
+  const char *self_suffix = pm_wifi_mac_suffix();
+  for (int i = 0; i < n; ++i) {
+    const String host_s = MDNS.hostname(i);
+    const char *host = host_s.c_str();
+    if (strncmp(host, "astrolabe", 9) != 0) {
+      continue;
+    }
+    uint8_t suffix[3] = {};
+    if (!parse_mac_suffix(host, suffix)) {
+      continue;
+    }
+    char suffix_s[7];
+    snprintf(suffix_s, sizeof(suffix_s), "%02x%02x%02x", suffix[0], suffix[1], suffix[2]);
+    if (strcmp(suffix_s, self_suffix) == 0) {
+      continue;
+    }
+    const uint32_t id = device_id_from_suffix(suffix);
+    const bool is_new = find_peer(id) < 0;
+    upsert_peer(id, -76, now_ms, PmPresenceGraphNodeKind::MobilePeer);
+    if (is_new) {
+      Serial.printf("presence: mdns peer host=%s id=%08x ip=%s\n", host, static_cast<unsigned>(id),
+                    MDNS.IP(i).toString().c_str());
+    }
+  }
 }
 
 void expire_peers(uint32_t now_ms) {
@@ -335,6 +400,7 @@ bool pm_presence_ble_failed(void) {
 }
 
 void pm_presence_ble_set_radar_active(bool active) {
+  s_presence_radar_active = active;
 #if PM_PRESENCE_BLE
   s_ble_radar_active = active;
   s_ble_deinit_at_ms = 0;
@@ -428,6 +494,7 @@ void pm_presence_tick(uint32_t now_ms) {
     refresh_advertisement();
   }
 #endif
+  scan_mdns_peers(now_ms);
   expire_peers(now_ms);
 }
 

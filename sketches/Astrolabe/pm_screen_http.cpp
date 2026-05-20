@@ -28,16 +28,19 @@ static void put_le16(uint8_t *p, uint16_t v) {
 }
 
 static void handle_root() {
-  static const char kHtml[] PROGMEM =
-      "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" "
-      "content=\"width=device-width,initial-scale=1\"><title>Astrolabe</title></head>"
-      "<body style=\"margin:0;background:#111;color:#ccc;font-family:system-ui,sans-serif;\">"
-      "<p style=\"padding:10px;\">Astrolabe: <a href=\"http://astrolabe.local/\" style=\"color:#8cf\">astrolabe.local</a> "
-      "| <a href=\"/screen.bmp\" style=\"color:#8cf\">screen.bmp</a> "
-      "| <a href=\"/logs\" style=\"color:#8cf\">logs</a></p>"
-      "<img src=\"/screen.bmp\" style=\"width:100%;max-width:466px;height:auto;display:block;margin:0 auto;\" "
-      "alt=\"screen\"></body></html>";
-  s_server.send_P(200, "text/html", kHtml);
+  char html[768];
+  snprintf(html, sizeof(html),
+           "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" "
+           "content=\"width=device-width,initial-scale=1\"><title>Astrolabe</title></head>"
+           "<body style=\"margin:0;background:#111;color:#ccc;font-family:system-ui,sans-serif;\">"
+           "<p style=\"padding:10px;\">Mynah Astrolabe: <a href=\"http://%s/\" "
+           "style=\"color:#8cf\">%s</a> <span style=\"color:#778\">mac %s</span> "
+           "| <a href=\"/screen.bmp\" style=\"color:#8cf\">screen.bmp</a> "
+           "| <a href=\"/logs\" style=\"color:#8cf\">logs</a></p>"
+           "<img src=\"/screen.bmp\" style=\"width:100%%;max-width:466px;height:auto;display:block;margin:0 auto;\" "
+           "alt=\"screen\"></body></html>",
+           pm_wifi_mdns_name(), pm_wifi_mdns_name(), pm_wifi_mac_suffix());
+  s_server.send(200, "text/html", html);
 }
 
 static void http_send_log_chunk(const char *data, size_t len) {
@@ -189,6 +192,9 @@ void pm_screen_http_begin(Arduino_Canvas *canvas) {
 
 void pm_screen_http_loop() {
   if (!s_http_started) {
+    if (s_canvas && pm_wifi_connected()) {
+      pm_screen_http_begin(s_canvas);
+    }
     return;
   }
   if (!pm_wifi_connected()) {

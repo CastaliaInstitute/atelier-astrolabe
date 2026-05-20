@@ -1,0 +1,320 @@
+[2026-05-20T05:03:32.683232+00:00] ESP-ROM:esp32s3-20210327
+[2026-05-20T05:03:32.683232+00:00] Build:Mar 27 2021
+[2026-05-20T05:03:32.683232+00:00] rst:0x15 (USB_UART_CHIP_RESET),boot:0xb (SPI_FAST_FLASH_BOOT)
+[2026-05-20T05:03:32.683232+00:00] Saved PC:0x4214c43a
+[2026-05-20T05:03:32.683232+00:00] SPIWP:0xee
+[2026-05-20T05:03:32.683232+00:00] mode:DIO, clock div:1
+[2026-05-20T05:03:32.683232+00:00] load:0x3fce3808,len:0x4bc
+[2026-05-20T05:03:32.683232+00:00] load:0x403c9700,len:0xbd8
+[2026-05-20T05:03:32.683232+00:00] load:0x403cc700,len:0x2a0c
+[2026-05-20T05:03:32.683232+00:00] entry 0x403c98d0
+[2026-05-20T05:03:33.220554+00:00] [644 23:03:32] log: ring 24576 bytes
+[2026-05-20T05:03:33.867154+00:00] [  1226][E][Wire.cpp:137] setPins(): bus already initialized. change pins only when not.
+[2026-05-20T05:03:33.969141+00:00] [  1379][E][Preferences.cpp:483] getString(): nvs_get_str len fail: fac4_slug NOT_FOUND
+[2026-05-20T05:03:33.969141+00:00] [  1387][E][Preferences.cpp:483] getString(): nvs_get_str len fail: fac5_slug NOT_FOUND
+[2026-05-20T05:03:34.080000+00:00] [  1402][E][Preferences.cpp:483] getString(): nvs_get_str len fail: fac4_slug NOT_FOUND
+[2026-05-20T05:03:34.080000+00:00] [  1410][E][Preferences.cpp:483] getString(): nvs_get_str len fail: fac5_slug NOT_FOUND
+[2026-05-20T05:03:34.288420+00:00] E (1299) I2S: i2s_driver_uninstall(2048): I2S port 0 has not installed
+[2026-05-20T05:03:35.252365+00:00] E (2202) I2S: i2s_driver_uninstall(2048): I2S port 0 has not installed
+[2026-05-20T05:03:36.977715+00:00] [  4313][E][Preferences.cpp:50] begin(): nvs_open failed: NOT_FOUND
+[2026-05-20T05:03:36.977715+00:00] Screen over WiFi: http://astrolabe-d64260.local/ or http://192.168.86.182/  (GET /screen.bmp)
+[2026-05-20T05:03:37.718061+00:00] [  5136][E][Preferences.cpp:50] begin(): nvs_open failed: NOT_FOUND
+[2026-05-20T05:03:37.718061+00:00] presence: id=d64261a4 (BLE starts on Radar face)
+[2026-05-20T05:03:37.821226+00:00] Mynah Astrolabe ready
+[2026-05-20T05:03:37.821226+00:00] qa: face=0 state=0 heap=140392 iheap=140392 largest=122868 psram=7732711 wifi=1 time=1 ip=192.168.86.182 name=Daniel
+[2026-05-20T05:03:37.821226+00:00] qa: face=0 state=0 heap=140392 iheap=140392 largest=122868 psram=7732711 wifi=1 time=1 ip=192.168.86.182 name=Daniel
+[2026-05-20T05:03:37.821226+00:00] tour: start faces=19 dwell_ms=1200 narrate=1 tts=1 wifi=1 time=1
+[2026-05-20T05:03:37.821226+00:00] tour: loading 0 classic heap=140392 largest=122868 psram=7732711 health=drawing locally - hue home clock with breathing gem pulse
+[2026-05-20T05:03:37.821226+00:00] tour: tts 0 classic
+[2026-05-20T05:03:37.821226+00:00] voice: POST message…
+[2026-05-20T05:03:37.821226+00:00] voice: HTTP POST message (626 B body)…
+[2026-05-20T05:03:51.407118+00:00] voice: HTTP 200 (message)
+[2026-05-20T05:03:51.407118+00:00] voice: reading MP3 body…
+[2026-05-20T05:03:51.407118+00:00] voice: MP3 Content-Length 266688
+[2026-05-20T05:03:53.539808+00:00] voice: MP3 recv 65620 B…
+[2026-05-20T05:03:53.539808+00:00] voice: MP3 recv 133059 B…
+[2026-05-20T05:03:54.498606+00:00] voice: MP3 recv 200723 B…
+[2026-05-20T05:03:55.578921+00:00] voice: MP3 recv 266688 B…
+[2026-05-20T05:03:55.578921+00:00] voice: MP3 complete 266688 B
+[2026-05-20T05:03:55.578921+00:00] voice: message ok mp3=266688 B
+[2026-05-20T05:03:55.578921+00:00] voice: message reply="The astrolabe reveals the hour of quiet turning. As Tuesday's last hue breathes softly into the night, 23:03 beckons.  **Omen:** A gentle convergence of the day's energies, like qu…"
+[2026-05-20T05:03:55.794830+00:00] E (22770) I2S: i2s_driver_uninstall(2048): I2S port 0 has not installed
+[2026-05-20T05:04:31.575257+00:00] tour: loading 1 apocalypso heap=106468 largest=49140 psram=7732711 health=heap is low - watch-style day wheel and local time
+[2026-05-20T05:04:31.575257+00:00] tour: tts 1 apocalypso
+[2026-05-20T05:04:31.575257+00:00] voice: POST message…
+[2026-05-20T05:04:31.575257+00:00] voice: HTTP POST message (635 B body)…
+[2026-05-20T05:04:41.389992+00:00] voice: HTTP 200 (message)
+[2026-05-20T05:04:41.389992+00:00] voice: reading MP3 body…
+[2026-05-20T05:04:41.389992+00:00] voice: MP3 Content-Length 245952
+[2026-05-20T05:04:42.258153+00:00] voice: MP3 recv 68508 B…
+[2026-05-20T05:04:43.023835+00:00] voice: MP3 recv 134310 B…
+[2026-05-20T05:04:43.903102+00:00] voice: MP3 recv 201974 B…
+[2026-05-20T05:04:44.440629+00:00] voice: MP3 complete 245952 B
+[2026-05-20T05:04:44.440629+00:00] voice: message ok mp3=245952 B
+[2026-05-20T05:04:44.440629+00:00] voice: message reply="Ah, the Apocalypso wheel reveals Tuesday's final hour, a gentle hum indicating the day's reserves are low.  Your omen: a quiet echoing within, where the deepest roots of your being…"
+[2026-05-20T05:04:44.440629+00:00] E (71392) I2S: i2s_driver_uninstall(2048): I2S port 0 has not installed
+[2026-05-20T05:05:15.875142+00:00] tour: loading 2 digital heap=105808 largest=49140 psram=7732711 health=heap is low - large local digital clock
+[2026-05-20T05:05:15.875142+00:00] tour: tts 2 digital
+[2026-05-20T05:05:15.875142+00:00] voice: POST message…
+[2026-05-20T05:05:15.875142+00:00] voice: HTTP POST message (626 B body)…
+[2026-05-20T05:05:24.869895+00:00] voice: HTTP 200 (message)
+[2026-05-20T05:05:24.869895+00:00] voice: reading MP3 body…
+[2026-05-20T05:05:24.869895+00:00] voice: MP3 Content-Length 249216
+[2026-05-20T05:05:27.112873+00:00] voice: MP3 recv 68520 B…
+[2026-05-20T05:05:27.112873+00:00] voice: MP3 recv 136593 B…
+[2026-05-20T05:05:27.857694+00:00] voice: MP3 recv 204257 B…
+[2026-05-20T05:05:28.598745+00:00] voice: MP3 complete 249216 B
+[2026-05-20T05:05:28.598745+00:00] voice: message ok mp3=249216 B
+[2026-05-20T05:05:28.598745+00:00] voice: message reply="The astrolabe shows the hand of Tuesday resting at five minutes past eleven. A subtle omen whispers that the current 'heap' of your day feels lighter now, drawing inward. My counse…"
+[2026-05-20T05:05:28.598745+00:00] E (115608) I2S: i2s_driver_uninstall(2048): I2S port 0 has not installed
+[2026-05-20T05:06:00.589688+00:00] tour: loading 3 spotify heap=106040 largest=49140 psram=7732711 health=heap is low - Spotify transport and now-playing surface
+[2026-05-20T05:06:00.589688+00:00] tour: tts 3 spotify
+[2026-05-20T05:06:00.589688+00:00] voice: POST message…
+[2026-05-20T05:06:00.589688+00:00] voice: HTTP POST message (621 B body)…
+[2026-05-20T05:06:11.594811+00:00] voice: HTTP 200 (message)
+[2026-05-20T05:06:11.594811+00:00] voice: reading MP3 body…
+[2026-05-20T05:06:11.594811+00:00] voice: MP3 Content-Length 218688
+[2026-05-20T05:06:12.558228+00:00] voice: MP3 recv 68275 B…
+[2026-05-20T05:06:13.301258+00:00] voice: MP3 recv 134924 B…
+[2026-05-20T05:06:14.150827+00:00] voice: MP3 recv 202588 B…
+[2026-05-20T05:06:14.254193+00:00] voice: MP3 complete 218688 B
+[2026-05-20T05:06:14.362173+00:00] voice: message ok mp3=218688 B
+[2026-05-20T05:06:14.362173+00:00] voice: message reply="The astrolabe whispers of the hour: your sonic 'heap' runs low, a shimmering omen of dwindling reserves.  My counsel, then, is to seek sounds that replenish rather than demand. Let…"
+[2026-05-20T05:06:14.362173+00:00] E (161306) I2S: i2s_driver_uninstall(2048): I2S port 0 has not installed
+[2026-05-20T05:06:42.460632+00:00] tour: loading 4 astro heap=105820 largest=49140 psram=7732711 health=heap is low - live sky wheel and astrology voice hooks
+[2026-05-20T05:06:42.460632+00:00] tour: tts 4 astro
+[2026-05-20T05:06:42.460632+00:00] voice: POST message…
+[2026-05-20T05:06:42.460632+00:00] voice: HTTP POST message (1266 B body)…
+[2026-05-20T05:06:46.953691+00:00] voice: HTTP 200 (message)
+[2026-05-20T05:06:46.953691+00:00] voice: reading MP3 body…
+[2026-05-20T05:06:46.953691+00:00] voice: MP3 Content-Length 62208
+[2026-05-20T05:06:48.033934+00:00] voice: MP3 complete 62208 B
+[2026-05-20T05:06:48.033934+00:00] voice: message ok mp3=62208 B
+[2026-05-20T05:06:48.033934+00:00] voice: message reply="Ah, gentle traveler, let us cast our gaze upon the heavens, even on this tiny, round face"
+[2026-05-20T05:06:48.033934+00:00] E (195019) I2S: i2s_driver_uninstall(2048): I2S port 0 has not installed
+[2026-05-20T05:06:56.545666+00:00] tour: loading 5 moon heap=105300 largest=49140 psram=7732711 health=heap is low - lunar phase, fortune tap, and Moon voice
+[2026-05-20T05:06:56.545666+00:00] tour: tts 5 moon
+[2026-05-20T05:06:56.545666+00:00] voice: POST message…
+[2026-05-20T05:07:05.240148+00:00] voice: HTTP POST message (993 B body)…
+[2026-05-20T05:07:05.240148+00:00] voice: HTTP 200 (message)
+[2026-05-20T05:07:05.240148+00:00] voice: reading MP3 body…
+[2026-05-20T05:07:05.240148+00:00] voice: MP3 Content-Length 277056
+[2026-05-20T05:07:06.090205+00:00] voice: MP3 recv 68248 B…
+[2026-05-20T05:07:06.941805+00:00] voice: MP3 recv 134050 B…
+[2026-05-20T05:07:08.214569+00:00] voice: MP3 recv 201714 B…
+[2026-05-20T05:07:09.075171+00:00] voice: MP3 recv 268819 B…
+[2026-05-20T05:07:09.185507+00:00] voice: MP3 complete 277056 B
+[2026-05-20T05:07:09.185507+00:00] voice: message ok mp3=277056 B
+[2026-05-20T05:07:09.185507+00:00] voice: message reply="Behold, the brass astrolabe whispers secrets of the night, guided by the slender grace of a Waxing Crescent Moon. At sixteen percent, she portends a gentle burgeoning, where new be…"
+[2026-05-20T05:07:09.292348+00:00] E (216320) I2S: i2s_driver_uninstall(2048): I2S port 0 has not installed
+[2026-05-20T05:07:44.784110+00:00] tour: loading 6 calcifer heap=105300 largest=49140 psram=7732711 health=heap is low - rolling agenda daywheel from calendar
+[2026-05-20T05:07:44.784110+00:00] tour: tts 6 calcifer
+[2026-05-20T05:07:44.784110+00:00] voice: POST message…
+[2026-05-20T05:07:44.784110+00:00] voice: HTTP POST message (618 B body)…
+[2026-05-20T05:07:56.850449+00:00] voice: HTTP 200 (message)
+[2026-05-20T05:07:56.850449+00:00] voice: reading MP3 body…
+[2026-05-20T05:07:56.850449+00:00] voice: MP3 Content-Length 293568
+[2026-05-20T05:07:57.712432+00:00] voice: MP3 recv 65567 B…
+[2026-05-20T05:07:58.477957+00:00] voice: MP3 recv 132658 B…
+[2026-05-20T05:07:59.454460+00:00] voice: MP3 recv 200322 B…
+[2026-05-20T05:08:00.325946+00:00] voice: MP3 recv 275885 B…
+[2026-05-20T05:08:00.429790+00:00] voice: MP3 complete 293568 B
+[2026-05-20T05:08:00.429790+00:00] voice: message ok mp3=293568 B
+[2026-05-20T05:08:00.429790+00:00] voice: message reply="The Calcifer agenda wheel shows the late hour of Tuesday, 23:07. An omen I perceive: your calendar's heap is low, indeed. It suggests a missing presence of tasks or intentions for …"
+[2026-05-20T05:08:00.429790+00:00] E (267430) I2S: i2s_driver_uninstall(2048): I2S port 0 has not installed
+[2026-05-20T05:08:37.919116+00:00] tour: loading 7 castalia heap=105300 largest=49140 psram=7732711 health=heap is low - Castalia pairing QR and auth status
+[2026-05-20T05:08:37.919116+00:00] tour: tts 7 castalia
+[2026-05-20T05:08:37.919116+00:00] voice: POST message…
+[2026-05-20T05:08:37.919116+00:00] voice: HTTP POST message (607 B body)…
+[2026-05-20T05:08:38.129785+00:00] [305556][E][ssl_client.cpp:37] _handle_error(): [start_ssl_client():264]: (-32512) SSL - Memory allocation failed
+[2026-05-20T05:08:38.233163+00:00] [305558][E][ssl_client.cpp:37] _handle_error(): [start_ssl_client():264]: (-32512) SSL - Memory allocation failed
+[2026-05-20T05:08:38.233163+00:00] [305576][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -32512
+[2026-05-20T05:08:38.233163+00:00] [305582][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -32512
+[2026-05-20T05:08:38.233163+00:00] voice: HTTP -1 (message)
+[2026-05-20T05:08:38.233163+00:00] voice: HTTP retry after connect failure
+[2026-05-20T05:08:39.529074+00:00] voice: HTTP POST message (607 B body, retry)…
+[2026-05-20T05:08:39.529074+00:00] [306959][E][ssl_client.cpp:37] _handle_error(): [start_ssl_client():264]: (-32512) SSL - Memory allocation failed
+[2026-05-20T05:08:39.639187+00:00] [306969][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -32512
+[2026-05-20T05:08:39.639187+00:00] voice: HTTP -1 (message)
+[2026-05-20T05:08:39.639187+00:00] voice: message fail (HTTP -1)
+[2026-05-20T05:08:44.216432+00:00] tour: narrate failed 7 err=HTTP -1
+[2026-05-20T05:08:44.216432+00:00] tour: loading 8 settings heap=69352 largest=17396 psram=7732711 health=heap is low - WiFi and Castalia settings hub
+[2026-05-20T05:08:44.216432+00:00] tour: tts 8 settings
+[2026-05-20T05:08:44.216432+00:00] voice: POST message…
+[2026-05-20T05:08:44.216432+00:00] voice: HTTP POST message (610 B body)…
+[2026-05-20T05:08:44.216432+00:00] [311590][E][ssl_client.cpp:37] _handle_error(): [start_ssl_client():264]: (-32512) SSL - Memory allocation failed
+[2026-05-20T05:08:44.216432+00:00] [311600][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -32512
+[2026-05-20T05:08:44.216432+00:00] voice: HTTP -1 (message)
+[2026-05-20T05:08:44.216432+00:00] voice: HTTP retry after connect failure
+[2026-05-20T05:08:45.518451+00:00] voice: HTTP POST message (610 B body, retry)…
+[2026-05-20T05:08:45.518451+00:00] [312949][E][ssl_client.cpp:37] _handle_error(): [start_ssl_client():264]: (-32512) SSL - Memory allocation failed
+[2026-05-20T05:08:45.628781+00:00] [312959][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -32512
+[2026-05-20T05:08:45.628781+00:00] voice: HTTP -1 (message)
+[2026-05-20T05:08:45.628781+00:00] voice: message fail (HTTP -1)
+[2026-05-20T05:08:47.587406+00:00] tour: narrate failed 8 err=HTTP -1
+[2026-05-20T05:08:47.587406+00:00] tour: loading 9 synastry heap=65700 largest=17396 psram=7732711 health=heap is low - dual natal chart and relationship aspects
+[2026-05-20T05:08:47.695899+00:00] tour: tts 9 synastry
+[2026-05-20T05:08:47.695899+00:00] voice: POST message…
+[2026-05-20T05:08:47.695899+00:00] voice: HTTP POST message (606 B body)…
+[2026-05-20T05:08:47.695899+00:00] [315083][E][ssl_client.cpp:37] _handle_error(): [start_ssl_client():264]: (-32512) SSL - Memory allocation failed
+[2026-05-20T05:08:47.695899+00:00] [315093][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -32512
+[2026-05-20T05:08:47.695899+00:00] voice: HTTP -1 (message)
+[2026-05-20T05:08:47.695899+00:00] voice: HTTP retry after connect failure
+[2026-05-20T05:08:48.973407+00:00] voice: HTTP POST message (606 B body, retry)…
+[2026-05-20T05:08:49.077758+00:00] [316449][E][ssl_client.cpp:37] _handle_error(): [start_ssl_client():264]: (-32512) SSL - Memory allocation failed
+[2026-05-20T05:08:49.077758+00:00] [316459][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -32512
+[2026-05-20T05:08:49.077758+00:00] voice: HTTP -1 (message)
+[2026-05-20T05:08:49.077758+00:00] voice: message fail (HTTP -1)
+[2026-05-20T05:08:52.647802+00:00] tour: narrate failed 9 err=HTTP -1
+[2026-05-20T05:08:52.647802+00:00] [320016][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[2026-05-20T05:08:52.647802+00:00] [320024][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[2026-05-20T05:08:52.647802+00:00] [320032][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[2026-05-20T05:08:52.647802+00:00] [320039][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[2026-05-20T05:08:52.647802+00:00] [320047][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[2026-05-20T05:08:52.647802+00:00] [320054][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[2026-05-20T05:08:52.647802+00:00] [320061][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[2026-05-20T05:08:52.647802+00:00] [320069][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[2026-05-20T05:08:52.647802+00:00] [320076][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[2026-05-20T05:08:52.748770+00:00] [320083][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[2026-05-20T05:08:52.748770+00:00] [320091][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[2026-05-20T05:08:52.748770+00:00] [320098][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[2026-05-20T05:08:52.748770+00:00] [320106][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[2026-05-20T05:08:52.748770+00:00] [320113][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[2026-05-20T05:08:52.748770+00:00] [320120][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[2026-05-20T05:08:52.748770+00:00] [320128][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[2026-05-20T05:08:52.748770+00:00] [320135][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[2026-05-20T05:08:52.748770+00:00] [320142][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[2026-05-20T05:08:52.748770+00:00] [320149][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[2026-05-20T05:08:52.748770+00:00] [320157][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[2026-05-20T05:08:52.748770+00:00] [320165][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[2026-05-20T05:08:52.748770+00:00] [320172][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[2026-05-20T05:08:52.748770+00:00] [320179][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[2026-05-20T05:08:52.851321+00:00] [320186][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[2026-05-20T05:08:52.851321+00:00] [320194][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[2026-05-20T05:08:52.851321+00:00] [320202][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[2026-05-20T05:08:52.851321+00:00] [320209][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[2026-05-20T05:08:52.851321+00:00] [320216][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[2026-05-20T05:08:52.851321+00:00] [320224][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[2026-05-20T05:08:52.851321+00:00] [320231][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[2026-05-20T05:08:52.851321+00:00] [320239][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[2026-05-20T05:08:52.851321+00:00] [320246][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[2026-05-20T05:08:52.851321+00:00] [320253][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[2026-05-20T05:08:52.851321+00:00] [320261][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[2026-05-20T05:08:52.851321+00:00] [320268][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[2026-05-20T05:08:52.851321+00:00] [320275][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[2026-05-20T05:08:52.953631+00:00] [320283][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[2026-05-20T05:08:52.953631+00:00] tour: loading 10 spectrum heap=70188 largest=17396 psram=7732711 health=heap is low - microphone spectrum visualizer modes
+[2026-05-20T05:08:52.953631+00:00] tour: tts 10 spectrum
+[2026-05-20T05:08:52.953631+00:00] voice: POST message…
+[2026-05-20T05:08:52.953631+00:00] voice: HTTP POST message (601 B body)…
+[2026-05-20T05:08:52.953631+00:00] [320364][E][ssl_client.cpp:37] _handle_error(): [start_ssl_client():264]: (-32512) SSL - Memory allocation failed
+[2026-05-20T05:08:52.953631+00:00] [320374][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -32512
+[2026-05-20T05:08:52.953631+00:00] voice: HTTP -1 (message)
+[2026-05-20T05:08:53.063967+00:00] voice: HTTP retry after connect failure
+[2026-05-20T05:08:54.254651+00:00] voice: HTTP POST message (601 B body, retry)…
+[2026-05-20T05:08:54.357516+00:00] [321715][E][ssl_client.cpp:37] _handle_error(): [start_ssl_client():264]: (-32512) SSL - Memory allocation failed
+[2026-05-20T05:08:54.357516+00:00] [321725][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -32512
+[2026-05-20T05:08:54.357516+00:00] voice: HTTP -1 (message)
+[2026-05-20T05:08:54.357516+00:00] voice: message fail (HTTP -1)
+[2026-05-20T05:08:59.324509+00:00] tour: narrate failed 10 err=HTTP -1
+[2026-05-20T05:08:59.324509+00:00] tour: loading 11 chakra heap=60892 largest=17396 psram=7732711 health=heap is low - chakra symbols with solfeggio tones
+[2026-05-20T05:08:59.324509+00:00] tour: tts 11 chakra
+[2026-05-20T05:08:59.324509+00:00] voice: POST message…
+[2026-05-20T05:08:59.324509+00:00] voice: HTTP POST message (593 B body)…
+[2026-05-20T05:09:14.453395+00:00] [341832][E][ssl_client.cpp:37] _handle_error(): [start_ssl_client():273]: (-29312) SSL - The connection indicated an EOF
+[2026-05-20T05:09:14.453395+00:00] [341843][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -29312
+[2026-05-20T05:09:14.453395+00:00] voice: HTTP -1 (message)
+[2026-05-20T05:09:14.453395+00:00] voice: HTTP retry after connect failure
+[2026-05-20T05:09:20.786558+00:00] [348153][E][WiFiClientSecure.cpp:144] connect(): start_ssl_clienvoice: HTTP POST message (593 B body, retry)…
+[2026-05-20T05:09:20.786558+00:00] t: -1
+[2026-05-20T05:09:20.786558+00:00] voice: HTTP -1 (message)
+[2026-05-20T05:09:20.786558+00:00] voice: message fail (HTTP -1)
+[2026-05-20T05:09:20.786558+00:00] tour: narrate failed 11 err=HTTP -1
+[2026-05-20T05:09:20.786558+00:00] tour: loading 12 bowl heap=62128 largest=17396 psram=7732711 health=heap is low - Tibetan bowl rim instrument
+[2026-05-20T05:09:20.786558+00:00] tour: tts 12 bowl
+[2026-05-20T05:09:20.786558+00:00] voice: POST message…
+[2026-05-20T05:09:20.786558+00:00] voice: HTTP POST message (566 B body)…
+[2026-05-20T05:09:25.811199+00:00] [353172][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1
+[2026-05-20T05:09:25.811199+00:00] voice: HTTP -1 (message)
+[2026-05-20T05:09:25.811199+00:00] voice: HTTP retry after connect failure
+[2026-05-20T05:09:27.100561+00:00] voice: HTTP POST message (566 B body, retry)…
+[2026-05-20T05:09:32.130075+00:00] [359481][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1
+[2026-05-20T05:09:32.130075+00:00] voice: HTTP -1 (message)
+[2026-05-20T05:09:32.130075+00:00] voice: message fail (HTTP -1)
+[2026-05-20T05:09:32.130075+00:00] tour: narrate failed 12 err=HTTP -1
+[2026-05-20T05:09:32.130075+00:00] tour: loading 13 rocket heap=61972 largest=17396 psram=7732711 health=heap is low - upcoming orbital launch clock
+[2026-05-20T05:09:32.130075+00:00] voice: POST message…
+[2026-05-20T05:09:32.130075+00:00] tour: tts 13 rocket
+[2026-05-20T05:09:32.130075+00:00] voice: HTTP POST message (569 B body)…
+[2026-05-20T05:09:37.063149+00:00] [364495][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1
+[2026-05-20T05:09:37.167913+00:00] voice: HTTP -1 (message)
+[2026-05-20T05:09:37.167913+00:00] voice: HTTP retry after connect failure
+[2026-05-20T05:09:38.451616+00:00] voice: HTTP POST message (569 B body, retry)…
+[2026-05-20T05:09:43.402343+00:00] [370803][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1
+[2026-05-20T05:09:43.402343+00:00] voice: HTTP -1 (message)
+[2026-05-20T05:09:43.402343+00:00] voice: message fail (HTTP -1)
+[2026-05-20T05:09:43.402343+00:00] tour: narrate failed 13 err=HTTP -1
+[2026-05-20T05:09:43.402343+00:00] tour: loading 14 radar heap=61808 largest=17396 psram=7732711 health=heap is low - BLE locator and nearby peer radar
+[2026-05-20T05:09:43.830355+00:00] tour: radar BLE paused for TTS heap=61804 largest=17396
+[2026-05-20T05:09:43.830355+00:00] tour: tts 14 radar
+[2026-05-20T05:09:43.830355+00:00] voice: POST message…
+[2026-05-20T05:09:43.830355+00:00] voice: HTTP POST message (579 B body)…
+[2026-05-20T05:09:48.878443+00:00] [376217][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1
+[2026-05-20T05:09:48.878443+00:00] voice: HTTP -1 (message)
+[2026-05-20T05:09:48.878443+00:00] voice: HTTP retry after connect failure
+[2026-05-20T05:09:50.157634+00:00] voice: HTTP POST message (579 B body, retry)…
+[2026-05-20T05:09:55.146866+00:00] [382526][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1
+[2026-05-20T05:09:55.146866+00:00] voice: HTTP -1 (message)
+[2026-05-20T05:09:55.146866+00:00] voice: message fail (HTTP -1)
+[2026-05-20T05:09:55.146866+00:00] tour: narrate failed 14 err=HTTP -1
+[2026-05-20T05:09:55.146866+00:00] tour: loading 15 faculty heap=61944 largest=17396 psram=7732711 health=heap is low - recent ask-faculty conversation portraits
+[2026-05-20T05:09:55.146866+00:00] tour: tts 15 faculty
+[2026-05-20T05:09:55.146866+00:00] voice: POST message…
+[2026-05-20T05:09:55.146866+00:00] voice: HTTP POST message (603 B body)…
+[2026-05-20T05:10:00.192688+00:00] [387549][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1
+[2026-05-20T05:10:00.192688+00:00] voice: HTTP -1 (message)
+[2026-05-20T05:10:00.192688+00:00] voice: HTTP retry after connect failure
+[2026-05-20T05:10:01.495185+00:00] voice: HTTP POST message (603 B body, retry)…
+[2026-05-20T05:10:06.466937+00:00] [393858][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1
+[2026-05-20T05:10:06.466937+00:00] voice: HTTP -1 (message)
+[2026-05-20T05:10:06.466937+00:00] voice: message fail (HTTP -1)
+[2026-05-20T05:10:06.466937+00:00] tour: narrate failed 15 err=HTTP -1
+[2026-05-20T05:10:06.466937+00:00] tour: loading 16 weather heap=61956 largest=17396 psram=7732711 health=heap is low - 24-hour radial forecast rings
+[2026-05-20T05:10:06.466937+00:00] voice: POST message…
+[2026-05-20T05:10:06.466937+00:00] tour: tts 16 weather
+[2026-05-20T05:10:06.466937+00:00] voice: HTTP POST message (552 B body)…
+[2026-05-20T05:10:11.547794+00:00] [398876][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1
+[2026-05-20T05:10:11.547794+00:00] voice: HTTP -1 (message)
+[2026-05-20T05:10:11.547794+00:00] voice: HTTP retry after connect failure
+[2026-05-20T05:10:12.849723+00:00] voice: HTTP POST message (552 B body, retry)…
+[2026-05-20T05:10:17.752132+00:00] [405185][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1
+[2026-05-20T05:10:17.859946+00:00] voice: HTTP -1 (message)
+[2026-05-20T05:10:17.859946+00:00] voice: message fail (HTTP -1)
+[2026-05-20T05:10:17.859946+00:00] tour: narrate failed 16 err=HTTP -1
+[2026-05-20T05:10:17.859946+00:00] tour: loading 17 quotes heap=62484 largest=17396 psram=7732711 health=heap is low - Castalia quote of the day with faculty bust
+[2026-05-20T05:10:17.859946+00:00] tour: tts 17 quotes
+[2026-05-20T05:10:17.859946+00:00] voice: POST message…
+[2026-05-20T05:10:17.859946+00:00] voice: HTTP POST message (557 B body)…
+[2026-05-20T05:10:17.859946+00:00] pm_faculty: bust skipped low memory heap=58560 largest=17396
+[2026-05-20T05:10:17.859946+00:00] pm_faculty: bust skipped low memory heap=58560 largest=17396
+[2026-05-20T05:10:22.877950+00:00] [410210][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1
+[2026-05-20T05:10:22.877950+00:00] voice: HTTP -1 (message)
+[2026-05-20T05:10:22.877950+00:00] voice: HTTP retry after connect failure
+[2026-05-20T05:10:24.172203+00:00] voice: HTTP POST message (557 B body, retry)…
+[2026-05-20T05:10:29.183224+00:00] [416519][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1
+[2026-05-20T05:10:29.183224+00:00] voice: HTTP -1 (message)
+[2026-05-20T05:10:29.183224+00:00] voice: message fail (HTTP -1)
+[2026-05-20T05:10:29.183224+00:00] tour: narrate failed 17 err=HTTP -1
+[2026-05-20T05:10:29.183224+00:00] tour: loading 18 transits heap=62476 largest=17396 psram=7732711 health=heap is low - live planetary spheres and next Moon ingress
+[2026-05-20T05:10:29.183224+00:00] voice: POST message…
+[2026-05-20T05:10:29.183224+00:00] tour: tts 18 transits
+[2026-05-20T05:10:29.183224+00:00] voice: HTTP POST message (634 B body)…
+[2026-05-20T05:10:34.106056+00:00] [421533][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1
+[2026-05-20T05:10:34.211972+00:00] voice: HTTP -1 (message)
+[2026-05-20T05:10:34.211972+00:00] voice: HTTP retry after connect failure
+[2026-05-20T05:10:40.475276+00:00] [427843][E][WiFiClientSecure.cpp:144] connect(): start_ssl_clienvoice: HTTP POST message (634 B body, retry)…
+[2026-05-20T05:10:40.475276+00:00] t: -1
+[2026-05-20T05:10:40.475276+00:00] voice: HTTP -1 (message)
+[2026-05-20T05:10:40.475276+00:00] voice: message fail (HTTP -1)
+[2026-05-20T05:10:40.475276+00:00] tour: narrate failed 18 err=HTTP -1
+[2026-05-20T05:10:40.475276+00:00] tour: done

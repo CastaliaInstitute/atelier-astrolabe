@@ -1160,9 +1160,10 @@ static bool handle_wifi_serial_command(char *line) {
     char ssid[64];
     char pass[64];
     const bool have = pm_wifi_credentials_load(ssid, sizeof(ssid), pass, sizeof(pass));
-    Serial.printf("wifi: connected=%d status=%d ssid=%s ip=%s rssi=%d nvs=%d\n", pm_wifi_connected() ? 1 : 0,
-                  static_cast<int>(WiFi.status()), have ? ssid : "", WiFi.localIP().toString().c_str(),
-                  pm_wifi_connected() ? WiFi.RSSI() : 0, have ? 1 : 0);
+    Serial.printf("wifi: connected=%d status=%d host=%s mac=%s ssid=%s ip=%s rssi=%d nvs=%d\n",
+                  pm_wifi_connected() ? 1 : 0,
+                  static_cast<int>(WiFi.status()), pm_wifi_mdns_name(), pm_wifi_mac_string(), have ? ssid : "",
+                  WiFi.localIP().toString().c_str(), pm_wifi_connected() ? WiFi.RSSI() : 0, have ? 1 : 0);
     return true;
   }
   if (strcmp(cmd, "scan") == 0) {
@@ -1564,8 +1565,8 @@ void setup() {
   (void)pm_motion_begin();
   (void)pm_presence_begin();
 
-  pm_log_printf(false, "boot: Mynah Astrolabe ready host=%s ip=%s heap=%u largest=%u psram=%u",
-                pm_wifi_mdns_name(), WiFi.localIP().toString().c_str(), static_cast<unsigned>(pm_heap_internal_free()),
+  pm_log_printf(false, "boot: Mynah Astrolabe ready host=%s mac=%s ip=%s heap=%u largest=%u psram=%u",
+                pm_wifi_mdns_name(), pm_wifi_mac_string(), WiFi.localIP().toString().c_str(), static_cast<unsigned>(pm_heap_internal_free()),
                 static_cast<unsigned>(pm_heap_internal_largest()), static_cast<unsigned>(pm_heap_psram_free()));
   Serial.println("Mynah Astrolabe ready");
 #endif

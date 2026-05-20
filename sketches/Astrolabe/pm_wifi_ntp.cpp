@@ -4,6 +4,7 @@
 #include <WiFi.h>
 #include <esp_bt.h>
 #include <esp_log.h>
+#include <esp_mac.h>
 #include <esp_wifi.h>
 #include <stdlib.h>
 #include <time.h>
@@ -18,29 +19,88 @@ static const char *TAG = "pm_wifi";
 static constexpr uint32_t kWifiTimeoutMs = 20000;
 static bool s_wifi_link_chimed = false;
 static bool s_mdns_started = false;
+static bool s_identity_ready = false;
+static char s_hostname[32] = "";
+static char s_mdns_name[40] = "";
+static char s_mac_suffix[7] = "";
+static char s_mac_string[18] = "";
 
 #ifndef ASTROLABE_MDNS_HOSTNAME
 #define ASTROLABE_MDNS_HOSTNAME "astrolabe"
 #endif
 
-const char *pm_wifi_hostname() { return ASTROLABE_MDNS_HOSTNAME; }
+static bool has_mac_suffix(const char *host) {
+  const size_t len = host ? strlen(host) : 0;
+  if (len < 8 || host[len - 7] != '-') {
+    return false;
+  }
+  for (size_t i = len - 6; i < len; ++i) {
+    const char c = host[i];
+    if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) {
+      return false;
+    }
+  }
+  return true;
+}
 
-const char *pm_wifi_mdns_name() { return ASTROLABE_MDNS_HOSTNAME ".local"; }
+static void pm_wifi_identity_init(void) {
+  if (s_identity_ready) {
+    return;
+  }
+  uint8_t mac[6] = {};
+  if (esp_read_mac(mac, ESP_MAC_WIFI_STA) != ESP_OK) {
+    WiFi.macAddress(mac);
+  }
+  snprintf(s_mac_suffix, sizeof(s_mac_suffix), "%02x%02x%02x", mac[3], mac[4], mac[5]);
+  snprintf(s_mac_string, sizeof(s_mac_string), "%02x:%02x:%02x:%02x:%02x:%02x", mac[0], mac[1], mac[2], mac[3],
+           mac[4], mac[5]);
+  if (has_mac_suffix(ASTROLABE_MDNS_HOSTNAME)) {
+    snprintf(s_hostname, sizeof(s_hostname), "%s", ASTROLABE_MDNS_HOSTNAME);
+  } else {
+    snprintf(s_hostname, sizeof(s_hostname), "%s-%s", ASTROLABE_MDNS_HOSTNAME, s_mac_suffix);
+  }
+  snprintf(s_mdns_name, sizeof(s_mdns_name), "%s.local", s_hostname);
+  s_identity_ready = true;
+}
+
+const char *pm_wifi_hostname() {
+  pm_wifi_identity_init();
+  return s_hostname;
+}
+
+const char *pm_wifi_mdns_name() {
+  pm_wifi_identity_init();
+  return s_mdns_name;
+}
+
+const char *pm_wifi_mac_suffix() {
+  pm_wifi_identity_init();
+  return s_mac_suffix;
+}
+
+const char *pm_wifi_mac_string() {
+  pm_wifi_identity_init();
+  return s_mac_string;
+}
 
 static void pm_wifi_mdns_begin(void) {
   if (s_mdns_started || !pm_wifi_connected()) {
     return;
   }
-  if (!MDNS.begin(ASTROLABE_MDNS_HOSTNAME)) {
+  if (!MDNS.begin(pm_wifi_hostname())) {
     ESP_LOGW(TAG, "mDNS start failed");
     pm_log_printf(false, "wifi: mdns failed host=%s", pm_wifi_mdns_name());
     return;
   }
   MDNS.addService("http", "tcp", 80);
+  MDNS.addServiceTxt("http", "tcp", "host", pm_wifi_hostname());
+  MDNS.addServiceTxt("http", "tcp", "mac", pm_wifi_mac_string());
+  MDNS.addServiceTxt("http", "tcp", "mac6", pm_wifi_mac_suffix());
+  MDNS.addServiceTxt("http", "tcp", "product", "Mynah Astrolabe");
   s_mdns_started = true;
   ESP_LOGI(TAG, "mDNS http://%s/", pm_wifi_mdns_name());
-  pm_log_printf(false, "wifi: mdns http://%s/ ip=%s", pm_wifi_mdns_name(),
-                WiFi.localIP().toString().c_str());
+  pm_log_printf(false, "wifi: mdns http://%s/ ip=%s mac=%s", pm_wifi_mdns_name(),
+                WiFi.localIP().toString().c_str(), pm_wifi_mac_string());
 }
 
 static void pm_wifi_mdns_end(void) {
@@ -107,7 +167,7 @@ bool pm_wifi_begin() {
     return false;
   }
   WiFi.mode(WIFI_STA);
-  WiFi.setHostname(ASTROLABE_MDNS_HOSTNAME);
+  WiFi.setHostname(pm_wifi_hostname());
   const bool bt_enabled = esp_bt_controller_get_status() == ESP_BT_CONTROLLER_STATUS_ENABLED;
   WiFi.setSleep(bt_enabled);
   if (bt_enabled) {
