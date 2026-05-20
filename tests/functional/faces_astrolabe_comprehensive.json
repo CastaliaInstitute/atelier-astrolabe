@@ -1,6 +1,6 @@
 {
   "sketch": "Astrolabe",
-  "face_count": 19,
+  "face_count": 25,
   "center": [233, 233],
   "description": "Full swipe matrix (L/R/U/D) + buttons on every face; crash + screenshot gate.",
   "faces": [
@@ -166,6 +166,55 @@
       "name": "transits",
       "source_paths": ["sketches/Astrolabe/faces/live_transits", "sketches/Astrolabe/pm_transit.cpp"],
       "gestures": ["swipe_left", "swipe_right", "swipe_up", "swipe_down", "tap:233,233"],
+      "buttons": ["boot"]
+    },
+    {
+      "id": 19,
+      "name": "tarot",
+      "source_paths": ["sketches/Astrolabe/faces/tarot"],
+      "gestures": ["swipe_left", "swipe_right", "swipe_up", "swipe_down", "tap:233,233"],
+      "buttons": ["boot"]
+    },
+    {
+      "id": 20,
+      "name": "notes",
+      "source_paths": ["sketches/Astrolabe/faces/notes", "sketches/Astrolabe/pm_commonplace.cpp"],
+      "gestures": ["swipe_left", "swipe_right", "swipe_up", "swipe_down", "tap:233,233"],
+      "buttons": ["pwr_hold"]
+    },
+    {
+      "id": 21,
+      "name": "ocarina",
+      "source_paths": ["sketches/Astrolabe/faces/ocarina", "sketches/Astrolabe/pm_speaker.cpp"],
+      "gestures": ["swipe_left", "swipe_right", "swipe_up", "swipe_down", "tap:233,233"],
+      "buttons": ["boot"]
+    },
+    {
+      "id": 22,
+      "name": "bongo",
+      "source_paths": ["sketches/Astrolabe/faces/bongo", "sketches/Astrolabe/pm_speaker.cpp"],
+      "gestures": ["swipe_left", "swipe_right", "swipe_up", "swipe_down", "tap:233,233", "tap:388,233"],
+      "buttons": ["boot"]
+    },
+    {
+      "id": 23,
+      "name": "piano",
+      "source_paths": ["sketches/Astrolabe/faces/piano", "sketches/Astrolabe/pm_speaker.cpp"],
+      "gestures": ["swipe_left", "swipe_right", "swipe_up", "swipe_down", "tap:233,233"],
+      "buttons": ["boot"]
+    },
+    {
+      "id": 24,
+      "name": "level",
+      "source_paths": ["sketches/Astrolabe/faces/level", "sketches/Astrolabe/pm_motion.cpp"],
+      "gestures": ["swipe_left", "swipe_right", "swipe_up", "swipe_down", "tap:233,233"],
+      "buttons": ["boot"]
+    },
+    {
+      "id": 25,
+      "name": "pandrum",
+      "source_paths": ["sketches/Astrolabe/faces/pandrum", "sketches/Astrolabe/pm_speaker.cpp"],
+      "gestures": ["swipe_left", "swipe_right", "swipe_up", "swipe_down", "tap:233,233", "tap:233,86", "tap:360,160"],
       "buttons": ["boot"]
     }
   ]

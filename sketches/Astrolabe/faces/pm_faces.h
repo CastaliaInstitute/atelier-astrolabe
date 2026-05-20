@@ -40,6 +40,18 @@ enum class ClockFace : uint8_t {
   LiveTransits,
   /** Daily Major Arcana tarot card; swipe up/down browses deck. */
   Tarot,
+  /** Offline-first voice notes queued for Commonplace. */
+  Notes,
+  /** Touch-playable clay ocarina; tap holes for notes, swipe up/down changes key. */
+  Ocarina,
+  /** Touch-playable bongo; tap distance from center controls drum pitch. */
+  Bongo,
+  /** One-octave circular piano; white keys outside, black keys inside. */
+  Piano,
+  /** IMU bubble level: top of the display is forward; BOOT speaks the correction. */
+  Level,
+  /** 14-note touch-playable handpan / pan drum face. */
+  PanDrum,
   kNumFaces,
 };
 

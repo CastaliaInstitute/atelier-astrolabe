@@ -32,6 +32,9 @@ void pm_speaker_abort(void);
 /** Start a solfeggio-style sine tone (non-blocking). Replaces any current playback. */
 bool pm_speaker_play_tone_begin(float hz, uint32_t duration_ms);
 
+/** Start a short percussive bongo hit (non-blocking). */
+bool pm_speaker_play_bongo_begin(float hz, float strength);
+
 /** Loop tone until pm_speaker_tone_stop(). */
 bool pm_speaker_play_tone_loop_begin(float hz);
 

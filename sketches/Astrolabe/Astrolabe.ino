@@ -40,13 +40,18 @@
 #include "faces/pm_faces.h"
 #include "faces/shared/pm_face_draw.h"
 #include "faces/astrology/pm_face_astrology.h"
+#include "faces/bongo/pm_face_bongo.h"
 #include "faces/chakra/pm_face_chakra.h"
+#include "faces/ocarina/pm_face_ocarina.h"
+#include "faces/pandrum/pm_face_pandrum.h"
+#include "faces/piano/pm_face_piano.h"
 #include "faces/tibetan_bowl/pm_face_tibetan_bowl.h"
 #include "faces/moon/pm_face_moon.h"
 #include "faces/tarot/pm_face_tarot.h"
 #include "faces/notes/pm_face_notes.h"
 #include "faces/spotify/pm_face_spotify.h"
 #include "faces/calcifer/pm_face_calcifer.h"
+#include "faces/level/pm_face_level.h"
 #include "faces/weather/pm_face_weather.h"
 #include "faces/settings/pm_face_settings_wifi.h"
 #include "pm_weather.h"
@@ -570,7 +575,13 @@ static bool face_index_from_name(const char *name, int *out) {
            {"quote", 17},      {"qotd", 17},        {"transits", 18},   {"live_transits", 18},
            {"live-transits", 18}, {"live", 18},      {"tarot", 19},      {"cards", 19},
            {"card", 19},       {"arcana", 19},       {"notes", 20},      {"note", 20},
-           {"commonplace", 20}, {"notebook", 20}};
+           {"commonplace", 20}, {"notebook", 20},    {"ocarina", 21},    {"ocarina_face", 21},
+           {"flute", 21},      {"bongo", 22},
+           {"drum", 22},       {"drums", 22},        {"conga", 22},      {"piano", 23},
+           {"keys", 23},       {"keyboard", 23},    {"level", 24},      {"bubble", 24},
+           {"bubble_level", 24}, {"imu", 24},        {"pandrum", 25},    {"pan_drum", 25},
+           {"pan-drum", 25},    {"pandrom", 25},     {"pandrom_face", 25}, {"handpan", 25},
+           {"hang", 25}};
   for (const auto &e : k) {
     if (strcasecmp(name, e.n) == 0) {
       *out = e.idx;
@@ -633,6 +644,16 @@ static const FaceTourInfo k_face_tour[] = {
      "drawing local Major Arcana", "drawing local Major Arcana", false, false},
     {"notes", "offline voice notes queued for Commonplace", "the offline note capture queue",
      "flash note queue is available", "flash note queue is available", false, false},
+    {"ocarina", "touch-playable clay ocarina", "the active ocarina key and breath note",
+     "local ocarina tones are available", "local ocarina tones are available", false, false},
+    {"bongo", "touch-playable bongo with center-to-rim pitch", "the last bongo tap pitch and drum feel",
+     "local bongo hits are available", "local bongo hits are available", false, false},
+    {"piano", "one-octave circular piano", "the active piano key and note",
+     "local piano tones are available", "local piano tones are available", false, false},
+    {"level", "IMU rolling-sphere level with the top of the display as forward",
+     "the current level nudge", "IMU level is drawing", "IMU unavailable", false, false},
+    {"pandrum", "14-note touch-playable handpan", "the active pan drum note and resonance",
+     "local pan drum tones are available", "local pan drum tones are available", false, false},
 };
 
 static const FaceTourInfo *face_tour_info(int idx) {
@@ -915,6 +936,43 @@ static bool face_voice_build_prompt(const FaceTourInfo *info, int idx, char *msg
                pm_wifi_connected() ? "connected" : "offline",
                pm_castalia_has_session() ? "signed in" : "not signed in");
       break;
+    case ClockFace::Ocarina:
+      snprintf(msg, msg_cap,
+               "Face: ocarina. Active key: %s. Current state: local touch instrument. Give a short breath "
+               "and listening cue for playing the ocarina face.",
+               pm_face_ocarina_key_label());
+      break;
+    case ClockFace::Bongo:
+      snprintf(msg, msg_cap,
+               "Face: bongo. Last hit pitch: %.0f hertz, radius %.0f percent from center, force %.0f percent. "
+               "Current state: local touch drum where center taps are low, rim taps are high, and IMU impact "
+               "boosts loudness. Give a short rhythmic cue.",
+               static_cast<double>(pm_face_bongo_last_hz()),
+               static_cast<double>(pm_face_bongo_last_radius_norm() * 100.f),
+               static_cast<double>(pm_face_bongo_last_force() * 100.f));
+      break;
+    case ClockFace::Piano:
+      snprintf(msg, msg_cap,
+               "Face: piano. Active note: %s. Current state: local one-octave circular piano with white "
+               "keys on the outer ring and black keys inside. Give a short melodic cue.",
+               pm_face_piano_note_label()[0] ? pm_face_piano_note_label() : "none");
+      break;
+    case ClockFace::PanDrum:
+      snprintf(msg, msg_cap,
+               "Face: pandrum. Active note: %s. Last pitch: %.0f hertz. Current state: local 14-note "
+               "handpan-style touch instrument with a center ding and surrounding tone fields. Give a short "
+               "resonant playing cue.",
+               pm_face_pandrum_note_label()[0] ? pm_face_pandrum_note_label() : "none",
+               static_cast<double>(pm_face_pandrum_last_hz()));
+      break;
+    case ClockFace::Level: {
+      const char *guidance = pm_face_level_guidance();
+      snprintf(sys, sys_cap,
+               "You are the Mynah Astrolabe level face TTS button. Say exactly the supplied leveling nudge, "
+               "with no preamble and no extra words. The top of the display is forward.");
+      snprintf(msg, msg_cap, "Leveling nudge to speak exactly: %s.", guidance);
+      break;
+    }
     default:
       snprintf(msg, msg_cap, "Face: %s. Purpose: %s. Current state: %s. Speak one concise useful note.",
                info->name, info->summary, health);
@@ -1231,7 +1289,8 @@ static bool handle_wifi_serial_command(char *line) {
     Serial.printf("wifi: connected=%d status=%d host=%s mac=%s ssid=%s ip=%s rssi=%d nvs=%d\n",
                   pm_wifi_connected() ? 1 : 0,
                   static_cast<int>(WiFi.status()), pm_wifi_mdns_name(), pm_wifi_mac_string(), have ? ssid : "",
-                  WiFi.localIP().toString().c_str(), pm_wifi_connected() ? WiFi.RSSI() : 0, have ? 1 : 0);
+                  WiFi.localIP().toString().c_str(), pm_wifi_connected() ? static_cast<int>(WiFi.RSSI()) : 0,
+                  have ? 1 : 0);
     return true;
   }
   if (strcmp(cmd, "scan") == 0) {
@@ -1239,8 +1298,9 @@ static bool handle_wifi_serial_command(char *line) {
     const int n = WiFi.scanNetworks(false, true);
     Serial.printf("wifi: scan count=%d\n", n);
     for (int i = 0; i < n && i < 12; ++i) {
-      Serial.printf("wifi: ap %d ssid=%s rssi=%d channel=%d enc=%d\n", i, WiFi.SSID(i).c_str(), WiFi.RSSI(i),
-                    WiFi.channel(i), static_cast<int>(WiFi.encryptionType(i)));
+      Serial.printf("wifi: ap %d ssid=%s rssi=%d channel=%d enc=%d\n", i, WiFi.SSID(i).c_str(),
+                    static_cast<int>(WiFi.RSSI(i)), static_cast<int>(WiFi.channel(i)),
+                    static_cast<int>(WiFi.encryptionType(i)));
     }
     WiFi.scanDelete();
     return true;
@@ -1399,6 +1459,15 @@ static void poll_serial_birth_commands() {
                         g_gesture_banner);
         } else if (strcmp(args, "heap") == 0) {
           pm_heap_log("qa");
+        } else if (strcmp(args, "audio") == 0) {
+          PmAudioAnalyzerDebug dbg = {};
+          pm_audio_analyzer_debug(&dbg);
+          Serial.printf("qa: audio level=%.3f in0=%.3f/%u in1=%.3f/%u out=%.3f/%u route=%s\n",
+                        static_cast<double>(dbg.level),
+                        static_cast<double>(dbg.in_peak[0]), static_cast<unsigned>(dbg.in_blocks[0]),
+                        static_cast<double>(dbg.in_peak[1]), static_cast<unsigned>(dbg.in_blocks[1]),
+                        static_cast<double>(dbg.out_peak), static_cast<unsigned>(dbg.out_blocks),
+                        pm_audio_route_get() == PmAudioRoute::Usb ? "usb" : "onboard");
         } else if (strcmp(args, "time") == 0) {
           print_time_status("qa time");
         } else if (strcmp(args, "briefing") == 0 || strcmp(args, "brief") == 0) {
@@ -1430,10 +1499,15 @@ static void poll_serial_birth_commands() {
           Serial.println("qa: 18 transits");
           Serial.println("qa: 19 tarot");
           Serial.println("qa: 20 notes");
+          Serial.println("qa: 21 ocarina");
+          Serial.println("qa: 22 bongo");
+          Serial.println("qa: 23 piano");
+          Serial.println("qa: 24 level");
+          Serial.println("qa: 25 pandrum");
         } else if (strncmp(args, "tour", 4) == 0 && (args[4] == '\0' || args[4] == ' ')) {
           handle_tour_command(args + 4);
         } else if (!pm_qa_inject_command(args)) {
-          Serial.println("qa: usage: status | heap | time | briefing | tone | bowl | faces | tour [narrate|tts] [dwell_ms] | tour stop | inject …");
+          Serial.println("qa: usage: status | heap | audio | time | briefing | tone | bowl | faces | tour [narrate|tts] [dwell_ms] | tour stop | inject …");
         }
       } else if (strncmp(line, "face ", 5) == 0) {
         s_face_tour_active = false;
@@ -1849,6 +1923,52 @@ void loop() {
       pm_face_tibetan_bowl_touch_tick(now);
       g_clock_repaint_pending = true;
       continue;
+    } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Ocarina &&
+               (ge.kind == PmGestureKind::SwipeUp || ge.kind == PmGestureKind::SwipeDown)) {
+      pm_face_ocarina_cycle_key(ge.kind == PmGestureKind::SwipeUp ? 1 : -1);
+      snprintf(g_gesture_banner, sizeof(g_gesture_banner), "ocarina: key %s",
+               pm_face_ocarina_key_label());
+      g_clock_repaint_pending = true;
+      continue;
+    } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Ocarina &&
+               ge.kind == PmGestureKind::Tap) {
+      if (pm_face_ocarina_play_at(ge.x, ge.y)) {
+        snprintf(g_gesture_banner, sizeof(g_gesture_banner), "ocarina: note %d",
+                 pm_face_ocarina_note_index() + 1);
+      } else {
+        snprintf(g_gesture_banner, sizeof(g_gesture_banner), "ocarina: busy");
+      }
+      g_clock_repaint_pending = true;
+      continue;
+    } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Bongo &&
+               ge.kind == PmGestureKind::Tap) {
+      if (pm_face_bongo_play_at(ge.x, ge.y)) {
+        snprintf(g_gesture_banner, sizeof(g_gesture_banner), "bongo: %.0f Hz",
+                 static_cast<double>(pm_face_bongo_last_hz()));
+      } else {
+        snprintf(g_gesture_banner, sizeof(g_gesture_banner), "bongo: busy");
+      }
+      g_clock_repaint_pending = true;
+      continue;
+    } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Piano &&
+               ge.kind == PmGestureKind::Tap) {
+      if (pm_face_piano_play_at(ge.x, ge.y)) {
+        snprintf(g_gesture_banner, sizeof(g_gesture_banner), "piano: %s", pm_face_piano_note_label());
+      } else {
+        snprintf(g_gesture_banner, sizeof(g_gesture_banner), "piano: key?");
+      }
+      g_clock_repaint_pending = true;
+      continue;
+    } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::PanDrum &&
+               ge.kind == PmGestureKind::Tap) {
+      if (pm_face_pandrum_play_at(ge.x, ge.y)) {
+        snprintf(g_gesture_banner, sizeof(g_gesture_banner), "pandrum: %s",
+                 pm_face_pandrum_note_label());
+      } else {
+        snprintf(g_gesture_banner, sizeof(g_gesture_banner), "pandrum: field?");
+      }
+      g_clock_repaint_pending = true;
+      continue;
     } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Faculty &&
                (ge.kind == PmGestureKind::SwipeUp || ge.kind == PmGestureKind::SwipeDown)) {
       PmFacultyProfile faculty = {};
@@ -2001,6 +2121,9 @@ void loop() {
         if (pm_faces_current() == ClockFace::Radar) {
           g_clock_repaint_pending = true;
         }
+        if (pm_faces_current() == ClockFace::Level) {
+          g_clock_repaint_pending = true;
+        }
         if (pm_faces_current() == ClockFace::Faculty) {
           g_clock_repaint_pending = true;
         }
@@ -2023,6 +2146,15 @@ void loop() {
       if (radar_anim) {
         s_last_radar_ms = now;
         pm_face_radar_tick(now);
+      }
+
+      static uint32_t s_last_level_ms = 0;
+      const bool level_anim =
+          pm_faces_current() == ClockFace::Level && g_state == AppState::kClock &&
+          (now - s_last_level_ms >= 50u);
+      if (level_anim) {
+        s_last_level_ms = now;
+        (void)pm_face_level_anim_tick(now);
       }
 
       if (pm_faces_castalia_active() && wifi && pm_castalia_tick_pair_start()) {
@@ -2091,6 +2223,15 @@ void loop() {
           pm_faces_current() == ClockFace::Chakra && pm_face_chakra_anim_tick(now);
       const bool bowl_anim =
           pm_faces_current() == ClockFace::TibetanBowl && pm_face_tibetan_bowl_anim_tick(now);
+      const bool ocarina_anim =
+          pm_faces_current() == ClockFace::Ocarina && pm_face_ocarina_anim_tick(now);
+      const bool bongo_anim =
+          pm_faces_current() == ClockFace::Bongo &&
+          (pm_face_bongo_motion_tick(now) || pm_face_bongo_anim_tick(now));
+      const bool piano_anim =
+          pm_faces_current() == ClockFace::Piano && pm_face_piano_anim_tick(now);
+      const bool pandrum_anim =
+          pm_faces_current() == ClockFace::PanDrum && pm_face_pandrum_anim_tick(now);
       const bool faculty_anim =
           (pm_faces_current() == ClockFace::Faculty || pm_faces_current() == ClockFace::Quotes) &&
           pm_faculty_tick(now);
@@ -2104,6 +2245,9 @@ void loop() {
           pm_faces_current() != ClockFace::Rocket && pm_faces_current() != ClockFace::Radar &&
           pm_faces_current() != ClockFace::Faculty && pm_faces_current() != ClockFace::Quotes &&
           pm_faces_current() != ClockFace::LiveTransits && pm_faces_current() != ClockFace::Tarot &&
+          pm_faces_current() != ClockFace::Ocarina && pm_faces_current() != ClockFace::Bongo &&
+          pm_faces_current() != ClockFace::Piano && pm_faces_current() != ClockFace::Level &&
+          pm_faces_current() != ClockFace::PanDrum &&
           !home_gem_breath;
       const bool calcifer_sec =
           pm_faces_current() == ClockFace::CalciferCountdown && valid && sec_tick;
@@ -2130,8 +2274,9 @@ void loop() {
       const bool non_gem_paint = !s_clock_paint_inited || slow_no_time || banner_chg || wifi_chg ||
                                  g_clock_repaint_pending || local_hm_chg || spotify_stale || calcifer_stale ||
                                  weather_stale || quotes_stale || rocket_stale || sec_tick_paint || calcifer_sec || rocket_sec ||
-                                 astro_repaint || spectrum_anim || chakra_anim || bowl_anim || radar_anim ||
-                                 faculty_anim || wifi_settings_graph;
+                                 astro_repaint || spectrum_anim || chakra_anim || bowl_anim || ocarina_anim || bongo_anim ||
+                                 piano_anim || pandrum_anim || radar_anim || level_anim || faculty_anim ||
+                                 wifi_settings_graph;
 #if MYNAH_HUE_HOME_ONLY
       const bool gem_only_paint = gem_pulse_paint && s_clock_paint_inited && !non_gem_paint;
       const bool full_paint = non_gem_paint || gem_pulse_paint;
