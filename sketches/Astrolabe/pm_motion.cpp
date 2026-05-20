@@ -116,6 +116,26 @@ bool pm_motion_accel_norm(float *x, float *y, float *z) {
   if (!s_has_gyro || !x || !y || !z) {
     return false;
   }
+  float gx = 0.f;
+  float gy = 0.f;
+  float gz = 0.f;
+  if (!pm_motion_accel_g(&gx, &gy, &gz)) {
+    return false;
+  }
+  const float mag = sqrtf(gx * gx + gy * gy + gz * gz);
+  if (mag < 0.001f) {
+    return false;
+  }
+  *x = gx / mag;
+  *y = gy / mag;
+  *z = gz / mag;
+  return true;
+}
+
+bool pm_motion_accel_g(float *x, float *y, float *z) {
+  if (!s_has_gyro || !x || !y || !z) {
+    return false;
+  }
   uint8_t raw[6] = {};
   if (!imu_read(MYNAH_IMU_ACCEL_X_L_REG, raw, 6)) {
     return false;
@@ -123,16 +143,11 @@ bool pm_motion_accel_norm(float *x, float *y, float *z) {
   const int16_t ax = static_cast<int16_t>(static_cast<uint16_t>(raw[0]) | (static_cast<uint16_t>(raw[1]) << 8));
   const int16_t ay = static_cast<int16_t>(static_cast<uint16_t>(raw[2]) | (static_cast<uint16_t>(raw[3]) << 8));
   const int16_t az = static_cast<int16_t>(static_cast<uint16_t>(raw[4]) | (static_cast<uint16_t>(raw[5]) << 8));
-  const float fx = static_cast<float>(ax);
-  const float fy = static_cast<float>(ay);
-  const float fz = static_cast<float>(az);
-  const float mag = sqrtf(fx * fx + fy * fy + fz * fz);
-  if (mag < 1.f) {
-    return false;
-  }
-  *x = fx / mag;
-  *y = fy / mag;
-  *z = fz / mag;
+  /** QMI8658 accel CTRL2 0x13 = +-8g, 2048 LSB/g. */
+  static constexpr float kLsbPerG = 2048.f;
+  *x = static_cast<float>(ax) / kLsbPerG;
+  *y = static_cast<float>(ay) / kLsbPerG;
+  *z = static_cast<float>(az) / kLsbPerG;
   return true;
 }
 

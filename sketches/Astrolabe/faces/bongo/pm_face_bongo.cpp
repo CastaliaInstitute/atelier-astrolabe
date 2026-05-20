@@ -7,6 +7,7 @@
 #include "faces/shared/pm_face_draw.h"
 #include "pin_config.h"
 #include "pm_display.h"
+#include "pm_motion.h"
 #include "pm_speaker.h"
 
 static constexpr int kCx = pm_face_lcd_cx;
@@ -19,10 +20,13 @@ static constexpr float kHighHz = 420.f;
 static int16_t s_hit_x = kCx;
 static int16_t s_hit_y = kCy;
 static float s_hit_r_norm = 0.f;
+static float s_hit_force = 0.55f;
 static float s_last_hz = kLowHz;
 static uint32_t s_hit_ms = 0;
 static uint32_t s_last_anim_ms = 0;
+static uint32_t s_last_motion_ms = 0;
 static float s_phase = 0.f;
+static float s_force_peak_g = 0.f;
 
 static float clamp01(float v) {
   if (v < 0.f) {
@@ -63,6 +67,24 @@ static float pitch_from_radius(float r_norm) {
   return kLowHz + (kHighHz - kLowHz) * shaped;
 }
 
+static float force_from_imu(void) {
+  float ax = 0.f;
+  float ay = 0.f;
+  float az = 0.f;
+  float excess_g = s_force_peak_g;
+  if (!pm_motion_accel_g(&ax, &ay, &az)) {
+    return 0.55f;
+  } else {
+    const float mag = sqrtf(ax * ax + ay * ay + az * az);
+    const float now_excess = fabsf(mag - 1.f);
+    if (now_excess > excess_g) {
+      excess_g = now_excess;
+    }
+  }
+  s_force_peak_g = 0.f;
+  return 0.38f + 0.62f * clamp01(excess_g / 1.35f);
+}
+
 static void draw_head(float energy) {
   const uint16_t bg = pm_gfx->color565(8, 7, 8);
   const uint16_t shadow = pm_gfx->color565(24, 12, 8);
@@ -99,10 +121,13 @@ static void draw_hit(float energy) {
   }
   const uint16_t accent = pm_face_color565_from_hsv(pm_gfx, 32.f + 150.f * s_hit_r_norm, 0.78f,
                                                    0.62f + 0.30f * energy);
-  const int pulse = static_cast<int>((1.f - energy) * 54.f);
-  pm_gfx->fillCircle(s_hit_x, s_hit_y, 12 + static_cast<int>(8.f * energy), accent);
-  pm_gfx->drawCircle(s_hit_x, s_hit_y, 22 + pulse, accent);
-  pm_gfx->drawCircle(kCx, kCy, kInnerRadius + static_cast<int>(sinf(s_phase) * 4.f * energy), accent);
+  const int force_grow = static_cast<int>(10.f * s_hit_force);
+  const int pulse = static_cast<int>((1.f - energy) * (42.f + 34.f * s_hit_force));
+  pm_gfx->fillCircle(s_hit_x, s_hit_y, 10 + force_grow + static_cast<int>(8.f * energy), accent);
+  pm_gfx->drawCircle(s_hit_x, s_hit_y, 18 + force_grow + pulse, accent);
+  pm_gfx->drawCircle(kCx, kCy,
+                     kInnerRadius + static_cast<int>(sinf(s_phase) * (3.f + 5.f * s_hit_force) * energy),
+                     accent);
 }
 
 void pm_face_bongo_draw(void) {
@@ -114,7 +139,8 @@ void pm_face_bongo_draw(void) {
   char line[28];
   pm_face_draw_centered_line("Bongo", 52, wood(1.f), 2, 2);
   if (s_hit_ms != 0 && energy > 0.02f) {
-    snprintf(line, sizeof(line), "%.0f Hz", static_cast<double>(s_last_hz));
+    snprintf(line, sizeof(line), "%.0f Hz  %u%%", static_cast<double>(s_last_hz),
+             static_cast<unsigned>(s_hit_force * 100.f));
     pm_face_draw_centered_line(line, 392, pm_face_color565_from_hsv(pm_gfx, 32.f + 150.f * s_hit_r_norm, 0.72f,
                                                                    0.90f),
                                1, 2);
@@ -138,11 +164,33 @@ bool pm_face_bongo_play_at(int16_t x, int16_t y) {
     s_hit_y = y;
   }
   s_last_hz = pitch_from_radius(s_hit_r_norm);
+  s_hit_force = force_from_imu();
   s_hit_ms = millis();
   s_last_anim_ms = 0;
   s_phase = 0.f;
-  const float strength = 0.92f - 0.18f * s_hit_r_norm;
+  const float strength = clamp01((0.52f - 0.10f * s_hit_r_norm) + 0.55f * s_hit_force);
   return pm_speaker_play_bongo_begin(s_last_hz, strength);
+}
+
+bool pm_face_bongo_motion_tick(uint32_t now_ms) {
+  if (now_ms - s_last_motion_ms < 12u) {
+    return false;
+  }
+  s_last_motion_ms = now_ms;
+
+  float ax = 0.f;
+  float ay = 0.f;
+  float az = 0.f;
+  if (!pm_motion_accel_g(&ax, &ay, &az)) {
+    return false;
+  }
+  const float mag = sqrtf(ax * ax + ay * ay + az * az);
+  const float excess_g = fabsf(mag - 1.f);
+  s_force_peak_g *= 0.88f;
+  if (excess_g > s_force_peak_g) {
+    s_force_peak_g = excess_g;
+  }
+  return false;
 }
 
 bool pm_face_bongo_anim_tick(uint32_t now_ms) {
@@ -167,3 +215,5 @@ void pm_face_bongo_stop(void) {
 float pm_face_bongo_last_hz(void) { return s_last_hz; }
 
 float pm_face_bongo_last_radius_norm(void) { return s_hit_r_norm; }
+
+float pm_face_bongo_last_force(void) { return s_hit_force; }

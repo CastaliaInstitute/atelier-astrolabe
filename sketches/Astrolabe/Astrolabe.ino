@@ -923,10 +923,12 @@ static bool face_voice_build_prompt(const FaceTourInfo *info, int idx, char *msg
       break;
     case ClockFace::Bongo:
       snprintf(msg, msg_cap,
-               "Face: bongo. Last hit pitch: %.0f hertz, radius %.0f percent from center. Current state: "
-               "local touch drum where center taps are low and rim taps are high. Give a short rhythmic cue.",
+               "Face: bongo. Last hit pitch: %.0f hertz, radius %.0f percent from center, force %.0f percent. "
+               "Current state: local touch drum where center taps are low, rim taps are high, and IMU impact "
+               "boosts loudness. Give a short rhythmic cue.",
                static_cast<double>(pm_face_bongo_last_hz()),
-               static_cast<double>(pm_face_bongo_last_radius_norm() * 100.f));
+               static_cast<double>(pm_face_bongo_last_radius_norm() * 100.f),
+               static_cast<double>(pm_face_bongo_last_force() * 100.f));
       break;
     case ClockFace::Piano:
       snprintf(msg, msg_cap,
@@ -2162,7 +2164,8 @@ void loop() {
       const bool ocarina_anim =
           pm_faces_current() == ClockFace::Ocarina && pm_face_ocarina_anim_tick(now);
       const bool bongo_anim =
-          pm_faces_current() == ClockFace::Bongo && pm_face_bongo_anim_tick(now);
+          pm_faces_current() == ClockFace::Bongo &&
+          (pm_face_bongo_motion_tick(now) || pm_face_bongo_anim_tick(now));
       const bool piano_anim =
           pm_faces_current() == ClockFace::Piano && pm_face_piano_anim_tick(now);
       const bool faculty_anim =
