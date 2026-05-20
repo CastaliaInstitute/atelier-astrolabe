@@ -7,6 +7,7 @@
 #include "faces/shared/pm_face_draw.h"
 #include "pin_config.h"
 #include "pm_display.h"
+#include "pm_motion.h"
 #include "pm_speaker.h"
 
 static constexpr int kCx = pm_face_lcd_cx;
@@ -44,8 +45,11 @@ static const PanNote kNotes[kNoteCount] = {
 static int s_note_idx = -1;
 static uint32_t s_note_start_ms = 0;
 static uint32_t s_last_anim_ms = 0;
+static uint32_t s_last_motion_ms = 0;
 static float s_phase = 0.f;
 static float s_last_hz = kNotes[0].hz;
+static float s_hit_force = 0.50f;
+static float s_force_peak_g = 0.f;
 
 static float clamp01(float v) {
   if (v < 0.f) {
@@ -89,6 +93,23 @@ static float note_energy(void) {
     return 0.f;
   }
   return clamp01(1.f - static_cast<float>(age) / 860.f);
+}
+
+static float force_from_imu(void) {
+  float ax = 0.f;
+  float ay = 0.f;
+  float az = 0.f;
+  float excess_g = s_force_peak_g;
+  if (!pm_motion_accel_g(&ax, &ay, &az)) {
+    return 0.50f;
+  }
+  const float mag = sqrtf(ax * ax + ay * ay + az * az);
+  const float now_excess = fabsf(mag - 1.f);
+  if (now_excess > excess_g) {
+    excess_g = now_excess;
+  }
+  s_force_peak_g = 0.f;
+  return 0.32f + 0.68f * clamp01(excess_g / 1.20f);
 }
 
 static bool hit_note(int16_t x, int16_t y, int *out_idx) {
@@ -151,7 +172,8 @@ static void draw_tone_field(int idx, float energy) {
   int y = 0;
   note_xy(n, &x, &y);
   const bool active = idx == s_note_idx && energy > 0.02f;
-  const float pulse = active ? energy : 0.f;
+  const float force = active ? s_hit_force : 0.f;
+  const float pulse = active ? energy * (0.70f + 0.55f * force) : 0.f;
   const uint16_t pad = active ? ember(0.82f + 0.18f * energy) : steel(idx == 0 ? 0.72f : 0.82f);
   const uint16_t cut = active ? ember(0.55f) : steel(0.30f);
   const uint16_t label = active ? pm_gfx->color565(38, 22, 6) : pm_gfx->color565(225, 238, 232);
@@ -180,10 +202,10 @@ static void draw_resonance(float energy) {
   note_xy(kNotes[s_note_idx], &x, &y);
   const uint16_t glow = ember(0.42f + 0.42f * energy);
   for (int i = 0; i < 3; ++i) {
-    const int r = 28 + i * 34 + static_cast<int>((1.f - energy) * 28.f);
+    const int r = 28 + i * 34 + static_cast<int>((1.f - energy) * (22.f + 30.f * s_hit_force));
     pm_gfx->drawCircle(x, y, r, glow);
   }
-  pm_gfx->drawCircle(kCx, kCy, 150 + static_cast<int>(sinf(s_phase) * 6.f), glow);
+  pm_gfx->drawCircle(kCx, kCy, 150 + static_cast<int>(sinf(s_phase) * (4.f + 8.f * s_hit_force)), glow);
 }
 
 void pm_face_pandrum_draw(void) {
@@ -201,8 +223,9 @@ void pm_face_pandrum_draw(void) {
   pm_face_draw_centered_line("PanDrum", 38, pm_gfx->color565(230, 238, 232), 2, 2);
   if (s_note_idx >= 0 && energy > 0.02f) {
     char line[24];
-    snprintf(line, sizeof(line), "%s %.0f Hz", kNotes[s_note_idx].name,
-             static_cast<double>(kNotes[s_note_idx].hz));
+    snprintf(line, sizeof(line), "%s %.0fHz %u%%", kNotes[s_note_idx].name,
+             static_cast<double>(kNotes[s_note_idx].hz),
+             static_cast<unsigned>(s_hit_force * 100.f));
     pm_face_draw_centered_line(line, 406, ember(0.95f), 1, 2);
   } else {
     pm_face_draw_centered_line("14-note handpan", 406, steel(0.72f), 1, 2);
@@ -220,7 +243,30 @@ bool pm_face_pandrum_play_at(int16_t x, int16_t y) {
   s_last_anim_ms = 0;
   s_phase = 0.f;
   s_last_hz = kNotes[idx].hz;
-  return pm_speaker_play_tone_begin(kNotes[idx].hz, 760);
+  s_hit_force = force_from_imu();
+  const uint32_t duration_ms = 540u + static_cast<uint32_t>(360.f * s_hit_force);
+  return pm_speaker_play_tone_begin(kNotes[idx].hz, duration_ms);
+}
+
+bool pm_face_pandrum_motion_tick(uint32_t now_ms) {
+  if (now_ms - s_last_motion_ms < 12u) {
+    return false;
+  }
+  s_last_motion_ms = now_ms;
+
+  float ax = 0.f;
+  float ay = 0.f;
+  float az = 0.f;
+  if (!pm_motion_accel_g(&ax, &ay, &az)) {
+    return false;
+  }
+  const float mag = sqrtf(ax * ax + ay * ay + az * az);
+  const float excess_g = fabsf(mag - 1.f);
+  s_force_peak_g *= 0.88f;
+  if (excess_g > s_force_peak_g) {
+    s_force_peak_g = excess_g;
+  }
+  return false;
 }
 
 bool pm_face_pandrum_anim_tick(uint32_t now_ms) {
@@ -250,3 +296,5 @@ const char *pm_face_pandrum_note_label(void) {
 int pm_face_pandrum_note_index(void) { return s_note_idx; }
 
 float pm_face_pandrum_last_hz(void) { return s_last_hz; }
+
+float pm_face_pandrum_last_force(void) { return s_hit_force; }

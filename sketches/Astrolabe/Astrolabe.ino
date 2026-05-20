@@ -943,11 +943,12 @@ static bool face_voice_build_prompt(const FaceTourInfo *info, int idx, char *msg
       break;
     case ClockFace::PanDrum:
       snprintf(msg, msg_cap,
-               "Face: pandrum. Active note: %s. Last pitch: %.0f hertz. Current state: local 14-note "
-               "handpan-style touch instrument with a center ding and surrounding tone fields. Give a short "
-               "resonant playing cue.",
+               "Face: pandrum. Active note: %s. Last pitch: %.0f hertz, force %.0f percent. Current state: "
+               "local 14-note handpan-style touch instrument with a center ding, surrounding tone fields, "
+               "and IMU impact-sensitive taps. Give a short resonant playing cue.",
                pm_face_pandrum_note_label()[0] ? pm_face_pandrum_note_label() : "none",
-               static_cast<double>(pm_face_pandrum_last_hz()));
+               static_cast<double>(pm_face_pandrum_last_hz()),
+               static_cast<double>(pm_face_pandrum_last_force() * 100.f));
       break;
     case ClockFace::Level: {
       const char *guidance = pm_face_level_guidance();
@@ -2193,7 +2194,8 @@ void loop() {
       const bool piano_anim =
           pm_faces_current() == ClockFace::Piano && pm_face_piano_anim_tick(now);
       const bool pandrum_anim =
-          pm_faces_current() == ClockFace::PanDrum && pm_face_pandrum_anim_tick(now);
+          pm_faces_current() == ClockFace::PanDrum &&
+          (pm_face_pandrum_motion_tick(now) || pm_face_pandrum_anim_tick(now));
       const bool faculty_anim =
           (pm_faces_current() == ClockFace::Faculty || pm_faces_current() == ClockFace::Quotes) &&
           pm_faculty_tick(now);
