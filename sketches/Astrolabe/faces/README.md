@@ -25,6 +25,10 @@ Each face is a self-contained module under `faces/<name>/`. The app shell (`Astr
 | `faculty/` | ask-faculty recents + bust portrait |
 | `weather/` | 24h radial temp + humidity rings, current conditions center |
 | `quotes/` | Quote of the day + faculty bust |
+| `ocarina/` | Touch-playable clay ocarina with key changes |
+| `bongo/` | Touch-playable drum; center taps are low, rim taps are high |
+| `piano/` | One-octave circular piano with white keys outside and black keys inside |
+| `level/` | IMU rolling-sphere level; top of the display is forward |
 
 ## Public API per face
 

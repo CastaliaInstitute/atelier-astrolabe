@@ -1,6 +1,6 @@
 {
   "sketch": "Astrolabe",
-  "face_count": 19,
+  "face_count": 25,
   "center": [233, 233],
   "faces": [
     {
@@ -169,6 +169,48 @@
       "source_paths": ["sketches/Astrolabe/faces/live_transits", "sketches/Astrolabe/pm_transit.cpp", "sketches/Astrolabe/pm_transit.h"],
       "gestures": ["swipe_left", "swipe_right", "tap:233,233"],
       "buttons": []
+    },
+    {
+      "id": 19,
+      "name": "tarot",
+      "source_paths": ["sketches/Astrolabe/faces/tarot"],
+      "gestures": ["swipe_left", "swipe_right", "swipe_up", "swipe_down", "tap:233,233"],
+      "buttons": []
+    },
+    {
+      "id": 20,
+      "name": "notes",
+      "source_paths": ["sketches/Astrolabe/faces/notes", "sketches/Astrolabe/pm_commonplace.cpp"],
+      "gestures": ["swipe_left", "swipe_right", "tap:233,233"],
+      "buttons": ["pwr_hold"]
+    },
+    {
+      "id": 21,
+      "name": "ocarina",
+      "source_paths": ["sketches/Astrolabe/faces/ocarina", "sketches/Astrolabe/pm_speaker.cpp", "sketches/Astrolabe/pm_speaker.h"],
+      "gestures": ["tap:233,233", "swipe_up", "swipe_down", "swipe_left"],
+      "buttons": []
+    },
+    {
+      "id": 22,
+      "name": "bongo",
+      "source_paths": ["sketches/Astrolabe/faces/bongo", "sketches/Astrolabe/pm_speaker.cpp", "sketches/Astrolabe/pm_speaker.h"],
+      "gestures": ["tap:233,233", "tap:388,233", "swipe_left"],
+      "buttons": []
+    },
+    {
+      "id": 23,
+      "name": "piano",
+      "source_paths": ["sketches/Astrolabe/faces/piano", "sketches/Astrolabe/pm_speaker.cpp", "sketches/Astrolabe/pm_speaker.h"],
+      "gestures": ["tap:233,233", "swipe_left"],
+      "buttons": []
+    },
+    {
+      "id": 24,
+      "name": "level",
+      "source_paths": ["sketches/Astrolabe/faces/level", "sketches/Astrolabe/pm_motion.cpp", "sketches/Astrolabe/pm_motion.h"],
+      "gestures": ["swipe_left", "swipe_right", "tap:233,233"],
+      "buttons": ["boot"]
     }
   ]
 }

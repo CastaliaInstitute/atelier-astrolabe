@@ -32,6 +32,9 @@ void pm_speaker_abort(void);
 /** Start a solfeggio-style sine tone (non-blocking). Replaces any current playback. */
 bool pm_speaker_play_tone_begin(float hz, uint32_t duration_ms);
 
+/** Start a short percussive bongo hit (non-blocking). */
+bool pm_speaker_play_bongo_begin(float hz, float strength);
+
 /** Loop tone until pm_speaker_tone_stop(). */
 bool pm_speaker_play_tone_loop_begin(float hz);
 
@@ -41,6 +44,9 @@ void pm_speaker_tone_stop(void);
 /** True while MP3, tone, or bowl voice playback is active. */
 bool pm_speaker_is_playing(void);
 uint32_t pm_speaker_stack_high_water(void);
+
+/** Release the idle playback task stack; it will be recreated on the next sound. */
+bool pm_speaker_release_idle_task(void);
 
 /** True while daily-briefing HTTP stream is actively decoding to I2S (not just waiting on network). */
 bool pm_speaker_http_stream_active(void);

@@ -54,25 +54,51 @@ FACE_BY_NAME = {
     "calcifer": 6,
     "schedule": 6,
     "castalia": 7,
-    "syn": 8,
-    "synastry": 8,
-    "spectrum": 9,
-    "fft": 9,
-    "audio": 9,
-    "sound": 9,
-    "chakra": 10,
-    "bowl": 11,
-    "tibetan": 11,
-    "tibetan_bowl": 11,
-    "rocket": 12,
-    "launch": 12,
-    "launchclock": 12,
-    "radar": 13,
-    "presence": 13,
-    "peers": 13,
-    "faculty": 14,
-    "fac": 14,
-    "weather": 15,
+    "settings": 8,
+    "wifi": 8,
+    "syn": 9,
+    "synastry": 9,
+    "spectrum": 10,
+    "fft": 10,
+    "audio": 10,
+    "sound": 10,
+    "chakra": 11,
+    "bowl": 12,
+    "tibetan": 12,
+    "tibetan_bowl": 12,
+    "rocket": 13,
+    "launch": 13,
+    "launchclock": 13,
+    "radar": 14,
+    "presence": 14,
+    "peers": 14,
+    "faculty": 15,
+    "fac": 15,
+    "weather": 16,
+    "quotes": 17,
+    "quote": 17,
+    "qotd": 17,
+    "transits": 18,
+    "livetransits": 18,
+    "live": 18,
+    "tarot": 19,
+    "cards": 19,
+    "notes": 20,
+    "note": 20,
+    "commonplace": 20,
+    "ocarina": 21,
+    "ocarinaface": 21,
+    "flute": 21,
+    "bongo": 22,
+    "drum": 22,
+    "drums": 22,
+    "piano": 23,
+    "keys": 23,
+    "keyboard": 23,
+    "level": 24,
+    "bubble": 24,
+    "bubblelevel": 24,
+    "imu": 24,
 }
 FACE_LABELS = (
     "ClassicAnalog",
@@ -83,6 +109,7 @@ FACE_LABELS = (
     "Moon",
     "CalciferCountdown",
     "Castalia",
+    "Settings",
     "Synastry",
     "Spectrum",
     "Chakra",
@@ -91,6 +118,14 @@ FACE_LABELS = (
     "Radar",
     "Faculty",
     "Weather",
+    "Quotes",
+    "LiveTransits",
+    "Tarot",
+    "Notes",
+    "Ocarina",
+    "Bongo",
+    "Piano",
+    "Level",
 )
 
 
@@ -561,7 +596,7 @@ def _resolve_face_index(face: int | str) -> int:
             idx = int(key)
         elif key not in FACE_BY_NAME:
             raise ValueError(
-                f"Unknown face {face!r}. Use 0–8 or: {', '.join(sorted(set(FACE_BY_NAME)))}"
+                f"Unknown face {face!r}. Use 0–{len(FACE_LABELS) - 1} or: {', '.join(sorted(set(FACE_BY_NAME)))}"
             )
         else:
             idx = FACE_BY_NAME[key]
@@ -574,7 +609,7 @@ def _resolve_face_index(face: int | str) -> int:
 async def astrolabe_debug_set_face(face: int | str = 4, repaint: bool = True) -> str:
     """
     Halt via JTAG/GDB and set clock face (debug ELF only: waveshare_s3_175_debug).
-    face: 0–15 or name (astro, moon, rocket, radar, faculty, weather, classic, …). Sets s_clock_face + g_clock_repaint_pending.
+    face: 0–24 or name (astro, moon, rocket, radar, faculty, weather, notes, ocarina, bongo, piano, level, classic, …). Sets s_clock_face + g_clock_repaint_pending.
     """
     try:
         idx = _resolve_face_index(face)

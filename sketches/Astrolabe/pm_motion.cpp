@@ -29,6 +29,9 @@
 #ifndef MYNAH_IMU_GYRO_X_L_REG
 #define MYNAH_IMU_GYRO_X_L_REG 0x35
 #endif
+#ifndef MYNAH_IMU_ACCEL_X_L_REG
+#define MYNAH_IMU_ACCEL_X_L_REG 0x35
+#endif
 
 static bool s_has_gyro = false;
 static float s_yaw_deg = 0.f;
@@ -108,5 +111,29 @@ void pm_motion_tick(uint32_t now_ms) {
 }
 
 float pm_motion_yaw_deg(void) { return s_yaw_deg; }
+
+bool pm_motion_accel_norm(float *x, float *y, float *z) {
+  if (!s_has_gyro || !x || !y || !z) {
+    return false;
+  }
+  uint8_t raw[6] = {};
+  if (!imu_read(MYNAH_IMU_ACCEL_X_L_REG, raw, 6)) {
+    return false;
+  }
+  const int16_t ax = static_cast<int16_t>(static_cast<uint16_t>(raw[0]) | (static_cast<uint16_t>(raw[1]) << 8));
+  const int16_t ay = static_cast<int16_t>(static_cast<uint16_t>(raw[2]) | (static_cast<uint16_t>(raw[3]) << 8));
+  const int16_t az = static_cast<int16_t>(static_cast<uint16_t>(raw[4]) | (static_cast<uint16_t>(raw[5]) << 8));
+  const float fx = static_cast<float>(ax);
+  const float fy = static_cast<float>(ay);
+  const float fz = static_cast<float>(az);
+  const float mag = sqrtf(fx * fx + fy * fy + fz * fz);
+  if (mag < 1.f) {
+    return false;
+  }
+  *x = fx / mag;
+  *y = fy / mag;
+  *z = fz / mag;
+  return true;
+}
 
 bool pm_motion_has_6dof(void) { return s_has_gyro; }
