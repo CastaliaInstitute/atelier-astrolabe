@@ -56,6 +56,16 @@ type ReqBody = {
   responseFormat?: "json" | "mp3";
 };
 
+type AskFacultyResponse = {
+  transcript?: string;
+  reply?: string;
+  audioBase64?: string;
+  route?: string;
+  facultySlug?: string;
+  facultyName?: string;
+  facultyBustUrl?: string | null;
+};
+
 function commonplaceRoute(face: string, fallback: string): string {
   switch (face.trim().toLowerCase()) {
     case VOICE_FACE_SYNASTRY:
@@ -177,6 +187,7 @@ async function forwardToAskFaculty(
     geminiModel: string;
     rawTranscript: string;
     skipLlm: boolean;
+    localHour?: number;
     /** Only forwarded when the client set `systemInstruction`; otherwise ask-faculty uses its faculty default. */
     overrideSystemInstruction?: string;
   },
@@ -191,6 +202,9 @@ async function forwardToAskFaculty(
     rawTranscript: payload.rawTranscript,
     skipLlm: payload.skipLlm,
   };
+  if (payload.localHour !== undefined) {
+    body.localHour = payload.localHour;
+  }
   const sys = payload.overrideSystemInstruction?.trim();
   if (sys) body.systemInstruction = sys;
 
@@ -202,6 +216,104 @@ async function forwardToAskFaculty(
       ...(apikey ? { apikey } : {}),
     },
     body: JSON.stringify(body),
+  });
+}
+
+function decodeBase64Audio(audioBase64: string): Uint8Array {
+  const b64 = audioBase64.trim();
+  if (!b64) return new Uint8Array();
+  return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+}
+
+function headerMetaFromUnknown(value: unknown, maxLen: number): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed ? headerMetaValue(trimmed, maxLen) : undefined;
+}
+
+async function askFacultyPipelineResponse(
+  req: Request,
+  body: ReqBody,
+  fr: Response,
+  face?: string,
+): Promise<Response> {
+  const text = await fr.text();
+  const routeHeaders: Record<string, string> = {
+    "x-mynah-route": "ask-faculty",
+    ...(face ? { "x-mynah-face": face } : {}),
+  };
+
+  let faculty: AskFacultyResponse | undefined;
+  try {
+    faculty = JSON.parse(text) as AskFacultyResponse;
+  } catch {
+    // Preserve the upstream body on non-JSON error responses.
+  }
+
+  if (!fr.ok || !faculty) {
+    return new Response(text, {
+      status: fr.status,
+      headers: {
+        ...corsHeaders,
+        "Content-Type": fr.headers.get("Content-Type") ?? "application/json",
+        ...routeHeaders,
+      },
+    });
+  }
+
+  const transcript = (faculty.transcript ?? "").trim();
+  const reply = (faculty.reply ?? "").trim();
+  const audioBase64 = (faculty.audioBase64 ?? "").trim();
+
+  if (wantsMp3Response(req, body) && audioBase64) {
+    const mp3 = decodeBase64Audio(audioBase64);
+    if (mp3.length > 0) {
+      const headers: Record<string, string> = {
+        ...corsHeaders,
+        "Content-Type": "audio/mpeg",
+        "X-Voice-Route": "ask-faculty",
+        "X-Voice-Tts-Source": "ask-faculty",
+        "X-Voice-Tts-Chars": String(reply.length),
+        ...routeHeaders,
+      };
+      const localHour = requestLocalHour(body);
+      if (localHour !== undefined) {
+        headers["X-Voice-Local-Hour"] = String(localHour);
+      }
+      const transcriptHeader = headerMetaFromUnknown(transcript, 300);
+      if (transcriptHeader) headers["X-Voice-Transcript"] = transcriptHeader;
+      const replyHeader = headerMetaFromUnknown(reply, 700);
+      if (replyHeader) headers["X-Voice-Reply"] = replyHeader;
+      const slugHeader = headerMetaFromUnknown(faculty.facultySlug, 80);
+      if (slugHeader) headers["X-Faculty-Slug"] = slugHeader;
+      const nameHeader = headerMetaFromUnknown(faculty.facultyName, 120);
+      if (nameHeader) headers["X-Faculty-Name"] = nameHeader;
+      if (face) headers["X-Voice-Face"] = face;
+
+      return new Response(mp3, { status: 200, headers });
+    }
+  }
+
+  if (wantsMp3Response(req, body) && reply) {
+    return await voicePipelineOk(req, body, {
+      transcript,
+      reply,
+      route: "ask-faculty",
+      face,
+      extraHeaders: {
+        ...routeHeaders,
+        "X-Voice-Tts-Source": "voice-pipeline-fallback",
+      },
+    });
+  }
+
+  return new Response(JSON.stringify(faculty), {
+    status: fr.status,
+    headers: {
+      ...corsHeaders,
+      "Content-Type": "application/json",
+      ...routeHeaders,
+    },
   });
 }
 
@@ -257,18 +369,15 @@ Deno.serve(async (req: Request) => {
           geminiModel,
           rawTranscript: transcript,
           skipLlm: body.skipLlm ?? false,
+          localHour: requestLocalHour(body),
           overrideSystemInstruction: clientSystem || undefined,
         });
-        const text = await fr.text();
-        return new Response(text, {
-          status: fr.status,
-          headers: {
-            ...corsHeaders,
-            "Content-Type": "application/json",
-            "x-mynah-route": "ask-faculty",
-            "x-mynah-face": VOICE_FACE_CLOCK_AGENDA,
-          },
-        });
+        return await askFacultyPipelineResponse(
+          req,
+          body,
+          fr,
+          VOICE_FACE_CLOCK_AGENDA,
+        );
       }
 
       const skipLlm = body.skipLlm !== false;
@@ -372,17 +481,10 @@ Deno.serve(async (req: Request) => {
         geminiModel,
         rawTranscript: transcript,
         skipLlm: body.skipLlm ?? false,
+        localHour: requestLocalHour(body),
         overrideSystemInstruction: clientSystem || undefined,
       });
-      const text = await fr.text();
-      return new Response(text, {
-        status: fr.status,
-        headers: {
-          ...corsHeaders,
-          "Content-Type": "application/json",
-          "x-mynah-route": "ask-faculty",
-        },
-      });
+      return await askFacultyPipelineResponse(req, body, fr, face || undefined);
     }
 
     let reply: string;
