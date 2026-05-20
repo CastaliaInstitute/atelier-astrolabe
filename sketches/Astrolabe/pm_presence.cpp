@@ -344,6 +344,7 @@ bool pm_presence_begin(void) {
 #endif
 }
 
+#if PM_PRESENCE_BLE
 static void presence_ble_init_task(void *arg) {
   (void)arg;
   if (!presence_ble_ensure()) {
@@ -353,6 +354,7 @@ static void presence_ble_init_task(void *arg) {
   s_ble_init_task = nullptr;
   vTaskDelete(nullptr);
 }
+#endif
 
 bool pm_presence_ble_begin(void) {
 #if PM_PRESENCE_BLE
