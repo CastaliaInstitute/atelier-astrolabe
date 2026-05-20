@@ -536,6 +536,63 @@ static bool read_binary_body(HTTPClient *http, uint8_t **out, size_t *out_len) {
   return true;
 }
 
+static bool build_castalia_bust_url(const char *slug, char *url, size_t cap) {
+  if (!url || cap == 0 || strlen(MYNAH_FACULTY_BUST_ORIGIN) == 0) {
+    return false;
+  }
+  char base[160];
+  strncpy(base, MYNAH_FACULTY_BUST_ORIGIN, sizeof(base) - 1);
+  base[sizeof(base) - 1] = '\0';
+  trim_base_url(base, sizeof(base));
+  const int n = snprintf(url, cap, "%s/api/faculty-bust/?faculty=%s&w=%d&h=%d&q=%d", base, slug,
+                         MYNAH_FACULTY_BUST_WIDTH, MYNAH_FACULTY_BUST_HEIGHT, MYNAH_FACULTY_BUST_QUALITY);
+  return n > 0 && static_cast<size_t>(n) < cap;
+}
+
+static bool build_supabase_bust_url(const char *slug, char *url, size_t cap) {
+  if (!url || cap == 0 || strlen(MYNAH_SUPABASE_URL) == 0) {
+    return false;
+  }
+  char base[160];
+  strncpy(base, MYNAH_SUPABASE_URL, sizeof(base) - 1);
+  base[sizeof(base) - 1] = '\0';
+  trim_base_url(base, sizeof(base));
+  const int n = snprintf(url, cap, "%s/functions/v1/faculty-bust?faculty=%s&w=%d&h=%d&q=%d", base, slug,
+                         MYNAH_FACULTY_BUST_WIDTH, MYNAH_FACULTY_BUST_HEIGHT, MYNAH_FACULTY_BUST_QUALITY);
+  return n > 0 && static_cast<size_t>(n) < cap;
+}
+
+static bool fetch_bust_url(const char *url, const char *label, uint8_t **bytes, size_t *len) {
+  WiFiClientSecure client;
+  client.setInsecure();
+  client.setTimeout(90);
+  HTTPClient http;
+  http.setTimeout(65535);
+  if (!http.begin(client, url)) {
+    bust_set_error("http begin");
+    return false;
+  }
+  pm_castalia_auth_apply_headers(&http);
+  http.addHeader("Accept", "image/jpeg,image/*;q=0.8,*/*;q=0.1");
+  const int code = http.GET();
+  if (code != 200) {
+    ESP_LOGW(TAG, "faculty-bust %s HTTP %d", label ? label : "url", code);
+    Serial.printf("pm_faculty: bust %s HTTP %d\n", label ? label : "url", code);
+    char errbuf[32];
+    snprintf(errbuf, sizeof(errbuf), "bust HTTP %d", code);
+    bust_set_error(errbuf);
+    http.end();
+    return false;
+  }
+
+  const bool ok = read_binary_body(&http, bytes, len);
+  http.end();
+  if (ok) {
+    Serial.printf("pm_faculty: bust %s fetched %u B\n", label ? label : "url", static_cast<unsigned>(*len));
+  }
+  return ok;
+}
+
 static bool fetch_bust_inner(const char *slug) {
   if (!slug_sane(slug)) {
     bust_set_error("bad slug");
@@ -551,43 +608,16 @@ static bool fetch_bust_inner(const char *slug) {
   }
   (void)pm_castalia_auth_prepare_for_voice();
 
-  char base[160];
-  strncpy(base, MYNAH_FACULTY_BUST_ORIGIN, sizeof(base) - 1);
-  base[sizeof(base) - 1] = '\0';
-  trim_base_url(base, sizeof(base));
-
-  char url[240];
-  snprintf(url, sizeof(url), "%s/api/faculty-bust/?faculty=%s&w=%d&h=%d&q=%d", base, slug,
-           MYNAH_FACULTY_BUST_WIDTH, MYNAH_FACULTY_BUST_HEIGHT, MYNAH_FACULTY_BUST_QUALITY);
-
-  WiFiClientSecure client;
-  client.setInsecure();
-  client.setTimeout(90);
-  HTTPClient http;
-  http.setTimeout(65535);
-  if (!http.begin(client, url)) {
-    bust_set_error("http begin");
-    return false;
-  }
-  pm_castalia_auth_apply_headers(&http);
-  http.addHeader("Accept", "image/jpeg,image/*;q=0.8,*/*;q=0.1");
-  const int code = http.GET();
-  if (code != 200) {
-    ESP_LOGW(TAG, "faculty-bust HTTP %d", code);
-    char errbuf[24];
-    snprintf(errbuf, sizeof(errbuf), "bust HTTP %d", code);
-    bust_set_error(errbuf);
-    http.end();
-    return false;
-  }
-
   uint8_t *bytes = nullptr;
   size_t len = 0;
-  if (!read_binary_body(&http, &bytes, &len)) {
-    http.end();
+  char url[240];
+  if (build_castalia_bust_url(slug, url, sizeof(url)) && fetch_bust_url(url, "castalia", &bytes, &len)) {
+    /* ok */
+  } else if (build_supabase_bust_url(slug, url, sizeof(url)) && fetch_bust_url(url, "supabase", &bytes, &len)) {
+    /* ok */
+  } else {
     return false;
   }
-  http.end();
 
   free(s_bust_bytes);
   s_bust_bytes = bytes;
