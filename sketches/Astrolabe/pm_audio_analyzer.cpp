@@ -3,19 +3,47 @@
 #include <math.h>
 #include <string.h>
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+
 #include "pm_audio_route.h"
 #include "pm_fft.h"
 #include "pm_mic.h"
 
+static SemaphoreHandle_t s_analyzer_mux = nullptr;
 static size_t s_in_fill[PM_AUDIO_ANALYZER_IN_CHANNELS];
 static size_t s_out_fill = 0;
 
+static int16_t s_in_block[PM_AUDIO_ANALYZER_IN_CHANNELS][PM_FFT_N];
+static int16_t s_out_block[PM_FFT_N];
 static float s_in_ch[PM_AUDIO_ANALYZER_IN_CHANNELS][PM_AUDIO_ANALYZER_BANDS];
 static float s_out_disp[PM_AUDIO_ANALYZER_BANDS];
 static float s_wave[PM_AUDIO_WAVE_POINTS];
 static float s_spec_hist[PM_AUDIO_SPEC_HISTORY][PM_AUDIO_ANALYZER_BANDS];
 static int s_spec_hist_count = 0;
 static float s_level = 0.f;
+static float s_in_peak[PM_AUDIO_ANALYZER_IN_CHANNELS];
+static float s_out_peak = 0.f;
+static uint32_t s_in_blocks[PM_AUDIO_ANALYZER_IN_CHANNELS];
+static uint32_t s_out_blocks = 0;
+
+static SemaphoreHandle_t analyzer_mutex(void) {
+  if (!s_analyzer_mux) {
+    s_analyzer_mux = xSemaphoreCreateMutex();
+  }
+  return s_analyzer_mux;
+}
+
+static bool analyzer_lock(TickType_t wait = pdMS_TO_TICKS(20)) {
+  SemaphoreHandle_t mux = analyzer_mutex();
+  return mux && xSemaphoreTake(mux, wait) == pdTRUE;
+}
+
+static void analyzer_unlock(void) {
+  if (s_analyzer_mux) {
+    xSemaphoreGive(s_analyzer_mux);
+  }
+}
 
 static void push_spec_history(const float *bands) {
   if (s_spec_hist_count < PM_AUDIO_SPEC_HISTORY) {
@@ -72,6 +100,20 @@ static void update_mix_history(int channel) {
   push_spec_history(s_in_ch[0]);
 }
 
+static float pcm_peak(const int16_t *block) {
+  if (!block) {
+    return 0.f;
+  }
+  int32_t peak = 0;
+  for (int i = 0; i < PM_FFT_N; ++i) {
+    const int32_t v = block[i] < 0 ? -static_cast<int32_t>(block[i]) : static_cast<int32_t>(block[i]);
+    if (v > peak) {
+      peak = v;
+    }
+  }
+  return static_cast<float>(peak) / 32768.f;
+}
+
 static void mag_to_bands(const float *mag, int mag_bins, int k_start, int k_end, float *disp) {
   const int span = k_end - k_start;
   if (span <= 0) {
@@ -112,33 +154,47 @@ static void process_block_in(const int16_t *block, int channel) {
   if (channel < 0 || channel >= PM_AUDIO_ANALYZER_IN_CHANNELS) {
     return;
   }
+  float mag[PM_FFT_BINS];
+  pm_fft_compute_magnitude(block, mag, PM_FFT_BINS);
   if (channel == 0) {
     capture_waveform(block);
   }
-  static float mag[PM_FFT_BINS];
-  pm_fft_compute_magnitude(block, mag, PM_FFT_BINS);
+  s_in_peak[channel] = s_in_peak[channel] * 0.7f + pcm_peak(block) * 0.3f;
+  s_in_blocks[channel]++;
   mag_to_bands(mag, PM_FFT_BINS, 1, PM_FFT_BINS, s_in_ch[channel]);
   update_mix_history(channel);
 }
 
 static void process_block_out(const int16_t *block) {
-  capture_waveform(block);
-  static float mag[PM_FFT_BINS];
+  float mag[PM_FFT_BINS];
   pm_fft_compute_magnitude(block, mag, PM_FFT_BINS);
+  capture_waveform(block);
+  s_out_peak = s_out_peak * 0.7f + pcm_peak(block) * 0.3f;
+  s_out_blocks++;
   mag_to_bands(mag, PM_FFT_BINS, 1, PM_FFT_BINS, s_out_disp);
 }
 
 void pm_audio_analyzer_reset(void) {
+  if (!analyzer_lock()) {
+    return;
+  }
   for (int c = 0; c < PM_AUDIO_ANALYZER_IN_CHANNELS; ++c) {
     s_in_fill[c] = 0;
+    memset(s_in_block[c], 0, sizeof(s_in_block[c]));
     memset(s_in_ch[c], 0, sizeof(s_in_ch[c]));
   }
   s_out_fill = 0;
+  memset(s_out_block, 0, sizeof(s_out_block));
   memset(s_out_disp, 0, sizeof(s_out_disp));
   memset(s_wave, 0, sizeof(s_wave));
   memset(s_spec_hist, 0, sizeof(s_spec_hist));
   s_spec_hist_count = 0;
   s_level = 0.f;
+  memset(s_in_peak, 0, sizeof(s_in_peak));
+  s_out_peak = 0.f;
+  memset(s_in_blocks, 0, sizeof(s_in_blocks));
+  s_out_blocks = 0;
+  analyzer_unlock();
   pm_fft_init();
 }
 
@@ -146,51 +202,92 @@ void pm_audio_analyzer_feed_in_channel(int channel, const int16_t *pcm, size_t n
   if (!pcm || num_samples == 0 || channel < 0 || channel >= PM_AUDIO_ANALYZER_IN_CHANNELS) {
     return;
   }
-  static int16_t block[PM_FFT_N];
+  if (!analyzer_lock()) {
+    return;
+  }
   for (size_t i = 0; i < num_samples; ++i) {
-    block[s_in_fill[channel]] = pcm[i];
+    s_in_block[channel][s_in_fill[channel]] = pcm[i];
     s_in_fill[channel]++;
     if (s_in_fill[channel] >= PM_FFT_N) {
-      process_block_in(block, channel);
+      int16_t block[PM_FFT_N];
+      memcpy(block, s_in_block[channel], sizeof(block));
       s_in_fill[channel] = 0;
+      process_block_in(block, channel);
     }
   }
+  analyzer_unlock();
 }
 
 void pm_audio_analyzer_feed_out(const int16_t *pcm, size_t num_s16, int channels) {
   if (!pcm || num_s16 == 0) {
     return;
   }
+  if (!analyzer_lock()) {
+    return;
+  }
   const int ch = channels > 0 ? channels : 1;
-  static int16_t block[PM_FFT_N];
   const size_t frames = num_s16 / static_cast<size_t>(ch);
   for (size_t f = 0; f < frames; ++f) {
     const int16_t s = pcm[f * static_cast<size_t>(ch)];
-    block[s_out_fill] = s;
+    s_out_block[s_out_fill] = s;
     s_out_fill++;
     if (s_out_fill >= PM_FFT_N) {
-      process_block_out(block);
+      int16_t block[PM_FFT_N];
+      memcpy(block, s_out_block, sizeof(block));
       s_out_fill = 0;
+      process_block_out(block);
     }
   }
+  analyzer_unlock();
 }
 
 void pm_audio_analyzer_get_in_low(float *bands, size_t count) {
+  if (!bands) {
+    return;
+  }
+  if (!analyzer_lock(pdMS_TO_TICKS(5))) {
+    memset(bands, 0, count * sizeof(float));
+    return;
+  }
   const size_t n = count < PM_AUDIO_ANALYZER_BANDS ? count : PM_AUDIO_ANALYZER_BANDS;
   memcpy(bands, s_in_ch[0], n * sizeof(float));
+  analyzer_unlock();
 }
 
 void pm_audio_analyzer_get_in_high(float *bands, size_t count) {
+  if (!bands) {
+    return;
+  }
+  if (!analyzer_lock(pdMS_TO_TICKS(5))) {
+    memset(bands, 0, count * sizeof(float));
+    return;
+  }
   const size_t n = count < PM_AUDIO_ANALYZER_BANDS ? count : PM_AUDIO_ANALYZER_BANDS;
   memcpy(bands, s_in_ch[1], n * sizeof(float));
+  analyzer_unlock();
 }
 
 void pm_audio_analyzer_get_out(float *bands, size_t count) {
+  if (!bands) {
+    return;
+  }
+  if (!analyzer_lock(pdMS_TO_TICKS(5))) {
+    memset(bands, 0, count * sizeof(float));
+    return;
+  }
   const size_t n = count < PM_AUDIO_ANALYZER_BANDS ? count : PM_AUDIO_ANALYZER_BANDS;
   memcpy(bands, s_out_disp, n * sizeof(float));
+  analyzer_unlock();
 }
 
 void pm_audio_analyzer_get_mix(float *bands, size_t count) {
+  if (!bands) {
+    return;
+  }
+  if (!analyzer_lock(pdMS_TO_TICKS(5))) {
+    memset(bands, 0, count * sizeof(float));
+    return;
+  }
   const size_t n = count < PM_AUDIO_ANALYZER_BANDS ? count : PM_AUDIO_ANALYZER_BANDS;
   for (size_t b = 0; b < n; ++b) {
     float v = s_in_ch[0][b];
@@ -202,15 +299,28 @@ void pm_audio_analyzer_get_mix(float *bands, size_t count) {
     }
     bands[b] = v;
   }
+  analyzer_unlock();
 }
 
 void pm_audio_analyzer_get_waveform(float *samples, size_t count) {
+  if (!samples) {
+    return;
+  }
+  if (!analyzer_lock(pdMS_TO_TICKS(5))) {
+    memset(samples, 0, count * sizeof(float));
+    return;
+  }
   const size_t n = count < PM_AUDIO_WAVE_POINTS ? count : PM_AUDIO_WAVE_POINTS;
   memcpy(samples, s_wave, n * sizeof(float));
+  analyzer_unlock();
 }
 
 void pm_audio_analyzer_get_spec_history(float *rows, int count, int bands) {
   if (!rows || count <= 0 || bands <= 0) {
+    return;
+  }
+  if (!analyzer_lock(pdMS_TO_TICKS(5))) {
+    memset(rows, 0, static_cast<size_t>(count) * static_cast<size_t>(bands) * sizeof(float));
     return;
   }
   const int nrows = count > PM_AUDIO_SPEC_HISTORY ? PM_AUDIO_SPEC_HISTORY : count;
@@ -225,32 +335,47 @@ void pm_audio_analyzer_get_spec_history(float *rows, int count, int bands) {
       memcpy(dst, s_spec_hist[src], static_cast<size_t>(nb) * sizeof(float));
     }
   }
+  analyzer_unlock();
 }
 
-float pm_audio_analyzer_get_level(void) { return s_level; }
+float pm_audio_analyzer_get_level(void) {
+  if (!analyzer_lock(pdMS_TO_TICKS(5))) {
+    return 0.f;
+  }
+  const float level = s_level;
+  analyzer_unlock();
+  return level;
+}
+
+void pm_audio_analyzer_debug(PmAudioAnalyzerDebug *out) {
+  if (!out) {
+    return;
+  }
+  memset(out, 0, sizeof(*out));
+  if (!analyzer_lock(pdMS_TO_TICKS(5))) {
+    return;
+  }
+  for (int i = 0; i < PM_AUDIO_ANALYZER_IN_CHANNELS; ++i) {
+    out->in_peak[i] = s_in_peak[i];
+    out->in_blocks[i] = s_in_blocks[i];
+  }
+  out->out_peak = s_out_peak;
+  out->level = s_level;
+  out->out_blocks = s_out_blocks;
+  analyzer_unlock();
+}
 
 #ifndef ASTROLABE_QEMU
 
 bool pm_audio_analyzer_mic_begin(void) {
-  if (pm_audio_route_input_usb()) {
-    return true;
-  }
   return pm_mic_begin();
 }
 
 void pm_audio_analyzer_mic_end(void) {
-  if (!pm_audio_route_input_usb()) {
-    pm_mic_stop();
-  }
+  pm_mic_stop();
 }
 
 void pm_audio_analyzer_tick(void) {
-  if (pm_audio_route_input_usb()) {
-    for (int b = 0; b < PM_AUDIO_ANALYZER_BANDS; ++b) {
-      s_out_disp[b] *= 0.92f;
-    }
-    return;
-  }
   static int16_t raw[512 * 2];
   static int16_t mono[512];
   const size_t ns = pm_mic_frame_samples();
@@ -266,9 +391,13 @@ void pm_audio_analyzer_tick(void) {
       pm_audio_analyzer_feed_in_channel(c, mono, ns);
     }
   }
+  if (!analyzer_lock(pdMS_TO_TICKS(5))) {
+    return;
+  }
   for (int b = 0; b < PM_AUDIO_ANALYZER_BANDS; ++b) {
     s_out_disp[b] *= 0.92f;
   }
+  analyzer_unlock();
 }
 
 #else

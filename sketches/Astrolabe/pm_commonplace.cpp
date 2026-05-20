@@ -2,6 +2,7 @@
 
 #include <HTTPClient.h>
 #include <LittleFS.h>
+#include <WiFiClient.h>
 #include <WiFiClientSecure.h>
 #include <mbedtls/base64.h>
 #include <string.h>
@@ -154,6 +155,10 @@ static bool post_pcm_journal_inner(const uint8_t *pcm, size_t pcm_len) {
   }
   if (strlen(MYNAH_SUPABASE_URL) == 0 || strlen(MYNAH_SUPABASE_ANON_KEY) == 0) {
     set_error("no supabase config");
+    return false;
+  }
+  if (!pm_castalia_has_session()) {
+    set_error("sign in on Castalia face");
     return false;
   }
   if (!pm_castalia_auth_prepare_for_voice()) {
