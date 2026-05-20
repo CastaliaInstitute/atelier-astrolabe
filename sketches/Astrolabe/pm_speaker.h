@@ -42,6 +42,9 @@ void pm_speaker_tone_stop(void);
 bool pm_speaker_is_playing(void);
 uint32_t pm_speaker_stack_high_water(void);
 
+/** Release the idle playback task stack; it will be recreated on the next sound. */
+bool pm_speaker_release_idle_task(void);
+
 /** True while daily-briefing HTTP stream is actively decoding to I2S (not just waiting on network). */
 bool pm_speaker_http_stream_active(void);
 
@@ -67,6 +70,9 @@ float pm_speaker_bowl_voice_energy(void);
 
 /** True while the bowl voice task is sounding or decaying. */
 bool pm_speaker_bowl_voice_active(void);
+
+/** Diagnostic helper: start a clearly audible bowl strike. */
+bool pm_speaker_bowl_voice_test(float hz, uint32_t hold_ms);
 
 /** Default 180s; daily briefing may raise to 600s before long MP3 play. */
 void pm_speaker_set_max_play_seconds(uint32_t sec);
