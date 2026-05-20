@@ -185,7 +185,47 @@ export function stripAsteriskEmotes(text: string): string {
   return s.replace(/\s+/g, " ").trim();
 }
 
-async function ttsMp3BytesInner(apiKey: string, spoken: string): Promise<Uint8Array> {
+export type WatchTtsOptions = {
+  localHour?: number;
+};
+
+function watchTtsAudioConfig(options?: WatchTtsOptions): Record<string, number | string> {
+  const hour = Number.isFinite(options?.localHour) ? Number(options?.localHour) : -1;
+  if (hour < 0 || hour > 23) {
+    return {
+      audioEncoding: "MP3",
+      speakingRate: 1.0,
+      pitch: 0.0,
+    };
+  }
+  if (hour >= 22 || (hour >= 0 && hour < 6)) {
+    return {
+      audioEncoding: "MP3",
+      speakingRate: 0.86,
+      pitch: -2.0,
+      volumeGainDb: -5.0,
+    };
+  }
+  if (hour >= 18 || hour < 8) {
+    return {
+      audioEncoding: "MP3",
+      speakingRate: 0.92,
+      pitch: -1.2,
+      volumeGainDb: -3.0,
+    };
+  }
+  return {
+    audioEncoding: "MP3",
+    speakingRate: 1.0,
+    pitch: 0.0,
+  };
+}
+
+async function ttsMp3BytesInner(
+  apiKey: string,
+  spoken: string,
+  options?: WatchTtsOptions,
+): Promise<Uint8Array> {
   if (!spoken) {
     throw new Error("Text-to-Speech: no speakable text after stripping stage directions.");
   }
@@ -197,11 +237,7 @@ async function ttsMp3BytesInner(apiKey: string, spoken: string): Promise<Uint8Ar
     body: JSON.stringify({
       input: { text: spoken },
       voice: { languageCode: "en-US", name: "en-US-Neural2-F" },
-      audioConfig: {
-        audioEncoding: "MP3",
-        speakingRate: 1.0,
-        pitch: 0.0,
-      },
+      audioConfig: watchTtsAudioConfig(options),
     }),
   });
   const raw = await res.text();
@@ -217,16 +253,21 @@ async function ttsMp3BytesInner(apiKey: string, spoken: string): Promise<Uint8Ar
 }
 
 /** MP3 bytes for watch playback (reply may be truncated for length). */
-export async function ttsMp3Bytes(apiKey: string, text: string): Promise<Uint8Array> {
+export async function ttsMp3Bytes(
+  apiKey: string,
+  text: string,
+  options?: WatchTtsOptions,
+): Promise<Uint8Array> {
   const spoken = capTextForWatchTts(text);
-  return await ttsMp3BytesInner(apiKey, spoken);
+  return await ttsMp3BytesInner(apiKey, spoken, options);
 }
 
 export async function ttsMp3Base64(
   apiKey: string,
   text: string,
+  options?: WatchTtsOptions,
 ): Promise<string> {
-  const bin = await ttsMp3Bytes(apiKey, text);
+  const bin = await ttsMp3Bytes(apiKey, text, options);
   let s = "";
   for (let i = 0; i < bin.length; i++) {
     s += String.fromCharCode(bin[i]);

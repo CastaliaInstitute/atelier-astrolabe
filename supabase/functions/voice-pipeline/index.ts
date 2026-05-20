@@ -47,6 +47,8 @@ type ReqBody = {
   epochSeconds?: number;
   /** Device-built sky facts for `daily_briefing` (astrology, synastry, moon). */
   briefingFacts?: string;
+  /** Device local civil hour, 0-23, used to soften evening/night TTS. */
+  localHour?: number;
   /**
    * `json` (default): `{ transcript, reply, audioBase64 }`.
    * `mp3`: raw MPEG body (~33% smaller download); text in `X-Voice-*` headers.
@@ -81,6 +83,13 @@ function headerMetaValue(s: string, maxLen: number): string {
   const t = s.trim();
   if (t.length <= maxLen) return encodeURIComponent(t);
   return encodeURIComponent(t.slice(0, maxLen));
+}
+
+function requestLocalHour(body: ReqBody): number | undefined {
+  const hour = Number(body.localHour);
+  if (!Number.isFinite(hour)) return undefined;
+  if (hour < 0 || hour > 23) return undefined;
+  return Math.floor(hour);
 }
 
 async function voicePipelineOk(
@@ -121,7 +130,8 @@ async function voicePipelineOk(
   });
 
   if (wantsMp3Response(req, body)) {
-    const mp3 = await ttsMp3Bytes(tts, spoken);
+    const localHour = requestLocalHour(body);
+    const mp3 = await ttsMp3Bytes(tts, spoken, { localHour });
     const headers: Record<string, string> = {
       ...corsHeaders,
       "Content-Type": "audio/mpeg",
@@ -131,13 +141,17 @@ async function voicePipelineOk(
       "X-Voice-Tts-Chars": String(spoken.length),
       ...payload.extraHeaders,
     };
+    if (localHour !== undefined) {
+      headers["X-Voice-Local-Hour"] = String(localHour);
+    }
     if (payload.face) {
       headers["X-Voice-Face"] = payload.face;
     }
     return new Response(mp3, { status: 200, headers });
   }
 
-  const audioBase64 = await ttsMp3Base64(tts, spoken);
+  const localHour = requestLocalHour(body);
+  const audioBase64 = await ttsMp3Base64(tts, spoken, { localHour });
   return jsonResponse(
     200,
     {

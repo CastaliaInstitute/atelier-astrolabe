@@ -14,6 +14,7 @@
 #include "pm_config.h"
 #include "pm_castalia_auth.h"
 #include "pm_daily_briefing.h"
+#include "pm_geo_tz.h"
 #include "pm_speaker.h"
 
 static const char *TAG = "pm_voice";
@@ -54,6 +55,13 @@ static void voice_begin_http(WiFiClientSecure *client, HTTPClient *http) {
   client->setInsecure();
   client->setTimeout(360);
   http->setTimeout(65535);
+}
+
+static int voice_local_hour(void) {
+  const time_t local = time(nullptr) + static_cast<time_t>(pm_geo_tz_offset_sec());
+  struct tm tm = {};
+  gmtime_r(&local, &tm);
+  return tm.tm_hour;
 }
 
 static void voice_set_error(const char *msg) {
@@ -602,7 +610,8 @@ static bool voice_post_message_inner(const char *message, const char *system_ins
   }
 
   const bool have_sys = esc_sys && esc_sys[0] != '\0';
-  const size_t body_cap = strlen(esc_msg) + (have_sys ? strlen(esc_sys) : 0) + 192;
+  const int local_hour = voice_local_hour();
+  const size_t body_cap = strlen(esc_msg) + (have_sys ? strlen(esc_sys) : 0) + 224;
   char *body = static_cast<char *>(
       heap_caps_malloc(body_cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
   if (!body) {
@@ -616,11 +625,13 @@ static bool voice_post_message_inner(const char *message, const char *system_ins
   if (have_sys) {
     n = snprintf(body, body_cap,
                  "{\"languageCode\":\"en-US\",\"message\":\"%s\",\"systemInstruction\":\"%s\","
-                 "\"responseFormat\":\"mp3\"}",
-                 esc_msg, esc_sys);
+                 "\"responseFormat\":\"mp3\",\"localHour\":%d}",
+                 esc_msg, esc_sys, local_hour);
   } else {
     n = snprintf(body, body_cap,
-                 "{\"languageCode\":\"en-US\",\"message\":\"%s\",\"responseFormat\":\"mp3\"}", esc_msg);
+                 "{\"languageCode\":\"en-US\",\"message\":\"%s\",\"responseFormat\":\"mp3\","
+                 "\"localHour\":%d}",
+                 esc_msg, local_hour);
   }
   free(esc_msg);
   free(esc_sys);
@@ -881,7 +892,8 @@ static bool voice_post_daily_briefing_inner(PmVoiceResult *r) {
   free(facts);
 
   const time_t epoch = time(nullptr);
-  const size_t body_cap = strlen(esc_facts) + 192;
+  const int local_hour = voice_local_hour();
+  const size_t body_cap = strlen(esc_facts) + 224;
   char *body = static_cast<char *>(heap_caps_malloc(body_cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
   if (!body) {
     free(esc_facts);
@@ -893,12 +905,13 @@ static bool voice_post_daily_briefing_inner(PmVoiceResult *r) {
   if (esc_facts[0] != '\0') {
     n = snprintf(body, body_cap,
                  "{\"face\":\"daily_briefing\",\"epochSeconds\":%lld,"
-                 "\"briefingFacts\":\"%s\",\"responseFormat\":\"mp3\"}",
-                 static_cast<long long>(epoch), esc_facts);
+                 "\"briefingFacts\":\"%s\",\"responseFormat\":\"mp3\",\"localHour\":%d}",
+                 static_cast<long long>(epoch), esc_facts, local_hour);
   } else {
     n = snprintf(body, body_cap,
-                 "{\"face\":\"daily_briefing\",\"epochSeconds\":%lld,\"responseFormat\":\"mp3\"}",
-                 static_cast<long long>(epoch));
+                 "{\"face\":\"daily_briefing\",\"epochSeconds\":%lld,\"responseFormat\":\"mp3\","
+                 "\"localHour\":%d}",
+                 static_cast<long long>(epoch), local_hour);
   }
   free(esc_facts);
   if (n <= 0 || static_cast<size_t>(n) >= body_cap) {
