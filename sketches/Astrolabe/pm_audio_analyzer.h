@@ -42,6 +42,16 @@ void pm_audio_analyzer_get_spec_history(float *rows, int count, int bands);
 /** Smoothed 0..1 level for center orb / petal glow. */
 float pm_audio_analyzer_get_level(void);
 
+typedef struct {
+  float in_peak[PM_AUDIO_ANALYZER_IN_CHANNELS];
+  float out_peak;
+  float level;
+  uint32_t in_blocks[PM_AUDIO_ANALYZER_IN_CHANNELS];
+  uint32_t out_blocks;
+} PmAudioAnalyzerDebug;
+
+void pm_audio_analyzer_debug(PmAudioAnalyzerDebug *out);
+
 /** Capture mic frame and run input FFTs (Spectrum face). */
 void pm_audio_analyzer_tick(void);
 
