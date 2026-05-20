@@ -2426,10 +2426,12 @@ void loop() {
       }
       if (g_astro_voice_active) {
         Serial.printf("astro: voice done status=%d mp3=%u err=%s\n", static_cast<int>(vs),
-                      static_cast<unsigned>(g_voice_result.mp3_len), pm_voice_last_error());
+                      static_cast<unsigned>(g_voice_result.mp3_len),
+                      vs == PmVoiceStatus::DoneOk ? "-" : pm_voice_last_error());
       } else if (g_synastry_voice_active) {
         Serial.printf("synastry: voice done status=%d mp3=%u err=%s\n", static_cast<int>(vs),
-                      static_cast<unsigned>(g_voice_result.mp3_len), pm_voice_last_error());
+                      static_cast<unsigned>(g_voice_result.mp3_len),
+                      vs == PmVoiceStatus::DoneOk ? "-" : pm_voice_last_error());
       }
       s_voice_job_armed = false;
       thinking_progress_end();
