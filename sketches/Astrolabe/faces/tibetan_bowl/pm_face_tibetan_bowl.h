@@ -13,6 +13,12 @@ bool pm_face_tibetan_bowl_consume_rim_swipe_block(void);
 /** Swipe up/down on face: cycle root → crown like the Chakra face. */
 int pm_face_tibetan_bowl_cycle_chakra(int delta);
 
+/** Consumes a direct bowl-touch vertical swipe delta, if one was detected. */
+bool pm_face_tibetan_bowl_consume_direct_swipe(int *delta);
+
+/** Tap on the bowl rim: strike the currently selected bowl/chakra. Returns false off-rim. */
+bool pm_face_tibetan_bowl_strike_at(int16_t x, int16_t y, uint32_t now_ms);
+
 void pm_face_tibetan_bowl_stop(void);
 
 bool pm_face_tibetan_bowl_anim_tick(uint32_t now_ms);

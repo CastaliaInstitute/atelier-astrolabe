@@ -1646,7 +1646,7 @@ void setup() {
   pm_user_begin();
 
   if (pm_wifi_begin()) {
-    pm_ntp_sync_blocking();
+    pm_ntp_retry_if_stale();
     pm_castalia_warmup_after_wifi();
   }
   pm_display_bind(gfx);
@@ -1681,9 +1681,18 @@ void loop() {
 
   pm_gesture_poll(now);
 
+  static uint32_t s_bowl_direct_swipe_suppress_until = 0;
   if (g_state == AppState::kClock && pm_faces_current() == ClockFace::TibetanBowl) {
     if (pm_face_tibetan_bowl_touch_tick(now)) {
       g_clock_repaint_pending = true;
+    }
+    int bowl_delta = 0;
+    if (pm_face_tibetan_bowl_consume_direct_swipe(&bowl_delta)) {
+      const int idx = pm_face_tibetan_bowl_cycle_chakra(bowl_delta);
+      snprintf(g_gesture_banner, sizeof(g_gesture_banner), "bowl chakra %d/7", idx + 1);
+      Serial.printf("[gesture] bowl direct swipe %s -> %d/7\n", bowl_delta > 0 ? "up" : "down", idx + 1);
+      g_clock_repaint_pending = true;
+      s_bowl_direct_swipe_suppress_until = now + 900u;
     }
   }
 
@@ -1853,6 +1862,10 @@ void loop() {
       continue;
     } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::TibetanBowl &&
                (ge.kind == PmGestureKind::SwipeUp || ge.kind == PmGestureKind::SwipeDown)) {
+      if (now < s_bowl_direct_swipe_suppress_until) {
+        g_clock_repaint_pending = true;
+        continue;
+      }
       const int idx = pm_face_tibetan_bowl_cycle_chakra(ge.kind == PmGestureKind::SwipeUp ? 1 : -1);
       snprintf(g_gesture_banner, sizeof(g_gesture_banner), "bowl chakra %d/7", idx + 1);
       Serial.printf("[gesture] %s @ %d,%d\n", g_gesture_banner, static_cast<int>(ge.x), static_cast<int>(ge.y));

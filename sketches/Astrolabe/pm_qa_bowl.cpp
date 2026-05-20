@@ -10,6 +10,14 @@
 #include "pin_config.h"
 #include "pm_touch.h"
 
+static void bowl_qa_delay_ms(unsigned ms) {
+  const uint32_t end = millis() + static_cast<uint32_t>(ms);
+  while (static_cast<int32_t>(millis() - end) < 0) {
+    delay(5);
+    yield();
+  }
+}
+
 static constexpr int kChakraCount = 7;
 static constexpr float kPi = 3.14159265f;
 static constexpr float kTwoPi = kPi * 2.f;
@@ -110,7 +118,7 @@ static bool cmd_touch(const char *p, bool *repaint_out) {
     coords_center(&x, &y);
     bowl_touch_at(x, y, repaint_out);
     Serial.printf("qa: bowl touch center @ %d,%d hold=%u\n", static_cast<int>(x), static_cast<int>(y), hold_ms);
-    delay(hold_ms);
+    bowl_qa_delay_ms(hold_ms);
     bowl_touch_up(repaint_out);
     return true;
   }
@@ -169,7 +177,7 @@ static bool cmd_touch(const char *p, bool *repaint_out) {
       const float deg = cf * (360.f / static_cast<float>(kChakraCount));
       coords_rim_deg(deg, &x, &y);
       bowl_touch_at(x, y, repaint_out);
-      delay(35);
+      bowl_qa_delay_ms(35);
     }
     bowl_touch_up(repaint_out);
     return true;
@@ -185,23 +193,24 @@ static bool cmd_touch(const char *p, bool *repaint_out) {
     int16_t y = 0;
     coords_center(&x, &y);
     bowl_touch_at(x, y, repaint_out);
-    delay(120);
+    bowl_qa_delay_ms(120);
     bowl_touch_up(repaint_out);
-    delay(400);
+    bowl_qa_delay_ms(400);
     coords_rim_chakra(1, &x, &y);
     bowl_touch_at(x, y, repaint_out);
     for (int s = 1; s <= 16; ++s) {
       const float deg = (1.5f + static_cast<float>(s) * (2.f / 16.f)) * (360.f / 7.f);
       coords_rim_deg(deg, &x, &y);
       bowl_touch_at(x, y, repaint_out);
-      delay(40);
+      bowl_qa_delay_ms(40);
     }
     bowl_touch_up(repaint_out);
-    delay(200);
+    bowl_qa_delay_ms(200);
     coords_center(&x, &y);
     bowl_touch_at(x, y, repaint_out);
-    delay(80);
+    bowl_qa_delay_ms(80);
     bowl_touch_up(repaint_out);
+    pm_touch_inject_clear();
     Serial.printf("qa: bowl touch seq done energy=%.3f chakra=%d\n",
                   static_cast<double>(pm_face_tibetan_bowl_energy()),
                   pm_face_tibetan_bowl_chakra_index());
