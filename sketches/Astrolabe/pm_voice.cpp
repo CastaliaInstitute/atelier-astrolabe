@@ -46,6 +46,12 @@ static PmVoiceResult *s_req_result = nullptr;
 
 static char s_last_error[80] = "";
 static const char *s_body_read_err = "bad response";
+static const char *kVoiceMp3Headers[] = {
+    "X-Voice-Reply",
+    "X-Voice-Transcript",
+    "X-Voice-Route",
+    "X-Voice-Tts-Chars",
+};
 
 static void body_read_set_err(const char *msg) {
   s_body_read_err = msg ? msg : "bad response";
@@ -55,6 +61,74 @@ static void voice_begin_http(WiFiClientSecure *client, HTTPClient *http) {
   client->setInsecure();
   client->setTimeout(360);
   http->setTimeout(65535);
+}
+
+static int hex_nibble(char c) {
+  if (c >= '0' && c <= '9') {
+    return c - '0';
+  }
+  if (c >= 'a' && c <= 'f') {
+    return c - 'a' + 10;
+  }
+  if (c >= 'A' && c <= 'F') {
+    return c - 'A' + 10;
+  }
+  return -1;
+}
+
+static void copy_percent_decoded(const String &in, char *out, size_t out_cap) {
+  if (!out || out_cap == 0) {
+    return;
+  }
+  size_t o = 0;
+  for (size_t i = 0; i < static_cast<size_t>(in.length()) && o + 1 < out_cap; ++i) {
+    const char c = in.charAt(i);
+    if (c == '%' && i + 2 < static_cast<size_t>(in.length())) {
+      const int hi = hex_nibble(in.charAt(i + 1));
+      const int lo = hex_nibble(in.charAt(i + 2));
+      if (hi >= 0 && lo >= 0) {
+        out[o++] = static_cast<char>((hi << 4) | lo);
+        i += 2;
+        continue;
+      }
+    }
+    out[o++] = c;
+  }
+  out[o] = '\0';
+}
+
+static void collect_voice_mp3_headers(HTTPClient *http) {
+  if (!http) {
+    return;
+  }
+  http->collectHeaders(kVoiceMp3Headers, sizeof(kVoiceMp3Headers) / sizeof(kVoiceMp3Headers[0]));
+}
+
+static void voice_copy_mp3_headers(HTTPClient *http, PmVoiceResult *r) {
+  if (!http || !r) {
+    return;
+  }
+  const String transcript_raw = http->header("X-Voice-Transcript");
+  if (transcript_raw.length() > 0) {
+    copy_percent_decoded(transcript_raw, r->transcript, sizeof(r->transcript));
+  }
+  const String reply_raw = http->header("X-Voice-Reply");
+  if (reply_raw.length() > 0) {
+    copy_percent_decoded(reply_raw, r->reply, sizeof(r->reply));
+  }
+}
+
+static void voice_print_reply_preview(const char *prefix, const char *reply) {
+  if (!reply || reply[0] == '\0') {
+    return;
+  }
+  char preview[181];
+  size_t o = 0;
+  for (const char *p = reply; *p && o + 1 < sizeof(preview); ++p) {
+    preview[o++] = (*p == '\r' || *p == '\n') ? ' ' : *p;
+  }
+  preview[o] = '\0';
+  Serial.printf("%s reply=\"%s%s\"\n", prefix ? prefix : "voice:", preview, reply[o] ? "…" : "");
 }
 
 static int voice_local_hour(void) {
@@ -658,6 +732,7 @@ static bool voice_post_message_inner(const char *message, const char *system_ins
     }
     http.addHeader("Content-Type", "application/json");
     http.addHeader("Accept", "audio/mpeg");
+    collect_voice_mp3_headers(&http);
     pm_castalia_auth_apply_headers(&http);
 
     Serial.printf("voice: HTTP POST message (%u B body%s)…\n", static_cast<unsigned>(n),
@@ -666,6 +741,7 @@ static bool voice_post_message_inner(const char *message, const char *system_ins
     Serial.printf("voice: HTTP %d (message)\n", code);
 
     if (code == 200) {
+      voice_copy_mp3_headers(&http, r);
       const bool ok = read_http_mp3_body(&http, &r->mp3, &r->mp3_len);
       http.end();
       free(body);
@@ -677,8 +753,10 @@ static bool voice_post_message_inner(const char *message, const char *system_ins
       }
       strncpy(r->transcript, message, sizeof(r->transcript) - 1);
       r->transcript[sizeof(r->transcript) - 1] = '\0';
-      strncpy(r->reply, "spoken MP3 response", sizeof(r->reply) - 1);
-      r->reply[sizeof(r->reply) - 1] = '\0';
+      if (r->reply[0] == '\0') {
+        strncpy(r->reply, "spoken MP3 response", sizeof(r->reply) - 1);
+        r->reply[sizeof(r->reply) - 1] = '\0';
+      }
       ESP_LOGI(TAG, "voice (message) mp3 %u bytes", static_cast<unsigned>(r->mp3_len));
       if (!voice_result_ok(r)) {
         voice_set_error("empty reply");
@@ -937,6 +1015,7 @@ static bool voice_post_daily_briefing_inner(PmVoiceResult *r) {
   }
   http.addHeader("Content-Type", "application/json");
   http.addHeader("Accept", "audio/mpeg");
+  collect_voice_mp3_headers(&http);
   pm_castalia_auth_apply_headers(&http);
 
   Serial.printf("voice: POST daily_briefing (%u B)…\n", static_cast<unsigned>(n));
@@ -961,11 +1040,7 @@ static bool voice_post_daily_briefing_inner(PmVoiceResult *r) {
   if (ctype.indexOf("audio/mpeg") < 0 && ctype.indexOf("audio/mp3") < 0) {
     ESP_LOGW(TAG, "daily_briefing unexpected Content-Type: %s", ctype.c_str());
   }
-  char reply_hdr[sizeof(r->reply)] = "";
-  const String reply_raw = http.header("X-Voice-Reply");
-  if (reply_raw.length() > 0) {
-    reply_raw.toCharArray(reply_hdr, sizeof(reply_hdr));
-  }
+  voice_copy_mp3_headers(&http, r);
 
   WiFiClient *stream = http.getStreamPtr();
   const int declared = http.getSize();
@@ -988,9 +1063,6 @@ static bool voice_post_daily_briefing_inner(PmVoiceResult *r) {
   s_daily_briefing_streamed = true;
 
   strncpy(r->transcript, "daily briefing", sizeof(r->transcript) - 1);
-  if (reply_hdr[0] != '\0') {
-    strncpy(r->reply, reply_hdr, sizeof(r->reply) - 1);
-  }
 
   if (!voice_result_ok(r)) {
     voice_set_error("empty briefing audio");
@@ -1085,6 +1157,7 @@ static void voice_net_task(void *arg) {
       s_voice_ok = voice_post_message_inner(s_req_message, s_req_system, s_req_result);
       if (s_voice_ok && s_req_result && s_req_result->mp3_len > 0) {
         Serial.printf("voice: message ok mp3=%u B\n", static_cast<unsigned>(s_req_result->mp3_len));
+        voice_print_reply_preview("voice: message", s_req_result->reply);
       } else {
         Serial.printf("voice: message %s (%s)\n", s_voice_ok ? "ok" : "fail",
                       s_last_error[0] ? s_last_error : "-");
@@ -1099,6 +1172,7 @@ static void voice_net_task(void *arg) {
       if (s_voice_ok && s_req_result && s_req_result->mp3_len > 0) {
         Serial.printf("voice: daily_briefing ok mp3=%u B\n",
                       static_cast<unsigned>(s_req_result->mp3_len));
+        voice_print_reply_preview("voice: daily_briefing", s_req_result->reply);
       } else {
         Serial.printf("voice: daily_briefing %s (%s)\n", s_voice_ok ? "ok" : "fail",
                       s_last_error[0] ? s_last_error : "-");
