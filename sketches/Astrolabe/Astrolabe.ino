@@ -48,10 +48,12 @@
 #include "faces/tibetan_bowl/pm_face_tibetan_bowl.h"
 #include "faces/moon/pm_face_moon.h"
 #include "faces/tarot/pm_face_tarot.h"
+#include "faces/notes/pm_face_notes.h"
 #include "faces/spotify/pm_face_spotify.h"
 #include "faces/calcifer/pm_face_calcifer.h"
 #include "faces/level/pm_face_level.h"
 #include "faces/weather/pm_face_weather.h"
+#include "faces/settings/pm_face_settings_wifi.h"
 #include "pm_weather.h"
 #include "faces/quotes/pm_face_quotes.h"
 #include "pm_quotes.h"
@@ -166,6 +168,8 @@ static bool g_synastry_voice_active = false;
 static bool g_synastry_voice_pcm = false;
 /** ClassicAnalog PWR hold → mynah-pocket-journal (no voice-pipeline TTS). */
 static bool g_commonplace_journal = false;
+/** Notes face PWR hold → flash queue first, then Commonplace when online. */
+static bool g_commonplace_note_face = false;
 static bool s_astro_voice_armed = false;
 static bool s_astro_play_armed = false;
 static bool s_synastry_play_armed = false;
@@ -299,6 +303,7 @@ static void gesture_end_voice_ui(void) {
   g_synastry_voice_pcm = false;
   g_moon_voice_pcm = false;
   g_commonplace_journal = false;
+  g_commonplace_note_face = false;
   s_rec_mic_on = false;
   g_voice_play_reset = true;
   g_state = AppState::kClock;
@@ -330,6 +335,8 @@ static bool home_begin_daily_briefing(void) {
   g_synastry_voice_pcm = false;
   g_moon_fortune_active = false;
   g_moon_voice_pcm = false;
+  g_commonplace_journal = false;
+  g_commonplace_note_face = false;
   g_daily_briefing = true;
   g_voice_play_reset = true;
   g_state = AppState::kThinking;
@@ -568,7 +575,8 @@ static bool face_index_from_name(const char *name, int *out) {
            {"quote", 17},      {"qotd", 17},        {"transits", 18},   {"live_transits", 18},
            {"live-transits", 18}, {"live", 18},      {"tarot", 19},      {"cards", 19},
            {"card", 19},       {"arcana", 19},       {"notes", 20},      {"note", 20},
-           {"ocarina", 21},    {"ocarina_face", 21}, {"flute", 21},      {"bongo", 22},
+           {"commonplace", 20}, {"notebook", 20},    {"ocarina", 21},    {"ocarina_face", 21},
+           {"flute", 21},      {"bongo", 22},
            {"drum", 22},       {"drums", 22},        {"conga", 22},      {"piano", 23},
            {"keys", 23},       {"keyboard", 23},    {"level", 24},      {"bubble", 24},
            {"bubble_level", 24}, {"imu", 24},        {"pandrum", 25},    {"pan_drum", 25},
@@ -634,8 +642,8 @@ static const FaceTourInfo k_face_tour[] = {
      "time and ephemeris are ready", "needs time for live transits", false, true},
     {"tarot", "daily Major Arcana card and deck browser", "the active Major Arcana card",
      "drawing local Major Arcana", "drawing local Major Arcana", false, false},
-    {"notes", "offline Commonplace voice notes", "capturing and syncing local notes",
-     "notes queue is local", "notes queue is local", false, false},
+    {"notes", "offline voice notes queued for Commonplace", "the offline note capture queue",
+     "flash note queue is available", "flash note queue is available", false, false},
     {"ocarina", "touch-playable clay ocarina", "the active ocarina key and breath note",
      "local ocarina tones are available", "local ocarina tones are available", false, false},
     {"bongo", "touch-playable bongo with center-to-rim pitch", "the last bongo tap pitch and drum feel",
@@ -920,6 +928,14 @@ static bool face_voice_build_prompt(const FaceTourInfo *info, int idx, char *msg
                tarot_idx, pm_face_tarot_title(tarot_idx), pm_face_tarot_manifest_url());
       break;
     }
+    case ClockFace::Notes:
+      snprintf(msg, msg_cap,
+               "Face: notes. Offline queued notes: %u. Status: WiFi %s, Castalia session %s. Explain that "
+               "PWR hold records a note for Commonplace and queues it to flash when offline.",
+               static_cast<unsigned>(pm_commonplace_offline_note_count()),
+               pm_wifi_connected() ? "connected" : "offline",
+               pm_castalia_has_session() ? "signed in" : "not signed in");
+      break;
     case ClockFace::Ocarina:
       snprintf(msg, msg_cap,
                "Face: ocarina. Active key: %s. Current state: local touch instrument. Give a short breath "
@@ -1433,14 +1449,15 @@ static void poll_serial_birth_commands() {
           ++args;
         }
         if (strcmp(args, "status") == 0) {
-          Serial.printf("qa: face=%d state=%d heap=%u iheap=%u largest=%u psram=%u voice_stack_hw=%u spk_stack_hw=%u rocket_stack_hw=%u wifi=%d time=%d ip=%s name=%s\n",
+          Serial.printf("qa: face=%d state=%d heap=%u iheap=%u largest=%u psram=%u voice_stack_hw=%u spk_stack_hw=%u rocket_stack_hw=%u wifi=%d time=%d ip=%s name=%s banner=\"%s\"\n",
                         static_cast<int>(pm_faces_current()), static_cast<int>(g_state),
                         static_cast<unsigned>(ESP.getFreeHeap()), static_cast<unsigned>(pm_heap_internal_free()),
                         static_cast<unsigned>(pm_heap_internal_largest()), static_cast<unsigned>(pm_heap_psram_free()),
                         static_cast<unsigned>(pm_voice_stack_high_water()),
                         static_cast<unsigned>(pm_speaker_stack_high_water()),
                         static_cast<unsigned>(pm_rocket_fetch_stack_high_water()), pm_wifi_connected() ? 1 : 0,
-                        pm_time_valid() ? 1 : 0, WiFi.localIP().toString().c_str(), pm_user_display_name());
+                        pm_time_valid() ? 1 : 0, WiFi.localIP().toString().c_str(), pm_user_display_name(),
+                        g_gesture_banner);
         } else if (strcmp(args, "heap") == 0) {
           pm_heap_log("qa");
         } else if (strcmp(args, "audio") == 0) {
@@ -1454,6 +1471,12 @@ static void poll_serial_birth_commands() {
                         pm_audio_route_get() == PmAudioRoute::Usb ? "usb" : "onboard");
         } else if (strcmp(args, "time") == 0) {
           print_time_status("qa time");
+        } else if (strcmp(args, "briefing") == 0 || strcmp(args, "brief") == 0) {
+          Serial.printf("qa: briefing %s\n", home_begin_daily_briefing() ? "started" : "blocked");
+        } else if (strcmp(args, "tone") == 0) {
+          Serial.printf("qa: tone %s\n", pm_speaker_play_tone_begin(528.f, 1200u) ? "started" : "failed");
+        } else if (strcmp(args, "bowl") == 0) {
+          Serial.printf("qa: bowl %s\n", pm_speaker_bowl_voice_test(320.f, 1800u) ? "done" : "failed");
         } else if (strcmp(args, "faces") == 0) {
           Serial.printf("qa: faces=%d\n", static_cast<int>(ClockFace::kNumFaces));
           Serial.println("qa: 0 classic");
@@ -1485,7 +1508,7 @@ static void poll_serial_birth_commands() {
         } else if (strncmp(args, "tour", 4) == 0 && (args[4] == '\0' || args[4] == ' ')) {
           handle_tour_command(args + 4);
         } else if (!pm_qa_inject_command(args)) {
-          Serial.println("qa: usage: status | heap | audio | time | faces | tour [narrate|tts] [dwell_ms] | tour stop | inject …");
+          Serial.println("qa: usage: status | heap | audio | time | briefing | tone | bowl | faces | tour [narrate|tts] [dwell_ms] | tour stop | inject …");
         }
       } else if (strncmp(line, "face ", 5) == 0) {
         s_face_tour_active = false;
@@ -1746,6 +1769,20 @@ void loop() {
       continue;
     }
     if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Settings) {
+      if (ge.kind == PmGestureKind::Tap && pm_settings_page() == SettingsPage::WiFi) {
+        pm_face_settings_wifi_mark_reconnecting();
+        snprintf(g_gesture_banner, sizeof(g_gesture_banner), "wifi: reconnecting");
+        if (pm_gfx) {
+          pm_faces_draw();
+        }
+        const bool ok = pm_face_settings_wifi_tap_reconnect();
+        snprintf(g_gesture_banner, sizeof(g_gesture_banner), "wifi: %s", ok ? "connected" : "failed");
+        g_clock_repaint_pending = false;
+        if (pm_gfx) {
+          pm_faces_draw();
+        }
+        continue;
+      }
       if (ge.kind == PmGestureKind::SwipeUp) {
         pm_faces_set(ClockFace::ClassicAnalog);
         g_gesture_banner[0] = '\0';
@@ -1862,7 +1899,7 @@ void loop() {
       continue;
     } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Chakra &&
                (ge.kind == PmGestureKind::SwipeUp || ge.kind == PmGestureKind::SwipeDown)) {
-      pm_face_chakra_cycle(ge.kind == PmGestureKind::SwipeDown ? 1 : -1);
+      pm_face_chakra_cycle(ge.kind == PmGestureKind::SwipeUp ? 1 : -1);
       snprintf(g_gesture_banner, sizeof(g_gesture_banner), "chakra %d/7", pm_face_chakra_index() + 1);
       g_clock_repaint_pending = true;
       continue;
@@ -1877,8 +1914,9 @@ void loop() {
       continue;
     } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::TibetanBowl &&
                (ge.kind == PmGestureKind::SwipeUp || ge.kind == PmGestureKind::SwipeDown)) {
-      pm_face_tibetan_bowl_brightness_delta(ge.kind == PmGestureKind::SwipeUp ? 0.1f : -0.1f);
-      snprintf(g_gesture_banner, sizeof(g_gesture_banner), "brightness");
+      const int idx = pm_face_tibetan_bowl_cycle_chakra(ge.kind == PmGestureKind::SwipeUp ? 1 : -1);
+      snprintf(g_gesture_banner, sizeof(g_gesture_banner), "bowl chakra %d/7", idx + 1);
+      Serial.printf("[gesture] %s @ %d,%d\n", g_gesture_banner, static_cast<int>(ge.x), static_cast<int>(ge.y));
       g_clock_repaint_pending = true;
       continue;
     } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::TibetanBowl &&
@@ -2216,6 +2254,13 @@ void loop() {
       const bool calcifer_sec =
           pm_faces_current() == ClockFace::CalciferCountdown && valid && sec_tick;
       const bool rocket_sec = pm_faces_current() == ClockFace::Rocket && valid && sec_tick;
+      static uint32_t s_last_wifi_settings_graph_ms = 0;
+      bool wifi_settings_graph = false;
+      if (pm_faces_current() == ClockFace::Settings && pm_settings_page() == SettingsPage::WiFi &&
+          now - s_last_wifi_settings_graph_ms >= 1000u) {
+        s_last_wifi_settings_graph_ms = now;
+        wifi_settings_graph = true;
+      }
 #if MYNAH_HUE_HOME_ONLY
       bool gem_pulse_paint = false;
       if (home_gem_breath && !pm_gesture_touch_down()) {
@@ -2232,7 +2277,8 @@ void loop() {
                                  g_clock_repaint_pending || local_hm_chg || spotify_stale || calcifer_stale ||
                                  weather_stale || quotes_stale || rocket_stale || sec_tick_paint || calcifer_sec || rocket_sec ||
                                  astro_repaint || spectrum_anim || chakra_anim || bowl_anim || ocarina_anim || bongo_anim ||
-                                 piano_anim || pandrum_anim || radar_anim || level_anim || faculty_anim;
+                                 piano_anim || pandrum_anim || radar_anim || level_anim || faculty_anim ||
+                                 wifi_settings_graph;
 #if MYNAH_HUE_HOME_ONLY
       const bool gem_only_paint = gem_pulse_paint && s_clock_paint_inited && !non_gem_paint;
       const bool full_paint = non_gem_paint || gem_pulse_paint;
@@ -2351,6 +2397,7 @@ void loop() {
             break;
           }
           g_commonplace_journal = false;
+          g_commonplace_note_face = false;
           g_astro_voice_active = true;
           g_astro_voice_pcm = true;
           g_moon_voice_pcm = false;
@@ -2364,6 +2411,7 @@ void loop() {
             break;
           }
           g_commonplace_journal = false;
+          g_commonplace_note_face = false;
           g_astro_voice_active = false;
           g_astro_voice_pcm = false;
           g_synastry_voice_active = true;
@@ -2376,6 +2424,7 @@ void loop() {
             break;
           }
           g_commonplace_journal = false;
+          g_commonplace_note_face = false;
           g_astro_voice_active = true;
           g_astro_voice_pcm = true;
           g_synastry_voice_active = false;
@@ -2395,6 +2444,15 @@ void loop() {
             break;
           }
           g_commonplace_journal = true;
+          g_commonplace_note_face = false;
+          g_astro_voice_active = false;
+          g_astro_voice_pcm = false;
+          g_synastry_voice_active = false;
+          g_synastry_voice_pcm = false;
+          g_moon_voice_pcm = false;
+        } else if (pm_faces_current() == ClockFace::Notes) {
+          g_commonplace_journal = true;
+          g_commonplace_note_face = true;
           g_astro_voice_active = false;
           g_astro_voice_pcm = false;
           g_synastry_voice_active = false;
@@ -2402,6 +2460,7 @@ void loop() {
           g_moon_voice_pcm = false;
         } else {
           g_commonplace_journal = false;
+          g_commonplace_note_face = false;
           g_astro_voice_active = false;
           g_astro_voice_pcm = false;
           g_synastry_voice_active = false;
@@ -2470,7 +2529,7 @@ void loop() {
         pm_face_draw_centered_line("listening", 12, gfx->color565(220, 200, 255), 1, 1);
         gfx->flush();
       } else if (g_commonplace_journal) {
-        pm_face_draw_voice_wave_screen(false, now, "journal");
+        pm_face_draw_voice_wave_screen(false, now, g_commonplace_note_face ? "note" : "journal");
       } else {
         pm_face_draw_voice_wave_screen(false, now, "listening");
       }
@@ -2486,6 +2545,7 @@ void loop() {
         g_astro_voice_active = false;
         g_synastry_voice_active = false;
         g_commonplace_journal = false;
+        g_commonplace_note_face = false;
         g_state = AppState::kClock;
         g_clock_repaint_pending = true;
         break;
@@ -2511,9 +2571,28 @@ void loop() {
       if (g_commonplace_journal) {
         if (!s_commonplace_armed) {
           s_voice_wait_t0 = now;
+          if (g_commonplace_note_face && (!pm_wifi_connected() || !pm_castalia_has_session())) {
+            if (!pm_commonplace_save_offline_note(g_pcm, g_pcm_len)) {
+              snprintf(g_gesture_banner, sizeof(g_gesture_banner), "note: %s",
+                       pm_commonplace_last_error());
+              g_commonplace_journal = false;
+              g_commonplace_note_face = false;
+              g_state = AppState::kClock;
+              g_clock_repaint_pending = true;
+              break;
+            }
+            snprintf(g_gesture_banner, sizeof(g_gesture_banner), "note queued: %u",
+                     static_cast<unsigned>(pm_commonplace_offline_note_count()));
+            g_commonplace_journal = false;
+            g_commonplace_note_face = false;
+            g_state = AppState::kClock;
+            g_clock_repaint_pending = true;
+            break;
+          }
           if (!pm_commonplace_begin_pcm_journal(g_pcm, g_pcm_len)) {
             snprintf(g_gesture_banner, sizeof(g_gesture_banner), "journal: busy");
             g_commonplace_journal = false;
+            g_commonplace_note_face = false;
             g_state = AppState::kClock;
             g_clock_repaint_pending = true;
             break;
@@ -2522,7 +2601,8 @@ void loop() {
           s_commonplace_armed = true;
         }
         pm_faces_draw(thinking_progress_now());
-        pm_face_draw_centered_line("saving journal", 12, gfx->color565(200, 210, 240), 1, 1);
+        pm_face_draw_centered_line(g_commonplace_note_face ? "saving note" : "saving journal", 12,
+                                   gfx->color565(200, 210, 240), 1, 1);
         gfx->flush();
         const PmCommonplaceStatus cps = pm_commonplace_poll();
         if (cps == PmCommonplaceStatus::Working) {
@@ -2535,6 +2615,7 @@ void loop() {
         s_commonplace_armed = false;
         thinking_progress_end();
         g_commonplace_journal = false;
+        g_commonplace_note_face = false;
         if (cps == PmCommonplaceStatus::DoneOk) {
           const char *tr = pm_commonplace_last_transcript();
           if (tr && tr[0] != '\0') {

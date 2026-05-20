@@ -74,6 +74,9 @@ float pm_speaker_bowl_voice_energy(void);
 /** True while the bowl voice task is sounding or decaying. */
 bool pm_speaker_bowl_voice_active(void);
 
+/** Diagnostic helper: start a clearly audible bowl strike. */
+bool pm_speaker_bowl_voice_test(float hz, uint32_t hold_ms);
+
 /** Default 180s; daily briefing may raise to 600s before long MP3 play. */
 void pm_speaker_set_max_play_seconds(uint32_t sec);
 uint32_t pm_speaker_max_play_seconds(void);

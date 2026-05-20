@@ -10,6 +10,7 @@
 #include "driver/i2s.h"
 #include "esp_check.h"
 #include "esp_log.h"
+#include "esp_random.h"
 #include "esp_task_wdt.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -46,6 +47,7 @@ static const uint8_t *s_play_mp3 = nullptr;
 static size_t s_play_mp3_len = 0;
 static volatile uint8_t s_play_mode = 0; /** 0 = MP3, 1 = tone, 2 = bowl voice, 3 = bongo */
 static volatile bool s_bowl_stop = false;
+static constexpr int kBowlVoiceMax = 6;
 
 struct BowlVoiceState {
   volatile float target_hz = 320.f;
@@ -58,6 +60,11 @@ struct BowlVoiceState {
   volatile bool finger_down = false;
   volatile bool center_strike = false;
   volatile bool want_run = false;
+  volatile float voice_hz[kBowlVoiceMax] = {};
+  volatile float voice_amp[kBowlVoiceMax] = {};
+  volatile float voice_phase[kBowlVoiceMax] = {};
+  volatile float voice_beat_phase[kBowlVoiceMax] = {};
+  volatile float voice_ping_phase[kBowlVoiceMax] = {};
 };
 
 static BowlVoiceState s_bowl;
@@ -185,124 +192,170 @@ static void i2s_drain_and_stop(int out_hz, int out_channels) {
 
 static bool speaker_wait_idle(uint32_t timeout_ms);
 
-static float bowl_voice_read_energy(void) { return s_bowl.energy; }
+static float bowl_voice_read_energy(void) {
+  float e = s_bowl.energy;
+  for (int i = 0; i < kBowlVoiceMax; ++i) {
+    if (s_bowl.voice_amp[i] > e) {
+      e = s_bowl.voice_amp[i];
+    }
+  }
+  return e;
+}
+
+static void bowl_add_voice(float hz, float amp) {
+  if (hz < 80.f) {
+    hz = 80.f;
+  } else if (hz > 1200.f) {
+    hz = 1200.f;
+  }
+  int slot = 0;
+  float quietest = s_bowl.voice_amp[0];
+  for (int i = 1; i < kBowlVoiceMax; ++i) {
+    if (s_bowl.voice_amp[i] < quietest) {
+      quietest = s_bowl.voice_amp[i];
+      slot = i;
+    }
+  }
+  s_bowl.voice_hz[slot] = hz;
+  s_bowl.voice_phase[slot] =
+      (2.f * 3.14159265358979323846f * static_cast<float>(esp_random() % 10000u)) / 10000.f;
+  s_bowl.voice_beat_phase[slot] =
+      (2.f * 3.14159265358979323846f * static_cast<float>(esp_random() % 10000u)) / 10000.f;
+  s_bowl.voice_ping_phase[slot] =
+      (2.f * 3.14159265358979323846f * static_cast<float>(esp_random() % 10000u)) / 10000.f;
+  s_bowl.voice_amp[slot] = amp;
+  s_bowl.energy = 1.f;
+  Serial.printf("bowl: strike voice=%d hz=%.1f amp=%.2f\n", slot, static_cast<double>(hz),
+                static_cast<double>(amp));
+}
 
 static bool play_bowl_voice_streaming(void) {
   pm_mic_stop();
 
   static constexpr int kToneHz = 22050;
-  static constexpr int kPartials = 4;
-  static constexpr float kRatios[kPartials] = {1.f, 2.01f, 2.72f, 3.91f};
-  static constexpr float kGains[kPartials] = {0.65f, 0.25f, 0.12f, 0.08f};
-  static constexpr float kLfoHz[kPartials] = {0.7f, 1.1f, 1.9f, 2.3f};
+  static constexpr uint32_t kFrame = 512u;
 
   if (es8311_board_init(kToneHz) != ESP_OK) {
     ESP_LOGW(TAG, "es8311 init failed (bowl voice)");
+    Serial.println("bowl: es8311 init failed");
     return false;
   }
   if (i2s_tx_begin(kToneHz, 2) != ESP_OK) {
     ESP_LOGW(TAG, "i2s begin failed (bowl voice)");
+    Serial.println("bowl: i2s begin failed");
     return false;
   }
 
-  static int16_t buf[512 * 2];
-  double phases[kPartials] = {};
-  double lfos[kPartials] = {};
-  uint32_t strike_noise_left = 0;
-  uint32_t silent_frames = 0;
+  int16_t *buf = static_cast<int16_t *>(
+      heap_caps_malloc(512u * 2u * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  if (!buf) {
+    buf = static_cast<int16_t *>(malloc(512u * 2u * sizeof(int16_t)));
+  }
+  if (!buf) {
+    i2s_tx_stop();
+    Serial.println("bowl: audio buffer oom");
+    return false;
+  }
+  uint32_t silent_blocks = 0;
   uint32_t written = 0;
+  uint32_t last_report_ms = millis();
 
   s_play_pcm_hz = kToneHz;
   s_play_pcm_frames = 0;
   s_play_est_ms = 60000u;
   s_bowl_stop = false;
+  Serial.printf("bowl: audio start hz=%.1f brightness=%.2f\n", static_cast<double>(s_bowl.target_hz),
+                static_cast<double>(s_bowl.brightness));
 
   while (!s_bowl_stop) {
     esp_task_wdt_reset();
 
     if (s_bowl.center_strike) {
       s_bowl.center_strike = false;
-      s_bowl.energy = 1.f;
-      strike_noise_left = (kToneHz * 35u) / 1000u;
+      bowl_add_voice(s_bowl.target_hz, 1.f);
     }
 
-    const float target = s_bowl.target_hz < 80.f ? 80.f : (s_bowl.target_hz > 900.f ? 900.f : s_bowl.target_hz);
-    s_bowl.base_hz += (target - s_bowl.base_hz) * 0.06f;
-
-    const float excite = s_bowl.excitation;
-    s_bowl.excitation = 0.f;
-    const float rim_q = s_bowl.rim_quality < 0.f ? 0.f : (s_bowl.rim_quality > 1.f ? 1.f : s_bowl.rim_quality);
-    float e = s_bowl.energy;
-    e += excite * rim_q * 0.045f;
-    if (s_bowl.finger_down && rim_q > 0.15f) {
-      e += 0.0018f * rim_q;
-    }
-    if (e > 1.f) {
-      e = 1.f;
-    }
-    const float bright =
-        s_bowl.brightness < 0.f ? 0.f : (s_bowl.brightness > 1.f ? 1.f : s_bowl.brightness);
-    const float pan = s_bowl.pan < -1.f ? -1.f : (s_bowl.pan > 1.f ? 1.f : s_bowl.pan);
-    const float pan_l = cosf((pan + 1.f) * 0.78539816f);
-    const float pan_r = sinf((pan + 1.f) * 0.78539816f);
-
-    const size_t frame = 512u;
+    const size_t frame = kFrame;
+    float max_e = 0.f;
     for (size_t i = 0; i < frame; ++i) {
-      e *= 0.99972f;
       float s = 0.f;
-      for (int p = 0; p < kPartials; ++p) {
-        const float ratio = kRatios[p];
-        const float gain = kGains[p] * (p == 0 ? 1.f : (0.35f + 0.65f * bright));
-        const double inc =
-            (2.0 * 3.14159265358979323846 * static_cast<double>(s_bowl.base_hz) * static_cast<double>(ratio)) /
-            static_cast<double>(kToneHz);
-        const double lfo_inc =
-            (2.0 * 3.14159265358979323846 * static_cast<double>(kLfoHz[p])) / static_cast<double>(kToneHz);
-        phases[p] += inc;
-        lfos[p] += lfo_inc;
-        if (phases[p] > 2.0 * 3.14159265358979323846) {
-          phases[p] -= 2.0 * 3.14159265358979323846;
+      max_e = 0.f;
+      for (int v_idx = 0; v_idx < kBowlVoiceMax; ++v_idx) {
+        float amp = s_bowl.voice_amp[v_idx];
+        if (amp < 0.0008f) {
+          s_bowl.voice_amp[v_idx] = 0.f;
+          continue;
         }
-        if (lfos[p] > 2.0 * 3.14159265358979323846) {
-          lfos[p] -= 2.0 * 3.14159265358979323846;
+        amp *= 0.999993f;
+        float ph = s_bowl.voice_phase[v_idx];
+        float beat_ph = s_bowl.voice_beat_phase[v_idx];
+        float ping_ph = s_bowl.voice_ping_phase[v_idx];
+        const float hz = s_bowl.voice_hz[v_idx];
+        ph += (2.f * 3.14159265358979323846f * hz) / static_cast<float>(kToneHz);
+        beat_ph += (2.f * 3.14159265358979323846f * hz * 1.0065f) / static_cast<float>(kToneHz);
+        ping_ph += (2.f * 3.14159265358979323846f * hz * 2.72f) / static_cast<float>(kToneHz);
+        if (ph > 2.f * 3.14159265358979323846f) {
+          ph -= 2.f * 3.14159265358979323846f;
         }
-        const float shimmer = 1.f + 0.05f * static_cast<float>(sin(lfos[p]));
-        s += gain * shimmer * static_cast<float>(sin(phases[p]));
+        if (beat_ph > 2.f * 3.14159265358979323846f) {
+          beat_ph -= 2.f * 3.14159265358979323846f;
+        }
+        if (ping_ph > 2.f * 3.14159265358979323846f) {
+          ping_ph -= 2.f * 3.14159265358979323846f;
+        }
+        s_bowl.voice_phase[v_idx] = ph;
+        s_bowl.voice_beat_phase[v_idx] = beat_ph;
+        s_bowl.voice_ping_phase[v_idx] = ping_ph;
+        s_bowl.voice_amp[v_idx] = amp;
+        if (amp > max_e) {
+          max_e = amp;
+        }
+        const float bright = powf(amp, 1.75f);
+        s += amp * (0.72f * sinf(ph) + 0.52f * sinf(beat_ph)) +
+             bright * (0.18f * sinf(ph * 2.03f) + 0.13f * sinf(ping_ph) +
+                       0.07f * sinf(ph * 3.91f));
       }
-      if (strike_noise_left > 0) {
-        const float n = sinf(static_cast<float>(strike_noise_left) * 0.73f) * 0.35f;
-        s += n * static_cast<float>(strike_noise_left) / 400.f;
-        --strike_noise_left;
-      }
-      float v = s * e * 0.42f;
+      float v = s * 0.48f;
+      v = v / (1.f + fabsf(v) * 0.32f);
       if (v > 1.f) {
         v = 1.f;
       } else if (v < -1.f) {
         v = -1.f;
       }
-      int16_t l = static_cast<int16_t>(v * pan_l * 30000.f);
-      int16_t r = static_cast<int16_t>(v * pan_r * 30000.f);
+      int16_t l = static_cast<int16_t>(v * 22000.f);
+      int16_t r = l;
       buf[2 * i] = l;
       buf[2 * i + 1] = r;
     }
-    s_bowl.energy = e;
+    s_bowl.energy = max_e;
 
     if (i2s_write_all(buf, frame * 2) != ESP_OK) {
       i2s_tx_stop();
+      free(buf);
       s_bowl.energy = 0.f;
       s_bowl.want_run = false;
+      Serial.println("bowl: i2s write failed");
       return false;
     }
     written += static_cast<uint32_t>(frame);
     s_play_pcm_frames = written;
+    const uint32_t now_ms = millis();
+    if (now_ms - last_report_ms >= 1500u) {
+      last_report_ms = now_ms;
+      Serial.printf("bowl: audio frames=%u energy=%.3f voices=%d\n", static_cast<unsigned>(written),
+                    static_cast<double>(s_bowl.energy),
+                    static_cast<int>((s_bowl.voice_amp[0] > 0.f) + (s_bowl.voice_amp[1] > 0.f) +
+                                     (s_bowl.voice_amp[2] > 0.f) + (s_bowl.voice_amp[3] > 0.f) +
+                                     (s_bowl.voice_amp[4] > 0.f) + (s_bowl.voice_amp[5] > 0.f)));
+    }
 
-    if (!s_bowl.finger_down && e < 0.0025f) {
-      ++silent_frames;
-      if (silent_frames > (kToneHz / 4u)) {
+    if (max_e < 0.0025f) {
+      ++silent_blocks;
+      if (silent_blocks > 8u) {
         break;
       }
     } else {
-      silent_frames = 0;
+      silent_blocks = 0;
     }
 
     if (written > kToneHz * s_max_play_seconds) {
@@ -311,9 +364,11 @@ static bool play_bowl_voice_streaming(void) {
   }
 
   i2s_drain_and_stop(kToneHz, 2);
+  free(buf);
   s_bowl.energy = 0.f;
   s_bowl.want_run = false;
   ESP_LOGI(TAG, "bowl voice ended energy=%.3f", static_cast<double>(s_bowl.energy));
+  Serial.printf("bowl: audio end frames=%u\n", static_cast<unsigned>(written));
   return true;
 }
 
@@ -338,7 +393,15 @@ static bool play_tone_streaming(float hz, uint32_t duration_ms) {
       until_stop ? 0u : static_cast<uint32_t>((static_cast<uint64_t>(duration_ms) * kToneHz) / 1000u);
   const uint32_t fade_in = (kToneHz * 180u) / 1000u;
   const uint32_t fade_out = until_stop ? (kToneHz * 220u) / 1000u : (kToneHz * 900u) / 1000u;
-  static int16_t buf[512 * 2];
+  int16_t *buf = static_cast<int16_t *>(
+      heap_caps_malloc(512u * 2u * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  if (!buf) {
+    buf = static_cast<int16_t *>(malloc(512u * 2u * sizeof(int16_t)));
+  }
+  if (!buf) {
+    i2s_tx_stop();
+    return false;
+  }
   double phase = 0.0;
   const double phase_inc = (2.0 * 3.14159265358979323846 * static_cast<double>(hz)) / static_cast<double>(kToneHz);
   uint32_t written = 0;
@@ -391,6 +454,7 @@ static bool play_tone_streaming(float hz, uint32_t duration_ms) {
     }
     if (i2s_write_all(buf, frame * 2) != ESP_OK) {
       i2s_tx_stop();
+      free(buf);
       return false;
     }
     written += static_cast<uint32_t>(frame);
@@ -401,6 +465,7 @@ static bool play_tone_streaming(float hz, uint32_t duration_ms) {
   }
 
   i2s_drain_and_stop(kToneHz, 2);
+  free(buf);
   if (until_stop) {
     ESP_LOGI(TAG, "tone %.1f Hz (loop until stop)", static_cast<double>(hz));
   } else {
@@ -1078,20 +1143,15 @@ bool pm_speaker_play_bongo_begin(float hz, float strength) {
 
 void pm_speaker_bowl_voice_push(const PmBowlVoiceCtrl &ctrl) {
   s_bowl.target_hz = ctrl.target_hz;
-  s_bowl.excitation += ctrl.excitation;
-  if (s_bowl.excitation > 1.f) {
-    s_bowl.excitation = 1.f;
-  }
   s_bowl.brightness = ctrl.brightness;
   s_bowl.pan = ctrl.pan;
   s_bowl.rim_quality = ctrl.rim_quality;
   s_bowl.finger_down = ctrl.finger_down;
   if (ctrl.center_strike) {
-    s_bowl.center_strike = true;
+    bowl_add_voice(ctrl.target_hz, 1.45f);
   }
 
-  const bool needs_audio = ctrl.finger_down || ctrl.center_strike || ctrl.excitation > 0.01f ||
-                           s_bowl.energy > 0.01f;
+  const bool needs_audio = ctrl.center_strike || s_bowl.energy > 0.01f;
   if (!needs_audio) {
     return;
   }
@@ -1121,18 +1181,32 @@ void pm_speaker_bowl_voice_push(const PmBowlVoiceCtrl &ctrl) {
 }
 
 void pm_speaker_bowl_voice_stop(void) {
-  s_bowl_stop = true;
   s_bowl.finger_down = false;
   s_bowl.excitation = 0.f;
-  if (s_play_mode == 2 && (s_speaker_status == PmSpeakerStatus::Playing || s_spk_task_busy)) {
-    (void)speaker_wait_idle(8000);
-  }
 }
 
 float pm_speaker_bowl_voice_energy(void) { return bowl_voice_read_energy(); }
 
 bool pm_speaker_bowl_voice_active(void) {
   return s_play_mode == 2 && (s_speaker_status == PmSpeakerStatus::Playing || s_spk_task_busy || s_bowl.energy > 0.01f);
+}
+
+bool pm_speaker_bowl_voice_test(float hz, uint32_t hold_ms) {
+  PmBowlVoiceCtrl strike = {};
+  strike.target_hz = hz;
+  strike.brightness = 0.9f;
+  strike.rim_quality = 1.f;
+  strike.center_strike = true;
+  pm_speaker_bowl_voice_push(strike);
+  const uint32_t start = millis();
+  while (!pm_speaker_bowl_voice_active() && millis() - start < 500u) {
+    delay(5);
+  }
+  if (!pm_speaker_bowl_voice_active()) {
+    return false;
+  }
+  delay(hold_ms);
+  return true;
 }
 
 bool pm_speaker_play_tone_loop_begin(float hz) {
