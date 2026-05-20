@@ -670,6 +670,9 @@ bool pm_faculty_request_bust(const char *slug) {
   }
   if (!pm_heap_tls_ready(MYNAH_FACULTY_MIN_FETCH_HEAP, "faculty")) {
     bust_set_error("low memory");
+    Serial.printf("pm_faculty: bust skipped low memory heap=%u largest=%u\n",
+                  static_cast<unsigned>(pm_heap_internal_free()),
+                  static_cast<unsigned>(pm_heap_internal_largest()));
     return false;
   }
   bust_task_ensure();

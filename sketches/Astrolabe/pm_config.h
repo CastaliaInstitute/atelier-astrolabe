@@ -118,7 +118,7 @@
 
 /** Skip Faculty portrait HTTPS refresh when Radar/BLE leaves too little heap for TLS. */
 #ifndef MYNAH_FACULTY_MIN_FETCH_HEAP
-#define MYNAH_FACULTY_MIN_FETCH_HEAP 140000u
+#define MYNAH_FACULTY_MIN_FETCH_HEAP 100000u
 #endif
 #ifndef MYNAH_FACULTY_BUST_WIDTH
 #define MYNAH_FACULTY_BUST_WIDTH 192

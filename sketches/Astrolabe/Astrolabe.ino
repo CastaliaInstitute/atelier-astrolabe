@@ -2057,6 +2057,10 @@ void loop() {
             s_last_quotes_poll_ms = now;
             s_quotes_have_data = true;
           }
+          if (g_quotes_ui.ok && g_quotes_ui.faculty_slug[0] && pm_faculty_bust_status() != PmFacultyBustStatus::Working &&
+              (pm_faculty_bust_size() == 0 || strcmp(pm_faculty_bust_slug(), g_quotes_ui.faculty_slug) != 0)) {
+            (void)pm_faculty_request_bust(g_quotes_ui.faculty_slug);
+          }
         }
         if (pm_faces_current() == ClockFace::Rocket && pm_wifi_connected() && valid) {
           if (!s_rocket_have_data || rocket_stale) {

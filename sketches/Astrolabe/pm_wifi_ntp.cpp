@@ -107,7 +107,8 @@ bool pm_wifi_begin() {
   }
   WiFi.mode(WIFI_STA);
   WiFi.setHostname(ASTROLABE_MDNS_HOSTNAME);
-  WiFi.setSleep(false);
+  WiFi.setSleep(true);
+  (void)esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
   WiFi.begin(ssid, pass);
   const uint32_t start = millis();
   while (WiFi.status() != WL_CONNECTED && (millis() - start) < kWifiTimeoutMs) {
