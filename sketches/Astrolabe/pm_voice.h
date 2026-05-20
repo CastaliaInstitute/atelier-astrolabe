@@ -39,6 +39,7 @@ bool pm_voice_daily_briefing_streamed(void);
 /** True while daily briefing is actively decoding/playing the HTTP MPEG body. */
 bool pm_voice_daily_briefing_streaming_play(void);
 PmVoiceStatus pm_voice_poll(void);
+uint32_t pm_voice_stack_high_water(void);
 
 /** Unblock UI if voice_net is stuck (HTTP still runs until it finishes). */
 void pm_voice_abort(void);

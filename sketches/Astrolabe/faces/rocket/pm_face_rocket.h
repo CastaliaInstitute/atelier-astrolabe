@@ -15,3 +15,6 @@ bool pm_face_rocket_has_stream(void);
 bool pm_face_rocket_stream_qr_visible(void);
 void pm_face_rocket_set_stream_qr_visible(bool visible);
 void pm_face_rocket_toggle_stream_qr(void);
+bool pm_face_rocket_cycle_launch(int delta);
+int pm_face_rocket_selected_index(void);
+void pm_face_rocket_reset_selection(void);

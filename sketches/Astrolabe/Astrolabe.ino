@@ -101,6 +101,9 @@ static bool s_face_tour_narrate = false;
 static bool s_face_tour_button_test = false;
 static uint8_t s_face_tour_voice_phase = 0;
 static uint32_t s_face_tour_voice_started_ms = 0;
+static uint8_t s_face_tour_tts_ok = 0;
+static uint8_t s_face_tour_tts_fail = 0;
+static uint8_t s_face_tour_tts_skip = 0;
 static PmVoiceResult s_face_tour_voice_result;
 static constexpr size_t kFaceTourVoiceMsgCap = 2200;
 static constexpr size_t kFaceTourSysPromptCap = 3200;
@@ -804,8 +807,7 @@ static bool face_voice_build_prompt(const FaceTourInfo *info, int idx, char *msg
     case ClockFace::Rocket: {
       if ((!g_rocket_ui.ok || g_rocket_ui.count <= 0) && pm_wifi_connected() && pm_time_valid() &&
           ESP.getFreeHeap() >= MYNAH_ROCKET_MIN_FETCH_HEAP) {
-        (void)pm_rocket_fetch(&g_rocket_ui);
-        s_rocket_have_data = true;
+        (void)pm_rocket_request_fetch();
       }
       const PmRocketLaunch *launch = pm_rocket_next(&g_rocket_ui);
       if (launch) {
@@ -900,11 +902,13 @@ static void face_tour_voice_start(const FaceTourInfo *info, int idx) {
   }
   if (!voice_prompt_buffers_ensure()) {
     Serial.printf("tour: tts skipped %d %s reason=psram oom\n", idx, info->name);
+    ++s_face_tour_tts_skip;
     return;
   }
   if (!pm_wifi_connected()) {
     Serial.printf("tour: %s skipped %d %s reason=no wifi\n", s_face_tour_button_test ? "tts" : "narrate", idx,
                   info->name);
+    ++s_face_tour_tts_skip;
     return;
   }
   if (idx == static_cast<int>(ClockFace::Radar)) {
@@ -927,6 +931,7 @@ static void face_tour_voice_start(const FaceTourInfo *info, int idx) {
     if (!face_voice_build_prompt(info, idx, s_face_tour_voice_msg, kFaceTourVoiceMsgCap,
                                  s_face_tour_sys_prompt, kFaceTourSysPromptCap, true)) {
       Serial.printf("tour: tts skipped %d %s reason=%s\n", idx, info->name, g_gesture_banner);
+      ++s_face_tour_tts_skip;
       return;
     }
     started = pm_voice_begin_message(s_face_tour_voice_msg, s_face_tour_sys_prompt, &s_face_tour_voice_result);
@@ -942,6 +947,7 @@ static void face_tour_voice_start(const FaceTourInfo *info, int idx) {
   }
   if (!started) {
     Serial.printf("tour: narrate skipped %s err=%s\n", info->name, pm_voice_last_error());
+    ++s_face_tour_tts_skip;
     return;
   }
   s_face_tour_voice_phase = 1;
@@ -982,6 +988,9 @@ static void face_tour_start(uint32_t dwell_ms, bool narrate = false, bool button
   s_face_tour_active = true;
   s_face_tour_narrate = narrate;
   s_face_tour_button_test = button_test;
+  s_face_tour_tts_ok = 0;
+  s_face_tour_tts_fail = 0;
+  s_face_tour_tts_skip = 0;
   s_face_tour_idx = 0;
   s_face_tour_dwell_ms = dwell_ms;
   s_face_tour_last_ms = 0;
@@ -1056,6 +1065,7 @@ static void face_tour_tick(uint32_t now) {
       }
       if (s_face_tour_voice_started_ms != 0 && now - s_face_tour_voice_started_ms > 120000u) {
         Serial.printf("tour: narrate timeout %d err=%s\n", s_face_tour_idx, pm_voice_last_error());
+        ++s_face_tour_tts_fail;
         face_tour_voice_reset();
       } else {
         return;
@@ -1067,12 +1077,15 @@ static void face_tour_tick(uint32_t now) {
         return;
       }
       Serial.printf("tour: narrate speaker busy %d\n", s_face_tour_idx);
+      ++s_face_tour_tts_fail;
       face_tour_voice_reset();
     } else if (vs == PmVoiceStatus::DoneOk) {
       Serial.printf("tour: narrate no audio %d\n", s_face_tour_idx);
+      ++s_face_tour_tts_fail;
       face_tour_voice_reset();
     } else if (vs == PmVoiceStatus::DoneFail) {
       Serial.printf("tour: narrate failed %d err=%s\n", s_face_tour_idx, pm_voice_last_error());
+      ++s_face_tour_tts_fail;
       face_tour_voice_reset();
     }
   }
@@ -1080,6 +1093,13 @@ static void face_tour_tick(uint32_t now) {
     const PmSpeakerStatus spk = pm_speaker_poll();
     if (spk == PmSpeakerStatus::Playing) {
       return;
+    }
+    if (spk == PmSpeakerStatus::DoneOk) {
+      ++s_face_tour_tts_ok;
+      Serial.printf("tour: tts ok %d\n", s_face_tour_idx);
+    } else if (spk == PmSpeakerStatus::DoneFail) {
+      ++s_face_tour_tts_fail;
+      Serial.printf("tour: tts speaker failed %d\n", s_face_tour_idx);
     }
     face_tour_voice_reset();
   }
@@ -1093,6 +1113,7 @@ static void face_tour_tick(uint32_t now) {
   s_face_tour_last_ms = now;
   ++s_face_tour_idx;
   if (s_face_tour_idx >= static_cast<int>(ClockFace::kNumFaces)) {
+    const bool report_tts_tour = s_face_tour_narrate || s_face_tour_button_test;
     s_face_tour_active = false;
     s_face_tour_narrate = false;
     s_face_tour_button_test = false;
@@ -1101,6 +1122,17 @@ static void face_tour_tick(uint32_t now) {
     face_tour_voice_reset();
     g_gesture_banner[0] = '\0';
     g_clock_repaint_pending = true;
+    if (report_tts_tour) {
+      Serial.printf("tour: summary tts_ok=%u tts_fail=%u tts_skip=%u\n",
+                    static_cast<unsigned>(s_face_tour_tts_ok), static_cast<unsigned>(s_face_tour_tts_fail),
+                    static_cast<unsigned>(s_face_tour_tts_skip));
+      if (s_face_tour_tts_ok == static_cast<uint8_t>(ClockFace::kNumFaces) && s_face_tour_tts_fail == 0 &&
+          s_face_tour_tts_skip == 0) {
+        Serial.println("TTS_TOUR PASS");
+      } else {
+        Serial.println("TTS_TOUR FAIL");
+      }
+    }
     Serial.println("tour: done");
     return;
   }
@@ -1286,6 +1318,8 @@ static void poll_serial_birth_commands() {
         g_clock_repaint_pending = true;
       } else if (pm_user_serial_command(line)) {
         /* name saved */
+      } else if (pm_castalia_serial_command(line)) {
+        g_clock_repaint_pending = true;
       } else if (strncmp(line, "birth ", 6) == 0) {
         const char *p = line + 6;
         while (*p == ' ') {
@@ -1318,12 +1352,14 @@ static void poll_serial_birth_commands() {
           ++args;
         }
         if (strcmp(args, "status") == 0) {
-          Serial.printf("qa: face=%d state=%d heap=%u iheap=%u largest=%u psram=%u wifi=%d time=%d ip=%s name=%s\n",
+          Serial.printf("qa: face=%d state=%d heap=%u iheap=%u largest=%u psram=%u voice_stack_hw=%u spk_stack_hw=%u rocket_stack_hw=%u wifi=%d time=%d ip=%s name=%s\n",
                         static_cast<int>(pm_faces_current()), static_cast<int>(g_state),
                         static_cast<unsigned>(ESP.getFreeHeap()), static_cast<unsigned>(pm_heap_internal_free()),
                         static_cast<unsigned>(pm_heap_internal_largest()), static_cast<unsigned>(pm_heap_psram_free()),
-                        pm_wifi_connected() ? 1 : 0, pm_time_valid() ? 1 : 0, WiFi.localIP().toString().c_str(),
-                        pm_user_display_name());
+                        static_cast<unsigned>(pm_voice_stack_high_water()),
+                        static_cast<unsigned>(pm_speaker_stack_high_water()),
+                        static_cast<unsigned>(pm_rocket_fetch_stack_high_water()), pm_wifi_connected() ? 1 : 0,
+                        pm_time_valid() ? 1 : 0, WiFi.localIP().toString().c_str(), pm_user_display_name());
         } else if (strcmp(args, "heap") == 0) {
           pm_heap_log("qa");
         } else if (strcmp(args, "time") == 0) {
@@ -1771,6 +1807,16 @@ void loop() {
       }
       g_clock_repaint_pending = true;
     } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Rocket &&
+               (ge.kind == PmGestureKind::SwipeUp || ge.kind == PmGestureKind::SwipeDown)) {
+      if (pm_face_rocket_cycle_launch(ge.kind == PmGestureKind::SwipeUp ? 1 : -1)) {
+        snprintf(g_gesture_banner, sizeof(g_gesture_banner), "launch %d/%d",
+                 pm_face_rocket_selected_index() + 1, g_rocket_ui.count);
+      } else {
+        snprintf(g_gesture_banner, sizeof(g_gesture_banner), "launch: no data");
+      }
+      g_clock_repaint_pending = true;
+      continue;
+    } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Rocket &&
                ge.kind == PmGestureKind::Tap) {
       if (pm_face_rocket_has_stream()) {
         pm_face_rocket_toggle_stream_qr();
@@ -1951,6 +1997,10 @@ void loop() {
       const bool rocket_stale =
           pm_faces_current() == ClockFace::Rocket && pm_wifi_connected() && valid &&
           (!s_rocket_have_data || (now - s_last_rocket_poll_ms >= MYNAH_ROCKET_POLL_MS));
+      if (pm_rocket_consume_fetch(&g_rocket_ui)) {
+        s_rocket_have_data = true;
+        g_clock_repaint_pending = true;
+      }
 
       static time_t s_prev_astro_epoch_min = -1;
       const time_t epoch_min_bucket = valid ? (epoch / 60) : -1;
@@ -2070,7 +2120,8 @@ void loop() {
               snprintf(g_rocket_ui.error, sizeof(g_rocket_ui.error), "low memory");
               pm_rocket_pad_image_release();
             } else {
-              (void)pm_rocket_fetch(&g_rocket_ui);
+              pm_face_rocket_reset_selection();
+              (void)pm_rocket_request_fetch();
             }
             s_last_rocket_poll_ms = now;
             s_rocket_have_data = true;

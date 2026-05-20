@@ -21,6 +21,23 @@
 #define MYNAH_USER_NAME_DEFAULT "Daniel"
 #endif
 
+/** Castalia profile/settings identity used during face login (NVS override via serial). */
+#ifndef MYNAH_CASTALIA_INDIVIDUAL_DEFAULT
+#define MYNAH_CASTALIA_INDIVIDUAL_DEFAULT "DanielCMcShan"
+#endif
+#ifndef MYNAH_CASTALIA_SETTINGS_SOURCE
+#define MYNAH_CASTALIA_SETTINGS_SOURCE "supabase"
+#endif
+#ifndef MYNAH_CASTALIA_REPO_OWNER
+#define MYNAH_CASTALIA_REPO_OWNER "CastaliaInstitute"
+#endif
+#ifndef MYNAH_CASTALIA_REPO_PREFIX
+#define MYNAH_CASTALIA_REPO_PREFIX "castalia-"
+#endif
+#ifndef MYNAH_CASTALIA_SETTINGS_PATH
+#define MYNAH_CASTALIA_SETTINGS_PATH "settings/faces.json"
+#endif
+
 #ifndef MYNAH_VOICE_MAX_PCM_BYTES
 #define MYNAH_VOICE_MAX_PCM_BYTES (16000 * 2 * 5)
 #endif
@@ -113,7 +130,7 @@
 
 /** Skip Rocket HTTPS refresh when BLE/Radar has left too little heap for TLS. */
 #ifndef MYNAH_ROCKET_MIN_FETCH_HEAP
-#define MYNAH_ROCKET_MIN_FETCH_HEAP 140000u
+#define MYNAH_ROCKET_MIN_FETCH_HEAP 100000u
 #endif
 
 /** Skip Faculty portrait HTTPS refresh when Radar/BLE leaves too little heap for TLS. */

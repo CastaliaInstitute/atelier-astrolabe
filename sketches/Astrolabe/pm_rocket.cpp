@@ -5,6 +5,7 @@
 #include <JPEGDEC.h>
 #include <WiFiClient.h>
 #include <WiFiClientSecure.h>
+#include <cstdlib>
 #include <cstdio>
 #include <cstring>
 #include <time.h>
@@ -18,7 +19,7 @@
 static const char *TAG = "pm_rocket";
 
 static const char *kLl2UpcomingUrl =
-    "https://ll.thespacedevs.com/2.2.0/launch/upcoming/?limit=20";
+    "https://fdo.rocketlaunch.live/json/launches/next/5";
 
 static const char *kLl2UserAgent = "Astrolabe/1.0 (Castalia Institute)";
 
@@ -29,6 +30,15 @@ static int s_pad_w = 0;
 static int s_pad_h = 0;
 static bool s_pad_ready = false;
 static char s_pad_launch_id[40] = "";
+static SemaphoreHandle_t s_pad_mux = nullptr;
+
+static TaskHandle_t s_fetch_task = nullptr;
+static SemaphoreHandle_t s_fetch_mux = nullptr;
+static volatile bool s_fetch_busy = false;
+static volatile bool s_fetch_done = false;
+static PmRocketStatus s_fetch_result = {};
+
+static constexpr uint32_t kRocketFetchTaskStack = 32768;
 
 static bool extract_json_string_field(const char *json, const char *key, char *out, size_t out_cap) {
   char pat[48];
@@ -207,7 +217,24 @@ static bool parse_launch_block(const char *block, size_t block_len, time_t now_e
   return true;
 }
 
-static void pad_image_free_fb(void) {
+static void pad_mux_ensure(void) {
+  if (!s_pad_mux) {
+    s_pad_mux = xSemaphoreCreateMutex();
+  }
+}
+
+static bool pad_mux_take(uint32_t timeout_ms = 1000) {
+  pad_mux_ensure();
+  return !s_pad_mux || xSemaphoreTake(s_pad_mux, pdMS_TO_TICKS(timeout_ms)) == pdTRUE;
+}
+
+static void pad_mux_give(void) {
+  if (s_pad_mux) {
+    xSemaphoreGive(s_pad_mux);
+  }
+}
+
+static void pad_image_free_fb_locked(void) {
   if (s_pad_fb) {
     free(s_pad_fb);
     s_pad_fb = nullptr;
@@ -217,12 +244,31 @@ static void pad_image_free_fb(void) {
   s_pad_ready = false;
 }
 
-void pm_rocket_pad_image_release(void) {
-  pad_image_free_fb();
-  s_pad_launch_id[0] = '\0';
+static void pad_image_free_fb(void) {
+  if (!pad_mux_take()) {
+    return;
+  }
+  pad_image_free_fb_locked();
+  pad_mux_give();
 }
 
-bool pm_rocket_pad_image_ready(void) { return s_pad_ready && s_pad_fb && s_pad_w > 0 && s_pad_h > 0; }
+void pm_rocket_pad_image_release(void) {
+  pad_image_free_fb();
+  if (!pad_mux_take()) {
+    return;
+  }
+  s_pad_launch_id[0] = '\0';
+  pad_mux_give();
+}
+
+bool pm_rocket_pad_image_ready(void) {
+  if (!pad_mux_take(50)) {
+    return false;
+  }
+  const bool ready = s_pad_ready && s_pad_fb && s_pad_w > 0 && s_pad_h > 0;
+  pad_mux_give();
+  return ready;
+}
 
 static bool copy_json_quoted_url(const char *p, char *out, size_t cap) {
   if (!p || !out || cap == 0) {
@@ -358,9 +404,13 @@ static int jpeg_pick_scale(int w, int h) {
 }
 
 static bool pad_decode_jpeg(const uint8_t *data, size_t len) {
-  pad_image_free_fb();
+  if (!pad_mux_take(3000)) {
+    return false;
+  }
+  pad_image_free_fb_locked();
   JPEGDEC jpg;
   if (jpg.openRAM(const_cast<uint8_t *>(data), static_cast<int>(len), pad_jpeg_draw) != 1) {
+    pad_mux_give();
     return false;
   }
   const int scale = jpeg_pick_scale(jpg.getWidth(), jpg.getHeight());
@@ -378,6 +428,7 @@ static bool pad_decode_jpeg(const uint8_t *data, size_t len) {
   }
   if (w <= 0 || h <= 0 || w > 512 || h > 512) {
     jpg.close();
+    pad_mux_give();
     return false;
   }
   s_pad_w = w;
@@ -386,18 +437,21 @@ static bool pad_decode_jpeg(const uint8_t *data, size_t len) {
   s_pad_fb = static_cast<uint16_t *>(pm_heap_alloc_response(px * sizeof(uint16_t)));
   if (!s_pad_fb) {
     jpg.close();
-    pad_image_free_fb();
+    pad_image_free_fb_locked();
+    pad_mux_give();
     return false;
   }
   memset(s_pad_fb, 0, px * sizeof(uint16_t));
   jpg.setPixelType(RGB565_BIG_ENDIAN);
   if (jpg.decode(0, 0, scale) != 1) {
     jpg.close();
-    pad_image_free_fb();
+    pad_image_free_fb_locked();
+    pad_mux_give();
     return false;
   }
   jpg.close();
   s_pad_ready = true;
+  pad_mux_give();
   return true;
 }
 
@@ -438,11 +492,16 @@ static uint16_t blend565_fast(uint16_t bg, uint16_t fg, float alpha) {
 }
 
 void pm_rocket_pad_image_draw_background(int cx, int cy, int cover_radius, uint16_t bg_color, float dim_alpha) {
-  if (!pm_rocket_pad_image_ready() || cover_radius <= 0) {
+  if (cover_radius <= 0 || !pad_mux_take(50)) {
+    return;
+  }
+  if (!(s_pad_ready && s_pad_fb && s_pad_w > 0 && s_pad_h > 0)) {
+    pad_mux_give();
     return;
   }
   const float img_alpha = 1.f - dim_alpha;
   if (img_alpha <= 0.f) {
+    pad_mux_give();
     return;
   }
 
@@ -476,6 +535,7 @@ void pm_rocket_pad_image_draw_background(int cx, int cy, int cover_radius, uint1
       pm_gfx->writePixel(x, y, pix);
     }
   }
+  pad_mux_give();
 }
 
 static bool parse_webcast_from_detail_json(const char *json, PmRocketLaunch *out) {
@@ -664,6 +724,106 @@ static int collect_upcoming_launches(const char *json, PmRocketLaunch *list, int
   return count;
 }
 
+static bool extract_json_number_field(const char *json, const char *key, long long *out) {
+  if (!json || !key || !out) {
+    return false;
+  }
+  char pat[48];
+  snprintf(pat, sizeof(pat), "\"%s\":", key);
+  const char *p = strstr(json, pat);
+  if (!p) {
+    return false;
+  }
+  p += strlen(pat);
+  while (*p == ' ' || *p == '\t' || *p == '"') {
+    ++p;
+  }
+  char *end = nullptr;
+  const long long v = strtoll(p, &end, 10);
+  if (!end || end == p) {
+    return false;
+  }
+  *out = v;
+  return true;
+}
+
+static void extract_nested_name(const char *slice, const char *obj_key, char *out, size_t cap) {
+  if (!slice || !obj_key || !out || cap == 0) {
+    return;
+  }
+  char pat[48];
+  snprintf(pat, sizeof(pat), "\"%s\":", obj_key);
+  const char *obj = strstr(slice, pat);
+  if (obj) {
+    (void)extract_json_string_field(obj, "name", out, cap);
+  }
+}
+
+static bool parse_rll_launch_block(const char *block, size_t block_len, time_t now_epoch, PmRocketLaunch *out) {
+  if (!block || block_len < 32 || !out) {
+    return false;
+  }
+  char *slice = static_cast<char *>(malloc(block_len + 1));
+  if (!slice) {
+    return false;
+  }
+  memcpy(slice, block, block_len);
+  slice[block_len] = '\0';
+
+  long long id = 0;
+  long long sort_date = 0;
+  if (!extract_json_number_field(slice, "id", &id) || !extract_json_number_field(slice, "sort_date", &sort_date)) {
+    free(slice);
+    return false;
+  }
+  if (sort_date <= 0 || sort_date < static_cast<long long>(now_epoch) - 1800) {
+    free(slice);
+    return false;
+  }
+
+  memset(out, 0, sizeof(*out));
+  snprintf(out->id, sizeof(out->id), "rll-%lld", id);
+  out->net_unix = static_cast<int64_t>(sort_date);
+  (void)extract_json_string_field(slice, "name", out->name, sizeof(out->name));
+  extract_nested_name(slice, "provider", out->provider, sizeof(out->provider));
+  extract_nested_name(slice, "vehicle", out->vehicle, sizeof(out->vehicle));
+  extract_nested_name(slice, "pad", out->pad, sizeof(out->pad));
+  const char *pad = strstr(slice, "\"pad\":");
+  if (pad) {
+    extract_nested_name(pad, "location", out->location, sizeof(out->location));
+  }
+  strncpy(out->status_abbrev, "Scheduled", sizeof(out->status_abbrev) - 1);
+  free(slice);
+  if (!out->name[0]) {
+    return false;
+  }
+  out->valid = true;
+  return true;
+}
+
+static int collect_rll_launches(const char *json, PmRocketLaunch *list, int list_cap) {
+  const char *result = strstr(json, "\"result\":");
+  if (!result || list_cap <= 0) {
+    return 0;
+  }
+  const time_t now_epoch = time(nullptr);
+  int count = 0;
+  const char *p = result;
+  while ((p = strstr(p, "{\"id\":")) != nullptr) {
+    const char *next = strstr(p + 8, "{\"id\":");
+    const char *end = next ? next : json + strlen(json);
+    PmRocketLaunch scratch = {};
+    if (parse_rll_launch_block(p, static_cast<size_t>(end - p), now_epoch, &scratch)) {
+      insert_launch_sorted(list, &count, &scratch);
+    }
+    if (!next) {
+      break;
+    }
+    p = next;
+  }
+  return count;
+}
+
 const PmRocketLaunch *pm_rocket_next(const PmRocketStatus *status) {
   if (!status || !status->ok || status->count <= 0) {
     return nullptr;
@@ -738,17 +898,88 @@ bool pm_rocket_fetch(PmRocketStatus *out) {
     return false;
   }
 
-  out->count = collect_upcoming_launches(resp, out->launches, kPmRocketMaxLaunches);
+  out->count = collect_rll_launches(resp, out->launches, kPmRocketMaxLaunches);
+  if (out->count <= 0) {
+    out->count = collect_upcoming_launches(resp, out->launches, kPmRocketMaxLaunches);
+  }
   if (out->count > 0) {
     out->ok = true;
-    if (fetch_launch_detail(&out->launches[0])) {
-      ESP_LOGI(TAG, "webcast: %s live=%d", out->launches[0].webcast_url, out->launches[0].webcast_live ? 1 : 0);
-    }
     ESP_LOGI(TAG, "launch clock: %d upcoming (next %s @ %lld)", out->count, out->launches[0].name,
              static_cast<long long>(out->launches[0].net_unix));
+    if (pm_heap_internal_free() >= 140000u && fetch_launch_detail(&out->launches[0])) {
+      ESP_LOGI(TAG, "webcast: %s live=%d", out->launches[0].webcast_url, out->launches[0].webcast_live ? 1 : 0);
+    }
   } else {
     snprintf(out->error, sizeof(out->error), "no upcoming launch");
   }
   free(resp);
   return out->ok;
+}
+
+static void fetch_mux_ensure(void) {
+  if (!s_fetch_mux) {
+    s_fetch_mux = xSemaphoreCreateMutex();
+  }
+}
+
+static void rocket_fetch_task(void *arg) {
+  (void)arg;
+  for (;;) {
+    (void)ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    PmRocketStatus result = {};
+    (void)pm_rocket_fetch(&result);
+    fetch_mux_ensure();
+    if (!s_fetch_mux || xSemaphoreTake(s_fetch_mux, pdMS_TO_TICKS(1000)) == pdTRUE) {
+      s_fetch_result = result;
+      if (s_fetch_mux) {
+        xSemaphoreGive(s_fetch_mux);
+      }
+    }
+    s_fetch_done = true;
+    s_fetch_busy = false;
+  }
+}
+
+static bool rocket_fetch_task_ensure(void) {
+  fetch_mux_ensure();
+  if (s_fetch_task) {
+    return true;
+  }
+  return xTaskCreatePinnedToCore(rocket_fetch_task, "rocket_net", kRocketFetchTaskStack, nullptr, 1, &s_fetch_task, 1) ==
+         pdPASS;
+}
+
+bool pm_rocket_request_fetch(void) {
+  if (s_fetch_busy) {
+    return true;
+  }
+  if (!rocket_fetch_task_ensure() || !s_fetch_task) {
+    return false;
+  }
+  s_fetch_done = false;
+  s_fetch_busy = true;
+  xTaskNotifyGive(s_fetch_task);
+  return true;
+}
+
+bool pm_rocket_consume_fetch(PmRocketStatus *out) {
+  if (!out || !s_fetch_done) {
+    return false;
+  }
+  fetch_mux_ensure();
+  if (s_fetch_mux && xSemaphoreTake(s_fetch_mux, pdMS_TO_TICKS(100)) != pdTRUE) {
+    return false;
+  }
+  *out = s_fetch_result;
+  if (s_fetch_mux) {
+    xSemaphoreGive(s_fetch_mux);
+  }
+  s_fetch_done = false;
+  return true;
+}
+
+bool pm_rocket_fetch_busy(void) { return s_fetch_busy; }
+
+uint32_t pm_rocket_fetch_stack_high_water(void) {
+  return s_fetch_task ? static_cast<uint32_t>(uxTaskGetStackHighWaterMark(s_fetch_task)) : 0u;
 }

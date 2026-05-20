@@ -1053,6 +1053,10 @@ bool pm_speaker_is_playing(void) {
   return s_speaker_status == PmSpeakerStatus::Playing || s_spk_task_busy;
 }
 
+uint32_t pm_speaker_stack_high_water(void) {
+  return s_speaker_task ? static_cast<uint32_t>(uxTaskGetStackHighWaterMark(s_speaker_task)) : 0u;
+}
+
 bool pm_speaker_http_stream_active(void) {
   return s_http_mp3_stream_active;
 }

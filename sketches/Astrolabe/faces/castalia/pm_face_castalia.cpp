@@ -15,8 +15,9 @@ void pm_face_castalia_draw() {
   }
   pm_face_draw_centered_line(pm_castalia_status_line(), 78, c_dim, 1, 1);
   if (pm_castalia_has_session()) {
-    pm_face_draw_centered_line("Signed in", 200, c_hi, 1, 2);
-    pm_face_draw_centered_line("voice / Spotify use JWT", 232, c_dim, 1, 1);
+    pm_face_draw_centered_line(pm_castalia_individual_id(), 190, c_hi, 1, 2);
+    pm_face_draw_centered_line(pm_castalia_repo_name(), 224, c_dim, 1, 1);
+    pm_face_draw_centered_line("settings via Supabase", 250, c_dim, 1, 1);
     return;
   }
   if (pm_castalia_signin_url_for_qr()[0] != '\0') {
@@ -29,5 +30,4 @@ void pm_face_castalia_draw() {
     pm_face_draw_centered_line("pairing...", 220, c_dim, 1, 1);
   }
 }
-
 

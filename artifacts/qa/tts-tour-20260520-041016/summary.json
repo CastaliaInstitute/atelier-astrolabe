@@ -1,0 +1,548 @@
+{
+  "timestamp": "20260520-041016",
+  "port": "/dev/cu.usbmodem1401",
+  "ip": "192.168.86.182",
+  "command": "qa tour tts 1200",
+  "result": "done",
+  "final_marker": "TTS_TOUR FAIL",
+  "tour_summary": {
+    "tts_ok": 7,
+    "tts_fail": 7,
+    "tts_skip": 5
+  },
+  "seen_count": 19,
+  "seen": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18
+  ],
+  "tts_ok_count": 7,
+  "tts_fail_count": 7,
+  "screenshot_ok_count": 8,
+  "screenshot_count": 19,
+  "crash_count": 0,
+  "error_count": 93,
+  "faces": [
+    {
+      "id": 0,
+      "name": "classic",
+      "heap": 137584,
+      "largest": 126964,
+      "psram": 7732711,
+      "screenshot": {
+        "id": 0,
+        "name": "classic",
+        "ok": true,
+        "detail": "652454B",
+        "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-041016/00-classic.bmp",
+        "elapsed_ms": 5130.6
+      }
+    },
+    {
+      "id": 1,
+      "name": "apocalypso",
+      "heap": 103548,
+      "largest": 45044,
+      "psram": 7732711,
+      "screenshot": {
+        "id": 1,
+        "name": "apocalypso",
+        "ok": true,
+        "detail": "652454B",
+        "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-041016/01-apocalypso.bmp",
+        "elapsed_ms": 6805.2
+      }
+    },
+    {
+      "id": 2,
+      "name": "digital",
+      "heap": 102900,
+      "largest": 45044,
+      "psram": 7732711,
+      "screenshot": {
+        "id": 2,
+        "name": "digital",
+        "ok": true,
+        "detail": "652454B",
+        "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-041016/02-digital.bmp",
+        "elapsed_ms": 6866.9
+      }
+    },
+    {
+      "id": 3,
+      "name": "spotify",
+      "heap": 102900,
+      "largest": 45044,
+      "psram": 7732711,
+      "screenshot": {
+        "id": 3,
+        "name": "spotify",
+        "ok": true,
+        "detail": "652454B",
+        "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-041016/03-spotify.bmp",
+        "elapsed_ms": 4707.4
+      }
+    },
+    {
+      "id": 4,
+      "name": "astro",
+      "heap": 102452,
+      "largest": 45044,
+      "psram": 7732711,
+      "screenshot": {
+        "id": 4,
+        "name": "astro",
+        "ok": true,
+        "detail": "652454B",
+        "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-041016/04-astro.bmp",
+        "elapsed_ms": 10826.0
+      }
+    },
+    {
+      "id": 5,
+      "name": "moon",
+      "heap": 102160,
+      "largest": 45044,
+      "psram": 7732711,
+      "screenshot": {
+        "id": 5,
+        "name": "moon",
+        "ok": true,
+        "detail": "652454B",
+        "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-041016/05-moon.bmp",
+        "elapsed_ms": 6858.4
+      }
+    },
+    {
+      "id": 6,
+      "name": "calcifer",
+      "heap": 102160,
+      "largest": 45044,
+      "psram": 7732711,
+      "screenshot": {
+        "id": 6,
+        "name": "calcifer",
+        "ok": true,
+        "detail": "652454B",
+        "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-041016/06-calcifer.bmp",
+        "elapsed_ms": 6743.9
+      }
+    },
+    {
+      "id": 7,
+      "name": "castalia",
+      "heap": 102160,
+      "largest": 45044,
+      "psram": 7732711,
+      "screenshot": {
+        "id": 7,
+        "name": "castalia",
+        "ok": true,
+        "detail": "652454B",
+        "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-041016/07-castalia.bmp",
+        "elapsed_ms": 24629.4
+      }
+    },
+    {
+      "id": 8,
+      "name": "settings",
+      "heap": 55692,
+      "largest": 34804,
+      "psram": 7732711,
+      "screenshot": {
+        "id": 8,
+        "name": "settings",
+        "ok": false,
+        "detail": "TimeoutError: timed out",
+        "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-041016/08-settings.bmp",
+        "elapsed_ms": 18265.6
+      }
+    },
+    {
+      "id": 9,
+      "name": "synastry",
+      "heap": 58992,
+      "largest": 40948,
+      "psram": 7731955,
+      "screenshot": {
+        "id": 9,
+        "name": "synastry",
+        "ok": false,
+        "detail": "URLError: <urlopen error timed out>",
+        "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-041016/09-synastry.bmp",
+        "elapsed_ms": 18003.7
+      }
+    },
+    {
+      "id": 10,
+      "name": "spectrum",
+      "heap": 57844,
+      "largest": 45044,
+      "psram": 7731955,
+      "screenshot": {
+        "id": 10,
+        "name": "spectrum",
+        "ok": false,
+        "detail": "URLError: <urlopen error timed out>",
+        "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-041016/10-spectrum.bmp",
+        "elapsed_ms": 18005.6
+      }
+    },
+    {
+      "id": 11,
+      "name": "chakra",
+      "heap": 57456,
+      "largest": 45044,
+      "psram": 7731955,
+      "screenshot": {
+        "id": 11,
+        "name": "chakra",
+        "ok": false,
+        "detail": "URLError: <urlopen error timed out>",
+        "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-041016/11-chakra.bmp",
+        "elapsed_ms": 18002.7
+      }
+    },
+    {
+      "id": 12,
+      "name": "bowl",
+      "heap": 57080,
+      "largest": 45044,
+      "psram": 7731955,
+      "screenshot": {
+        "id": 12,
+        "name": "bowl",
+        "ok": false,
+        "detail": "URLError: <urlopen error timed out>",
+        "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-041016/12-bowl.bmp",
+        "elapsed_ms": 18005.8
+      }
+    },
+    {
+      "id": 13,
+      "name": "rocket",
+      "heap": 57080,
+      "largest": 45044,
+      "psram": 7731955,
+      "screenshot": {
+        "id": 13,
+        "name": "rocket",
+        "ok": false,
+        "detail": "URLError: <urlopen error timed out>",
+        "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-041016/13-rocket.bmp",
+        "elapsed_ms": 18004.8
+      }
+    },
+    {
+      "id": 14,
+      "name": "radar",
+      "heap": 61000,
+      "largest": 45044,
+      "psram": 7732711,
+      "screenshot": {
+        "id": 14,
+        "name": "radar",
+        "ok": false,
+        "detail": "URLError: <urlopen error timed out>",
+        "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-041016/14-radar.bmp",
+        "elapsed_ms": 18007.7
+      }
+    },
+    {
+      "id": 15,
+      "name": "faculty",
+      "heap": 60908,
+      "largest": 45044,
+      "psram": 7732711,
+      "screenshot": {
+        "id": 15,
+        "name": "faculty",
+        "ok": false,
+        "detail": "URLError: <urlopen error [Errno 64] Host is down>",
+        "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-041016/15-faculty.bmp",
+        "elapsed_ms": 4.3
+      }
+    },
+    {
+      "id": 16,
+      "name": "weather",
+      "heap": 60532,
+      "largest": 45044,
+      "psram": 7732711,
+      "screenshot": {
+        "id": 16,
+        "name": "weather",
+        "ok": false,
+        "detail": "URLError: <urlopen error [Errno 64] Host is down>",
+        "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-041016/16-weather.bmp",
+        "elapsed_ms": 1.0
+      }
+    },
+    {
+      "id": 17,
+      "name": "quotes",
+      "heap": 61680,
+      "largest": 45044,
+      "psram": 7732711,
+      "screenshot": {
+        "id": 17,
+        "name": "quotes",
+        "ok": false,
+        "detail": "URLError: <urlopen error [Errno 64] Host is down>",
+        "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-041016/17-quotes.bmp",
+        "elapsed_ms": 3.6
+      }
+    },
+    {
+      "id": 18,
+      "name": "transits",
+      "heap": 62056,
+      "largest": 45044,
+      "psram": 7732711,
+      "screenshot": {
+        "id": 18,
+        "name": "transits",
+        "ok": false,
+        "detail": "URLError: <urlopen error timed out>",
+        "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-041016/18-transits.bmp",
+        "elapsed_ms": 18006.7
+      }
+    }
+  ],
+  "screenshots": [
+    {
+      "id": 0,
+      "name": "classic",
+      "ok": true,
+      "detail": "652454B",
+      "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-041016/00-classic.bmp",
+      "elapsed_ms": 5130.6
+    },
+    {
+      "id": 1,
+      "name": "apocalypso",
+      "ok": true,
+      "detail": "652454B",
+      "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-041016/01-apocalypso.bmp",
+      "elapsed_ms": 6805.2
+    },
+    {
+      "id": 2,
+      "name": "digital",
+      "ok": true,
+      "detail": "652454B",
+      "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-041016/02-digital.bmp",
+      "elapsed_ms": 6866.9
+    },
+    {
+      "id": 3,
+      "name": "spotify",
+      "ok": true,
+      "detail": "652454B",
+      "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-041016/03-spotify.bmp",
+      "elapsed_ms": 4707.4
+    },
+    {
+      "id": 4,
+      "name": "astro",
+      "ok": true,
+      "detail": "652454B",
+      "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-041016/04-astro.bmp",
+      "elapsed_ms": 10826.0
+    },
+    {
+      "id": 5,
+      "name": "moon",
+      "ok": true,
+      "detail": "652454B",
+      "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-041016/05-moon.bmp",
+      "elapsed_ms": 6858.4
+    },
+    {
+      "id": 6,
+      "name": "calcifer",
+      "ok": true,
+      "detail": "652454B",
+      "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-041016/06-calcifer.bmp",
+      "elapsed_ms": 6743.9
+    },
+    {
+      "id": 7,
+      "name": "castalia",
+      "ok": true,
+      "detail": "652454B",
+      "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-041016/07-castalia.bmp",
+      "elapsed_ms": 24629.4
+    },
+    {
+      "id": 8,
+      "name": "settings",
+      "ok": false,
+      "detail": "TimeoutError: timed out",
+      "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-041016/08-settings.bmp",
+      "elapsed_ms": 18265.6
+    },
+    {
+      "id": 9,
+      "name": "synastry",
+      "ok": false,
+      "detail": "URLError: <urlopen error timed out>",
+      "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-041016/09-synastry.bmp",
+      "elapsed_ms": 18003.7
+    },
+    {
+      "id": 10,
+      "name": "spectrum",
+      "ok": false,
+      "detail": "URLError: <urlopen error timed out>",
+      "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-041016/10-spectrum.bmp",
+      "elapsed_ms": 18005.6
+    },
+    {
+      "id": 11,
+      "name": "chakra",
+      "ok": false,
+      "detail": "URLError: <urlopen error timed out>",
+      "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-041016/11-chakra.bmp",
+      "elapsed_ms": 18002.7
+    },
+    {
+      "id": 12,
+      "name": "bowl",
+      "ok": false,
+      "detail": "URLError: <urlopen error timed out>",
+      "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-041016/12-bowl.bmp",
+      "elapsed_ms": 18005.8
+    },
+    {
+      "id": 13,
+      "name": "rocket",
+      "ok": false,
+      "detail": "URLError: <urlopen error timed out>",
+      "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-041016/13-rocket.bmp",
+      "elapsed_ms": 18004.8
+    },
+    {
+      "id": 14,
+      "name": "radar",
+      "ok": false,
+      "detail": "URLError: <urlopen error timed out>",
+      "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-041016/14-radar.bmp",
+      "elapsed_ms": 18007.7
+    },
+    {
+      "id": 15,
+      "name": "faculty",
+      "ok": false,
+      "detail": "URLError: <urlopen error [Errno 64] Host is down>",
+      "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-041016/15-faculty.bmp",
+      "elapsed_ms": 4.3
+    },
+    {
+      "id": 16,
+      "name": "weather",
+      "ok": false,
+      "detail": "URLError: <urlopen error [Errno 64] Host is down>",
+      "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-041016/16-weather.bmp",
+      "elapsed_ms": 1.0
+    },
+    {
+      "id": 17,
+      "name": "quotes",
+      "ok": false,
+      "detail": "URLError: <urlopen error [Errno 64] Host is down>",
+      "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-041016/17-quotes.bmp",
+      "elapsed_ms": 3.6
+    },
+    {
+      "id": 18,
+      "name": "transits",
+      "ok": false,
+      "detail": "URLError: <urlopen error timed out>",
+      "path": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-041016/18-transits.bmp",
+      "elapsed_ms": 18006.7
+    }
+  ],
+  "statuses": [
+    "qa: face=0 state=0 heap=137584 iheap=137584 largest=126964 psram=7732711 voice_stack_hw=0 spk_stack_hw=30216 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.182 name=Daniel",
+    "qa: face=0 state=0 heap=57364 iheap=57364 largest=42996 psram=7731939 voice_stack_hw=27732 spk_stack_hw=30216 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.182 name=Daniel",
+    "qa: face=1 state=0 heap=61996 iheap=61996 largest=45044 psram=7731931 voice_stack_hw=27732 spk_stack_hw=7528 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.182 name=Daniel",
+    "qa: face=2 state=0 heap=55580 iheap=55580 largest=45044 psram=7729611 voice_stack_hw=27716 spk_stack_hw=7528 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.182 name=Daniel",
+    "qa: face=3 state=0 heap=55832 iheap=55832 largest=45044 psram=7729619 voice_stack_hw=27684 spk_stack_hw=7528 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.182 name=Daniel",
+    "qa: face=4 state=0 heap=93048 iheap=93048 largest=45044 psram=7671639 voice_stack_hw=27684 spk_stack_hw=7528 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.182 name=Daniel",
+    "qa: face=5 state=0 heap=44176 iheap=44176 largest=30708 psram=7731575 voice_stack_hw=27684 spk_stack_hw=7528 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.182 name=Daniel",
+    "qa: face=6 state=0 heap=52372 iheap=52372 largest=32756 psram=7731947 voice_stack_hw=27604 spk_stack_hw=7528 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.182 name=Daniel",
+    "qa: face=8 state=0 heap=55692 iheap=55692 largest=34804 psram=7732711 voice_stack_hw=27604 spk_stack_hw=7528 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.182 name=Daniel",
+    "qa: face=8 state=0 heap=57128 iheap=57128 largest=34804 psram=7731955 voice_stack_hw=27604 spk_stack_hw=7528 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.182 name=Daniel",
+    "qa: face=9 state=0 heap=58992 iheap=58992 largest=40948 psram=7731955 voice_stack_hw=27604 spk_stack_hw=7528 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.182 name=Daniel",
+    "qa: face=10 state=0 heap=57456 iheap=57456 largest=45044 psram=7731955 voice_stack_hw=27604 spk_stack_hw=7528 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.182 name=Daniel",
+    "qa: face=11 state=0 heap=57456 iheap=57456 largest=45044 psram=7731955 voice_stack_hw=27604 spk_stack_hw=7528 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.182 name=Daniel",
+    "qa: face=12 state=0 heap=57080 iheap=57080 largest=45044 psram=7731955 voice_stack_hw=27604 spk_stack_hw=7528 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.182 name=Daniel",
+    "qa: face=13 state=0 heap=57080 iheap=57080 largest=45044 psram=7731955 voice_stack_hw=27604 spk_stack_hw=7528 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.182 name=Daniel",
+    "qa: face=14 state=0 heap=56992 iheap=56992 largest=45044 psram=7731987 voice_stack_hw=27604 spk_stack_hw=7528 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.182 name=Daniel",
+    "qa: face=15 state=0 heap=56988 iheap=56988 largest=45044 psram=7731963 voice_stack_hw=27604 spk_stack_hw=7528 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.182 name=Daniel",
+    "qa: face=16 state=0 heap=56612 iheap=56612 largest=45044 psram=7732015 voice_stack_hw=27604 spk_stack_hw=7528 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.182 name=Daniel",
+    "qa: face=17 state=0 heap=57760 iheap=57760 largest=45044 psram=7732011 voice_stack_hw=27604 spk_stack_hw=7528 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.182 name=Daniel",
+    "qa: face=18 state=0 heap=58136 iheap=58136 largest=45044 psram=7731931 voice_stack_hw=27604 spk_stack_hw=7528 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.182 name=Daniel"
+  ],
+  "crashes": [],
+  "errors_tail": [
+    "[505938][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1",
+    "voice: HTTP -1 (message)",
+    "voice: message fail (HTTP -1)",
+    "[511376][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1",
+    "voice: HTTP -1 (message)",
+    "voice: HTTP retry after connect failure",
+    "[517688][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1",
+    "voice: HTTP -1 (message)",
+    "voice: message fail (HTTP -1)",
+    "tour: narrate failed 14 err=HTTP -1",
+    "[522730][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1",
+    "voice: HTTP -1 (message)",
+    "voice: HTTP retry after connect failure",
+    "[529039][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1",
+    "voice: HTTP -1 (message)",
+    "voice: message fail (HTTP -1)",
+    "tour: narrate failed 15 err=HTTP -1",
+    "[534055][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1",
+    "voice: HTTP -1 (message)",
+    "voice: HTTP retry after connect failure",
+    "[540364][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1",
+    "voice: HTTP -1 (message)",
+    "voice: message fail (HTTP -1)",
+    "tour: narrate failed 16 err=HTTP -1",
+    "[545383][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1",
+    "voice: HTTP -1 (message)",
+    "voice: HTTP retry after connect failure",
+    "[551692][E][WiFiClientSecure.cpp:144] connect(): start_ssl_clienvoice: HTTP POST message (556 B body, retry)\u2026",
+    "voice: HTTP -1 (message)",
+    "voice: message fail (HTTP -1)",
+    "tour: narrate failed 17 err=HTTP -1",
+    "[556720][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1",
+    "voice: HTTP -1 (message)",
+    "voice: HTTP retry after connect failure",
+    "[563029][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1",
+    "voice: HTTP -1 (message)",
+    "voice: message fail (HTTP -1)",
+    "tour: narrate failed 18 err=HTTP -1",
+    "tour: summary tts_ok=7 tts_fail=7 tts_skip=5",
+    "TTS_TOUR FAIL"
+  ],
+  "serial_log": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/qa/tts-tour-20260520-041016/serial-timestamped.log"
+}

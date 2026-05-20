@@ -32,6 +32,18 @@ struct PmRocketStatus {
 /** GET Launch Library 2 upcoming launches (next ~2 weeks). Blocking. */
 bool pm_rocket_fetch(PmRocketStatus *out);
 
+/** Start a background Launch Library fetch on a dedicated stack. */
+bool pm_rocket_request_fetch(void);
+
+/** Consume a completed background fetch result, if one is available. */
+bool pm_rocket_consume_fetch(PmRocketStatus *out);
+
+/** Background fetch is currently running. */
+bool pm_rocket_fetch_busy(void);
+
+/** FreeRTOS stack high-water mark for the background fetch task. */
+uint32_t pm_rocket_fetch_stack_high_water(void);
+
 /** First valid launch in `status`, or nullptr. */
 const PmRocketLaunch *pm_rocket_next(const PmRocketStatus *status);
 

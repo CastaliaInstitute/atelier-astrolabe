@@ -40,6 +40,7 @@ void pm_speaker_tone_stop(void);
 
 /** True while MP3, tone, or bowl voice playback is active. */
 bool pm_speaker_is_playing(void);
+uint32_t pm_speaker_stack_high_water(void);
 
 /** True while daily-briefing HTTP stream is actively decoding to I2S (not just waiting on network). */
 bool pm_speaker_http_stream_active(void);

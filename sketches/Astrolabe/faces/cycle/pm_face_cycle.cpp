@@ -7,9 +7,11 @@
 #include <esp_task_wdt.h>
 
 #include "faces/shared/pm_face_draw.h"
+#include "faces/moon/pm_moon_draw.h"
 #include "pin_config.h"
 #include "pm_cycle_nvs.h"
 #include "pm_display.h"
+#include "pm_transit.h"
 
 namespace {
 
@@ -67,6 +69,56 @@ void draw_cycle_marker(int cx, int cy, int r_mid, float ang, bool pulse) {
                    cy + static_cast<int>(lrintf(uy * static_cast<float>(r_mid + 12))),
                    cx + static_cast<int>(lrintf(ux * static_cast<float>(r_mid + 25))),
                    cy + static_cast<int>(lrintf(uy * static_cast<float>(r_mid + 25))), c_marker);
+}
+
+void draw_phase_dot(int x, int y, int r, float illum, bool waxing) {
+  const uint16_t c_dark = pm_gfx->color565(12, 15, 24);
+  const uint16_t c_shadow = pm_gfx->color565(36, 42, 58);
+  const uint16_t c_lit = pm_gfx->color565(232, 228, 208);
+  pm_gfx->fillCircle(x, y, r + 1, c_shadow);
+  pm_gfx->fillCircle(x, y, r, c_dark);
+  for (int dy = -r; dy <= r; ++dy) {
+    for (int dx = -r; dx <= r; ++dx) {
+      if (dx * dx + dy * dy > r * r) {
+        continue;
+      }
+      if (pm_moon_point_lit(dx, r, illum, waxing)) {
+        pm_gfx->drawPixel(x + dx, y + dy, c_lit);
+      }
+    }
+  }
+}
+
+void draw_moon_phase_ring(const struct tm *tm_local, int cx, int cy, int r_phase, uint8_t cycle_len) {
+  if (!tm_local || cycle_len == 0) {
+    return;
+  }
+  struct tm base = *tm_local;
+  base.tm_hour = 12;
+  base.tm_min = 0;
+  base.tm_sec = 0;
+  const time_t base_epoch = mktime(&base);
+  if (base_epoch <= 0) {
+    return;
+  }
+  for (uint8_t d = 0; d < cycle_len; ++d) {
+    const float a = cycle_angle_for_day(static_cast<float>(d), static_cast<float>(cycle_len));
+    const int x = cx + static_cast<int>(lrintf(cosf(a) * static_cast<float>(r_phase)));
+    const int y = cy + static_cast<int>(lrintf(sinf(a) * static_cast<float>(r_phase)));
+    time_t dot_epoch = base_epoch + static_cast<time_t>(d) * 86400;
+    struct tm utc = {};
+    gmtime_r(&dot_epoch, &utc);
+    PmTransitPositions tp = {};
+    pm_transit_compute_utc(&utc, &tp);
+    float illum = 0.f;
+    bool waxing = true;
+    if (pm_moon_phase_from_transit(&tp, &illum, &waxing, nullptr)) {
+      draw_phase_dot(x, y, d == 0 ? 4 : 3, illum, waxing);
+    }
+    if ((d & 7) == 0) {
+      yield();
+    }
+  }
 }
 
 }  // namespace
@@ -199,6 +251,9 @@ void pm_face_cycle_draw(const struct tm *tm_local, bool valid_local) {
   const uint16_t c_period = pm_gfx->color565(205, 76, 118);
   const uint16_t c_ov = pm_gfx->color565(245, 195, 80);
   const uint16_t c_spoke = pm_gfx->color565(60, 68, 84);
+
+  draw_moon_phase_ring(tm_local, cx, cy, r_outer + 12, cycle_len);
+  esp_task_wdt_reset();
 
   draw_cycle_band(cx, cy, r_inner, r_outer, cycle_len, 0.f, static_cast<float>(cycle_len), c_track, 2);
   esp_task_wdt_reset();

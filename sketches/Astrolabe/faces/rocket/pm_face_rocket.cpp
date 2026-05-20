@@ -13,6 +13,7 @@
 
 PmRocketStatus g_rocket_ui = {};
 bool s_rocket_have_data = false;
+static int s_rocket_selected_idx = 0;
 
 namespace {
 
@@ -97,6 +98,31 @@ bool within_launch_ring(int64_t event_unix, int64_t launch_unix) {
   return d >= -k_half_window_sec && d <= k_half_window_sec;
 }
 
+int selected_launch_index(const PmRocketStatus &ui) {
+  if (!ui.ok || ui.count <= 0) {
+    return 0;
+  }
+  if (s_rocket_selected_idx < 0) {
+    s_rocket_selected_idx = 0;
+  } else if (s_rocket_selected_idx >= ui.count) {
+    s_rocket_selected_idx = ui.count - 1;
+  }
+  if (!ui.launches[s_rocket_selected_idx].valid) {
+    for (int i = 0; i < ui.count; ++i) {
+      if (ui.launches[i].valid) {
+        s_rocket_selected_idx = i;
+        break;
+      }
+    }
+  }
+  return s_rocket_selected_idx;
+}
+
+const PmRocketLaunch *selected_launch(const PmRocketStatus &ui) {
+  const int idx = selected_launch_index(ui);
+  return ui.count > 0 && idx >= 0 && idx < ui.count && ui.launches[idx].valid ? &ui.launches[idx] : nullptr;
+}
+
 uint16_t blend565(uint16_t bg, uint16_t fg, float alpha) {
   if (alpha <= 0.f) {
     return bg;
@@ -155,7 +181,8 @@ void draw_launch_clock_dial(int64_t now_unix, const PmRocketStatus &ui) {
     pm_rocket_pad_image_draw_background(kCx, kCy + 12, cover_r, c_bg, 0.62f);
   }
 
-  const PmRocketLaunch *primary = ui.count > 0 && ui.launches[0].valid ? &ui.launches[0] : nullptr;
+  const int selected_idx = selected_launch_index(ui);
+  const PmRocketLaunch *primary = selected_launch(ui);
   const int64_t t0 = primary ? primary->net_unix : now_unix;
   const float now_deg = t_rel_deg(now_unix, t0);
 
@@ -195,7 +222,10 @@ void draw_launch_clock_dial(int64_t now_unix, const PmRocketStatus &ui) {
   if (primary) {
     draw_now_bead_at(kCx, kCy, r_markers, now_deg, pm_gfx->color565(255, 250, 230));
 
-    for (int i = 1; i < ui.count; ++i) {
+    for (int i = 0; i < ui.count; ++i) {
+      if (i == selected_idx) {
+        continue;
+      }
       const PmRocketLaunch &lv = ui.launches[i];
       if (!lv.valid || !within_launch_ring(lv.net_unix, t0)) {
         continue;
@@ -324,15 +354,27 @@ void draw_upcoming_list(const PmRocketStatus &ui) {
   y += 20;
 
   const int rows = ui.count < 3 ? ui.count : 3;
-  for (int i = 0; i < rows; ++i) {
+  int start = selected_launch_index(ui) - 1;
+  if (start < 0) {
+    start = 0;
+  }
+  if (start + rows > ui.count) {
+    start = ui.count - rows;
+  }
+  if (start < 0) {
+    start = 0;
+  }
+  const int selected_idx = selected_launch_index(ui);
+  for (int row = 0; row < rows; ++row) {
+    const int i = start + row;
     const PmRocketLaunch &lv = ui.launches[i];
     char when[16];
     char mission[28];
     format_launch_local(lv.net_unix, when, sizeof(when));
     short_mission_label(lv, mission, sizeof(mission));
     char line[44];
-    snprintf(line, sizeof(line), "%s  %s", when, mission);
-    pm_face_draw_centered_line(line, y, i == 0 ? c_name : c_time, 1, 1);
+    snprintf(line, sizeof(line), "%c %s  %s", i == selected_idx ? '>' : ' ', when, mission);
+    pm_face_draw_centered_line(line, y, i == selected_idx ? c_name : c_time, 1, 1);
     y += 18;
   }
 }
@@ -390,7 +432,7 @@ void pm_face_rocket_format_until(int64_t net_unix, char *out, size_t cap) {
 }
 
 bool pm_face_rocket_has_stream(void) {
-  const PmRocketLaunch *next = pm_rocket_next(&g_rocket_ui);
+  const PmRocketLaunch *next = selected_launch(g_rocket_ui);
   return next && next->webcast_url[0] != '\0';
 }
 
@@ -406,11 +448,34 @@ void pm_face_rocket_toggle_stream_qr(void) {
   s_stream_qr_visible = !s_stream_qr_visible;
 }
 
+bool pm_face_rocket_cycle_launch(int delta) {
+  if (!g_rocket_ui.ok || g_rocket_ui.count <= 0) {
+    return false;
+  }
+  const int old = selected_launch_index(g_rocket_ui);
+  int next = old + delta;
+  if (next < 0) {
+    next = g_rocket_ui.count - 1;
+  } else if (next >= g_rocket_ui.count) {
+    next = 0;
+  }
+  s_rocket_selected_idx = next;
+  s_stream_qr_visible = false;
+  return next != old;
+}
+
+int pm_face_rocket_selected_index(void) { return selected_launch_index(g_rocket_ui); }
+
+void pm_face_rocket_reset_selection(void) {
+  s_rocket_selected_idx = 0;
+  s_stream_qr_visible = false;
+}
+
 void pm_face_rocket_draw() {
   const uint16_t c_dim = pm_gfx->color565(130, 140, 165);
   const uint16_t c_accent = pm_gfx->color565(120, 200, 255);
 
-  const PmRocketLaunch *next = pm_rocket_next(&g_rocket_ui);
+  const PmRocketLaunch *next = selected_launch(g_rocket_ui);
   if (s_stream_qr_visible && next && next->webcast_url[0]) {
     draw_stream_overlay(next);
     return;
@@ -433,6 +498,7 @@ void pm_face_rocket_draw() {
   }
 
   if (!s_rocket_have_data) {
+    pm_face_rocket_reset_selection();
     draw_launch_clock_dial(now_unix, g_rocket_ui);
     draw_center_clock(nullptr);
     pm_face_draw_centered_line("loading…", 292, c_dim, 1, 1);
@@ -440,6 +506,7 @@ void pm_face_rocket_draw() {
   }
 
   if (!g_rocket_ui.ok || g_rocket_ui.count <= 0) {
+    pm_face_rocket_reset_selection();
     draw_launch_clock_dial(now_unix, g_rocket_ui);
     draw_center_clock(nullptr);
     pm_face_draw_centered_line(g_rocket_ui.error[0] ? g_rocket_ui.error : "unavailable", 292,
@@ -448,6 +515,6 @@ void pm_face_rocket_draw() {
   }
 
   draw_launch_clock_dial(now_unix, g_rocket_ui);
-  draw_center_clock(pm_rocket_next(&g_rocket_ui));
+  draw_center_clock(selected_launch(g_rocket_ui));
   draw_upcoming_list(g_rocket_ui);
 }

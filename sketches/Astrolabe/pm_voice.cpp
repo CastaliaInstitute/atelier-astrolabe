@@ -1286,7 +1286,14 @@ void pm_voice_abort(void) {
 }
 
 bool pm_voice_post_message(const char *message, const char *system_instruction, PmVoiceResult *r) {
+  s_req_message = message;
+  s_req_system = system_instruction;
+  s_req_result = r;
   return voice_net_run(1, kVoiceHttpTimeoutMs + 5000u);
+}
+
+uint32_t pm_voice_stack_high_water(void) {
+  return s_voice_task ? static_cast<uint32_t>(uxTaskGetStackHighWaterMark(s_voice_task)) : 0u;
 }
 
 bool pm_voice_post_pcm(const uint8_t *pcm, size_t pcm_len, const char *system_instruction, PmVoiceResult *r) {

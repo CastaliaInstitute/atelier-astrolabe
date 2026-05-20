@@ -50,6 +50,18 @@ const char *pm_castalia_signin_url_for_qr();
 /** One-line status for the face (pairing / WiFi / signed in). */
 const char *pm_castalia_status_line();
 
+/** Castalia individual/profile selected for this device. */
+const char *pm_castalia_individual_id();
+
+/** Repo name derived from the selected individual, for GitHub-backed profile storage. */
+const char *pm_castalia_repo_name();
+
+/** Full `owner/repo` string for the selected profile repository. */
+void pm_castalia_repo_full_name(char *out, size_t out_cap);
+
+/** Serial command handler: `castalia individual CamilleStMartin` or `castalia repo castalia-CamilleStMartin`. */
+bool pm_castalia_serial_command(const char *line);
+
 /** Draw QR for [pm_castalia_signin_url_for_qr] at center (cx,cy), max pixel width `max_px`. */
 bool pm_castalia_draw_qr(Arduino_Canvas *gfx, int cx, int cy, int max_px);
 

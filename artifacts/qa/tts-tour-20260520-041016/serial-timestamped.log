@@ -1,0 +1,267 @@
+# command=qa tour tts 1200
+# port=/dev/cu.usbmodem1401
+# ip=192.168.86.182
+1779271818.293 tour: start faces=19 dwell_ms=1200 narrate=1 tts=1 wifi=1 time=1
+1779271818.294 tour: loading 0 classic heap=137584 largest=126964 psram=7732711 health=drawing locally - hue home clock with breathing gem pulse
+1779271818.300 tour: tts 0 classic
+1779271818.300 voice: POST message…
+1779271818.302 voice: HTTP POST message (627 B body)…
+1779271823.583 qa: face=0 state=0 heap=57364 iheap=57364 largest=42996 psram=7731939 voice_stack_hw=27732 spk_stack_hw=30216 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.182 name=Daniel
+1779271829.700 voice: HTTP 200 (message)
+1779271829.700 voice: reading MP3 body…
+1779271829.700 voice: MP3 Content-Length 317568
+1779271830.827 voice: MP3 recv 68341 B…
+1779271831.986 voice: MP3 recv 133877 B…
+1779271832.830 voice: MP3 recv 201541 B…
+1779271834.858 voice: MP3 recv 277104 B…
+1779271834.858 voice: MP3 complete 317568 B
+1779271834.858 voice: message ok mp3=317568 B
+1779271834.858 voice: message reply="Ah, the brass disc hums with the soft breath of Wednesday, just past four of the morning. Your classic clock face, drawing this quiet moment into being, holds a message.  An omen f…"
+1779271835.407 E (86417) I2S: i2s_driver_uninstall(2048): I2S port 0 has not installed
+1779271876.295 tour: tts ok 0
+1779271877.731 tour: loading 1 apocalypso heap=103548 largest=45044 psram=7732711 health=heap is low - watch-style day wheel and local time
+1779271877.733 tour: tts 1 apocalypso
+1779271877.733 voice: POST message…
+1779271877.733 voice: HTTP POST message (636 B body)…
+1779271877.993 qa: face=1 state=0 heap=61996 iheap=61996 largest=45044 psram=7731931 voice_stack_hw=27732 spk_stack_hw=7528 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.182 name=Daniel
+1779271888.596 voice: HTTP 200 (message)
+1779271888.596 voice: reading MP3 body…
+1779271888.596 voice: MP3 Content-Length 257472
+1779271889.744 voice: MP3 recv 68736 B…
+1779271890.578 voice: MP3 recv 137502 B…
+1779271891.424 voice: MP3 recv 205166 B…
+1779271892.269 voice: MP3 complete 257472 B
+1779271892.270 voice: message ok mp3=257472 B
+1779271892.270 voice: message reply="Ah, the brass face of the Apocalypso day wheel murmurs in the stillness of this early Wednesday morn.  An omen unfolds: in the gentle ebb of the heap, a silent cycle concludes, pre…"
+1779271892.270 E (143288) I2S: i2s_driver_uninstall(2048): I2S port 0 has not installed
+1779271925.303 tour: tts ok 1
+1779271925.303 tour: loading 2 digital heap=102900 largest=45044 psram=7732711 health=heap is low - large local digital clock
+1779271925.304 tour: tts 2 digital
+1779271925.304 voice: POST message…
+1779271925.304 voice: HTTP POST message (627 B body)…
+1779271925.562 qa: face=2 state=0 heap=55580 iheap=55580 largest=45044 psram=7729611 voice_stack_hw=27716 spk_stack_hw=7528 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.182 name=Daniel
+1779271933.482 voice: HTTP 200 (message)
+1779271933.482 voice: reading MP3 body…
+1779271933.482 voice: MP3 Content-Length 231552
+1779271934.333 voice: MP3 recv 68240 B…
+1779271935.481 voice: MP3 recv 135904 B…
+1779271936.617 voice: MP3 recv 203541 B…
+1779271937.165 voice: MP3 complete 231552 B
+1779271937.166 voice: message ok mp3=231552 B
+1779271937.166 voice: message reply="The brass reflects the quiet of 04:12 on this Wednesday dawn. A faint vibration hums within the deeper currents, hinting at a quiet thirst within your core.  Perhaps, for the next …"
+1779271937.166 E (188130) I2S: i2s_driver_uninstall(2048): I2S port 0 has not installed
+1779271966.796 tour: tts ok 2
+1779271966.796 tour: loading 3 spotify heap=102900 largest=45044 psram=7732711 health=heap is low - Spotify transport and now-playing surface
+1779271966.797 tour: tts 3 spotify
+1779271966.797 voice: POST message…
+1779271966.799 voice: HTTP POST message (620 B body)…
+1779271967.054 qa: face=3 state=0 heap=55832 iheap=55832 largest=45044 psram=7729619 voice_stack_hw=27684 spk_stack_hw=7528 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.182 name=Daniel
+1779271975.570 voice: HTTP 200 (message)
+1779271975.571 voice: reading MP3 body…
+1779271975.571 voice: MP3 Content-Length 182784
+1779271976.718 voice: MP3 recv 65806 B…
+1779271977.550 voice: MP3 recv 132054 B…
+1779271978.392 voice: MP3 complete 182784 B
+1779271978.393 voice: message ok mp3=182784 B
+1779271978.393 voice: message reply="The astrolabe shows the Spotify stream's deep well to be low, a moment for introspection. I counsel you to seek out gentle, ambient soundscapes, or to rediscover beloved, comfortin…"
+1779271978.393 E (229371) I2S: i2s_driver_uninstall(2048): I2S port 0 has not installed
+1779272001.808 tour: tts ok 3
+1779272001.809 tour: loading 4 astro heap=102452 largest=45044 psram=7732711 health=heap is low - live sky wheel and astrology voice hooks
+1779272001.809 tour: tts 4 astro
+1779272001.813 voice: POST message…
+1779272001.813 voice: HTTP POST message (1267 B body)…
+1779272006.477 voice: HTTP 200 (message)
+1779272006.477 voice: reading MP3 body…
+1779272006.477 voice: MP3 Content-Length 61056
+1779272007.321 voice: MP3 complete 61056 B
+1779272007.321 voice: message ok mp3=61056 B
+1779272007.321 voice: message reply="Ah, good morning to you, seeker. Let us peer into the celestial dance for this crisp Wednesday,"
+1779272012.858 qa: face=4 state=0 heap=93048 iheap=93048 largest=45044 psram=7671639 voice_stack_hw=27684 spk_stack_hw=7528 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.182 name=Daniel
+1779272012.858 E (263809) I2S: i2s_driver_uninstall(2048): I2S port 0 has not installed
+1779272021.058 tour: tts ok 4
+1779272021.058 tour: loading 5 moon heap=102160 largest=45044 psram=7732711 health=heap is low - lunar phase, fortune tap, and Moon voice
+1779272021.313 tour: tts 5 moon
+1779272021.313 voice: POST message…
+1779272021.313 voice: HTTP POST message (992 B body)…
+1779272030.111 qa: face=5 state=0 heap=44176 iheap=44176 largest=30708 psram=7731575 voice_stack_hw=27684 spk_stack_hw=7528 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.182 name=Daniel
+1779272030.111 voice: HTTP 200 (message)
+1779272030.111 voice: reading MP3 body…
+1779272030.111 voice: MP3 Content-Length 222720
+1779272031.552 voice: MP3 recv 65592 B…
+1779272032.983 voice: MP3 recv 133275 B…
+1779272032.983 voice: MP3 recv 200939 B…
+1779272033.534 voice: MP3 complete 222720 B
+1779272033.534 voice: message ok mp3=222720 B
+1779272033.534 voice: message reply="Ah, the gentle Waxing Crescent whispers tonight, a sliver of light at 18% strength. Its delicate arc is an omen of nascent potential, a tender seed beginning to unfurl its dreams. …"
+1779272033.534 E (284457) I2S: i2s_driver_uninstall(2048): I2S port 0 has not installed
+1779272061.986 tour: tts ok 5
+1779272061.988 tour: loading 6 calcifer heap=102160 largest=45044 psram=7732711 health=heap is low - rolling agenda daywheel from calendar
+1779272061.989 voice: POST message…
+1779272061.989 tour: tts 6 calcifer
+1779272061.989 voice: HTTP POST message (619 B body)…
+1779272070.202 qa: face=6 state=0 heap=52372 iheap=52372 largest=32756 psram=7731947 voice_stack_hw=27604 spk_stack_hw=7528 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.182 name=Daniel
+1779272070.202 voice: HTTP 200 (message)
+1779272070.202 voice: reading MP3 body…
+1779272070.202 voice: MP3 Content-Length 235776
+1779272071.947 voice: MP3 recv 65543 B…
+1779272071.948 voice: MP3 recv 134183 B…
+1779272072.500 voice: MP3 recv 201847 B…
+1779272073.043 voice: MP3 complete 235776 B
+1779272073.043 voice: message ok mp3=235776 B
+1779272073.043 voice: message reply="The astrolabe whispers of the coming dawn. The *Calcifer daywheel*, in this quiet Wednesday at 04:14, reveals a *heap that is low*.  This suggests an omen of unburdened space. Take…"
+1779272073.044 E (324073) I2S: i2s_driver_uninstall(2048): I2S port 0 has not installed
+1779272103.304 tour: tts ok 6
+1779272103.304 tour: loading 7 castalia heap=102160 largest=45044 psram=7732711 health=heap is low - Castalia pairing QR and auth status
+1779272103.304 tour: tts 7 castalia
+1779272103.307 voice: POST message…
+1779272103.307 voice: HTTP POST message (606 B body)…
+1779272103.307 [354759][E][ssl_client.cpp:37] _handle_error(): [start_ssl_client():264]: (-32512) SSL - Memory allocation failed
+1779272103.307 [354769][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -32512
+1779272103.307 voice: HTTP -1 (message)
+1779272103.307 voice: HTTP retry after connect failure
+1779272104.742 voice: HTTP POST message (606 B body, retry)…
+1779272104.742 [356148][E][ssl_client.cpp:37] _handle_error(): [start_ssl_client():264]: (-32512) SSL - Memory allocation failed
+1779272104.742 [356158][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -32512
+1779272104.742 voice: HTTP -1 (message)
+1779272104.742 voice: message fail (HTTP -1)
+1779272127.869 qa: face=8 state=0 heap=55692 iheap=55692 largest=34804 psram=7732711 voice_stack_hw=27604 spk_stack_hw=7528 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.182 name=Daniel
+1779272127.871 tour: narrate failed 7 err=HTTP -1
+1779272127.871 tour: loading 8 settings heap=55692 largest=34804 psram=7732711 health=heap is low - WiFi and Castalia settings hub
+1779272127.874 tour: tts 8 settings
+1779272127.875 voice: POST message…
+1779272127.875 voice: HTTP POST message (611 B body)…
+1779272128.132 qa: face=8 state=0 heap=57128 iheap=57128 largest=34804 psram=7731955 voice_stack_hw=27604 spk_stack_hw=7528 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.182 name=Daniel
+1779272138.384 [389746][E][TouchPoints.cpp:68] getPoint(): Invalid touch point index: 0
+1779272161.500 [412861][E][TouchPoints.cpp:68] getPoint(): Invalid touch point index: 0
+1779272163.513 [414971][E][TouchPoints.cpp:68] getPoint(): Invalid touch point index: 0
+1779272248.248 [499627][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1
+1779272248.248 voice: HTTP -1 (message)
+1779272248.248 voice: HTTP retry after connect failure
+1779272248.504 tour: narrate timeout 8 err=HTTP -1
+1779272248.504 tour: loading 9 synastry heap=58992 largest=40948 psram=7731955 health=heap is low - dual natal chart and relationship aspects
+1779272248.504 tour: narrate skipped synastry err=voice busy
+1779272248.761 qa: face=9 state=0 heap=58992 iheap=58992 largest=40948 psram=7731955 voice_stack_hw=27604 spk_stack_hw=7528 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.182 name=Daniel
+1779272249.596 [501138][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop retvoice: HTTP POST message (611 B body, retry)…
+1779272249.596 urned Error -1
+1779272249.596 [501146][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+1779272249.596 [501154][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+1779272249.596 [501161][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+1779272249.596 [501168][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+1779272249.596 [501176][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+1779272249.596 [501183][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+1779272249.596 [501191][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+1779272249.857 [501198][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+1779272249.857 [501205][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+1779272249.857 [501213][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+1779272249.857 [501220][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+1779272249.857 [501228][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+1779272249.857 [501235][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+1779272249.857 [501242][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+1779272249.857 [501250][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+1779272249.857 [501257][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+1779272249.858 [501264][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+1779272249.858 [501271][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+1779272249.858 [501279][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+1779272249.858 [501287][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+1779272249.858 [501294][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+1779272249.858 [501301][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+1779272249.858 [501308][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+1779272249.858 [501316][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+1779272249.858 [501324][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+1779272249.858 [501332][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+1779272249.858 [501339][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+1779272249.858 [501346][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+1779272249.858 [501354][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+1779272249.858 [501362][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+1779272249.858 [501369][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+1779272249.858 [501376][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+1779272249.858 [501384][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+1779272249.858 [501391][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+1779272249.858 [501398][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+1779272249.858 [501406][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+1779272249.858 tour: loading 10 spectrum heap=57844 largest=45044 psram=7731955 health=heap is low - microphone spectrum visualizer modes
+1779272249.859 tour: narrate skipped spectrum err=voice busy
+1779272250.119 qa: face=10 state=0 heap=57456 iheap=57456 largest=45044 psram=7731955 voice_stack_hw=27604 spk_stack_hw=7528 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.182 name=Daniel
+1779272250.964 tour: loading 11 chakra heap=57456 largest=45044 psram=7731955 health=heap is low - chakra symbols with solfeggio tones
+1779272250.965 tour: narrate skipped chakra err=voice busy
+1779272251.223 qa: face=11 state=0 heap=57456 iheap=57456 largest=45044 psram=7731955 voice_stack_hw=27604 spk_stack_hw=7528 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.182 name=Daniel
+1779272252.061 tour: loading 12 bowl heap=57080 largest=45044 psram=7731955 health=heap is low - Tibetan bowl rim instrument
+1779272252.061 tour: narrate skipped bowl err=voice busy
+1779272252.322 qa: face=12 state=0 heap=57080 iheap=57080 largest=45044 psram=7731955 voice_stack_hw=27604 spk_stack_hw=7528 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.182 name=Daniel
+1779272253.159 tour: loading 13 rocket heap=57080 largest=45044 psram=7731955 health=heap is low - upcoming orbital launch clock
+1779272253.420 tour: narrate skipped rocket err=voice busy
+1779272253.421 qa: face=13 state=0 heap=57080 iheap=57080 largest=45044 psram=7731955 voice_stack_hw=27604 spk_stack_hw=7528 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.182 name=Daniel
+1779272254.563 [505938][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1
+1779272254.563 voice: HTTP -1 (message)
+1779272254.563 voice: message fail (HTTP -1)
+1779272254.563 tour: loading 14 radar heap=61000 largest=45044 psram=7732711 health=heap is low - BLE locator and nearby peer radar
+1779272254.815 tour: radar BLE paused for TTS heap=61000 largest=45044
+1779272254.815 tour: tts 14 radar
+1779272254.816 voice: POST message…
+1779272255.075 voice: HTTP POST message (578 B body)…
+1779272255.075 qa: face=14 state=0 heap=56992 iheap=56992 largest=45044 psram=7731987 voice_stack_hw=27604 spk_stack_hw=7528 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.182 name=Daniel
+1779272260.030 [511376][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1
+1779272260.030 voice: HTTP -1 (message)
+1779272260.030 voice: HTTP retry after connect failure
+1779272261.166 voice: HTTP POST message (578 B body, retry)…
+1779272266.111 [517688][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1
+1779272266.111 voice: HTTP -1 (message)
+1779272266.111 voice: message fail (HTTP -1)
+1779272266.370 tour: narrate failed 14 err=HTTP -1
+1779272266.370 tour: loading 15 faculty heap=60908 largest=45044 psram=7732711 health=heap is low - recent ask-faculty conversation portraits
+1779272266.371 tour: tts 15 faculty
+1779272266.371 voice: POST message…
+1779272266.371 voice: HTTP POST message (602 B body)…
+1779272266.622 qa: face=15 state=0 heap=56988 iheap=56988 largest=45044 psram=7731963 voice_stack_hw=27604 spk_stack_hw=7528 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.182 name=Daniel
+1779272271.280 [522730][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1
+1779272271.280 voice: HTTP -1 (message)
+1779272271.280 voice: HTTP retry after connect failure
+1779272272.713 voice: HTTP POST message (602 B body, retry)…
+1779272277.648 [529039][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1
+1779272277.649 voice: HTTP -1 (message)
+1779272277.649 voice: message fail (HTTP -1)
+1779272277.649 tour: narrate failed 15 err=HTTP -1
+1779272277.649 tour: loading 16 weather heap=60532 largest=45044 psram=7732711 health=heap is low - 24-hour radial forecast rings
+1779272277.650 tour: tts 16 weather
+1779272277.650 voice: POST message…
+1779272277.650 voice: HTTP POST message (551 B body)…
+1779272277.910 qa: face=16 state=0 heap=56612 iheap=56612 largest=45044 psram=7732015 voice_stack_hw=27604 spk_stack_hw=7528 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.182 name=Daniel
+1779272282.603 [534055][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1
+1779272282.603 voice: HTTP -1 (message)
+1779272282.603 voice: HTTP retry after connect failure
+1779272284.024 voice: HTTP POST message (551 B body, retry)…
+1779272288.997 [540364][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1
+1779272288.997 voice: HTTP -1 (message)
+1779272288.997 voice: message fail (HTTP -1)
+1779272288.997 tour: narrate failed 16 err=HTTP -1
+1779272288.997 tour: loading 17 quotes heap=61680 largest=45044 psram=7732711 health=heap is low - Castalia quote of the day with faculty bust
+1779272288.998 tour: tts 17 quotes
+1779272288.998 voice: POST message…
+1779272288.998 voice: HTTP POST message (556 B body)…
+1779272288.998 pm_faculty: bust skipped low memory heap=57760 largest=45044
+1779272288.998 pm_faculty: bust skipped low memory heap=57760 largest=45044
+1779272289.257 qa: face=17 state=0 heap=57760 iheap=57760 largest=45044 psram=7732011 voice_stack_hw=27604 spk_stack_hw=7528 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.182 name=Daniel
+1779272293.920 [545383][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1
+1779272293.921 voice: HTTP -1 (message)
+1779272293.921 voice: HTTP retry after connect failure
+1779272300.347 [551692][E][WiFiClientSecure.cpp:144] connect(): start_ssl_clienvoice: HTTP POST message (556 B body, retry)…
+1779272300.347 t: -1
+1779272300.347 voice: HTTP -1 (message)
+1779272300.347 voice: message fail (HTTP -1)
+1779272300.347 tour: narrate failed 17 err=HTTP -1
+1779272300.347 tour: loading 18 transits heap=62056 largest=45044 psram=7732711 health=heap is low - live planetary spheres and next Moon ingress
+1779272300.348 voice: POST message…
+1779272300.348 tour: tts 18 transits
+1779272300.348 voice: HTTP POST message (635 B body)…
+1779272300.608 qa: face=18 state=0 heap=58136 iheap=58136 largest=45044 psram=7731931 voice_stack_hw=27604 spk_stack_hw=7528 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.182 name=Daniel
+1779272305.299 [556720][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1
+1779272305.303 voice: HTTP -1 (message)
+1779272305.303 voice: HTTP retry after connect failure
+1779272306.441 voice: HTTP POST message (635 B body, retry)…
+1779272311.673 [563029][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1
+1779272311.674 voice: HTTP -1 (message)
+1779272311.674 voice: message fail (HTTP -1)
+1779272311.674 tour: narrate failed 18 err=HTTP -1
+1779272311.674 tour: summary tts_ok=7 tts_fail=7 tts_skip=5
+1779272311.674 TTS_TOUR FAIL
+1779272311.674 tour: done
