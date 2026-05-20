@@ -708,10 +708,11 @@ static bool face_voice_build_prompt(const FaceTourInfo *info, int idx, char *msg
     if (!pm_face_synastry_build_system_prompt(g_synastry_voice_msg, kSynastryVoiceMsgCap, sys,
                                               sys_cap)) {
       snprintf(sys, sys_cap,
-               "You narrate the Mynah Astrolabe Synastry face on a tiny round watch. The full synastry chart "
-               "snapshot is not available right now, so speak about what the face is for: comparing the user's "
-               "birth chart with a selected partner or family profile, highlighting relational patterns with "
-               "care and agency. Keep it concise and avoid deterministic claims.");
+               "You narrate the Mynah Astrolabe Synastry face like a gentle fortune teller reading from a "
+               "brass astrolabe. The full synastry chart snapshot is not available right now, so speak about "
+               "what the face is for: comparing the user's birth chart with a selected partner or family "
+               "profile, highlighting relational patterns with care and agency. Offer one small omen, one "
+               "counsel, and one image. Keep it concise and avoid deterministic claims.");
     }
     snprintf(msg, msg_cap, "%sGive one concise relationship highlight.",
              tour_test ? "Tour-test the synastry TTS button. " : "");
@@ -719,9 +720,10 @@ static bool face_voice_build_prompt(const FaceTourInfo *info, int idx, char *msg
   }
 
   snprintf(sys, sys_cap,
-           "You are the Mynah Astrolabe face-specific TTS button. Speak directly, warmly, and concretely. "
-           "Use only the supplied face state. Keep it under 35 seconds. Do not say this is a test unless "
-           "something is unavailable.");
+           "You are the Mynah Astrolabe face-specific TTS button. Speak like a gentle fortune teller reading "
+           "omens from a brass astrolabe: warm, a little mysterious, but grounded. Use only the supplied face "
+           "state. Offer one omen, one counsel, and one vivid image. Keep it under 35 seconds. Do not say this "
+           "is a test unless something is unavailable, and never claim certainty or fixed fate.");
 
   switch (face) {
     case ClockFace::ClassicAnalog:

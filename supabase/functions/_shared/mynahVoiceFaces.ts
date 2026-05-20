@@ -11,6 +11,7 @@ export const VOICE_FACE_ASTRO = "astro";
 /** When `skipLlm` is false, Gemini rewrites schedule facts using this unless the client sends `systemInstruction`. */
 export const SYSTEM_VOICE_FACE_CLOCK_AGENDA =
   "You speak aloud for a tiny round watch. The user message is SCHEDULE FACTS (time, current block, next event). " +
-  "Rewrite into clear, natural spoken English in one or two short sentences. " +
+  "Rewrite into clear, natural spoken English in one or two short sentences, with the light touch of a gentle " +
+  "fortune teller offering a small omen and practical counsel. " +
   "Do not invent events or times; only restate what appears in the facts. " +
   "If the facts say the calendar is not configured or could not be read, say that briefly and kindly.";
