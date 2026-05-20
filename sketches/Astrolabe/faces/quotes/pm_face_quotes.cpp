@@ -119,11 +119,14 @@ void pm_face_quotes_draw(void) {
   pm_face_draw_centered_line(source, LCD_HEIGHT - 39, c_accent, 1, 1);
 
   char meta[72];
-  if (g_quotes_ui.total > 0) {
+  if (g_quotes_ui.book_author[0]) {
+    char author[48];
+    short_line(g_quotes_ui.book_author, author, sizeof(author), 32);
+    snprintf(meta, sizeof(meta), "by %s", author);
+  } else if (g_quotes_ui.total > 0) {
     snprintf(meta, sizeof(meta), "%s  %d/%d", g_quotes_ui.date, g_quotes_ui.index, g_quotes_ui.total);
   } else {
     snprintf(meta, sizeof(meta), "%s", g_quotes_ui.date);
   }
   pm_face_draw_centered_line(meta, LCD_HEIGHT - 18, c_dim, 1, 1);
 }
-

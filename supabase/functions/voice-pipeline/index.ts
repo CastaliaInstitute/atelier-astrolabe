@@ -121,7 +121,7 @@ async function voicePipelineOk(
   });
 
   if (wantsMp3Response(req, body)) {
-    const mp3 = await ttsMp3Bytes(tts, payload.reply);
+    const mp3 = await ttsMp3Bytes(tts, spoken);
     const headers: Record<string, string> = {
       ...corsHeaders,
       "Content-Type": "audio/mpeg",
@@ -137,7 +137,7 @@ async function voicePipelineOk(
     return new Response(mp3, { status: 200, headers });
   }
 
-  const audioBase64 = await ttsMp3Base64(tts, payload.reply);
+  const audioBase64 = await ttsMp3Base64(tts, spoken);
   return jsonResponse(
     200,
     {

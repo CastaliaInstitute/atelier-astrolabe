@@ -30,7 +30,7 @@ extern "C" {
 static const char *TAG = "pm_speaker";
 
 #define I2S_TX I2S_NUM_0
-static constexpr uint32_t kSpeakerTaskStack = 49152;
+static constexpr uint32_t kSpeakerTaskStack = 32768;
 static constexpr int kSpeakerVolume = 70;
 static uint32_t s_max_play_seconds = 180u;
 

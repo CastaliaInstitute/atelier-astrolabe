@@ -18,7 +18,7 @@
 
 static const char *TAG = "pm_voice";
 
-static constexpr uint32_t kVoiceNetTaskStack = 32768;
+static constexpr uint32_t kVoiceNetTaskStack = 24576;
 /** STT + Gemini + TTS + large chunked JSON (astrology readings). */
 static constexpr uint32_t kVoiceHttpTimeoutMs = 660000;
 /** voice-pipeline JSON + base64 MP3. */
@@ -30,6 +30,7 @@ static TaskHandle_t s_voice_task = nullptr;
 static volatile bool s_voice_done = false;
 static volatile bool s_voice_ok = false;
 static volatile PmVoiceStatus s_voice_status = PmVoiceStatus::Idle;
+static volatile bool s_voice_task_active = false;
 static volatile uint8_t s_voice_op = 0; /** 1 = message, 2 = pcm, 3 = clock_agenda, 4 = daily_briefing */
 static volatile bool s_voice_cancel = false;
 static volatile bool s_daily_briefing_streamed = false;
@@ -42,9 +43,6 @@ static const uint8_t *s_req_pcm = nullptr;
 static size_t s_req_pcm_len = 0;
 static PmVoiceResult *s_req_result = nullptr;
 
-static char s_esc_msg[2048];
-static char s_esc_sys[768];
-static char s_esc_sys_pcm[6144];
 static char s_last_error[80] = "";
 static const char *s_body_read_err = "bad response";
 
@@ -65,6 +63,16 @@ static void voice_set_error(const char *msg) {
   }
   strncpy(s_last_error, msg, sizeof(s_last_error) - 1);
   s_last_error[sizeof(s_last_error) - 1] = '\0';
+}
+
+static char *voice_psram_char_alloc(size_t cap, const char *err) {
+  char *p = static_cast<char *>(heap_caps_malloc(cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  if (!p) {
+    voice_set_error(err ? err : "oom psram");
+    return nullptr;
+  }
+  p[0] = '\0';
+  return p;
 }
 
 const char *pm_voice_last_error() {
@@ -408,17 +416,16 @@ static bool read_http_mp3_body(HTTPClient *http, uint8_t **out_mp3, size_t *out_
     return false;
   }
 
+  const size_t alloc_cap = declared > 0 ? static_cast<size_t>(declared) : kVoiceMp3MaxBytes;
   uint8_t *buf = static_cast<uint8_t *>(
-      heap_caps_malloc(kVoiceMp3MaxBytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+      heap_caps_malloc(alloc_cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
   if (!buf) {
-    buf = static_cast<uint8_t *>(malloc(kVoiceMp3MaxBytes));
-  }
-  if (!buf) {
+    body_read_set_err("oom mp3");
     return false;
   }
 
   size_t rd = 0;
-  const size_t read_cap = kVoiceMp3MaxBytes;
+  const size_t read_cap = alloc_cap;
   const size_t target_len = (declared > 0) ? static_cast<size_t>(declared) : 0;
   const uint32_t deadline = millis() + 680000u;
   uint32_t last_rx_ms = 0;
@@ -574,65 +581,33 @@ static bool voice_post_message_inner(const char *message, const char *system_ins
 
   char *esc_msg = nullptr;
   char *esc_sys = nullptr;
-  bool esc_msg_heap = false;
-  bool esc_sys_heap = false;
 
   const size_t msg_cap = strlen(message) * 2 + 16;
-  if (msg_cap <= sizeof(s_esc_msg)) {
-    if (!json_escape_string(message, s_esc_msg, sizeof(s_esc_msg))) {
-      voice_set_error("message too long");
-      return false;
-    }
-    esc_msg = s_esc_msg;
-  } else {
-    esc_msg = static_cast<char *>(heap_caps_malloc(msg_cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-    if (!esc_msg) {
-      esc_msg = static_cast<char *>(malloc(msg_cap));
-    }
-    if (!esc_msg || !json_escape_string(message, esc_msg, msg_cap)) {
-      free(esc_msg);
-      voice_set_error("message too long");
-      return false;
-    }
-    esc_msg_heap = true;
+  esc_msg = voice_psram_char_alloc(msg_cap, "oom esc msg");
+  if (!esc_msg || !json_escape_string(message, esc_msg, msg_cap)) {
+    free(esc_msg);
+    voice_set_error("message too long");
+    return false;
   }
 
   if (system_instruction && system_instruction[0] != '\0') {
     const size_t sys_cap = strlen(system_instruction) * 2 + 16;
-    if (sys_cap <= sizeof(s_esc_sys)) {
-      if (!json_escape_string(system_instruction, s_esc_sys, sizeof(s_esc_sys))) {
-        if (esc_msg_heap) {
-          free(esc_msg);
-        }
-        voice_set_error("system prompt too long");
-        return false;
-      }
-      esc_sys = s_esc_sys;
-    } else {
-      esc_sys = static_cast<char *>(heap_caps_malloc(sys_cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-      if (!esc_sys) {
-        esc_sys = static_cast<char *>(malloc(sys_cap));
-      }
-      if (!esc_sys || !json_escape_string(system_instruction, esc_sys, sys_cap)) {
-        if (esc_msg_heap) {
-          free(esc_msg);
-        }
-        free(esc_sys);
-        voice_set_error("system prompt too long");
-        return false;
-      }
-      esc_sys_heap = true;
+    esc_sys = voice_psram_char_alloc(sys_cap, "oom esc sys");
+    if (!esc_sys || !json_escape_string(system_instruction, esc_sys, sys_cap)) {
+      free(esc_msg);
+      free(esc_sys);
+      voice_set_error("system prompt too long");
+      return false;
     }
   }
 
   const bool have_sys = esc_sys && esc_sys[0] != '\0';
-  const size_t body_cap = strlen(esc_msg) + (have_sys ? strlen(esc_sys) : 0) + 160;
+  const size_t body_cap = strlen(esc_msg) + (have_sys ? strlen(esc_sys) : 0) + 192;
   char *body = static_cast<char *>(
       heap_caps_malloc(body_cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
   if (!body) {
-    body = static_cast<char *>(malloc(body_cap));
-  }
-  if (!body) {
+    free(esc_msg);
+    free(esc_sys);
     voice_set_error("oom body");
     return false;
   }
@@ -640,17 +615,15 @@ static bool voice_post_message_inner(const char *message, const char *system_ins
   int n;
   if (have_sys) {
     n = snprintf(body, body_cap,
-                 "{\"languageCode\":\"en-US\",\"message\":\"%s\",\"systemInstruction\":\"%s\"}",
+                 "{\"languageCode\":\"en-US\",\"message\":\"%s\",\"systemInstruction\":\"%s\","
+                 "\"responseFormat\":\"mp3\"}",
                  esc_msg, esc_sys);
   } else {
-    n = snprintf(body, body_cap, "{\"languageCode\":\"en-US\",\"message\":\"%s\"}", esc_msg);
+    n = snprintf(body, body_cap,
+                 "{\"languageCode\":\"en-US\",\"message\":\"%s\",\"responseFormat\":\"mp3\"}", esc_msg);
   }
-  if (esc_msg_heap) {
-    free(esc_msg);
-  }
-  if (esc_sys_heap) {
-    free(esc_sys);
-  }
+  free(esc_msg);
+  free(esc_sys);
   if (n <= 0 || static_cast<size_t>(n) >= body_cap) {
     free(body);
     voice_set_error("body too large");
@@ -666,6 +639,7 @@ static bool voice_post_message_inner(const char *message, const char *system_ins
     return false;
   }
   http.addHeader("Content-Type", "application/json");
+  http.addHeader("Accept", "audio/mpeg");
   pm_castalia_auth_apply_headers(&http);
 
   Serial.printf("voice: HTTP POST message (%u B body)…\n", static_cast<unsigned>(n));
@@ -680,28 +654,19 @@ static bool voice_post_message_inner(const char *message, const char *system_ins
     return false;
   }
 
-  const size_t resp_cap = kVoiceRespMaxBytes;
-  const int declared_sz = http.getSize();
-  char *resp = nullptr;
-  Serial.println("voice: reading response body…");
-  if (!read_http_json_body(&http, &resp, resp_cap)) {
-    ESP_LOGW(TAG, "voice-pipeline (message) body read fail (declared len %d)", declared_sz);
+  if (!read_http_mp3_body(&http, &r->mp3, &r->mp3_len)) {
+    ESP_LOGW(TAG, "voice-pipeline (message) MP3 read fail");
     Serial.printf("voice: body read fail (%s)\n", s_body_read_err);
     voice_set_error(s_body_read_err);
     http.end();
     return false;
   }
   http.end();
-  Serial.println("voice: body read done");
-
-  extract_json_string_field(resp, "transcript", r->transcript, sizeof(r->transcript));
-  extract_json_string_field(resp, "reply", r->reply, sizeof(r->reply));
-  if (!extract_audio_base64(resp, &r->mp3, &r->mp3_len)) {
-    ESP_LOGI(TAG, "voice (message) text-only (no audioBase64)");
-  } else {
-    ESP_LOGI(TAG, "voice (message) mp3 %u bytes", static_cast<unsigned>(r->mp3_len));
-  }
-  free(resp);
+  strncpy(r->transcript, message, sizeof(r->transcript) - 1);
+  r->transcript[sizeof(r->transcript) - 1] = '\0';
+  strncpy(r->reply, "spoken MP3 response", sizeof(r->reply) - 1);
+  r->reply[sizeof(r->reply) - 1] = '\0';
+  ESP_LOGI(TAG, "voice (message) mp3 %u bytes", static_cast<unsigned>(r->mp3_len));
   if (!voice_result_ok(r)) {
     voice_set_error("empty reply");
     return false;
@@ -738,22 +703,25 @@ static bool voice_post_pcm_inner(const uint8_t *pcm, size_t pcm_len, const char 
 
   static const char kPrefix[] =
       "{\"languageCode\":\"en-US\",\"sampleRateHertz\":16000,\"audioBase64\":\"";
-  s_esc_sys_pcm[0] = '\0';
   const bool have_sys = system_instruction && system_instruction[0] != '\0';
-  if (have_sys && !json_escape_string(system_instruction, s_esc_sys_pcm, sizeof(s_esc_sys_pcm))) {
-    voice_set_error("prompt too long");
-    return false;
+  char *esc_sys_pcm = nullptr;
+  if (have_sys) {
+    const size_t esc_sys_cap = strlen(system_instruction) * 2 + 16;
+    esc_sys_pcm = voice_psram_char_alloc(esc_sys_cap, "oom esc sys");
+    if (!esc_sys_pcm || !json_escape_string(system_instruction, esc_sys_pcm, esc_sys_cap)) {
+      free(esc_sys_pcm);
+      voice_set_error("prompt too long");
+      return false;
+    }
   }
 
   const size_t b64max = ((pcm_len + 2) / 3) * 4 + 4;
-  const size_t sys_extra = have_sys ? (24 + strlen(s_esc_sys_pcm)) : 0;
+  const size_t sys_extra = have_sys ? (24 + strlen(esc_sys_pcm)) : 0;
   const size_t body_cap = sizeof(kPrefix) - 1 + b64max + sys_extra + 4;
   uint8_t *body = static_cast<uint8_t *>(
       heap_caps_malloc(body_cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
   if (!body) {
-    body = static_cast<uint8_t *>(malloc(body_cap));
-  }
-  if (!body) {
+    free(esc_sys_pcm);
     voice_set_error("oom body");
     return false;
   }
@@ -765,12 +733,14 @@ static bool voice_post_pcm_inner(const uint8_t *pcm, size_t pcm_len, const char 
           &nout,
           pcm,
           pcm_len) != 0) {
+    free(esc_sys_pcm);
     free(body);
     voice_set_error("b64 encode");
     return false;
   }
   size_t body_len = (sizeof(kPrefix) - 1) + nout;
   if (body_len + 2 > body_cap) {
+    free(esc_sys_pcm);
     free(body);
     voice_set_error("body too large");
     return false;
@@ -778,8 +748,9 @@ static bool voice_post_pcm_inner(const uint8_t *pcm, size_t pcm_len, const char 
   body[body_len++] = '"';
   if (have_sys) {
     const int n = snprintf(reinterpret_cast<char *>(body + body_len), body_cap - body_len,
-                           ",\"systemInstruction\":\"%s\"", s_esc_sys_pcm);
+                           ",\"systemInstruction\":\"%s\"", esc_sys_pcm);
     if (n <= 0 || static_cast<size_t>(n) >= body_cap - body_len) {
+      free(esc_sys_pcm);
       free(body);
       voice_set_error("body too large");
       return false;
@@ -787,6 +758,7 @@ static bool voice_post_pcm_inner(const uint8_t *pcm, size_t pcm_len, const char 
     body_len += static_cast<size_t>(n);
   }
   if (body_len + 1 > body_cap) {
+    free(esc_sys_pcm);
     free(body);
     voice_set_error("body too large");
     return false;
@@ -797,6 +769,7 @@ static bool voice_post_pcm_inner(const uint8_t *pcm, size_t pcm_len, const char 
   HTTPClient http;
   voice_begin_http(&client, &http);
   if (!http.begin(client, url)) {
+    free(esc_sys_pcm);
     free(body);
     voice_set_error("http begin");
     return false;
@@ -805,8 +778,9 @@ static bool voice_post_pcm_inner(const uint8_t *pcm, size_t pcm_len, const char 
   pm_castalia_auth_apply_headers(&http);
 
   Serial.printf("pm_voice: STT POST pcm=%u sys_esc=%u B\n", static_cast<unsigned>(pcm_len),
-                static_cast<unsigned>(have_sys ? strlen(s_esc_sys_pcm) : 0));
+                static_cast<unsigned>(have_sys ? strlen(esc_sys_pcm) : 0));
   const int code = http.POST(body, body_len);
+  free(esc_sys_pcm);
   free(body);
 
   if (code != 200) {
@@ -878,27 +852,13 @@ static bool voice_post_daily_briefing_inner(PmVoiceResult *r) {
   }
 
   char *esc_facts = nullptr;
-  bool esc_heap = false;
   const size_t esc_cap = strlen(facts) * 2 + 16;
-  if (esc_cap <= sizeof(s_esc_msg)) {
-    if (!json_escape_string(facts, s_esc_msg, sizeof(s_esc_msg))) {
-      free(facts);
-      voice_set_error("facts too long");
-      return false;
-    }
-    esc_facts = s_esc_msg;
-  } else {
-    esc_facts = static_cast<char *>(heap_caps_malloc(esc_cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-    if (!esc_facts) {
-      esc_facts = static_cast<char *>(malloc(esc_cap));
-    }
-    if (!esc_facts || !json_escape_string(facts, esc_facts, esc_cap)) {
-      free(facts);
-      free(esc_facts);
-      voice_set_error("facts too long");
-      return false;
-    }
-    esc_heap = true;
+  esc_facts = voice_psram_char_alloc(esc_cap, "oom esc facts");
+  if (!esc_facts || !json_escape_string(facts, esc_facts, esc_cap)) {
+    free(facts);
+    free(esc_facts);
+    voice_set_error("facts too long");
+    return false;
   }
   free(facts);
 
@@ -906,12 +866,7 @@ static bool voice_post_daily_briefing_inner(PmVoiceResult *r) {
   const size_t body_cap = strlen(esc_facts) + 192;
   char *body = static_cast<char *>(heap_caps_malloc(body_cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
   if (!body) {
-    body = static_cast<char *>(malloc(body_cap));
-  }
-  if (!body) {
-    if (esc_heap) {
-      free(esc_facts);
-    }
+    free(esc_facts);
     voice_set_error("oom body");
     return false;
   }
@@ -927,9 +882,7 @@ static bool voice_post_daily_briefing_inner(PmVoiceResult *r) {
                  "{\"face\":\"daily_briefing\",\"epochSeconds\":%lld,\"responseFormat\":\"mp3\"}",
                  static_cast<long long>(epoch));
   }
-  if (esc_heap) {
-    free(esc_facts);
-  }
+  free(esc_facts);
   if (n <= 0 || static_cast<size_t>(n) >= body_cap) {
     free(body);
     voice_set_error("body too large");
@@ -1094,6 +1047,7 @@ static void voice_net_task(void *arg) {
   (void)arg;
   for (;;) {
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    s_voice_task_active = true;
     const uint8_t op = s_voice_op;
     if (op == 1) {
       Serial.println("voice: POST message…");
@@ -1130,6 +1084,7 @@ static void voice_net_task(void *arg) {
     s_voice_status = s_voice_ok ? PmVoiceStatus::DoneOk : PmVoiceStatus::DoneFail;
     s_voice_done = true;
     s_voice_cancel = false;
+    s_voice_task_active = false;
   }
 }
 
@@ -1145,8 +1100,9 @@ static bool voice_net_begin(uint8_t op) {
   if (!s_voice_task) {
     return false;
   }
-  if (s_voice_status == PmVoiceStatus::Working) {
+  if (s_voice_status == PmVoiceStatus::Working || s_voice_task_active) {
     ESP_LOGW(TAG, "voice_begin while busy");
+    voice_set_error(s_voice_task_active ? "voice busy" : "busy");
     return false;
   }
   s_voice_cancel = false;
