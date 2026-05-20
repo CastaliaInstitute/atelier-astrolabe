@@ -16,7 +16,7 @@
 #include "pm_wifi_creds.h"
 
 static const char *TAG = "pm_wifi";
-static constexpr uint32_t kWifiTimeoutMs = 6000;
+static constexpr uint32_t kWifiTimeoutMs = 20000;
 static bool s_wifi_link_chimed = false;
 static bool s_mdns_started = false;
 static bool s_identity_ready = false;
@@ -124,7 +124,6 @@ static void speaker_tone_blocking(float hz, uint32_t duration_ms) {
     }
     delay(5);
   }
-  (void)pm_speaker_release_idle_task();
 }
 
 static void pm_wifi_play_connect_chime(void) {

@@ -13,7 +13,7 @@
 #define MYNAH_GESTURE_TAP_MAX_MS 420
 #endif
 #ifndef MYNAH_GESTURE_SWIPE_MIN_PX
-#define MYNAH_GESTURE_SWIPE_MIN_PX 26
+#define MYNAH_GESTURE_SWIPE_MIN_PX 48
 #endif
 #ifndef MYNAH_GESTURE_SWIPE_MAX_MS
 #define MYNAH_GESTURE_SWIPE_MAX_MS 700
@@ -91,19 +91,14 @@ bool pm_gesture_consume(PmGestureEvent *out) {
 }
 
 static bool g_down = false;
-static bool g_candidate_down = false;
 static uint32_t g_t_down = 0;
-static uint32_t g_candidate_t = 0;
 static int16_t g_x0 = 0;
 static int16_t g_y0 = 0;
-static int16_t g_candidate_x = 0;
-static int16_t g_candidate_y = 0;
 static int16_t g_last_cx = 0;
 static int16_t g_last_cy = 0;
 static int16_t g_madx = 0;
 static int16_t g_mady = 0;
 static uint8_t g_max_pts = 0;
-static uint8_t g_candidate_samples = 0;
 
 static uint8_t g_chain = 0;
 static uint32_t g_chain_deadline = 0;
@@ -189,9 +184,9 @@ static void on_release(uint32_t now, int16_t cx, int16_t cy) {
     /** Bottom-rim drift while holding PTT — not a face swipe. */
     const bool from_ptt_rim = g_y0 >= MYNAH_PTT_MIN_Y && pm_ptt_button_held();
     PmGestureKind g = PmGestureKind::None;
-    if (!from_ptt_rim && g_madx > g_mady + 4) {
+    if (!from_ptt_rim && g_madx > g_mady + 12) {
       g = (cx > g_x0) ? PmGestureKind::SwipeRight : PmGestureKind::SwipeLeft;
-    } else if (g_mady > g_madx + 4) {
+    } else if (g_mady > g_madx + 12) {
       /** CST92xx reports Y opposite to GFX for some boards; swap so “up” matches screen top. */
       g = (cy > g_y0) ? PmGestureKind::SwipeUp : PmGestureKind::SwipeDown;
     }
@@ -233,8 +228,6 @@ void pm_gesture_poll(uint32_t now_ms) {
   const uint8_t n = pm_touch_sample(xs, ys, 5);
 
   if (n == 0) {
-    g_candidate_down = false;
-    g_candidate_samples = 0;
     try_emit_chain_idle(now_ms);
     if (g_down) {
       const int16_t cx = g_last_cx;
@@ -246,35 +239,15 @@ void pm_gesture_poll(uint32_t now_ms) {
   }
 
   if (!g_down) {
-    const int16_t cx = centroid(xs, n);
-    const int16_t cy = centroid(ys, n);
-    if (!g_candidate_down) {
-      g_candidate_down = true;
-      g_candidate_samples = 1;
-      g_candidate_t = now_ms;
-      g_candidate_x = cx;
-      g_candidate_y = cy;
-      g_max_pts = n;
-      return;
-    }
-    const int16_t dx = i16abs(static_cast<int16_t>(cx - g_candidate_x));
-    const int16_t dy = i16abs(static_cast<int16_t>(cy - g_candidate_y));
-    const bool fast_swipe_start = max_i16(dx, dy) >= MYNAH_GESTURE_SWIPE_MIN_PX &&
-                                  max_i16(dx, dy) > (dx < dy ? dx : dy) + 4;
-    ++g_candidate_samples;
-    g_max_pts = n > g_max_pts ? n : g_max_pts;
-    if (!fast_swipe_start && g_candidate_samples < 2 && now_ms - g_candidate_t < 24u) {
-      return;
-    }
     g_down = true;
-    g_candidate_down = false;
-    g_t_down = g_candidate_t;
-    g_x0 = g_candidate_x;
-    g_y0 = g_candidate_y;
-    g_last_cx = cx;
-    g_last_cy = cy;
-    g_madx = dx;
-    g_mady = dy;
+    g_t_down = now_ms;
+    g_max_pts = n;
+    g_x0 = centroid(xs, n);
+    g_y0 = centroid(ys, n);
+    g_last_cx = g_x0;
+    g_last_cy = g_y0;
+    g_madx = 0;
+    g_mady = 0;
     return;
   }
 

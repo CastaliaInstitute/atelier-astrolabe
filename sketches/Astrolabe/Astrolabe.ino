@@ -62,7 +62,6 @@
 #include "faces/rocket/pm_face_rocket.h"
 #include "pm_display.h"
 #include "pm_qa.h"
-#include "pm_qa_bowl.h"
 #include "pm_face_tour_info.h"
 #include "pm_home_gem_pulse.h"
 #include "pm_heap.h"
@@ -1406,19 +1405,8 @@ static void poll_serial_birth_commands() {
           Serial.printf("qa: briefing %s\n", home_begin_daily_briefing() ? "started" : "blocked");
         } else if (strcmp(args, "tone") == 0) {
           Serial.printf("qa: tone %s\n", pm_speaker_play_tone_begin(528.f, 1200u) ? "started" : "failed");
-        } else if (strncmp(args, "bowl", 4) == 0 && (args[4] == '\0' || args[4] == ' ')) {
-          if (args[4] == ' ') {
-            bool bowl_repaint = false;
-            if (pm_qa_bowl_command(args + 5, &bowl_repaint)) {
-              if (bowl_repaint) {
-                g_clock_repaint_pending = true;
-              }
-            } else {
-              Serial.println("qa: bowl: unknown subcommand (try: qa bowl help)");
-            }
-          } else {
-            Serial.printf("qa: bowl %s\n", pm_speaker_bowl_voice_test(320.f, 1800u) ? "done" : "failed");
-          }
+        } else if (strcmp(args, "bowl") == 0) {
+          Serial.printf("qa: bowl %s\n", pm_speaker_bowl_voice_test(320.f, 1800u) ? "done" : "failed");
         } else if (strcmp(args, "faces") == 0) {
           Serial.printf("qa: faces=%d\n", static_cast<int>(ClockFace::kNumFaces));
           Serial.println("qa: 0 classic");
@@ -1445,9 +1433,7 @@ static void poll_serial_birth_commands() {
         } else if (strncmp(args, "tour", 4) == 0 && (args[4] == '\0' || args[4] == ' ')) {
           handle_tour_command(args + 4);
         } else if (!pm_qa_inject_command(args)) {
-          Serial.println(
-              "qa: usage: status | heap | time | briefing | tone | bowl | bowl touch … | bowl status | "
-              "faces | tour [narrate|tts] [dwell_ms] | tour stop | inject …");
+          Serial.println("qa: usage: status | heap | time | briefing | tone | bowl | faces | tour [narrate|tts] [dwell_ms] | tour stop | inject …");
         }
       } else if (strncmp(line, "face ", 5) == 0) {
         s_face_tour_active = false;
@@ -1646,7 +1632,7 @@ void setup() {
   pm_user_begin();
 
   if (pm_wifi_begin()) {
-    pm_ntp_retry_if_stale();
+    pm_ntp_sync_blocking();
     pm_castalia_warmup_after_wifi();
   }
   pm_display_bind(gfx);
@@ -1681,18 +1667,9 @@ void loop() {
 
   pm_gesture_poll(now);
 
-  static uint32_t s_bowl_direct_swipe_suppress_until = 0;
   if (g_state == AppState::kClock && pm_faces_current() == ClockFace::TibetanBowl) {
     if (pm_face_tibetan_bowl_touch_tick(now)) {
       g_clock_repaint_pending = true;
-    }
-    int bowl_delta = 0;
-    if (pm_face_tibetan_bowl_consume_direct_swipe(&bowl_delta)) {
-      const int idx = pm_face_tibetan_bowl_cycle_chakra(bowl_delta);
-      snprintf(g_gesture_banner, sizeof(g_gesture_banner), "bowl chakra %d/7", idx + 1);
-      Serial.printf("[gesture] bowl direct swipe %s -> %d/7\n", bowl_delta > 0 ? "up" : "down", idx + 1);
-      g_clock_repaint_pending = true;
-      s_bowl_direct_swipe_suppress_until = now + 900u;
     }
   }
 
@@ -1862,10 +1839,6 @@ void loop() {
       continue;
     } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::TibetanBowl &&
                (ge.kind == PmGestureKind::SwipeUp || ge.kind == PmGestureKind::SwipeDown)) {
-      if (now < s_bowl_direct_swipe_suppress_until) {
-        g_clock_repaint_pending = true;
-        continue;
-      }
       const int idx = pm_face_tibetan_bowl_cycle_chakra(ge.kind == PmGestureKind::SwipeUp ? 1 : -1);
       snprintf(g_gesture_banner, sizeof(g_gesture_banner), "bowl chakra %d/7", idx + 1);
       Serial.printf("[gesture] %s @ %d,%d\n", g_gesture_banner, static_cast<int>(ge.x), static_cast<int>(ge.y));
@@ -1873,10 +1846,7 @@ void loop() {
       continue;
     } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::TibetanBowl &&
                ge.kind == PmGestureKind::Tap) {
-      const bool hit = pm_face_tibetan_bowl_strike_at(ge.x, ge.y, now);
-      snprintf(g_gesture_banner, sizeof(g_gesture_banner), "%s", hit ? "bowl strike" : "bowl rim");
-      Serial.printf("[gesture] %s @ %d,%d\n", g_gesture_banner, static_cast<int>(ge.x),
-                    static_cast<int>(ge.y));
+      pm_face_tibetan_bowl_touch_tick(now);
       g_clock_repaint_pending = true;
       continue;
     } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Faculty &&

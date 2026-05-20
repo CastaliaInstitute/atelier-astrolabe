@@ -52,16 +52,6 @@ static bool s_block_rim_swipe = false;
 static bool s_have_ang = false;
 static float s_ring_envelope = 0.f;
 static uint32_t s_last_strike_ms = 0;
-static uint32_t s_last_voice_push_ms = 0;
-static uint32_t s_last_touch_repaint_ms = 0;
-static float s_last_push_hz = 0.f;
-static float s_last_push_exc = -1.f;
-static bool s_last_push_down = false;
-static int s_pending_direct_swipe = 0;
-static int16_t s_swipe_start_x = 0;
-static int16_t s_swipe_start_y = 0;
-static int16_t s_swipe_last_x = 0;
-static int16_t s_swipe_last_y = 0;
 
 static void rim_radii(int *r_inner, int *r_out) {
   const int R = (LCD_WIDTH < LCD_HEIGHT ? LCD_WIDTH : LCD_HEIGHT) / 2;
@@ -199,34 +189,6 @@ static void bowl_center_strike(uint32_t now_ms) {
   strike.excitation = 1.f;
   strike.brightness = s_brightness;
   pm_speaker_bowl_voice_push(strike);
-  s_last_voice_push_ms = now_ms;
-  s_last_push_hz = s_touch_hz;
-  s_last_push_exc = 1.f;
-  s_last_push_down = false;
-}
-
-static bool bowl_voice_push_throttled(uint32_t now_ms, const PmBowlVoiceCtrl &ctrl) {
-  const bool down_changed = ctrl.finger_down != s_last_push_down;
-  const bool strike = ctrl.center_strike;
-  const float hz_delta = fabsf(ctrl.target_hz - s_last_push_hz);
-  const float exc_delta = fabsf(ctrl.excitation - s_last_push_exc);
-  if (strike || down_changed || hz_delta > 1.5f || exc_delta > 0.04f || now_ms - s_last_voice_push_ms >= 45u) {
-    pm_speaker_bowl_voice_push(ctrl);
-    s_last_voice_push_ms = now_ms;
-    s_last_push_hz = ctrl.target_hz;
-    s_last_push_exc = ctrl.excitation;
-    s_last_push_down = ctrl.finger_down;
-    return true;
-  }
-  return false;
-}
-
-static bool bowl_touch_repaint_due(uint32_t now_ms, bool force) {
-  if (force || now_ms - s_last_touch_repaint_ms >= 48u) {
-    s_last_touch_repaint_ms = now_ms;
-    return true;
-  }
-  return false;
 }
 
 static void draw_standing_wave(float energy) {
@@ -360,56 +322,32 @@ bool pm_face_tibetan_bowl_touch_tick(uint32_t now_ms) {
     if (s_touch_down) {
       if (s_rim_stroke && s_stroke_arc >= kRimSwipeBlockRad) {
         s_block_rim_swipe = true;
-      } else {
-        const float dx = static_cast<float>(s_swipe_last_x - s_swipe_start_x);
-        const float dy = static_cast<float>(s_swipe_last_y - s_swipe_start_y);
-        if (fabsf(dy) > 24.f && fabsf(dy) > fabsf(dx) + 4.f) {
-          /** Match pm_gesture.cpp: CST92xx Y polarity means larger Y is screen-up. */
-          s_pending_direct_swipe = dy > 0.f ? 1 : -1;
-        }
       }
-      PmBowlVoiceCtrl off = {};
-      off.finger_down = false;
-      bowl_voice_push_throttled(now_ms, off);
       s_touch_down = false;
       s_center_touch = false;
       s_have_ang = false;
       s_trail_len = 0;
-      return bowl_touch_repaint_due(now_ms, true);
+      return true;
     }
-    return s_ring_envelope > 0.02f && bowl_touch_repaint_due(now_ms, false);
+    return s_ring_envelope > 0.02f;
   }
 
   const int16_t x = xs[0];
   const int16_t y = ys[0];
-  s_swipe_last_x = x;
-  s_swipe_last_y = y;
-  if (!s_touch_down) {
-    s_swipe_start_x = x;
-    s_swipe_start_y = y;
-    s_pending_direct_swipe = 0;
-  } else if (s_pending_direct_swipe == 0) {
-    const float dx = static_cast<float>(s_swipe_last_x - s_swipe_start_x);
-    const float dy = static_cast<float>(s_swipe_last_y - s_swipe_start_y);
-    if (fabsf(dy) > 24.f && fabsf(dy) > fabsf(dx) + 4.f) {
-      s_pending_direct_swipe = dy > 0.f ? 1 : -1;
-    }
-  }
   float r = 0.f;
   float theta = 0.f;
   touch_polar(x, y, &r, &theta);
   s_touch_r = r;
   s_touch_hz = frequency_from_angle(theta);
+  if (!s_touch_down) {
+    bowl_center_strike(now_ms);
+  }
 
   if (r < 72.f) {
-    const bool first_center = !s_center_touch;
-    if (first_center) {
-      bowl_center_strike(now_ms);
-    }
     s_center_touch = true;
     s_touch_down = true;
     s_finger_ang = theta;
-    return bowl_touch_repaint_due(now_ms, first_center);
+    return true;
   }
   s_center_touch = false;
 
@@ -417,33 +355,21 @@ bool pm_face_tibetan_bowl_touch_tick(uint32_t now_ms) {
   s_touch_quality = rq;
   if (rq < 0.05f) {
     if (s_touch_down) {
-      PmBowlVoiceCtrl off = {};
-      off.finger_down = false;
-      bowl_voice_push_throttled(now_ms, off);
       s_touch_down = false;
       s_have_ang = false;
-      return bowl_touch_repaint_due(now_ms, true);
+      return true;
     }
     return false;
   }
 
-  const float target_hz = s_touch_hz;
   s_chakra_idx = chakra_index_from_angle(theta);
   s_finger_ang = theta;
 
-  float excitation = 0.f;
-  float ang_vel = 0.f;
-  const bool first_rim_contact = !s_have_ang;
   if (s_touch_down && s_have_ang) {
     const float d_ang = unwrap_delta(s_last_ang, theta);
-    ang_vel = fabsf(d_ang) / (static_cast<float>((now_ms > s_last_touch_ms) ? (now_ms - s_last_touch_ms) : 16u) * 0.001f);
     s_stroke_arc += fabsf(d_ang);
     if (fabsf(d_ang) > 0.02f) {
       push_trail(theta);
-    }
-    excitation = fabsf(ang_vel) / kTargetAngVel;
-    if (excitation > 1.f) {
-      excitation = 1.f;
     }
     if (d_ang > 0.f) {
       s_brightness += 0.002f;
@@ -467,51 +393,7 @@ bool pm_face_tibetan_bowl_touch_tick(uint32_t now_ms) {
   s_touch_down = true;
   s_last_touch_ms = now_ms;
 
-  PmBowlVoiceCtrl ctrl = {};
-  ctrl.target_hz = target_hz;
-  ctrl.excitation = excitation * rq;
-  ctrl.brightness = s_brightness;
-  ctrl.pan = sinf(theta);
-  ctrl.rim_quality = rq;
-  ctrl.finger_down = true;
-  bowl_voice_push_throttled(now_ms, ctrl);
-
-  return bowl_touch_repaint_due(now_ms, first_rim_contact);
-}
-
-bool pm_face_tibetan_bowl_consume_direct_swipe(int *delta) {
-  if (!delta || s_pending_direct_swipe == 0) {
-    return false;
-  }
-  *delta = s_pending_direct_swipe;
-  s_pending_direct_swipe = 0;
   return true;
-}
-
-bool pm_face_tibetan_bowl_strike_at(int16_t x, int16_t y, uint32_t now_ms) {
-  float r = 0.f;
-  float theta = 0.f;
-  touch_polar(x, y, &r, &theta);
-  s_touch_hz = frequency_from_angle(theta);
-  s_chakra_idx = chakra_index_from_angle(theta);
-  s_finger_ang = theta;
-
-  if (r < 72.f) {
-    bowl_center_strike(now_ms);
-    return bowl_touch_repaint_due(now_ms, true);
-  }
-  if (rim_quality(r) < 0.05f) {
-    return false;
-  }
-  PmBowlVoiceCtrl strike = {};
-  strike.target_hz = s_touch_hz;
-  strike.excitation = 0.85f;
-  strike.brightness = s_brightness;
-  strike.rim_quality = rim_quality(r);
-  strike.center_strike = true;
-  bowl_voice_push_throttled(now_ms, strike);
-  s_ring_envelope = 1.f;
-  return bowl_touch_repaint_due(now_ms, true);
 }
 
 bool pm_face_tibetan_bowl_consume_rim_swipe_block(void) {
@@ -543,7 +425,6 @@ bool pm_face_tibetan_bowl_anim_tick(uint32_t now_ms) {
 }
 
 void pm_face_tibetan_bowl_stop(void) {
-  pm_touch_inject_clear();
   pm_speaker_bowl_voice_stop();
   s_touch_down = false;
   s_center_touch = false;
@@ -552,10 +433,6 @@ void pm_face_tibetan_bowl_stop(void) {
   s_rim_stroke = false;
   s_trail_len = 0;
   s_ring_envelope = 0.f;
-  s_last_voice_push_ms = 0;
-  s_last_touch_repaint_ms = 0;
-  s_last_push_exc = -1.f;
-  s_pending_direct_swipe = 0;
 }
 
 float pm_face_tibetan_bowl_energy(void) { return pm_speaker_bowl_voice_energy(); }
