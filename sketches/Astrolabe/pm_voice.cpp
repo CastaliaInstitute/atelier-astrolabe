@@ -18,7 +18,7 @@
 
 static const char *TAG = "pm_voice";
 
-static constexpr uint32_t kVoiceNetTaskStack = 24576;
+static constexpr uint32_t kVoiceNetTaskStack = 32768;
 /** STT + Gemini + TTS + large chunked JSON (astrology readings). */
 static constexpr uint32_t kVoiceHttpTimeoutMs = 660000;
 /** voice-pipeline JSON + base64 MP3. */
@@ -630,49 +630,67 @@ static bool voice_post_message_inner(const char *message, const char *system_ins
     return false;
   }
 
-  WiFiClientSecure client;
-  HTTPClient http;
-  voice_begin_http(&client, &http);
-  if (!http.begin(client, url)) {
-    free(body);
-    voice_set_error("http begin");
-    return false;
-  }
-  http.addHeader("Content-Type", "application/json");
-  http.addHeader("Accept", "audio/mpeg");
-  pm_castalia_auth_apply_headers(&http);
+  for (uint8_t attempt = 0; attempt < 2; ++attempt) {
+    WiFiClientSecure client;
+    HTTPClient http;
+    voice_begin_http(&client, &http);
+    if (!http.begin(client, url)) {
+      http.end();
+      if (attempt == 0) {
+        Serial.println("voice: http begin retry");
+        delay(900);
+        continue;
+      }
+      free(body);
+      voice_set_error("http begin");
+      return false;
+    }
+    http.addHeader("Content-Type", "application/json");
+    http.addHeader("Accept", "audio/mpeg");
+    pm_castalia_auth_apply_headers(&http);
 
-  Serial.printf("voice: HTTP POST message (%u B body)…\n", static_cast<unsigned>(n));
-  const int code = http.POST(reinterpret_cast<uint8_t *>(body), static_cast<size_t>(n));
-  free(body);
-  Serial.printf("voice: HTTP %d (message)\n", code);
+    Serial.printf("voice: HTTP POST message (%u B body%s)…\n", static_cast<unsigned>(n),
+                  attempt == 0 ? "" : ", retry");
+    const int code = http.POST(reinterpret_cast<uint8_t *>(body), static_cast<size_t>(n));
+    Serial.printf("voice: HTTP %d (message)\n", code);
 
-  if (code != 200) {
+    if (code == 200) {
+      const bool ok = read_http_mp3_body(&http, &r->mp3, &r->mp3_len);
+      http.end();
+      free(body);
+      if (!ok) {
+        ESP_LOGW(TAG, "voice-pipeline (message) MP3 read fail");
+        Serial.printf("voice: body read fail (%s)\n", s_body_read_err);
+        voice_set_error(s_body_read_err);
+        return false;
+      }
+      strncpy(r->transcript, message, sizeof(r->transcript) - 1);
+      r->transcript[sizeof(r->transcript) - 1] = '\0';
+      strncpy(r->reply, "spoken MP3 response", sizeof(r->reply) - 1);
+      r->reply[sizeof(r->reply) - 1] = '\0';
+      ESP_LOGI(TAG, "voice (message) mp3 %u bytes", static_cast<unsigned>(r->mp3_len));
+      if (!voice_result_ok(r)) {
+        voice_set_error("empty reply");
+        return false;
+      }
+      voice_set_error(nullptr);
+      return true;
+    }
+
     ESP_LOGW(TAG, "voice-pipeline HTTP %d (message)", code);
+    http.end();
+    if (attempt == 0 && code < 0) {
+      Serial.println("voice: HTTP retry after connect failure");
+      delay(1300);
+      continue;
+    }
+    free(body);
     voice_set_http_error(code);
-    http.end();
     return false;
   }
-
-  if (!read_http_mp3_body(&http, &r->mp3, &r->mp3_len)) {
-    ESP_LOGW(TAG, "voice-pipeline (message) MP3 read fail");
-    Serial.printf("voice: body read fail (%s)\n", s_body_read_err);
-    voice_set_error(s_body_read_err);
-    http.end();
-    return false;
-  }
-  http.end();
-  strncpy(r->transcript, message, sizeof(r->transcript) - 1);
-  r->transcript[sizeof(r->transcript) - 1] = '\0';
-  strncpy(r->reply, "spoken MP3 response", sizeof(r->reply) - 1);
-  r->reply[sizeof(r->reply) - 1] = '\0';
-  ESP_LOGI(TAG, "voice (message) mp3 %u bytes", static_cast<unsigned>(r->mp3_len));
-  if (!voice_result_ok(r)) {
-    voice_set_error("empty reply");
-    return false;
-  }
-  voice_set_error(nullptr);
-  return true;
+  free(body);
+  voice_set_error("http retry");
+  return false;
 }
 
 static bool voice_post_pcm_inner(const uint8_t *pcm, size_t pcm_len, const char *system_instruction,

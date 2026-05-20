@@ -5,6 +5,10 @@
 #define MYNAH_WIFI_SSID ""
 #define MYNAH_WIFI_PASSWORD ""
 
+// Local civil-time fallback when IP timezone lookup is unavailable.
+// America/Denver daylight time is -6 * 3600; standard time is -7 * 3600.
+#define MYNAH_TZ_FALLBACK_OFFSET_SEC (-6 * 3600)
+
 // Supabase project (same as Android Mynah BuildConfig).
 #define MYNAH_SUPABASE_URL ""
 #define MYNAH_SUPABASE_ANON_KEY ""

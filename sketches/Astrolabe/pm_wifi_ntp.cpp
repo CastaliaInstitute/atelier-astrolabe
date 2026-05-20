@@ -184,7 +184,6 @@ void pm_ntp_retry_if_stale() {
   if (!pm_wifi_connected() || pm_time_valid()) {
     return;
   }
-  (void)pm_geo_tz_refresh_from_ip();
   ntp_start();
   struct tm ti = {};
   (void)getLocalTime(&ti, 800);

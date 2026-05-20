@@ -296,6 +296,10 @@ static void gesture_end_voice_ui(void) {
 }
 
 static bool home_begin_daily_briefing(void) {
+  if (s_face_tour_active) {
+    snprintf(g_gesture_banner, sizeof(g_gesture_banner), "brief: tour active");
+    return false;
+  }
   if (!pm_wifi_connected()) {
     snprintf(g_gesture_banner, sizeof(g_gesture_banner), "brief: need WiFi");
     return false;
@@ -703,8 +707,11 @@ static bool face_voice_build_prompt(const FaceTourInfo *info, int idx, char *msg
   if (face == ClockFace::Synastry) {
     if (!pm_face_synastry_build_system_prompt(g_synastry_voice_msg, kSynastryVoiceMsgCap, sys,
                                               sys_cap)) {
-      snprintf(g_gesture_banner, sizeof(g_gesture_banner), "synastry: build fail");
-      return false;
+      snprintf(sys, sys_cap,
+               "You narrate the Mynah Astrolabe Synastry face on a tiny round watch. The full synastry chart "
+               "snapshot is not available right now, so speak about what the face is for: comparing the user's "
+               "birth chart with a selected partner or family profile, highlighting relational patterns with "
+               "care and agency. Keep it concise and avoid deterministic claims.");
     }
     snprintf(msg, msg_cap, "%sGive one concise relationship highlight.",
              tour_test ? "Tour-test the synastry TTS button. " : "");
@@ -898,6 +905,17 @@ static void face_tour_voice_start(const FaceTourInfo *info, int idx) {
                   info->name);
     return;
   }
+  if (idx == static_cast<int>(ClockFace::Radar)) {
+    pm_presence_ble_set_suppressed(true);
+    for (uint8_t i = 0; i < 8; ++i) {
+      pm_presence_tick(millis());
+      pm_presence_ble_end();
+      delay(50);
+    }
+    Serial.printf("tour: radar BLE paused for TTS heap=%u largest=%u\n",
+                  static_cast<unsigned>(pm_heap_internal_free()),
+                  static_cast<unsigned>(pm_heap_internal_largest()));
+  }
   if (pm_speaker_is_playing()) {
     return;
   }
@@ -937,6 +955,8 @@ static void face_tour_select(int idx) {
   if (idx == static_cast<int>(ClockFace::Settings)) {
     pm_settings_set_page(SettingsPage::WiFi);
   }
+  pm_presence_ble_set_suppressed((s_face_tour_narrate || s_face_tour_button_test) &&
+                                 idx == static_cast<int>(ClockFace::Radar));
   pm_faces_set(static_cast<ClockFace>(idx));
   snprintf(g_gesture_banner, sizeof(g_gesture_banner), "tour: %.28s", info->name);
   g_clock_repaint_pending = true;
@@ -980,6 +1000,7 @@ static void face_tour_stop(void) {
   s_face_tour_button_test = false;
   s_face_tour_idx = 0;
   s_face_tour_last_ms = 0;
+  pm_presence_ble_set_suppressed(false);
   face_tour_voice_reset();
   g_gesture_banner[0] = '\0';
   g_clock_repaint_pending = true;
@@ -1074,6 +1095,7 @@ static void face_tour_tick(uint32_t now) {
     s_face_tour_narrate = false;
     s_face_tour_button_test = false;
     s_face_tour_idx = 0;
+    pm_presence_ble_set_suppressed(false);
     face_tour_voice_reset();
     g_gesture_banner[0] = '\0';
     g_clock_repaint_pending = true;
@@ -2059,7 +2081,7 @@ void loop() {
         }
       }
 
-      if (wifi && valid && s_clock_paint_inited && !s_daily_brief_auto_armed &&
+      if (wifi && valid && !s_face_tour_active && s_clock_paint_inited && !s_daily_brief_auto_armed &&
           pm_daily_briefing_should_auto_play(&tm_now)) {
         s_daily_brief_auto_armed = true;
         if (home_begin_daily_briefing()) {

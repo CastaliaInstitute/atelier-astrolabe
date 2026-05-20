@@ -111,6 +111,7 @@ BLEScan *s_scan = nullptr;
 bool s_ble_ready = false;
 bool s_ble_init_failed = false;
 bool s_ble_radar_active = false;
+bool s_ble_suppressed = false;
 uint32_t s_ble_deinit_at_ms = 0;
 TaskHandle_t s_ble_init_task = nullptr;
 
@@ -285,6 +286,9 @@ static void presence_ble_init_task(void *arg) {
 
 bool pm_presence_ble_begin(void) {
 #if PM_PRESENCE_BLE
+  if (s_ble_suppressed) {
+    return false;
+  }
   if (s_ble_init_failed) {
     return false;
   }
@@ -330,6 +334,9 @@ void pm_presence_ble_set_radar_active(bool active) {
   s_ble_radar_active = active;
   s_ble_deinit_at_ms = 0;
   if (!s_ble_ready) {
+    if (!active) {
+      s_ble_deinit_at_ms = millis();
+    }
     return;
   }
   if (!active) {
@@ -348,6 +355,18 @@ void pm_presence_ble_set_radar_active(bool active) {
   Serial.println("presence: BLE active (Radar)");
 #else
   (void)active;
+#endif
+}
+
+void pm_presence_ble_set_suppressed(bool suppressed) {
+#if PM_PRESENCE_BLE
+  s_ble_suppressed = suppressed;
+  if (suppressed) {
+    pm_presence_ble_set_radar_active(false);
+    pm_presence_ble_end();
+  }
+#else
+  (void)suppressed;
 #endif
 }
 

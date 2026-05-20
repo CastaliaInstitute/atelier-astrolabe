@@ -5,7 +5,14 @@
 #include <stdlib.h>
 #include <string.h>
 
-static int32_t s_tz_off_sec = 0;
+#include "pm_config.h"
+
+#ifndef MYNAH_TZ_FALLBACK_OFFSET_SEC
+/** Default to America/Denver daylight time for the local development device. */
+#define MYNAH_TZ_FALLBACK_OFFSET_SEC (-6 * 3600)
+#endif
+
+static int32_t s_tz_off_sec = MYNAH_TZ_FALLBACK_OFFSET_SEC;
 
 int32_t pm_geo_tz_offset_sec() { return s_tz_off_sec; }
 
