@@ -40,6 +40,8 @@ enum class ClockFace : uint8_t {
   LiveTransits,
   /** Daily Major Arcana tarot card; swipe up/down browses deck. */
   Tarot,
+  /** Offline-first voice notes queued for Commonplace. */
+  Notes,
   kNumFaces,
 };
 

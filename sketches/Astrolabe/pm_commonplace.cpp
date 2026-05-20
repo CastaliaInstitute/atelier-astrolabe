@@ -1,7 +1,7 @@
 #include "pm_commonplace.h"
 
 #include <HTTPClient.h>
-#include <WiFiClient.h>
+#include <LittleFS.h>
 #include <WiFiClientSecure.h>
 #include <mbedtls/base64.h>
 #include <string.h>
@@ -29,6 +29,24 @@ static size_t s_req_pcm_len = 0;
 
 static char s_last_error[80] = "";
 static char s_last_transcript[512] = "";
+static bool s_fs_ready = false;
+
+static void set_error(const char *msg);
+
+static bool note_fs_begin(void) {
+  if (s_fs_ready) {
+    return true;
+  }
+  if (!LittleFS.begin(true)) {
+    set_error("flash fs");
+    return false;
+  }
+  if (!LittleFS.exists("/notes")) {
+    (void)LittleFS.mkdir("/notes");
+  }
+  s_fs_ready = true;
+  return true;
+}
 
 static void set_error(const char *msg) {
   if (!msg) {
@@ -278,6 +296,53 @@ void pm_commonplace_abort(void) {
   }
   s_status = PmCommonplaceStatus::DoneFail;
   s_done = true;
+}
+
+bool pm_commonplace_save_offline_note(const uint8_t *pcm, size_t pcm_len) {
+  if (!pcm || pcm_len == 0) {
+    set_error("empty pcm");
+    return false;
+  }
+  if (!note_fs_begin()) {
+    return false;
+  }
+  char path[48];
+  snprintf(path, sizeof(path), "/notes/note-%lu.mp3", static_cast<unsigned long>(millis()));
+  File f = LittleFS.open(path, FILE_WRITE);
+  if (!f) {
+    set_error("flash open");
+    return false;
+  }
+  const size_t written = f.write(pcm, pcm_len);
+  f.close();
+  if (written != pcm_len) {
+    (void)LittleFS.remove(path);
+    set_error("flash write");
+    return false;
+  }
+  Serial.printf("pm_commonplace: queued offline note %s bytes=%u\n", path,
+                static_cast<unsigned>(pcm_len));
+  set_error(nullptr);
+  return true;
+}
+
+size_t pm_commonplace_offline_note_count(void) {
+  if (!note_fs_begin()) {
+    return 0;
+  }
+  File dir = LittleFS.open("/notes");
+  if (!dir || !dir.isDirectory()) {
+    return 0;
+  }
+  size_t n = 0;
+  File f = dir.openNextFile();
+  while (f) {
+    if (!f.isDirectory()) {
+      ++n;
+    }
+    f = dir.openNextFile();
+  }
+  return n;
 }
 
 bool pm_commonplace_begin_pcm_journal(const uint8_t *pcm, size_t pcm_len) {
