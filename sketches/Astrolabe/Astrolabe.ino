@@ -62,6 +62,7 @@
 #include "faces/rocket/pm_face_rocket.h"
 #include "pm_display.h"
 #include "pm_qa.h"
+#include "pm_qa_bowl.h"
 #include "pm_face_tour_info.h"
 #include "pm_home_gem_pulse.h"
 #include "pm_heap.h"
@@ -1405,8 +1406,19 @@ static void poll_serial_birth_commands() {
           Serial.printf("qa: briefing %s\n", home_begin_daily_briefing() ? "started" : "blocked");
         } else if (strcmp(args, "tone") == 0) {
           Serial.printf("qa: tone %s\n", pm_speaker_play_tone_begin(528.f, 1200u) ? "started" : "failed");
-        } else if (strcmp(args, "bowl") == 0) {
-          Serial.printf("qa: bowl %s\n", pm_speaker_bowl_voice_test(320.f, 1800u) ? "done" : "failed");
+        } else if (strncmp(args, "bowl", 4) == 0 && (args[4] == '\0' || args[4] == ' ')) {
+          if (args[4] == ' ') {
+            bool bowl_repaint = false;
+            if (pm_qa_bowl_command(args + 5, &bowl_repaint)) {
+              if (bowl_repaint) {
+                g_clock_repaint_pending = true;
+              }
+            } else {
+              Serial.println("qa: bowl: unknown subcommand (try: qa bowl help)");
+            }
+          } else {
+            Serial.printf("qa: bowl %s\n", pm_speaker_bowl_voice_test(320.f, 1800u) ? "done" : "failed");
+          }
         } else if (strcmp(args, "faces") == 0) {
           Serial.printf("qa: faces=%d\n", static_cast<int>(ClockFace::kNumFaces));
           Serial.println("qa: 0 classic");
@@ -1433,7 +1445,9 @@ static void poll_serial_birth_commands() {
         } else if (strncmp(args, "tour", 4) == 0 && (args[4] == '\0' || args[4] == ' ')) {
           handle_tour_command(args + 4);
         } else if (!pm_qa_inject_command(args)) {
-          Serial.println("qa: usage: status | heap | time | briefing | tone | bowl | faces | tour [narrate|tts] [dwell_ms] | tour stop | inject …");
+          Serial.println(
+              "qa: usage: status | heap | time | briefing | tone | bowl | bowl touch … | bowl status | "
+              "faces | tour [narrate|tts] [dwell_ms] | tour stop | inject …");
         }
       } else if (strncmp(line, "face ", 5) == 0) {
         s_face_tour_active = false;
@@ -1846,7 +1860,10 @@ void loop() {
       continue;
     } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::TibetanBowl &&
                ge.kind == PmGestureKind::Tap) {
-      pm_face_tibetan_bowl_touch_tick(now);
+      const bool hit = pm_face_tibetan_bowl_strike_at(ge.x, ge.y, now);
+      snprintf(g_gesture_banner, sizeof(g_gesture_banner), "%s", hit ? "bowl strike" : "bowl rim");
+      Serial.printf("[gesture] %s @ %d,%d\n", g_gesture_banner, static_cast<int>(ge.x),
+                    static_cast<int>(ge.y));
       g_clock_repaint_pending = true;
       continue;
     } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Faculty &&
