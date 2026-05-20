@@ -209,6 +209,13 @@
       "source_paths": ["sketches/Astrolabe/faces/level", "sketches/Astrolabe/pm_motion.cpp"],
       "gestures": ["swipe_left", "swipe_right", "swipe_up", "swipe_down", "tap:233,233"],
       "buttons": ["boot"]
+    },
+    {
+      "id": 25,
+      "name": "pandrum",
+      "source_paths": ["sketches/Astrolabe/faces/pandrum", "sketches/Astrolabe/pm_speaker.cpp"],
+      "gestures": ["swipe_left", "swipe_right", "swipe_up", "swipe_down", "tap:233,233", "tap:233,86", "tap:360,160"],
+      "buttons": ["boot"]
     }
   ]
 }

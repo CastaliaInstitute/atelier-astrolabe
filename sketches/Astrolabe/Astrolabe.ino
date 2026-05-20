@@ -43,6 +43,7 @@
 #include "faces/bongo/pm_face_bongo.h"
 #include "faces/chakra/pm_face_chakra.h"
 #include "faces/ocarina/pm_face_ocarina.h"
+#include "faces/pandrum/pm_face_pandrum.h"
 #include "faces/piano/pm_face_piano.h"
 #include "faces/tibetan_bowl/pm_face_tibetan_bowl.h"
 #include "faces/moon/pm_face_moon.h"
@@ -570,7 +571,9 @@ static bool face_index_from_name(const char *name, int *out) {
            {"ocarina", 21},    {"ocarina_face", 21}, {"flute", 21},      {"bongo", 22},
            {"drum", 22},       {"drums", 22},        {"conga", 22},      {"piano", 23},
            {"keys", 23},       {"keyboard", 23},    {"level", 24},      {"bubble", 24},
-           {"bubble_level", 24}, {"imu", 24}};
+           {"bubble_level", 24}, {"imu", 24},        {"pandrum", 25},    {"pan_drum", 25},
+           {"pan-drum", 25},    {"pandrom", 25},     {"pandrom_face", 25}, {"handpan", 25},
+           {"hang", 25}};
   for (const auto &e : k) {
     if (strcasecmp(name, e.n) == 0) {
       *out = e.idx;
@@ -641,6 +644,8 @@ static const FaceTourInfo k_face_tour[] = {
      "local piano tones are available", "local piano tones are available", false, false},
     {"level", "IMU rolling-sphere level with the top of the display as forward",
      "the current level nudge", "IMU level is drawing", "IMU unavailable", false, false},
+    {"pandrum", "14-note touch-playable handpan", "the active pan drum note and resonance",
+     "local pan drum tones are available", "local pan drum tones are available", false, false},
 };
 
 static const FaceTourInfo *face_tour_info(int idx) {
@@ -935,6 +940,14 @@ static bool face_voice_build_prompt(const FaceTourInfo *info, int idx, char *msg
                "Face: piano. Active note: %s. Current state: local one-octave circular piano with white "
                "keys on the outer ring and black keys inside. Give a short melodic cue.",
                pm_face_piano_note_label()[0] ? pm_face_piano_note_label() : "none");
+      break;
+    case ClockFace::PanDrum:
+      snprintf(msg, msg_cap,
+               "Face: pandrum. Active note: %s. Last pitch: %.0f hertz. Current state: local 14-note "
+               "handpan-style touch instrument with a center ding and surrounding tone fields. Give a short "
+               "resonant playing cue.",
+               pm_face_pandrum_note_label()[0] ? pm_face_pandrum_note_label() : "none",
+               static_cast<double>(pm_face_pandrum_last_hz()));
       break;
     case ClockFace::Level: {
       const char *guidance = pm_face_level_guidance();
@@ -1467,6 +1480,7 @@ static void poll_serial_birth_commands() {
           Serial.println("qa: 22 bongo");
           Serial.println("qa: 23 piano");
           Serial.println("qa: 24 level");
+          Serial.println("qa: 25 pandrum");
         } else if (strncmp(args, "tour", 4) == 0 && (args[4] == '\0' || args[4] == ' ')) {
           handle_tour_command(args + 4);
         } else if (!pm_qa_inject_command(args)) {
@@ -1907,6 +1921,16 @@ void loop() {
       }
       g_clock_repaint_pending = true;
       continue;
+    } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::PanDrum &&
+               ge.kind == PmGestureKind::Tap) {
+      if (pm_face_pandrum_play_at(ge.x, ge.y)) {
+        snprintf(g_gesture_banner, sizeof(g_gesture_banner), "pandrum: %s",
+                 pm_face_pandrum_note_label());
+      } else {
+        snprintf(g_gesture_banner, sizeof(g_gesture_banner), "pandrum: field?");
+      }
+      g_clock_repaint_pending = true;
+      continue;
     } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Faculty &&
                (ge.kind == PmGestureKind::SwipeUp || ge.kind == PmGestureKind::SwipeDown)) {
       PmFacultyProfile faculty = {};
@@ -2168,6 +2192,8 @@ void loop() {
           (pm_face_bongo_motion_tick(now) || pm_face_bongo_anim_tick(now));
       const bool piano_anim =
           pm_faces_current() == ClockFace::Piano && pm_face_piano_anim_tick(now);
+      const bool pandrum_anim =
+          pm_faces_current() == ClockFace::PanDrum && pm_face_pandrum_anim_tick(now);
       const bool faculty_anim =
           (pm_faces_current() == ClockFace::Faculty || pm_faces_current() == ClockFace::Quotes) &&
           pm_faculty_tick(now);
@@ -2183,6 +2209,7 @@ void loop() {
           pm_faces_current() != ClockFace::LiveTransits && pm_faces_current() != ClockFace::Tarot &&
           pm_faces_current() != ClockFace::Ocarina && pm_faces_current() != ClockFace::Bongo &&
           pm_faces_current() != ClockFace::Piano && pm_faces_current() != ClockFace::Level &&
+          pm_faces_current() != ClockFace::PanDrum &&
           !home_gem_breath;
       const bool calcifer_sec =
           pm_faces_current() == ClockFace::CalciferCountdown && valid && sec_tick;
@@ -2203,7 +2230,7 @@ void loop() {
                                  g_clock_repaint_pending || local_hm_chg || spotify_stale || calcifer_stale ||
                                  weather_stale || quotes_stale || rocket_stale || sec_tick_paint || calcifer_sec || rocket_sec ||
                                  astro_repaint || spectrum_anim || chakra_anim || bowl_anim || ocarina_anim || bongo_anim ||
-                                 piano_anim || radar_anim || level_anim || faculty_anim;
+                                 piano_anim || pandrum_anim || radar_anim || level_anim || faculty_anim;
 #if MYNAH_HUE_HOME_ONLY
       const bool gem_only_paint = gem_pulse_paint && s_clock_paint_inited && !non_gem_paint;
       const bool full_paint = non_gem_paint || gem_pulse_paint;

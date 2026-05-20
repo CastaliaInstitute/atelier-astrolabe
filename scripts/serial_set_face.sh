@@ -85,6 +85,13 @@ NAME_TO_IDX = {
     "bubble": 24,
     "bubble_level": 24,
     "imu": 24,
+    "pandrum": 25,
+    "pan_drum": 25,
+    "pan-drum": 25,
+    "pandrom": 25,
+    "pandrom_face": 25,
+    "handpan": 25,
+    "hang": 25,
 }
 
 port, face = sys.argv[1], sys.argv[2].strip().lower()

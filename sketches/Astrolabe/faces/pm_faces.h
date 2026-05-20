@@ -50,6 +50,8 @@ enum class ClockFace : uint8_t {
   Piano,
   /** IMU bubble level: top of the display is forward; BOOT speaks the correction. */
   Level,
+  /** 14-note touch-playable handpan / pan drum face. */
+  PanDrum,
   kNumFaces,
 };
 

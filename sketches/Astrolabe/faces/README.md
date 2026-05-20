@@ -27,6 +27,7 @@ Each face is a self-contained module under `faces/<name>/`. The app shell (`Astr
 | `quotes/` | Quote of the day + faculty bust |
 | `ocarina/` | Touch-playable clay ocarina with key changes |
 | `bongo/` | Touch-playable drum; center taps are low, rim taps are high |
+| `pandrum/` | 14-note touch-playable handpan / pan drum |
 | `piano/` | One-octave circular piano with white keys outside and black keys inside |
 | `level/` | IMU rolling-sphere level; top of the display is forward |
 

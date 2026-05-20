@@ -19,6 +19,7 @@
 #include "faces/moon/pm_face_moon.h"
 #include "faces/notes/pm_face_notes.h"
 #include "faces/ocarina/pm_face_ocarina.h"
+#include "faces/pandrum/pm_face_pandrum.h"
 #include "faces/piano/pm_face_piano.h"
 #include "faces/quotes/pm_face_quotes.h"
 #include "faces/shared/pm_face_draw.h"
@@ -88,6 +89,9 @@ static void pm_faces_on_leave(ClockFace from, ClockFace to) {
       break;
     case ClockFace::Bongo:
       pm_face_bongo_stop();
+      break;
+    case ClockFace::PanDrum:
+      pm_face_pandrum_stop();
       break;
     case ClockFace::Piano:
       pm_face_piano_stop();
@@ -195,7 +199,8 @@ void pm_faces_draw(float thinking_progress) {
       s_clock_face != ClockFace::Radar && s_clock_face != ClockFace::Faculty &&
       s_clock_face != ClockFace::Weather && s_clock_face != ClockFace::Quotes &&
       s_clock_face != ClockFace::Notes && s_clock_face != ClockFace::Ocarina &&
-      s_clock_face != ClockFace::Bongo && s_clock_face != ClockFace::Piano &&
+      s_clock_face != ClockFace::Bongo && s_clock_face != ClockFace::PanDrum &&
+      s_clock_face != ClockFace::Piano &&
       s_clock_face != ClockFace::Level) {
 #if MYNAH_HUE_HOME_ONLY
     if (s_clock_face == ClockFace::ClassicAnalog) {
@@ -286,6 +291,9 @@ void pm_faces_draw(float thinking_progress) {
     case ClockFace::Bongo:
       pm_face_bongo_draw();
       break;
+    case ClockFace::PanDrum:
+      pm_face_pandrum_draw();
+      break;
     case ClockFace::Piano:
       pm_face_piano_draw();
       break;
@@ -307,7 +315,8 @@ void pm_faces_draw(float thinking_progress) {
                         s_clock_face == ClockFace::Weather || s_clock_face == ClockFace::Quotes ||
                         s_clock_face == ClockFace::Tarot || s_clock_face == ClockFace::Notes ||
                         s_clock_face == ClockFace::Ocarina || s_clock_face == ClockFace::Bongo ||
-                        s_clock_face == ClockFace::Piano || s_clock_face == ClockFace::Level)
+                        s_clock_face == ClockFace::PanDrum || s_clock_face == ClockFace::Piano ||
+                        s_clock_face == ClockFace::Level)
                            ? 352
                            : 320;
   if (MYNAH_DEBUG_GESTURES && g_gesture_banner[0] != '\0') {
@@ -324,7 +333,8 @@ void pm_faces_draw(float thinking_progress) {
       s_clock_face != ClockFace::Weather && s_clock_face != ClockFace::Quotes &&
       s_clock_face != ClockFace::Tarot && s_clock_face != ClockFace::Notes &&
       s_clock_face != ClockFace::Ocarina && s_clock_face != ClockFace::Bongo &&
-      s_clock_face != ClockFace::Piano && s_clock_face != ClockFace::Level) {
+      s_clock_face != ClockFace::PanDrum && s_clock_face != ClockFace::Piano &&
+      s_clock_face != ClockFace::Level) {
     pm_face_draw_circumference_rainbow_24h(pm_time_valid());
     if (thinking_progress >= 0.f) {
       pm_face_draw_thinking_progress_ring(thinking_progress);
@@ -359,8 +369,8 @@ bool pm_faces_banner_low(void) {
          f == ClockFace::Chakra || f == ClockFace::TibetanBowl || f == ClockFace::Rocket ||
          f == ClockFace::Radar || f == ClockFace::Faculty || f == ClockFace::Weather ||
          f == ClockFace::Quotes || f == ClockFace::Tarot || f == ClockFace::Notes ||
-         f == ClockFace::Ocarina || f == ClockFace::Bongo || f == ClockFace::Piano ||
-         f == ClockFace::Level;
+         f == ClockFace::Ocarina || f == ClockFace::Bongo || f == ClockFace::PanDrum ||
+         f == ClockFace::Piano || f == ClockFace::Level;
 }
 
 uint16_t pm_faces_last_bg565(void) { return s_clock_bg565; }
@@ -373,8 +383,8 @@ bool pm_faces_local_hm_changed(int hour, int min) {
       s_clock_face == ClockFace::Faculty || s_clock_face == ClockFace::Weather ||
       s_clock_face == ClockFace::Quotes || s_clock_face == ClockFace::Tarot ||
       s_clock_face == ClockFace::Notes || s_clock_face == ClockFace::Ocarina ||
-      s_clock_face == ClockFace::Bongo || s_clock_face == ClockFace::Piano ||
-      s_clock_face == ClockFace::Level) {
+      s_clock_face == ClockFace::Bongo || s_clock_face == ClockFace::PanDrum ||
+      s_clock_face == ClockFace::Piano || s_clock_face == ClockFace::Level) {
     return false;
   }
   return s_analog_saved_local_h < 0 || hour != s_analog_saved_local_h || min != s_analog_saved_local_m;

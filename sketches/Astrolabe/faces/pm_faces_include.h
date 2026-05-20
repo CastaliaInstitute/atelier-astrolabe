@@ -15,6 +15,7 @@
 #include "faces/moon/pm_face_moon.h"
 #include "faces/notes/pm_face_notes.h"
 #include "faces/ocarina/pm_face_ocarina.h"
+#include "faces/pandrum/pm_face_pandrum.h"
 #include "faces/piano/pm_face_piano.h"
 #include "faces/quotes/pm_face_quotes.h"
 #include "faces/radar/pm_face_radar.h"
