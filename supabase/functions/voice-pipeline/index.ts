@@ -14,6 +14,7 @@ import {
   speechRecognize,
   ttsMp3Base64,
   ttsMp3Bytes,
+  watchTtsVoiceSelection,
   watchTtsMaxChars,
   watchTtsMaxCharsDailyBriefing,
 } from "../_shared/googleVoice.ts";
@@ -141,11 +142,14 @@ async function voicePipelineOk(
 
   if (wantsMp3Response(req, body)) {
     const localHour = requestLocalHour(body);
+    const voice = watchTtsVoiceSelection();
     const mp3 = await ttsMp3Bytes(tts, spoken, { localHour });
     const headers: Record<string, string> = {
       ...corsHeaders,
       "Content-Type": "audio/mpeg",
       "X-Voice-Route": payload.route,
+      "X-Voice-Language": voice.languageCode,
+      "X-Voice-Name": voice.name,
       "X-Voice-Transcript": headerMetaValue(payload.transcript, 300),
       "X-Voice-Reply": headerMetaValue(payload.reply, 700),
       "X-Voice-Tts-Chars": String(spoken.length),
@@ -161,6 +165,7 @@ async function voicePipelineOk(
   }
 
   const localHour = requestLocalHour(body);
+  const voice = watchTtsVoiceSelection();
   const audioBase64 = await ttsMp3Base64(tts, spoken, { localHour });
   return jsonResponse(
     200,
@@ -173,6 +178,8 @@ async function voicePipelineOk(
     },
     {
       "x-mynah-route": payload.route,
+      "x-voice-language": voice.languageCode,
+      "x-voice-name": voice.name,
       ...(payload.face ? { "x-mynah-face": payload.face } : {}),
       ...payload.extraHeaders,
     },

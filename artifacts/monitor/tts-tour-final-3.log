@@ -1,0 +1,291 @@
+setup: wifi save/reconnect
+ log: ring 24576 bytes
+presence: id=d64261a4 (BLE starts on Radar face)
+Mynah Astrolabe ready
+[gesture] long press @ 142,336
+[gesture] long press @ 151,333
+[gesture] 2-finger tap @ 154,338
+[gesture] 2-finger tap @ 148,329
+[gesture] 2-finger tap @ 189,255
+wifi: saved ssid=The Chateau, reconnecting
+E (176233) I2S: i2s_driver_uninstall(2048): I2S port 0 has not installed
+E (176938) I2S: i2s_driver_uninstall(2048): I2S port 0 has not installed
+wifi: reconnect ok ip=192.168.86.182; ntp/http handled by loop
+qa: face=0 state=0 heap=142544 iheap=142544 largest=131060 psram=7732983 wifi=1 time=0 ip=192.168.86.182 name=Daniel
+qa: face=0 state=0 heap=142544 iheap=142544 largest=131060 psram=7732983 wifi=1 time=0 ip=192.168.86.182 name=Daniel
+setup: ready qa: face=0 state=0 heap=142544 iheap=142544 largest=131060 psram=7732983 wifi=1 time=0 ip=192.168.86.182 name=Daniel
+tts_tour: starting qa tour tts 1200
+[179092][E][Preferences.cpp:50] begin(): nvs_open failed: NOT_FOUND
+tour: start faces=19 dwell_ms=1200 narrate=1 tts=1 wifi=1 time=0
+tour: loading 0 classic heap=142172 largest=131060 psram=7732983 health=drawing locally - hue home clock with breathing gem pulse
+tour: tts 0 classic
+voice: POST message…
+voice: HTTP POST message (440 B body)…
+voice: HTTP 200 (message)
+voice: reading MP3 body…
+voice: MP3 Content-Length 212160
+voice: MP3 recv 65794 B…
+voice: MP3 recv 134170 B…
+voice: MP3 recv 201834 B…
+voice: MP3 complete 212160 B
+E (191655) I2S: i2s_driver_uninstall(2048): I2S port 0 has not ivoice: message ok mp3=212160 B
+nstalled
+tts_tour: still running seen=1/19 idle=16.1s
+tour: loading 1 apocalypso heap=108668 largest=55284 psram=7732711 health=heap is low - watch-style day wheel and local time
+tour: tts 1 apocalypso
+voice: POST message…
+voice: HTTP POST message (457 B body)…
+voice: HTTP 200 (message)
+voice: reading MP3 body…
+voice: MP3 Content-Length 292032
+voice: MP3 recv 68141 B…
+voice: MP3 recv 135805 B…
+voice: MP3 recv 203442 B…
+voice: MP3 recv 269510 B…
+voice: MP3 complete 292032 B
+E (232460) I2S: i2s_driver_uninstall(2048): I2S port 0 has not ivoice: message ok mp3=292032 B
+nstalled
+tts_tour: still running seen=2/19 idle=5.5s
+tts_tour: still running seen=2/19 idle=35.7s
+tour: loading 2 digital heap=108244 largest=55284 psram=7732711 health=heap is low - large local digital clock
+tour: tts 2 digital
+voice: POST message…
+voice: HTTP POST message (448 B body)…
+voice: HTTP 200 (message)
+voice: reading MP3 body…
+voice: MP3 Content-Length 66048
+voice: MP3 recv 66048 B…
+voice: MP3 complete 66048 B
+voice: message ok mp3=66048 B
+E (275441) I2S: i2s_driver_uninstall(2048): I2S port 0 has not installed
+tour: loading 3 spotify heap=108020 largest=55284 psram=7732711 health=heap is low - Spotify transport and now-playing surface
+tour: tts 3 spotify
+voice: POST message…
+voice: HTTP POST message (441 B body)…
+voice: HTTP 200 (message)
+voice: reading MP3 body…
+voice: MP3 Content-Length 110016
+voice: MP3 recv 66040 B…
+voice: MP3 complete 110016 B
+voice: message ok mp3=110016 B
+E (290371) I2S: i2s_driver_uninstall(2048): I2S port 0 has not installed
+tts_tour: still running seen=4/19 idle=8.0s
+tour: loading 4 astro heap=107796 largest=55284 psram=7732711 health=heap is low - live sky wheel and astrology voice hooks
+tour: tts 4 astro
+voice: POST message…
+voice: HTTP POST message (1072 B body)…
+voice: HTTP 200 (message)
+voice: reading MP3 body…
+voice: MP3 Content-Length 38784
+voice: MP3 complete 38784 B
+voice: message ok mp3=38784 B
+E (310212) I2S: i2s_driver_uninstall(2048): I2S port 0 has not installed
+tour: loading 5 moon heap=107488 largest=55284 psram=7732711 health=heap is low - lunar phase, fortune tap, and Moon voice
+tour: tts 5 moon
+voice: POST message…
+voice: HTTP POST message (834 B body)…
+voice: HTTP 200 (message)
+voice: reading MP3 body…
+voice: MP3 Content-Length 161472
+voice: MP3 recv 68216 B…
+voice: MP3 recv 137979 B…
+voice: MP3 complete 161472 B
+voice: message ok mp3=161472 B
+E (323464) I2S: i2s_driver_uninstall(2048): I2S port 0 has not installed
+tts_tour: still running seen=6/19 idle=5.2s
+tour: loading 6 calcifer heap=107264 largest=55284 psram=7732711 health=heap is low - rolling agenda daywheel from calendar
+tour: tts 6 calcifer
+voice: POST message…
+voice: HTTP POST message (440 B body)…
+voice: HTTP 200 (message)
+voice: reading MP3 body…
+voice: MP3 Content-Length 102720
+voice: MP3 recv 66046 B…
+voice: MP3 complete 102720 B
+voice: message ok mp3=102720 B
+E (351478) I2S: i2s_driver_uninstall(2048): I2S port 0 has not installed
+tts_tour: still running seen=7/19 idle=7.4s
+tour: loading 7 castalia heap=107264 largest=55284 psram=7732711 health=heap is low - Castalia pairing QR and auth status
+tour: tts 7 castalia
+voice: POST message…
+[365539][E][ssl_client.cpp:37] _handle_error(): [start_ssl_clienvoice: HTTP POST message (427 B body)…
+t():264]: (-32512) SSL - Memory allocation failed
+[365549][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -32512
+voice: HTTP 200 (message)
+voice: reading MP3 body…
+voice: MP3 Content-Length 158592
+voice: MP3 recv 65974 B…
+voice: MP3 recv 135684 B…
+voice: MP3 complete 158592 B
+voice: message ok mp3=158592 B
+E (375174) I2S: i2s_driver_uninstall(2048): I2S port 0 has not installed
+tts_tour: still running seen=8/19 idle=13.9s
+tour: loading 8 settings heap=73400 largest=55284 psram=7732711 health=heap is low - WiFi and Castalia settings hub
+tour: tts 8 settings
+voice: POST message…
+voice: HTTP POST message (432 B body)…
+voice: HTTP 200 (message)
+voice: reading MP3 body…
+voice: MP3 Content-Length 122112
+voice: MP3 recv 68599 B…
+voice: MP3 complete 122112 B
+voice: message ok mp3=122112 B
+E (403640) I2S: i2s_driver_uninstall(2048): I2S port 0 has not installed
+tour: loading 9 synastry heap=73624 largest=55284 psram=7732711 health=heap is low - dual natal chart and relationship aspects
+tour: tts 9 synastry
+voice: POST message…
+voice: HTTP POST message (503 B body)…
+tts_tour: still running seen=10/19 idle=0.3s
+voice: HTTP 200 (message)
+voice: reading MP3 body…
+voice: MP3 Content-Length 38400
+voice: MP3 complete 38400 B
+voice: message ok mp3=38400 B
+E (424761) I2S: i2s_driver_uninstall(2048): I2S port 0 has not installed
+[430744][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[430752][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[430759][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[430767][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[430774][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[430782][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[430789][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[430796][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[430804][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[430811][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[430818][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[430826][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[430833][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[430840][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[430848][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[430855][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[430862][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[430870][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[430877][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[430884][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[430892][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[430899][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[430907][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[430914][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[430922][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[430930][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[430937][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[430944][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[430951][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[430959][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[430966][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[430974][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[430981][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[430988][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[430996][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[431003][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+[431011][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1
+tour: loading 10 spectrum heap=73624 largest=55284 psram=7732711 health=heap is low - microphone spectrum visualizer modes
+tour: tts 10 spectrum
+voice: POST message…
+voice: HTTP POST message (421 B body)…
+voice: HTTP 200 (message)
+voice: reading MP3 body…
+voice: MP3 Content-Length 82176
+voice: MP3 recv 69021 B…
+voice: MP3 complete 82176 B
+voice: message ok mp3=82176 B
+E (437458) I2S: i2s_driver_uninstall(2048): I2S port 0 has not installed
+tour: loading 11 chakra heap=73624 largest=55284 psram=7732711 health=heap is low - chakra symbols with solfeggio tones
+tour: tts 11 chakra
+voice: POST message…
+voice: HTTP POST message (413 B body)…
+tts_tour: still running seen=12/19 idle=1.5s
+voice: HTTP 200 (message)
+voice: reading MP3 body…
+voice: MP3 Content-Length 153600
+voice: MP3 recv 67050 B…
+voice: MP3 recv 135439 B…
+voice: MP3 complete 153600 B
+voice: message ok mp3=153600 B
+E (456831) I2S: i2s_driver_uninstall(2048): I2S port 0 has not installed
+tour: loading 12 bowl heap=73624 largest=55284 psram=7732711 health=heap is low - Tibetan bowl rim instrument
+tour: tts 12 bowl
+voice: POST message…
+voice: HTTP POST message (386 B body)…
+tts_tour: still running seen=13/19 idle=3.7s
+voice: HTTP 200 (message)
+voice: reading MP3 body…
+voice: MP3 Content-Length 54336
+voice: MP3 complete 54336 B
+voice: message ok mp3=54336 B
+E (482429) I2S: i2s_driver_uninstall(2048): I2S port 0 has not installed
+tour: loading 13 rocket heap=73624 largest=55284 psram=7732711 health=heap is low - upcoming orbital launch clock
+tour: tts 13 rocket
+voice: POST message…
+voice: HTTP POST message (389 B body)…
+voice: HTTP 200 (message)
+voice: reading MP3 body…
+voice: MP3 Content-Length 77184
+voice: MP3 recv 66123 B…
+voice: MP3 complete 77184 B
+voice: message ok mp3=77184 B
+E (497348) I2S: i2s_driver_uninstall(2048): I2S port 0 has not installed
+tour: loading 14 radar heap=73624 largest=55284 psram=7732711 health=heap is low - BLE locator and nearby peer radar
+tour: radar BLE paused for TTS heap=73624 largest=55284
+tour: tts 14 radar
+voice: POST message…
+voice: HTTP POST message (399 B body)…
+tts_tour: still running seen=15/19 idle=2.1s
+voice: HTTP 200 (message)
+voice: reading MP3 body…
+voice: MP3 Content-Length 73152
+voice: MP3 recv 69231 B…
+voice: MP3 complete 73152 B
+voice: message ok mp3=73152 B
+E (513291) I2S: i2s_driver_uninstall(2048): I2S port 0 has not installed
+tour: loading 15 faculty heap=73304 largest=55284 psram=7732711 health=heap is low - recent ask-faculty conversation portraits
+tour: tts 15 faculty
+voice: POST message…
+voice: HTTP POST message (423 B body)…
+voice: HTTP 200 (message)
+voice: reading MP3 body…
+voice: MP3 Content-Length 44544
+voice: MP3 complete 44544 B
+voice: message ok mp3=44544 B
+E (526779) I2S: i2s_driver_uninstall(2048): I2S port 0 has not installed
+tour: loading 16 weather heap=73304 largest=55284 psram=7732711 health=heap is low - 24-hour radial forecast rings
+tour: tts 16 weather
+voice: POST message…
+voice: HTTP POST message (372 B body)…
+tts_tour: still running seen=17/19 idle=7.4s
+voice: HTTP 200 (message)
+voice: reading MP3 body…
+voice: MP3 Content-Length 49344
+voice: MP3 complete 49344 B
+voice: message ok mp3=49344 B
+E (543107) I2S: i2s_driver_uninstall(2048): I2S port 0 has not installed
+tour: loading 17 quotes heap=73304 largest=55284 psram=7732711 health=heap is low - Castalia quote of the day with faculty bust
+tour: tts 17 quotes
+voice: POST message…
+voice: HTTP POST message (377 B body)…
+voice: HTTP 200 (message)
+voice: reading MP3 body…
+voice: MP3 Content-Length 170880
+voice: MP3 recv 66010 B…
+voice: MP3 recv 134282 B…
+voice: MP3 complete 170880 B
+voice: message ok mp3=170880 B
+E (557770) I2S: i2s_driver_uninstall(2048): I2S port 0 has not installed
+tts_tour: still running seen=18/19 idle=12.7s
+tour: loading 18 transits heap=73528 largest=55284 psram=7732711 health=heap is low - live planetary spheres and next Moon ingress
+tour: tts 18 transits
+voice: POST message…
+voice: HTTP POST message (456 B body)…
+voice: HTTP 200 (message)
+voice: reading MP3 body…
+voice: MP3 Content-Length 262848
+voice: MP3 recv 65673 B…
+voice: MP3 recv 131866 B…
+voice: MP3 recv 197402 B…
+voice: MP3 complete 262848 B
+voice: message ok mp3=262848 B
+E (594114) I2S: i2s_driver_uninstall(2048): I2S port 0 has not installed
+tts_tour: still running seen=19/19 idle=6.5s
+tour: done
+tts_tour: done seen_faces=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18] missing=[] errors=0
+TTS_TOUR PASS

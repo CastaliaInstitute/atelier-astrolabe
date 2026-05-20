@@ -189,6 +189,14 @@ export type WatchTtsOptions = {
   localHour?: number;
 };
 
+export function watchTtsVoiceSelection(): { languageCode: string; name: string } {
+  const languageCode =
+    Deno.env.get("MYNAH_TTS_LANGUAGE_CODE")?.trim() || "en-GB";
+  const name =
+    Deno.env.get("MYNAH_TTS_VOICE_NAME")?.trim() || "en-GB-Neural2-A";
+  return { languageCode, name };
+}
+
 function watchTtsAudioConfig(options?: WatchTtsOptions): Record<string, number | string> {
   const hour = Number.isFinite(options?.localHour) ? Number(options?.localHour) : -1;
   if (hour < 0 || hour > 23) {
@@ -236,7 +244,7 @@ async function ttsMp3BytesInner(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       input: { text: spoken },
-      voice: { languageCode: "en-US", name: "en-US-Neural2-F" },
+      voice: watchTtsVoiceSelection(),
       audioConfig: watchTtsAudioConfig(options),
     }),
   });

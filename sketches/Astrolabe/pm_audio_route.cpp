@@ -94,7 +94,8 @@ bool pm_audio_route_input_usb(void) {
 
 static bool face_uses_vertical_swipes(ClockFace face) {
   return face == ClockFace::Spotify || face == ClockFace::Synastry || face == ClockFace::Moon ||
-         face == ClockFace::Settings;
+         face == ClockFace::Settings || face == ClockFace::Spectrum || face == ClockFace::Chakra ||
+         face == ClockFace::TibetanBowl || face == ClockFace::Faculty;
 }
 
 bool pm_audio_route_handle_gesture(PmGestureKind kind, ClockFace face, char *banner, size_t banner_len) {

@@ -3,7 +3,7 @@
 #include "faces/shared/pm_face_draw.h"
 
 void pm_face_home_briefing_draw_thinking(float progress) {
-  pm_face_draw_home_briefing_screen(false, millis(), progress, "Preparing…");
+  pm_face_draw_home_briefing_screen(false, millis(), progress, nullptr);
 }
 
 void pm_face_home_briefing_draw_speaking(uint32_t now_ms) {

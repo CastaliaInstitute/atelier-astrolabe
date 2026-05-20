@@ -94,6 +94,9 @@ static void chakra_stop_tone(void) {
   if (s_chakra_tone_on || pm_speaker_is_playing()) {
     pm_speaker_tone_stop();
   }
+  if (pm_speaker_is_playing()) {
+    pm_speaker_abort();
+  }
   s_chakra_tone_on = false;
   s_ripple_active = false;
 }

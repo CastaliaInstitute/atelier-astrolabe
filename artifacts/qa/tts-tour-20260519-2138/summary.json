@@ -1,0 +1,1321 @@
+{
+  "captured_at": "2026-05-19T22:02:03",
+  "records": [
+    {
+      "idx": 0,
+      "name": "classic",
+      "load_host_iso": "2026-05-20T03:57:02.214+00:00",
+      "heap": 73760,
+      "largest": 57332,
+      "psram": 7732711,
+      "health": "heap is low - hue home clock with breathing gem pulse",
+      "events": [
+        {
+          "t_ms": 6501,
+          "line": "tour: tts 0 classic"
+        },
+        {
+          "t_ms": 6501,
+          "line": "voice: POST message\u2026"
+        },
+        {
+          "t_ms": 6501,
+          "line": "voice: HTTP POST message (622 B body)\u2026"
+        },
+        {
+          "t_ms": 15130,
+          "line": "voice: HTTP -5 (message)"
+        },
+        {
+          "t_ms": 15131,
+          "line": "voice: HTTP retry after connect failure"
+        },
+        {
+          "t_ms": 16432,
+          "line": "voice: HTTP POST message (622 B body, retry)\u2026"
+        },
+        {
+          "t_ms": 34270,
+          "line": "voice: HTTP -5 (message)"
+        },
+        {
+          "t_ms": 34270,
+          "line": "voice: message fail (HTTP -5)"
+        },
+        {
+          "t_ms": 34896,
+          "line": "tour: narrate failed 0 err=HTTP -5"
+        }
+      ],
+      "errors": [
+        "voice: HTTP retry after connect failure",
+        "voice: HTTP POST message (622 B body, retry)\u2026",
+        "tour: narrate failed 0 err=HTTP -5"
+      ],
+      "screenshot_bmp": "artifacts/qa/tts-tour-20260519-2138/00-classic.bmp",
+      "screenshot_png": "",
+      "screenshot_bytes": 0,
+      "screenshot_error": "timed out",
+      "tts_post_body_bytes": 622,
+      "http_codes": [
+        -5,
+        -5
+      ]
+    },
+    {
+      "idx": 1,
+      "name": "apocalypso",
+      "load_host_iso": "2026-05-20T03:57:38.723+00:00",
+      "heap": 63636,
+      "largest": 32756,
+      "psram": 7732711,
+      "health": "heap is low - watch-style day wheel and local time",
+      "events": [
+        {
+          "t_ms": 5620,
+          "line": "tour: tts 1 apocalypso"
+        },
+        {
+          "t_ms": 5620,
+          "line": "voice: POST message\u2026"
+        },
+        {
+          "t_ms": 5621,
+          "line": "voice: HTTP POST message (635 B body)\u2026"
+        },
+        {
+          "t_ms": 5621,
+          "line": "[1186559][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1"
+        },
+        {
+          "t_ms": 5621,
+          "line": "voice: HTTP -1 (message)"
+        },
+        {
+          "t_ms": 5621,
+          "line": "voice: HTTP retry after connect failure"
+        },
+        {
+          "t_ms": 6311,
+          "line": "voice: HTTP POST message (635 B body, retry)\u2026"
+        },
+        {
+          "t_ms": 6680,
+          "line": "E (1187836) esp-sha: Failed to allocate buf memory"
+        },
+        {
+          "t_ms": 6681,
+          "line": "[1188237][E][ssl_client.cpp:37] _handle_error(): [start_ssl_client():273]: (-1) ERROR - Generic error"
+        },
+        {
+          "t_ms": 6693,
+          "line": "[1188249][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1"
+        },
+        {
+          "t_ms": 6700,
+          "line": "voice: HTTP -1 (message)"
+        },
+        {
+          "t_ms": 6701,
+          "line": "voice: message fail (HTTP -1)"
+        },
+        {
+          "t_ms": 9548,
+          "line": "[1191104][E][WiFiClient.cpp:429] write(): fail on fd 50, errno: 104, \"Connection reset by peer\""
+        },
+        {
+          "t_ms": 9557,
+          "line": "tour: narrate failed 1 err=HTTP -1"
+        }
+      ],
+      "errors": [
+        "[1186559][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1",
+        "voice: HTTP retry after connect failure",
+        "voice: HTTP POST message (635 B body, retry)\u2026",
+        "E (1187836) esp-sha: Failed to allocate buf memory",
+        "[1188237][E][ssl_client.cpp:37] _handle_error(): [start_ssl_client():273]: (-1) ERROR - Generic error",
+        "[1188249][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1",
+        "tour: narrate failed 1 err=HTTP -1"
+      ],
+      "screenshot_bmp": "artifacts/qa/tts-tour-20260519-2138/01-apocalypso.bmp",
+      "screenshot_png": "",
+      "screenshot_bytes": 0,
+      "screenshot_error": "timed out",
+      "tts_post_body_bytes": 635,
+      "http_codes": [
+        -1,
+        -1
+      ]
+    },
+    {
+      "idx": 2,
+      "name": "digital",
+      "load_host_iso": "2026-05-20T03:57:48.280+00:00",
+      "heap": 63636,
+      "largest": 32756,
+      "psram": 7732711,
+      "health": "heap is low - large local digital clock",
+      "events": [
+        {
+          "t_ms": 5698,
+          "line": "tour: tts 2 digital"
+        },
+        {
+          "t_ms": 5698,
+          "line": "voice: POST message\u2026"
+        },
+        {
+          "t_ms": 5698,
+          "line": "voice: HTTP POST message (626 B body)\u2026"
+        },
+        {
+          "t_ms": 120001,
+          "line": "tour: narrate timeout 2 err=HTTP -1"
+        }
+      ],
+      "errors": [],
+      "screenshot_bmp": "artifacts/qa/tts-tour-20260519-2138/02-digital.bmp",
+      "screenshot_png": "",
+      "screenshot_bytes": 0,
+      "screenshot_error": "timed out",
+      "tts_post_body_bytes": 626
+    },
+    {
+      "idx": 3,
+      "name": "spotify",
+      "load_host_iso": "2026-05-20T03:59:48.284+00:00",
+      "heap": 25912,
+      "largest": 9204,
+      "psram": 7731943,
+      "health": "heap is low - Spotify transport and now-playing surface",
+      "events": [
+        {
+          "t_ms": 5462,
+          "line": "tour: narrate skipped spotify err=voice busy"
+        },
+        {
+          "t_ms": 5463,
+          "line": "[1311195][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1"
+        },
+        {
+          "t_ms": 5463,
+          "line": "voice: HTTP -1 (message)"
+        },
+        {
+          "t_ms": 5463,
+          "line": "voice: HTTP retry after connect failure"
+        }
+      ],
+      "errors": [
+        "tour: narrate skipped spotify err=voice busy",
+        "[1311195][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1",
+        "voice: HTTP retry after connect failure"
+      ],
+      "screenshot_bmp": "artifacts/qa/tts-tour-20260519-2138/03-spotify.bmp",
+      "screenshot_png": "",
+      "screenshot_bytes": 0,
+      "screenshot_error": "<urlopen error timed out>",
+      "http_codes": [
+        -1
+      ]
+    },
+    {
+      "idx": 4,
+      "name": "astro",
+      "load_host_iso": "2026-05-20T03:59:53.747+00:00",
+      "heap": 62336,
+      "largest": 34804,
+      "psram": 7731943,
+      "health": "heap is low - live sky wheel and astrology voice hooks",
+      "events": [
+        {
+          "t_ms": 462,
+          "line": "tour: narrate skipped astro err=voice busy"
+        },
+        {
+          "t_ms": 462,
+          "line": "voice: HTTP POST message (626 B body, retry)\u2026"
+        }
+      ],
+      "errors": [
+        "tour: narrate skipped astro err=voice busy",
+        "voice: HTTP POST message (626 B body, retry)\u2026"
+      ],
+      "screenshot_bmp": "artifacts/qa/tts-tour-20260519-2138/04-astro.bmp",
+      "screenshot_png": "",
+      "screenshot_bytes": 0,
+      "screenshot_error": "<urlopen error [Errno 64] Host is down>",
+      "tts_post_body_bytes": 626
+    },
+    {
+      "idx": 5,
+      "name": "moon",
+      "load_host_iso": "2026-05-20T03:59:54.209+00:00",
+      "heap": 61544,
+      "largest": 34804,
+      "psram": 7731943,
+      "health": "heap is low - lunar phase, fortune tap, and Moon voice",
+      "events": [
+        {
+          "t_ms": 468,
+          "line": "tour: narrate skipped moon err=voice busy"
+        }
+      ],
+      "errors": [
+        "tour: narrate skipped moon err=voice busy"
+      ],
+      "screenshot_bmp": "artifacts/qa/tts-tour-20260519-2138/05-moon.bmp",
+      "screenshot_png": "",
+      "screenshot_bytes": 0,
+      "screenshot_error": "<urlopen error [Errno 64] Host is down>"
+    },
+    {
+      "idx": 6,
+      "name": "calcifer",
+      "load_host_iso": "2026-05-20T03:59:54.677+00:00",
+      "heap": 61544,
+      "largest": 34804,
+      "psram": 7731943,
+      "health": "heap is low - rolling agenda daywheel from calendar",
+      "events": [
+        {
+          "t_ms": 469,
+          "line": "tour: narrate skipped calcifer err=voice busy"
+        }
+      ],
+      "errors": [
+        "tour: narrate skipped calcifer err=voice busy"
+      ],
+      "screenshot_bmp": "artifacts/qa/tts-tour-20260519-2138/06-calcifer.bmp",
+      "screenshot_png": "",
+      "screenshot_bytes": 0,
+      "screenshot_error": "<urlopen error [Errno 64] Host is down>"
+    },
+    {
+      "idx": 7,
+      "name": "castalia",
+      "load_host_iso": "2026-05-20T03:59:55.146+00:00",
+      "heap": 61544,
+      "largest": 34804,
+      "psram": 7731943,
+      "health": "heap is low - Castalia pairing QR and auth status",
+      "events": [
+        {
+          "t_ms": 466,
+          "line": "tour: narrate skipped castalia err=voice busy"
+        },
+        {
+          "t_ms": 467,
+          "line": "[1317504][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1"
+        },
+        {
+          "t_ms": 467,
+          "line": "voice: HTTP -1 (message)"
+        },
+        {
+          "t_ms": 467,
+          "line": "voice: message fail (HTTP -1)"
+        },
+        {
+          "t_ms": 2958,
+          "line": "[1320940][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1"
+        }
+      ],
+      "errors": [
+        "tour: narrate skipped castalia err=voice busy",
+        "[1317504][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1",
+        "[1320940][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1"
+      ],
+      "screenshot_bmp": "artifacts/qa/tts-tour-20260519-2138/07-castalia.bmp",
+      "screenshot_png": "",
+      "screenshot_bytes": 0,
+      "screenshot_error": "<urlopen error [Errno 64] Host is down>",
+      "http_codes": [
+        -1
+      ]
+    },
+    {
+      "idx": 8,
+      "name": "settings",
+      "load_host_iso": "2026-05-20T03:59:58.166+00:00",
+      "heap": 67148,
+      "largest": 38900,
+      "psram": 7732711,
+      "health": "heap is low - WiFi and Castalia settings hub",
+      "events": [
+        {
+          "t_ms": 461,
+          "line": "tour: tts 8 settings"
+        },
+        {
+          "t_ms": 461,
+          "line": "voice: POST message\u2026"
+        },
+        {
+          "t_ms": 461,
+          "line": "voice: HTTP POST message (610 B body)\u2026"
+        },
+        {
+          "t_ms": 5005,
+          "line": "[1326007][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1"
+        },
+        {
+          "t_ms": 5102,
+          "line": "voice: HTTP -1 (message)"
+        },
+        {
+          "t_ms": 5102,
+          "line": "voice: HTTP retry after connect failure"
+        },
+        {
+          "t_ms": 6311,
+          "line": "voice: HTTP POST message (610 B body, retry)\u2026"
+        },
+        {
+          "t_ms": 11313,
+          "line": "[1332316][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1"
+        },
+        {
+          "t_ms": 11319,
+          "line": "voice: HTTP -1 (message)"
+        },
+        {
+          "t_ms": 11320,
+          "line": "voice: message fail (HTTP -1)"
+        },
+        {
+          "t_ms": 11329,
+          "line": "tour: narrate failed 8 err=HTTP -1"
+        }
+      ],
+      "errors": [
+        "[1326007][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1",
+        "voice: HTTP retry after connect failure",
+        "voice: HTTP POST message (610 B body, retry)\u2026",
+        "[1332316][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1",
+        "tour: narrate failed 8 err=HTTP -1"
+      ],
+      "screenshot_bmp": "artifacts/qa/tts-tour-20260519-2138/08-settings.bmp",
+      "screenshot_png": "",
+      "screenshot_bytes": 0,
+      "screenshot_error": "<urlopen error [Errno 64] Host is down>",
+      "tts_post_body_bytes": 610,
+      "http_codes": [
+        -1,
+        -1
+      ]
+    },
+    {
+      "idx": 9,
+      "name": "synastry",
+      "load_host_iso": "2026-05-20T04:00:09.496+00:00",
+      "heap": 67148,
+      "largest": 38900,
+      "psram": 7732711,
+      "health": "heap is low - dual natal chart and relationship aspects",
+      "events": [
+        {
+          "t_ms": 457,
+          "line": "tour: tts 9 synastry"
+        },
+        {
+          "t_ms": 458,
+          "line": "voice: POST message\u2026"
+        },
+        {
+          "t_ms": 458,
+          "line": "voice: HTTP POST message (606 B body)\u2026"
+        },
+        {
+          "t_ms": 5048,
+          "line": "[1337381][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1"
+        },
+        {
+          "t_ms": 5054,
+          "line": "voice: HTTP -1 (message)"
+        },
+        {
+          "t_ms": 5054,
+          "line": "voice: HTTP retry after connect failure"
+        },
+        {
+          "t_ms": 6358,
+          "line": "voice: HTTP POST message (606 B body, retry)\u2026"
+        },
+        {
+          "t_ms": 11357,
+          "line": "[1343690][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1"
+        },
+        {
+          "t_ms": 11363,
+          "line": "voice: HTTP -1 (message)"
+        },
+        {
+          "t_ms": 11363,
+          "line": "voice: message fail (HTTP -1)"
+        },
+        {
+          "t_ms": 11380,
+          "line": "tour: narrate failed 9 err=HTTP -1"
+        },
+        {
+          "t_ms": 11382,
+          "line": "[1343715][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1"
+        },
+        {
+          "t_ms": 11390,
+          "line": "[1343723][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1"
+        },
+        {
+          "t_ms": 11397,
+          "line": "[1343731][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1"
+        },
+        {
+          "t_ms": 11405,
+          "line": "[1343738][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1"
+        },
+        {
+          "t_ms": 11412,
+          "line": "[1343746][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1"
+        },
+        {
+          "t_ms": 11420,
+          "line": "[1343753][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1"
+        },
+        {
+          "t_ms": 11427,
+          "line": "[1343761][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1"
+        },
+        {
+          "t_ms": 11436,
+          "line": "[1343768][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1"
+        },
+        {
+          "t_ms": 11445,
+          "line": "[1343776][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1"
+        },
+        {
+          "t_ms": 11450,
+          "line": "[1343783][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1"
+        },
+        {
+          "t_ms": 11458,
+          "line": "[1343791][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1"
+        },
+        {
+          "t_ms": 11465,
+          "line": "[1343798][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1"
+        },
+        {
+          "t_ms": 11473,
+          "line": "[1343806][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1"
+        },
+        {
+          "t_ms": 11481,
+          "line": "[1343814][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1"
+        },
+        {
+          "t_ms": 11488,
+          "line": "[1343821][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1"
+        },
+        {
+          "t_ms": 11503,
+          "line": "[1343828][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1"
+        },
+        {
+          "t_ms": 11503,
+          "line": "[1343836][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1"
+        },
+        {
+          "t_ms": 11510,
+          "line": "[1343843][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1"
+        },
+        {
+          "t_ms": 11517,
+          "line": "[1343851][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1"
+        },
+        {
+          "t_ms": 11525,
+          "line": "[1343858][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1"
+        },
+        {
+          "t_ms": 11533,
+          "line": "[1343866][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1"
+        },
+        {
+          "t_ms": 11540,
+          "line": "[1343873][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1"
+        },
+        {
+          "t_ms": 11547,
+          "line": "[1343881][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1"
+        },
+        {
+          "t_ms": 11555,
+          "line": "[1343888][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1"
+        },
+        {
+          "t_ms": 11565,
+          "line": "[1343896][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1"
+        },
+        {
+          "t_ms": 11570,
+          "line": "[1343904][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1"
+        },
+        {
+          "t_ms": 11578,
+          "line": "[1343911][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1"
+        },
+        {
+          "t_ms": 11585,
+          "line": "[1343918][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1"
+        },
+        {
+          "t_ms": 11592,
+          "line": "[1343926][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1"
+        },
+        {
+          "t_ms": 11600,
+          "line": "[1343933][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1"
+        },
+        {
+          "t_ms": 11607,
+          "line": "[1343941][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1"
+        },
+        {
+          "t_ms": 11615,
+          "line": "[1343948][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1"
+        },
+        {
+          "t_ms": 11622,
+          "line": "[1343956][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1"
+        },
+        {
+          "t_ms": 11630,
+          "line": "[1343963][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1"
+        },
+        {
+          "t_ms": 11637,
+          "line": "[1343971][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1"
+        },
+        {
+          "t_ms": 11647,
+          "line": "[1343978][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1"
+        },
+        {
+          "t_ms": 11652,
+          "line": "[1343986][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1"
+        }
+      ],
+      "errors": [
+        "[1337381][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1",
+        "voice: HTTP retry after connect failure",
+        "voice: HTTP POST message (606 B body, retry)\u2026",
+        "[1343690][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1",
+        "tour: narrate failed 9 err=HTTP -1",
+        "[1343715][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1",
+        "[1343723][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1",
+        "[1343731][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1",
+        "[1343738][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1",
+        "[1343746][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1",
+        "[1343753][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1",
+        "[1343761][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1",
+        "[1343768][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1",
+        "[1343776][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1",
+        "[1343783][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1",
+        "[1343791][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1",
+        "[1343798][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1",
+        "[1343806][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1",
+        "[1343814][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1",
+        "[1343821][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1",
+        "[1343828][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1",
+        "[1343836][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1",
+        "[1343843][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1",
+        "[1343851][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1",
+        "[1343858][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1",
+        "[1343866][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1",
+        "[1343873][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1",
+        "[1343881][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1",
+        "[1343888][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1",
+        "[1343896][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1",
+        "[1343904][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1",
+        "[1343911][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1",
+        "[1343918][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1",
+        "[1343926][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1",
+        "[1343933][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1",
+        "[1343941][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1",
+        "[1343948][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1",
+        "[1343956][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1",
+        "[1343963][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1",
+        "[1343971][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1",
+        "[1343978][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1",
+        "[1343986][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1"
+      ],
+      "screenshot_bmp": "artifacts/qa/tts-tour-20260519-2138/09-synastry.bmp",
+      "screenshot_png": "",
+      "screenshot_bytes": 0,
+      "screenshot_error": "<urlopen error [Errno 64] Host is down>",
+      "tts_post_body_bytes": 606,
+      "http_codes": [
+        -1,
+        -1
+      ]
+    },
+    {
+      "idx": 10,
+      "name": "spectrum",
+      "load_host_iso": "2026-05-20T04:00:21.156+00:00",
+      "heap": 67148,
+      "largest": 38900,
+      "psram": 7732711,
+      "health": "heap is low - microphone spectrum visualizer modes",
+      "events": [
+        {
+          "t_ms": 5462,
+          "line": "tour: tts 10 spectrum"
+        },
+        {
+          "t_ms": 5462,
+          "line": "voice: POST message\u2026"
+        },
+        {
+          "t_ms": 5462,
+          "line": "voice: HTTP POST message (601 B body)\u2026"
+        },
+        {
+          "t_ms": 5462,
+          "line": "[1348999][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1"
+        },
+        {
+          "t_ms": 5462,
+          "line": "voice: HTTP -1 (message)"
+        },
+        {
+          "t_ms": 5462,
+          "line": "voice: HTTP retry after connect failure"
+        },
+        {
+          "t_ms": 6314,
+          "line": "voice: HTTP POST message (601 B body, retry)\u2026"
+        },
+        {
+          "t_ms": 11320,
+          "line": "[1355314][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1"
+        },
+        {
+          "t_ms": 11326,
+          "line": "voice: HTTP -1 (message)"
+        },
+        {
+          "t_ms": 11327,
+          "line": "voice: message fail (HTTP -1)"
+        },
+        {
+          "t_ms": 11333,
+          "line": "tour: narrate failed 10 err=HTTP -1"
+        }
+      ],
+      "errors": [
+        "[1348999][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1",
+        "voice: HTTP retry after connect failure",
+        "voice: HTTP POST message (601 B body, retry)\u2026",
+        "[1355314][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1",
+        "tour: narrate failed 10 err=HTTP -1"
+      ],
+      "screenshot_bmp": "artifacts/qa/tts-tour-20260519-2138/10-spectrum.bmp",
+      "screenshot_png": "",
+      "screenshot_bytes": 0,
+      "screenshot_error": "<urlopen error timed out>",
+      "tts_post_body_bytes": 601,
+      "http_codes": [
+        -1,
+        -1
+      ]
+    },
+    {
+      "idx": 11,
+      "name": "chakra",
+      "load_host_iso": "2026-05-20T04:00:32.490+00:00",
+      "heap": 67148,
+      "largest": 38900,
+      "psram": 7732711,
+      "health": "heap is low - chakra symbols with solfeggio tones",
+      "events": [
+        {
+          "t_ms": 460,
+          "line": "tour: tts 11 chakra"
+        },
+        {
+          "t_ms": 460,
+          "line": "voice: POST message\u2026"
+        },
+        {
+          "t_ms": 460,
+          "line": "voice: HTTP POST message (593 B body)\u2026"
+        },
+        {
+          "t_ms": 5003,
+          "line": "[1360331][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1"
+        },
+        {
+          "t_ms": 5010,
+          "line": "voice: HTTP -1 (message)"
+        },
+        {
+          "t_ms": 5010,
+          "line": "voice: HTTP retry after connect failure"
+        },
+        {
+          "t_ms": 6310,
+          "line": "voice: HTTP POST message (593 B body, retry)\u2026"
+        },
+        {
+          "t_ms": 11315,
+          "line": "[1366640][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1"
+        },
+        {
+          "t_ms": 11323,
+          "line": "voice: HTTP -1 (message)"
+        },
+        {
+          "t_ms": 11323,
+          "line": "voice: message fail (HTTP -1)"
+        },
+        {
+          "t_ms": 11323,
+          "line": "tour: narrate failed 11 err=HTTP -1"
+        }
+      ],
+      "errors": [
+        "[1360331][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1",
+        "voice: HTTP retry after connect failure",
+        "voice: HTTP POST message (593 B body, retry)\u2026",
+        "[1366640][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1",
+        "tour: narrate failed 11 err=HTTP -1"
+      ],
+      "screenshot_bmp": "artifacts/qa/tts-tour-20260519-2138/11-chakra.bmp",
+      "screenshot_png": "",
+      "screenshot_bytes": 0,
+      "screenshot_error": "<urlopen error [Errno 65] No route to host>",
+      "tts_post_body_bytes": 593,
+      "http_codes": [
+        -1,
+        -1
+      ]
+    },
+    {
+      "idx": 12,
+      "name": "bowl",
+      "load_host_iso": "2026-05-20T04:00:43.813+00:00",
+      "heap": 67148,
+      "largest": 38900,
+      "psram": 7732711,
+      "health": "heap is low - Tibetan bowl rim instrument",
+      "events": [
+        {
+          "t_ms": 468,
+          "line": "tour: tts 12 bowl"
+        },
+        {
+          "t_ms": 468,
+          "line": "voice: POST message\u2026"
+        },
+        {
+          "t_ms": 468,
+          "line": "voice: HTTP POST message (566 B body)\u2026"
+        },
+        {
+          "t_ms": 5001,
+          "line": "[1371652][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1"
+        },
+        {
+          "t_ms": 5007,
+          "line": "voice: HTTP -1 (message)"
+        },
+        {
+          "t_ms": 5007,
+          "line": "voice: HTTP retry after connect failure"
+        },
+        {
+          "t_ms": 6309,
+          "line": "voice: HTTP POST message (566 B body, retry)\u2026"
+        },
+        {
+          "t_ms": 11310,
+          "line": "[1377961][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1"
+        },
+        {
+          "t_ms": 11316,
+          "line": "voice: HTTP -1 (message)"
+        },
+        {
+          "t_ms": 11316,
+          "line": "voice: message fail (HTTP -1)"
+        },
+        {
+          "t_ms": 11321,
+          "line": "tour: narrate failed 12 err=HTTP -1"
+        }
+      ],
+      "errors": [
+        "[1371652][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1",
+        "voice: HTTP retry after connect failure",
+        "voice: HTTP POST message (566 B body, retry)\u2026",
+        "[1377961][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1",
+        "tour: narrate failed 12 err=HTTP -1"
+      ],
+      "screenshot_bmp": "artifacts/qa/tts-tour-20260519-2138/12-bowl.bmp",
+      "screenshot_png": "",
+      "screenshot_bytes": 0,
+      "screenshot_error": "<urlopen error [Errno 64] Host is down>",
+      "tts_post_body_bytes": 566,
+      "http_codes": [
+        -1,
+        -1
+      ]
+    },
+    {
+      "idx": 13,
+      "name": "rocket",
+      "load_host_iso": "2026-05-20T04:00:55.135+00:00",
+      "heap": 67148,
+      "largest": 38900,
+      "psram": 7732711,
+      "health": "heap is low - upcoming orbital launch clock",
+      "events": [
+        {
+          "t_ms": 5464,
+          "line": "tour: tts 13 rocket"
+        },
+        {
+          "t_ms": 5464,
+          "line": "voice: POST message\u2026"
+        },
+        {
+          "t_ms": 5464,
+          "line": "voice: HTTP POST message (569 B body)\u2026"
+        },
+        {
+          "t_ms": 5464,
+          "line": "[1382976][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1"
+        },
+        {
+          "t_ms": 5464,
+          "line": "voice: HTTP -1 (message)"
+        },
+        {
+          "t_ms": 5464,
+          "line": "voice: HTTP retry after connect failure"
+        },
+        {
+          "t_ms": 6311,
+          "line": "voice: HTTP POST message (569 B body, retry)\u2026"
+        },
+        {
+          "t_ms": 11313,
+          "line": "[1389285][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1"
+        },
+        {
+          "t_ms": 11318,
+          "line": "voice: HTTP -1 (message)"
+        },
+        {
+          "t_ms": 11320,
+          "line": "voice: message fail (HTTP -1)"
+        },
+        {
+          "t_ms": 11323,
+          "line": "tour: narrate failed 13 err=HTTP -1"
+        }
+      ],
+      "errors": [
+        "[1382976][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1",
+        "voice: HTTP retry after connect failure",
+        "voice: HTTP POST message (569 B body, retry)\u2026",
+        "[1389285][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1",
+        "tour: narrate failed 13 err=HTTP -1"
+      ],
+      "screenshot_bmp": "artifacts/qa/tts-tour-20260519-2138/13-rocket.bmp",
+      "screenshot_png": "",
+      "screenshot_bytes": 0,
+      "screenshot_error": "<urlopen error timed out>",
+      "tts_post_body_bytes": 569,
+      "http_codes": [
+        -1,
+        -1
+      ]
+    },
+    {
+      "idx": 14,
+      "name": "radar",
+      "load_host_iso": "2026-05-20T04:01:06.459+00:00",
+      "heap": 67148,
+      "largest": 38900,
+      "psram": 7732711,
+      "health": "heap is low - BLE locator and nearby peer radar",
+      "events": [
+        {
+          "t_ms": 456,
+          "line": "tour: radar BLE paused for TTS heap=67148 largest=38900"
+        },
+        {
+          "t_ms": 457,
+          "line": "tour: tts 14 radar"
+        },
+        {
+          "t_ms": 457,
+          "line": "voice: POST message\u2026"
+        },
+        {
+          "t_ms": 5406,
+          "line": "[1394704][E][WiFiClientSecure.cpp:144] connect(): start_ssl_clievoice: HTTP POST message (579 B body)\u2026"
+        },
+        {
+          "t_ms": 5407,
+          "line": "nt: -1"
+        },
+        {
+          "t_ms": 5412,
+          "line": "voice: HTTP -1 (message)"
+        },
+        {
+          "t_ms": 5412,
+          "line": "voice: HTTP retry after connect failure"
+        },
+        {
+          "t_ms": 6714,
+          "line": "voice: HTTP POST message (579 B body, retry)\u2026"
+        },
+        {
+          "t_ms": 11718,
+          "line": "[1401016][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1"
+        },
+        {
+          "t_ms": 11724,
+          "line": "voice: HTTP -1 (message)"
+        },
+        {
+          "t_ms": 11724,
+          "line": "voice: message fail (HTTP -1)"
+        },
+        {
+          "t_ms": 11748,
+          "line": "tour: narrate failed 14 err=HTTP -1"
+        }
+      ],
+      "errors": [
+        "[1394704][E][WiFiClientSecure.cpp:144] connect(): start_ssl_clievoice: HTTP POST message (579 B body)\u2026",
+        "voice: HTTP retry after connect failure",
+        "voice: HTTP POST message (579 B body, retry)\u2026",
+        "[1401016][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1",
+        "tour: narrate failed 14 err=HTTP -1"
+      ],
+      "screenshot_bmp": "artifacts/qa/tts-tour-20260519-2138/14-radar.bmp",
+      "screenshot_png": "",
+      "screenshot_bytes": 0,
+      "screenshot_error": "<urlopen error [Errno 65] No route to host>",
+      "tts_post_body_bytes": 579,
+      "http_codes": [
+        -1,
+        -1
+      ]
+    },
+    {
+      "idx": 15,
+      "name": "faculty",
+      "load_host_iso": "2026-05-20T04:01:18.208+00:00",
+      "heap": 67148,
+      "largest": 38900,
+      "psram": 7732711,
+      "health": "heap is low - recent ask-faculty conversation portraits",
+      "events": [
+        {
+          "t_ms": 461,
+          "line": "tour: tts 15 faculty"
+        },
+        {
+          "t_ms": 461,
+          "line": "voice: POST message\u2026"
+        },
+        {
+          "t_ms": 461,
+          "line": "voice: HTTP POST message (603 B body)\u2026"
+        },
+        {
+          "t_ms": 5007,
+          "line": "[1406053][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1"
+        },
+        {
+          "t_ms": 5012,
+          "line": "voice: HTTP -1 (message)"
+        },
+        {
+          "t_ms": 5013,
+          "line": "voice: HTTP retry after connect failure"
+        },
+        {
+          "t_ms": 6313,
+          "line": "voice: HTTP POST message (603 B body, retry)\u2026"
+        },
+        {
+          "t_ms": 11316,
+          "line": "[1412362][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1"
+        },
+        {
+          "t_ms": 11322,
+          "line": "voice: HTTP -1 (message)"
+        },
+        {
+          "t_ms": 11322,
+          "line": "voice: message fail (HTTP -1)"
+        },
+        {
+          "t_ms": 11322,
+          "line": "tour: narrate failed 15 err=HTTP -1"
+        }
+      ],
+      "errors": [
+        "[1406053][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1",
+        "voice: HTTP retry after connect failure",
+        "voice: HTTP POST message (603 B body, retry)\u2026",
+        "[1412362][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1",
+        "tour: narrate failed 15 err=HTTP -1"
+      ],
+      "screenshot_bmp": "artifacts/qa/tts-tour-20260519-2138/15-faculty.bmp",
+      "screenshot_png": "",
+      "screenshot_bytes": 0,
+      "screenshot_error": "<urlopen error [Errno 64] Host is down>",
+      "tts_post_body_bytes": 603,
+      "http_codes": [
+        -1,
+        -1
+      ]
+    },
+    {
+      "idx": 16,
+      "name": "weather",
+      "load_host_iso": "2026-05-20T04:01:29.531+00:00",
+      "heap": 67148,
+      "largest": 38900,
+      "psram": 7732711,
+      "health": "heap is low - 24-hour radial forecast rings",
+      "events": [
+        {
+          "t_ms": 5463,
+          "line": "tour: tts 16 weather"
+        },
+        {
+          "t_ms": 5463,
+          "line": "voice: POST message\u2026"
+        },
+        {
+          "t_ms": 5463,
+          "line": "voice: HTTP POST message (552 B body)\u2026"
+        },
+        {
+          "t_ms": 5463,
+          "line": "[1417373][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1"
+        },
+        {
+          "t_ms": 5463,
+          "line": "voice: HTTP -1 (message)"
+        },
+        {
+          "t_ms": 5463,
+          "line": "voice: HTTP retry after connect failure"
+        },
+        {
+          "t_ms": 11312,
+          "line": "[1423682][E][WiFiClientSecure.cpp:144] connect(): start_ssl_clievoice: HTTP POST message (552 B body, retry)\u2026"
+        },
+        {
+          "t_ms": 11313,
+          "line": "nt: -1"
+        },
+        {
+          "t_ms": 11318,
+          "line": "voice: HTTP -1 (message)"
+        },
+        {
+          "t_ms": 11319,
+          "line": "voice: message fail (HTTP -1)"
+        },
+        {
+          "t_ms": 11336,
+          "line": "tour: narrate failed 16 err=HTTP -1"
+        }
+      ],
+      "errors": [
+        "[1417373][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1",
+        "voice: HTTP retry after connect failure",
+        "[1423682][E][WiFiClientSecure.cpp:144] connect(): start_ssl_clievoice: HTTP POST message (552 B body, retry)\u2026",
+        "tour: narrate failed 16 err=HTTP -1"
+      ],
+      "screenshot_bmp": "artifacts/qa/tts-tour-20260519-2138/16-weather.bmp",
+      "screenshot_png": "",
+      "screenshot_bytes": 0,
+      "screenshot_error": "<urlopen error timed out>",
+      "tts_post_body_bytes": 552,
+      "http_codes": [
+        -1,
+        -1
+      ]
+    },
+    {
+      "idx": 17,
+      "name": "quotes",
+      "load_host_iso": "2026-05-20T04:01:40.867+00:00",
+      "heap": 67148,
+      "largest": 38900,
+      "psram": 7732711,
+      "health": "heap is low - Castalia quote of the day with faculty bust",
+      "events": [
+        {
+          "t_ms": 459,
+          "line": "voice: POST message\u2026"
+        },
+        {
+          "t_ms": 459,
+          "line": "tour: tts 17 quotes"
+        },
+        {
+          "t_ms": 459,
+          "line": "voice: HTTP POST message (557 B body)\u2026"
+        },
+        {
+          "t_ms": 459,
+          "line": "pm_faculty: bust skipped low memory heap=63464 largest=38900"
+        },
+        {
+          "t_ms": 459,
+          "line": "pm_faculty: bust skipped low memory heap=63464 largest=38900"
+        },
+        {
+          "t_ms": 5004,
+          "line": "[1428710][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1"
+        },
+        {
+          "t_ms": 5010,
+          "line": "voice: HTTP -1 (message)"
+        },
+        {
+          "t_ms": 5010,
+          "line": "voice: HTTP retry after connect failure"
+        },
+        {
+          "t_ms": 6311,
+          "line": "voice: HTTP POST message (557 B body, retry)\u2026"
+        },
+        {
+          "t_ms": 11317,
+          "line": "[1435019][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1"
+        },
+        {
+          "t_ms": 11323,
+          "line": "voice: HTTP -1 (message)"
+        },
+        {
+          "t_ms": 11323,
+          "line": "voice: message fail (HTTP -1)"
+        },
+        {
+          "t_ms": 11327,
+          "line": "tour: narrate failed 17 err=HTTP -1"
+        }
+      ],
+      "errors": [
+        "pm_faculty: bust skipped low memory heap=63464 largest=38900",
+        "pm_faculty: bust skipped low memory heap=63464 largest=38900",
+        "[1428710][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1",
+        "voice: HTTP retry after connect failure",
+        "voice: HTTP POST message (557 B body, retry)\u2026",
+        "[1435019][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1",
+        "tour: narrate failed 17 err=HTTP -1"
+      ],
+      "screenshot_bmp": "artifacts/qa/tts-tour-20260519-2138/17-quotes.bmp",
+      "screenshot_png": "",
+      "screenshot_bytes": 0,
+      "screenshot_error": "<urlopen error [Errno 65] No route to host>",
+      "tts_post_body_bytes": 557,
+      "http_codes": [
+        -1,
+        -1
+      ]
+    },
+    {
+      "idx": 18,
+      "name": "transits",
+      "load_host_iso": "2026-05-20T04:01:52.216+00:00",
+      "heap": 67148,
+      "largest": 38900,
+      "psram": 7732711,
+      "health": "heap is low - live planetary spheres and next Moon ingress",
+      "events": [
+        {
+          "t_ms": 485,
+          "line": "tour: tts 18 transits"
+        },
+        {
+          "t_ms": 485,
+          "line": "voice: POST message\u2026"
+        },
+        {
+          "t_ms": 485,
+          "line": "voice: HTTP POST message (634 B body)\u2026"
+        },
+        {
+          "t_ms": 4981,
+          "line": "[1440037][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1"
+        },
+        {
+          "t_ms": 4987,
+          "line": "voice: HTTP -1 (message)"
+        },
+        {
+          "t_ms": 4987,
+          "line": "voice: HTTP retry after connect failure"
+        },
+        {
+          "t_ms": 6288,
+          "line": "voice: HTTP POST message (634 B body, retry)\u2026"
+        },
+        {
+          "t_ms": 11289,
+          "line": "[1446346][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1"
+        },
+        {
+          "t_ms": 11296,
+          "line": "voice: HTTP -1 (message)"
+        },
+        {
+          "t_ms": 11296,
+          "line": "voice: message fail (HTTP -1)"
+        },
+        {
+          "t_ms": 11306,
+          "line": "tour: narrate failed 18 err=HTTP -1"
+        },
+        {
+          "t_ms": 11306,
+          "line": "tour: done"
+        }
+      ],
+      "errors": [
+        "[1440037][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1",
+        "voice: HTTP retry after connect failure",
+        "voice: HTTP POST message (634 B body, retry)\u2026",
+        "[1446346][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1",
+        "tour: narrate failed 18 err=HTTP -1"
+      ],
+      "screenshot_bmp": "artifacts/qa/tts-tour-20260519-2138/18-transits.bmp",
+      "screenshot_png": "",
+      "screenshot_bytes": 0,
+      "screenshot_error": "<urlopen error [Errno 64] Host is down>",
+      "tts_post_body_bytes": 634,
+      "http_codes": [
+        -1,
+        -1
+      ]
+    }
+  ]
+}

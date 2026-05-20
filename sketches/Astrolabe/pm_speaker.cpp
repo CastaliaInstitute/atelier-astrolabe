@@ -31,6 +31,7 @@ static const char *TAG = "pm_speaker";
 
 #define I2S_TX I2S_NUM_0
 static constexpr uint32_t kSpeakerTaskStack = 32768;
+static constexpr UBaseType_t kSpeakerTaskPriority = 3;
 static constexpr int kSpeakerVolume = 70;
 static uint32_t s_max_play_seconds = 180u;
 
@@ -112,7 +113,7 @@ static esp_err_t i2s_tx_begin(int sample_hz, int channels) {
   c.communication_format = I2S_COMM_FORMAT_STAND_I2S;
   c.intr_alloc_flags = ESP_INTR_FLAG_LEVEL1;
   c.dma_buf_count = 8;
-  c.dma_buf_len = 256;
+  c.dma_buf_len = 512;
   c.use_apll = false;
   c.tx_desc_auto_clear = true;
   c.fixed_mclk = 0;
@@ -144,9 +145,12 @@ static esp_err_t i2s_write_all(const int16_t *pcm, size_t total_s16) {
     if (i2s_write(I2S_TX, p, remain, &wrote, portMAX_DELAY) != ESP_OK) {
       return ESP_FAIL;
     }
+    if (wrote == 0) {
+      taskYIELD();
+      continue;
+    }
     p += wrote;
     remain -= wrote;
-    vTaskDelay(1);
   }
   return ESP_OK;
 }
@@ -171,7 +175,7 @@ static void i2s_drain_and_stop(int out_hz, int out_channels) {
     (void)i2s_write_all(silence, 512u * static_cast<size_t>(i2s_ch));
   }
   const uint32_t dma_ms =
-      (8u * 256u * static_cast<uint32_t>(i2s_ch) * 1000u) / static_cast<uint32_t>(out_hz) + 250u;
+      (8u * 512u * static_cast<uint32_t>(i2s_ch) * 1000u) / static_cast<uint32_t>(out_hz) + 250u;
   vTaskDelay(pdMS_TO_TICKS(dma_ms > 1200u ? 1200u : dma_ms));
   i2s_stop(I2S_TX);
   vTaskDelay(pdMS_TO_TICKS(20));
@@ -535,8 +539,9 @@ static bool play_mp3_streaming(const uint8_t *mp3, size_t mp3_len) {
   return i2s_ready;
 }
 
-static constexpr size_t kHttpMp3BufCap = 24576u;
-static constexpr size_t kHttpMp3RefillLow = 4096u;
+static constexpr size_t kHttpMp3BufCap = 32768u;
+static constexpr size_t kHttpMp3StartBytes = 16384u;
+static constexpr size_t kHttpMp3RefillLow = 8192u;
 
 bool pm_speaker_play_mp3_http_stream(WiFiClient *stream, int content_length, volatile bool *cancel) {
   s_http_mp3_stream_active = false;
@@ -636,6 +641,19 @@ bool pm_speaker_play_mp3_http_stream(WiFiClient *stream, int content_length, vol
   Serial.println("voice: streaming MP3 playback…");
   if (content_length > 0) {
     Serial.printf("voice: MP3 Content-Length %d\n", content_length);
+  }
+  const size_t start_bytes =
+      content_length > 0 && static_cast<size_t>(content_length) < kHttpMp3StartBytes
+          ? static_cast<size_t>(content_length)
+          : kHttpMp3StartBytes;
+  while (fill < start_bytes && !body_complete()) {
+    if (!refill()) {
+      free(buf);
+      return false;
+    }
+  }
+  if (fill > 0) {
+    Serial.printf("voice: MP3 prebuffer %u B\n", static_cast<unsigned>(fill));
   }
 
   for (;;) {
@@ -867,7 +885,8 @@ static void speaker_task_ensure() {
   if (s_speaker_task) {
     return;
   }
-  xTaskCreatePinnedToCore(speaker_play_task, "spk_play", kSpeakerTaskStack, nullptr, 1, &s_speaker_task, 1);
+  xTaskCreatePinnedToCore(speaker_play_task, "spk_play", kSpeakerTaskStack, nullptr, kSpeakerTaskPriority,
+                          &s_speaker_task, 1);
 }
 
 bool pm_speaker_play_begin(const uint8_t *mp3, size_t mp3_len) {

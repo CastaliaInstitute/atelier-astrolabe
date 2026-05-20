@@ -112,6 +112,7 @@ bool s_ble_ready = false;
 bool s_ble_init_failed = false;
 bool s_ble_radar_active = false;
 bool s_ble_suppressed = false;
+volatile bool s_ble_scan_in_progress = false;
 uint32_t s_ble_deinit_at_ms = 0;
 TaskHandle_t s_ble_init_task = nullptr;
 
@@ -151,6 +152,10 @@ class PresenceScanCallbacks : public BLEAdvertisedDeviceCallbacks {
 };
 
 static PresenceScanCallbacks s_scan_cb;
+
+void presence_scan_complete(BLEScanResults) {
+  s_ble_scan_in_progress = false;
+}
 
 void build_adv_payload(uint8_t *out, size_t *out_len) {
   PmPresenceAdvReport ranked[kPmPresenceAdvMaxReports];
@@ -343,6 +348,7 @@ void pm_presence_ble_set_radar_active(bool active) {
     if (s_scan) {
       s_scan->stop();
     }
+    s_ble_scan_in_progress = false;
     BLEAdvertising *adv = BLEDevice::getAdvertising();
     if (adv) {
       adv->stop();
@@ -382,6 +388,7 @@ void pm_presence_ble_end(void) {
   if (s_scan) {
     s_scan->stop();
   }
+  s_ble_scan_in_progress = false;
   BLEAdvertising *adv = BLEDevice::getAdvertising();
   if (adv) {
     adv->stop();
@@ -411,9 +418,13 @@ void pm_presence_tick(uint32_t now_ms) {
       static_cast<int32_t>(now_ms - s_ble_deinit_at_ms) >= 0) {
     pm_presence_ble_end();
   }
-  if (s_ble_ready && s_ble_radar_active && s_scan && now_ms - s_last_scan_ms >= kScanPeriodMs) {
+  if (s_ble_ready && s_ble_radar_active && s_scan && !s_ble_scan_in_progress &&
+      now_ms - s_last_scan_ms >= kScanPeriodMs) {
     s_last_scan_ms = now_ms;
-    s_scan->start(1, false);
+    s_ble_scan_in_progress = s_scan->start(1, presence_scan_complete, false);
+    if (!s_ble_scan_in_progress) {
+      s_last_scan_ms = now_ms + 1000u;
+    }
     refresh_advertisement();
   }
 #endif
