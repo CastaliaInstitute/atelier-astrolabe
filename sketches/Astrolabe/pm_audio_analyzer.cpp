@@ -26,6 +26,7 @@ static float s_in_peak[PM_AUDIO_ANALYZER_IN_CHANNELS];
 static float s_out_peak = 0.f;
 static uint32_t s_in_blocks[PM_AUDIO_ANALYZER_IN_CHANNELS];
 static uint32_t s_out_blocks = 0;
+static PmAudioPitch s_pitch = {};
 
 static SemaphoreHandle_t analyzer_mutex(void) {
   if (!s_analyzer_mux) {
@@ -64,16 +65,19 @@ static void capture_waveform(const int16_t *block) {
   if (step < 1) {
     return;
   }
-  float peak = 1.f;
+  float peak = 0.f;
+  float raw_rms = 0.f;
   for (int i = 0; i < PM_AUDIO_WAVE_POINTS; ++i) {
     const float v = static_cast<float>(block[i * step]) / 32768.f;
     const float a = fabsf(v);
     if (a > peak) {
       peak = a;
     }
+    raw_rms += v * v;
     s_wave[i] = v;
   }
-  const float inv = peak > 0.001f ? 1.f / peak : 1.f;
+  raw_rms = sqrtf(raw_rms / static_cast<float>(PM_AUDIO_WAVE_POINTS));
+  const float inv = peak > 0.0008f ? 1.f / peak : 1.f;
   for (int i = 0; i < PM_AUDIO_WAVE_POINTS; ++i) {
     s_wave[i] *= inv;
     if (s_wave[i] > 1.f) {
@@ -82,12 +86,13 @@ static void capture_waveform(const int16_t *block) {
       s_wave[i] = -1.f;
     }
   }
-  float rms = 0.f;
-  for (int i = 0; i < PM_AUDIO_WAVE_POINTS; ++i) {
-    rms += s_wave[i] * s_wave[i];
+  float level = (raw_rms - 0.00025f) * 140.f;
+  if (level < 0.f) {
+    level = 0.f;
+  } else if (level > 1.f) {
+    level = 1.f;
   }
-  rms = sqrtf(rms / static_cast<float>(PM_AUDIO_WAVE_POINTS));
-  s_level = s_level * 0.6f + rms * 0.4f;
+  s_level = s_level * 0.55f + level * 0.45f;
   if (s_level > 1.f) {
     s_level = 1.f;
   }
@@ -114,12 +119,146 @@ static float pcm_peak(const int16_t *block) {
   return static_cast<float>(peak) / 32768.f;
 }
 
+static float pcm_peak_samples(const int16_t *samples, size_t count) {
+  if (!samples || count == 0) {
+    return 0.f;
+  }
+  int32_t peak = 0;
+  for (size_t i = 0; i < count; ++i) {
+    const int32_t v = samples[i] < 0 ? -static_cast<int32_t>(samples[i]) : static_cast<int32_t>(samples[i]);
+    if (v > peak) {
+      peak = v;
+    }
+  }
+  return static_cast<float>(peak) / 32768.f;
+}
+
+static void note_name_from_midi(int midi, char *out, size_t out_len) {
+  if (!out || out_len == 0) {
+    return;
+  }
+  static const char *kNames[12] = {"C",  "C#", "D",  "D#", "E",  "F",
+                                   "F#", "G",  "G#", "A",  "A#", "B"};
+  int pc = midi % 12;
+  if (pc < 0) {
+    pc += 12;
+  }
+  snprintf(out, out_len, "%s", kNames[pc]);
+}
+
+static void update_pitch_from_block(const int16_t *block) {
+  PmAudioPitch next = {};
+  if (!block) {
+    s_pitch = next;
+    return;
+  }
+  constexpr float kSampleHz = 16000.f;
+  constexpr int kLagMin = 13;   // ~1230 Hz
+  constexpr int kLagMax = 228;  // ~70 Hz
+  float mean = 0.f;
+  for (int i = 0; i < PM_FFT_N; ++i) {
+    mean += static_cast<float>(block[i]);
+  }
+  mean /= static_cast<float>(PM_FFT_N);
+
+  float total_energy = 0.f;
+  for (int i = 0; i < PM_FFT_N; ++i) {
+    const float v = static_cast<float>(block[i]) - mean;
+    total_energy += v * v;
+  }
+  const float rms = sqrtf(total_energy / static_cast<float>(PM_FFT_N)) / 32768.f;
+  if (rms < 0.004f) {
+    s_pitch.valid = false;
+    s_pitch.level *= 0.78f;
+    return;
+  }
+
+  float corr[kLagMax + 1];
+  memset(corr, 0, sizeof(corr));
+  int best_lag = 0;
+  float best = 0.f;
+  for (int lag = kLagMin; lag <= kLagMax; ++lag) {
+    float sum = 0.f;
+    float e0 = 0.f;
+    float e1 = 0.f;
+    const int n = PM_FFT_N - lag;
+    for (int i = 0; i < n; ++i) {
+      const float a = static_cast<float>(block[i]) - mean;
+      const float b = static_cast<float>(block[i + lag]) - mean;
+      sum += a * b;
+      e0 += a * a;
+      e1 += b * b;
+    }
+    const float norm = sqrtf(e0 * e1);
+    const float c = norm > 1.f ? sum / norm : 0.f;
+    corr[lag] = c;
+    if (c > best) {
+      best = c;
+      best_lag = lag;
+    }
+  }
+
+  if (best_lag <= 0 || best < 0.48f) {
+    s_pitch.valid = false;
+    s_pitch.confidence = s_pitch.confidence * 0.65f;
+    s_pitch.level = s_pitch.level * 0.7f + rms * 16.f * 0.3f;
+    return;
+  }
+
+  float lag_f = static_cast<float>(best_lag);
+  if (best_lag > kLagMin && best_lag < kLagMax) {
+    const float ym1 = corr[best_lag - 1];
+    const float y0 = corr[best_lag];
+    const float yp1 = corr[best_lag + 1];
+    const float denom = ym1 - 2.f * y0 + yp1;
+    if (fabsf(denom) > 0.0001f) {
+      const float delta = 0.5f * (ym1 - yp1) / denom;
+      if (delta > -0.75f && delta < 0.75f) {
+        lag_f += delta;
+      }
+    }
+  }
+
+  float hz = kSampleHz / lag_f;
+  while (hz < 70.f) {
+    hz *= 2.f;
+  }
+  while (hz > 1250.f) {
+    hz *= 0.5f;
+  }
+  const float midi_f = 69.f + 12.f * log2f(hz / 440.f);
+  const int midi = static_cast<int>(lrintf(midi_f));
+  if (midi < 24 || midi > 96) {
+    s_pitch.valid = false;
+    return;
+  }
+  const float target_hz = 440.f * powf(2.f, (static_cast<float>(midi) - 69.f) / 12.f);
+  int cents = static_cast<int>(lrintf(1200.f * log2f(hz / target_hz)));
+  if (cents < -99) {
+    cents = -99;
+  } else if (cents > 99) {
+    cents = 99;
+  }
+
+  next.valid = true;
+  next.hz = s_pitch.valid ? (s_pitch.hz * 0.72f + hz * 0.28f) : hz;
+  next.midi = midi;
+  next.cents = cents;
+  next.confidence = s_pitch.confidence * 0.55f + best * 0.45f;
+  next.level = s_pitch.level * 0.65f + (rms * 16.f) * 0.35f;
+  if (next.level > 1.f) {
+    next.level = 1.f;
+  }
+  note_name_from_midi(midi, next.note, sizeof(next.note));
+  s_pitch = next;
+}
+
 static void mag_to_bands(const float *mag, int mag_bins, int k_start, int k_end, float *disp) {
   const int span = k_end - k_start;
   if (span <= 0) {
     return;
   }
-  float peak = 1.f;
+  float peak = 0.f;
   for (int b = 0; b < PM_AUDIO_ANALYZER_BANDS; ++b) {
     const int k0 = k_start + (b * span) / PM_AUDIO_ANALYZER_BANDS;
     const int k1 = k_start + ((b + 1) * span) / PM_AUDIO_ANALYZER_BANDS;
@@ -130,7 +269,7 @@ static void mag_to_bands(const float *mag, int mag_bins, int k_start, int k_end,
       ++cnt;
     }
     const float avg = cnt > 0 ? sum / static_cast<float>(cnt) : 0.f;
-    float v = log10f(1.f + avg * 0.002f);
+    float v = log10f(1.f + avg * 0.08f);
     if (v > 1.f) {
       v = 1.f;
     }
@@ -139,7 +278,7 @@ static void mag_to_bands(const float *mag, int mag_bins, int k_start, int k_end,
       peak = disp[b];
     }
   }
-  if (peak > 0.01f) {
+  if (peak > 0.0001f) {
     const float inv = 1.f / peak;
     for (int b = 0; b < PM_AUDIO_ANALYZER_BANDS; ++b) {
       disp[b] *= inv;
@@ -158,6 +297,7 @@ static void process_block_in(const int16_t *block, int channel) {
   pm_fft_compute_magnitude(block, mag, PM_FFT_BINS);
   if (channel == 0) {
     capture_waveform(block);
+    update_pitch_from_block(block);
   }
   s_in_peak[channel] = s_in_peak[channel] * 0.7f + pcm_peak(block) * 0.3f;
   s_in_blocks[channel]++;
@@ -194,6 +334,7 @@ void pm_audio_analyzer_reset(void) {
   s_out_peak = 0.f;
   memset(s_in_blocks, 0, sizeof(s_in_blocks));
   s_out_blocks = 0;
+  memset(&s_pitch, 0, sizeof(s_pitch));
   analyzer_unlock();
   pm_fft_init();
 }
@@ -365,6 +506,18 @@ void pm_audio_analyzer_debug(PmAudioAnalyzerDebug *out) {
   analyzer_unlock();
 }
 
+void pm_audio_analyzer_get_pitch(PmAudioPitch *out) {
+  if (!out) {
+    return;
+  }
+  memset(out, 0, sizeof(*out));
+  if (!analyzer_lock(pdMS_TO_TICKS(5))) {
+    return;
+  }
+  *out = s_pitch;
+  analyzer_unlock();
+}
+
 #ifndef ASTROLABE_QEMU
 
 bool pm_audio_analyzer_mic_begin(void) {
@@ -376,8 +529,9 @@ void pm_audio_analyzer_mic_end(void) {
 }
 
 void pm_audio_analyzer_tick(void) {
-  static int16_t raw[512 * 2];
+  static int16_t raw[512 * 4];
   static int16_t mono[512];
+  static int16_t probe[PM_AUDIO_ANALYZER_IN_CHANNELS][512];
   const size_t ns = pm_mic_frame_samples();
   const int nch = pm_mic_i2s_channels();
   if (ns > sizeof(mono) / sizeof(mono[0]) || ns * static_cast<size_t>(nch) > sizeof(raw) / sizeof(raw[0])) {
@@ -385,10 +539,30 @@ void pm_audio_analyzer_tick(void) {
   }
   size_t br = 0;
   if (pm_mic_read_frame(raw, ns, &br)) {
-    const int feed_ch = nch < PM_AUDIO_ANALYZER_IN_CHANNELS ? nch : PM_AUDIO_ANALYZER_IN_CHANNELS;
-    for (int c = 0; c < feed_ch; ++c) {
-      pm_mic_pick_channel(raw, ns, c, mono);
-      pm_audio_analyzer_feed_in_channel(c, mono, ns);
+    float best_peak[PM_AUDIO_ANALYZER_IN_CHANNELS] = {0.f, 0.f};
+    int best_src[PM_AUDIO_ANALYZER_IN_CHANNELS] = {-1, -1};
+    const int scan_ch = nch > 0 ? nch : 1;
+    for (int src = 0; src < scan_ch; ++src) {
+      pm_mic_pick_channel(raw, ns, src, mono);
+      const float peak = pcm_peak_samples(mono, ns);
+      for (int dst = 0; dst < PM_AUDIO_ANALYZER_IN_CHANNELS; ++dst) {
+        if (peak > best_peak[dst]) {
+          for (int sh = PM_AUDIO_ANALYZER_IN_CHANNELS - 1; sh > dst; --sh) {
+            best_peak[sh] = best_peak[sh - 1];
+            best_src[sh] = best_src[sh - 1];
+            memcpy(probe[sh], probe[sh - 1], ns * sizeof(int16_t));
+          }
+          best_peak[dst] = peak;
+          best_src[dst] = src;
+          memcpy(probe[dst], mono, ns * sizeof(int16_t));
+          break;
+        }
+      }
+    }
+    for (int dst = 0; dst < PM_AUDIO_ANALYZER_IN_CHANNELS; ++dst) {
+      if (best_src[dst] >= 0) {
+        pm_audio_analyzer_feed_in_channel(dst, probe[dst], ns);
+      }
     }
   }
   if (!analyzer_lock(pdMS_TO_TICKS(5))) {

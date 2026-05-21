@@ -212,10 +212,13 @@ static void draw_lissajous(const PmSpectrumVizCtx &c) {
 
 static void draw_breath_orb(const PmSpectrumVizCtx &c) {
   const float breath = pm_home_gem_pulse_breath_amount(millis());
-  const float mod = 0.65f + 0.35f * c.level;
-  const int r = static_cast<int>((static_cast<float>(c.R) * 0.22f + breath * static_cast<float>(c.R) * 0.38f) * mod);
-  const uint16_t inner = pm_face_color565_from_hsv(pm_gfx, c.hue_base + 40.f + c.hue_spin, 0.55f, 0.35f + breath * 0.35f);
-  const uint16_t outer = pm_face_color565_from_hsv(pm_gfx, c.hue_base + c.hue_spin, 0.45f, 0.12f);
+  const float pulse = c.level * c.level;
+  const float mod = 0.5f + 0.5f * pulse;
+  const int r = static_cast<int>((static_cast<float>(c.R) * 0.20f + breath * static_cast<float>(c.R) * 0.30f) *
+                                 mod + pulse * 30.f);
+  const uint16_t inner =
+      pm_face_color565_from_hsv(pm_gfx, c.hue_base + 40.f + c.hue_spin, 0.55f, 0.28f + breath * 0.25f + pulse * 0.35f);
+  const uint16_t outer = pm_face_color565_from_hsv(pm_gfx, c.hue_base + c.hue_spin, 0.45f, 0.08f + pulse * 0.18f);
   pm_gfx->fillCircle(c.cx, c.cy, r + 14, outer);
   pm_gfx->fillCircle(c.cx, c.cy, r, inner);
 }
@@ -223,15 +226,16 @@ static void draw_breath_orb(const PmSpectrumVizCtx &c) {
 static void draw_breath_halo(const PmSpectrumVizCtx &c) {
   const float breath = pm_home_gem_pulse_breath_amount(millis());
   const float start = pm_face_deg_to_rad(-90.f);
-  const float end = start + pm_face_k_two_pi * breath;
-  const uint16_t col = pm_face_color565_from_hsv(pm_gfx, c.hue_base + 80.f + c.hue_spin, 0.7f, 0.45f);
-  const int r0 = c.R - 28;
+  const float sweep = breath * (0.55f + c.level * 0.45f);
+  const float end = start + pm_face_k_two_pi * sweep;
+  const uint16_t col = pm_face_color565_from_hsv(pm_gfx, c.hue_base + 80.f + c.hue_spin, 0.7f, 0.25f + c.level * 0.45f);
+  const int r0 = c.R - 30 - static_cast<int>(c.level * 18.f);
   const int r1 = c.R - 8;
   constexpr int k_steps = 72;
   for (int i = 0; i < k_steps; ++i) {
     const float t0 = static_cast<float>(i) / static_cast<float>(k_steps);
     const float t1 = static_cast<float>(i + 1) / static_cast<float>(k_steps);
-    if (t1 > breath) {
+    if (t1 > sweep) {
       break;
     }
     const float a0 = start + (end - start) * t0;
@@ -328,8 +332,9 @@ static void draw_fireflies(const PmSpectrumVizCtx &c) {
     Firefly &f = s_flies[i];
     const float blink = 0.5f + 0.5f * sinf(f.phase);
     const uint16_t col = pm_face_color565_from_hsv(pm_gfx, c.hue_base + 140.f + static_cast<float>(i) * 7.f, 0.5f,
-                                                   0.08f + blink * 0.45f);
-    pm_gfx->fillCircle(static_cast<int>(f.x), static_cast<int>(f.y), 2 + static_cast<int>(blink * 2.f), col);
+                                                   0.06f + blink * 0.25f + c.level * 0.42f);
+    pm_gfx->fillCircle(static_cast<int>(f.x), static_cast<int>(f.y),
+                       2 + static_cast<int>(blink * 2.f) + static_cast<int>(c.level * 4.f), col);
   }
 }
 
@@ -349,24 +354,26 @@ static void draw_ripples(const PmSpectrumVizCtx &c) {
 }
 
 static void draw_starfield(const PmSpectrumVizCtx &c) {
-  const float rot = static_cast<float>(millis()) * 0.00025f;
+  const float rot = static_cast<float>(millis()) * (0.00018f + c.level * 0.0011f);
   constexpr int k_stars = 48;
   int sx[k_stars];
   int sy[k_stars];
   for (int i = 0; i < k_stars; ++i) {
     const float a = static_cast<float>(i) * (pm_face_k_two_pi / static_cast<float>(k_stars)) + rot;
-    const int r = 28 + (i * 17) % (c.R - 36);
+    const int r = 24 + (i * 17) % (c.R - 46) + static_cast<int>(c.level * 18.f);
     sx[i] = c.cx + static_cast<int>(cosf(a) * static_cast<float>(r));
     sy[i] = c.cy + static_cast<int>(sinf(a) * static_cast<float>(r));
-    const uint16_t col = pm_face_color565_from_hsv(pm_gfx, c.hue_base + static_cast<float>(i) * 5.f, 0.4f, 0.35f);
-    pm_gfx->fillCircle(sx[i], sy[i], 2, col);
+    const uint16_t col =
+        pm_face_color565_from_hsv(pm_gfx, c.hue_base + static_cast<float>(i) * 5.f, 0.4f, 0.18f + c.level * 0.55f);
+    pm_gfx->fillCircle(sx[i], sy[i], 1 + static_cast<int>(c.level * 4.f), col);
   }
   for (int i = 0; i < k_stars; ++i) {
     const int j = (i * 7 + 3) % k_stars;
-    if ((i + j) % 5 != 0) {
+    if ((i + j) % (c.level > 0.45f ? 3 : 5) != 0) {
       continue;
     }
-    pm_gfx->drawLine(sx[i], sy[i], sx[j], sy[j], pm_gfx->color565(50, 58, 80));
+    const uint8_t line = static_cast<uint8_t>(45 + c.level * 70.f);
+    pm_gfx->drawLine(sx[i], sy[i], sx[j], sy[j], pm_gfx->color565(line, line + 8, line + 28));
   }
 }
 
@@ -375,12 +382,13 @@ static float kaleido_sample(float x, float y, float t) {
 }
 
 static void draw_kaleidoscope(const PmSpectrumVizCtx &c) {
-  const float t = static_cast<float>(millis()) * 0.003f + c.level;
+  const float t = static_cast<float>(millis()) * (0.002f + c.level * 0.006f) + c.level * 4.f;
   const int patch = 36;
   for (int py = 0; py < patch; ++py) {
     for (int px = 0; px < patch; ++px) {
       const float v = kaleido_sample(static_cast<float>(px), static_cast<float>(py), t);
-      const uint16_t col = pm_face_color565_from_hsv(pm_gfx, c.hue_base + v * 90.f + c.hue_spin, 0.8f, 0.2f + v * 0.45f);
+      const uint16_t col =
+          pm_face_color565_from_hsv(pm_gfx, c.hue_base + v * 90.f + c.hue_spin, 0.8f, 0.12f + v * 0.35f + c.level * 0.28f);
       for (int seg = 0; seg < 6; ++seg) {
         const float ang = static_cast<float>(seg) * (pm_face_k_two_pi / 6.f);
         const float ca = cosf(ang);
@@ -400,8 +408,10 @@ static void draw_cellular_ring(const PmSpectrumVizCtx &c) {
   for (int i = 0; i < n; ++i) {
     const float a = static_cast<float>(i) * (pm_face_k_two_pi / static_cast<float>(n)) - pm_face_k_pi * 0.5f;
     const float v = static_cast<float>(s_cells[i]) / 255.f;
-    const uint16_t col = pm_face_color565_from_hsv(pm_gfx, c.hue_base + v * 100.f + c.hue_spin, 0.75f, 0.15f + v * 0.6f);
-    pm_face_draw_radial_annulus_slice(c.cx, c.cy, a, r0, r1, col, s_cells[i] > 128 ? 3 : 2);
+    const uint16_t col =
+        pm_face_color565_from_hsv(pm_gfx, c.hue_base + v * 100.f + c.hue_spin, 0.75f, 0.10f + v * 0.42f + c.level * 0.35f);
+    pm_face_draw_radial_annulus_slice(c.cx, c.cy, a, r0 - static_cast<int>(c.level * 18.f), r1, col,
+                                      (s_cells[i] > 128 || c.level > 0.55f) ? 3 : 2);
   }
 }
 
@@ -440,9 +450,10 @@ void pm_face_spectrum_viz_tick(float level) {
   const int R = 220;
   for (size_t i = 0; i < sizeof(s_flies) / sizeof(s_flies[0]); ++i) {
     Firefly &f = s_flies[i];
-    f.x += f.vx;
-    f.y += f.vy;
-    f.phase += 0.11f + level * 0.05f;
+    const float speed = 1.f + level * 2.6f;
+    f.x += f.vx * speed;
+    f.y += f.vy * speed;
+    f.phase += 0.08f + level * 0.28f;
     const int dx = static_cast<int>(f.x) - cx;
     const int dy = static_cast<int>(f.y) - cy;
     if (dx * dx + dy * dy > R * R) {
@@ -456,7 +467,7 @@ void pm_face_spectrum_viz_tick(float level) {
       s_ripples[i] += 2.5f + level * 2.f;
     }
   }
-  if (level > 0.55f && s_ripples[0] <= 0.f) {
+  if (level > 0.28f && s_ripples[0] <= 0.f) {
     for (size_t i = sizeof(s_ripples) / sizeof(s_ripples[0]) - 1; i > 0; --i) {
       s_ripples[i] = s_ripples[i - 1];
     }

@@ -9,7 +9,7 @@
 #include "pin_config.h"
 
 #define I2S_CH I2S_NUM_1
-#define PM_MIC_I2S_CHANNELS 2
+#define PM_MIC_I2S_CHANNELS 4
 #define VAD_SAMPLE_RATE_HZ 16000
 #define VAD_FRAME_LENGTH_MS 30
 #define VAD_BUFFER_LENGTH (VAD_FRAME_LENGTH_MS * VAD_SAMPLE_RATE_HZ / 1000)
@@ -17,6 +17,13 @@
 static bool g_mic = false;
 
 int pm_mic_i2s_channels() { return PM_MIC_I2S_CHANNELS; }
+
+static esp_err_t es7210_write_reg_direct(uint8_t reg, uint8_t value) {
+  Wire.beginTransmission(ES7210_ADDR);
+  Wire.write(reg);
+  Wire.write(value);
+  return Wire.endTransmission() == 0 ? ESP_OK : ESP_FAIL;
+}
 
 bool pm_mic_begin() {
   if (g_mic) {
@@ -38,11 +45,13 @@ bool pm_mic_begin() {
   ret = static_cast<esp_err_t>(
       ret | es7210_adc_set_gain(
                 (es7210_input_mics_t)(ES7210_INPUT_MIC1 | ES7210_INPUT_MIC2),
-                (es7210_gain_value_t)GAIN_0DB));
+                (es7210_gain_value_t)GAIN_24DB));
   ret = static_cast<esp_err_t>(
       ret | es7210_adc_set_gain(
                 (es7210_input_mics_t)(ES7210_INPUT_MIC3 | ES7210_INPUT_MIC4),
                 (es7210_gain_value_t)GAIN_37_5DB));
+  ret = static_cast<esp_err_t>(ret | es7210_write_reg_direct(ES7210_MODE_CONFIG_REG08, 0x20));
+  ret = static_cast<esp_err_t>(ret | es7210_write_reg_direct(ES7210_SDP_INTERFACE2_REG12, 0x02));
   ret = static_cast<esp_err_t>(ret | es7210_adc_ctrl_state(cfg.codec_mode, AUDIO_HAL_CTRL_START));
   if (ret != ESP_OK) {
     return false;
@@ -52,7 +61,7 @@ bool pm_mic_begin() {
       .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX),
       .sample_rate = VAD_SAMPLE_RATE_HZ,
       .bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT,
-      .channel_format = I2S_CHANNEL_FMT_ALL_LEFT,
+      .channel_format = I2S_CHANNEL_FMT_MULTIPLE,
       .communication_format = I2S_COMM_FORMAT_STAND_I2S,
       .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
       .dma_buf_count = 8,
@@ -62,7 +71,8 @@ bool pm_mic_begin() {
       .fixed_mclk = 0,
       .mclk_multiple = I2S_MCLK_MULTIPLE_256,
       .bits_per_chan = I2S_BITS_PER_CHAN_16BIT,
-      .chan_mask = (i2s_channel_t)(I2S_TDM_ACTIVE_CH0 | I2S_TDM_ACTIVE_CH1),
+      .chan_mask = (i2s_channel_t)(I2S_TDM_ACTIVE_CH0 | I2S_TDM_ACTIVE_CH1 |
+                                   I2S_TDM_ACTIVE_CH2 | I2S_TDM_ACTIVE_CH3),
   };
 
   i2s_pin_config_t pin_config = {};

@@ -4,7 +4,7 @@
 
 void pm_face_tibetan_bowl_draw(void);
 
-/** Poll touch: rim drag sustains bowl; center tap strikes. Returns true if repaint needed. */
+/** Observe center-only touch: hold sustains, release resonates; outside touches stay swipes. */
 bool pm_face_tibetan_bowl_touch_tick(uint32_t now_ms);
 
 /** After a tangential rim drag, skip one horizontal face-swipe. */

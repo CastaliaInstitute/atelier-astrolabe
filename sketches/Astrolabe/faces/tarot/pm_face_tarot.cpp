@@ -1,13 +1,18 @@
 #include "faces/tarot/pm_face_tarot.h"
 
 #include <Arduino_GFX_Library.h>
+#include <HTTPClient.h>
+#include <PNGdec.h>
+#include <WiFiClient.h>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <ctime>
 
 #include "faces/shared/pm_face_draw.h"
 #include "pin_config.h"
 #include "pm_display.h"
+#include "pm_heap.h"
 #include "pm_wifi_ntp.h"
 
 namespace {
@@ -15,43 +20,67 @@ namespace {
 constexpr int kCardCount = 22;
 constexpr int kCx = LCD_WIDTH / 2;
 constexpr int kCy = LCD_HEIGHT / 2;
-constexpr const char *kManifestUrl = "https://tarot.castalia.institute/assets/major/manifest.json";
+constexpr const char *kManifestUrl = "http://tarot.castalia.institute/assets/major/manifest.json";
+constexpr const char *kAssetBaseUrl = "http://tarot.castalia.institute/assets/major/half";
+constexpr uint32_t kTarotFetchTimeoutMs = 30000u;
+constexpr uint32_t kTarotMinFetchHeap = 18000u;
+constexpr int kTarotMaxImageBytes = 160000;
+constexpr int kTarotMaxImageDim = 260;
+constexpr uint32_t kTarotTaskStack = 12288u;
 
 struct TarotCard {
   const char *title;
   const char *glyph;
   const char *theme;
+  const char *slug;
   uint8_t r;
   uint8_t g;
   uint8_t b;
 };
 
 const TarotCard kCards[kCardCount] = {
-    {"The Fool", "0", "begin", 244, 204, 90},
-    {"The Magician", "I", "will", 220, 70, 64},
-    {"High Priestess", "II", "veil", 78, 116, 210},
-    {"The Empress", "III", "bloom", 88, 170, 98},
-    {"The Emperor", "IV", "order", 196, 82, 54},
-    {"The Hierophant", "V", "rite", 190, 170, 108},
-    {"The Lovers", "VI", "choice", 225, 112, 142},
-    {"The Chariot", "VII", "drive", 80, 132, 210},
-    {"Strength", "VIII", "gentle", 238, 170, 76},
-    {"The Hermit", "IX", "lamp", 170, 186, 205},
-    {"Wheel of Fortune", "X", "turn", 214, 174, 72},
-    {"Justice", "XI", "balance", 190, 82, 86},
-    {"The Hanged Man", "XII", "pause", 92, 166, 190},
-    {"Death", "XIII", "change", 210, 210, 210},
-    {"Temperance", "XIV", "blend", 116, 184, 164},
-    {"The Devil", "XV", "chain", 174, 64, 72},
-    {"The Tower", "XVI", "break", 230, 144, 64},
-    {"The Star", "XVII", "hope", 116, 174, 226},
-    {"The Moon", "XVIII", "dream", 150, 150, 218},
-    {"The Sun", "XIX", "joy", 248, 204, 74},
-    {"Judgement", "XX", "call", 214, 130, 92},
-    {"The World", "XXI", "whole", 116, 190, 142},
+    {"The Fool", "0", "begin", "fool", 244, 204, 90},
+    {"The Magician", "I", "will", "magician", 220, 70, 64},
+    {"The High Priestess", "II", "veil", "priestess", 78, 116, 210},
+    {"The Empress", "III", "bloom", "empress", 88, 170, 98},
+    {"The Emperor", "IV", "order", "emperor", 196, 82, 54},
+    {"The Hierophant", "V", "rite", "hierophant", 190, 170, 108},
+    {"The Lovers", "VI", "choice", "lovers", 225, 112, 142},
+    {"The Chariot", "VII", "drive", "chariot", 80, 132, 210},
+    {"Strength", "VIII", "gentle", "strength", 238, 170, 76},
+    {"The Hermit", "IX", "lamp", "hermit", 170, 186, 205},
+    {"Wheel of Fortune", "X", "turn", "fortune", 214, 174, 72},
+    {"Justice", "XI", "balance", "justice", 190, 82, 86},
+    {"The Hanged Man", "XII", "pause", "hanged", 92, 166, 190},
+    {"Death", "XIII", "change", "death", 210, 210, 210},
+    {"Temperance", "XIV", "blend", "temperance", 116, 184, 164},
+    {"The Devil", "XV", "chain", "devil", 174, 64, 72},
+    {"The Tower", "XVI", "break", "tower", 230, 144, 64},
+    {"The Star", "XVII", "hope", "star", 116, 174, 226},
+    {"The Moon", "XVIII", "dream", "moon", 150, 150, 218},
+    {"The Sun", "XIX", "joy", "sun", 248, 204, 74},
+    {"Judgement", "XX", "call", "judgement", 214, 130, 92},
+    {"The World", "XXI", "whole", "world", 116, 190, 142},
 };
 
 int s_selected = -1;
+TaskHandle_t s_fetch_task = nullptr;
+SemaphoreHandle_t s_image_mux = nullptr;
+volatile bool s_fetch_busy = false;
+volatile bool s_fetch_done = false;
+volatile bool s_fetch_ok = false;
+int s_request_idx = -1;
+int s_cached_idx = -1;
+int s_decoding_w = 0;
+int s_decoding_h = 0;
+uint16_t *s_decoding_fb = nullptr;
+uint8_t *s_decoding_mask = nullptr;
+int s_image_w = 0;
+int s_image_h = 0;
+uint16_t *s_image_fb = nullptr;
+uint8_t *s_image_mask = nullptr;
+char s_last_error[40] = "";
+PNG s_png;
 
 uint16_t blend565(uint16_t bg, uint16_t fg, float alpha) {
   if (alpha <= 0.f) {
@@ -79,6 +108,315 @@ int daily_index(const struct tm *tm_local, bool valid_local) {
     return (yday + year * 7) % kCardCount;
   }
   return static_cast<int>((millis() / 86400000u) % kCardCount);
+}
+
+void image_mux_ensure() {
+  if (!s_image_mux) {
+    s_image_mux = xSemaphoreCreateMutex();
+  }
+}
+
+bool image_mux_take(uint32_t ms) {
+  image_mux_ensure();
+  return s_image_mux && xSemaphoreTake(s_image_mux, pdMS_TO_TICKS(ms)) == pdTRUE;
+}
+
+void image_mux_give() {
+  if (s_image_mux) {
+    xSemaphoreGive(s_image_mux);
+  }
+}
+
+void set_error(const char *msg) {
+  if (!msg) {
+    s_last_error[0] = '\0';
+    return;
+  }
+  strncpy(s_last_error, msg, sizeof(s_last_error) - 1);
+  s_last_error[sizeof(s_last_error) - 1] = '\0';
+}
+
+void free_active_image_locked() {
+  free(s_image_fb);
+  free(s_image_mask);
+  s_image_fb = nullptr;
+  s_image_mask = nullptr;
+  s_image_w = 0;
+  s_image_h = 0;
+  s_cached_idx = -1;
+}
+
+void free_decode_image() {
+  free(s_decoding_fb);
+  free(s_decoding_mask);
+  s_decoding_fb = nullptr;
+  s_decoding_mask = nullptr;
+  s_decoding_w = 0;
+  s_decoding_h = 0;
+}
+
+size_t mask_bytes_for(int w, int h) {
+  if (w <= 0 || h <= 0) {
+    return 0;
+  }
+  return (static_cast<size_t>(w) * static_cast<size_t>(h) + 7u) / 8u;
+}
+
+void mask_set(uint8_t *mask, int idx) {
+  if (!mask || idx < 0) {
+    return;
+  }
+  mask[idx >> 3] = static_cast<uint8_t>(mask[idx >> 3] | (1u << (idx & 7)));
+}
+
+bool mask_get(const uint8_t *mask, int idx) {
+  if (!mask || idx < 0) {
+    return false;
+  }
+  return (mask[idx >> 3] & (1u << (idx & 7))) != 0;
+}
+
+bool build_card_url(int idx, char *url, size_t cap) {
+  if (idx < 0 || idx >= kCardCount || !url || cap == 0) {
+    return false;
+  }
+  const int n = snprintf(url, cap, "%s/%02d-%s.png", kAssetBaseUrl, idx, kCards[idx].slug);
+  return n > 0 && static_cast<size_t>(n) < cap;
+}
+
+bool download_card_png(const char *url, uint8_t **out_buf, size_t *out_len) {
+  if (!url || !out_buf || !out_len) {
+    return false;
+  }
+  *out_buf = nullptr;
+  *out_len = 0;
+  if (!pm_wifi_connected()) {
+    set_error("no wifi");
+    return false;
+  }
+  if (pm_heap_internal_free() < kTarotMinFetchHeap) {
+    set_error("low memory");
+    return false;
+  }
+
+  WiFiClient client;
+  HTTPClient http;
+  http.setTimeout(kTarotFetchTimeoutMs);
+  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+  http.addHeader("Accept", "image/png,image/*;q=0.8,*/*;q=0.1");
+  http.addHeader("User-Agent", "Astrolabe/1.0");
+  if (!http.begin(client, url)) {
+    set_error("http begin");
+    return false;
+  }
+  const int code = http.GET();
+  const int len = http.getSize();
+  if (code != 200 || len <= 0 || len > kTarotMaxImageBytes) {
+    char err[32];
+    snprintf(err, sizeof(err), "HTTP %d", code);
+    set_error(err);
+    Serial.printf("tarot: image GET %d len %d\n", code, len);
+    http.end();
+    return false;
+  }
+  uint8_t *buf = static_cast<uint8_t *>(pm_heap_alloc_response(static_cast<size_t>(len)));
+  if (!buf) {
+    set_error("alloc png");
+    http.end();
+    return false;
+  }
+  WiFiClient *stream = http.getStreamPtr();
+  size_t rd = 0;
+  const uint32_t deadline = millis() + kTarotFetchTimeoutMs;
+  while (rd < static_cast<size_t>(len)) {
+    if (stream && stream->available() > 0) {
+      const int n = stream->readBytes(buf + rd, static_cast<size_t>(len) - rd);
+      if (n > 0) {
+        rd += static_cast<size_t>(n);
+        continue;
+      }
+    }
+    if (!http.connected() && (!stream || stream->available() == 0)) {
+      break;
+    }
+    if (static_cast<int32_t>(millis() - deadline) >= 0) {
+      break;
+    }
+    yield();
+    delay(1);
+  }
+  http.end();
+  if (rd < 8 || rd < static_cast<size_t>(len)) {
+    free(buf);
+    set_error("short png");
+    return false;
+  }
+  *out_buf = buf;
+  *out_len = rd;
+  return true;
+}
+
+int tarot_png_draw(PNGDRAW *pDraw) {
+  if (!pDraw || !s_decoding_fb || s_decoding_w <= 0 || s_decoding_h <= 0 || pDraw->y < 0 || pDraw->y >= s_decoding_h) {
+    return 0;
+  }
+  uint16_t *dst = s_decoding_fb + pDraw->y * s_decoding_w;
+  s_png.getLineAsRGB565(pDraw, dst, PNG_RGB565_BIG_ENDIAN, 0xffffffff);
+  if (s_decoding_mask && pDraw->iWidth > 0) {
+    uint8_t alpha_mask[(kTarotMaxImageDim + 7) / 8] = {};
+    if (s_png.getAlphaMask(pDraw, alpha_mask, 8)) {
+      for (int x = 0; x < pDraw->iWidth && x < s_decoding_w; ++x) {
+        if ((alpha_mask[x >> 3] & (0x80u >> (x & 7))) != 0) {
+          mask_set(s_decoding_mask, pDraw->y * s_decoding_w + x);
+        }
+      }
+    }
+  }
+  return 1;
+}
+
+bool decode_card_png(uint8_t *data, size_t len, int idx) {
+  free_decode_image();
+  if (!data || len == 0 || s_png.openRAM(data, static_cast<int>(len), tarot_png_draw) != PNG_SUCCESS) {
+    set_error("png open");
+    return false;
+  }
+  const int w = s_png.getWidth();
+  const int h = s_png.getHeight();
+  if (w <= 0 || h <= 0 || w > kTarotMaxImageDim || h > kTarotMaxImageDim) {
+    s_png.close();
+    set_error("png size");
+    return false;
+  }
+  const size_t px = static_cast<size_t>(w) * static_cast<size_t>(h);
+  s_decoding_fb = static_cast<uint16_t *>(pm_heap_alloc_response(px * sizeof(uint16_t)));
+  if (!s_decoding_fb) {
+    s_png.close();
+    set_error("alloc fb");
+    return false;
+  }
+  s_decoding_mask = static_cast<uint8_t *>(pm_heap_alloc_response(mask_bytes_for(w, h)));
+  if (!s_decoding_mask) {
+    s_png.close();
+    free_decode_image();
+    set_error("alloc mask");
+    return false;
+  }
+  s_decoding_w = w;
+  s_decoding_h = h;
+  memset(s_decoding_fb, 0, px * sizeof(uint16_t));
+  memset(s_decoding_mask, 0, mask_bytes_for(w, h));
+  const int rc = s_png.decode(nullptr, 0);
+  s_png.close();
+  if (rc != PNG_SUCCESS) {
+    free_decode_image();
+    set_error("png decode");
+    return false;
+  }
+  if (!image_mux_take(3000)) {
+    free_decode_image();
+    set_error("image lock");
+    return false;
+  }
+  free_active_image_locked();
+  s_image_fb = s_decoding_fb;
+  s_image_mask = s_decoding_mask;
+  s_image_w = s_decoding_w;
+  s_image_h = s_decoding_h;
+  s_cached_idx = idx;
+  s_decoding_fb = nullptr;
+  s_decoding_mask = nullptr;
+  s_decoding_w = 0;
+  s_decoding_h = 0;
+  image_mux_give();
+  set_error(nullptr);
+  return true;
+}
+
+bool fetch_card_inner(int idx) {
+  char url[160];
+  if (!build_card_url(idx, url, sizeof(url))) {
+    set_error("bad url");
+    return false;
+  }
+  uint8_t *png = nullptr;
+  size_t png_len = 0;
+  if (!download_card_png(url, &png, &png_len)) {
+    return false;
+  }
+  const bool ok = decode_card_png(png, png_len, idx);
+  free(png);
+  Serial.printf("tarot: %s %02d %s (%u B)\n", ok ? "cached" : "decode failed", idx, kCards[idx].slug,
+                static_cast<unsigned>(png_len));
+  return ok;
+}
+
+void tarot_fetch_task(void *arg) {
+  (void)arg;
+  for (;;) {
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    const int idx = s_request_idx;
+    s_fetch_ok = fetch_card_inner(idx);
+    s_fetch_done = true;
+    s_fetch_busy = false;
+  }
+}
+
+void fetch_task_ensure() {
+  if (!s_fetch_task) {
+    const BaseType_t ok =
+        xTaskCreatePinnedToCore(tarot_fetch_task, "tarot_img", kTarotTaskStack, nullptr, 1, &s_fetch_task, 1);
+    if (ok != pdPASS) {
+      s_fetch_task = nullptr;
+      set_error("task alloc");
+    }
+  }
+}
+
+void request_card_image(int idx) {
+  if (idx < 0 || idx >= kCardCount || s_cached_idx == idx || s_fetch_busy || !pm_wifi_connected()) {
+    return;
+  }
+  fetch_task_ensure();
+  if (!s_fetch_task) {
+    set_error("task");
+    return;
+  }
+  s_request_idx = idx;
+  s_fetch_done = false;
+  s_fetch_ok = false;
+  s_fetch_busy = true;
+  xTaskNotify(s_fetch_task, 1, eSetBits);
+}
+
+bool draw_cached_card_image(int idx, int cx, int cy) {
+  if (idx < 0 || !image_mux_take(25)) {
+    return false;
+  }
+  if (s_cached_idx != idx || !s_image_fb || !s_image_mask || s_image_w <= 0 || s_image_h <= 0) {
+    image_mux_give();
+    return false;
+  }
+  const int x0 = cx - s_image_w / 2;
+  const int y0 = cy - s_image_h / 2;
+  for (int y = 0; y < s_image_h; ++y) {
+    const int yy = y0 + y;
+    if (yy < 0 || yy >= LCD_HEIGHT) {
+      continue;
+    }
+    for (int x = 0; x < s_image_w; ++x) {
+      const int xx = x0 + x;
+      if (xx < 0 || xx >= LCD_WIDTH) {
+        continue;
+      }
+      if (!mask_get(s_image_mask, y * s_image_w + x)) {
+        continue;
+      }
+      pm_gfx->writePixel(xx, yy, s_image_fb[y * s_image_w + x]);
+    }
+  }
+  image_mux_give();
+  return true;
 }
 
 void draw_star(int cx, int cy, int r_outer, int r_inner, int points, uint16_t col) {
@@ -276,6 +614,7 @@ bool pm_face_tarot_cycle(int delta) {
 void pm_face_tarot_draw(const struct tm *tm_local, bool valid_local) {
   const int idx = pm_face_tarot_index(tm_local, valid_local);
   const TarotCard &card = kCards[idx];
+  request_card_image(idx);
   const uint16_t c_bg = pm_gfx->color565(7, 8, 14);
   const uint16_t c_panel = pm_gfx->color565(18, 16, 22);
   const uint16_t c_ink = pm_gfx->color565(238, 226, 196);
@@ -306,7 +645,10 @@ void pm_face_tarot_draw(const struct tm *tm_local, bool valid_local) {
                      kCy + static_cast<int>(lrintf(sinf(ang) * r1)), col);
   }
 
-  draw_card_symbol(idx, kCx, kCy - 6, c_ink, c_accent);
+  const bool image_drawn = draw_cached_card_image(idx, kCx, kCy - 10);
+  if (!image_drawn) {
+    draw_card_symbol(idx, kCx, kCy - 6, c_ink, c_accent);
+  }
 
   char num[8];
   snprintf(num, sizeof(num), "%02d", idx);
@@ -314,9 +656,13 @@ void pm_face_tarot_draw(const struct tm *tm_local, bool valid_local) {
   pm_face_draw_centered_line(card.title, 340, c_ink, 2, 2);
   pm_face_draw_centered_line(card.theme, 374, c_dim, 1, 1);
 
+  const char *fallback = s_last_error[0] ? s_last_error : "daily major";
+  const char *deck_hint = s_last_error[0] ? s_last_error : "swipe deck  tap daily";
   if (s_selected < 0) {
-    pm_face_draw_centered_line("daily major", 408, c_dim, 1, 1);
+    pm_face_draw_centered_line(image_drawn ? "daily major" : (s_fetch_busy ? "fetching card" : fallback), 408,
+                               c_dim, 1, 1);
   } else {
-    pm_face_draw_centered_line("swipe deck  tap daily", 408, c_dim, 1, 1);
+    pm_face_draw_centered_line(image_drawn ? "swipe deck  tap daily" : (s_fetch_busy ? "fetching card" : deck_hint),
+                               408, c_dim, 1, 1);
   }
 }

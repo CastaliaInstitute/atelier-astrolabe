@@ -25,6 +25,33 @@ static float clock_hue_deg(void) {
   return fmodf(static_cast<float>(millis()) * 0.02f, 360.f);
 }
 
+static float spectrum_activity(const float *mix, int n_bands, const float *wave, int n_wave, float level) {
+  float peak = level;
+  float avg = 0.f;
+  if (mix && n_bands > 0) {
+    for (int i = 0; i < n_bands; ++i) {
+      const float v = mix[i];
+      if (v > peak) {
+        peak = v;
+      }
+      avg += v;
+    }
+    avg /= static_cast<float>(n_bands);
+  }
+  float wave_rms = 0.f;
+  if (wave && n_wave > 0) {
+    for (int i = 0; i < n_wave; ++i) {
+      wave_rms += wave[i] * wave[i];
+    }
+    wave_rms = sqrtf(wave_rms / static_cast<float>(n_wave));
+  }
+  float v = peak * 0.65f + avg * 0.25f + wave_rms * 0.35f;
+  if (v > 1.f) {
+    v = 1.f;
+  }
+  return v;
+}
+
 static void draw_mode_caption(int mode) {
   char buf[40];
   snprintf(buf, sizeof(buf), "%s %d/%d", pm_face_spectrum_mode_label(), mode + 1, PM_SPECTRUM_VIZ_COUNT);
@@ -81,6 +108,8 @@ void pm_face_spectrum_draw(uint16_t bg) {
   pm_audio_analyzer_get_mix(mix, PM_AUDIO_ANALYZER_BANDS);
   pm_audio_analyzer_get_waveform(wave, PM_AUDIO_WAVE_POINTS);
   pm_audio_analyzer_get_spec_history(hist, PM_AUDIO_SPEC_HISTORY, PM_AUDIO_ANALYZER_BANDS);
+  const float activity = spectrum_activity(mix, PM_AUDIO_ANALYZER_BANDS, wave, PM_AUDIO_WAVE_POINTS,
+                                           pm_audio_analyzer_get_level());
 
   const int R = (LCD_WIDTH < LCD_HEIGHT ? LCD_WIDTH : LCD_HEIGHT) / 2 - 14;
   const PmSpectrumVizCtx ctx = {
@@ -95,7 +124,7 @@ void pm_face_spectrum_draw(uint16_t bg) {
       PM_AUDIO_WAVE_POINTS,
       hist,
       PM_AUDIO_SPEC_HISTORY,
-      pm_audio_analyzer_get_level(),
+      activity,
   };
 
   pm_face_spectrum_viz_draw(s_mode, ctx);

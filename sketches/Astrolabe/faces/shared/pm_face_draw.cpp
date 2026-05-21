@@ -292,7 +292,8 @@ void chakra_gem_fill_radial_dithered(int cx, int cy, int r_max, uint8_t cr, uint
   const float inv_r_max = 1.f / static_cast<float>(r_max);
   const int y0 = cy - r_max;
   const int y1 = cy + r_max;
-  for (int y = y0; y <= y1; ++y) {
+  const int step = wave_active ? 2 : 1;
+  for (int y = y0; y <= y1; y += step) {
     const int dy = y - cy;
     const int dy2 = dy * dy;
     if (dy2 > r_max2) {
@@ -307,16 +308,25 @@ void chakra_gem_fill_radial_dithered(int cx, int cy, int r_max, uint8_t cr, uint
     if (xb >= LCD_WIDTH) {
       xb = LCD_WIDTH - 1;
     }
-    for (int x = xa; x <= xb; ++x) {
+    for (int x = xa; x <= xb; x += step) {
       const int dx = x - cx;
       const int d2 = dx * dx + dy2;
       if (d2 > r_max2) {
         continue;
       }
       const float t = sqrtf(static_cast<float>(d2)) * inv_r_max;
-      pm_gfx->drawPixel(x, y,
-                        chakra_gem_color_at_radius(x, y, cx, cy, t, cr, cg, cb, pulse_b, wave_phase, tone_hz,
-                                                   wave_active));
+      const uint16_t col =
+          chakra_gem_color_at_radius(x, y, cx, cy, t, cr, cg, cb, pulse_b, wave_phase, tone_hz, wave_active);
+      pm_gfx->drawPixel(x, y, col);
+      if (step > 1 && x + 1 <= xb) {
+        pm_gfx->drawPixel(x + 1, y, col);
+      }
+      if (step > 1 && y + 1 <= y1) {
+        pm_gfx->drawPixel(x, y + 1, col);
+        if (x + 1 <= xb) {
+          pm_gfx->drawPixel(x + 1, y + 1, col);
+        }
+      }
     }
   }
 }
@@ -662,4 +672,3 @@ void pm_face_draw_chakra_gem(int cx, int cy, int r_max, uint8_t cr, uint8_t cg, 
   chakra_gem_fill_radial_dithered(cx, cy, r_max, cr, cg, cb, pulse_brightness, wave_phase_rad, tone_hz,
                                   wave_active);
 }
-

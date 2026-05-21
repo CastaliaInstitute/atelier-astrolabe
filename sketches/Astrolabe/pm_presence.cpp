@@ -3,6 +3,8 @@
 #include "pm_presence_adv.h"
 #include "pm_presence_graph.h"
 #include "pm_presence_locations.h"
+#include "pm_config.h"
+#include "pm_heap.h"
 #include "pm_wifi_ntp.h"
 
 #include <Arduino.h>
@@ -366,6 +368,13 @@ bool pm_presence_ble_begin(void) {
   }
   if (s_ble_ready) {
     return true;
+  }
+  const uint32_t free_i = pm_heap_internal_free();
+  const uint32_t largest_i = pm_heap_internal_largest();
+  if (free_i < MYNAH_BLE_MIN_START_HEAP || largest_i < MYNAH_TLS_MIN_LARGEST_INTERNAL) {
+    Serial.printf("presence: BLE deferred low heap internal=%u largest=%u\n", static_cast<unsigned>(free_i),
+                  static_cast<unsigned>(largest_i));
+    return false;
   }
   if (s_ble_init_task != nullptr) {
     return true;

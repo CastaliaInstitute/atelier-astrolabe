@@ -117,11 +117,9 @@ static bool chakra_start_tone(void) {
 
 int pm_face_chakra_cycle(int delta) {
   const int n = static_cast<int>(sizeof(kChakras) / sizeof(kChakras[0]));
-  int v = s_index + delta;
+  int v = (s_index + delta) % n;
   if (v < 0) {
-    v = 0;
-  } else if (v >= n) {
-    v = n - 1;
+    v += n;
   }
   if (v == s_index) {
     return s_index;
@@ -149,7 +147,7 @@ bool pm_face_chakra_anim_tick(uint32_t now_ms) {
   }
 
   const bool playing = s_chakra_tone_on || pm_speaker_is_playing();
-  const uint32_t interval = playing ? 50u : 120u;
+  const uint32_t interval = playing ? 90u : 140u;
   if (now_ms - s_last_anim_ms < interval) {
     return false;
   }

@@ -23,12 +23,17 @@ sketches/Astrolabe/idf_component.yml
 sketches/Astrolabe/managed_components/
 managed_components/
 components/espressif__*
+idf/build/
+idf/managed_components/
+idf/sdkconfig
+idf/sdkconfig.old
 uac/idf_bootstrap/build/
 uac/idf_bootstrap/sdkconfig
 uac/idf_bootstrap/sdkconfig.old
 sdkconfig
 sdkconfig.*
 !sdkconfig.uac.defaults
+!idf/sdkconfig.defaults
 sdkconfig.old
 compile_commands.json
 .dummy/

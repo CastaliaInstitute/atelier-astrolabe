@@ -79,11 +79,12 @@ void draw_slice_ring(int r_inner, int r_outer, uint16_t (*color_fn)(int hour), i
   for (int s = 0; s < k_slices; ++s) {
     const int h = hour_for_slice(s);
     uint16_t col = color_fn(h);
-    if (local_hour >= 0 && slice_is_before_now(s, local_hour, local_min)) {
-      col = blend565(col, c_track, 0.58f);
+    const bool past = local_hour >= 0 && slice_is_before_now(s, local_hour, local_min);
+    if (past) {
+      col = blend565(col, c_track, 0.84f);
     }
-    if (h == highlight_hour) {
-      col = blend565(col, pm_gfx->color565(255, 252, 240), 0.35f);
+    if (h == highlight_hour && !past) {
+      col = blend565(col, pm_gfx->color565(255, 252, 240), 0.42f);
     }
     const float d0 = slice_start_deg(s);
     const float d1 = d0 + k_deg_per_slice;
@@ -115,7 +116,7 @@ void draw_24h_time_labels(bool time_valid, int local_hour, int local_min) {
   const int R = min(LCD_WIDTH, LCD_HEIGHT) / 2;
   const int r_label = R - 25;
   const uint16_t c_future = pm_gfx->color565(185, 198, 220);
-  const uint16_t c_past = pm_gfx->color565(55, 64, 82);
+  const uint16_t c_past = pm_gfx->color565(22, 28, 40);
   const uint16_t c_now = pm_gfx->color565(255, 252, 235);
 
   pm_gfx->setTextSize(1, 1);
@@ -291,9 +292,9 @@ void draw_now_beacon(int r_ring, int local_hour, int local_min) {
   const int cy = pm_face_lcd_cy;
   const int bx = cx + static_cast<int>(lrintf(cosf(ang) * static_cast<float>(r_ring)));
   const int by = cy + static_cast<int>(lrintf(sinf(ang) * static_cast<float>(r_ring)));
-  pm_gfx->fillCircle(bx, by, 7, pm_gfx->color565(255, 250, 230));
-  pm_gfx->drawCircle(bx, by, 8, pm_gfx->color565(255, 255, 255));
-  pm_gfx->drawCircle(bx, by, 10, pm_gfx->color565(120, 130, 160));
+  pm_gfx->fillCircle(bx, by, 8, pm_gfx->color565(255, 250, 230));
+  pm_gfx->drawCircle(bx, by, 10, pm_gfx->color565(255, 255, 255));
+  pm_gfx->drawCircle(bx, by, 13, pm_gfx->color565(130, 145, 180));
 }
 
 void draw_ring_legends(int r_hum_inner, int r_hum_outer, int r_temp_inner, int r_temp_outer) {

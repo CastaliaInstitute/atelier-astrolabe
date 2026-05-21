@@ -60,6 +60,7 @@ struct PmBowlVoiceCtrl {
   float rim_quality = 0.f;
   bool finger_down = false;
   bool center_strike = false;
+  bool pure_tone = false;
 };
 
 /** Start or feed the sustained bowl additive synth (non-blocking). */

@@ -104,6 +104,11 @@ void pm_face_quotes_draw(void) {
 
   pm_face_draw_centered_line(faculty.name, 36, c_hi, 1, 1);
   pm_faculty_draw_bust_for(&faculty);
+  if (pm_faculty_bust_status() == PmFacultyBustStatus::Working) {
+    pm_face_draw_centered_line("fetching portrait", 63, c_dim, 1, 1);
+  } else if (!pm_faculty_bust_ready_for(faculty.slug) && pm_wifi_connected()) {
+    pm_face_draw_centered_line(pm_faculty_bust_last_error(), 63, c_dim, 1, 1);
+  }
 
   pm_gfx->fillRect(0, LCD_HEIGHT - 150, LCD_WIDTH, 150, c_panel);
   draw_wrapped_center(g_quotes_ui.quote, LCD_HEIGHT - 137, c_quote, 38, 4);

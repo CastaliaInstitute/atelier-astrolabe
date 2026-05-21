@@ -3,6 +3,7 @@
 #include <Arduino_GFX_Library.h>
 #include <HTTPClient.h>
 #include <JPEGDEC.h>
+#include <PNGdec.h>
 #include <Preferences.h>
 #include <WiFiClient.h>
 #include <WiFiClientSecure.h>
@@ -21,6 +22,7 @@
 #include "pm_config.h"
 #include "pm_heap.h"
 #include "pm_display.h"
+#include "pm_faculty_assets.h"
 #include "pm_wifi_ntp.h"
 
 static const char *TAG = "pm_faculty";
@@ -28,7 +30,7 @@ static const char *TAG = "pm_faculty";
 static constexpr const char *kNvsNs = "mynah";
 static constexpr const char *kKeyActive = "fac_active";
 static constexpr size_t kBustMaxBytes = 128u * 1024u;
-static constexpr uint32_t kBustTaskStack = 32768;
+static constexpr uint32_t kBustTaskStack = 12288;
 
 static TaskHandle_t s_bust_task = nullptr;
 static volatile PmFacultyBustStatus s_bust_status = PmFacultyBustStatus::Idle;
@@ -41,6 +43,7 @@ static char s_bust_error[80] = "";
 
 static constexpr int kBustFooterTop = LCD_HEIGHT - 104;
 static constexpr int kBustMaxDrawH = LCD_HEIGHT / 2;
+static constexpr int kBustFullMaxDrawH = LCD_HEIGHT - 28;
 static constexpr int kBustRestBottom = kBustFooterTop - 6;
 static constexpr uint32_t kBustRiseMs = 420u;
 static constexpr int kBustJpegMaxDim = 512;
@@ -49,6 +52,7 @@ static uint16_t *s_decoded_fb = nullptr;
 static int s_decoded_w = 0;
 static int s_decoded_h = 0;
 static char s_decoded_slug[32] = "";
+static PNG s_bust_png;
 
 static bool s_rise_active = false;
 static uint32_t s_rise_start_ms = 0;
@@ -92,6 +96,28 @@ static void sanitize_slug(const char *in, char *out, size_t cap) {
     --o;
   }
   out[o] = '\0';
+}
+
+static bool extract_json_string_field(const char *json, const char *key, char *out, size_t out_cap) {
+  if (!json || !key || !out || out_cap == 0) {
+    return false;
+  }
+  char pat[48];
+  snprintf(pat, sizeof(pat), "\"%s\":\"", key);
+  const char *p = strstr(json, pat);
+  if (!p) {
+    return false;
+  }
+  p += strlen(pat);
+  size_t o = 0;
+  while (*p && *p != '"' && o + 1 < out_cap) {
+    if (*p == '\\' && p[1]) {
+      ++p;
+    }
+    out[o++] = *p++;
+  }
+  out[o] = '\0';
+  return o > 0;
 }
 
 static void pm_faculty_normalize_slug(const char *in, char *out, size_t cap) {
@@ -549,6 +575,32 @@ static bool build_castalia_bust_url(const char *slug, char *url, size_t cap) {
   return n > 0 && static_cast<size_t>(n) < cap;
 }
 
+static bool build_static_avatar_url(const char *slug, char *url, size_t cap) {
+  if (!slug_sane(slug) || !url || cap == 0 || strlen(MYNAH_CASTALIA_WEB_ORIGIN) == 0) {
+    return false;
+  }
+  char base[160];
+  strncpy(base, MYNAH_CASTALIA_WEB_ORIGIN, sizeof(base) - 1);
+  base[sizeof(base) - 1] = '\0';
+  trim_base_url(base, sizeof(base));
+
+  char path_slug[48];
+  if (strncmp(slug, "a.", 2) == 0) {
+    snprintf(path_slug, sizeof(path_slug), "a-%s", slug + 2);
+  } else if (strncmp(slug, "a-", 2) == 0) {
+    snprintf(path_slug, sizeof(path_slug), "%s", slug);
+  } else {
+    snprintf(path_slug, sizeof(path_slug), "a-%s", slug);
+  }
+  for (char *p = path_slug; *p; ++p) {
+    if (*p == '.' || *p == '_') {
+      *p = '-';
+    }
+  }
+  const int n = snprintf(url, cap, "%s/faculty/avatars/%s-sprite.png", base, path_slug);
+  return n > 0 && static_cast<size_t>(n) < cap;
+}
+
 static bool build_supabase_bust_url(const char *slug, char *url, size_t cap) {
   if (!url || cap == 0 || strlen(MYNAH_SUPABASE_URL) == 0) {
     return false;
@@ -562,13 +614,26 @@ static bool build_supabase_bust_url(const char *slug, char *url, size_t cap) {
   return n > 0 && static_cast<size_t>(n) < cap;
 }
 
-static bool fetch_bust_url(const char *url, const char *label, uint8_t **bytes, size_t *len) {
-  WiFiClientSecure client;
-  client.setInsecure();
-  client.setTimeout(90);
+static bool url_is_https(const char *url) {
+  return url && strncasecmp(url, "https://", 8) == 0;
+}
+
+static bool fetch_bust_url(const char *url, const char *label, uint8_t **bytes, size_t *len, int depth = 0) {
+  if (depth > 1) {
+    bust_set_error("redirect depth");
+    return false;
+  }
+  WiFiClient plain_client;
+  WiFiClientSecure secure_client;
+  WiFiClient *client = &plain_client;
+  if (url_is_https(url)) {
+    secure_client.setInsecure();
+    client = &secure_client;
+  }
+  client->setTimeout(90);
   HTTPClient http;
   http.setTimeout(65535);
-  if (!http.begin(client, url)) {
+  if (!http.begin(*client, url)) {
     bust_set_error("http begin");
     return false;
   }
@@ -589,14 +654,52 @@ static bool fetch_bust_url(const char *url, const char *label, uint8_t **bytes, 
   http.end();
   if (ok) {
     Serial.printf("pm_faculty: bust %s fetched %u B\n", label ? label : "url", static_cast<unsigned>(*len));
+    if (*bytes && *len > 2 && (*bytes)[0] == '{') {
+      char signed_url[384];
+      const bool have_url =
+          extract_json_string_field(reinterpret_cast<const char *>(*bytes), "url", signed_url, sizeof(signed_url));
+      free(*bytes);
+      *bytes = nullptr;
+      *len = 0;
+      if (!have_url) {
+        bust_set_error("json no url");
+        return false;
+      }
+      return fetch_bust_url(signed_url, "signed", bytes, len, depth + 1);
+    }
   }
   return ok;
+}
+
+static bool cache_embedded_bust(const char *slug) {
+  const uint8_t *embedded = nullptr;
+  size_t embedded_len = 0;
+  if (!pm_faculty_embedded_bust(slug, &embedded, &embedded_len) || embedded_len == 0) {
+    return false;
+  }
+  uint8_t *copy = static_cast<uint8_t *>(pm_heap_alloc_response(embedded_len));
+  if (!copy) {
+    bust_set_error("oom embedded bust");
+    return false;
+  }
+  memcpy(copy, embedded, embedded_len);
+  free(s_bust_bytes);
+  s_bust_bytes = copy;
+  s_bust_len = embedded_len;
+  strncpy(s_bust_slug, slug, sizeof(s_bust_slug) - 1);
+  s_bust_slug[sizeof(s_bust_slug) - 1] = '\0';
+  bust_set_error(nullptr);
+  Serial.printf("pm_faculty: embedded bust %s (%u B)\n", s_bust_slug, static_cast<unsigned>(s_bust_len));
+  return true;
 }
 
 static bool fetch_bust_inner(const char *slug) {
   if (!slug_sane(slug)) {
     bust_set_error("bad slug");
     return false;
+  }
+  if (cache_embedded_bust(slug)) {
+    return true;
   }
   if (!pm_wifi_connected()) {
     bust_set_error("no wifi");
@@ -611,7 +714,9 @@ static bool fetch_bust_inner(const char *slug) {
   uint8_t *bytes = nullptr;
   size_t len = 0;
   char url[240];
-  if (build_castalia_bust_url(slug, url, sizeof(url)) && fetch_bust_url(url, "castalia", &bytes, &len)) {
+  if (build_static_avatar_url(slug, url, sizeof(url)) && fetch_bust_url(url, "avatar", &bytes, &len)) {
+    /* ok */
+  } else if (build_castalia_bust_url(slug, url, sizeof(url)) && fetch_bust_url(url, "castalia", &bytes, &len)) {
     /* ok */
   } else if (build_supabase_bust_url(slug, url, sizeof(url)) && fetch_bust_url(url, "supabase", &bytes, &len)) {
     /* ok */
@@ -665,14 +770,22 @@ bool pm_faculty_request_bust(const char *slug) {
   if (s_bust_len > 0 && strcmp(s_bust_slug, slug) == 0) {
     return false;
   }
+  if (cache_embedded_bust(slug)) {
+    s_bust_done = true;
+    s_bust_status = PmFacultyBustStatus::DoneOk;
+    s_rise_active = true;
+    s_rise_start_ms = millis();
+    return true;
+  }
   if (!pm_wifi_connected()) {
     return false;
   }
-  if (!pm_heap_tls_ready(MYNAH_FACULTY_MIN_FETCH_HEAP, "faculty")) {
+  const uint32_t free_i = pm_heap_internal_free();
+  const uint32_t largest_i = pm_heap_internal_largest();
+  if (free_i < MYNAH_FACULTY_MIN_FETCH_HEAP || largest_i < 16000u) {
     bust_set_error("low memory");
     Serial.printf("pm_faculty: bust skipped low memory heap=%u largest=%u\n",
-                  static_cast<unsigned>(pm_heap_internal_free()),
-                  static_cast<unsigned>(pm_heap_internal_largest()));
+                  static_cast<unsigned>(free_i), static_cast<unsigned>(largest_i));
     return false;
   }
   bust_task_ensure();
@@ -692,6 +805,10 @@ const char *pm_faculty_bust_slug(void) { return s_bust_slug; }
 size_t pm_faculty_bust_size(void) { return s_bust_len; }
 const char *pm_faculty_bust_last_error(void) {
   return s_bust_error[0] != '\0' ? s_bust_error : "bust unavailable";
+}
+bool pm_faculty_bust_ready_for(const char *slug) {
+  return slug_sane(slug) && s_bust_len > 0 && strcmp(s_bust_slug, slug) == 0 &&
+         ((s_decoded_fb && strcmp(s_decoded_slug, slug) == 0) || s_bust_status == PmFacultyBustStatus::DoneOk);
 }
 
 static float bust_rise_ease(float t) {
@@ -741,14 +858,16 @@ static int bust_jpeg_draw(JPEGDRAW *pDraw) {
   return 1;
 }
 
-static bool bust_try_decode_for_slug(const char *slug) {
-  if (!slug_sane(slug) || s_bust_len == 0 || strcmp(s_bust_slug, slug) != 0) {
-    return false;
+static int bust_png_draw(PNGDRAW *pDraw) {
+  if (!s_decoded_fb || s_decoded_w <= 0 || s_decoded_h <= 0 || !pDraw || pDraw->y < 0 || pDraw->y >= s_decoded_h) {
+    return 0;
   }
-  if (s_decoded_fb && strcmp(s_decoded_slug, slug) == 0) {
-    return true;
-  }
-  bust_free_decoded();
+  uint16_t *dst = s_decoded_fb + pDraw->y * s_decoded_w;
+  s_bust_png.getLineAsRGB565(pDraw, dst, PNG_RGB565_BIG_ENDIAN, 0xffffffff);
+  return 1;
+}
+
+static bool bust_decode_jpeg_locked(const char *slug) {
   JPEGDEC jpg;
   if (jpg.openRAM(s_bust_bytes, static_cast<int>(s_bust_len), bust_jpeg_draw) != 1) {
     return false;
@@ -781,19 +900,64 @@ static bool bust_try_decode_for_slug(const char *slug) {
   return true;
 }
 
-static void bust_compute_draw_size(int src_w, int src_h, int *out_w, int *out_h) {
+static bool bust_decode_png_locked(const char *slug) {
+  if (s_bust_png.openRAM(s_bust_bytes, static_cast<int>(s_bust_len), bust_png_draw) != PNG_SUCCESS) {
+    return false;
+  }
+  const int w = s_bust_png.getWidth();
+  const int h = s_bust_png.getHeight();
+  if (w <= 0 || h <= 0 || w > kBustJpegMaxDim || h > kBustJpegMaxDim) {
+    s_bust_png.close();
+    return false;
+  }
+  s_decoded_w = w;
+  s_decoded_h = h;
+  const size_t px = static_cast<size_t>(w) * static_cast<size_t>(h);
+  s_decoded_fb = static_cast<uint16_t *>(pm_heap_alloc_response(px * sizeof(uint16_t)));
+  if (!s_decoded_fb) {
+    s_bust_png.close();
+    bust_free_decoded();
+    return false;
+  }
+  memset(s_decoded_fb, 0, px * sizeof(uint16_t));
+  const int rc = s_bust_png.decode(nullptr, 0);
+  s_bust_png.close();
+  if (rc != PNG_SUCCESS) {
+    bust_free_decoded();
+    return false;
+  }
+  strncpy(s_decoded_slug, slug, sizeof(s_decoded_slug) - 1);
+  s_decoded_slug[sizeof(s_decoded_slug) - 1] = '\0';
+  return true;
+}
+
+static bool bust_try_decode_for_slug(const char *slug) {
+  if (!slug_sane(slug) || s_bust_len == 0 || strcmp(s_bust_slug, slug) != 0) {
+    return false;
+  }
+  if (s_decoded_fb && strcmp(s_decoded_slug, slug) == 0) {
+    return true;
+  }
+  bust_free_decoded();
+  if (s_bust_len >= 8 && s_bust_bytes[0] == 0x89 && s_bust_bytes[1] == 'P' && s_bust_bytes[2] == 'N' &&
+      s_bust_bytes[3] == 'G') {
+    return bust_decode_png_locked(slug);
+  }
+  return bust_decode_jpeg_locked(slug);
+}
+
+static void bust_compute_draw_size(int src_w, int src_h, int max_w, int max_h, int *out_w, int *out_h) {
   if (!out_w || !out_h || src_w <= 0 || src_h <= 0) {
     return;
   }
-  int h = kBustMaxDrawH;
+  int h = max_h;
   int w = src_w * h / src_h;
-  const int max_w = LCD_WIDTH - 40;
   if (w > max_w) {
     w = max_w;
     h = src_h * w / src_w;
   }
-  if (h > kBustMaxDrawH) {
-    h = kBustMaxDrawH;
+  if (h > max_h) {
+    h = max_h;
     w = src_w * h / src_h;
   }
   *out_w = w;
@@ -817,7 +981,7 @@ static float bust_rise_progress(uint32_t now_ms) {
   return bust_rise_ease(static_cast<float>(elapsed) / static_cast<float>(kBustRiseMs));
 }
 
-static void bust_draw_scaled_jpeg(int cx, int bottom_y, int draw_w, int draw_h) {
+static void bust_draw_scaled_jpeg(int cx, int bottom_y, int draw_w, int draw_h, int clip_top, int clip_bottom) {
   if (!pm_gfx || !s_decoded_fb || draw_w <= 0 || draw_h <= 0) {
     return;
   }
@@ -825,7 +989,7 @@ static void bust_draw_scaled_jpeg(int cx, int bottom_y, int draw_w, int draw_h) 
   const int top = bottom_y - draw_h;
   for (int dy = 0; dy < draw_h; ++dy) {
     const int y = top + dy;
-    if (y < 48 || y >= kBustFooterTop) {
+    if (y < clip_top || y >= clip_bottom) {
       continue;
     }
     const int sy = dy * s_decoded_h / draw_h;
@@ -916,7 +1080,7 @@ void pm_faculty_draw_bust(void) {
   pm_faculty_draw_bust_for(&faculty);
 }
 
-void pm_faculty_draw_bust_for(const PmFacultyProfile *faculty) {
+static void pm_faculty_draw_bust_for_mode(const PmFacultyProfile *faculty, bool fullscreen) {
   if (!pm_gfx || !faculty || !faculty->valid) {
     return;
   }
@@ -925,21 +1089,34 @@ void pm_faculty_draw_bust_for(const PmFacultyProfile *faculty) {
   }
   (void)bust_try_decode_for_slug(faculty->slug);
 
-  int draw_w = (LCD_WIDTH - 40) * 3 / 4;
-  int draw_h = kBustMaxDrawH;
+  int draw_w = fullscreen ? (LCD_WIDTH - 24) : ((LCD_WIDTH - 40) * 3 / 4);
+  int draw_h = fullscreen ? kBustFullMaxDrawH : kBustMaxDrawH;
   if (s_decoded_fb && strcmp(s_decoded_slug, faculty->slug) == 0) {
-    bust_compute_draw_size(s_decoded_w, s_decoded_h, &draw_w, &draw_h);
+    bust_compute_draw_size(s_decoded_w, s_decoded_h, fullscreen ? (LCD_WIDTH - 24) : (LCD_WIDTH - 40),
+                           fullscreen ? kBustFullMaxDrawH : kBustMaxDrawH, &draw_w, &draw_h);
   }
 
-  const float rise_t = bust_rise_progress(millis());
-  const int bottom_y = kBustRestBottom + bust_rise_offset_px(draw_h, rise_t);
+  const float rise_t = fullscreen ? 1.f : bust_rise_progress(millis());
+  const int bottom_y = fullscreen ? (LCD_HEIGHT + draw_h) / 2 : (kBustRestBottom + bust_rise_offset_px(draw_h, rise_t));
   const int cx = LCD_WIDTH / 2;
 
   if (s_decoded_fb && strcmp(s_decoded_slug, faculty->slug) == 0) {
-    bust_draw_scaled_jpeg(cx, bottom_y, draw_w, draw_h);
+    bust_draw_scaled_jpeg(cx, bottom_y, draw_w, draw_h, fullscreen ? 0 : 48, fullscreen ? LCD_HEIGHT : kBustFooterTop);
     return;
   }
   bust_draw_placeholder(*faculty, cx, bottom_y, draw_h);
+}
+
+void pm_faculty_draw_bust_for(const PmFacultyProfile *faculty) {
+  pm_faculty_draw_bust_for_mode(faculty, false);
+}
+
+void pm_faculty_draw_bust_fullscreen(void) {
+  PmFacultyProfile faculty = {};
+  if (!pm_faculty_active(&faculty)) {
+    return;
+  }
+  pm_faculty_draw_bust_for_mode(&faculty, true);
 }
 
 bool pm_faculty_tick(uint32_t now_ms) {
@@ -948,11 +1125,8 @@ bool pm_faculty_tick(uint32_t now_ms) {
   if (s_prev_bust_status == PmFacultyBustStatus::Working &&
       (st == PmFacultyBustStatus::DoneOk || st == PmFacultyBustStatus::DoneFail)) {
     if (st == PmFacultyBustStatus::DoneOk) {
-      PmFacultyProfile cur = {};
-      if (pm_faculty_active(&cur)) {
-        bust_free_decoded();
-        (void)bust_try_decode_for_slug(cur.slug);
-      }
+      bust_free_decoded();
+      (void)bust_try_decode_for_slug(s_bust_slug);
       s_rise_active = true;
       s_rise_start_ms = now_ms;
     }

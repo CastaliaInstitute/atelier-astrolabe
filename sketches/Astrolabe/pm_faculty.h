@@ -41,6 +41,8 @@ bool pm_faculty_bust_animating(void);
 void pm_faculty_draw_bust(void);
 /** Draw portrait/placeholder for a supplied faculty profile without reading active recents. */
 void pm_faculty_draw_bust_for(const PmFacultyProfile *faculty);
+/** Draw the active faculty portrait as the primary full-face visual, with no rise animation. */
+void pm_faculty_draw_bust_fullscreen(void);
 /** Call when the active faculty slug changes (cycle / set active). */
 void pm_faculty_on_active_changed(void);
 /** Release cached portrait bytes/decoded framebuffer when leaving Faculty. */
@@ -49,3 +51,4 @@ PmFacultyBustStatus pm_faculty_bust_status(void);
 const char *pm_faculty_bust_slug(void);
 size_t pm_faculty_bust_size(void);
 const char *pm_faculty_bust_last_error(void);
+bool pm_faculty_bust_ready_for(const char *slug);

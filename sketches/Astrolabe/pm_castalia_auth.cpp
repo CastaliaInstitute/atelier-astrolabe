@@ -13,6 +13,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "pm_config.h"
+#include "pm_speaker.h"
 #include "pm_wifi_ntp.h"
 
 extern "C" {
@@ -55,9 +56,10 @@ static int s_qr_cached_size = 0;
 static int s_qr_cached_mod = 0;
 
 static constexpr uint32_t kCastaliaPollQuietAfterQrMs = 15000;
-static constexpr uint32_t kCastaliaNetTaskStack = 32768;
+static constexpr uint32_t kCastaliaNetTaskStack = 16384;
 
 static TaskHandle_t s_net_task = nullptr;
+static volatile bool s_net_busy = false;
 static volatile bool s_net_done = false;
 static volatile bool s_net_ok = false;
 static volatile uint8_t s_net_op = 0; /** 1 = pair start, 2 = poll, 3 = refresh session */
@@ -68,6 +70,7 @@ static char s_poll_url[400];
 static char s_poll_base[160];
 /** Skip qrcodegen_encodeText when sign-in URL unchanged (full_paint runs every second). */
 static char s_qr_cached_url[sizeof(s_signin_url)] = "";
+static char s_qr_failed_url[sizeof(s_signin_url)] = "";
 static bool s_qr_modules_valid = false;
 
 static constexpr uint32_t kCastaliaHttpTimeoutMs = 12000;
@@ -396,8 +399,9 @@ bool pm_castalia_auth_prepare_for_voice() {
   pm_castalia_auth_init();
   if (s_refresh[0] != '\0' && (access_token_stale() || access_token_dead())) {
     if (!refresh_session_http()) {
-      ESP_LOGW(TAG, "session refresh failed; trying anon for voice");
+      ESP_LOGW(TAG, "session refresh failed");
       s_access[0] = '\0';
+      return false;
     }
   }
   return true;
@@ -416,6 +420,7 @@ void pm_castalia_auth_apply_headers(HTTPClient *http) {
 
 static void invalidate_qr_cache() {
   s_qr_cached_url[0] = '\0';
+  s_qr_failed_url[0] = '\0';
   s_qr_modules_valid = false;
   s_qr_cached_size = 0;
   s_qr_cached_mod = 0;
@@ -428,10 +433,18 @@ static bool pm_castalia_encode_qr_cache() {
   if (s_qr_modules_valid && strcmp(s_signin_url, s_qr_cached_url) == 0 && s_qr_cached_size > 0) {
     return true;
   }
+  if (s_qr_failed_url[0] != '\0' && strcmp(s_signin_url, s_qr_failed_url) == 0) {
+    return false;
+  }
   if (!qrcodegen_encodeText(s_signin_url, s_qrcodegen_temp, s_qrcodegen_out, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN,
                            kCastaliaQrMaxVersion, qrcodegen_Mask_AUTO, true)) {
     ESP_LOGW(TAG, "QR encode failed (url len %u)", static_cast<unsigned>(strlen(s_signin_url)));
-    invalidate_qr_cache();
+    strncpy(s_qr_failed_url, s_signin_url, sizeof(s_qr_failed_url) - 1);
+    s_qr_failed_url[sizeof(s_qr_failed_url) - 1] = '\0';
+    s_qr_cached_url[0] = '\0';
+    s_qr_modules_valid = false;
+    s_qr_cached_size = 0;
+    s_qr_cached_mod = 0;
     return false;
   }
   strncpy(s_qr_cached_url, s_signin_url, sizeof(s_qr_cached_url) - 1);
@@ -460,6 +473,7 @@ static void castalia_net_task(void *arg) {
       s_net_ok = false;
     }
     s_net_done = true;
+    s_net_busy = false;
   }
 }
 
@@ -467,16 +481,18 @@ static void castalia_net_task_ensure() {
   if (s_net_task) {
     return;
   }
+  (void)pm_speaker_release_idle_task();
   xTaskCreatePinnedToCore(castalia_net_task, "castalia_net", kCastaliaNetTaskStack, nullptr, 1, &s_net_task, 1);
 }
 
 static bool castalia_net_run(uint8_t op, uint32_t timeout_ms) {
   castalia_net_task_ensure();
-  if (!s_net_task) {
+  if (!s_net_task || s_net_busy) {
     return false;
   }
   s_net_op = op;
   s_net_done = false;
+  s_net_busy = true;
   xTaskNotify(s_net_task, 1, eSetBits);
   const uint32_t deadline = millis() + timeout_ms;
   while (!s_net_done) {
@@ -487,6 +503,31 @@ static bool castalia_net_run(uint8_t op, uint32_t timeout_ms) {
     }
   }
   return s_net_ok;
+}
+
+static bool castalia_net_begin(uint8_t op) {
+  castalia_net_task_ensure();
+  if (!s_net_task || s_net_busy) {
+    return false;
+  }
+  s_net_op = op;
+  s_net_done = false;
+  s_net_ok = false;
+  s_net_busy = true;
+  xTaskNotify(s_net_task, 1, eSetBits);
+  return true;
+}
+
+static bool castalia_net_collect(uint8_t op, bool *ok) {
+  if (s_net_op != op || s_net_busy || !s_net_done) {
+    return false;
+  }
+  if (ok) {
+    *ok = s_net_ok;
+  }
+  s_net_op = 0;
+  s_net_done = false;
+  return true;
 }
 
 bool pm_castalia_tick_refresh_session() {
@@ -506,29 +547,17 @@ static void build_signin_url() {
   if (s_pair_id[0] == '\0' || s_pair_secret[0] == '\0') {
     return;
   }
-  char enc_key[200];
-  char repo_full[112];
-  char enc_individual[80];
-  char enc_repo[160];
-  char enc_settings[96];
-  pm_castalia_repo_full_name(repo_full, sizeof(repo_full));
-  url_encode_component(s_pair_secret, enc_key, sizeof(enc_key));
-  url_encode_component(pm_castalia_individual_id(), enc_individual, sizeof(enc_individual));
-  url_encode_component(repo_full, enc_repo, sizeof(enc_repo));
-  url_encode_component(MYNAH_CASTALIA_SETTINGS_PATH, enc_settings, sizeof(enc_settings));
-  char path[420];
-  snprintf(path, sizeof(path), "/auth/mynah-device/?pair=%s&key=%s&individual=%s&repo=%s&settings=%s", s_pair_id, enc_key,
-           enc_individual, enc_repo, enc_settings);
-  char enc_path[520];
-  url_encode_component(path, enc_path, sizeof(enc_path));
-
   const char *origin = MYNAH_CASTALIA_WEB_ORIGIN;
   char origin_trim[96];
   strncpy(origin_trim, origin, sizeof(origin_trim) - 1);
   origin_trim[sizeof(origin_trim) - 1] = '\0';
   trim_supabase_url(origin_trim, sizeof(origin_trim));
-  /** Real HTML on castalia.institute (Supabase Edge serves HTML as text/plain). */
-  snprintf(s_signin_url, sizeof(s_signin_url), "%s/auth/signin/?provider=google&redirect=%s", origin_trim, enc_path);
+  char enc_device[32];
+  char enc_key[200];
+  url_encode_component(pm_wifi_mac_suffix(), enc_device, sizeof(enc_device));
+  url_encode_component(s_pair_secret, enc_key, sizeof(enc_key));
+  snprintf(s_signin_url, sizeof(s_signin_url), "%s/auth/mynah-device/?device=%s&pair=%s&key=%s", origin_trim,
+           enc_device, s_pair_id, enc_key);
 }
 
 static bool http_post_json(const char *url, const char *body, char *resp, size_t resp_cap, int *http_code_out) {
@@ -592,13 +621,15 @@ static bool castalia_pair_start_http() {
 
   char repo_full[112];
   pm_castalia_repo_full_name(repo_full, sizeof(repo_full));
-  char body[420];
+  char body[520];
   snprintf(body, sizeof(body),
-           "{\"device_kind\":\"astrolabe\",\"device_name\":\"%s\",\"individual_id\":\"%s\","
+           "{\"device_kind\":\"astrolabe\",\"device_name\":\"%s\",\"device_id\":\"%s\",\"device_mac\":\"%s\","
+           "\"individual_id\":\"%s\","
            "\"settings_source\":\"%s\",\"settings_path\":\"%s\",\"repo_owner\":\"%s\","
            "\"repo_name\":\"%s\",\"individual_repo\":\"%s\"}",
-           pm_wifi_mdns_name(), pm_castalia_individual_id(), MYNAH_CASTALIA_SETTINGS_SOURCE, MYNAH_CASTALIA_SETTINGS_PATH,
-           MYNAH_CASTALIA_REPO_OWNER, pm_castalia_repo_name(), repo_full);
+           pm_wifi_mdns_name(), pm_wifi_mac_suffix(), pm_wifi_mac_string(), pm_castalia_individual_id(),
+           MYNAH_CASTALIA_SETTINGS_SOURCE, MYNAH_CASTALIA_SETTINGS_PATH, MYNAH_CASTALIA_REPO_OWNER,
+           pm_castalia_repo_name(), repo_full);
 
   int http_code = -1;
   if (!http_post_json(url, body, s_http_json_buf, sizeof(s_http_json_buf), &http_code)) {
@@ -618,7 +649,6 @@ static bool castalia_pair_start_http() {
     return false;
   }
   build_signin_url();
-  (void)pm_castalia_encode_qr_cache();
   snprintf(s_status, sizeof(s_status), "Scan for %s", pm_castalia_individual_id());
   s_last_poll_ms = millis();
   s_warmup_requested = false;
@@ -636,7 +666,7 @@ void pm_castalia_warmup_after_wifi() {
   if (strlen(MYNAH_SUPABASE_URL) == 0 || strlen(MYNAH_SUPABASE_ANON_KEY) == 0) {
     return;
   }
-  if (s_signin_url[0] != '\0' && s_qr_modules_valid) {
+  if (s_pair_id[0] != '\0' && s_signin_url[0] != '\0' && s_qr_modules_valid) {
     return;
   }
   s_warmup_requested = true;
@@ -664,7 +694,7 @@ void pm_castalia_on_face_enter() {
     snprintf(s_status, sizeof(s_status), "Set MYNAH_SUPABASE_*");
     return;
   }
-  if (s_signin_url[0] != '\0' && s_qr_modules_valid) {
+  if (s_pair_id[0] != '\0' && s_signin_url[0] != '\0') {
     snprintf(s_status, sizeof(s_status), "Scan with phone");
     return;
   }
@@ -673,7 +703,7 @@ void pm_castalia_on_face_enter() {
   s_signin_url[0] = '\0';
   invalidate_qr_cache();
   s_pair_start_pending = true;
-  snprintf(s_status, sizeof(s_status), "Connecting...");
+  snprintf(s_status, sizeof(s_status), "Pairing...");
 }
 
 bool pm_castalia_tick_background_pairing() {
@@ -693,11 +723,18 @@ void pm_castalia_note_qr_drawn() {
 }
 
 bool pm_castalia_tick_pair_start() {
-  if (!s_pair_start_pending) {
+  bool ok = false;
+  if (castalia_net_collect(1, &ok)) {
+    snprintf(s_status, sizeof(s_status), "%s", ok ? "Scan with phone" : "Pair start failed");
+    return true;
+  }
+  if (!s_pair_start_pending || s_net_busy) {
     return false;
   }
   s_pair_start_pending = false;
-  return castalia_net_run(1, kCastaliaHttpTimeoutMs + 4000u);
+  snprintf(s_status, sizeof(s_status), "Pairing...");
+  (void)castalia_net_begin(1);
+  return true;
 }
 
 bool pm_castalia_tick_poll() {
@@ -857,6 +894,18 @@ bool pm_castalia_serial_command(const char *line) {
     pm_castalia_repo_full_name(full, sizeof(full));
     Serial.printf("castalia: individual=%s source=%s repo=%s settings=%s\n", pm_castalia_individual_id(), MYNAH_CASTALIA_SETTINGS_SOURCE,
                   full, MYNAH_CASTALIA_SETTINGS_PATH);
+    return true;
+  }
+  if (strcmp(line, "castalia url") == 0 || strcmp(line, "castalia pair") == 0) {
+    if (!pm_castalia_has_session()) {
+      pm_castalia_on_face_enter();
+      pm_castalia_tick_pair_start();
+    }
+    if (s_signin_url[0] != '\0') {
+      Serial.printf("castalia: url=%s\n", s_signin_url);
+    } else {
+      Serial.printf("castalia: url pending status=%s\n", pm_castalia_status_line());
+    }
     return true;
   }
   const char *arg = nullptr;

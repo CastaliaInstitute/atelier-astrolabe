@@ -59,7 +59,9 @@ struct BowlVoiceState {
   volatile float rim_quality = 0.f;
   volatile bool finger_down = false;
   volatile bool center_strike = false;
+  volatile bool pure_tone = false;
   volatile bool want_run = false;
+  volatile float pure_phase = 0.f;
   volatile float voice_hz[kBowlVoiceMax] = {};
   volatile float voice_amp[kBowlVoiceMax] = {};
   volatile float voice_phase[kBowlVoiceMax] = {};
@@ -280,6 +282,23 @@ static bool play_bowl_voice_streaming(void) {
     for (size_t i = 0; i < frame; ++i) {
       float s = 0.f;
       max_e = 0.f;
+      if (s_bowl.finger_down) {
+        float hz = s_bowl.target_hz;
+        if (hz < 80.f) {
+          hz = 80.f;
+        } else if (hz > 1200.f) {
+          hz = 1200.f;
+        }
+        float ph = s_bowl.pure_phase;
+        ph += (2.f * 3.14159265358979323846f * hz) / static_cast<float>(kToneHz);
+        if (ph > 2.f * 3.14159265358979323846f) {
+          ph -= 2.f * 3.14159265358979323846f;
+        }
+        s_bowl.pure_phase = ph;
+        const float pure_amp = s_bowl.pure_tone ? 0.54f : 0.18f;
+        s += pure_amp * sinf(ph);
+        max_e = pure_amp;
+      }
       for (int v_idx = 0; v_idx < kBowlVoiceMax; ++v_idx) {
         float amp = s_bowl.voice_amp[v_idx];
         if (amp < 0.0008f) {
@@ -1147,11 +1166,12 @@ void pm_speaker_bowl_voice_push(const PmBowlVoiceCtrl &ctrl) {
   s_bowl.pan = ctrl.pan;
   s_bowl.rim_quality = ctrl.rim_quality;
   s_bowl.finger_down = ctrl.finger_down;
+  s_bowl.pure_tone = ctrl.pure_tone;
   if (ctrl.center_strike) {
     bowl_add_voice(ctrl.target_hz, 1.45f);
   }
 
-  const bool needs_audio = ctrl.center_strike || s_bowl.energy > 0.01f;
+  const bool needs_audio = ctrl.center_strike || ctrl.finger_down || s_bowl.energy > 0.01f;
   if (!needs_audio) {
     return;
   }
@@ -1182,6 +1202,7 @@ void pm_speaker_bowl_voice_push(const PmBowlVoiceCtrl &ctrl) {
 
 void pm_speaker_bowl_voice_stop(void) {
   s_bowl.finger_down = false;
+  s_bowl.pure_tone = false;
   s_bowl.excitation = 0.f;
 }
 

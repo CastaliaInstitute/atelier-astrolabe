@@ -50,7 +50,18 @@ typedef struct {
   uint32_t out_blocks;
 } PmAudioAnalyzerDebug;
 
+typedef struct {
+  bool valid;
+  float hz;
+  int midi;
+  int cents;
+  float confidence;
+  float level;
+  char note[4];
+} PmAudioPitch;
+
 void pm_audio_analyzer_debug(PmAudioAnalyzerDebug *out);
+void pm_audio_analyzer_get_pitch(PmAudioPitch *out);
 
 /** Capture mic frame and run input FFTs (Spectrum face). */
 void pm_audio_analyzer_tick(void);

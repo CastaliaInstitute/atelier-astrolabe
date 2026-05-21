@@ -135,7 +135,7 @@
 
 /** Skip Faculty portrait HTTPS refresh when Radar/BLE leaves too little heap for TLS. */
 #ifndef MYNAH_FACULTY_MIN_FETCH_HEAP
-#define MYNAH_FACULTY_MIN_FETCH_HEAP 100000u
+#define MYNAH_FACULTY_MIN_FETCH_HEAP 24000u
 #endif
 #ifndef MYNAH_FACULTY_BUST_WIDTH
 #define MYNAH_FACULTY_BUST_WIDTH 192
@@ -173,6 +173,11 @@
 /** TLS is fragile when internal heap is fragmented even if total free looks okay. */
 #ifndef MYNAH_TLS_MIN_LARGEST_INTERNAL
 #define MYNAH_TLS_MIN_LARGEST_INTERNAL 36000u
+#endif
+
+/** Skip BLE/Radar host startup when another face has left too little internal heap. */
+#ifndef MYNAH_BLE_MIN_START_HEAP
+#define MYNAH_BLE_MIN_START_HEAP 120000u
 #endif
 
 /** Never let response-buffer fallback malloc drain internal RAM below this reserve. */
