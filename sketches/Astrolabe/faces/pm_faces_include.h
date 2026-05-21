@@ -21,6 +21,7 @@
 #include "faces/quotes/pm_face_quotes.h"
 #include "faces/radar/pm_face_radar.h"
 #include "faces/rocket/pm_face_rocket.h"
+#include "faces/runes/pm_face_runes.h"
 #include "faces/pm_faces.h"
 #include "faces/shared/pm_face_draw.h"
 #include "faces/spotify/pm_face_spotify.h"

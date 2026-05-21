@@ -48,6 +48,7 @@
 #include "faces/piano/pm_face_piano.h"
 #include "faces/tibetan_bowl/pm_face_tibetan_bowl.h"
 #include "faces/moon/pm_face_moon.h"
+#include "faces/runes/pm_face_runes.h"
 #include "faces/tarot/pm_face_tarot.h"
 #include "faces/notes/pm_face_notes.h"
 #include "faces/spotify/pm_face_spotify.h"
@@ -97,6 +98,7 @@ static constexpr uint8_t k_tv_astro = 1;
 static constexpr uint8_t k_tv_moon = 2;
 static constexpr uint8_t k_tv_synastry = 3;
 static constexpr uint8_t k_tv_face = 4;
+static constexpr uint8_t k_tv_runes = 5;
 static uint8_t g_text_voice_route = k_tv_none;
 static bool g_calcifer_briefing = false;
 /** Home / first-run: full daily LLM+TTS briefing (schedule + sky). */
@@ -118,13 +120,19 @@ static constexpr size_t kFaceTourVoiceMsgCap = 2200;
 static constexpr size_t kFaceTourSysPromptCap = 3200;
 static constexpr size_t kMoonVoiceMsgCap = 2200;
 static constexpr size_t kMoonSysPromptCap = 640;
+static constexpr size_t kRunesVoiceMsgCap = 900;
+static constexpr size_t kRunesSysPromptCap = 900;
 static char *s_face_tour_voice_msg = nullptr;
 static char *s_face_tour_sys_prompt = nullptr;
 static char *g_moon_voice_msg = nullptr;
 static char *g_moon_sys_prompt = nullptr;
+static char *g_runes_voice_msg = nullptr;
+static char *g_runes_sys_prompt = nullptr;
 static bool g_moon_voice_pcm = false;
 /** Tap fortune: stay on Moon face during think/speak. */
 static bool g_moon_fortune_active = false;
+/** Tap fortune: stay on Runes face during think/speak. */
+static bool g_runes_fortune_active = false;
 static constexpr size_t kAstrologyVoiceMsgCap = 2200;
 static constexpr size_t kAstrologySysPromptCap = 2800;
 static constexpr size_t kSynastryVoiceMsgCap = 2600;
@@ -152,12 +160,15 @@ static bool voice_prompt_buffers_ensure(void) {
   if (!s_face_tour_sys_prompt) s_face_tour_sys_prompt = voice_psram_buffer(kFaceTourSysPromptCap);
   if (!g_moon_voice_msg) g_moon_voice_msg = voice_psram_buffer(kMoonVoiceMsgCap);
   if (!g_moon_sys_prompt) g_moon_sys_prompt = voice_psram_buffer(kMoonSysPromptCap);
+  if (!g_runes_voice_msg) g_runes_voice_msg = voice_psram_buffer(kRunesVoiceMsgCap);
+  if (!g_runes_sys_prompt) g_runes_sys_prompt = voice_psram_buffer(kRunesSysPromptCap);
   if (!g_astrology_voice_msg) g_astrology_voice_msg = voice_psram_buffer(kAstrologyVoiceMsgCap);
   if (!g_astrology_sys_prompt) g_astrology_sys_prompt = voice_psram_buffer(kAstrologySysPromptCap);
   if (!g_synastry_voice_msg) g_synastry_voice_msg = voice_psram_buffer(kSynastryVoiceMsgCap);
   if (!g_synastry_sys_prompt) g_synastry_sys_prompt = voice_psram_buffer(kSynastrySysPromptCap);
   return s_face_tour_voice_msg && s_face_tour_sys_prompt && g_moon_voice_msg && g_moon_sys_prompt &&
-         g_astrology_voice_msg && g_astrology_sys_prompt && g_synastry_voice_msg && g_synastry_sys_prompt;
+         g_runes_voice_msg && g_runes_sys_prompt && g_astrology_voice_msg && g_astrology_sys_prompt &&
+         g_synastry_voice_msg && g_synastry_sys_prompt;
 }
 static bool s_rec_mic_on = false;
 /** Astrology voice: stay on chart during record/think/speak + highlight mentions. */
@@ -483,6 +494,7 @@ static bool astrology_begin_boot_reading(void) {
   g_synastry_voice_active = false;
   g_synastry_voice_pcm = false;
   g_moon_fortune_active = false;
+  g_runes_fortune_active = false;
   g_moon_voice_pcm = false;
   g_calcifer_briefing = false;
   s_astro_voice_armed = false;
@@ -515,6 +527,7 @@ static bool synastry_begin_boot_reading(void) {
   g_astro_voice_active = false;
   g_astro_voice_pcm = false;
   g_moon_fortune_active = false;
+  g_runes_fortune_active = false;
   g_moon_voice_pcm = false;
   g_calcifer_briefing = false;
   s_synastry_play_armed = false;
@@ -547,10 +560,51 @@ static bool moon_begin_fortune() {
   g_voice_use_message = true;
   g_text_voice_route = k_tv_moon;
   g_moon_fortune_active = true;
+  g_runes_fortune_active = false;
   g_astro_voice_active = false;
   g_astro_voice_pcm = false;
   g_synastry_voice_active = false;
   g_synastry_voice_pcm = false;
+  g_moon_voice_pcm = false;
+  g_calcifer_briefing = false;
+  g_state = AppState::kThinking;
+  return true;
+}
+
+static bool runes_begin_fortune() {
+  if (!voice_prompt_buffers_ensure()) {
+    snprintf(g_gesture_banner, sizeof(g_gesture_banner), "runes: PSRAM OOM");
+    return false;
+  }
+  if (!pm_wifi_connected()) {
+    snprintf(g_gesture_banner, sizeof(g_gesture_banner), "runes: need WiFi");
+    return false;
+  }
+  struct tm local = {};
+  const bool valid = pm_time_valid();
+  if (valid) {
+    pm_time_local(&local);
+  }
+  pm_face_runes_cast(valid ? &local : nullptr, valid);
+  if (!pm_face_runes_build_fortune_message(g_runes_voice_msg, kRunesVoiceMsgCap)) {
+    snprintf(g_gesture_banner, sizeof(g_gesture_banner), "runes: build fail");
+    return false;
+  }
+  if (!pm_face_runes_build_system_prompt(g_runes_sys_prompt, kRunesSysPromptCap)) {
+    snprintf(g_gesture_banner, sizeof(g_gesture_banner), "runes: build fail");
+    return false;
+  }
+  pm_voice_result_free(&g_voice_result);
+  g_voice_use_message = true;
+  g_text_voice_route = k_tv_runes;
+  g_runes_fortune_active = true;
+  g_moon_fortune_active = false;
+  g_astro_voice_active = false;
+  g_astro_voice_pcm = false;
+  g_synastry_voice_active = false;
+  g_synastry_voice_pcm = false;
+  g_alethiometer_voice_active = false;
+  g_alethiometer_voice_pcm = false;
   g_moon_voice_pcm = false;
   g_calcifer_briefing = false;
   g_state = AppState::kThinking;
@@ -584,7 +638,8 @@ static bool face_index_from_name(const char *name, int *out) {
            {"staff", 25},      {"pitch", 25},       {"pandrum", 26},    {"pan_drum", 26},
            {"pan-drum", 26},    {"pandrom", 26},     {"pandrom_face", 26}, {"handpan", 26},
            {"hang", 26},        {"alethiometer", 27}, {"aleth", 27},     {"compass", 27},
-           {"golden_compass", 27}};
+           {"golden_compass", 27}, {"runes", 28},     {"rune", 28},      {"futhark", 28},
+           {"fortune", 28}};
   for (const auto &e : k) {
     if (strcasecmp(name, e.n) == 0) {
       *out = e.idx;
@@ -662,6 +717,8 @@ static const FaceTourInfo k_face_tour[] = {
     {"alethiometer", "36-symbol compass with three question needles and one answer needle",
      "the active alethiometer symbols and narrative interpretation",
      "WiFi is available for LLM interpretation", "offline, compass animation only", true, false},
+    {"runes", "three-rune past, present, future fortune spread", "the selected rune spread and spoken fortune",
+     "WiFi is available for TTS fortune", "offline, visual spread only", true, false},
 };
 
 static const FaceTourInfo *face_tour_info(int idx) {
@@ -1043,6 +1100,18 @@ static bool face_voice_build_prompt(const FaceTourInfo *info, int idx, char *msg
                tour_test ? "Tour-test the alethiometer TTS button. " : "",
                pm_face_alethiometer_needle_symbol_name(0), pm_face_alethiometer_needle_symbol_name(1),
                pm_face_alethiometer_needle_symbol_name(2), pm_face_alethiometer_needle_symbol_name(3));
+      break;
+    case ClockFace::Runes:
+      if (!pm_face_runes_build_system_prompt(sys, sys_cap)) {
+        snprintf(g_gesture_banner, sizeof(g_gesture_banner), "runes: build fail");
+        return false;
+      }
+      snprintf(msg, msg_cap,
+               "%sFace: runes. Active spread: past %s (%s), present %s (%s), future %s (%s). "
+               "Give a concise spoken fortune for this past-present-future layout.",
+               tour_test ? "Tour-test the runes TTS button. " : "",
+               pm_face_runes_name(0), pm_face_runes_keyword(0), pm_face_runes_name(1),
+               pm_face_runes_keyword(1), pm_face_runes_name(2), pm_face_runes_keyword(2));
       break;
     default:
       snprintf(msg, msg_cap, "Face: %s. Purpose: %s. Current state: %s. Speak one concise useful note.",
@@ -2010,6 +2079,12 @@ void loop() {
         g_gesture_banner[0] = '\0';
       }
       g_clock_repaint_pending = true;
+    } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Runes &&
+               ge.kind == PmGestureKind::Tap) {
+      if (runes_begin_fortune()) {
+        g_gesture_banner[0] = '\0';
+      }
+      g_clock_repaint_pending = true;
     } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Tarot &&
                (ge.kind == PmGestureKind::SwipeUp || ge.kind == PmGestureKind::SwipeDown)) {
       pm_face_tarot_cycle(ge.kind == PmGestureKind::SwipeUp ? 1 : -1);
@@ -2289,6 +2364,7 @@ void loop() {
           pm_faces_current() != ClockFace::Ocarina && pm_faces_current() != ClockFace::Bongo &&
           pm_faces_current() != ClockFace::Piano && pm_faces_current() != ClockFace::Level &&
           pm_faces_current() != ClockFace::PanDrum && pm_faces_current() != ClockFace::Alethiometer &&
+          pm_faces_current() != ClockFace::Runes &&
           !home_gem_breath;
       const bool calcifer_sec =
           pm_faces_current() == ClockFace::CalciferCountdown && valid && sec_tick;
@@ -2717,6 +2793,8 @@ void loop() {
           started = pm_voice_begin_clock_agenda(&g_voice_result);
         } else if (g_text_voice_route == k_tv_moon) {
           started = pm_voice_begin_message(g_moon_voice_msg, g_moon_sys_prompt, &g_voice_result);
+        } else if (g_text_voice_route == k_tv_runes) {
+          started = pm_voice_begin_message(g_runes_voice_msg, g_runes_sys_prompt, &g_voice_result);
         } else if (g_text_voice_route == k_tv_synastry) {
           started = pm_voice_begin_message(kSynastryBootUserMsg, g_synastry_sys_prompt, &g_voice_result);
         } else if (g_text_voice_route == k_tv_face) {
@@ -2784,6 +2862,8 @@ void loop() {
             pm_face_synastry_draw_voice_screen("voice start fail");
           } else if (g_alethiometer_voice_active) {
             pm_face_alethiometer_draw_voice_screen("voice start fail");
+          } else if (g_runes_fortune_active) {
+            pm_face_runes_draw_voice_screen("voice start fail", -1.f);
           } else if (g_astro_voice_active) {
             pm_face_astrology_draw_voice_screen("voice start fail", -1, -1, false);
           }
@@ -2795,6 +2875,7 @@ void loop() {
           g_synastry_voice_pcm = false;
           g_alethiometer_voice_active = false;
           g_alethiometer_voice_pcm = false;
+          g_runes_fortune_active = false;
           g_moon_voice_pcm = false;
           g_state = AppState::kClock;
           g_clock_repaint_pending = true;
@@ -2802,7 +2883,7 @@ void loop() {
         }
         thinking_progress_begin(g_daily_briefing ? 680000u
                                                 : ((g_astro_voice_active || g_synastry_voice_active ||
-                                                    g_alethiometer_voice_active)
+                                                    g_alethiometer_voice_active || g_runes_fortune_active)
                                                        ? 180000u
                                                        : 45000u));
         s_voice_job_armed = true;
@@ -2821,6 +2902,8 @@ void loop() {
         pm_face_astrology_draw_voice_screen(nullptr, -1, -1, false, thinking_progress_now());
       } else if (g_moon_fortune_active) {
         pm_face_moon_draw_voice_screen(nullptr, thinking_progress_now());
+      } else if (g_runes_fortune_active) {
+        pm_face_runes_draw_voice_screen(nullptr, thinking_progress_now());
       } else {
         pm_faces_draw(thinking_progress_now());
       }
@@ -2829,7 +2912,7 @@ void loop() {
         const uint32_t voice_wait_ms =
             g_daily_briefing ? 680000u
                              : ((g_moon_fortune_active || g_astro_voice_active || g_synastry_voice_active ||
-                                 g_alethiometer_voice_active)
+                                 g_alethiometer_voice_active || g_runes_fortune_active)
                                     ? 620000u
                                     : 100000u);
         if (s_voice_wait_t0 != 0 && (now - s_voice_wait_t0) > voice_wait_ms) {
@@ -2873,6 +2956,9 @@ void loop() {
         } else if (g_moon_fortune_active) {
           pm_face_moon_draw_voice_screen(pm_voice_last_error(), -1.f);
           delay(1500);
+        } else if (g_runes_fortune_active) {
+          pm_face_runes_draw_voice_screen(pm_voice_last_error(), -1.f);
+          delay(1500);
         } else {
           gfx->fillScreen(RGB565_BLACK);
           pm_face_draw_centered_line("voice error", 200, RGB565_RED, 2, 2);
@@ -2888,6 +2974,7 @@ void loop() {
         g_alethiometer_voice_active = false;
         g_alethiometer_voice_pcm = false;
         g_moon_fortune_active = false;
+        g_runes_fortune_active = false;
         g_daily_briefing = false;
         pm_speaker_set_max_play_seconds(180);
         g_state = AppState::kClock;
@@ -2944,6 +3031,15 @@ void loop() {
           delay(1500);
           pm_voice_result_free(&g_voice_result);
           g_moon_fortune_active = false;
+          g_state = AppState::kClock;
+          g_clock_repaint_pending = true;
+          break;
+        }
+        if (g_runes_fortune_active) {
+          pm_face_runes_draw_voice_screen("no audio reply", -1.f);
+          delay(1500);
+          pm_voice_result_free(&g_voice_result);
+          g_runes_fortune_active = false;
           g_state = AppState::kClock;
           g_clock_repaint_pending = true;
           break;
@@ -3241,6 +3337,56 @@ void loop() {
         s_play_armed = false;
         s_play_wait_t0 = 0;
         g_moon_fortune_active = false;
+        g_state = AppState::kClock;
+        g_clock_repaint_pending = true;
+        break;
+      }
+      if (g_runes_fortune_active) {
+        if (!s_play_armed) {
+          if (!g_voice_result.mp3 || g_voice_result.mp3_len < 64) {
+            pm_face_runes_draw_voice_screen("no audio", -1.f);
+            delay(1200);
+            pm_voice_result_free(&g_voice_result);
+            g_runes_fortune_active = false;
+            g_state = AppState::kClock;
+            g_clock_repaint_pending = true;
+            break;
+          }
+          if (!pm_speaker_play_begin(g_voice_result.mp3, g_voice_result.mp3_len)) {
+            pm_face_runes_draw_voice_screen("speaker busy", -1.f);
+            delay(1200);
+            pm_voice_result_free(&g_voice_result);
+            g_runes_fortune_active = false;
+            g_state = AppState::kClock;
+            g_clock_repaint_pending = true;
+            break;
+          }
+          s_play_armed = true;
+          s_play_wait_t0 = now;
+        }
+        pm_face_runes_draw_voice_screen(nullptr, -1.f);
+        pm_face_draw_voice_waves_overlay(true, now);
+        pm_gfx->fillRect(0, LCD_HEIGHT - 40, LCD_WIDTH, 40, pm_gfx->color565(7, 8, 13));
+        pm_face_draw_centered_line("speaking", LCD_HEIGHT - 28, pm_gfx->color565(230, 210, 156), 1, 1);
+        pm_gfx->flush();
+        PmSpeakerStatus spk = pm_speaker_poll();
+        if (spk == PmSpeakerStatus::Playing) {
+          const uint32_t est_ms =
+              static_cast<uint32_t>((g_voice_result.mp3_len * 8u * 1000u) / 96000u) + 45000u;
+          if (s_play_wait_t0 != 0 && (now - s_play_wait_t0) > est_ms) {
+            pm_speaker_abort();
+          } else {
+            break;
+          }
+        }
+        if (spk == PmSpeakerStatus::DoneFail) {
+          pm_face_runes_draw_voice_screen("playback failed", -1.f);
+          delay(1200);
+        }
+        pm_voice_result_free(&g_voice_result);
+        s_play_armed = false;
+        s_play_wait_t0 = 0;
+        g_runes_fortune_active = false;
         g_state = AppState::kClock;
         g_clock_repaint_pending = true;
         break;

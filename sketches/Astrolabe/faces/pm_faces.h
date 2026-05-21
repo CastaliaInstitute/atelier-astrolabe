@@ -56,6 +56,8 @@ enum class ClockFace : uint8_t {
   PanDrum,
   /** Alethiometer compass: 36 symbols, three question needles, one answer needle. */
   Alethiometer,
+  /** Three-rune past / present / future spread; tap casts and speaks a fortune. */
+  Runes,
   kNumFaces,
 };
 
