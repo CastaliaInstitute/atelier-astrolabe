@@ -3,6 +3,7 @@
 /** Umbrella includes for all clock-face modules (optional; pm_clock.cpp includes directly). */
 
 #include "faces/apocalypso/pm_face_apocalypso.h"
+#include "faces/alethiometer/pm_face_alethiometer.h"
 #include "faces/astrology/pm_face_astrology.h"
 #include "faces/bongo/pm_face_bongo.h"
 #include "faces/calcifer/pm_face_calcifer.h"

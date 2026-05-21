@@ -54,6 +54,8 @@ enum class ClockFace : uint8_t {
   Tuning,
   /** 14-note touch-playable handpan / pan drum face. */
   PanDrum,
+  /** Alethiometer compass: 36 symbols, three question needles, one answer needle. */
+  Alethiometer,
   kNumFaces,
 };
 
