@@ -69,8 +69,7 @@ bool slice_is_before_now(int slice, int local_hour, int local_min) {
   return slice_mid_min < now_min;
 }
 
-void draw_slice_ring(int r_inner, int r_outer, uint16_t (*color_fn)(int hour), int highlight_hour, int local_hour,
-                     int local_min) {
+void draw_slice_ring(int r_inner, int r_outer, uint16_t (*color_fn)(int hour), int highlight_hour) {
   const int cx = pm_face_lcd_cx;
   const int cy = pm_face_lcd_cy;
   const uint16_t c_track = pm_gfx->color565(8, 12, 22);
@@ -79,11 +78,7 @@ void draw_slice_ring(int r_inner, int r_outer, uint16_t (*color_fn)(int hour), i
   for (int s = 0; s < k_slices; ++s) {
     const int h = hour_for_slice(s);
     uint16_t col = color_fn(h);
-    const bool past = local_hour >= 0 && slice_is_before_now(s, local_hour, local_min);
-    if (past) {
-      col = blend565(col, c_track, 0.84f);
-    }
-    if (h == highlight_hour && !past) {
+    if (h == highlight_hour) {
       col = blend565(col, pm_gfx->color565(255, 252, 240), 0.42f);
     }
     const float d0 = slice_start_deg(s);
@@ -116,7 +111,6 @@ void draw_24h_time_labels(bool time_valid, int local_hour, int local_min) {
   const int R = min(LCD_WIDTH, LCD_HEIGHT) / 2;
   const int r_label = R - 25;
   const uint16_t c_future = pm_gfx->color565(185, 198, 220);
-  const uint16_t c_past = pm_gfx->color565(22, 28, 40);
   const uint16_t c_now = pm_gfx->color565(255, 252, 235);
 
   pm_gfx->setTextSize(1, 1);
@@ -133,12 +127,8 @@ void draw_24h_time_labels(bool time_valid, int local_hour, int local_min) {
 
     uint16_t col = c_future;
     if (time_valid) {
-      const int hour_min = h * 60;
-      const int now_min = local_hour * 60 + local_min;
       if (h == local_hour) {
         col = c_now;
-      } else if (hour_min < now_min) {
-        col = c_past;
       }
     }
     pm_gfx->setTextColor(col);
@@ -291,16 +281,22 @@ void draw_center_glass(int r_disk, int8_t temp_c, SkyIcon icon, const char *cond
   pm_gfx->print("C");
 }
 
-void draw_now_beacon(int r_ring, int local_hour, int local_min) {
+void draw_now_beacon(int r_inner, int r_outer, int local_hour, int local_min) {
   const float deg = slice_start_deg(local_hour * 2) + k_deg_per_slice * (static_cast<float>(local_min) / 60.f);
   const float ang = pm_face_deg_to_rad(deg);
   const int cx = pm_face_lcd_cx;
   const int cy = pm_face_lcd_cy;
-  const int bx = cx + static_cast<int>(lrintf(cosf(ang) * static_cast<float>(r_ring)));
-  const int by = cy + static_cast<int>(lrintf(sinf(ang) * static_cast<float>(r_ring)));
-  pm_gfx->fillCircle(bx, by, 8, pm_gfx->color565(255, 250, 230));
+  const uint16_t c_now = pm_gfx->color565(255, 250, 230);
+  const int x0 = cx + static_cast<int>(lrintf(cosf(ang) * static_cast<float>(r_inner)));
+  const int y0 = cy + static_cast<int>(lrintf(sinf(ang) * static_cast<float>(r_inner)));
+  const int x1 = cx + static_cast<int>(lrintf(cosf(ang) * static_cast<float>(r_outer)));
+  const int y1 = cy + static_cast<int>(lrintf(sinf(ang) * static_cast<float>(r_outer)));
+  pm_gfx->drawLine(x0, y0, x1, y1, c_now);
+  pm_gfx->drawLine(x0 + 1, y0, x1 + 1, y1, pm_gfx->color565(255, 255, 255));
+  const int bx = cx + static_cast<int>(lrintf(cosf(ang) * static_cast<float>(r_outer + 3)));
+  const int by = cy + static_cast<int>(lrintf(sinf(ang) * static_cast<float>(r_outer + 3)));
+  pm_gfx->fillCircle(bx, by, 7, c_now);
   pm_gfx->drawCircle(bx, by, 10, pm_gfx->color565(255, 255, 255));
-  pm_gfx->drawCircle(bx, by, 13, pm_gfx->color565(130, 145, 180));
 }
 
 void draw_ring_legends(int r_hum_inner, int r_hum_outer, int r_temp_inner, int r_temp_outer) {
@@ -359,20 +355,20 @@ void pm_face_weather_draw(bool time_valid, int local_hour, int local_min) {
   const int r_temp_inner = r_temp_outer - 16;
   const int r_center = r_temp_inner - 12;
 
-  draw_slice_ring(r_hum_inner, r_hum_outer, hum_slice_color, highlight, time_valid ? local_hour : -1, local_min);
-  draw_slice_ring(r_temp_inner, r_temp_outer, temp_slice_color, highlight, time_valid ? local_hour : -1, local_min);
+  draw_slice_ring(r_hum_inner, r_hum_outer, hum_slice_color, highlight);
+  draw_slice_ring(r_temp_inner, r_temp_outer, temp_slice_color, highlight);
   draw_24h_time_labels(time_valid, local_hour, local_min);
   draw_ring_legends(r_hum_inner, r_hum_outer, r_temp_inner, r_temp_outer);
 
   if (time_valid) {
-    draw_now_beacon(r_hum_outer, local_hour, local_min);
+    draw_now_beacon(r_temp_inner - 3, r_hum_outer + 4, local_hour, local_min);
   }
 
   const SkyIcon icon = icon_from_condition(g_weather_ui.condition);
   draw_center_glass(r_center, g_weather_ui.current_temp_c, icon, g_weather_ui.condition);
 
   char band[28];
-  snprintf(band, sizeof(band), "H %d  ·  L %d", static_cast<int>(g_weather_ui.hi_c),
+  snprintf(band, sizeof(band), "next 24h  H %d  L %d", static_cast<int>(g_weather_ui.hi_c),
            static_cast<int>(g_weather_ui.lo_c));
   pm_face_draw_centered_line(band, pm_face_lcd_cy + r_center + 32, pm_gfx->color565(110, 125, 150), 1, 1);
 

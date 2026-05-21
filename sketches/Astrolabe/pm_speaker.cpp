@@ -47,6 +47,7 @@ static const uint8_t *s_play_mp3 = nullptr;
 static size_t s_play_mp3_len = 0;
 static volatile uint8_t s_play_mode = 0; /** 0 = MP3, 1 = tone, 2 = bowl voice, 3 = bongo */
 static volatile bool s_bowl_stop = false;
+static volatile bool s_bongo_stop = false;
 static constexpr int kBowlVoiceMax = 6;
 
 struct BowlVoiceState {
@@ -520,8 +521,9 @@ static bool play_bongo_streaming(float hz, float strength) {
   }
 
   const float hit = strength < 0.2f ? 0.2f : (strength > 1.f ? 1.f : strength);
-  const uint32_t total_samples = (kToneHz * 260u) / 1000u;
-  const uint32_t click_samples = (kToneHz * 18u) / 1000u;
+  s_bongo_stop = false;
+  const uint32_t total_samples = (kToneHz * 520u) / 1000u;
+  const uint32_t click_samples = (kToneHz * 12u) / 1000u;
   static int16_t buf[256 * 2];
   double phase0 = 0.0;
   double phase1 = 0.0;
@@ -529,17 +531,20 @@ static bool play_bongo_streaming(float hz, float strength) {
 
   s_play_pcm_hz = kToneHz;
   s_play_pcm_frames = 0;
-  s_play_est_ms = 360u;
+  s_play_est_ms = 620u;
 
   while (written < total_samples) {
+    if (s_bongo_stop) {
+      break;
+    }
     esp_task_wdt_reset();
     const size_t frame = (total_samples - written > 256u) ? 256u : (total_samples - written);
     for (size_t i = 0; i < frame; ++i) {
       const uint32_t pos = written + static_cast<uint32_t>(i);
       const float t = static_cast<float>(pos) / static_cast<float>(kToneHz);
-      const float tone_env = expf(-18.5f * t);
+      const float tone_env = expf(-8.8f * t);
       const float click_env = pos < click_samples ? (1.f - static_cast<float>(pos) / click_samples) : 0.f;
-      const float bend = 1.f + 0.55f * expf(-36.f * t);
+      const float bend = 1.f + 0.45f * expf(-30.f * t);
       const double inc0 = (2.0 * 3.14159265358979323846 * static_cast<double>(hz * bend)) /
                           static_cast<double>(kToneHz);
       const double inc1 = (2.0 * 3.14159265358979323846 * static_cast<double>(hz * 1.74f)) /
@@ -553,9 +558,9 @@ static bool play_bongo_streaming(float hz, float strength) {
         phase1 -= 2.0 * 3.14159265358979323846;
       }
       const float click = sinf(static_cast<float>(pos) * 1.97f) * click_env;
-      float s = (sinf(static_cast<float>(phase0)) * 0.94f + sinf(static_cast<float>(phase1)) * 0.18f) *
+      float s = (sinf(static_cast<float>(phase0)) * 0.92f + sinf(static_cast<float>(phase1)) * 0.24f) *
                     tone_env +
-                click * 0.18f;
+                click * 0.24f;
       s *= hit;
       if (s > 1.f) {
         s = 1.f;
@@ -576,10 +581,10 @@ static bool play_bongo_streaming(float hz, float strength) {
 
   static int16_t silence[256 * 2];
   memset(silence, 0, sizeof(silence));
-  for (int i = 0; i < 2; ++i) {
+  for (int i = 0; i < 1; ++i) {
     (void)i2s_write_all(silence, 256u * 2u);
   }
-  vTaskDelay(pdMS_TO_TICKS(90));
+  vTaskDelay(pdMS_TO_TICKS(45));
   i2s_stop(I2S_TX);
   vTaskDelay(pdMS_TO_TICKS(10));
   i2s_tx_stop();
@@ -1130,6 +1135,8 @@ void pm_speaker_abort(void) {
       s_tone_stop = true;
     } else if (s_play_mode == 2) {
       s_bowl_stop = true;
+    } else if (s_play_mode == 3) {
+      s_bongo_stop = true;
     }
     s_speaker_status = PmSpeakerStatus::DoneFail;
     (void)speaker_wait_idle(10000);
@@ -1150,7 +1157,13 @@ bool pm_speaker_play_tone_begin(float hz, uint32_t duration_ms) {
     s_speaker_status = PmSpeakerStatus::DoneFail;
     return false;
   }
-  if (!speaker_wait_idle(8000)) {
+  if (s_play_mode == 3 && (s_speaker_status == PmSpeakerStatus::Playing || s_spk_task_busy)) {
+    s_bongo_stop = true;
+    if (!speaker_wait_idle(120u)) {
+      s_speaker_status = PmSpeakerStatus::DoneFail;
+      return false;
+    }
+  } else if (!speaker_wait_idle(8000)) {
     s_speaker_status = PmSpeakerStatus::DoneFail;
     return false;
   }
@@ -1182,7 +1195,7 @@ bool pm_speaker_play_bongo_begin(float hz, float strength) {
   s_play_tone_hz = hz;
   s_play_bongo_strength = strength;
   s_play_start_ms = millis();
-  s_play_est_ms = 360u;
+  s_play_est_ms = 620u;
   s_play_pcm_frames = 0;
   s_play_pcm_hz = 0;
   s_speaker_ok = false;

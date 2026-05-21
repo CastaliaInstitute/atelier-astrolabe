@@ -55,10 +55,10 @@ static float hit_energy(void) {
     return 0.f;
   }
   const uint32_t age = millis() - s_hit_ms;
-  if (age > 420u && !pm_speaker_is_playing()) {
+  if (age > 720u && !pm_speaker_is_playing()) {
     return 0.f;
   }
-  const float t = static_cast<float>(age) / 420.f;
+  const float t = static_cast<float>(age) / 720.f;
   return clamp01(1.f - t);
 }
 
@@ -168,7 +168,7 @@ bool pm_face_bongo_play_at(int16_t x, int16_t y) {
   s_hit_ms = millis();
   s_last_anim_ms = 0;
   s_phase = 0.f;
-  const float strength = clamp01((0.52f - 0.10f * s_hit_r_norm) + 0.55f * s_hit_force);
+  const float strength = clamp01((0.64f - 0.08f * s_hit_r_norm) + 0.62f * s_hit_force);
   return pm_speaker_play_bongo_begin(s_last_hz, strength);
 }
 
