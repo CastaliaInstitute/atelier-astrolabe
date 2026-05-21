@@ -14,14 +14,20 @@
 
 #include <esp_mac.h>
 
-#if !defined(ASTROLABE_QEMU) && __has_include(<BLEDevice.h>)
+#if !defined(ASTROLABE_QEMU) && !defined(ESP_PLATFORM) && __has_include(<BLEDevice.h>)
 #include <BLEAdvertisedDevice.h>
 #include <BLEDevice.h>
 #include <BLEScan.h>
 #include <BLEUtils.h>
+#include <string>
 
 #include "esp32-hal-bt.h"
+#if __has_include("esp_bt.h")
 #include "esp_bt.h"
+#define PM_PRESENCE_HAS_ESP_BT 1
+#else
+#define PM_PRESENCE_HAS_ESP_BT 0
+#endif
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #define PM_PRESENCE_BLE 1
@@ -30,6 +36,14 @@
 #endif
 
 namespace {
+
+String pm_presence_mdns_address_string(int idx) {
+#if defined(ESP_PLATFORM)
+  return MDNS.address(idx).toString();
+#else
+  return MDNS.IP(idx).toString();
+#endif
+}
 
 constexpr uint8_t kMaxAdvReports = kPmPresenceAdvMaxReports;
 constexpr uint32_t kPeerStaleMs = 15000;
@@ -154,7 +168,7 @@ void scan_mdns_peers(uint32_t now_ms) {
     upsert_peer(id, -76, now_ms, PmPresenceGraphNodeKind::MobilePeer);
     if (is_new) {
       Serial.printf("presence: mdns peer host=%s id=%08x ip=%s\n", host, static_cast<unsigned>(id),
-                    MDNS.IP(i).toString().c_str());
+                    pm_presence_mdns_address_string(i).c_str());
     }
   }
 }
@@ -271,7 +285,7 @@ bool presence_bt_controller_start(void) {
     return true;
   }
   pm_wifi_enable_bt_coexistence();
-#ifndef CONFIG_BT_CLASSIC_ENABLED
+#if PM_PRESENCE_HAS_ESP_BT && !defined(CONFIG_BT_CLASSIC_ENABLED)
   esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT);
 #endif
   if (!btStart()) {

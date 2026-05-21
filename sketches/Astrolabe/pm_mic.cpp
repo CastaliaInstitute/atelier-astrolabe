@@ -1,6 +1,7 @@
 #include "pm_mic.h"
 
 #include <Wire.h>
+#include <string.h>
 
 #include "driver/i2s.h"
 #include "esp_err.h"
@@ -10,6 +11,7 @@
 
 #define I2S_CH I2S_NUM_1
 #define PM_MIC_I2S_CHANNELS 4
+#define PM_MIC_CAPTURE_CHANNELS 2
 #define VAD_SAMPLE_RATE_HZ 16000
 #define VAD_FRAME_LENGTH_MS 30
 #define VAD_BUFFER_LENGTH (VAD_FRAME_LENGTH_MS * VAD_SAMPLE_RATE_HZ / 1000)
@@ -17,6 +19,19 @@
 static bool g_mic = false;
 
 int pm_mic_i2s_channels() { return PM_MIC_I2S_CHANNELS; }
+
+int pm_mic_capture_channels() { return PM_MIC_CAPTURE_CHANNELS; }
+
+int pm_mic_capture_slot(int capture_channel) {
+  switch (capture_channel) {
+    case 0:
+      return 0;
+    case 1:
+      return 2;
+    default:
+      return -1;
+  }
+}
 
 static esp_err_t es7210_write_reg_direct(uint8_t reg, uint8_t value) {
   Wire.beginTransmission(ES7210_ADDR);
@@ -120,6 +135,18 @@ void pm_mic_pick_channel(const int16_t *interleaved, size_t frame_samples, int c
   for (size_t i = 0; i < frame_samples; ++i) {
     mono[i] = interleaved[i * static_cast<size_t>(PM_MIC_I2S_CHANNELS) + static_cast<size_t>(channel)];
   }
+}
+
+void pm_mic_pick_capture_channel(const int16_t *interleaved, size_t frame_samples, int capture_channel,
+                                 int16_t *mono) {
+  const int slot = pm_mic_capture_slot(capture_channel);
+  if (slot < 0) {
+    if (mono) {
+      memset(mono, 0, frame_samples * sizeof(int16_t));
+    }
+    return;
+  }
+  pm_mic_pick_channel(interleaved, frame_samples, slot, mono);
 }
 
 size_t pm_mic_frame_samples() { return VAD_BUFFER_LENGTH; }

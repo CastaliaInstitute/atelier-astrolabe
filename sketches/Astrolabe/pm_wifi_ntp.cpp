@@ -2,7 +2,12 @@
 
 #include <ESPmDNS.h>
 #include <WiFi.h>
+#if __has_include(<esp_bt.h>)
 #include <esp_bt.h>
+#define PM_WIFI_HAS_ESP_BT 1
+#else
+#define PM_WIFI_HAS_ESP_BT 0
+#endif
 #include <esp_log.h>
 #include <esp_mac.h>
 #include <esp_wifi.h>
@@ -145,6 +150,14 @@ static void pm_wifi_on_link_up(void) {
 #endif
 }
 
+static bool pm_wifi_bt_controller_enabled(void) {
+#if PM_WIFI_HAS_ESP_BT
+  return esp_bt_controller_get_status() == ESP_BT_CONTROLLER_STATUS_ENABLED;
+#else
+  return false;
+#endif
+}
+
 void pm_wifi_enable_bt_coexistence(void) {
 #ifndef ASTROLABE_QEMU
   const wifi_mode_t mode = WiFi.getMode();
@@ -197,7 +210,7 @@ bool pm_wifi_begin() {
   }
   WiFi.mode(WIFI_STA);
   WiFi.setHostname(pm_wifi_hostname());
-  const bool bt_enabled = esp_bt_controller_get_status() == ESP_BT_CONTROLLER_STATUS_ENABLED;
+  const bool bt_enabled = pm_wifi_bt_controller_enabled();
   WiFi.setSleep(bt_enabled);
   if (bt_enabled) {
     (void)esp_wifi_set_ps(WIFI_PS_MIN_MODEM);

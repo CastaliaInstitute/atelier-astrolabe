@@ -18,8 +18,7 @@ float pm_speaker_play_progress(void);
 
 /** Block until playback finishes or times out. */
 bool pm_speaker_play_mp3(const uint8_t *mp3, size_t mp3_len);
-
-/**
+/** 
  * Decode and play MPEG audio while reading from an open HTTP response body.
  * Blocks the caller; intended for voice_net during daily briefing (no full-file buffer).
  * `content_length` is HTTP Content-Length, or -1 if unknown (read until idle disconnect).

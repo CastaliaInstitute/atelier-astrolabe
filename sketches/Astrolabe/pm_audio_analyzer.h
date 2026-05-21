@@ -19,8 +19,14 @@ void pm_audio_analyzer_reset(void);
 /** Push mono PCM for one ES7210 TDM input channel (16 kHz). */
 void pm_audio_analyzer_feed_in_channel(int channel, const int16_t *pcm, size_t num_samples);
 
-/** Push mono/stereo interleaved PCM from speaker path (any rate; mono = ch0). */
+/** Push mono/stereo interleaved PCM from speaker path at 16 kHz (mono = ch0). */
 void pm_audio_analyzer_feed_out(const int16_t *pcm, size_t num_s16, int channels);
+/** Push speaker PCM with source sample-rate metadata for the AEC reference. */
+void pm_audio_analyzer_feed_out_rate(const int16_t *pcm, size_t num_s16, int channels, int sample_hz);
+
+/** Adaptive echo cancellation using the recent speaker reference. */
+void pm_audio_analyzer_cancel_echo(int16_t *pcm, size_t num_samples);
+void pm_audio_analyzer_cancel_echo_channel(int channel, int16_t *pcm, size_t num_samples);
 
 /** Smoothed 0..1 magnitudes (left top/bottom = mic ch0/ch1, right = speaker). */
 void pm_audio_analyzer_get_in_low(float *bands, size_t count);
@@ -51,6 +57,12 @@ typedef struct {
 } PmAudioAnalyzerDebug;
 
 typedef struct {
+  float ref_rms;
+  float err_rms[PM_AUDIO_ANALYZER_IN_CHANNELS];
+  uint32_t adapt_blocks[PM_AUDIO_ANALYZER_IN_CHANNELS];
+} PmAudioAecDebug;
+
+typedef struct {
   bool valid;
   float hz;
   int midi;
@@ -61,6 +73,7 @@ typedef struct {
 } PmAudioPitch;
 
 void pm_audio_analyzer_debug(PmAudioAnalyzerDebug *out);
+void pm_audio_analyzer_aec_debug(PmAudioAecDebug *out);
 void pm_audio_analyzer_get_pitch(PmAudioPitch *out);
 
 /** Capture mic frame and run input FFTs (Spectrum face). */

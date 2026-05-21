@@ -16,6 +16,18 @@ static size_t s_out_fill = 0;
 
 static int16_t s_in_block[PM_AUDIO_ANALYZER_IN_CHANNELS][PM_FFT_N];
 static int16_t s_out_block[PM_FFT_N];
+static int16_t s_echo_ref[PM_FFT_N];
+static constexpr size_t PM_AEC_TAPS = 128;
+static constexpr size_t PM_AEC_REF_LEN = 2048;
+static constexpr size_t PM_AEC_REF_MASK = PM_AEC_REF_LEN - 1;
+static constexpr size_t PM_AEC_DELAY_SAMPLES = 480;
+static int16_t s_aec_ref[PM_AEC_REF_LEN];
+static size_t s_aec_ref_pos = 0;
+static uint32_t s_aec_resample_acc = 0;
+static float s_aec_w[PM_AUDIO_ANALYZER_IN_CHANNELS][PM_AEC_TAPS];
+static float s_aec_err_rms[PM_AUDIO_ANALYZER_IN_CHANNELS];
+static float s_aec_ref_rms = 0.f;
+static uint32_t s_aec_adapt_blocks[PM_AUDIO_ANALYZER_IN_CHANNELS];
 static float s_in_ch[PM_AUDIO_ANALYZER_IN_CHANNELS][PM_AUDIO_ANALYZER_BANDS];
 static float s_out_disp[PM_AUDIO_ANALYZER_BANDS];
 static float s_wave[PM_AUDIO_WAVE_POINTS];
@@ -311,7 +323,17 @@ static void process_block_out(const int16_t *block) {
   capture_waveform(block);
   s_out_peak = s_out_peak * 0.7f + pcm_peak(block) * 0.3f;
   s_out_blocks++;
+  memcpy(s_echo_ref, block, sizeof(s_echo_ref));
   mag_to_bands(mag, PM_FFT_BINS, 1, PM_FFT_BINS, s_out_disp);
+}
+
+static void aec_feed_ref_sample(int16_t sample) {
+  s_aec_ref[s_aec_ref_pos] = sample;
+  s_aec_ref_pos = (s_aec_ref_pos + 1u) & PM_AEC_REF_MASK;
+}
+
+static float aec_sample_at(size_t newest_pos, size_t sample_back) {
+  return static_cast<float>(s_aec_ref[(newest_pos - sample_back) & PM_AEC_REF_MASK]) / 32768.f;
 }
 
 void pm_audio_analyzer_reset(void) {
@@ -325,6 +347,14 @@ void pm_audio_analyzer_reset(void) {
   }
   s_out_fill = 0;
   memset(s_out_block, 0, sizeof(s_out_block));
+  memset(s_echo_ref, 0, sizeof(s_echo_ref));
+  memset(s_aec_ref, 0, sizeof(s_aec_ref));
+  s_aec_ref_pos = 0;
+  s_aec_resample_acc = 0;
+  memset(s_aec_w, 0, sizeof(s_aec_w));
+  memset(s_aec_err_rms, 0, sizeof(s_aec_err_rms));
+  memset(s_aec_adapt_blocks, 0, sizeof(s_aec_adapt_blocks));
+  s_aec_ref_rms = 0.f;
   memset(s_out_disp, 0, sizeof(s_out_disp));
   memset(s_wave, 0, sizeof(s_wave));
   memset(s_spec_hist, 0, sizeof(s_spec_hist));
@@ -337,6 +367,80 @@ void pm_audio_analyzer_reset(void) {
   memset(&s_pitch, 0, sizeof(s_pitch));
   analyzer_unlock();
   pm_fft_init();
+}
+
+void pm_audio_analyzer_cancel_echo_channel(int channel, int16_t *pcm, size_t num_samples) {
+  if (!pcm || num_samples == 0 || channel < 0 || channel >= PM_AUDIO_ANALYZER_IN_CHANNELS) {
+    return;
+  }
+  if (!analyzer_lock(pdMS_TO_TICKS(4))) {
+    return;
+  }
+  if (s_out_peak < 0.01f || s_aec_ref_rms < 0.0015f) {
+    analyzer_unlock();
+    return;
+  }
+
+  float *w = s_aec_w[channel];
+  const float mu = 0.055f;
+  const float leak = 0.99998f;
+  const float eps = 0.00035f;
+  float err_acc = 0.f;
+  float ref_acc = 0.f;
+  float mic_acc = 0.f;
+  size_t ref_base = (s_aec_ref_pos - num_samples - PM_AEC_DELAY_SAMPLES) & PM_AEC_REF_MASK;
+
+  for (size_t i = 0; i < num_samples; ++i) {
+    const float d = static_cast<float>(pcm[i]) / 32768.f;
+    float y = 0.f;
+    float norm = eps;
+    const size_t newest = (ref_base + i) & PM_AEC_REF_MASK;
+    for (size_t tap = 0; tap < PM_AEC_TAPS; ++tap) {
+      const float x = aec_sample_at(newest, tap);
+      y += w[tap] * x;
+      norm += x * x;
+    }
+
+    float e = d - y;
+    mic_acc += d * d;
+    ref_acc += norm - eps;
+    const float echo_power = y * y;
+    const bool double_talk = (d * d) > (echo_power * 8.f + 0.0012f);
+    const bool adapt = !double_talk && norm > 0.002f;
+    if (adapt) {
+      const float step = mu * e / norm;
+      for (size_t tap = 0; tap < PM_AEC_TAPS; ++tap) {
+        const float x = aec_sample_at(newest, tap);
+        w[tap] = w[tap] * leak + step * x;
+        if (w[tap] > 1.25f) {
+          w[tap] = 1.25f;
+        } else if (w[tap] < -1.25f) {
+          w[tap] = -1.25f;
+        }
+      }
+    }
+
+    if (s_out_peak > 0.04f && fabsf(e) < fabsf(d)) {
+      e *= 0.82f;
+    }
+    if (e > 0.999f) {
+      e = 0.999f;
+    } else if (e < -1.f) {
+      e = -1.f;
+    }
+    pcm[i] = static_cast<int16_t>(lrintf(e * 32767.f));
+    err_acc += e * e;
+  }
+  const float n = static_cast<float>(num_samples);
+  s_aec_err_rms[channel] = s_aec_err_rms[channel] * 0.85f + sqrtf(err_acc / n) * 0.15f;
+  if (ref_acc > 0.01f && mic_acc > 0.00001f) {
+    s_aec_adapt_blocks[channel]++;
+  }
+  analyzer_unlock();
+}
+
+void pm_audio_analyzer_cancel_echo(int16_t *pcm, size_t num_samples) {
+  pm_audio_analyzer_cancel_echo_channel(0, pcm, num_samples);
 }
 
 void pm_audio_analyzer_feed_in_channel(int channel, const int16_t *pcm, size_t num_samples) {
@@ -359,7 +463,7 @@ void pm_audio_analyzer_feed_in_channel(int channel, const int16_t *pcm, size_t n
   analyzer_unlock();
 }
 
-void pm_audio_analyzer_feed_out(const int16_t *pcm, size_t num_s16, int channels) {
+void pm_audio_analyzer_feed_out_rate(const int16_t *pcm, size_t num_s16, int channels, int sample_hz) {
   if (!pcm || num_s16 == 0) {
     return;
   }
@@ -367,9 +471,17 @@ void pm_audio_analyzer_feed_out(const int16_t *pcm, size_t num_s16, int channels
     return;
   }
   const int ch = channels > 0 ? channels : 1;
+  const uint32_t src_hz = sample_hz > 0 ? static_cast<uint32_t>(sample_hz) : 16000u;
   const size_t frames = num_s16 / static_cast<size_t>(ch);
+  size_t aec_frames = 0;
   for (size_t f = 0; f < frames; ++f) {
     const int16_t s = pcm[f * static_cast<size_t>(ch)];
+    s_aec_resample_acc += 16000u;
+    while (s_aec_resample_acc >= src_hz) {
+      s_aec_resample_acc -= src_hz;
+      aec_feed_ref_sample(s);
+      ++aec_frames;
+    }
     s_out_block[s_out_fill] = s;
     s_out_fill++;
     if (s_out_fill >= PM_FFT_N) {
@@ -379,7 +491,21 @@ void pm_audio_analyzer_feed_out(const int16_t *pcm, size_t num_s16, int channels
       process_block_out(block);
     }
   }
+  if (aec_frames > 0) {
+    float acc = 0.f;
+    const size_t sample_count = aec_frames < 256u ? aec_frames : 256u;
+    size_t newest = (s_aec_ref_pos - 1u) & PM_AEC_REF_MASK;
+    for (size_t i = 0; i < sample_count; ++i) {
+      const float v = aec_sample_at(newest, i);
+      acc += v * v;
+    }
+    s_aec_ref_rms = s_aec_ref_rms * 0.8f + sqrtf(acc / static_cast<float>(sample_count)) * 0.2f;
+  }
   analyzer_unlock();
+}
+
+void pm_audio_analyzer_feed_out(const int16_t *pcm, size_t num_s16, int channels) {
+  pm_audio_analyzer_feed_out_rate(pcm, num_s16, channels, 16000);
 }
 
 void pm_audio_analyzer_get_in_low(float *bands, size_t count) {
@@ -506,6 +632,22 @@ void pm_audio_analyzer_debug(PmAudioAnalyzerDebug *out) {
   analyzer_unlock();
 }
 
+void pm_audio_analyzer_aec_debug(PmAudioAecDebug *out) {
+  if (!out) {
+    return;
+  }
+  memset(out, 0, sizeof(*out));
+  if (!analyzer_lock(pdMS_TO_TICKS(5))) {
+    return;
+  }
+  out->ref_rms = s_aec_ref_rms;
+  for (int i = 0; i < PM_AUDIO_ANALYZER_IN_CHANNELS; ++i) {
+    out->err_rms[i] = s_aec_err_rms[i];
+    out->adapt_blocks[i] = s_aec_adapt_blocks[i];
+  }
+  analyzer_unlock();
+}
+
 void pm_audio_analyzer_get_pitch(PmAudioPitch *out) {
   if (!out) {
     return;
@@ -541,9 +683,10 @@ void pm_audio_analyzer_tick(void) {
   if (pm_mic_read_frame(raw, ns, &br)) {
     float best_peak[PM_AUDIO_ANALYZER_IN_CHANNELS] = {0.f, 0.f};
     int best_src[PM_AUDIO_ANALYZER_IN_CHANNELS] = {-1, -1};
-    const int scan_ch = nch > 0 ? nch : 1;
+    const int scan_ch = pm_mic_capture_channels();
     for (int src = 0; src < scan_ch; ++src) {
-      pm_mic_pick_channel(raw, ns, src, mono);
+      pm_mic_pick_capture_channel(raw, ns, src, mono);
+      pm_audio_analyzer_cancel_echo_channel(src, mono, ns);
       const float peak = pcm_peak_samples(mono, ns);
       for (int dst = 0; dst < PM_AUDIO_ANALYZER_IN_CHANNELS; ++dst) {
         if (peak > best_peak[dst]) {

@@ -10,6 +10,7 @@
 #include <ctime>
 
 #include "faces/shared/pm_face_draw.h"
+#include "freertos/idf_additions.h"
 #include "pin_config.h"
 #include "pm_display.h"
 #include "pm_heap.h"
@@ -364,8 +365,11 @@ void tarot_fetch_task(void *arg) {
 
 void fetch_task_ensure() {
   if (!s_fetch_task) {
-    const BaseType_t ok =
-        xTaskCreatePinnedToCore(tarot_fetch_task, "tarot_img", kTarotTaskStack, nullptr, 1, &s_fetch_task, 1);
+    BaseType_t ok = xTaskCreatePinnedToCoreWithCaps(tarot_fetch_task, "tarot_img", kTarotTaskStack, nullptr, 1,
+                                                    &s_fetch_task, 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (ok != pdPASS) {
+      ok = xTaskCreatePinnedToCore(tarot_fetch_task, "tarot_img", kTarotTaskStack, nullptr, 1, &s_fetch_task, 1);
+    }
     if (ok != pdPASS) {
       s_fetch_task = nullptr;
       set_error("task alloc");

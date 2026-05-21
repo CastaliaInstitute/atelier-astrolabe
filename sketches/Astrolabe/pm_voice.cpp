@@ -13,6 +13,7 @@
 #include "esp_netif.h"
 #include "esp_task_wdt.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/idf_additions.h"
 #include "freertos/task.h"
 #include "pm_config.h"
 #include "pm_castalia_auth.h"
@@ -23,15 +24,13 @@
 
 static const char *TAG = "pm_voice";
 
-static constexpr uint32_t kVoiceNetTaskStack = 14336;
+static constexpr uint32_t kVoiceNetTaskStack = 16384;
 /** STT + Gemini + TTS + large chunked JSON (astrology readings). */
 static constexpr uint32_t kVoiceHttpTimeoutMs = 660000;
 /** voice-pipeline JSON + base64 MP3. */
 static constexpr size_t kVoiceRespMaxBytes = 2560u * 1024u;
-/** Raw MPEG body for long daily briefing TTS. */
-static constexpr size_t kVoiceMp3MaxBytes = 6u * 1024u * 1024u;
-
 static TaskHandle_t s_voice_task = nullptr;
+static bool s_voice_task_with_caps = false;
 static volatile bool s_voice_done = false;
 static volatile bool s_voice_ok = false;
 static volatile PmVoiceStatus s_voice_status = PmVoiceStatus::Idle;
@@ -63,6 +62,12 @@ static const char *kVoiceMp3Headers[] = {
 
 static void voice_set_error(const char *msg);
 
+static void voice_task_wdt_reset() {
+  if (esp_task_wdt_status(nullptr) == ESP_OK) {
+    esp_task_wdt_reset();
+  }
+}
+
 static void *voice_mbedtls_calloc(size_t n, size_t size) {
   if (n == 0 || size == 0) {
     return nullptr;
@@ -71,7 +76,7 @@ static void *voice_mbedtls_calloc(size_t n, size_t size) {
     return nullptr;
   }
   const size_t bytes = n * size;
-  constexpr size_t kPreferPsramThreshold = 2048;
+  constexpr size_t kPreferPsramThreshold = 64;
   void *p = nullptr;
   if (bytes >= kPreferPsramThreshold) {
     p = heap_caps_calloc(n, size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
@@ -305,6 +310,7 @@ void pm_voice_result_free(PmVoiceResult *r) {
   free(r->mp3);
   r->mp3 = nullptr;
   r->mp3_len = 0;
+  r->audio_streamed = false;
 }
 
 static void trim_supabase_url(char *url, size_t cap) {
@@ -403,7 +409,7 @@ static bool voice_result_ok(PmVoiceResult *r) {
   if (r->mp3 && r->mp3_len >= 64) {
     return true;
   }
-  if (s_daily_briefing_streamed) {
+  if (r->audio_streamed || s_daily_briefing_streamed) {
     return true;
   }
   return r->reply[0] != '\0' || r->transcript[0] != '\0';
@@ -497,7 +503,7 @@ static bool read_http_json_body(HTTPClient *http, char **out_resp, size_t max_ca
   }
 
   for (;;) {
-    esp_task_wdt_reset();
+    voice_task_wdt_reset();
     if (s_voice_cancel) {
       free(buf);
       body_read_set_err("cancelled");
@@ -547,13 +553,15 @@ static bool read_http_json_body(HTTPClient *http, char **out_resp, size_t max_ca
       const uint32_t idle = millis() - last_rx_ms;
       const uint32_t idle_limit = chunked ? (rd > 65536u ? 45000u : 15000u) : 12000u;
       if (idle > idle_limit) {
-        Serial.printf("voice: HTTP idle %u ms at %u B (chunked=%d)\n", idle, static_cast<unsigned>(rd),
+        Serial.printf("voice: HTTP idle %lu ms at %u B (chunked=%d)\n", static_cast<unsigned long>(idle),
+                      static_cast<unsigned>(rd),
                       chunked ? 1 : 0);
         body_read_set_err("read stalled");
         break;
       }
       if (chunked && idle > 15000u && (millis() - last_stall_log_ms) > 15000u) {
-        Serial.printf("voice: waiting… %u B (%u ms idle)\n", static_cast<unsigned>(rd), idle);
+        Serial.printf("voice: waiting… %u B (%lu ms idle)\n", static_cast<unsigned>(rd),
+                      static_cast<unsigned long>(idle));
         last_stall_log_ms = millis();
       }
     }
@@ -630,99 +638,68 @@ static bool read_http_mp3_body(HTTPClient *http, uint8_t **out_mp3, size_t *out_
   if (!stream) {
     return false;
   }
-  if (declared > 0 && static_cast<size_t>(declared) > kVoiceMp3MaxBytes) {
-    ESP_LOGW(TAG, "MP3 Content-Length %d exceeds cap", declared);
+  if (declared <= 0) {
+    body_read_set_err("missing mp3 length");
+    return false;
+  }
+  if (declared > 768 * 1024) {
+    ESP_LOGW(TAG, "MP3 Content-Length %d exceeds message cap", declared);
+    body_read_set_err("reply too large");
     return false;
   }
 
-  const size_t alloc_cap = declared > 0 ? static_cast<size_t>(declared) : kVoiceMp3MaxBytes;
   uint8_t *buf = static_cast<uint8_t *>(
-      heap_caps_malloc(alloc_cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+      heap_caps_malloc(static_cast<size_t>(declared), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
   if (!buf) {
     body_read_set_err("oom mp3");
     return false;
   }
 
   size_t rd = 0;
-  const size_t read_cap = alloc_cap;
-  const size_t target_len = (declared > 0) ? static_cast<size_t>(declared) : 0;
-  const uint32_t deadline = millis() + 680000u;
-  uint32_t last_rx_ms = 0;
-  uint32_t last_prog_rd = 0;
+  uint32_t last_rx_ms = millis();
+  const uint32_t deadline = millis() + 180000u;
   body_read_set_err("bad response");
+  Serial.printf("voice: MP3 Content-Length %d\n", declared);
 
-  Serial.println("voice: reading MP3 body…");
-  if (declared > 0) {
-    Serial.printf("voice: MP3 Content-Length %d\n", declared);
-  }
-
-  for (;;) {
-    esp_task_wdt_reset();
+  while (rd < static_cast<size_t>(declared)) {
+    voice_task_wdt_reset();
     if (s_voice_cancel) {
       free(buf);
       body_read_set_err("cancelled");
       return false;
     }
     if (static_cast<int32_t>(millis() - deadline) >= 0) {
+      free(buf);
       body_read_set_err("read timeout");
+      return false;
+    }
+
+    const size_t remaining = static_cast<size_t>(declared) - rd;
+    const size_t take = remaining > 4096u ? 4096u : remaining;
+    const int n = stream->readBytes(buf + rd, take);
+    if (n > 0) {
+      rd += static_cast<size_t>(n);
+      last_rx_ms = millis();
+      if (rd == static_cast<size_t>(n) || rd / 65536u > (rd - static_cast<size_t>(n)) / 65536u) {
+        Serial.printf("voice: MP3 recv %u B...\n", static_cast<unsigned>(rd));
+      }
+      continue;
+    }
+
+    if (!http->connected()) {
       break;
     }
-
-    const int avail = stream->available();
-    if (avail > 0) {
-      if (rd >= read_cap) {
-        body_read_set_err("reply too large");
-        break;
-      }
-      const size_t take =
-          static_cast<size_t>(avail) < (read_cap - rd) ? static_cast<size_t>(avail) : (read_cap - rd);
-      const int n = stream->readBytes(buf + rd, take);
-      if (n > 0) {
-        rd += static_cast<size_t>(n);
-        last_rx_ms = millis();
-        if (rd - last_prog_rd >= 65536u) {
-          Serial.printf("voice: MP3 recv %u B…\n", static_cast<unsigned>(rd));
-          last_prog_rd = rd;
-        }
-        if (target_len > 0 && rd >= target_len) {
-          break;
-        }
-        continue;
-      }
-    }
-
-    if (!http->connected() && stream->available() == 0) {
-      break;
-    }
-
-    if (rd > 0 && last_rx_ms != 0) {
-      const uint32_t idle = millis() - last_rx_ms;
-      const uint32_t idle_limit = rd > 1048576u ? 90000u : 25000u;
-      if (idle > idle_limit) {
-        body_read_set_err("read stalled");
-        break;
-      }
+    if (millis() - last_rx_ms > 25000u) {
+      free(buf);
+      body_read_set_err("read stalled");
+      return false;
     }
     delay(5);
   }
 
-  for (uint8_t drain = 0; drain < 64 && stream->available() > 0 && rd < read_cap; ++drain) {
-    const int n = stream->readBytes(buf + rd, read_cap - rd);
-    if (n > 0) {
-      rd += static_cast<size_t>(n);
-    } else {
-      delay(5);
-    }
-  }
-
-  if (rd < 64) {
+  if (rd < 64 || rd < static_cast<size_t>(declared)) {
     free(buf);
-    body_read_set_err("bad response (empty)");
-    return false;
-  }
-  if (target_len > 0 && rd < target_len) {
-    free(buf);
-    body_read_set_err("bad response (truncated)");
+    body_read_set_err(rd < 64 ? "bad response (empty)" : "bad response (truncated)");
     return false;
   }
 
@@ -782,6 +759,7 @@ static bool voice_post_message_inner(const char *message, const char *system_ins
   memset(r->reply, 0, sizeof(r->reply));
   r->mp3 = nullptr;
   r->mp3_len = 0;
+  r->audio_streamed = false;
 
   if (strlen(MYNAH_SUPABASE_URL) == 0 || strlen(MYNAH_SUPABASE_ANON_KEY) == 0) {
     voice_set_error("no supabase config");
@@ -994,6 +972,7 @@ static bool voice_post_pcm_inner(const uint8_t *pcm, size_t pcm_len, const char 
   memset(r->reply, 0, sizeof(r->reply));
   r->mp3 = nullptr;
   r->mp3_len = 0;
+  r->audio_streamed = false;
 
   if (strlen(MYNAH_SUPABASE_URL) == 0 || strlen(MYNAH_SUPABASE_ANON_KEY) == 0) {
     voice_set_error("no supabase config");
@@ -1141,6 +1120,7 @@ static bool voice_post_daily_briefing_inner(PmVoiceResult *r) {
   memset(r->reply, 0, sizeof(r->reply));
   r->mp3 = nullptr;
   r->mp3_len = 0;
+  r->audio_streamed = false;
 
   if (strlen(MYNAH_SUPABASE_URL) == 0 || strlen(MYNAH_SUPABASE_ANON_KEY) == 0) {
     voice_set_error("no supabase config");
@@ -1265,6 +1245,7 @@ static bool voice_post_daily_briefing_inner(PmVoiceResult *r) {
   http.end();
   s_daily_briefing_streaming_play = false;
   s_daily_briefing_streamed = true;
+  r->audio_streamed = true;
 
   strncpy(r->transcript, "daily briefing", sizeof(r->transcript) - 1);
 
@@ -1286,6 +1267,7 @@ static bool voice_post_clock_agenda_inner(PmVoiceResult *r) {
   memset(r->reply, 0, sizeof(r->reply));
   r->mp3 = nullptr;
   r->mp3_len = 0;
+  r->audio_streamed = false;
 
   if (strlen(MYNAH_SUPABASE_URL) == 0 || strlen(MYNAH_SUPABASE_ANON_KEY) == 0) {
     voice_set_error("no supabase config");
@@ -1402,10 +1384,28 @@ static void voice_net_task_ensure() {
   if (s_voice_task) {
     return;
   }
-  xTaskCreatePinnedToCore(voice_net_task, "voice_net", kVoiceNetTaskStack, nullptr, 1, &s_voice_task, 1);
+  BaseType_t ok = xTaskCreatePinnedToCoreWithCaps(voice_net_task, "voice_net", kVoiceNetTaskStack, nullptr, 1,
+                                                  &s_voice_task, 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  s_voice_task_with_caps = ok == pdPASS;
+  if (ok != pdPASS) {
+    ok = xTaskCreatePinnedToCore(voice_net_task, "voice_net", kVoiceNetTaskStack, nullptr, 1,
+                                 &s_voice_task, 1);
+    s_voice_task_with_caps = false;
+  }
+  if (ok != pdPASS) {
+    s_voice_task = nullptr;
+    voice_set_error("voice task create failed");
+    Serial.printf("voice: task create failed stack=%u internal=%u largest=%u psram=%u\n",
+                  static_cast<unsigned>(kVoiceNetTaskStack),
+                  static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+                  static_cast<unsigned>(
+                      heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+                  static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)));
+  }
 }
 
 static bool voice_net_begin(uint8_t op) {
+  pm_speaker_release_idle_task();
   voice_net_task_ensure();
   if (!s_voice_task) {
     return false;
@@ -1488,6 +1488,22 @@ bool pm_voice_begin_daily_briefing(PmVoiceResult *r) {
 
 PmVoiceStatus pm_voice_poll(void) {
   return s_voice_status;
+}
+
+bool pm_voice_release_idle_task(void) {
+  if (!s_voice_task || s_voice_task_active || s_voice_status == PmVoiceStatus::Working) {
+    return false;
+  }
+  TaskHandle_t task = s_voice_task;
+  const bool task_with_caps = s_voice_task_with_caps;
+  s_voice_task = nullptr;
+  s_voice_task_with_caps = false;
+  if (task_with_caps) {
+    vTaskDeleteWithCaps(task);
+  } else {
+    vTaskDelete(task);
+  }
+  return true;
 }
 
 bool pm_voice_daily_briefing_streamed(void) {

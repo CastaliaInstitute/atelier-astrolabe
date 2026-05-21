@@ -569,16 +569,17 @@ static bool parse_webcast_from_detail_json(const char *json, PmRocketLaunch *out
       ++url_key;
       continue;
     }
-    size_t o = 0;
-    while (p[o] && p[o] != '"' && o + 1 < sizeof(out->webcast_url)) {
-      if (p[o] == '\\' && p[o + 1]) {
-        ++o;
+    size_t src = 0;
+    size_t dst = 0;
+    while (p[src] && p[src] != '"' && dst + 1 < sizeof(out->webcast_url)) {
+      if (p[src] == '\\' && p[src + 1]) {
+        ++src;
         continue;
       }
-      out->webcast_url[o++] = p[o];
+      out->webcast_url[dst++] = p[src++];
     }
-    out->webcast_url[o] = '\0';
-    return o > 0;
+    out->webcast_url[dst] = '\0';
+    return dst > 0;
   }
   return false;
 }

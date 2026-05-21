@@ -13,6 +13,7 @@
 #include "esp_random.h"
 #include "esp_task_wdt.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/idf_additions.h"
 #include "freertos/task.h"
 #include "minimp3.h"
 
@@ -27,19 +28,27 @@ extern "C" {
 #include "pm_audio_route.h"
 #include "pm_speaker_pcm.h"
 #include "pm_usb_uac.h"
+#include "pm_settings.h"
 
 static const char *TAG = "pm_speaker";
 
 #define I2S_TX I2S_NUM_0
-static constexpr uint32_t kSpeakerTaskStack = 32768;
+static constexpr uint32_t kSpeakerTaskStack = 49152;
 static constexpr UBaseType_t kSpeakerTaskPriority = 3;
 static constexpr int kSpeakerVolume = 70;
 static uint32_t s_max_play_seconds = 180u;
+
+static void speaker_task_wdt_reset() {
+  if (esp_task_wdt_status(nullptr) == ESP_OK) {
+    esp_task_wdt_reset();
+  }
+}
 
 static es8311_handle_t s_es = nullptr;
 static bool s_es_inited = false;
 
 static TaskHandle_t s_speaker_task = nullptr;
+static bool s_speaker_task_with_caps = false;
 static volatile bool s_spk_task_busy = false;
 static volatile bool s_speaker_ok = false;
 static volatile PmSpeakerStatus s_speaker_status = PmSpeakerStatus::Idle;
@@ -154,14 +163,15 @@ static esp_err_t i2s_tx_begin(int sample_hz, int channels) {
 }
 
 static esp_err_t i2s_write_all(const int16_t *pcm, size_t total_s16) {
-  /** Spectrum face only — avoid FFT load / races during chakra tones. */
-  if (pm_faces_current() == ClockFace::Spectrum) {
-    pm_audio_analyzer_feed_out(pcm, total_s16, 2);
+  /** Analyzer-visible faces only — avoid FFT/AEC load during unrelated tones. */
+  if (pm_faces_current() == ClockFace::Spectrum ||
+      (pm_faces_current() == ClockFace::Settings && pm_settings_page() == SettingsPage::Aec)) {
+    pm_audio_analyzer_feed_out_rate(pcm, total_s16, 2, s_play_pcm_hz > 0 ? static_cast<int>(s_play_pcm_hz) : 16000);
   }
   const uint8_t *p = reinterpret_cast<const uint8_t *>(pcm);
   size_t remain = total_s16 * sizeof(int16_t);
   while (remain > 0) {
-    esp_task_wdt_reset();
+    speaker_task_wdt_reset();
     size_t wrote = 0;
     if (i2s_write(I2S_TX, p, remain, &wrote, portMAX_DELAY) != ESP_OK) {
       return ESP_FAIL;
@@ -281,7 +291,7 @@ static bool play_bowl_voice_streaming(void) {
                 static_cast<double>(s_bowl.brightness));
 
   while (!s_bowl_stop) {
-    esp_task_wdt_reset();
+    speaker_task_wdt_reset();
 
     if (s_bowl.center_strike) {
       s_bowl.center_strike = false;
@@ -443,7 +453,7 @@ static bool play_tone_streaming(float hz, uint32_t duration_ms) {
   s_tone_stop = false;
 
   for (;;) {
-    esp_task_wdt_reset();
+    speaker_task_wdt_reset();
     vTaskDelay(1);
     if (until_stop && s_tone_stop && stop_fade_left == 0) {
       stop_fade_left = fade_out;
@@ -537,7 +547,7 @@ static bool play_bongo_streaming(float hz, float strength) {
     if (s_bongo_stop) {
       break;
     }
-    esp_task_wdt_reset();
+    speaker_task_wdt_reset();
     const size_t frame = (total_samples - written > 256u) ? 256u : (total_samples - written);
     for (size_t i = 0; i < frame; ++i) {
       const uint32_t pos = written + static_cast<uint32_t>(i);
@@ -615,7 +625,7 @@ static bool play_mp3_streaming(const uint8_t *mp3, size_t mp3_len) {
   static int16_t stereo_up[MINIMP3_MAX_SAMPLES_PER_FRAME];
 
   while (bytes_left > 0) {
-    esp_task_wdt_reset();
+    speaker_task_wdt_reset();
 
     mp3dec_frame_info_t info = {};
     const int samples_per_ch = mp3dec_decode_frame(&dec, buf, bytes_left, pcm, &info);
@@ -800,7 +810,7 @@ bool pm_speaker_play_mp3_http_stream(WiFiClient *stream, int content_length, vol
           return false;
         }
         delay(5);
-        esp_task_wdt_reset();
+        speaker_task_wdt_reset();
         continue;
       }
       const size_t room = kHttpMp3BufCap - fill;
@@ -841,7 +851,7 @@ bool pm_speaker_play_mp3_http_stream(WiFiClient *stream, int content_length, vol
   }
 
   for (;;) {
-    esp_task_wdt_reset();
+    speaker_task_wdt_reset();
     if (cancel && *cancel) {
       free(buf);
       s_http_mp3_stream_active = false;
@@ -1013,7 +1023,7 @@ static bool speaker_wait_idle(uint32_t timeout_ms) {
       return false;
     }
     delay(5);
-    esp_task_wdt_reset();
+    speaker_task_wdt_reset();
   }
   return true;
 }
@@ -1071,8 +1081,15 @@ static void speaker_task_ensure() {
   if (s_speaker_task) {
     return;
   }
-  const BaseType_t ok = xTaskCreatePinnedToCore(speaker_play_task, "spk_play", kSpeakerTaskStack, nullptr,
-                                                kSpeakerTaskPriority, &s_speaker_task, 1);
+  BaseType_t ok = xTaskCreatePinnedToCoreWithCaps(speaker_play_task, "spk_play", kSpeakerTaskStack, nullptr,
+                                                  kSpeakerTaskPriority, &s_speaker_task, 1,
+                                                  MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  s_speaker_task_with_caps = ok == pdPASS;
+  if (ok != pdPASS) {
+    ok = xTaskCreatePinnedToCore(speaker_play_task, "spk_play", 16384, nullptr,
+                                 kSpeakerTaskPriority, &s_speaker_task, 1);
+    s_speaker_task_with_caps = false;
+  }
   if (ok != pdPASS) {
     s_speaker_task = nullptr;
     Serial.printf("speaker: task create failed stack=%u internal=%u largest=%u psram=%u\n",
@@ -1125,7 +1142,12 @@ bool pm_speaker_play_begin(const uint8_t *mp3, size_t mp3_len) {
 }
 
 PmSpeakerStatus pm_speaker_poll() {
-  return s_speaker_status;
+  const PmSpeakerStatus st = s_speaker_status;
+  if ((st == PmSpeakerStatus::DoneOk || st == PmSpeakerStatus::DoneFail) && s_speaker_task &&
+      !s_spk_task_busy) {
+    pm_speaker_release_idle_task();
+  }
+  return st;
 }
 
 void pm_speaker_abort(void) {
@@ -1311,8 +1333,14 @@ bool pm_speaker_release_idle_task(void) {
     return false;
   }
   TaskHandle_t task = s_speaker_task;
+  const bool task_with_caps = s_speaker_task_with_caps;
   s_speaker_task = nullptr;
-  vTaskDelete(task);
+  s_speaker_task_with_caps = false;
+  if (task_with_caps) {
+    vTaskDeleteWithCaps(task);
+  } else {
+    vTaskDelete(task);
+  }
   return true;
 }
 
@@ -1368,6 +1396,6 @@ bool pm_speaker_play_mp3(const uint8_t *mp3, size_t mp3_len) {
       return false;
     }
     delay(10);
-    esp_task_wdt_reset();
+    speaker_task_wdt_reset();
   }
 }

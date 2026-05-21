@@ -1,6 +1,7 @@
 #include "pm_settings.h"
 
 #include "faces/castalia/pm_face_castalia.h"
+#include "faces/settings/pm_face_settings_aec.h"
 #include "faces/settings/pm_face_settings_wifi.h"
 #include "faces/shared/pm_face_draw.h"
 #include "pin_config.h"
@@ -10,18 +11,44 @@ static SettingsPage s_page = SettingsPage::WiFi;
 
 SettingsPage pm_settings_page(void) { return s_page; }
 
+const char *pm_settings_page_name(SettingsPage page) {
+  switch (page) {
+    case SettingsPage::WiFi:
+      return "wifi";
+    case SettingsPage::Castalia:
+      return "castalia";
+    case SettingsPage::Aec:
+      return "aec";
+    default:
+      return "settings";
+  }
+}
+
+void pm_settings_on_leave(void) {
+  if (s_page == SettingsPage::Aec) {
+    pm_face_settings_aec_leave();
+  }
+}
+
 void pm_settings_set_page(SettingsPage page) {
   if (static_cast<unsigned>(page) >= static_cast<unsigned>(SettingsPage::kCount)) {
     return;
+  }
+  if (s_page == SettingsPage::Aec && page != SettingsPage::Aec) {
+    pm_face_settings_aec_leave();
   }
   s_page = page;
 }
 
 void pm_settings_cycle(int delta) {
+  const SettingsPage prev = s_page;
   int v = static_cast<int>(s_page) + delta;
   const int n = static_cast<int>(SettingsPage::kCount);
   v = (v % n + n) % n;
   s_page = static_cast<SettingsPage>(v);
+  if (prev == SettingsPage::Aec && s_page != SettingsPage::Aec) {
+    pm_face_settings_aec_leave();
+  }
 }
 
 static void pm_settings_draw_chrome(void) {
@@ -49,6 +76,9 @@ void pm_settings_draw(void) {
       break;
     case SettingsPage::Castalia:
       pm_face_castalia_draw();
+      break;
+    case SettingsPage::Aec:
+      pm_face_settings_aec_draw();
       break;
     default:
       break;

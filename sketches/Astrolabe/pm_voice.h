@@ -9,6 +9,7 @@ struct PmVoiceResult {
   char reply[768];
   uint8_t *mp3 = nullptr;
   size_t mp3_len = 0;
+  bool audio_streamed = false;
 };
 
 void pm_voice_result_free(PmVoiceResult *r);
@@ -47,6 +48,7 @@ bool pm_voice_daily_briefing_streamed(void);
 bool pm_voice_daily_briefing_streaming_play(void);
 PmVoiceStatus pm_voice_poll(void);
 uint32_t pm_voice_stack_high_water(void);
+bool pm_voice_release_idle_task(void);
 
 /** Unblock UI if voice_net is stuck (HTTP still runs until it finishes). */
 void pm_voice_abort(void);

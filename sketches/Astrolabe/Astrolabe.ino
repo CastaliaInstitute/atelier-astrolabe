@@ -55,6 +55,7 @@
 #include "faces/calcifer/pm_face_calcifer.h"
 #include "faces/level/pm_face_level.h"
 #include "faces/weather/pm_face_weather.h"
+#include "faces/settings/pm_face_settings_aec.h"
 #include "faces/settings/pm_face_settings_wifi.h"
 #include "pm_weather.h"
 #include "faces/quotes/pm_face_quotes.h"
@@ -112,6 +113,7 @@ static bool s_face_tour_narrate = false;
 static bool s_face_tour_button_test = false;
 static uint8_t s_face_tour_voice_phase = 0;
 static uint32_t s_face_tour_voice_started_ms = 0;
+static uint8_t s_face_tour_tts_retry = 0;
 static uint8_t s_face_tour_tts_ok = 0;
 static uint8_t s_face_tour_tts_fail = 0;
 static uint8_t s_face_tour_tts_skip = 0;
@@ -663,64 +665,91 @@ struct FaceTourInfo {
 };
 
 static const FaceTourInfo k_face_tour[] = {
-    {"classic", "hue home clock with breathing gem pulse", "a short daily orientation from the home clock",
+    {"classic", "the home base: time, mood, and a living gem that makes the watch feel awake",
+     "a short daily orientation from the home clock",
      "drawing locally", "heap is low", false, false},
-    {"apocalypso", "watch-style day wheel and local time", "a brief reading of the day wheel and risk-radar mood",
+    {"apocalypso", "a day wheel for seeing the shape and pressure of the day at a glance",
+     "a brief reading of the day wheel and risk-radar mood",
      "drawing local time", "time is not synced", false, true},
-    {"digital", "large local digital clock", "a concise spoken local-time check-in", "drawing local time",
+    {"digital", "a clean, glanceable clock for when the device should simply be a watch",
+     "a concise spoken local-time check-in", "drawing local time",
      "time is not synced", false, true},
-    {"spotify", "Spotify transport and now-playing surface", "a musical listening prompt for the current moment",
+    {"spotify", "a music companion face for playback, context, and listening rituals",
+     "a musical listening prompt for the current moment",
      "WiFi is available for refresh", "offline, transport is display-only", true, false},
-    {"astro", "live sky wheel and astrology voice hooks", "the current astrology transits and sky wheel",
+    {"astro", "a live sky wheel that turns current transits into a spoken personal weather report",
+     "the current astrology transits and sky wheel",
      "time and WiFi are ready", "needs WiFi and time for live reading", true, true},
-    {"moon", "lunar phase, fortune tap, and Moon voice", "today's lunar phase and fortune",
+    {"moon", "a lunar ritual face for phase, mood, and a small daily fortune",
+     "today's lunar phase and fortune",
      "time and WiFi are ready", "needs WiFi and time for fortune voice", true, true},
-    {"calcifer", "rolling agenda daywheel from calendar", "the next calendar moment and schedule rhythm",
+    {"calcifer", "a calendar creature that turns meetings and time blocks into a living agenda wheel",
+     "the next calendar moment and schedule rhythm",
      "calendar refresh can run", "needs WiFi and time for calendar", true, true},
-    {"castalia", "Castalia pairing QR and auth status", "Castalia sign-in status and what pairing unlocks",
+    {"castalia", "the sign-in gateway for cloud memory, voice services, and Castalia context",
+     "Castalia sign-in status and what pairing unlocks",
      "WiFi is available for pairing", "offline, pairing QR only", true, false},
-    {"settings", "WiFi and Castalia settings hub", "a settings health check for WiFi, auth, heap, and time",
+    {"settings", "the control room for network, identity, time, and device health",
+     "a settings health check for WiFi, auth, heap, and time",
      "settings UI is drawing", "settings UI is drawing", false, false},
-    {"synastry", "dual natal chart and relationship aspects", "the active synastry relationship highlight",
+    {"synastry", "a relationship lens that compares charts and surfaces patterns with care",
+     "the active synastry relationship highlight",
      "time and WiFi are ready", "needs WiFi and time for voice", true, true},
-    {"spectrum", "microphone spectrum visualizer modes", "a sound-check prompt for the audio spectrum face",
+    {"spectrum", "a pocket sound lab for seeing the room, voice, and music as live frequency",
+     "a sound-check prompt for the audio spectrum face",
      "local audio analyzer is drawing", "audio analyzer is local only", false, false},
-    {"chakra", "chakra symbols with solfeggio tones", "the current chakra tone and embodied attention",
+    {"chakra", "a tone-and-symbol meditation face for embodied attention",
+     "the current chakra tone and embodied attention",
      "local tone controls are available", "local tone controls are available", false, false},
-    {"bowl", "Tibetan bowl rim instrument", "a short singing-bowl meditation prompt",
+    {"bowl", "a touchable singing bowl for slowing down with sound and motion",
+     "a short singing-bowl meditation prompt",
      "local rim instrument is available", "local rim instrument is available", false, false},
-    {"rocket", "upcoming orbital launch clock", "the next launch window and mission context",
+    {"rocket", "a launch-window clock for following spaceflight as a live ritual",
+     "the next launch window and mission context",
      "launch refresh can run", "needs WiFi and time for launches", true, true},
-    {"radar", "BLE locator and nearby peer radar", "nearby BLE peers and spatial presence",
+    {"radar", "a nearby-presence radar for people, devices, and ambient proximity",
+     "nearby BLE peers and spatial presence",
      "BLE radar can start", "heap is tight after BLE", false, false},
-    {"faculty", "recent ask-faculty conversation portraits", "the active faculty persona and recent conversation",
+    {"faculty", "a conversation face where named Castalia faculty become recurring guides",
+     "the active faculty persona and recent conversation",
      "WiFi is available for portraits", "offline, cached portraits only", true, false},
-    {"weather", "24-hour radial forecast rings", "the local 24-hour weather ring",
+    {"weather", "a radial forecast that makes the next day of weather glanceable",
+     "the local 24-hour weather ring",
      "weather refresh can run", "needs WiFi and time for forecast", true, true},
-    {"quotes", "Castalia quote of the day with faculty bust", "the quote of the day and its faculty context",
+    {"quotes", "a daily passage face for carrying a faculty quote into the day",
+     "the quote of the day and its faculty context",
      "quote refresh can run", "offline demo quote only", true, false},
-    {"transits", "live planetary spheres and next Moon ingress", "live transits and the next Moon ingress",
+    {"transits", "a live celestial dashboard for planets, motion, and the next Moon change",
+     "live transits and the next Moon ingress",
      "time and ephemeris are ready", "needs time for live transits", false, true},
-    {"tarot", "daily Major Arcana card and deck browser", "the active Major Arcana card",
+    {"tarot", "a daily Major Arcana reflection and deck browser",
+     "the active Major Arcana card",
      "drawing local Major Arcana", "drawing local Major Arcana", false, false},
-    {"notes", "offline voice notes queued for Commonplace", "the offline note capture queue",
+    {"notes", "a quick-capture face for voice notes that sync to Commonplace later",
+     "the offline note capture queue",
      "flash note queue is available", "flash note queue is available", false, false},
-    {"ocarina", "touch-playable clay ocarina", "the active ocarina key and breath note",
+    {"ocarina", "a tiny playable wind instrument mapped onto the screen",
+     "the active ocarina key and breath note",
      "local ocarina tones are available", "local ocarina tones are available", false, false},
-    {"bongo", "touch-playable bongo with center-to-rim pitch", "the last bongo tap pitch and drum feel",
+    {"bongo", "a touch drum whose center, rim, and motion change the feel of each hit",
+     "the last bongo tap pitch and drum feel",
      "local bongo hits are available", "local bongo hits are available", false, false},
-    {"piano", "one-octave circular piano", "the active piano key and note",
+    {"piano", "a circular one-octave piano for quick melodies and tonal tests",
+     "the active piano key and note",
      "local piano tones are available", "local piano tones are available", false, false},
-    {"level", "IMU rolling-sphere level with the top of the display as forward",
+    {"level", "a motion-aware level that turns the watch into a tiny physical instrument",
      "the current level nudge", "IMU level is drawing", "IMU unavailable", false, false},
-    {"tuning", "live microphone tuning staff with detected notes", "the currently detected pitch and cents",
+    {"tuning", "a pitch detector for tuning instruments and showing notes as they happen",
+     "the currently detected pitch and cents",
      "local pitch detector is listening", "local pitch detector is listening", false, false},
-    {"pandrum", "14-note touch-playable handpan", "the active pan drum note and resonance",
+    {"pandrum", "a 14-note handpan-style surface for resonant touch performance",
+     "the active pan drum note and resonance",
      "local pan drum tones are available", "local pan drum tones are available", false, false},
-    {"alethiometer", "36-symbol compass with three question needles and one answer needle",
+    {"alethiometer", "a symbolic compass for asking questions and turning symbols into interpretation",
      "the active alethiometer symbols and narrative interpretation",
      "WiFi is available for LLM interpretation", "offline, compass animation only", true, false},
-    {"runes", "three-rune past, present, future fortune spread", "the selected rune spread and spoken fortune",
+    {"runes", "a three-rune spread for turning a question into a past, present, future reading",
+     "the selected rune spread and spoken fortune",
      "WiFi is available for TTS fortune", "offline, visual spread only", true, false},
 };
 
@@ -753,6 +782,19 @@ static const char *face_tour_health_text(const FaceTourInfo *info) {
   }
   if (pm_heap_internal_largest() < 70000u) {
     return "heap is low";
+  }
+  if (info->needs_wifi && !pm_wifi_connected()) {
+    return info->warn;
+  }
+  if (info->needs_time && !pm_time_valid()) {
+    return info->warn;
+  }
+  return info->ok;
+}
+
+static const char *face_tour_demo_text(const FaceTourInfo *info) {
+  if (!info) {
+    return "demo metadata is unavailable";
   }
   if (info->needs_wifi && !pm_wifi_connected()) {
     return info->warn;
@@ -863,10 +905,21 @@ static bool face_voice_build_prompt(const FaceTourInfo *info, int idx, char *msg
   s_face_voice_faculty_name[0] = '\0';
   const ClockFace face = static_cast<ClockFace>(idx);
   const char *health = face_tour_health_text(info);
+  const char *demo = face_tour_demo_text(info);
   char when[40];
   face_tour_format_clock(when, sizeof(when));
 
   if (face == ClockFace::Astrology) {
+    if (tour_test) {
+      snprintf(sys, sys_cap,
+               "You are giving a first-time product tour of the Mynah Astrolabe astrology face. Explain the "
+               "product purpose, not a live reading. Keep it under 22 seconds. Do not claim fixed fate.");
+      snprintf(msg, msg_cap,
+               "Tour face %d of %d: astro. Product purpose: %s. Explain that this face turns the current sky "
+               "into a glanceable wheel and a spoken context report for the wearer.",
+               idx + 1, static_cast<int>(ClockFace::kNumFaces), info->summary);
+      return true;
+    }
     if (!pm_time_valid()) {
       snprintf(g_gesture_banner, sizeof(g_gesture_banner), "astro: need time");
       return false;
@@ -881,6 +934,16 @@ static bool face_voice_build_prompt(const FaceTourInfo *info, int idx, char *msg
     return true;
   }
   if (face == ClockFace::Moon) {
+    if (tour_test) {
+      snprintf(sys, sys_cap,
+               "You are giving a first-time product tour of the Mynah Astrolabe moon face. Explain the product "
+               "purpose, not a live fortune. Keep it under 22 seconds. Do not claim fixed fate.");
+      snprintf(msg, msg_cap,
+               "Tour face %d of %d: moon. Product purpose: %s. Explain that this face gives the wearer a "
+               "lunar phase, a mood cue, and a small daily ritual.",
+               idx + 1, static_cast<int>(ClockFace::kNumFaces), info->summary);
+      return true;
+    }
     if (!pm_time_valid() || !pm_face_moon_build_fortune_message(msg, msg_cap) ||
         !pm_face_moon_build_fortune_system_prompt(sys, sys_cap)) {
       snprintf(g_gesture_banner, sizeof(g_gesture_banner), "moon: build fail");
@@ -889,6 +952,16 @@ static bool face_voice_build_prompt(const FaceTourInfo *info, int idx, char *msg
     return true;
   }
   if (face == ClockFace::Synastry) {
+    if (tour_test) {
+      snprintf(sys, sys_cap,
+               "You are giving a first-time product tour of the Mynah Astrolabe synastry face. Explain the "
+               "product purpose, not a live relationship reading. Keep it under 22 seconds. Do not claim fixed fate.");
+      snprintf(msg, msg_cap,
+               "Tour face %d of %d: synastry. Product purpose: %s. Explain that this face compares two charts "
+               "to surface relationship patterns carefully, without treating them as destiny.",
+               idx + 1, static_cast<int>(ClockFace::kNumFaces), info->summary);
+      return true;
+    }
     if (!pm_face_synastry_build_system_prompt(g_synastry_voice_msg, kSynastryVoiceMsgCap, sys,
                                               sys_cap)) {
       snprintf(sys, sys_cap,
@@ -904,35 +977,39 @@ static bool face_voice_build_prompt(const FaceTourInfo *info, int idx, char *msg
   }
 
   snprintf(sys, sys_cap,
-           "You are the Mynah Astrolabe face-specific TTS button. Speak like a gentle fortune teller reading "
-           "omens from a brass astrolabe: warm, a little mysterious, but grounded. Use only the supplied face "
-           "state. Offer one omen, one counsel, and one vivid image. Keep it under 35 seconds. Do not say this "
-           "is a test unless something is unavailable, and never claim certainty or fixed fate.");
+           "You are giving a first-time product tour of the Mynah Astrolabe, a tiny wrist computer made of "
+           "clock faces, rituals, instruments, sensors, and cloud memory. For each face, explain what the face "
+           "is meant to do for a person, not just what it currently shows. Be concrete enough that someone "
+           "watching the demo understands the product. Speak warmly, with a little brass-astrolabe mystery, "
+           "but stay grounded. Keep it under 22 seconds. Do not claim fixed fate. Do not read stage directions, "
+           "Markdown, heap, memory, internal diagnostics, or QA status aloud.");
 
   switch (face) {
     case ClockFace::ClassicAnalog:
       snprintf(msg, msg_cap,
-               "Face: classic home clock. Current state: %s; %s. Give a short daily orientation grounded in "
-               "the breathing hue clock.",
-               when, health);
+               "Tour face %d of %d: Classic. Product purpose: %s. Current state: %s; %s. Introduce Astrolabe "
+               "as more than a clock: a small, glanceable companion whose faces turn time, context, and mood "
+               "into rituals.",
+               idx + 1, static_cast<int>(ClockFace::kNumFaces), info->summary, when, demo);
       break;
     case ClockFace::Apocalypso:
       snprintf(msg, msg_cap,
-               "Face: Apocalypso day wheel. Current state: %s; %s. Give a brief spoken read of the day's "
-               "risk-radar mood and what to notice next.",
-               when, health);
+               "Tour face %d of %d: Apocalypso. Product purpose: %s. Current state: %s; %s. Explain this as "
+               "a narrative day wheel: the watch should help someone feel the contour of the day before they "
+               "open a calendar.",
+               idx + 1, static_cast<int>(ClockFace::kNumFaces), info->summary, when, demo);
       break;
     case ClockFace::DigitalLocal:
       snprintf(msg, msg_cap,
-               "Face: digital local clock. Current state: %s; %s. Speak a concise time check-in with one "
-               "useful nudge for the next hour.",
-               when, health);
+               "Tour face %d of %d: Digital. Product purpose: %s. Current state: %s; %s. Explain why a "
+               "simple utility face matters inside a stranger, richer watch.",
+               idx + 1, static_cast<int>(ClockFace::kNumFaces), info->summary, when, demo);
       break;
     case ClockFace::Spotify:
       snprintf(msg, msg_cap,
                "Face: Spotify. Current state: %s. Give a listening prompt for the current moment; if playback "
                "metadata is unavailable, say so gracefully.",
-               health);
+               demo);
       break;
     case ClockFace::CalciferCountdown:
       if (!g_calcifer_ui.ok && pm_wifi_connected() && pm_time_valid() &&
@@ -952,24 +1029,22 @@ static bool face_voice_build_prompt(const FaceTourInfo *info, int idx, char *msg
                  when, g_calcifer_ui.next.summary);
       } else {
         snprintf(msg, msg_cap,
-                 "Face: Calcifer agenda daywheel. Now: %s. Calendar state: %s. Give a concise schedule "
-                 "status and what is missing.",
-                 when, g_calcifer_ui.error[0] ? g_calcifer_ui.error : health);
+                 "Face: Calcifer agenda daywheel. Now: %s. Calendar state: %s. Explain that this face turns "
+                 "meetings and open time into a living agenda wheel.",
+                 when, g_calcifer_ui.error[0] ? g_calcifer_ui.error : demo);
       }
       break;
     case ClockFace::Castalia:
       snprintf(msg, msg_cap,
-               "Face: Castalia pairing. Status: WiFi %s, time %s, heap largest %u bytes. Explain what signing "
-               "in unlocks on the watch.",
-               pm_wifi_connected() ? "connected" : "offline", pm_time_valid() ? "synced" : "unsynced",
-               static_cast<unsigned>(pm_heap_internal_largest()));
+               "Face: Castalia pairing. Status: WiFi %s, time %s. Explain what signing in unlocks on the watch: "
+               "cloud memory, voice services, Commonplace notes, and personal context.",
+               pm_wifi_connected() ? "connected" : "offline", pm_time_valid() ? "synced" : "unsynced");
       break;
     case ClockFace::Settings:
       snprintf(msg, msg_cap,
-               "Face: settings. WiFi %s, time %s, local clock %s, heap largest %u bytes. Give a short health "
-               "check.",
-               pm_wifi_connected() ? "connected" : "offline", pm_time_valid() ? "synced" : "unsynced", when,
-               static_cast<unsigned>(pm_heap_internal_largest()));
+               "Face: settings. WiFi %s, time %s, local clock %s. Explain this as the control room for network, "
+               "identity, time, and device health.",
+               pm_wifi_connected() ? "connected" : "offline", pm_time_valid() ? "synced" : "unsynced", when);
       break;
     case ClockFace::Spectrum:
       snprintf(msg, msg_cap,
@@ -998,16 +1073,17 @@ static bool face_voice_build_prompt(const FaceTourInfo *info, int idx, char *msg
                  launch->name, launch->provider, launch->location, launch->status_abbrev);
       } else {
         snprintf(msg, msg_cap,
-                 "Face: rocket launch clock. Launch data state: %s. Give a concise launch-clock status.",
-                 g_rocket_ui.error[0] ? g_rocket_ui.error : health);
+                 "Face: rocket launch clock. Launch data state: %s. Explain that this face should make spaceflight "
+                 "feel like a live ritual with countdowns, agencies, pads, and mission context.",
+                 g_rocket_ui.error[0] ? g_rocket_ui.error : demo);
       }
       break;
     }
     case ClockFace::Radar:
       snprintf(msg, msg_cap,
-               "Face: BLE radar. Nearby peer count: %u. Heap largest: %u bytes. Give a short spatial-presence "
-               "readout.",
-               static_cast<unsigned>(pm_presence_peer_count()), static_cast<unsigned>(pm_heap_internal_largest()));
+               "Face: BLE radar. Nearby peer count: %u. Explain this as a presence face for noticing nearby "
+               "devices, people, and ambient proximity without opening an app.",
+               static_cast<unsigned>(pm_presence_peer_count()));
       break;
     case ClockFace::Faculty: {
       PmFacultyProfile faculty = {};
@@ -1037,8 +1113,10 @@ static bool face_voice_build_prompt(const FaceTourInfo *info, int idx, char *msg
                  g_weather_ui.location, static_cast<int>(g_weather_ui.current_temp_c), g_weather_ui.condition,
                  static_cast<int>(g_weather_ui.hi_c), static_cast<int>(g_weather_ui.lo_c));
       } else {
-        snprintf(msg, msg_cap, "Face: weather. Forecast state: %s. Give a short weather-status note.",
-                 g_weather_ui.error[0] ? g_weather_ui.error : health);
+        snprintf(msg, msg_cap,
+                 "Tour face %d of %d: weather. Product purpose: %s. Live forecast is not loaded for this demo. "
+                 "Explain that the face should make the next day of weather glanceable as a radial ring.",
+                 idx + 1, static_cast<int>(ClockFace::kNumFaces), info->summary);
       }
       break;
     case ClockFace::Quotes:
@@ -1064,7 +1142,7 @@ static bool face_voice_build_prompt(const FaceTourInfo *info, int idx, char *msg
       snprintf(msg, msg_cap,
                "Face: live transits. Current state: %s; %s. Give a concise sky-status readout focused on "
                "live planets and the next Moon ingress.",
-               when, health);
+               when, demo);
       break;
     case ClockFace::Tarot: {
       struct tm local = {};
@@ -1120,39 +1198,72 @@ static bool face_voice_build_prompt(const FaceTourInfo *info, int idx, char *msg
       break;
     case ClockFace::Level: {
       const char *guidance = pm_face_level_guidance();
-      snprintf(sys, sys_cap,
-               "You are the Mynah Astrolabe level face TTS button. Say exactly the supplied leveling nudge, "
-               "with no preamble and no extra words. The top of the display is forward.");
-      snprintf(msg, msg_cap, "Leveling nudge to speak exactly: %s.", guidance);
+      if (tour_test && (!guidance || strcmp(guidance, "IMU unavailable") == 0)) {
+        snprintf(sys, sys_cap,
+                 "You are giving a first-time product tour of the Mynah Astrolabe level face. Keep it under "
+                 "18 seconds. Do not mention unavailable sensors, heap, QA, or diagnostics.");
+        snprintf(msg, msg_cap,
+                 "Tour face %d of %d: level. Product purpose: %s. Explain that this face turns motion sensing "
+                 "into a tiny physical instrument for leveling, balance, and orientation.",
+                 idx + 1, static_cast<int>(ClockFace::kNumFaces), info->summary);
+      } else {
+        snprintf(sys, sys_cap,
+                 "You are the Mynah Astrolabe level face TTS button. Say exactly the supplied leveling nudge, "
+                 "with no preamble and no extra words. The top of the display is forward.");
+        snprintf(msg, msg_cap, "Leveling nudge to speak exactly: %s.", guidance);
+      }
       break;
     }
     case ClockFace::Alethiometer:
-      if (!pm_face_alethiometer_build_system_prompt(sys, sys_cap)) {
-        snprintf(g_gesture_banner, sizeof(g_gesture_banner), "aleth: build fail");
-        return false;
+      if (tour_test) {
+        snprintf(sys, sys_cap,
+                 "You are giving a first-time product tour of the Mynah Astrolabe alethiometer face. Explain "
+                 "the product purpose, not a live divination. Keep it under 22 seconds. Do not claim fixed fate.");
+        snprintf(msg, msg_cap,
+                 "Tour face %d of %d: alethiometer. Product purpose: %s. Explain that the face is a symbolic "
+                 "question compass: the wearer asks something, symbols move, and voice turns the pattern into "
+                 "a reflective interpretation.",
+                 idx + 1, static_cast<int>(ClockFace::kNumFaces), info->summary);
+      } else {
+        if (!pm_face_alethiometer_build_system_prompt(sys, sys_cap)) {
+          snprintf(g_gesture_banner, sizeof(g_gesture_banner), "aleth: build fail");
+          return false;
+        }
+        snprintf(msg, msg_cap,
+                 "%sFace: alethiometer. Current compass state: short needles on %s, %s, and %s; long answer "
+                 "needle on %s. Give a concise experimental interpretation of this symbol layout.",
+                 tour_test ? "Tour-test the alethiometer TTS button. " : "",
+                 pm_face_alethiometer_needle_symbol_name(0), pm_face_alethiometer_needle_symbol_name(1),
+                 pm_face_alethiometer_needle_symbol_name(2), pm_face_alethiometer_needle_symbol_name(3));
       }
-      snprintf(msg, msg_cap,
-               "%sFace: alethiometer. Current compass state: short needles on %s, %s, and %s; long answer "
-               "needle on %s. Give a concise experimental interpretation of this symbol layout.",
-               tour_test ? "Tour-test the alethiometer TTS button. " : "",
-               pm_face_alethiometer_needle_symbol_name(0), pm_face_alethiometer_needle_symbol_name(1),
-               pm_face_alethiometer_needle_symbol_name(2), pm_face_alethiometer_needle_symbol_name(3));
       break;
     case ClockFace::Runes:
-      if (!pm_face_runes_build_system_prompt(sys, sys_cap)) {
-        snprintf(g_gesture_banner, sizeof(g_gesture_banner), "runes: build fail");
-        return false;
+      if (tour_test) {
+        snprintf(sys, sys_cap,
+                 "You are giving a first-time product tour of the Mynah Astrolabe runes face. Explain the "
+                 "product purpose, not a live fortune. Keep it under 22 seconds. Do not claim fixed fate.");
+        snprintf(msg, msg_cap,
+                 "Tour face %d of %d: runes. Product purpose: %s. Explain that the face turns a question into "
+                 "a compact past, present, future spread for reflection.",
+                 idx + 1, static_cast<int>(ClockFace::kNumFaces), info->summary);
+      } else {
+        if (!pm_face_runes_build_system_prompt(sys, sys_cap)) {
+          snprintf(g_gesture_banner, sizeof(g_gesture_banner), "runes: build fail");
+          return false;
+        }
+        snprintf(msg, msg_cap,
+                 "%sFace: runes. Active spread: past %s (%s), present %s (%s), future %s (%s). "
+                 "Give a concise spoken fortune for this past-present-future layout.",
+                 tour_test ? "Tour-test the runes TTS button. " : "",
+                 pm_face_runes_name(0), pm_face_runes_keyword(0), pm_face_runes_name(1),
+                 pm_face_runes_keyword(1), pm_face_runes_name(2), pm_face_runes_keyword(2));
       }
-      snprintf(msg, msg_cap,
-               "%sFace: runes. Active spread: past %s (%s), present %s (%s), future %s (%s). "
-               "Give a concise spoken fortune for this past-present-future layout.",
-               tour_test ? "Tour-test the runes TTS button. " : "",
-               pm_face_runes_name(0), pm_face_runes_keyword(0), pm_face_runes_name(1),
-               pm_face_runes_keyword(1), pm_face_runes_name(2), pm_face_runes_keyword(2));
       break;
     default:
-      snprintf(msg, msg_cap, "Face: %s. Purpose: %s. Current state: %s. Speak one concise useful note.",
-               info->name, info->summary, health);
+      snprintf(msg, msg_cap,
+               "Tour face %d of %d: %s. Product purpose: %s. Demo state: %s. Explain what this face should "
+               "do for the wearer, even if the current build is still catching up.",
+               idx + 1, static_cast<int>(ClockFace::kNumFaces), info->name, info->summary, demo);
       break;
   }
   return msg[0] != '\0';
@@ -1211,11 +1322,13 @@ static void face_tour_voice_start(const FaceTourInfo *info, int idx) {
   } else {
     const char *health = face_tour_health_text(info);
     snprintf(s_face_tour_voice_msg, kFaceTourVoiceMsgCap,
-             "Astrolabe tour face %d of %d: %s. It is %s. Say this aloud in one concise sentence, no preamble.",
-             idx + 1, static_cast<int>(ClockFace::kNumFaces), info->summary, health);
+             "Astrolabe tour face %d of %d, %s. Product purpose: %s. Demo state: %s. Introduce what this face "
+             "is meant to do for someone seeing the device for the first time.",
+             idx + 1, static_cast<int>(ClockFace::kNumFaces), info->name, info->summary, health);
     started = pm_voice_begin_message(s_face_tour_voice_msg,
-                                     "You narrate a tiny smartwatch face tour. Be warm, concrete, and brief. "
-                                     "Do not mention implementation details unless the face has a warning.",
+                                     "You narrate a first-time product tour for the Mynah Astrolabe. Be warm, "
+                                     "concrete, and brief. Explain intended product value, not implementation "
+                                     "details, unless something is unavailable.",
                                      &s_face_tour_voice_result);
   }
   if (!started) {
@@ -1226,6 +1339,28 @@ static void face_tour_voice_start(const FaceTourInfo *info, int idx) {
   s_face_tour_voice_phase = 1;
   s_face_tour_voice_started_ms = millis();
   Serial.printf("tour: %s %d %s\n", s_face_tour_button_test ? "tts" : "narrating", idx, info->name);
+}
+
+static bool face_tour_voice_retry(const char *reason) {
+  if ((!s_face_tour_narrate && !s_face_tour_button_test) || s_face_tour_idx < 0 ||
+      s_face_tour_idx >= static_cast<int>(ClockFace::kNumFaces)) {
+    return false;
+  }
+  if (s_face_tour_tts_retry >= 2) {
+    return false;
+  }
+  const FaceTourInfo *info = face_tour_info(s_face_tour_idx);
+  if (!info) {
+    return false;
+  }
+  ++s_face_tour_tts_retry;
+  Serial.printf("tour: retry %d %s attempt=%u reason=%s\n", s_face_tour_idx, info->name,
+                static_cast<unsigned>(s_face_tour_tts_retry), reason ? reason : "failed");
+  face_tour_voice_reset();
+  pm_voice_release_idle_task();
+  delay(350);
+  face_tour_voice_start(info, s_face_tour_idx);
+  return s_face_tour_voice_phase == 1;
 }
 
 static void face_tour_select(int idx) {
@@ -1239,6 +1374,11 @@ static void face_tour_select(int idx) {
   pm_presence_ble_set_suppressed((s_face_tour_narrate || s_face_tour_button_test) &&
                                  idx == static_cast<int>(ClockFace::Radar));
   pm_faces_set(static_cast<ClockFace>(idx));
+  if ((s_face_tour_narrate || s_face_tour_button_test) &&
+      (idx == static_cast<int>(ClockFace::Spectrum) || idx == static_cast<int>(ClockFace::Tuning))) {
+    pm_audio_analyzer_mic_end();
+  }
+  s_face_tour_tts_retry = 0;
   snprintf(g_gesture_banner, sizeof(g_gesture_banner), "tour: %.28s", info->name);
   g_clock_repaint_pending = true;
   const char *health = face_tour_health_text(info);
@@ -1264,9 +1404,11 @@ static void face_tour_start(uint32_t dwell_ms, bool narrate = false, bool button
   s_face_tour_tts_ok = 0;
   s_face_tour_tts_fail = 0;
   s_face_tour_tts_skip = 0;
+  s_face_tour_tts_retry = 0;
   s_face_tour_idx = 0;
   s_face_tour_dwell_ms = dwell_ms;
   s_face_tour_last_ms = 0;
+  s_face_tour_tts_retry = 0;
   Serial.printf("tour: start faces=%d dwell_ms=%u narrate=%d tts=%d wifi=%d time=%d\n",
                 static_cast<int>(ClockFace::kNumFaces), static_cast<unsigned>(s_face_tour_dwell_ms),
                 s_face_tour_narrate ? 1 : 0, s_face_tour_button_test ? 1 : 0, pm_wifi_connected() ? 1 : 0,
@@ -1338,26 +1480,44 @@ static void face_tour_tick(uint32_t now) {
       }
       if (s_face_tour_voice_started_ms != 0 && now - s_face_tour_voice_started_ms > 120000u) {
         Serial.printf("tour: narrate timeout %d err=%s\n", s_face_tour_idx, pm_voice_last_error());
+        if (face_tour_voice_retry("timeout")) {
+          return;
+        }
         ++s_face_tour_tts_fail;
         face_tour_voice_reset();
       } else {
         return;
       }
+    } else if (vs == PmVoiceStatus::DoneOk && s_face_tour_voice_result.audio_streamed) {
+      pm_voice_release_idle_task();
+      ++s_face_tour_tts_ok;
+      Serial.printf("tour: tts ok %d\n", s_face_tour_idx);
+      face_tour_voice_reset();
     } else if (vs == PmVoiceStatus::DoneOk && s_face_tour_voice_result.mp3 &&
                s_face_tour_voice_result.mp3_len >= 64) {
+      pm_voice_release_idle_task();
       if (pm_speaker_play_begin(s_face_tour_voice_result.mp3, s_face_tour_voice_result.mp3_len)) {
         s_face_tour_voice_phase = 2;
         return;
       }
       Serial.printf("tour: narrate speaker busy %d\n", s_face_tour_idx);
+      if (face_tour_voice_retry("speaker busy")) {
+        return;
+      }
       ++s_face_tour_tts_fail;
       face_tour_voice_reset();
     } else if (vs == PmVoiceStatus::DoneOk) {
       Serial.printf("tour: narrate no audio %d\n", s_face_tour_idx);
+      if (face_tour_voice_retry("no audio")) {
+        return;
+      }
       ++s_face_tour_tts_fail;
       face_tour_voice_reset();
     } else if (vs == PmVoiceStatus::DoneFail) {
       Serial.printf("tour: narrate failed %d err=%s\n", s_face_tour_idx, pm_voice_last_error());
+      if (face_tour_voice_retry(pm_voice_last_error())) {
+        return;
+      }
       ++s_face_tour_tts_fail;
       face_tour_voice_reset();
     }
@@ -1371,6 +1531,9 @@ static void face_tour_tick(uint32_t now) {
       ++s_face_tour_tts_ok;
       Serial.printf("tour: tts ok %d\n", s_face_tour_idx);
     } else if (spk == PmSpeakerStatus::DoneFail) {
+      if (face_tour_voice_retry("speaker failed")) {
+        return;
+      }
       ++s_face_tour_tts_fail;
       Serial.printf("tour: tts speaker failed %d\n", s_face_tour_idx);
     }
@@ -1573,6 +1736,125 @@ static void print_time_status(const char *prefix) {
                 WiFi.localIP().toString().c_str());
 }
 
+static void qa_mic_probe() {
+  if (!pm_mic_begin()) {
+    Serial.println("qa: mic begin failed");
+    return;
+  }
+  const size_t ns = pm_mic_frame_samples();
+  const int nch = pm_mic_i2s_channels();
+  static int16_t raw[512 * 4];
+  if (nch <= 0 || ns == 0 || ns * static_cast<size_t>(nch) > sizeof(raw) / sizeof(raw[0])) {
+    Serial.printf("qa: mic bad geometry ns=%u channels=%d\n", static_cast<unsigned>(ns), nch);
+    pm_mic_stop();
+    return;
+  }
+  uint32_t peak[4] = {};
+  uint64_t sum_abs[4] = {};
+  uint32_t frames_ok = 0;
+  for (uint8_t frame = 0; frame < 20; ++frame) {
+    size_t br = 0;
+    if (!pm_mic_read_frame(raw, ns, &br) || br == 0) {
+      continue;
+    }
+    ++frames_ok;
+    for (size_t i = 0; i < ns; ++i) {
+      for (int ch = 0; ch < nch && ch < 4; ++ch) {
+        const int32_t sample = raw[i * static_cast<size_t>(nch) + static_cast<size_t>(ch)];
+        const uint32_t a = static_cast<uint32_t>(sample < 0 ? -sample : sample);
+        if (a > peak[ch]) {
+          peak[ch] = a;
+        }
+        sum_abs[ch] += a;
+      }
+    }
+  }
+  pm_mic_stop();
+  Serial.printf("qa: mic frames=%u ns=%u channels=%d capture_slots=%d,%d", static_cast<unsigned>(frames_ok),
+                static_cast<unsigned>(ns), nch, pm_mic_capture_slot(0), pm_mic_capture_slot(1));
+  for (int ch = 0; ch < nch && ch < 4; ++ch) {
+    const uint32_t avg = frames_ok > 0 ? static_cast<uint32_t>(sum_abs[ch] / (frames_ok * ns)) : 0u;
+    Serial.printf(" ch%d_peak=%u ch%d_avg=%u", ch, static_cast<unsigned>(peak[ch]), ch, static_cast<unsigned>(avg));
+  }
+  Serial.println();
+}
+
+static void qa_note_capture() {
+  if (!pm_mic_begin()) {
+    Serial.println("qa: note mic begin failed");
+    return;
+  }
+  const size_t ns = pm_mic_frame_samples();
+  const int nch = pm_mic_i2s_channels();
+  static int16_t raw[512 * 4];
+  static int16_t mono[512];
+  const size_t frame_bytes = ns * sizeof(int16_t);
+  if (nch <= 0 || ns == 0 || ns > sizeof(mono) / sizeof(mono[0]) ||
+      ns * static_cast<size_t>(nch) > sizeof(raw) / sizeof(raw[0]) || !g_pcm ||
+      frame_bytes == 0) {
+    Serial.printf("qa: note bad geometry ns=%u channels=%d pcm=%d\n", static_cast<unsigned>(ns), nch,
+                  g_pcm ? 1 : 0);
+    pm_mic_stop();
+    return;
+  }
+  size_t pcm_len = 0;
+  uint32_t capture_peak = 0;
+  uint32_t frames_ok = 0;
+  const uint8_t target_frames = 34;  // About one second at 30 ms per frame.
+  for (uint8_t frame = 0; frame < target_frames && pcm_len + frame_bytes <= MYNAH_VOICE_MAX_PCM_BYTES; ++frame) {
+    size_t br = 0;
+    if (!pm_mic_read_frame(raw, ns, &br) || br == 0) {
+      continue;
+    }
+    ++frames_ok;
+    int best_ch = 0;
+    uint32_t best_peak = 0;
+    const int capture_ch = pm_mic_capture_channels();
+    for (int ch = 0; ch < capture_ch; ++ch) {
+      const int slot = pm_mic_capture_slot(ch);
+      if (slot < 0 || slot >= nch) {
+        continue;
+      }
+      uint32_t peak = 0;
+      for (size_t i = 0; i < ns; ++i) {
+        const int32_t sample = raw[i * static_cast<size_t>(nch) + static_cast<size_t>(slot)];
+        const uint32_t a = static_cast<uint32_t>(sample < 0 ? -sample : sample);
+        if (a > peak) {
+          peak = a;
+        }
+      }
+      if (peak > best_peak) {
+        best_peak = peak;
+        best_ch = ch;
+      }
+    }
+    if (best_peak > capture_peak) {
+      capture_peak = best_peak;
+    }
+    pm_mic_pick_capture_channel(raw, ns, best_ch, mono);
+    pm_audio_analyzer_cancel_echo_channel(best_ch, mono, ns);
+    memcpy(g_pcm + pcm_len, mono, frame_bytes);
+    pcm_len += frame_bytes;
+  }
+  pm_mic_stop();
+  if (pcm_len < frame_bytes * 2) {
+    Serial.printf("qa: note capture too short frames=%u bytes=%u peak=%u\n", static_cast<unsigned>(frames_ok),
+                  static_cast<unsigned>(pcm_len), static_cast<unsigned>(capture_peak));
+    return;
+  }
+  const bool ok = pm_commonplace_save_offline_note(g_pcm, pcm_len);
+  if (ok) {
+    Serial.printf("qa: note capture ok frames=%u bytes=%u peak=%u queued=%u\n", static_cast<unsigned>(frames_ok),
+                  static_cast<unsigned>(pcm_len), static_cast<unsigned>(capture_peak),
+                  static_cast<unsigned>(pm_commonplace_offline_note_count()));
+  } else {
+    Serial.printf("qa: note capture failed frames=%u bytes=%u peak=%u queued=%u err=%s\n",
+                  static_cast<unsigned>(frames_ok), static_cast<unsigned>(pcm_len),
+                  static_cast<unsigned>(capture_peak), static_cast<unsigned>(pm_commonplace_offline_note_count()),
+                  pm_commonplace_last_error());
+  }
+}
+
 static void poll_serial_birth_commands() {
   static char line[120];
   static size_t li = 0;
@@ -1647,6 +1929,35 @@ static void poll_serial_birth_commands() {
                         static_cast<double>(dbg.in_peak[1]), static_cast<unsigned>(dbg.in_blocks[1]),
                         static_cast<double>(dbg.out_peak), static_cast<unsigned>(dbg.out_blocks),
                         pm_audio_route_get() == PmAudioRoute::Usb ? "usb" : "onboard");
+        } else if (strcmp(args, "aec") == 0 || strcmp(args, "aec tone") == 0) {
+          if (strcmp(args, "aec tone") == 0) {
+            Serial.printf("qa: aec tone %s\n", pm_face_settings_aec_tap() ? "toggled" : "busy");
+          }
+          PmAudioAnalyzerDebug dbg = {};
+          PmAudioAecDebug aec = {};
+          pm_audio_analyzer_debug(&dbg);
+          pm_audio_analyzer_aec_debug(&aec);
+          Serial.printf("qa: aec ref=%.4f err0=%.4f err1=%.4f adapt0=%u adapt1=%u in0=%.4f in1=%.4f out=%.4f\n",
+                        static_cast<double>(aec.ref_rms), static_cast<double>(aec.err_rms[0]),
+                        static_cast<double>(aec.err_rms[1]), static_cast<unsigned>(aec.adapt_blocks[0]),
+                        static_cast<unsigned>(aec.adapt_blocks[1]), static_cast<double>(dbg.in_peak[0]),
+                        static_cast<double>(dbg.in_peak[1]), static_cast<double>(dbg.out_peak));
+        } else if (strncmp(args, "aec pos ", 8) == 0) {
+          float distance_m = 0.f;
+          float azimuth_deg = 0.f;
+          float elevation_deg = 0.f;
+          if (sscanf(args + 8, "%f %f %f", &distance_m, &azimuth_deg, &elevation_deg) == 3) {
+            pm_face_settings_aec_set_position(distance_m, azimuth_deg, elevation_deg);
+            g_clock_repaint_pending = true;
+            Serial.printf("qa: aec pos %.2fm az=%.1f el=%.1f\n", static_cast<double>(distance_m),
+                          static_cast<double>(azimuth_deg), static_cast<double>(elevation_deg));
+          } else {
+            Serial.println("qa: usage: qa aec pos <distance_m> <az_deg> <el_deg>");
+          }
+        } else if (strcmp(args, "mic") == 0) {
+          qa_mic_probe();
+        } else if (strcmp(args, "note") == 0) {
+          qa_note_capture();
         } else if (strcmp(args, "time") == 0) {
           print_time_status("qa time");
         } else if (strcmp(args, "briefing") == 0 || strcmp(args, "brief") == 0) {
@@ -1688,7 +1999,7 @@ static void poll_serial_birth_commands() {
         } else if (strncmp(args, "tour", 4) == 0 && (args[4] == '\0' || args[4] == ' ')) {
           handle_tour_command(args + 4);
         } else if (!pm_qa_inject_command(args)) {
-          Serial.println("qa: usage: status | heap | audio | time | briefing | tone | bowl | faces | tour [narrate|tts] [dwell_ms] | tour stop | inject …");
+          Serial.println("qa: usage: status | heap | audio | mic | note | time | briefing | tone | bowl | faces | tour [narrate|tts] [dwell_ms] | tour stop | inject …");
         }
       } else if (strncmp(line, "face ", 5) == 0) {
         s_face_tour_active = false;
@@ -1710,6 +2021,34 @@ static void poll_serial_birth_commands() {
           Serial.printf("face: %d\n", idx);
         } else {
           Serial.printf("face: usage: face <0-%d|name>\n", static_cast<int>(ClockFace::kNumFaces) - 1);
+        }
+      } else if (strncmp(line, "settings ", 9) == 0) {
+        const char *p = line + 9;
+        while (*p == ' ') {
+          ++p;
+        }
+        SettingsPage page = SettingsPage::WiFi;
+        bool ok = true;
+        if (strcmp(p, "wifi") == 0) {
+          page = SettingsPage::WiFi;
+        } else if (strcmp(p, "castalia") == 0) {
+          page = SettingsPage::Castalia;
+        } else if (strcmp(p, "aec") == 0 || strcmp(p, "echo") == 0) {
+          page = SettingsPage::Aec;
+        } else {
+          ok = false;
+        }
+        if (ok) {
+          s_face_tour_active = false;
+          if (page == SettingsPage::Aec) {
+            gesture_end_voice_ui();
+          }
+          pm_faces_set(ClockFace::Settings);
+          pm_settings_set_page(page);
+          g_clock_repaint_pending = true;
+          Serial.printf("settings: %s\n", pm_settings_page_name(page));
+        } else {
+          Serial.println("settings: usage: settings wifi|castalia|aec");
         }
       } else if (strncmp(line, "tour", 4) == 0 && (line[4] == '\0' || line[4] == ' ')) {
         handle_tour_command(line + 4);
@@ -1962,7 +2301,17 @@ void loop() {
         }
         continue;
       }
+      if (ge.kind == PmGestureKind::Tap && pm_settings_page() == SettingsPage::Aec) {
+        const bool ok = pm_face_settings_aec_tap();
+        snprintf(g_gesture_banner, sizeof(g_gesture_banner), "aec: %s", ok ? "tone" : "busy");
+        g_clock_repaint_pending = false;
+        if (pm_gfx) {
+          pm_faces_draw();
+        }
+        continue;
+      }
       if (ge.kind == PmGestureKind::SwipeUp) {
+        pm_settings_on_leave();
         pm_faces_set(ClockFace::ClassicAnalog);
         g_gesture_banner[0] = '\0';
         g_clock_repaint_pending = false;
@@ -1979,7 +2328,7 @@ void loop() {
           pm_castalia_on_face_enter();
         }
         snprintf(g_gesture_banner, sizeof(g_gesture_banner), "settings: %s",
-                 pm_settings_page() == SettingsPage::WiFi ? "wifi" : "castalia");
+                 pm_settings_page_name(pm_settings_page()));
         g_clock_repaint_pending = false;
         if (pm_gfx) {
           pm_faces_draw();
@@ -2300,6 +2649,14 @@ void loop() {
         s_last_spectrum_ms = now;
         pm_face_spectrum_tick();
       }
+      static uint32_t s_last_aec_settings_ms = 0;
+      const bool aec_settings_anim =
+          pm_faces_current() == ClockFace::Settings && pm_settings_page() == SettingsPage::Aec &&
+          g_state == AppState::kClock && (now - s_last_aec_settings_ms >= 50u);
+      if (aec_settings_anim) {
+        s_last_aec_settings_ms = now;
+        pm_face_settings_aec_tick();
+      }
 
       static uint32_t s_last_radar_ms = 0;
       const bool radar_anim =
@@ -2453,7 +2810,7 @@ void loop() {
                                  weather_stale || quotes_face_stale || quotes_preload_due || rocket_stale || sec_tick_paint || calcifer_sec || rocket_sec ||
                                  astro_repaint || spectrum_anim || chakra_anim || bowl_anim || ocarina_anim || bongo_anim ||
                                  piano_anim || pandrum_anim || alethiometer_anim || radar_anim || level_anim || faculty_anim ||
-                                 wifi_settings_graph;
+                                 wifi_settings_graph || aec_settings_anim;
 #if MYNAH_HUE_HOME_ONLY
       const bool gem_only_paint = gem_pulse_paint && s_clock_paint_inited && !non_gem_paint;
       const bool full_paint = non_gem_paint || gem_pulse_paint;
@@ -2695,7 +3052,7 @@ void loop() {
     case AppState::kRecording: {
       const size_t ns = pm_mic_frame_samples();
       const size_t frame_bytes = ns * sizeof(int16_t);
-      int16_t raw[512 * 2];
+      int16_t raw[512 * 4];
       int16_t frame[512];
       if (ns > sizeof(frame) / sizeof(frame[0]) ||
           ns * static_cast<size_t>(pm_mic_i2s_channels()) > sizeof(raw) / sizeof(raw[0]) ||
@@ -2719,15 +3076,36 @@ void loop() {
         size_t br = 0;
         if (pm_mic_read_frame(raw, ns, &br) && br > 0 &&
             g_pcm_len + frame_bytes <= MYNAH_VOICE_MAX_PCM_BYTES) {
-          int analyzer_channels = pm_mic_i2s_channels();
-          if (analyzer_channels > PM_AUDIO_ANALYZER_IN_CHANNELS) {
-            analyzer_channels = PM_AUDIO_ANALYZER_IN_CHANNELS;
+          const int nch = pm_mic_i2s_channels();
+          const int capture_ch = pm_mic_capture_channels();
+          int best_ch = 0;
+          uint32_t best_peak = 0;
+          for (int ch = 0; ch < capture_ch; ++ch) {
+            const int slot = pm_mic_capture_slot(ch);
+            if (slot < 0 || slot >= nch) {
+              continue;
+            }
+            uint32_t peak = 0;
+            for (size_t i = 0; i < ns; ++i) {
+              const int32_t sample = raw[i * static_cast<size_t>(nch) + static_cast<size_t>(slot)];
+              const uint32_t a = static_cast<uint32_t>(sample < 0 ? -sample : sample);
+              if (a > peak) {
+                peak = a;
+              }
+            }
+            if (peak > best_peak) {
+              best_peak = peak;
+              best_ch = ch;
+            }
           }
+          const int analyzer_channels =
+              capture_ch < PM_AUDIO_ANALYZER_IN_CHANNELS ? capture_ch : PM_AUDIO_ANALYZER_IN_CHANNELS;
           for (int ch = 0; ch < analyzer_channels; ++ch) {
-            pm_mic_pick_channel(raw, ns, ch, frame);
+            pm_mic_pick_capture_channel(raw, ns, ch, frame);
             pm_audio_analyzer_feed_in_channel(ch, frame, ns);
           }
-          pm_mic_pick_channel(raw, ns, 0, frame);
+          pm_mic_pick_capture_channel(raw, ns, best_ch, frame);
+          pm_audio_analyzer_cancel_echo_channel(best_ch, frame, ns);
           memcpy(g_pcm + g_pcm_len, frame, frame_bytes);
           g_pcm_len += frame_bytes;
         }
@@ -3071,7 +3449,9 @@ void loop() {
         g_clock_repaint_pending = true;
         break;
       }
-      if (!g_voice_result.mp3 || g_voice_result.mp3_len < 64) {
+      const bool voice_audio_buffered = g_voice_result.mp3 && g_voice_result.mp3_len >= 64;
+      const bool voice_audio_streamed = g_voice_result.audio_streamed;
+      if (!voice_audio_buffered && !voice_audio_streamed) {
         if (g_daily_briefing && pm_voice_daily_briefing_streamed()) {
           /* audio already played during HTTP download */
         } else if (g_daily_briefing) {
@@ -3153,7 +3533,7 @@ void loop() {
         const char *reply = g_voice_result.reply[0] ? g_voice_result.reply : question;
         pm_face_alethiometer_seed_from_text(question, reply);
       }
-      if (g_voice_result.mp3 && g_voice_result.mp3_len >= 64) {
+      if (voice_audio_buffered) {
         voice_last_play_save(g_voice_result.mp3, g_voice_result.mp3_len);
       }
       g_astro_voice_pcm = false;
@@ -3163,6 +3543,19 @@ void loop() {
       g_voice_play_reset = true;
       if (g_daily_briefing && pm_voice_daily_briefing_streamed()) {
         pm_voice_result_free(&g_voice_result);
+        g_daily_briefing = false;
+        pm_speaker_set_max_play_seconds(180);
+        g_state = AppState::kClock;
+        g_clock_repaint_pending = true;
+        break;
+      }
+      if (voice_audio_streamed) {
+        pm_voice_result_free(&g_voice_result);
+        g_astro_voice_active = false;
+        g_synastry_voice_active = false;
+        g_alethiometer_voice_active = false;
+        g_moon_fortune_active = false;
+        g_runes_fortune_active = false;
         g_daily_briefing = false;
         pm_speaker_set_max_play_seconds(180);
         g_state = AppState::kClock;

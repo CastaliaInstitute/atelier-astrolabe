@@ -23,6 +23,8 @@
 #include "faces/rocket/pm_face_rocket.h"
 #include "faces/runes/pm_face_runes.h"
 #include "faces/pm_faces.h"
+#include "faces/pm_face_descriptor.h"
+#include "faces/pm_face_registry.h"
 #include "faces/shared/pm_face_draw.h"
 #include "faces/spotify/pm_face_spotify.h"
 #include "faces/synastry/pm_face_synastry.h"

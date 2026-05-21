@@ -18,6 +18,7 @@ extern "C" {
 #include "faces/pm_faces.h"
 #include "pm_audio_analyzer.h"
 #include "pm_mic.h"
+#include "pm_settings.h"
 
 static const char *TAG = "pm_speaker_pcm";
 
@@ -95,9 +96,10 @@ static esp_err_t i2s_tx_begin(int sample_hz, int channels) {
 }
 
 static esp_err_t i2s_write_all(const int16_t *pcm, size_t total_s16) {
-  if (pm_faces_current() == ClockFace::Spectrum || pm_faces_current() == ClockFace::Tuning) {
+  if (pm_faces_current() == ClockFace::Spectrum || pm_faces_current() == ClockFace::Tuning ||
+      (pm_faces_current() == ClockFace::Settings && pm_settings_page() == SettingsPage::Aec)) {
     const int channels = s_channels > 0 ? s_channels : 1;
-    pm_audio_analyzer_feed_out(pcm, total_s16, channels);
+    pm_audio_analyzer_feed_out_rate(pcm, total_s16, channels, s_sample_hz);
   }
   const uint8_t *p = reinterpret_cast<const uint8_t *>(pcm);
   size_t remain = total_s16 * sizeof(int16_t);

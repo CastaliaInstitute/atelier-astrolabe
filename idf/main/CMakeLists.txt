@@ -37,7 +37,8 @@ set(ASTROLABE_ARDUINO_LIB_INCLUDES
     "${ASTROLABE_ARDUINO_LIBDEPS}/JPEGDEC/src"
     "${ASTROLABE_ARDUINO_LIBDEPS}/PNGdec/src"
     "${ASTROLABE_ARDUINO_LIBDEPS}/SensorLib/src"
-    "${ASTROLABE_ARDUINO_LIBDEPS}/XPowersLib/src")
+    "${ASTROLABE_ARDUINO_LIBDEPS}/XPowersLib/src"
+    "${ASTROLABE_ROOT}/idf/managed_components/espressif__esp-dsp/modules/fft/include")
 
 file(GLOB_RECURSE ASTROLABE_LIB_CPP
      "${ASTROLABE_ARDUINO_LIBDEPS}/GFX_Library_for_Arduino/src/*.cpp"
@@ -51,6 +52,14 @@ file(GLOB_RECURSE ASTROLABE_LIB_C
      "${ASTROLABE_ARDUINO_LIBDEPS}/PNGdec/src/*.c"
      "${ASTROLABE_ARDUINO_LIBDEPS}/SensorLib/src/*.c"
      "${ASTROLABE_ARDUINO_LIBDEPS}/XPowersLib/src/*.c")
+file(GLOB_RECURSE ASTROLABE_LIB_ASM
+     "${ASTROLABE_ARDUINO_LIBDEPS}/JPEGDEC/src/*.S"
+     "${ASTROLABE_ARDUINO_LIBDEPS}/PNGdec/src/*.S")
+
+set(ASTROLABE_GFX_QSPI "${ASTROLABE_ARDUINO_LIBDEPS}/GFX_Library_for_Arduino/src/databus/Arduino_ESP32QSPI.cpp")
+list(FILTER ASTROLABE_LIB_CPP EXCLUDE REGEX ".*/GFX_Library_for_Arduino/src/databus/.*SPI.*\\.cpp$")
+list(APPEND ASTROLABE_LIB_CPP "${ASTROLABE_GFX_QSPI}")
+list(FILTER ASTROLABE_LIB_CPP EXCLUDE REGEX ".*/GFX_Library_for_Arduino/src/databus/Arduino_ESP32RGBPanel\\.cpp$")
 
 idf_component_register(
     SRCS
@@ -60,6 +69,7 @@ idf_component_register(
       ${ASTROLABE_C}
       ${ASTROLABE_LIB_CPP}
       ${ASTROLABE_LIB_C}
+      ${ASTROLABE_LIB_ASM}
     INCLUDE_DIRS
       "${ASTROLABE_SKETCH_DIR}"
       "${ASTROLABE_SKETCH_DIR}/faces"
@@ -84,8 +94,17 @@ target_compile_definitions(${COMPONENT_LIB} PRIVATE
     CONFIG_ARDUINO_LOOP_STACK_SIZE=24576
     U8G2_USE_LARGE_FONTS)
 
+idf_component_get_property(ASTROLABE_ARDUINO_LIB espressif__arduino-esp32 COMPONENT_LIB)
+target_compile_definitions(${ASTROLABE_ARDUINO_LIB} PUBLIC
+    ARDUINO_USB_CDC_ON_BOOT=1
+    ARDUINO_USB_MODE=1)
+target_link_libraries(${ASTROLABE_ARDUINO_LIB} INTERFACE
+    "-u _Z8ssl_initP17sslclient_context"
+    "-u HWCDCSerial")
+
 target_compile_options(${COMPONENT_LIB} PRIVATE
     "-Wno-error=format-truncation"
-    "-include${CMAKE_CURRENT_LIST_DIR}/astrolabe_idf_compat.h"
+    "$<$<COMPILE_LANGUAGE:C>:-include${CMAKE_CURRENT_LIST_DIR}/astrolabe_idf_compat.h>"
+    "$<$<COMPILE_LANGUAGE:CXX>:-include${CMAKE_CURRENT_LIST_DIR}/astrolabe_idf_compat.h>"
     "-DU8G2_FONT_SECTION(name)="
     "-DU8X8_FONT_SECTION(name)=")
