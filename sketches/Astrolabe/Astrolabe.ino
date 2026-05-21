@@ -195,11 +195,6 @@ static uint32_t s_last_rocket_poll_ms = 0;
 #define MYNAH_SPOTIFY_POLL_MS 25000u
 #endif
 
-/** Spotify transport row (must match draw_spotify_face hit zones). */
-static constexpr int kSpotifyBarY = 238;
-static constexpr int kSpotifyBarH = 62;
-static constexpr int kSpotifyBarPad = 20;
-
 static const char *gesture_label(PmGestureKind k) {
   switch (k) {
     case PmGestureKind::Tap:
@@ -1893,44 +1888,12 @@ void loop() {
       continue;
     } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Spotify &&
                (ge.kind == PmGestureKind::SwipeUp || ge.kind == PmGestureKind::SwipeDown ||
-                ge.kind == PmGestureKind::Tap || ge.kind == PmGestureKind::LongPress)) {
-      if (!pm_wifi_connected()) {
-        snprintf(g_gesture_banner, sizeof(g_gesture_banner), "spotify: no wifi");
-      } else if (ge.kind == PmGestureKind::SwipeUp) {
-        pm_spotify_command("next", &g_spotify_ui);
-      } else if (ge.kind == PmGestureKind::SwipeDown) {
-        pm_spotify_command("previous", &g_spotify_ui);
-      } else if (ge.kind == PmGestureKind::Tap) {
-        int z = -1;
-        if (pm_face_spotify_hit_transport_bar(ge.x, ge.y, &z)) {
-          if (z == 0) {
-            pm_spotify_command("previous", &g_spotify_ui);
-            snprintf(g_gesture_banner, sizeof(g_gesture_banner), "spotify: prev");
-          } else if (z == 1) {
-            if (g_spotify_ui.is_playing) {
-              pm_spotify_command("stop", &g_spotify_ui);
-              snprintf(g_gesture_banner, sizeof(g_gesture_banner), "spotify: stop");
-            } else {
-              pm_spotify_command("play", &g_spotify_ui);
-              snprintf(g_gesture_banner, sizeof(g_gesture_banner), "spotify: play");
-            }
-          } else {
-            pm_spotify_command("next", &g_spotify_ui);
-            snprintf(g_gesture_banner, sizeof(g_gesture_banner), "spotify: next");
-          }
-        } else {
-          if (g_spotify_ui.is_playing) {
-            pm_spotify_command("stop", &g_spotify_ui);
-          } else {
-            pm_spotify_command("play", &g_spotify_ui);
-          }
-          snprintf(g_gesture_banner, sizeof(g_gesture_banner), "spotify: tap");
-        }
-      } else {
-        pm_spotify_refresh(&g_spotify_ui);
-        snprintf(g_gesture_banner, sizeof(g_gesture_banner), "spotify: refresh");
+                ge.kind == PmGestureKind::Tap || ge.kind == PmGestureKind::DoubleTap ||
+                ge.kind == PmGestureKind::LongPress)) {
+      if (pm_face_spotify_on_gesture(ge.kind, ge.x, ge.y, g_gesture_banner,
+                                     sizeof(g_gesture_banner))) {
+        g_clock_repaint_pending = true;
       }
-      g_clock_repaint_pending = true;
     } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Synastry &&
                (ge.kind == PmGestureKind::SwipeUp || ge.kind == PmGestureKind::SwipeDown)) {
       if (pm_face_synastry_cycle_target(ge.kind == PmGestureKind::SwipeUp ? 1 : -1)) {
@@ -2211,8 +2174,19 @@ void loop() {
       const bool local_hm_chg =
           valid && pm_faces_local_hm_changed(tm_now.tm_hour, tm_now.tm_min);
 
+      static ClockFace s_prev_clock_face = ClockFace::ClassicAnalog;
+      if (pm_faces_current() == ClockFace::Spotify && s_prev_clock_face != ClockFace::Spotify) {
+        pm_face_spotify_reset();
+      }
+      s_prev_clock_face = pm_faces_current();
       if (pm_faces_current() != ClockFace::Spotify) {
         s_spotify_have_data = false;
+      }
+      if (pm_faces_current() == ClockFace::Spotify) {
+        pm_face_spotify_tick(now);
+        if (pm_face_spotify_needs_repaint(now)) {
+          g_clock_repaint_pending = true;
+        }
       }
       if (pm_faces_current() != ClockFace::CalciferCountdown) {
         s_calcifer_have_data = false;
@@ -2340,7 +2314,8 @@ void loop() {
         s_prev_wifi = wifi;
         if (pm_faces_current() == ClockFace::Spotify && pm_wifi_connected()) {
           if (!s_spotify_have_data || spotify_stale) {
-            pm_spotify_refresh(&g_spotify_ui);
+            const bool refreshed = pm_spotify_refresh(&g_spotify_ui);
+            pm_face_spotify_sync_hub(&g_spotify_ui, refreshed);
             s_last_spotify_poll_ms = now;
             s_spotify_have_data = true;
           }

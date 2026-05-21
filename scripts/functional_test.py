@@ -200,6 +200,10 @@ def gesture_to_qa(g: str) -> str:
         xy = g.split(":", 1)[1]
         x, y = xy.split(",")
         return f"qa inject tap {x} {y}"
+    if g.startswith("double_tap:"):
+        xy = g.split(":", 1)[1]
+        x, y = xy.split(",")
+        return f"qa inject double_tap {x} {y}"
     if g.startswith("swipe_"):
         direction = g.replace("swipe_", "")
         return f"qa inject swipe {direction}"
