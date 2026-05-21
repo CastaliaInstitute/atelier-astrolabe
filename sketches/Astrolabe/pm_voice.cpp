@@ -5,6 +5,7 @@
 #include <WiFiClient.h>
 #include <WiFiClientSecure.h>
 #include <mbedtls/base64.h>
+#include <mbedtls/platform.h>
 #include <string.h>
 
 #include "esp_heap_caps.h"
@@ -22,7 +23,7 @@
 
 static const char *TAG = "pm_voice";
 
-static constexpr uint32_t kVoiceNetTaskStack = 16384;
+static constexpr uint32_t kVoiceNetTaskStack = 14336;
 /** STT + Gemini + TTS + large chunked JSON (astrology readings). */
 static constexpr uint32_t kVoiceHttpTimeoutMs = 660000;
 /** voice-pipeline JSON + base64 MP3. */
@@ -49,6 +50,7 @@ static PmVoiceResult *s_req_result = nullptr;
 
 static char s_last_error[80] = "";
 static const char *s_body_read_err = "bad response";
+static bool s_voice_mbedtls_psram_ready = false;
 static const char *kVoiceMp3Headers[] = {
     "X-Voice-Reply",
     "X-Voice-Transcript",
@@ -57,6 +59,43 @@ static const char *kVoiceMp3Headers[] = {
 };
 
 static void voice_set_error(const char *msg);
+
+static void *voice_mbedtls_calloc(size_t n, size_t size) {
+  if (n == 0 || size == 0) {
+    return nullptr;
+  }
+  if (size != 0 && n > SIZE_MAX / size) {
+    return nullptr;
+  }
+  const size_t bytes = n * size;
+  constexpr size_t kPreferPsramThreshold = 2048;
+  void *p = nullptr;
+  if (bytes >= kPreferPsramThreshold) {
+    p = heap_caps_calloc(n, size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (p) {
+      return p;
+    }
+    return heap_caps_calloc(n, size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  }
+  p = heap_caps_calloc(n, size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  if (p) {
+    return p;
+  }
+  return heap_caps_calloc(n, size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+}
+
+static void voice_mbedtls_free(void *p) {
+  heap_caps_free(p);
+}
+
+static void voice_prepare_mbedtls_psram(void) {
+  if (s_voice_mbedtls_psram_ready) {
+    return;
+  }
+  const int rc = mbedtls_platform_set_calloc_free(voice_mbedtls_calloc, voice_mbedtls_free);
+  s_voice_mbedtls_psram_ready = rc == 0;
+  Serial.printf("voice: mbedtls psram allocator %s rc=%d\n", s_voice_mbedtls_psram_ready ? "on" : "fail", rc);
+}
 
 static bool voice_pipeline_host(char *out, size_t out_cap) {
   if (!out || out_cap == 0 || strlen(MYNAH_SUPABASE_URL) == 0) {
@@ -152,6 +191,7 @@ static void body_read_set_err(const char *msg) {
 }
 
 static void voice_begin_http(WiFiClientSecure *client, HTTPClient *http) {
+  voice_prepare_mbedtls_psram();
   client->setInsecure();
   client->setTimeout(360);
   http->setTimeout(65535);
@@ -748,6 +788,7 @@ static bool voice_post_message_inner(const char *message, const char *system_ins
   if (!pm_voice_pipeline_host_ready(true)) {
     return false;
   }
+  voice_prepare_mbedtls_psram();
   (void)pm_castalia_auth_prepare_for_voice();
 
   char base[160];
@@ -895,6 +936,7 @@ static bool voice_post_pcm_inner(const uint8_t *pcm, size_t pcm_len, const char 
     ESP_LOGW(TAG, "Supabase URL or anon key empty");
     return false;
   }
+  voice_prepare_mbedtls_psram();
   (void)pm_castalia_auth_prepare_for_voice();
 
   char base[160];
@@ -1040,6 +1082,7 @@ static bool voice_post_daily_briefing_inner(PmVoiceResult *r) {
     voice_set_error("no supabase config");
     return false;
   }
+  voice_prepare_mbedtls_psram();
   (void)pm_castalia_auth_prepare_for_voice();
 
   static constexpr size_t kFactsCap = 8192;
@@ -1184,6 +1227,7 @@ static bool voice_post_clock_agenda_inner(PmVoiceResult *r) {
     voice_set_error("no supabase config");
     return false;
   }
+  voice_prepare_mbedtls_psram();
   (void)pm_castalia_auth_prepare_for_voice();
 
   char base[160];
@@ -1294,7 +1338,6 @@ static void voice_net_task_ensure() {
   if (s_voice_task) {
     return;
   }
-  (void)pm_speaker_release_idle_task();
   xTaskCreatePinnedToCore(voice_net_task, "voice_net", kVoiceNetTaskStack, nullptr, 1, &s_voice_task, 1);
 }
 

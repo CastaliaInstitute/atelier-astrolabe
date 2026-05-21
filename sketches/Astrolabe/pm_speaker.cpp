@@ -122,15 +122,25 @@ static esp_err_t i2s_tx_begin(int sample_hz, int channels) {
   c.channel_format = (channels == 2) ? I2S_CHANNEL_FMT_RIGHT_LEFT : I2S_CHANNEL_FMT_ONLY_LEFT;
   c.communication_format = I2S_COMM_FORMAT_STAND_I2S;
   c.intr_alloc_flags = ESP_INTR_FLAG_LEVEL1;
-  c.dma_buf_count = 8;
-  c.dma_buf_len = 512;
+  c.dma_buf_count = 4;
+  c.dma_buf_len = 256;
   c.use_apll = false;
   c.tx_desc_auto_clear = true;
   c.fixed_mclk = 0;
   c.mclk_multiple = I2S_MCLK_MULTIPLE_256;
   c.bits_per_chan = I2S_BITS_PER_CHAN_16BIT;
 
-  ESP_RETURN_ON_ERROR(i2s_driver_install(I2S_TX, &c, 0, NULL), TAG, "i2s install");
+  const esp_err_t install_err = i2s_driver_install(I2S_TX, &c, 0, NULL);
+  if (install_err != ESP_OK) {
+    Serial.printf("speaker: i2s install failed err=%d dma=%ux%u internal=%u largest=%u psram=%u\n",
+                  static_cast<int>(install_err), static_cast<unsigned>(c.dma_buf_count),
+                  static_cast<unsigned>(c.dma_buf_len),
+                  static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+                  static_cast<unsigned>(
+                      heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+                  static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)));
+    return install_err;
+  }
 
   i2s_pin_config_t pin = {};
   pin.bck_io_num = PIN_ES7210_BCLK;
@@ -1056,22 +1066,43 @@ static void speaker_task_ensure() {
   if (s_speaker_task) {
     return;
   }
-  xTaskCreatePinnedToCore(speaker_play_task, "spk_play", kSpeakerTaskStack, nullptr, kSpeakerTaskPriority,
-                          &s_speaker_task, 1);
+  const BaseType_t ok = xTaskCreatePinnedToCore(speaker_play_task, "spk_play", kSpeakerTaskStack, nullptr,
+                                                kSpeakerTaskPriority, &s_speaker_task, 1);
+  if (ok != pdPASS) {
+    s_speaker_task = nullptr;
+    Serial.printf("speaker: task create failed stack=%u internal=%u largest=%u psram=%u\n",
+                  static_cast<unsigned>(kSpeakerTaskStack),
+                  static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+                  static_cast<unsigned>(
+                      heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+                  static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)));
+  }
 }
 
 bool pm_speaker_play_begin(const uint8_t *mp3, size_t mp3_len) {
   if (pm_speaker_pcm_active() || pm_usb_uac_speaker_active()) {
     ESP_LOGW(TAG, "MP3 blocked: PCM/UAC owns speaker");
+    Serial.println("speaker: MP3 blocked: PCM/UAC active");
     s_speaker_status = PmSpeakerStatus::DoneFail;
     return false;
   }
   speaker_task_ensure();
-  if (!s_speaker_task || !mp3 || mp3_len == 0) {
+  if (!s_speaker_task) {
+    Serial.printf("speaker: MP3 blocked: no task internal=%u largest=%u psram=%u\n",
+                  static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+                  static_cast<unsigned>(
+                      heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+                  static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)));
+    s_speaker_status = PmSpeakerStatus::DoneFail;
+    return false;
+  }
+  if (!mp3 || mp3_len == 0) {
+    Serial.printf("speaker: MP3 blocked: empty mp3 len=%u\n", static_cast<unsigned>(mp3_len));
     s_speaker_status = PmSpeakerStatus::DoneFail;
     return false;
   }
   if (!speaker_wait_idle(8000)) {
+    Serial.println("speaker: MP3 blocked: wait idle timeout");
     s_speaker_status = PmSpeakerStatus::DoneFail;
     return false;
   }
