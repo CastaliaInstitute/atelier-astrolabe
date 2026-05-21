@@ -251,7 +251,9 @@ void draw_sky_backdrop(bool time_valid, int local_hour, int local_min) {
   }
 }
 
-void draw_center_glass(int r_disk, int8_t temp_c, SkyIcon icon) {
+void truncate_condition(char *out, size_t cap, const char *src);
+
+void draw_center_glass(int r_disk, int8_t temp_c, SkyIcon icon, const char *condition) {
   const int cx = pm_face_lcd_cx;
   const int cy = pm_face_lcd_cy;
   const uint16_t warm = temp_color(temp_c);
@@ -268,7 +270,11 @@ void draw_center_glass(int r_disk, int8_t temp_c, SkyIcon icon) {
 
   const uint16_t c_icon = pm_gfx->color565(210, 220, 235);
   const uint16_t c_sun = pm_gfx->color565(255, 220, 120);
-  draw_weather_icon(icon, cx, cy - 22, c_icon, c_sun);
+  draw_weather_icon(icon, cx, cy - 48, c_icon, c_sun);
+
+  char cond[28];
+  truncate_condition(cond, sizeof(cond), condition);
+  pm_face_draw_centered_line(cond, cy - 10, pm_gfx->color565(176, 192, 218), 1, 1);
 
   char temp_line[12];
   snprintf(temp_line, sizeof(temp_line), "%d", static_cast<int>(temp_c));
@@ -277,11 +283,11 @@ void draw_center_glass(int r_disk, int8_t temp_c, SkyIcon icon) {
   int16_t x1, y1;
   uint16_t w, h;
   pm_gfx->getTextBounds(temp_line, 0, 0, &x1, &y1, &w, &h);
-  pm_gfx->setCursor(cx - static_cast<int>(w) / 2 - 8, cy + 8);
+  pm_gfx->setCursor(cx - static_cast<int>(w) / 2 - 8, cy + 30);
   pm_gfx->print(temp_line);
   pm_gfx->setTextSize(2, 2);
   pm_gfx->setTextColor(blend565(pm_gfx->color565(250, 252, 255), warm, 0.4f));
-  pm_gfx->setCursor(cx - static_cast<int>(w) / 2 + static_cast<int>(w) - 4, cy + 18);
+  pm_gfx->setCursor(cx - static_cast<int>(w) / 2 + static_cast<int>(w) - 4, cy + 40);
   pm_gfx->print("C");
 }
 
@@ -363,11 +369,7 @@ void pm_face_weather_draw(bool time_valid, int local_hour, int local_min) {
   }
 
   const SkyIcon icon = icon_from_condition(g_weather_ui.condition);
-  draw_center_glass(r_center, g_weather_ui.current_temp_c, icon);
-
-  char cond[28];
-  truncate_condition(cond, sizeof(cond), g_weather_ui.condition);
-  pm_face_draw_centered_line(cond, pm_face_lcd_cy + r_center + 14, pm_gfx->color565(165, 180, 205), 1, 1);
+  draw_center_glass(r_center, g_weather_ui.current_temp_c, icon, g_weather_ui.condition);
 
   char band[28];
   snprintf(band, sizeof(band), "H %d  ·  L %d", static_cast<int>(g_weather_ui.hi_c),

@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstring>
 
+#include "faces/quotes/FreeSerifBoldItalic12pt7b.h"
 #include "faces/shared/pm_face_draw.h"
 #include "pin_config.h"
 #include "pm_display.h"
@@ -74,6 +75,14 @@ void draw_wrapped_center(const char *text, int y, uint16_t color, int max_chars,
   }
 }
 
+void draw_script_quote(const char *text, int y, uint16_t color) {
+  pm_gfx->setFont(&FreeSerifBoldItalic12pt7b);
+  pm_gfx->setTextSize(1, 1);
+  draw_wrapped_center(text, y + 2, pm_gfx->color565(0, 0, 0), 28, 5);
+  draw_wrapped_center(text, y, color, 28, 5);
+  pm_gfx->setFont(static_cast<const GFXfont *>(nullptr));
+}
+
 }  // namespace
 
 void pm_face_quotes_draw(void) {
@@ -82,11 +91,8 @@ void pm_face_quotes_draw(void) {
   const uint16_t c_hi = pm_gfx->color565(248, 238, 218);
   const uint16_t c_quote = pm_gfx->color565(238, 232, 222);
   const uint16_t c_dim = pm_gfx->color565(142, 150, 170);
-  const uint16_t c_accent = pm_gfx->color565(215, 185, 118);
 
   pm_gfx->fillScreen(c_bg);
-  pm_gfx->fillRect(0, 0, LCD_WIDTH, 52, c_panel);
-  pm_face_draw_centered_line("QUOTES", 9, c_accent, 2, 2);
 
   if (!g_quotes_ui.ok) {
     pm_face_draw_centered_line("quote of the day", 180, c_hi, 2, 2);
@@ -102,36 +108,8 @@ void pm_face_quotes_draw(void) {
   strncpy(faculty.name, g_quotes_ui.faculty_name, sizeof(faculty.name) - 1);
   faculty.valid = true;
 
-  pm_face_draw_centered_line(faculty.name, 36, c_hi, 1, 1);
   pm_faculty_draw_bust_for(&faculty);
-  if (pm_faculty_bust_status() == PmFacultyBustStatus::Working) {
-    pm_face_draw_centered_line("fetching portrait", 63, c_dim, 1, 1);
-  } else if (!pm_faculty_bust_ready_for(faculty.slug) && pm_wifi_connected()) {
-    pm_face_draw_centered_line(pm_faculty_bust_last_error(), 63, c_dim, 1, 1);
-  }
 
   pm_gfx->fillRect(0, LCD_HEIGHT - 150, LCD_WIDTH, 150, c_panel);
-  draw_wrapped_center(g_quotes_ui.quote, LCD_HEIGHT - 137, c_quote, 38, 4);
-
-  char source[92];
-  if (g_quotes_ui.passage[0]) {
-    short_line(g_quotes_ui.passage, source, sizeof(source), 50);
-  } else if (g_quotes_ui.book_title[0]) {
-    short_line(g_quotes_ui.book_title, source, sizeof(source), 50);
-  } else {
-    snprintf(source, sizeof(source), "quote of the day");
-  }
-  pm_face_draw_centered_line(source, LCD_HEIGHT - 39, c_accent, 1, 1);
-
-  char meta[72];
-  if (g_quotes_ui.book_author[0]) {
-    char author[48];
-    short_line(g_quotes_ui.book_author, author, sizeof(author), 32);
-    snprintf(meta, sizeof(meta), "by %s", author);
-  } else if (g_quotes_ui.total > 0) {
-    snprintf(meta, sizeof(meta), "%s  %d/%d", g_quotes_ui.date, g_quotes_ui.index, g_quotes_ui.total);
-  } else {
-    snprintf(meta, sizeof(meta), "%s", g_quotes_ui.date);
-  }
-  pm_face_draw_centered_line(meta, LCD_HEIGHT - 18, c_dim, 1, 1);
+  draw_script_quote(g_quotes_ui.quote, LCD_HEIGHT - 136, c_quote);
 }
