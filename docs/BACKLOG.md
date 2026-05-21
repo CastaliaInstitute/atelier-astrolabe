@@ -26,8 +26,6 @@ Edit this file when you start or finish work. Keep **In progress** to 1–3 item
 
 ## In progress
 
-- [~] **P1** **Weather face** — 24h radial temp/humidity rings + center conditions; `weather-status` fetch with demo fallback — Issue: weather-face
-- [~] **P2** **USB Audio Class gadget** — M1 UAC speaker (`waveshare_s3_175_uac`), [`docs/design/usb-audio-gadget.md`](design/usb-audio-gadget.md); M2 mic + arbiter TBD
 - [~] **P1** Modular OTA (runtime + face-pack A/B, 32 MB) — Issue: [#60](https://github.com/CastaliaInstitute/astrolabe/issues/60), PR [#66](https://github.com/CastaliaInstitute/astrolabe/pull/66), [`docs/design/modular-ota.md`](design/modular-ota.md)
 
 ---
@@ -74,11 +72,13 @@ Canonical design: [`castalian-rhythms.md`](castalian-rhythms.md). V0 defaults to
 Design: [`docs/mynah-spotify-face.md`](mynah-spotify-face.md). **Swipe explores, tap commits** — vertical album-art stream with center vinyl record; hub-built Music Stream + preprocessed RGB565 art. Replaces transport-bar MVP in [`pm_face_spotify.cpp`](../sketches/Astrolabe/faces/spotify/pm_face_spotify.cpp).
 
 - [ ] **P1** **Mynah Spotify Face — design doc + epic** ([#72](https://github.com/CastaliaInstitute/astrolabe/issues/72)) — canonical spec in `docs/mynah-spotify-face.md`; unblocks milestone work below
-- [ ] **P1** **Spotify face M1–M2 (firmware)** — static vinyl layout + gesture prototype (swipe browse, tap commit, double-tap return, 15s browse timeout) on device; fake or stub stream
+- [x] **2026-05-20** **P1** **Spotify face M1–M2 (firmware)** — static vinyl layout + gesture prototype (swipe browse, tap commit, double-tap return, 15s browse timeout) on device; fake or stub stream; PR [#80](https://github.com/CastaliaInstitute/astrolabe/pull/80)
 - [ ] **P1** **Spotify face M3–M4 (hub + integration)** — hub `spotify_state` / Music Stream, album-art pipeline, `spotify_command` + `browse_delta`; Castalia `mynah-spotify` or successor; Astrolabe render + command path
 - [ ] **P2** **Spotify face M5 (polish)** — hue-time ring, groove glint overlay, Commonplace save (long press), room label, hardware QA per face table
 
 ### Glance / utility faces
+
+- [ ] **P1** **Weather face** — new `ClockFace`: current conditions + short forecast for observer location. **Location:** Wi‑Fi geo / `pm_geo_tz` or NVS lat-lon from mDNS config. **Data:** Castalia Edge Function (API keys server-side, same pattern as `calcifer-status`) — temp, icon/condition, hi/lo, optional hourly strip on round display. Poll on interval when face visible + Wi‑Fi; cache last good response offline. Optional: STT “what’s the weather?” on this face; tie icon art to ambient hue. Depends on Castalia JWT + NTP.
 
 - [ ] **P1** **Rotating Earth face** — new `ClockFace`: **slowly rotating globe** on round display with **day/night terminator** from UTC + optional observer lon (NTP; `pm_geo_tz` or NVS). **Night side** dim, **day side** lit; optional dot for user location. **Weather:** overlay conditions on the map or a compact HUD (reuse **Weather face** / Castalia weather API — clouds/precip bands, temp at pin). Animate rotation tied to time (sidereal or simple spin). Distinct from flat **weather** summary and **orrery** (heliocentric); keep draw cost bounded on CO5300 canvas.
 
@@ -88,14 +88,8 @@ Design: [`docs/mynah-spotify-face.md`](mynah-spotify-face.md). **Swipe explores,
 - [ ] **P2** Round UI polish: safe-area inset, lower-arc touch targets — [pocketwatch.md § Experience](pocketwatch.md#experience-principles)
 - [ ] **P1** **Very low power mode (battery)** — when **not USB-C charging** (AXP2101 / PMU: on battery only), enter aggressive low-power after idle timeout: dim or **blank AMOLED**, stop nonessential polling (Spotify, CalDAV, weather, etc.), CPU **deep sleep** / light sleep between ticks. **Wake on button press** — **PWR** (AXP IRQ) and **BOOT** (GPIO) restore full UI + Wi‑Fi reconnect as needed. While **charging**, stay in normal ambient mode (optional charging ripples on rim). Tune idle timeout and RTC/NVS retention. See [pocketwatch.md § Experience](pocketwatch.md#experience-principles) battery honesty.
 
-### USB audio gadget
-
-- [~] **P2** **USB Audio Class gadget** — [`docs/design/usb-audio-gadget.md`](design/usb-audio-gadget.md): M1 host→speaker via `pm_usb_uac` + `espressif/usb_device_uac` (`waveshare_s3_175_uac`); M2 mic; M3 arbiter + CDC composite
-
 ### Phase 3 (satellite link + updates)
 
-- [~] **P2** BLE peer discovery + radar face (watch-to-watch RSSI, 6DOF gyro ring bearing, no magnetometer) — [`docs/design/ble-presence-radar.md`](design/ble-presence-radar.md); home Mynah `MynahBleCodec` alignment TBD
-- [ ] **P2** **Static location anchors on radar graph** — BLE location beacons (`0xA5…` ids), NVS floor catalog, pinned nodes in force layout — scaffold in [`pm_presence_locations`](../../sketches/Astrolabe/pm_presence_locations.h); hub/LAN provisioning TBD
 - [ ] **P2** BLE or LAN presence with home Mynah — [pocketwatch.md § Phased delivery](pocketwatch.md#phased-delivery)
 - [~] **P1** Modular OTA Phase 0–3 — partitions, safe face, runtime OTA, face-pack OTA — Issue: [#60](https://github.com/CastaliaInstitute/astrolabe/issues/60)
 - [ ] **P2** OTA signed channels + `updates.castalia.institute` — [#60](https://github.com/CastaliaInstitute/astrolabe/issues/60) Phase 5 follow-up
@@ -106,7 +100,7 @@ Design: [`docs/mynah-spotify-face.md`](mynah-spotify-face.md). **Swipe explores,
 
 - [ ] **P2** **Tibetan bowl face** — new `ClockFace`: **touch the screen circumference** (polar hit-test on outer ring) to strike/play a singing-bowl tone; map touch angle → phase/pan and strike intensity → amplitude/decay. Synthesize fundamentals + harmonics via I2S (`pm_speaker` / ES8311) or precomputed samples in flash. **Swipe up/down** cycles **bowl presets** (different base frequency, decay, overtone mix). Visual: bowl graphic + ripple on strike. Respect existing gesture face-swipe zones so bowl face does not fight global navigation.
 
-- [~] **P2** **Sound mandala / Spectrum face** — `ClockFace::Spectrum`: 17 polar visualizers (audio, breath, generative); swipe up/down cycles mode; ES7210 + speaker FFT; PWR/BOOT voice off.
+- [ ] **P2** **Sound mandala face** — new `ClockFace`: **audio-reactive** “trippy” visualization (radial mandala / kaleidoscope on round 466×466 canvas) **synchronized to live input** from onboard mic (`pm_mic`) and/or ambient room audio. Map band energy or envelope → hue, rotation, petal count, pulse radius; smooth decay when quiet. Optional: react to TTS playback line-out if tap available. Keep frame rate and FFT cost bounded on ESP32-S3; no voice/STT on this face unless user swipes away.
 
 ### Alethiometer face
 
@@ -129,7 +123,7 @@ Derived from [README limits](../README.md#limits-mvp) and [open questions](pocke
 - [x] **P1** Voice: handle `voice-pipeline` responses without `audioBase64` (plain `ask-faculty`-only)
 - [ ] **P1** Auth: document anon-only vs signed-in behavior in README once Castalia flow is stable — Issue [#5](https://github.com/CastaliaInstitute/astrolabe/issues/5)
 - [x] **P1** Classic analog clock face: center dial on round display and use full-screen safe area (466×466); fix layout/offset in `Astrolabe.ino` analog draw path
-- [x] **P1** **Bugfix — Classic analog dial size** — enlarge analog clock to fill the round face **inside the 24h rainbow rim** on 466×466 (`draw_analog_clock` in `Astrolabe.ino`). Derive dial radius from rim inner edge (`R - 9`) minus tick inset; rescale hands/hub from prior r=138 layout.
+- [x] **P1** **Bugfix — Classic analog dial size** — enlarge analog clock to fill the round face **inside the 24h rainbow rim** on 466×466 (`draw_analog_clock` in `PocketMynah.ino`). Derive dial radius from rim inner edge (`R - 9`) minus tick inset; rescale hands/hub from prior r=138 layout.
 - [x] **P1** **Home face = Hue only** — `MYNAH_HUE_HOME_ONLY` (default 1): ClassicAnalog = ambient hue + 24h rainbow only; clock hands on DigitalLocal / Apocalypso.
 - [ ] **P1** **Charging ripples on rainbow rim** — Issue [#4](https://github.com/CastaliaInstitute/astrolabe/issues/4) — when **USB-C charging** detected (AXP2101 / PMU: `VBUS` or charge-status register via I2C, same bus as PWR key), animate **gentle ripples** along the **bottom arc** of the **24h rainbow ring** (`draw_circumference_rainbow_24h`); subtle amplitude, slow phase — ambient “filling” cue without bright alerts. Off when on battery only; works on home/Hue face and any face that shows the rim.
 - [x] **P1** Astrology chart glyphs — zodiac + planet alpha masks (`embed_*_glyphs.py`, `pm_zodiac_glyphs`); wheel radius `R−10`. Remaining: trim footer chrome, aspect lines, ephemeris server accuracy.
@@ -147,7 +141,6 @@ Derived from [README limits](../README.md#limits-mvp) and [open questions](pocke
 
 ## Done
 
-- [x] **2026-05-18** Tibetan bowl face: rim-drag sustained resonator (chakra pitch map, center strike, additive I2S partials), standing-wave visuals. PR [#107](https://github.com/CastaliaInstitute/astrolabe/pull/107).
 - [x] **2026-05-17** Synastry clock face: dual-wheel partner/family charts, NVS chart profiles with demo seeds, up/down target cycling, and PWR/BOOT voice prompts. PR [#75](https://github.com/CastaliaInstitute/astrolabe/pull/75); Closes [#32](https://github.com/CastaliaInstitute/astrolabe/issues/32). Hardware QA on `integration` required before promotion to `main`.
 - [x] **2026-05-17** Castalian Rhythms V0 design doc/backlog epic: on-device-first architecture, embedded KB/fusion plan, and child issues [#62](https://github.com/CastaliaInstitute/astrolabe/issues/62)–[#65](https://github.com/CastaliaInstitute/astrolabe/issues/65). PR [#67](https://github.com/CastaliaInstitute/astrolabe/pull/67); Closes [#61](https://github.com/CastaliaInstitute/astrolabe/issues/61)
 - [x] **2026-05-17** Version clock face: git branch/SHA/date + GitHub commit QR (`pm_build_info.h`). PR [#59](https://github.com/CastaliaInstitute/astrolabe/pull/59); Closes [#58](https://github.com/CastaliaInstitute/astrolabe/issues/58)

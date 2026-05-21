@@ -98,6 +98,16 @@ bool pm_qa_inject_command(const char *args) {
     }
     x = static_cast<int16_t>(ix);
     y = static_cast<int16_t>(iy);
+  } else if (strncmp(p, "double_tap ", 11) == 0) {
+    kind = PmGestureKind::DoubleTap;
+    int ix = 0;
+    int iy = 0;
+    if (sscanf(p + 11, "%d %d", &ix, &iy) != 2) {
+      Serial.println("qa: usage: inject double_tap X Y");
+      return true;
+    }
+    x = static_cast<int16_t>(ix);
+    y = static_cast<int16_t>(iy);
   } else if (!parse_swipe(p, &kind)) {
     Serial.println("qa: usage: inject swipe left|right|up|down | tap X Y | boot | pwr");
     return true;

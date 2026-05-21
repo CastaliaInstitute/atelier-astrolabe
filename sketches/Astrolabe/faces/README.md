@@ -10,7 +10,7 @@ Each face is a self-contained module under `faces/<name>/`. The app shell (`Astr
 | `classic_analog/` | Hue analog clock (commonplace journal home) |
 | `apocalypso/` | Weather + impact |
 | `digital/` | Large digital local time |
-| `spotify/` | Now playing + transport bar |
+| `spotify/` | Vinyl Queue — browse stream, tap to commit (M1/M2) |
 | `astrology/` | Transit wheel, zodiac glyphs, voice chart |
 | `moon/` | Phase disk, texture, daily fortune |
 | `calcifer/` | Hue Daywheel (rolling 12h hue ring + event wedges + CalDAV) |

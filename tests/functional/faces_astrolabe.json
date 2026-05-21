@@ -28,7 +28,7 @@
       "id": 3,
       "name": "spotify",
       "source_paths": ["sketches/Astrolabe/faces/spotify", "sketches/Astrolabe/pm_spotify.cpp", "sketches/Astrolabe/pm_spotify.h"],
-      "gestures": ["tap:233,269", "swipe_up", "swipe_down", "swipe_left"],
+      "gestures": ["tap:233,210", "swipe_up", "swipe_down", "double_tap:233,210", "swipe_left"],
       "buttons": []
     },
     {
