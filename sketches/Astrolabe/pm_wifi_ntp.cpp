@@ -20,6 +20,7 @@ static constexpr uint32_t kWifiTimeoutMs = 20000;
 static bool s_wifi_link_chimed = false;
 static bool s_mdns_started = false;
 static bool s_identity_ready = false;
+static bool s_wifi_paused_for_ble = false;
 static char s_hostname[32] = "";
 static char s_mdns_name[40] = "";
 static char s_mac_suffix[7] = "";
@@ -160,6 +161,34 @@ void pm_wifi_enable_bt_coexistence(void) {
 #endif
 }
 
+void pm_wifi_pause_for_ble(void) {
+#ifndef ASTROLABE_QEMU
+  wifi_mode_t mode = WIFI_MODE_NULL;
+  const esp_err_t mode_err = esp_wifi_get_mode(&mode);
+  if (mode_err != ESP_OK || mode == WIFI_MODE_NULL) {
+    s_wifi_paused_for_ble = true;
+    return;
+  }
+  pm_wifi_mdns_end();
+  WiFi.disconnect(true, true);
+  WiFi.mode(WIFI_OFF);
+  s_wifi_link_chimed = false;
+  s_wifi_paused_for_ble = true;
+  delay(150);
+  ESP_LOGI(TAG, "wifi paused for BLE heap");
+#endif
+}
+
+void pm_wifi_resume_after_ble(void) {
+#ifndef ASTROLABE_QEMU
+  if (!s_wifi_paused_for_ble) {
+    return;
+  }
+  s_wifi_paused_for_ble = false;
+  (void)pm_wifi_begin();
+#endif
+}
+
 bool pm_wifi_begin() {
   char ssid[64];
   char pass[64];
@@ -198,6 +227,9 @@ bool pm_wifi_reconnect() {
 }
 
 void pm_wifi_poll(void) {
+  if (s_wifi_paused_for_ble) {
+    return;
+  }
   const bool connected = pm_wifi_connected();
   if (connected) {
     if (!s_wifi_link_chimed) {

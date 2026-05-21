@@ -14,6 +14,10 @@ const char *pm_wifi_mac_string();
  * Enables WiFi modem sleep (WIFI_PS_MIN_MODEM) so WiFi + BLE coexistence does not abort().
  */
 void pm_wifi_enable_bt_coexistence(void);
+/** Temporarily stop WiFi/mDNS to free internal heap for Radar BLE startup. */
+void pm_wifi_pause_for_ble(void);
+/** Resume WiFi after Radar BLE has been stopped. */
+void pm_wifi_resume_after_ble(void);
 /** Detect connect/disconnect; plays connect chime once per link-up. Call from loop(). */
 void pm_wifi_poll(void);
 bool pm_wifi_connected();

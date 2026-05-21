@@ -187,9 +187,18 @@ export function stripAsteriskEmotes(text: string): string {
 
 export type WatchTtsOptions = {
   localHour?: number;
+  voice?: WatchTtsVoiceSelection;
 };
 
-export function watchTtsVoiceSelection(): { languageCode: string; name: string } {
+export type WatchTtsVoiceSelection = {
+  languageCode: string;
+  name: string;
+};
+
+export function watchTtsVoiceSelection(options?: WatchTtsOptions): WatchTtsVoiceSelection {
+  if (options?.voice?.languageCode && options.voice.name) {
+    return options.voice;
+  }
   const languageCode =
     Deno.env.get("MYNAH_TTS_LANGUAGE_CODE")?.trim() || "en-GB";
   const name =
@@ -244,7 +253,7 @@ async function ttsMp3BytesInner(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       input: { text: spoken },
-      voice: watchTtsVoiceSelection(),
+      voice: watchTtsVoiceSelection(options),
       audioConfig: watchTtsAudioConfig(options),
     }),
   });

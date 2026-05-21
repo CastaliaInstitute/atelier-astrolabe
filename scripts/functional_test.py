@@ -12,6 +12,7 @@ Requires Waveshare 1.75C on USB, Wi‑Fi secrets, and firmware with `qa` serial 
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import re
 import struct
@@ -61,25 +62,43 @@ class WatchSerial:
     def __init__(self, port: str, baud: int = 115200) -> None:
         import serial
 
+        self._serial = serial
+        self._port = port
+        self._baud = baud
         self._ser = serial.Serial(port, baud, timeout=0.25)
         self._buf = ""
         time.sleep(0.15)
-        self._ser.setDTR(False)
-        self._ser.setRTS(False)
-        time.sleep(0.05)
-        self._ser.setDTR(True)
-        self._ser.setRTS(True)
-        time.sleep(0.05)
         self._ser.reset_input_buffer()
 
     def close(self) -> None:
         self._ser.close()
 
+    def _reopen(self) -> bool:
+        try:
+            self._ser.close()
+        except Exception:
+            pass
+        for _ in range(20):
+            try:
+                self._ser = self._serial.Serial(self._port, self._baud, timeout=0.25)
+                time.sleep(0.15)
+                self._ser.reset_input_buffer()
+                self._buf = ""
+                return True
+            except Exception:
+                time.sleep(0.5)
+        return False
+
     def _drain(self, timeout: float = 0.0) -> list[str]:
         lines: list[str] = []
         deadline = time.time() + timeout
         while time.time() < deadline:
-            chunk = self._ser.read(4096)
+            try:
+                chunk = self._ser.read(4096)
+            except self._serial.SerialException:
+                if not self._reopen():
+                    raise
+                continue
             if chunk:
                 self._buf += chunk.decode("utf-8", errors="replace")
                 while "\n" in self._buf:
@@ -168,6 +187,34 @@ def wait_wifi_ip(ser: WatchSerial, timeout: float = 90.0) -> str:
     raise RuntimeError("watch did not join Wi‑Fi / print screen URL")
 
 
+def wait_serial_ready(ser: WatchSerial, timeout: float = 30.0) -> None:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        for ln in ser.collect(0.5):
+            if "Mynah Astrolabe ready" in ln or ln.startswith("qa: face="):
+                return
+        for ln in ser.send("qa status", wait=0.5):
+            if ln.startswith("qa: face="):
+                return
+    raise RuntimeError("watch serial did not become ready")
+
+
+def wait_screen_server(ip: str, timeout: float = 90.0) -> None:
+    deadline = time.time() + timeout
+    last_err = ""
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen(f"http://{ip}/screen.bmp", timeout=5) as resp:
+                data = resp.read(64)
+            if data.startswith(b"BM"):
+                return
+            last_err = "screen endpoint did not return BMP"
+        except (urllib.error.URLError, TimeoutError, OSError) as e:
+            last_err = str(e)
+        time.sleep(1.0)
+    raise RuntimeError(f"screen server not reachable at {ip}: {last_err}")
+
+
 def validate_bmp(path: Path, min_bytes: int = 50000) -> tuple[bool, str]:
     if not path.is_file() or path.stat().st_size < 54:
         return False, "missing or tiny BMP"
@@ -183,7 +230,9 @@ def validate_bmp(path: Path, min_bytes: int = 50000) -> tuple[bool, str]:
         return False, f"unexpected size {aw}x{ah}"
     if path.stat().st_size < min_bytes:
         return False, f"file only {path.stat().st_size} bytes"
-    pix = data[54 : 54 + min(8000, len(data) - 54)]
+    body = data[54:]
+    stride = max(1, len(body) // 8000)
+    pix = body[::stride][:8000]
     if len(set(pix)) < 4:
         return False, "frame looks blank"
     return True, f"{aw}x{ah}"
@@ -191,8 +240,17 @@ def validate_bmp(path: Path, min_bytes: int = 50000) -> tuple[bool, str]:
 
 def fetch_screenshot(ip: str, dest: Path) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
-    with urllib.request.urlopen(f"http://{ip}/screen.bmp", timeout=15) as resp:
-        dest.write_bytes(resp.read())
+    last_exc: Exception | None = None
+    for _ in range(3):
+        try:
+            with urllib.request.urlopen(f"http://{ip}/screen.bmp", timeout=30) as resp:
+                dest.write_bytes(resp.read())
+            return
+        except http.client.IncompleteRead as e:
+            last_exc = e
+            time.sleep(1.0)
+    if last_exc:
+        raise last_exc
 
 
 def gesture_to_qa(g: str) -> str:
@@ -306,9 +364,10 @@ def run_face(
         if not ok:
             result.ok = False
 
+    face_ack = re.compile(rf"face:\s*{fid}\b")
     lines = ser.send(f"face {fid}", wait=1.0)
     absorb(lines)
-    if not ser.wait_line(re.compile(rf"face:\s*{fid}\b"), timeout=8.0):
+    if not any(face_ack.search(ln) for ln in lines) and not ser.wait_line(face_ack, timeout=8.0):
         step("set_face", False, "no face: ack on serial")
         return result
     step("set_face", True)
@@ -327,7 +386,7 @@ def run_face(
         step("screenshot", ok, detail)
         if ok:
             result.screenshot = str(bmp)
-    except (urllib.error.URLError, TimeoutError, OSError) as e:
+    except (urllib.error.URLError, TimeoutError, OSError, http.client.IncompleteRead) as e:
         step("screenshot", False, str(e))
 
     for g in spec.get("gestures", []):
@@ -337,17 +396,7 @@ def run_face(
         err = ser.check_crashes(glines)
         step(f"gesture:{g}", err is None, err or "ok")
 
-    for b in spec.get("buttons", []):
-        cmd = button_to_qa(b)
-        blines = ser.send(cmd, wait=step_pause)
-        absorb(blines)
-        err = ser.check_crashes(blines)
-        step(f"button:{b}", err is None, err or "ok")
-        if b == "boot":
-            time.sleep(0.5)
-            absorb(ser.send("face " + str(fid), wait=0.8))
-
-    status_lines = ser.send("qa status", wait=0.4)
+    status_lines = ser.send("qa status", wait=2.0)
     absorb(status_lines)
     err = ser.check_crashes(status_lines)
     m = None
@@ -368,6 +417,16 @@ def run_face(
             step("qa_status", ok, detail)
         else:
             step("qa_status", True, m)
+
+    for b in spec.get("buttons", []):
+        cmd = button_to_qa(b)
+        blines = ser.send(cmd, wait=step_pause)
+        absorb(blines)
+        err = ser.check_crashes(blines)
+        step(f"button:{b}", err is None, err or "ok")
+        if b == "boot":
+            time.sleep(0.5)
+            absorb(ser.send("face " + str(fid), wait=0.8))
 
     log_path = out_dir / f"{fid:02d}-{name}-serial.log"
     log_path.write_text("\n".join(face_log) + "\n", encoding="utf-8")
@@ -428,6 +487,8 @@ def main() -> int:
         ip = args.ip.strip()
         if ip:
             print(f"→ watch at {ip} (--ip)")
+            wait_serial_ready(ser, timeout=30.0)
+            wait_screen_server(ip, timeout=args.wifi_timeout)
         else:
             print("→ waiting for Wi‑Fi + screen server…")
             ip = wait_wifi_ip(ser, timeout=args.wifi_timeout)

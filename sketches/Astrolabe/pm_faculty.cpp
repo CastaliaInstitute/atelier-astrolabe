@@ -3,6 +3,7 @@
 #include <Arduino_GFX_Library.h>
 #include <HTTPClient.h>
 #include <JPEGDEC.h>
+#include <LittleFS.h>
 #include <PNGdec.h>
 #include <Preferences.h>
 #include <WiFiClient.h>
@@ -30,7 +31,9 @@ static const char *TAG = "pm_faculty";
 static constexpr const char *kNvsNs = "mynah";
 static constexpr const char *kKeyActive = "fac_active";
 static constexpr size_t kBustMaxBytes = 128u * 1024u;
+static constexpr size_t kBustFlashMaxBytes = 160u * 1024u;
 static constexpr uint32_t kBustTaskStack = 12288;
+static constexpr uint32_t kBustPreloadMinIntervalMs = 2500u;
 
 static TaskHandle_t s_bust_task = nullptr;
 static volatile PmFacultyBustStatus s_bust_status = PmFacultyBustStatus::Idle;
@@ -57,6 +60,8 @@ static PNG s_bust_png;
 static bool s_rise_active = false;
 static uint32_t s_rise_start_ms = 0;
 static PmFacultyBustStatus s_prev_bust_status = PmFacultyBustStatus::Idle;
+static uint32_t s_last_preload_ms = 0;
+static int s_preload_slot = -1;
 
 static void key_for_slot(char *out, size_t cap, int slot, const char *suffix) {
   snprintf(out, cap, "fac%d_%s", slot, suffix);
@@ -510,6 +515,109 @@ static void bust_set_error(const char *msg) {
   s_bust_error[sizeof(s_bust_error) - 1] = '\0';
 }
 
+static bool bust_cache_fs_begin(void) {
+  if (!LittleFS.begin(true)) {
+    bust_set_error("fs unavailable");
+    return false;
+  }
+  if (!LittleFS.exists("/busts")) {
+    (void)LittleFS.mkdir("/busts");
+  }
+  return true;
+}
+
+static bool bust_cache_path(const char *slug, char *out, size_t cap) {
+  if (!slug_sane(slug) || !out || cap == 0) {
+    return false;
+  }
+  char clean[40];
+  sanitize_slug(slug, clean, sizeof(clean));
+  if (clean[0] == '\0') {
+    return false;
+  }
+  for (char *p = clean; *p; ++p) {
+    if (*p == '.') {
+      *p = '-';
+    }
+  }
+  const int n = snprintf(out, cap, "/busts/%s.bin", clean);
+  return n > 0 && static_cast<size_t>(n) < cap;
+}
+
+static bool bust_flash_cached(const char *slug) {
+  char path[64];
+  if (!bust_cache_path(slug, path, sizeof(path)) || !bust_cache_fs_begin()) {
+    return false;
+  }
+  File f = LittleFS.open(path, "r");
+  if (!f) {
+    return false;
+  }
+  const size_t sz = f.size();
+  f.close();
+  return sz > 0 && sz <= kBustFlashMaxBytes;
+}
+
+static bool load_flash_bust(const char *slug) {
+  char path[64];
+  if (!bust_cache_path(slug, path, sizeof(path)) || !bust_cache_fs_begin()) {
+    return false;
+  }
+  File f = LittleFS.open(path, "r");
+  if (!f) {
+    return false;
+  }
+  const size_t sz = f.size();
+  if (sz == 0 || sz > kBustFlashMaxBytes) {
+    f.close();
+    bust_set_error("bad cached bust");
+    return false;
+  }
+  uint8_t *buf = static_cast<uint8_t *>(pm_heap_alloc_response(sz));
+  if (!buf) {
+    f.close();
+    bust_set_error("oom cached bust");
+    return false;
+  }
+  const size_t rd = f.read(buf, sz);
+  f.close();
+  if (rd != sz) {
+    free(buf);
+    bust_set_error("short cached bust");
+    return false;
+  }
+  free(s_bust_bytes);
+  s_bust_bytes = buf;
+  s_bust_len = sz;
+  strncpy(s_bust_slug, slug, sizeof(s_bust_slug) - 1);
+  s_bust_slug[sizeof(s_bust_slug) - 1] = '\0';
+  bust_set_error(nullptr);
+  Serial.printf("pm_faculty: flash bust %s (%u B)\n", s_bust_slug, static_cast<unsigned>(s_bust_len));
+  return true;
+}
+
+static bool save_flash_bust(const char *slug, const uint8_t *bytes, size_t len) {
+  if (!bytes || len == 0 || len > kBustFlashMaxBytes) {
+    return false;
+  }
+  char path[64];
+  if (!bust_cache_path(slug, path, sizeof(path)) || !bust_cache_fs_begin()) {
+    return false;
+  }
+  File f = LittleFS.open(path, "w");
+  if (!f) {
+    return false;
+  }
+  const size_t wr = f.write(bytes, len);
+  f.close();
+  if (wr != len) {
+    (void)LittleFS.remove(path);
+    return false;
+  }
+  Serial.printf("pm_faculty: flash cached bust %s (%u B)\n", slug, static_cast<unsigned>(len));
+  return true;
+}
+
 static bool read_binary_body(HTTPClient *http, uint8_t **out, size_t *out_len) {
   if (!http || !out || !out_len) {
     return false;
@@ -701,6 +809,9 @@ static bool fetch_bust_inner(const char *slug) {
   if (cache_embedded_bust(slug)) {
     return true;
   }
+  if (load_flash_bust(slug)) {
+    return true;
+  }
   if (!pm_wifi_connected()) {
     bust_set_error("no wifi");
     return false;
@@ -729,6 +840,7 @@ static bool fetch_bust_inner(const char *slug) {
   s_bust_len = len;
   strncpy(s_bust_slug, slug, sizeof(s_bust_slug) - 1);
   s_bust_slug[sizeof(s_bust_slug) - 1] = '\0';
+  (void)save_flash_bust(slug, s_bust_bytes, s_bust_len);
   bust_set_error(nullptr);
   Serial.printf("pm_faculty: cached bust %s (%u B)\n", s_bust_slug, static_cast<unsigned>(s_bust_len));
   return true;
@@ -777,6 +889,13 @@ bool pm_faculty_request_bust(const char *slug) {
     s_rise_start_ms = millis();
     return true;
   }
+  if (load_flash_bust(slug)) {
+    s_bust_done = true;
+    s_bust_status = PmFacultyBustStatus::DoneOk;
+    s_rise_active = true;
+    s_rise_start_ms = millis();
+    return true;
+  }
   if (!pm_wifi_connected()) {
     return false;
   }
@@ -798,6 +917,38 @@ bool pm_faculty_request_bust(const char *slug) {
   s_bust_status = PmFacultyBustStatus::Working;
   xTaskNotify(s_bust_task, 1, eSetBits);
   return true;
+}
+
+bool pm_faculty_preload_busts(const char *quote_slug) {
+  const uint32_t now = millis();
+  if (s_bust_status == PmFacultyBustStatus::Working ||
+      (s_last_preload_ms != 0 && now - s_last_preload_ms < kBustPreloadMinIntervalMs)) {
+    return false;
+  }
+  s_last_preload_ms = now;
+
+  if (slug_sane(quote_slug) && !bust_flash_cached(quote_slug)) {
+    return pm_faculty_request_bust(quote_slug);
+  }
+
+  constexpr int n = kPmFacultySlots;
+  for (int tries = 0; tries < n; ++tries) {
+    s_preload_slot = (s_preload_slot + 1 + n) % n;
+    PmFacultyProfile f = {};
+    if (!pm_faculty_get_slot(s_preload_slot, &f)) {
+      continue;
+    }
+    if (bust_flash_cached(f.slug)) {
+      continue;
+    }
+    return pm_faculty_request_bust(f.slug);
+  }
+
+  PmFacultyProfile active = {};
+  if (pm_faculty_active(&active) && s_bust_len == 0) {
+    return pm_faculty_request_bust(active.slug);
+  }
+  return false;
 }
 
 PmFacultyBustStatus pm_faculty_bust_status(void) { return s_bust_status; }
@@ -837,13 +988,7 @@ void pm_faculty_release_bust_cache(void) {
   if (s_bust_status == PmFacultyBustStatus::Working) {
     return;
   }
-  free(s_bust_bytes);
-  s_bust_bytes = nullptr;
-  s_bust_len = 0;
-  s_bust_slug[0] = '\0';
-  s_bust_req_slug[0] = '\0';
-  s_bust_done = false;
-  s_bust_status = PmFacultyBustStatus::Idle;
+  s_rise_active = false;
 }
 
 static int bust_jpeg_draw(JPEGDRAW *pDraw) {

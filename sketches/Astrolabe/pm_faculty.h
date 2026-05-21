@@ -33,6 +33,8 @@ void pm_faculty_label_from_slug(const char *slug, char *out, size_t cap);
 bool pm_faculty_tick_bust_fetch(void);
 /** Fetch/caches a bust for an explicit faculty slug without changing the active Faculty face recents. */
 bool pm_faculty_request_bust(const char *slug);
+/** Background warmup: cache active/recent faculty and an optional quote faculty slug to flash. */
+bool pm_faculty_preload_busts(const char *quote_slug);
 /** Poll fetch completion, decode JPEG, advance rise animation. Returns true if UI should repaint. */
 bool pm_faculty_tick(uint32_t now_ms);
 void pm_faculty_begin_bust_rise(void);

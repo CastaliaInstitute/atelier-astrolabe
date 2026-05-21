@@ -33,7 +33,7 @@ namespace {
 
 constexpr uint8_t kMaxAdvReports = kPmPresenceAdvMaxReports;
 constexpr uint32_t kPeerStaleMs = 15000;
-constexpr uint32_t kScanPeriodMs = 400;
+constexpr uint32_t kScanPeriodMs = 1500;
 constexpr uint32_t kMdnsScanPeriodMs = 15000;
 constexpr uint32_t kBleDeinitGraceMs = 750;
 constexpr float kRssiEmaAlpha = 0.35f;
@@ -371,7 +371,7 @@ bool pm_presence_ble_begin(void) {
   }
   const uint32_t free_i = pm_heap_internal_free();
   const uint32_t largest_i = pm_heap_internal_largest();
-  if (free_i < MYNAH_BLE_MIN_START_HEAP || largest_i < MYNAH_TLS_MIN_LARGEST_INTERNAL) {
+  if (free_i < MYNAH_BLE_MIN_START_HEAP || largest_i < MYNAH_BLE_MIN_START_LARGEST_INTERNAL) {
     Serial.printf("presence: BLE deferred low heap internal=%u largest=%u\n", static_cast<unsigned>(free_i),
                   static_cast<unsigned>(largest_i));
     return false;

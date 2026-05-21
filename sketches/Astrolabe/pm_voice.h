@@ -27,11 +27,15 @@ bool pm_voice_post_pcm(const uint8_t *pcm, size_t pcm_len, const char *system_in
  * Escapes message for JSON; `system_instruction` may be null.
  */
 bool pm_voice_post_message(const char *message, const char *system_instruction, PmVoiceResult *r);
+bool pm_voice_post_message_ex(const char *message, const char *system_instruction, const char *face,
+                              const char *faculty_slug, const char *faculty_name, PmVoiceResult *r);
 
 enum class PmVoiceStatus : int8_t { Idle = 0, Working = 1, DoneOk = 2, DoneFail = -1 };
 
 /** Non-blocking voice-pipeline request (poll with pm_voice_poll). */
 bool pm_voice_begin_message(const char *message, const char *system_instruction, PmVoiceResult *r);
+bool pm_voice_begin_message_ex(const char *message, const char *system_instruction, const char *face,
+                               const char *faculty_slug, const char *faculty_name, PmVoiceResult *r);
 bool pm_voice_begin_pcm(const uint8_t *pcm, size_t pcm_len, const char *system_instruction, PmVoiceResult *r);
 /** Non-blocking `voice-pipeline` with `face=clock_agenda` (spoken CalDAV brief). */
 bool pm_voice_begin_clock_agenda(PmVoiceResult *r);

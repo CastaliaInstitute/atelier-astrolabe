@@ -15,6 +15,7 @@ namespace {
 constexpr int kCx = LCD_WIDTH / 2;
 constexpr int kCy = 210;
 constexpr int kRecordR = 86;
+constexpr int kAlbumR = 38;
 constexpr int kQueueY[] = {58, 98, 0, 318, 358};
 
 struct StreamState {
@@ -150,12 +151,69 @@ static void draw_queue_row(int stream_idx, int y, float opacity, bool selected) 
 }
 
 static void draw_grooves(int cx, int cy, int r, uint16_t col) {
-  for (int i = 0; i < 5; ++i) {
-    const int gr = r - 8 - i * 10;
-    if (gr > 20) {
+  for (int i = 0; i < 10; ++i) {
+    const int gr = r - 5 - i * 5;
+    if (gr > kAlbumR + 8) {
       pm_gfx->drawCircle(cx, cy, gr, col);
     }
   }
+}
+
+static void draw_vinyl_texture(const PmSpotifyStreamItem *it, int cx, int cy, int r, float spin) {
+  const uint16_t pit = pm_gfx->color565(54, 55, 62);
+  const uint16_t glint = pm_gfx->color565(82, 82, 90);
+  uint32_t seed = 2166136261u;
+  for (const char *p = it ? it->title : nullptr; p && *p; ++p) {
+    seed ^= static_cast<uint8_t>(*p);
+    seed *= 16777619u;
+  }
+  for (int i = 0; i < 30; ++i) {
+    seed = seed * 1664525u + 1013904223u;
+    const float base = static_cast<float>(seed & 0xFFFFu) / 65535.f;
+    seed = seed * 1664525u + 1013904223u;
+    const int rr = kAlbumR + 12 + static_cast<int>((seed & 0xFFu) * (r - kAlbumR - 20) / 255u);
+    const float a = base * pm_face_k_two_pi + spin;
+    const int x = cx + static_cast<int>(lrintf(cosf(a) * static_cast<float>(rr)));
+    const int y = cy + static_cast<int>(lrintf(sinf(a) * static_cast<float>(rr)));
+    pm_gfx->drawPixel(x, y, (i % 5 == 0) ? glint : pit);
+    if (i % 7 == 0) {
+      const int x2 = cx + static_cast<int>(lrintf(cosf(a + 0.015f) * static_cast<float>(rr + 4)));
+      const int y2 = cy + static_cast<int>(lrintf(sinf(a + 0.015f) * static_cast<float>(rr + 4)));
+      pm_gfx->drawLine(x, y, x2, y2, glint);
+    }
+  }
+}
+
+static void draw_album_cover_center(const PmSpotifyStreamItem *it, int cx, int cy, int r, float spin) {
+  const uint16_t cover = it ? it->disc_rgb565 : pm_gfx->color565(80, 80, 90);
+  const uint16_t hi = it ? it->highlight_rgb565 : pm_gfx->color565(210, 210, 220);
+  pm_gfx->fillCircle(cx, cy, r + 2, pm_gfx->color565(12, 12, 15));
+  pm_gfx->fillCircle(cx, cy, r, cover);
+  pm_gfx->drawCircle(cx, cy, r, hi);
+
+  for (int band = -2; band <= 2; ++band) {
+    const int y = cy + band * 11;
+    const int half = static_cast<int>(sqrtf(static_cast<float>(r * r - band * 11 * band * 11)));
+    pm_gfx->drawLine(cx - half + 4, y, cx + half - 4, y,
+                     band == 0 ? pm_gfx->color565(238, 238, 230) : hi);
+  }
+  const int mark_r = r - 9;
+  const int mx = cx + static_cast<int>(lrintf(cosf(spin + 0.8f) * static_cast<float>(mark_r)));
+  const int my = cy + static_cast<int>(lrintf(sinf(spin + 0.8f) * static_cast<float>(mark_r)));
+  pm_gfx->fillCircle(mx, my, 3, pm_gfx->color565(245, 245, 238));
+  pm_gfx->fillCircle(cx, cy, 5, pm_gfx->color565(12, 12, 14));
+  pm_gfx->fillCircle(cx, cy, 2, pm_gfx->color565(220, 218, 210));
+}
+
+static void draw_spotify_backdrop() {
+  const uint16_t green = pm_gfx->color565(29, 185, 84);
+  const uint16_t deep = pm_gfx->color565(10, 46, 28);
+  pm_gfx->fillScreen(green);
+  for (int r = 225; r > 24; r -= 16) {
+    const uint8_t shade = static_cast<uint8_t>(26 + (225 - r) / 4);
+    pm_gfx->drawCircle(kCx, kCy, r, pm_gfx->color565(8, shade, 24));
+  }
+  pm_gfx->fillCircle(kCx, kCy, 204, deep);
 }
 
 static void draw_progress_arc(int cx, int cy, int r, float progress01, uint16_t col) {
@@ -180,19 +238,17 @@ static void draw_record(const PmSpotifyStreamItem *it, bool is_playing_track, bo
   const int r = kRecordR;
   const uint16_t vinyl = pm_gfx->color565(18, 18, 22);
   const uint16_t groove = pm_gfx->color565(32, 32, 38);
+  const float spin = (show_spin && is_playing_track && s_stream.is_playing)
+                         ? static_cast<float>(now_ms % 12000u) / 12000.f * pm_face_k_two_pi
+                         : static_cast<float>(s_stream.fake_progress_ms % 12000u) / 12000.f * pm_face_k_two_pi;
 
   pm_gfx->fillCircle(cx, cy, r + 10, pm_gfx->color565(8, 8, 10));
   pm_gfx->fillCircle(cx, cy, r, vinyl);
   draw_grooves(cx, cy, r, groove);
-
-  const int art_r = r - 14;
-  pm_gfx->fillCircle(cx, cy, art_r, it->disc_rgb565);
-  pm_gfx->drawCircle(cx, cy, art_r, it->highlight_rgb565);
-  pm_gfx->fillCircle(cx, cy, 6, pm_gfx->color565(12, 12, 14));
-  pm_gfx->fillCircle(cx, cy, 3, pm_gfx->color565(220, 218, 210));
+  draw_vinyl_texture(it, cx, cy, r, spin);
+  draw_album_cover_center(it, cx, cy, kAlbumR, spin);
 
   if (show_spin && is_playing_track && s_stream.is_playing) {
-    const float spin = static_cast<float>(now_ms % 12000u) / 12000.f * pm_face_k_two_pi;
     const int dot_x = cx + static_cast<int>(cosf(spin) * static_cast<float>(r - 4));
     const int dot_y = cy + static_cast<int>(sinf(spin) * static_cast<float>(r - 4));
     pm_gfx->fillCircle(dot_x, dot_y, 4, it->highlight_rgb565);
@@ -289,12 +345,7 @@ void pm_face_spotify_draw() {
   }
 
   const PmSpotifyStreamItem *sel = item_at(s_stream.selected_index);
-  const uint16_t bg = pm_gfx->color565(
-      static_cast<uint8_t>((sel->disc_rgb565 >> 11) << 3),
-      static_cast<uint8_t>(((sel->disc_rgb565 >> 5) & 0x3F) << 2),
-      static_cast<uint8_t>((sel->disc_rgb565 & 0x1F) << 3));
-  pm_gfx->fillScreen(bg);
-  pm_gfx->fillCircle(kCx, kCy, 220, pm_gfx->color565(10, 10, 14));
+  draw_spotify_backdrop();
 
   if (pm_wifi_connected() && g_spotify_ui.error[0] != '\0' && !g_spotify_ui.ok) {
     char err[44];

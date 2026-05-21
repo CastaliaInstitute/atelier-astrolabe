@@ -10,4 +10,6 @@
 #define ALETHIOMETER_EMOJI_GLYPH_COUNT 36
 
 void pm_alethiometer_draw_emoji_glyph(Arduino_Canvas *gfx, int cx, int cy, int symbol_idx, uint16_t color);
+void pm_alethiometer_draw_emoji_glyph_scaled(Arduino_Canvas *gfx, int cx, int cy, int symbol_idx, uint16_t color,
+                                             uint8_t scale);
 const char *pm_alethiometer_emoji_codepoint(int symbol_idx);

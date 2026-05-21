@@ -9,6 +9,7 @@
 
 #include "faces/astrology/pm_face_astrology.h"
 #include "faces/astrology/pm_zodiac_glyphs.h"
+#include "faces/alethiometer/pm_alethiometer_emoji_glyphs.h"
 #include "faces/shared/pm_face_draw.h"
 #include "pin_config.h"
 #include "pm_birth_nvs.h"
@@ -82,6 +83,70 @@ static uint16_t aspect_color(int deg) {
       return pm_gfx->color565(210, 150, 255);
     default:
       return pm_gfx->color565(170, 180, 200);
+  }
+}
+
+static int synastry_symbol_index(void) {
+  if (s_aspect_count <= 0) {
+    return 12;  // bridge
+  }
+  const SynastryAspect &a = s_aspects[0];
+  const bool has_moon = a.user_body == kPmBodyMoon || a.target_body == kPmBodyMoon;
+  const bool has_venus = a.user_body == kPmBodyVenus || a.target_body == kPmBodyVenus;
+  const bool has_mercury = a.user_body == kPmBodyMercury || a.target_body == kPmBodyMercury;
+  const bool has_mars = a.user_body == kPmBodyMars || a.target_body == kPmBodyMars;
+  if (has_venus && (a.aspect_deg == 0 || a.aspect_deg == 120 || a.aspect_deg == 60)) {
+    return 7;  // heart
+  }
+  if (has_moon && (a.aspect_deg == 0 || a.aspect_deg == 120 || a.aspect_deg == 60)) {
+    return 3;  // moon
+  }
+  if (has_mercury && (a.aspect_deg == 0 || a.aspect_deg == 60)) {
+    return 14;  // book
+  }
+  if (has_mars && (a.aspect_deg == 90 || a.aspect_deg == 180)) {
+    return 17;  // thunder
+  }
+  switch (a.aspect_deg) {
+    case 0:
+      return 25;  // mirror
+    case 60:
+      return 12;  // bridge
+    case 90:
+      return 9;  // crossed swords
+    case 120:
+      return 30;  // star
+    case 180:
+      return 26;  // scales
+    default:
+      return 31;  // wheel
+  }
+}
+
+static const char *synastry_symbol_label(void) {
+  switch (synastry_symbol_index()) {
+    case 3:
+      return "moon";
+    case 7:
+      return "heart";
+    case 9:
+      return "crossed swords";
+    case 12:
+      return "bridge";
+    case 14:
+      return "book";
+    case 17:
+      return "thunder";
+    case 25:
+      return "mirror";
+    case 26:
+      return "scales";
+    case 30:
+      return "star";
+    case 31:
+      return "wheel";
+    default:
+      return "relationship symbol";
   }
 }
 
@@ -236,23 +301,11 @@ static void draw_synastry_chart(void) {
   draw_body_ring(&s_user_pos, cx, cy, r_user, pm_gfx->color565(135, 215, 255), false);
   pm_zodiac_draw_sign_ring(pm_gfx, cx, cy, r_outer - 22, -1, c_lbl);
 
-  pm_gfx->fillRect(0, 0, LCD_WIDTH, 44, pm_gfx->color565(10, 12, 22));
-  pm_face_draw_centered_line("synastry", 8, pm_gfx->color565(210, 220, 255), 2, 2);
-  pm_face_draw_centered_line(s_target_profile.name, 30, pm_gfx->color565(245, 230, 255), 1, 1);
-
-  pm_gfx->fillRect(0, LCD_HEIGHT - 58, LCD_WIDTH, 58, pm_gfx->color565(10, 12, 22));
-  char line[76];
-  if (s_aspect_count > 0) {
-    const SynastryAspect &a = s_aspects[0];
-    snprintf(line, sizeof(line), "you %s %s %s %.1f",
-             pm_ephem_body_label(static_cast<PmEphemBody>(a.user_body)), a.label,
-             pm_ephem_body_label(static_cast<PmEphemBody>(a.target_body)), a.orb);
-  } else {
-    snprintf(line, sizeof(line), "dual wheel: you + %s", s_target_profile.name);
-  }
-  pm_face_draw_centered_line(line, LCD_HEIGHT - 48, pm_gfx->color565(225, 226, 238), 1, 1);
-  snprintf(line, sizeof(line), "up/down target  PWR ask  BOOT brief");
-  pm_face_draw_centered_line(line, LCD_HEIGHT - 25, pm_gfx->color565(150, 160, 182), 1, 1);
+  pm_gfx->fillCircle(cx, cy, 42, pm_gfx->color565(8, 10, 18));
+  pm_gfx->drawCircle(cx, cy, 42, pm_gfx->color565(72, 62, 96));
+  pm_gfx->drawCircle(cx, cy, 38, pm_gfx->color565(30, 36, 54));
+  pm_alethiometer_draw_emoji_glyph_scaled(pm_gfx, cx, cy, synastry_symbol_index(),
+                                          pm_gfx->color565(245, 230, 255), 3);
 }
 
 void pm_face_synastry_draw(const struct tm *tm_local, bool valid_local) {
@@ -324,6 +377,21 @@ bool pm_face_synastry_build_voice_message(char *buf, size_t cap) {
                    s_target_profile.name, pm_chart_role_label(s_target_profile.role), s_target_profile.year,
                    s_target_profile.month, s_target_profile.day, s_target_profile.hour, s_target_profile.minute,
                    s_target_profile.place)) {
+    return false;
+  }
+  if (s_aspect_count > 0) {
+    const SynastryAspect &a = s_aspects[0];
+    if (!append_text(buf, cap, &off,
+                     "Center symbol shown on the watch: %s, chosen from the closest aspect: user %s %s target %s "
+                     "(orb %.1f deg). Explain this symbol when speaking. ",
+                     synastry_symbol_label(), pm_ephem_body_label(static_cast<PmEphemBody>(a.user_body)),
+                     a.label, pm_ephem_body_label(static_cast<PmEphemBody>(a.target_body)), a.orb)) {
+      return false;
+    }
+  } else if (!append_text(buf, cap, &off,
+                          "Center symbol shown on the watch: %s, chosen because no major cross-chart aspect is "
+                          "within the watch orb. Explain this symbol when speaking. ",
+                          synastry_symbol_label())) {
     return false;
   }
   if (!append_text(buf, cap, &off, "User longitudes: ")) {

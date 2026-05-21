@@ -857,26 +857,38 @@ uint16_t blend565(uint16_t fg, uint16_t bg, uint8_t alpha) {
 }  // namespace
 
 void pm_alethiometer_draw_emoji_glyph(Arduino_Canvas *gfx, int cx, int cy, int symbol_idx, uint16_t color) {
+  pm_alethiometer_draw_emoji_glyph_scaled(gfx, cx, cy, symbol_idx, color, 1);
+}
+
+void pm_alethiometer_draw_emoji_glyph_scaled(Arduino_Canvas *gfx, int cx, int cy, int symbol_idx, uint16_t color,
+                                             uint8_t scale) {
   if (!gfx) return;
   if (symbol_idx < 0) symbol_idx = 0;
   symbol_idx %= ALETHIOMETER_EMOJI_GLYPH_COUNT;
+  if (scale < 1) scale = 1;
+  if (scale > 4) scale = 4;
   constexpr int S = ALETHIOMETER_EMOJI_GLYPH_SIZE;
-  const int x0 = cx - S / 2;
-  const int y0 = cy - S / 2;
+  const int D = S * static_cast<int>(scale);
+  const int x0 = cx - D / 2;
+  const int y0 = cy - D / 2;
   const int w = gfx->width();
   const int h = gfx->height();
   uint16_t *fb = gfx->getFramebuffer();
   for (int y = 0; y < S; ++y) {
-    const int py = y0 + y;
-    if (py < 0 || py >= h) continue;
     for (int x = 0; x < S; ++x) {
-      const int px = x0 + x;
-      if (px < 0 || px >= w) continue;
       const uint8_t a = pgm_read_byte(&kEmojiAlpha[symbol_idx][y * S + x]);
       if (a == 0) continue;
-      const uint16_t bg = fb ? fb[py * w + px] : 0;
-      const uint16_t out = blend565(color, bg, a);
-      if (fb) fb[py * w + px] = out; else gfx->drawPixel(px, py, out);
+      for (uint8_t sy = 0; sy < scale; ++sy) {
+        const int py = y0 + y * scale + sy;
+        if (py < 0 || py >= h) continue;
+        for (uint8_t sx = 0; sx < scale; ++sx) {
+          const int px = x0 + x * scale + sx;
+          if (px < 0 || px >= w) continue;
+          const uint16_t bg = fb ? fb[py * w + px] : 0;
+          const uint16_t out = blend565(color, bg, a);
+          if (fb) fb[py * w + px] = out; else gfx->drawPixel(px, py, out);
+        }
+      }
     }
   }
 }

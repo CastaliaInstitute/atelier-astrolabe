@@ -38,7 +38,6 @@ static uint32_t s_last_anim_ms = 0;
 static uint32_t s_wave_last_ms = 0;
 static float s_wave_phase = 0.f;
 static bool s_ripple_active = false;
-static bool s_chakra_tone_on = false;
 
 static uint16_t chakra_color(const ChakraDef &c, float dim) {
   const float d = dim < 0.f ? 0.f : (dim > 1.f ? 1.f : dim);
@@ -47,7 +46,7 @@ static uint16_t chakra_color(const ChakraDef &c, float dim) {
 }
 
 static bool chakra_audio_active(void) {
-  return s_chakra_tone_on || s_ripple_active || pm_speaker_is_playing();
+  return s_ripple_active || pm_speaker_bowl_voice_active();
 }
 
 static void chakra_advance_wave(uint32_t now_ms, float hz) {
@@ -78,7 +77,7 @@ void pm_face_chakra_draw(void) {
   }
   pm_face_draw_chakra_gem(kCx, kCy, kGemRadius, ch.r, ch.g, ch.b, pulse, s_wave_phase, ch.hz, waves);
 
-  const bool playing = s_chakra_tone_on || pm_speaker_is_playing();
+  const bool playing = pm_speaker_bowl_voice_active();
   pm_chakra_draw_glyph(pm_gfx, kCx, kCy, s_index, chakra_color(ch, 1.f), playing);
 
   char label[24];
@@ -91,27 +90,23 @@ void pm_face_chakra_draw(void) {
 }
 
 static void chakra_stop_tone(void) {
-  if (s_chakra_tone_on || pm_speaker_is_playing()) {
-    pm_speaker_tone_stop();
-  }
-  if (pm_speaker_is_playing()) {
-    pm_speaker_abort();
-  }
-  s_chakra_tone_on = false;
+  pm_speaker_bowl_voice_stop();
   s_ripple_active = false;
 }
 
-static bool chakra_start_tone(void) {
+static bool chakra_strike_current(void) {
   const ChakraDef &ch = kChakras[s_index];
   s_ripple_active = true;
   s_ripple_start = millis();
   s_wave_phase = 0.f;
   s_wave_last_ms = 0;
-  if (!pm_speaker_play_tone_loop_begin(ch.hz)) {
-    s_ripple_active = false;
-    return false;
-  }
-  s_chakra_tone_on = true;
+  PmBowlVoiceCtrl strike = {};
+  strike.target_hz = ch.hz;
+  strike.center_strike = true;
+  strike.excitation = 1.f;
+  strike.brightness = 0.78f;
+  strike.rim_quality = 0.8f;
+  pm_speaker_bowl_voice_push(strike);
   return true;
 }
 
@@ -124,29 +119,18 @@ int pm_face_chakra_cycle(int delta) {
   if (v == s_index) {
     return s_index;
   }
-  const bool was_playing = s_chakra_tone_on || pm_speaker_is_playing();
-  chakra_stop_tone();
   s_index = v;
-  if (was_playing) {
-    (void)chakra_start_tone();
-  }
   return s_index;
 }
 
-bool pm_face_chakra_toggle_tone(void) {
-  if (s_chakra_tone_on || pm_speaker_is_playing()) {
-    chakra_stop_tone();
-    return true;
-  }
-  return chakra_start_tone();
-}
+bool pm_face_chakra_strike(void) { return chakra_strike_current(); }
 
 bool pm_face_chakra_anim_tick(uint32_t now_ms) {
   if (!chakra_audio_active()) {
     return false;
   }
 
-  const bool playing = s_chakra_tone_on || pm_speaker_is_playing();
+  const bool playing = pm_speaker_bowl_voice_active();
   const uint32_t interval = playing ? 90u : 140u;
   if (now_ms - s_last_anim_ms < interval) {
     return false;
@@ -158,7 +142,6 @@ bool pm_face_chakra_anim_tick(uint32_t now_ms) {
     return true;
   }
 
-  s_chakra_tone_on = false;
   if (!s_ripple_active) {
     return false;
   }

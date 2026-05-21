@@ -177,7 +177,12 @@
 
 /** Skip BLE/Radar host startup when another face has left too little internal heap. */
 #ifndef MYNAH_BLE_MIN_START_HEAP
-#define MYNAH_BLE_MIN_START_HEAP 120000u
+#define MYNAH_BLE_MIN_START_HEAP 70000u
+#endif
+
+/** BLE startup does not need the same contiguous internal block as TLS. */
+#ifndef MYNAH_BLE_MIN_START_LARGEST_INTERNAL
+#define MYNAH_BLE_MIN_START_LARGEST_INTERNAL 36000u
 #endif
 
 /** Never let response-buffer fallback malloc drain internal RAM below this reserve. */

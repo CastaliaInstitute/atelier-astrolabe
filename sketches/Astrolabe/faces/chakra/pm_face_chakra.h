@@ -5,11 +5,11 @@
 /** Draw the active chakra (symbol in its color). */
 void pm_face_chakra_draw(void);
 
-/** Swipe up/down cycles through chakras with wrap. If tone was on, switches to new Hz. */
+/** Swipe up/down cycles through chakras with wrap. Existing resonances keep decaying. */
 int pm_face_chakra_cycle(int delta);
 
-/** Tap: start looping solfeggio tone; tap again to stop. */
-bool pm_face_chakra_toggle_tone(void);
+/** Tap: strike the current solfeggio chakra resonance. */
+bool pm_face_chakra_strike(void);
 
 /** Stop tone when leaving the face (e.g. horizontal swipe). */
 void pm_face_chakra_stop(void);

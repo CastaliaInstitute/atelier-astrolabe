@@ -80,8 +80,8 @@ bool pm_face_level_anim_tick(uint32_t now_ms) {
   float target_x = 0.f;
   float target_y = 0.f;
   if (ok) {
-    target_x = clampf(ax / kMaxTilt, -1.f, 1.f);
-    target_y = clampf(ay / kMaxTilt, -1.f, 1.f);
+    target_x = clampf(ay / kMaxTilt, -1.f, 1.f);
+    target_y = clampf(ax / kMaxTilt, -1.f, 1.f);
   }
   const float alpha = s_have_sample ? 0.22f : 1.f;
   s_ball_x += (target_x - s_ball_x) * alpha;

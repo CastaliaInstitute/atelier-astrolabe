@@ -14,12 +14,28 @@ bool s_calcifer_have_data = false;
 namespace {
 
 constexpr int64_t k_window_sec = 12 * 3600;
+constexpr int k_max_events = 8;
+constexpr int k_label_ms = 5500;
 
 struct DaywheelEvent {
   int64_t start_unix = 0;
   int64_t end_unix = 0;
   const char *title = "";
   bool suggested = false;
+};
+
+char s_selected_title[48] = "";
+char s_selected_time[24] = "";
+uint32_t s_selected_until_ms = 0;
+
+struct DaywheelGeometry {
+  int cx = LCD_WIDTH / 2;
+  int cy = LCD_HEIGHT / 2;
+  int r_outer_ring = min(LCD_WIDTH, LCD_HEIGHT) / 2 - 4;
+  int r_inner_ring = r_outer_ring - 10;
+  int r_evt_outer = r_inner_ring - 8;
+  int r_evt_inner = 94;
+  int r_inner_disk = 88;
 };
 
 uint16_t blend565(uint16_t bg, uint16_t fg, float alpha) {
@@ -97,6 +113,51 @@ void add_demo_events(DaywheelEvent *events, int *count, int cap, int64_t now_uni
   push_event(events, count, cap, now_unix + 7 * h, now_unix + 8 * h, "Faculty Conversation", false);
 }
 
+void collect_events(DaywheelEvent *events, int *n_events, int64_t now_unix) {
+  *n_events = 0;
+  if (g_calcifer_ui.current.valid) {
+    push_event(events, n_events, k_max_events, g_calcifer_ui.current.start_unix, g_calcifer_ui.current.end_unix,
+               g_calcifer_ui.current.summary, false);
+  }
+  if (g_calcifer_ui.next.valid) {
+    bool dup = false;
+    for (int i = 0; i < *n_events; ++i) {
+      if (events[i].start_unix == g_calcifer_ui.next.start_unix) {
+        dup = true;
+        break;
+      }
+    }
+    if (!dup) {
+      push_event(events, n_events, k_max_events, g_calcifer_ui.next.start_unix, g_calcifer_ui.next.end_unix,
+                 g_calcifer_ui.next.summary, false);
+    }
+  }
+  if (*n_events == 0) {
+    add_demo_events(events, n_events, k_max_events, now_unix);
+  }
+}
+
+bool event_visible(const DaywheelEvent &ev, int64_t now_unix) {
+  return ev.end_unix > now_unix && ev.start_unix < now_unix + k_window_sec;
+}
+
+void format_event_time_range(const DaywheelEvent &ev, char *out, size_t cap) {
+  struct tm start_tm = {};
+  struct tm end_tm = {};
+  const time_t start = static_cast<time_t>(ev.start_unix);
+  const time_t end = static_cast<time_t>(ev.end_unix);
+  localtime_r(&start, &start_tm);
+  localtime_r(&end, &end_tm);
+  const auto hour12 = [](int h) {
+    h %= 12;
+    return h == 0 ? 12 : h;
+  };
+  const char *start_ampm = start_tm.tm_hour < 12 ? "a" : "p";
+  const char *end_ampm = end_tm.tm_hour < 12 ? "a" : "p";
+  snprintf(out, cap, "%d:%02d%s-%d:%02d%s", hour12(start_tm.tm_hour), start_tm.tm_min, start_ampm,
+           hour12(end_tm.tm_hour), end_tm.tm_min, end_ampm);
+}
+
 void draw_event_wedge(int cx, int cy, int r_inner, int r_outer, const DaywheelEvent &ev, int64_t now_unix) {
   const float a0 = event_start_deg(ev.start_unix, now_unix);
   const float a1 = event_end_deg(ev.end_unix, now_unix);
@@ -137,45 +198,26 @@ void draw_event_wedge(int cx, int cy, int r_inner, int r_outer, const DaywheelEv
 }
 
 void draw_daywheel_geometry(int64_t now_unix) {
-  const int cx = LCD_WIDTH / 2;
-  const int cy = LCD_HEIGHT / 2;
-  const int R = min(LCD_WIDTH, LCD_HEIGHT) / 2;
-  const int r_outer_ring = R - 4;
-  const int r_inner_ring = r_outer_ring - 10;
-  const int r_evt_outer = r_inner_ring - 8;
-  const int r_evt_inner = 94;
-  const int r_inner_disk = 88;
+  const DaywheelGeometry geom;
+  const int cx = geom.cx;
+  const int cy = geom.cy;
+  const int r_outer_ring = geom.r_outer_ring;
+  const int r_inner_ring = geom.r_inner_ring;
+  const int r_evt_outer = geom.r_evt_outer;
+  const int r_evt_inner = geom.r_evt_inner;
+  const int r_inner_disk = geom.r_inner_disk;
 
   const uint16_t c_base = pm_circadian_color565_at_unix(static_cast<time_t>(now_unix));
   pm_gfx->fillScreen(blend565(c_base, pm_gfx->color565(0, 0, 0), 0.72f));
 
   pm_face_draw_daywheel_hue_ring_12h(now_unix, r_inner_ring, r_outer_ring);
 
-  DaywheelEvent events[8] = {};
+  DaywheelEvent events[k_max_events] = {};
   int n_events = 0;
-  if (g_calcifer_ui.current.valid) {
-    push_event(events, &n_events, 8, g_calcifer_ui.current.start_unix, g_calcifer_ui.current.end_unix,
-               g_calcifer_ui.current.summary, false);
-  }
-  if (g_calcifer_ui.next.valid) {
-    bool dup = false;
-    for (int i = 0; i < n_events; ++i) {
-      if (events[i].start_unix == g_calcifer_ui.next.start_unix) {
-        dup = true;
-        break;
-      }
-    }
-    if (!dup) {
-      push_event(events, &n_events, 8, g_calcifer_ui.next.start_unix, g_calcifer_ui.next.end_unix,
-                 g_calcifer_ui.next.summary, false);
-    }
-  }
-  if (n_events == 0) {
-    add_demo_events(events, &n_events, 8, now_unix);
-  }
+  collect_events(events, &n_events, now_unix);
 
   for (int i = 0; i < n_events; ++i) {
-    if (events[i].end_unix > now_unix && events[i].start_unix < now_unix + k_window_sec) {
+    if (event_visible(events[i], now_unix)) {
       draw_event_wedge(cx, cy, r_evt_inner, r_evt_outer, events[i], now_unix);
     }
   }
@@ -195,6 +237,21 @@ void draw_daywheel_geometry(int64_t now_unix) {
   }
 
   pm_face_draw_now_bead(cx, cy, r_evt_outer + 4, pm_gfx->color565(255, 250, 230));
+}
+
+void draw_selected_label(uint16_t c_label, uint16_t c_big, uint16_t c_dim) {
+  if (!s_selected_title[0] || millis() > s_selected_until_ms) {
+    return;
+  }
+  const int x = 52;
+  const int y = 250;
+  const int w = LCD_WIDTH - 104;
+  const int h = 70;
+  pm_gfx->fillRoundRect(x, y, w, h, 12, pm_gfx->color565(10, 12, 20));
+  pm_gfx->drawRoundRect(x, y, w, h, 12, pm_gfx->color565(240, 220, 170));
+  pm_face_draw_centered_line("EVENT", y + 8, c_label, 1, 1);
+  pm_face_draw_centered_line(s_selected_title, y + 28, c_big, 1, 1);
+  pm_face_draw_centered_line(s_selected_time, y + 50, c_dim, 1, 1);
 }
 
 }  // namespace
@@ -322,4 +379,50 @@ void pm_face_calcifer_draw() {
       pm_face_draw_centered_line(line, 348, c_dim, 1, 1);
     }
   }
+
+  draw_selected_label(c_label, c_big, c_dim);
+}
+
+bool pm_face_calcifer_tap(int16_t x, int16_t y, char *banner, size_t banner_cap) {
+  if (!pm_time_valid()) {
+    return false;
+  }
+  const int64_t now_unix = static_cast<int64_t>(time(nullptr));
+  const DaywheelGeometry geom;
+  const float dx = static_cast<float>(x - geom.cx);
+  const float dy = static_cast<float>(y - geom.cy);
+  const float r = sqrtf(dx * dx + dy * dy);
+  if (r < static_cast<float>(geom.r_evt_inner - 4) || r > static_cast<float>(geom.r_evt_outer + 8)) {
+    return false;
+  }
+  float deg = atan2f(dy, dx) * 180.f / pm_face_k_pi + 90.f;
+  while (deg < 0.f) {
+    deg += 360.f;
+  }
+  while (deg >= 360.f) {
+    deg -= 360.f;
+  }
+
+  DaywheelEvent events[k_max_events] = {};
+  int n_events = 0;
+  collect_events(events, &n_events, now_unix);
+  for (int i = 0; i < n_events; ++i) {
+    const DaywheelEvent &ev = events[i];
+    if (!event_visible(ev, now_unix)) {
+      continue;
+    }
+    const float a0 = event_start_deg(ev.start_unix, now_unix);
+    const float a1 = event_end_deg(ev.end_unix, now_unix);
+    if (deg < a0 || deg > a1) {
+      continue;
+    }
+    snprintf(s_selected_title, sizeof(s_selected_title), "%s", ev.title);
+    format_event_time_range(ev, s_selected_time, sizeof(s_selected_time));
+    s_selected_until_ms = millis() + k_label_ms;
+    if (banner && banner_cap > 0) {
+      snprintf(banner, banner_cap, "event: %.32s", ev.title);
+    }
+    return true;
+  }
+  return false;
 }

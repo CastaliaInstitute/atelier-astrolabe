@@ -9,6 +9,7 @@
 #include "pm_motion.h"
 #include "pm_presence.h"
 #include "pm_presence_graph.h"
+#include "pm_wifi_ntp.h"
 
 static uint32_t s_last_motion_ms = 0;
 
@@ -21,13 +22,18 @@ void pm_face_radar_on_enter(void) {
   s_last_motion_ms = 0;
   pm_presence_graph_reset();
   if (!pm_presence_ble_begin()) {
-    pm_presence_seed_demo_peers(millis());
+    pm_wifi_pause_for_ble();
+    if (!pm_presence_ble_begin()) {
+      pm_presence_seed_demo_peers(millis());
+    }
   }
   pm_presence_ble_set_radar_active(true);
 }
 
 void pm_face_radar_on_leave(void) {
   pm_presence_ble_set_radar_active(false);
+  pm_presence_ble_end();
+  pm_wifi_resume_after_ble();
 }
 
 void pm_face_radar_tick(uint32_t now_ms) {

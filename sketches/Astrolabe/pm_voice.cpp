@@ -44,6 +44,9 @@ static uint32_t s_voice_started_ms = 0;
 
 static const char *s_req_message = nullptr;
 static const char *s_req_system = nullptr;
+static const char *s_req_face = nullptr;
+static const char *s_req_faculty_slug = nullptr;
+static const char *s_req_faculty_name = nullptr;
 static const uint8_t *s_req_pcm = nullptr;
 static size_t s_req_pcm_len = 0;
 static PmVoiceResult *s_req_result = nullptr;
@@ -801,6 +804,9 @@ static bool voice_post_message_inner(const char *message, const char *system_ins
 
   char *esc_msg = nullptr;
   char *esc_sys = nullptr;
+  char *esc_face = nullptr;
+  char *esc_faculty_slug = nullptr;
+  char *esc_faculty_name = nullptr;
 
   const size_t msg_cap = strlen(message) * 2 + 16;
   esc_msg = voice_psram_char_alloc(msg_cap, "oom esc msg");
@@ -815,38 +821,96 @@ static bool voice_post_message_inner(const char *message, const char *system_ins
     esc_sys = voice_psram_char_alloc(sys_cap, "oom esc sys");
     if (!esc_sys || !json_escape_string(system_instruction, esc_sys, sys_cap)) {
       free(esc_msg);
+      free(esc_face);
+      free(esc_faculty_slug);
+      free(esc_faculty_name);
       free(esc_sys);
       voice_set_error("system prompt too long");
       return false;
     }
   }
 
+  if (s_req_face && s_req_face[0] != '\0') {
+    const size_t face_cap = strlen(s_req_face) * 2 + 16;
+    esc_face = voice_psram_char_alloc(face_cap, "oom esc face");
+    if (!esc_face || !json_escape_string(s_req_face, esc_face, face_cap)) {
+      free(esc_msg);
+      free(esc_sys);
+      free(esc_face);
+      voice_set_error("face too long");
+      return false;
+    }
+  }
+  if (s_req_faculty_slug && s_req_faculty_slug[0] != '\0') {
+    const size_t slug_cap = strlen(s_req_faculty_slug) * 2 + 16;
+    esc_faculty_slug = voice_psram_char_alloc(slug_cap, "oom esc faculty");
+    if (!esc_faculty_slug || !json_escape_string(s_req_faculty_slug, esc_faculty_slug, slug_cap)) {
+      free(esc_msg);
+      free(esc_sys);
+      free(esc_face);
+      free(esc_faculty_slug);
+      voice_set_error("faculty slug too long");
+      return false;
+    }
+  }
+  if (s_req_faculty_name && s_req_faculty_name[0] != '\0') {
+    const size_t name_cap = strlen(s_req_faculty_name) * 2 + 16;
+    esc_faculty_name = voice_psram_char_alloc(name_cap, "oom esc faculty name");
+    if (!esc_faculty_name || !json_escape_string(s_req_faculty_name, esc_faculty_name, name_cap)) {
+      free(esc_msg);
+      free(esc_sys);
+      free(esc_face);
+      free(esc_faculty_slug);
+      free(esc_faculty_name);
+      voice_set_error("faculty name too long");
+      return false;
+    }
+  }
+
   const bool have_sys = esc_sys && esc_sys[0] != '\0';
+  const bool have_face = esc_face && esc_face[0] != '\0';
+  const bool have_faculty_slug = esc_faculty_slug && esc_faculty_slug[0] != '\0';
+  const bool have_faculty_name = esc_faculty_name && esc_faculty_name[0] != '\0';
   const int local_hour = voice_local_hour();
-  const size_t body_cap = strlen(esc_msg) + (have_sys ? strlen(esc_sys) : 0) + 224;
+  const size_t body_cap = strlen(esc_msg) + (have_sys ? strlen(esc_sys) : 0) +
+                          (have_face ? strlen(esc_face) : 0) +
+                          (have_faculty_slug ? strlen(esc_faculty_slug) : 0) +
+                          (have_faculty_name ? strlen(esc_faculty_name) : 0) + 320;
   char *body = static_cast<char *>(
       heap_caps_malloc(body_cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
   if (!body) {
     free(esc_msg);
     free(esc_sys);
+    free(esc_face);
+    free(esc_faculty_slug);
+    free(esc_faculty_name);
     voice_set_error("oom body");
     return false;
   }
 
-  int n;
-  if (have_sys) {
-    n = snprintf(body, body_cap,
-                 "{\"languageCode\":\"en-US\",\"message\":\"%s\",\"systemInstruction\":\"%s\","
-                 "\"responseFormat\":\"mp3\",\"localHour\":%d}",
-                 esc_msg, esc_sys, local_hour);
-  } else {
-    n = snprintf(body, body_cap,
-                 "{\"languageCode\":\"en-US\",\"message\":\"%s\",\"responseFormat\":\"mp3\","
-                 "\"localHour\":%d}",
-                 esc_msg, local_hour);
+  int n = snprintf(body, body_cap,
+                   "{\"languageCode\":\"en-US\",\"message\":\"%s\"",
+                   esc_msg);
+  if (n > 0 && static_cast<size_t>(n) < body_cap && have_sys) {
+    n += snprintf(body + n, body_cap - static_cast<size_t>(n), ",\"systemInstruction\":\"%s\"", esc_sys);
+  }
+  if (n > 0 && static_cast<size_t>(n) < body_cap && have_face) {
+    n += snprintf(body + n, body_cap - static_cast<size_t>(n), ",\"face\":\"%s\"", esc_face);
+  }
+  if (n > 0 && static_cast<size_t>(n) < body_cap && have_faculty_slug) {
+    n += snprintf(body + n, body_cap - static_cast<size_t>(n), ",\"facultySlug\":\"%s\"", esc_faculty_slug);
+  }
+  if (n > 0 && static_cast<size_t>(n) < body_cap && have_faculty_name) {
+    n += snprintf(body + n, body_cap - static_cast<size_t>(n), ",\"facultyName\":\"%s\"", esc_faculty_name);
+  }
+  if (n > 0 && static_cast<size_t>(n) < body_cap) {
+    n += snprintf(body + n, body_cap - static_cast<size_t>(n), ",\"responseFormat\":\"mp3\",\"localHour\":%d}", local_hour);
   }
   free(esc_msg);
   free(esc_sys);
+  free(esc_face);
+  free(esc_faculty_slug);
+  free(esc_faculty_name);
   if (n <= 0 || static_cast<size_t>(n) >= body_cap) {
     free(body);
     voice_set_error("body too large");
@@ -1381,8 +1445,16 @@ static bool voice_net_run(uint8_t op, uint32_t timeout_ms) {
 }
 
 bool pm_voice_begin_message(const char *message, const char *system_instruction, PmVoiceResult *r) {
+  return pm_voice_begin_message_ex(message, system_instruction, nullptr, nullptr, nullptr, r);
+}
+
+bool pm_voice_begin_message_ex(const char *message, const char *system_instruction, const char *face,
+                               const char *faculty_slug, const char *faculty_name, PmVoiceResult *r) {
   s_req_message = message;
   s_req_system = system_instruction;
+  s_req_face = face;
+  s_req_faculty_slug = faculty_slug;
+  s_req_faculty_name = faculty_name;
   s_req_result = r;
   return voice_net_begin(1);
 }
@@ -1391,16 +1463,25 @@ bool pm_voice_begin_pcm(const uint8_t *pcm, size_t pcm_len, const char *system_i
   s_req_pcm = pcm;
   s_req_pcm_len = pcm_len;
   s_req_system = system_instruction;
+  s_req_face = nullptr;
+  s_req_faculty_slug = nullptr;
+  s_req_faculty_name = nullptr;
   s_req_result = r;
   return voice_net_begin(2);
 }
 
 bool pm_voice_begin_clock_agenda(PmVoiceResult *r) {
+  s_req_face = nullptr;
+  s_req_faculty_slug = nullptr;
+  s_req_faculty_name = nullptr;
   s_req_result = r;
   return voice_net_begin(3);
 }
 
 bool pm_voice_begin_daily_briefing(PmVoiceResult *r) {
+  s_req_face = nullptr;
+  s_req_faculty_slug = nullptr;
+  s_req_faculty_name = nullptr;
   s_req_result = r;
   return voice_net_begin(4);
 }
@@ -1427,8 +1508,16 @@ void pm_voice_abort(void) {
 }
 
 bool pm_voice_post_message(const char *message, const char *system_instruction, PmVoiceResult *r) {
+  return pm_voice_post_message_ex(message, system_instruction, nullptr, nullptr, nullptr, r);
+}
+
+bool pm_voice_post_message_ex(const char *message, const char *system_instruction, const char *face,
+                              const char *faculty_slug, const char *faculty_name, PmVoiceResult *r) {
   s_req_message = message;
   s_req_system = system_instruction;
+  s_req_face = face;
+  s_req_faculty_slug = faculty_slug;
+  s_req_faculty_name = faculty_name;
   s_req_result = r;
   return voice_net_run(1, kVoiceHttpTimeoutMs + 5000u);
 }
@@ -1441,6 +1530,9 @@ bool pm_voice_post_pcm(const uint8_t *pcm, size_t pcm_len, const char *system_in
   s_req_pcm = pcm;
   s_req_pcm_len = pcm_len;
   s_req_system = system_instruction;
+  s_req_face = nullptr;
+  s_req_faculty_slug = nullptr;
+  s_req_faculty_name = nullptr;
   s_req_result = r;
   return voice_net_run(2, kVoiceHttpTimeoutMs + 5000u);
 }
