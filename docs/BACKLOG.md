@@ -104,7 +104,7 @@ Design: [`docs/mynah-spotify-face.md`](mynah-spotify-face.md). **Swipe explores,
 
 ### Alethiometer face
 
-- [~] **P2** **Alethiometer face** — Issue [#44](https://github.com/CastaliaInstitute/astrolabe/issues/44): `ClockFace::Alethiometer` styled like a golden compass: **36 symbols** around the dial, **4 hands** (3 short + 1 long). Flow: user **STT** a question (PWR / voice path) → `voice-pipeline` LLM uses the JSON contract for `{ question, needles[3], answer_needle, interpretation }` internally → animate hands to deterministic on-device positions from the question/reply → **TTS** the textual interpretation. Hardware QA and backend structured-response parsing remain follow-ups before marking complete.
+- [~] **P2** **Alethiometer face** — Issue [#44](https://github.com/CastaliaInstitute/astrolabe/issues/44): `ClockFace::Alethiometer` styled like a golden compass: **36 Noto Emoji symbols** around the dial, **4 hands** (3 short + 1 long). Flow: user **STT** a question (PWR / voice path) → `voice-pipeline` LLM uses the JSON contract for `{ question, needles[3], answer_needle, interpretation }` internally → animate hands to deterministic on-device positions from the question/reply → **TTS** the textual interpretation. Hardware QA and backend structured-response parsing remain follow-ups before marking complete.
 
 - [ ] **P2** **I Ching face** — new `ClockFace`: cast **hexagram** (e.g. three-coin or simplified RNG + optional shake/tap ritual on round display); render **six lines** (yin/yang, changing lines) and hexagram number/name. **STT** question (PWR) → LLM + hexagram context (primary, optional relating hexagram) → **TTS** interpretation. Static lookup table for 64 hexagram names in flash; edge function or `voice-pipeline` `face=iching` JSON contract. Experimental/delight; distinct from Alethiometer (symbols/hands vs lines/hexagrams).
 
@@ -141,7 +141,7 @@ Derived from [README limits](../README.md#limits-mvp) and [open questions](pocke
 
 ## Done
 
-- [~] **2026-05-21** Alethiometer face: 36-symbol compass, three question needles + long answer needle, PWR voice prompt contract, and on-device needle animation. Issue [#44](https://github.com/CastaliaInstitute/astrolabe/issues/44); hardware QA still required.
+- [~] **2026-05-21** Alethiometer face: 36-symbol Noto Emoji compass, three question needles + long answer needle, PWR voice prompt contract, and on-device needle animation. Issue [#44](https://github.com/CastaliaInstitute/astrolabe/issues/44); hardware QA still required.
 - [x] **2026-05-17** Synastry clock face: dual-wheel partner/family charts, NVS chart profiles with demo seeds, up/down target cycling, and PWR/BOOT voice prompts. PR [#75](https://github.com/CastaliaInstitute/astrolabe/pull/75); Closes [#32](https://github.com/CastaliaInstitute/astrolabe/issues/32). Hardware QA on `integration` required before promotion to `main`.
 - [x] **2026-05-17** Castalian Rhythms V0 design doc/backlog epic: on-device-first architecture, embedded KB/fusion plan, and child issues [#62](https://github.com/CastaliaInstitute/astrolabe/issues/62)–[#65](https://github.com/CastaliaInstitute/astrolabe/issues/65). PR [#67](https://github.com/CastaliaInstitute/astrolabe/pull/67); Closes [#61](https://github.com/CastaliaInstitute/astrolabe/issues/61)
 - [x] **2026-05-17** Version clock face: git branch/SHA/date + GitHub commit QR (`pm_build_info.h`). PR [#59](https://github.com/CastaliaInstitute/astrolabe/pull/59); Closes [#58](https://github.com/CastaliaInstitute/astrolabe/issues/58)

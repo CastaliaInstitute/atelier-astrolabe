@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstring>
 
+#include "faces/alethiometer/pm_alethiometer_emoji_glyphs.h"
 #include "faces/shared/pm_face_draw.h"
 #include "pin_config.h"
 #include "pm_display.h"
@@ -17,20 +18,16 @@ constexpr int kCx = LCD_WIDTH / 2;
 constexpr int kCy = LCD_HEIGHT / 2;
 
 struct Symbol {
-  const char *label;
   const char *name;
 };
 
 const Symbol kSymbols[kSymbolCount] = {
-    {"A", "alpha"},     {"B", "bee"},       {"SU", "sun"},      {"MO", "moon"},
-    {"HR", "hourglass"}, {"KY", "key"},      {"AN", "anchor"},   {"HT", "heart"},
-    {"CR", "crown"},    {"SW", "sword"},    {"TR", "tree"},     {"SE", "serpent"},
-    {"BR", "bridge"},   {"LT", "lantern"},  {"BK", "book"},     {"MS", "mask"},
-    {"SH", "ship"},     {"TH", "thunder"},  {"EY", "eye"},      {"CL", "cloud"},
-    {"MN", "mountain"}, {"RD", "road"},     {"CP", "cup"},      {"BT", "butterfly"},
-    {"WL", "well"},     {"MR", "mirror"},   {"SC", "scales"},   {"FI", "fire"},
-    {"FT", "feather"},  {"GA", "gate"},     {"ST", "star"},     {"WH", "wheel"},
-    {"HD", "hand"},     {"LY", "lyre"},     {"AR", "arrow"},    {"OM", "omega"},
+    {"alpha"},     {"bee"},    {"sun"},      {"moon"},     {"hourglass"}, {"key"},
+    {"anchor"},    {"heart"},  {"crown"},    {"sword"},    {"tree"},      {"serpent"},
+    {"bridge"},    {"lantern"}, {"book"},     {"mask"},     {"ship"},      {"thunder"},
+    {"eye"},       {"cloud"},  {"mountain"}, {"road"},     {"cup"},       {"butterfly"},
+    {"well"},      {"mirror"}, {"scales"},   {"fire"},     {"feather"},   {"gate"},
+    {"star"},      {"wheel"},  {"hand"},     {"lyre"},     {"arrow"},     {"omega"},
 };
 
 float s_angle[kNeedleCount] = {-pm_face_k_pi * 0.5f, -0.2f, 1.3f, 2.6f};
@@ -133,9 +130,14 @@ void draw_symbol_ring(void) {
   const uint16_t gold = pm_gfx->color565(214, 172, 84);
   const uint16_t dim = pm_gfx->color565(96, 76, 54);
   const uint16_t ink = pm_gfx->color565(235, 220, 164);
+  const uint16_t answer = pm_gfx->color565(132, 198, 238);
   pm_gfx->drawCircle(kCx, kCy, 213, gold);
   pm_gfx->drawCircle(kCx, kCy, 198, dim);
   pm_gfx->drawCircle(kCx, kCy, 150, dim);
+  const int q0 = target_symbol(0);
+  const int q1 = target_symbol(1);
+  const int q2 = target_symbol(2);
+  const int ans = target_symbol(3);
   for (int i = 0; i < kSymbolCount; ++i) {
     const float a = symbol_angle(i);
     const int r0 = (i % 3 == 0) ? 188 : 194;
@@ -146,11 +148,13 @@ void draw_symbol_ring(void) {
     pm_gfx->drawLine(x0, y0, x1, y1, (i % 3 == 0) ? gold : dim);
     const int tx = kCx + static_cast<int>(lrintf(cosf(a) * 174.f));
     const int ty = kCy + static_cast<int>(lrintf(sinf(a) * 174.f));
-    pm_gfx->setTextColor(ink);
-    pm_gfx->setTextSize(1, 1);
-    const int16_t label_x = static_cast<int16_t>(tx - static_cast<int>(strlen(kSymbols[i].label)) * 3);
-    pm_gfx->setCursor(label_x, ty - 4);
-    pm_gfx->print(kSymbols[i].label);
+    const bool question_hit = i == q0 || i == q1 || i == q2;
+    const uint16_t icon = i == ans ? answer : (question_hit ? pm_gfx->color565(255, 232, 170) : ink);
+    if (question_hit || i == ans) {
+      pm_gfx->fillCircle(tx, ty, 14, blend565(pm_gfx->color565(8, 7, 12), icon, 0.20f));
+      pm_gfx->drawCircle(tx, ty, 14, icon);
+    }
+    pm_alethiometer_draw_emoji_glyph(pm_gfx, tx, ty, i, icon);
   }
 }
 
