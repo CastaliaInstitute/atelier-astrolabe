@@ -17,6 +17,10 @@ static constexpr float kPi = 3.14159265f;
 static constexpr float kTwoPi = kPi * 2.f;
 static constexpr float kTargetAngVel = 2.8f;
 static constexpr float kRimSwipeBlockRad = 0.45f;
+static constexpr float kCenterTouchRadius = 72.f;
+static constexpr float kCenterTouchReleaseRadius = 104.f;
+static constexpr int16_t kCenterTouchSlop = 30;
+static constexpr uint32_t kCenterHoldMs = 220u;
 static constexpr int kChakraCount = 7;
 
 struct BowlChakra {
@@ -45,8 +49,12 @@ static int s_trail_len = 0;
 static int s_chakra_idx = 3;
 static uint32_t s_last_anim_ms = 0;
 static uint32_t s_last_touch_ms = 0;
+static uint32_t s_center_down_ms = 0;
+static int16_t s_center_x0 = 0;
+static int16_t s_center_y0 = 0;
 static bool s_touch_down = false;
 static bool s_center_touch = false;
+static bool s_center_hold_sounding = false;
 static bool s_rim_stroke = false;
 static bool s_block_rim_swipe = false;
 static bool s_have_ang = false;
@@ -191,6 +199,32 @@ static void bowl_center_strike(uint32_t now_ms) {
   pm_speaker_bowl_voice_push(strike);
 }
 
+static void bowl_center_hold(void) {
+  PmBowlVoiceCtrl tone = {};
+  tone.target_hz = kChakras[s_chakra_idx].hz;
+  tone.excitation = 0.08f;
+  tone.brightness = 0.1f;
+  tone.rim_quality = 1.f;
+  tone.finger_down = true;
+  tone.pure_tone = true;
+  pm_speaker_bowl_voice_push(tone);
+}
+
+static void clear_center_touch(void) {
+  s_touch_down = false;
+  s_center_touch = false;
+  s_center_hold_sounding = false;
+  s_have_ang = false;
+  s_rim_stroke = false;
+  s_block_rim_swipe = false;
+  s_stroke_arc = 0.f;
+  s_trail_len = 0;
+  s_center_down_ms = 0;
+  PmBowlVoiceCtrl off = {};
+  off.finger_down = false;
+  pm_speaker_bowl_voice_push(off);
+}
+
 static void draw_standing_wave(float energy) {
   if (energy < 0.03f && !s_touch_down && s_ring_envelope < 0.03f) {
     return;
@@ -310,23 +344,22 @@ int pm_face_tibetan_bowl_cycle_chakra(int delta) {
   s_chakra_idx = v;
   s_touch_hz = kChakras[s_chakra_idx].hz;
   s_finger_ang = (static_cast<float>(s_chakra_idx) + 0.5f) * (kTwoPi / static_cast<float>(kChakraCount));
+  if (s_center_hold_sounding) {
+    bowl_center_hold();
+  }
   return s_chakra_idx;
 }
 
 bool pm_face_tibetan_bowl_touch_tick(uint32_t now_ms) {
-  int16_t xs[2];
-  int16_t ys[2];
-  const uint8_t n = pm_touch_sample(xs, ys, 2);
+  int16_t xs[1];
+  int16_t ys[1];
+  const uint8_t n = pm_touch_sample(xs, ys, 1);
 
   if (n == 0) {
-    if (s_touch_down) {
-      if (s_rim_stroke && s_stroke_arc >= kRimSwipeBlockRad) {
-        s_block_rim_swipe = true;
-      }
-      s_touch_down = false;
-      s_center_touch = false;
-      s_have_ang = false;
-      s_trail_len = 0;
+    if (s_center_touch) {
+      s_touch_hz = kChakras[s_chakra_idx].hz;
+      bowl_center_strike(now_ms);
+      clear_center_touch();
       return true;
     }
     return s_ring_envelope > 0.02f;
@@ -338,62 +371,47 @@ bool pm_face_tibetan_bowl_touch_tick(uint32_t now_ms) {
   float theta = 0.f;
   touch_polar(x, y, &r, &theta);
   s_touch_r = r;
-  s_touch_hz = frequency_from_angle(theta);
-  if (!s_touch_down) {
-    bowl_center_strike(now_ms);
-  }
 
-  if (r < 72.f) {
+  if (!s_center_touch) {
+    if (r > kCenterTouchRadius) {
+      return false;
+    }
     s_center_touch = true;
     s_touch_down = true;
-    s_finger_ang = theta;
+    s_center_hold_sounding = false;
+    s_center_down_ms = now_ms;
+    s_center_x0 = x;
+    s_center_y0 = y;
+    s_finger_ang = (static_cast<float>(s_chakra_idx) + 0.5f) * (kTwoPi / static_cast<float>(kChakraCount));
+    s_touch_hz = kChakras[s_chakra_idx].hz;
+    s_touch_quality = 1.f;
+    s_last_touch_ms = now_ms;
     return true;
   }
-  s_center_touch = false;
 
-  const float rq = rim_quality(r);
-  s_touch_quality = rq;
-  if (rq < 0.05f) {
-    if (s_touch_down) {
-      s_touch_down = false;
-      s_have_ang = false;
-      return true;
+  const int16_t dx = static_cast<int16_t>(x - s_center_x0);
+  const int16_t dy = static_cast<int16_t>(y - s_center_y0);
+  if (abs(dx) > kCenterTouchSlop || abs(dy) > kCenterTouchSlop || r > kCenterTouchReleaseRadius) {
+    if (s_center_hold_sounding) {
+      s_touch_hz = kChakras[s_chakra_idx].hz;
+      bowl_center_strike(now_ms);
     }
-    return false;
+    clear_center_touch();
+    return true;
   }
 
-  s_chakra_idx = chakra_index_from_angle(theta);
-  s_finger_ang = theta;
-
-  if (s_touch_down && s_have_ang) {
-    const float d_ang = unwrap_delta(s_last_ang, theta);
-    s_stroke_arc += fabsf(d_ang);
-    if (fabsf(d_ang) > 0.02f) {
-      push_trail(theta);
-    }
-    if (d_ang > 0.f) {
-      s_brightness += 0.002f;
-    } else if (d_ang < 0.f) {
-      s_brightness -= 0.001f;
-    }
-    if (s_brightness > 1.f) {
-      s_brightness = 1.f;
-    } else if (s_brightness < 0.15f) {
-      s_brightness = 0.15f;
-    }
-  } else {
-    s_rim_stroke = true;
-    s_stroke_arc = 0.f;
-    s_trail_len = 0;
-    push_trail(theta);
-  }
-
-  s_last_ang = theta;
-  s_have_ang = true;
   s_touch_down = true;
-  s_last_touch_ms = now_ms;
-
-  return true;
+  s_touch_hz = kChakras[s_chakra_idx].hz;
+  s_touch_quality = 1.f;
+  s_finger_ang = (static_cast<float>(s_chakra_idx) + 0.5f) * (kTwoPi / static_cast<float>(kChakraCount));
+  if (now_ms - s_last_touch_ms >= 35u) {
+    s_last_touch_ms = now_ms;
+    if (now_ms - s_center_down_ms >= kCenterHoldMs) {
+      bowl_center_hold();
+      s_center_hold_sounding = true;
+    }
+  }
+  return s_center_hold_sounding;
 }
 
 bool pm_face_tibetan_bowl_consume_rim_swipe_block(void) {
@@ -428,6 +446,7 @@ void pm_face_tibetan_bowl_stop(void) {
   pm_speaker_bowl_voice_stop();
   s_touch_down = false;
   s_center_touch = false;
+  s_center_hold_sounding = false;
   s_have_ang = false;
   s_block_rim_swipe = false;
   s_rim_stroke = false;

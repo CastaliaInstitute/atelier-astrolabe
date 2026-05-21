@@ -97,7 +97,7 @@ static bool face_uses_vertical_swipes(ClockFace face) {
          face == ClockFace::Settings || face == ClockFace::Spectrum || face == ClockFace::Chakra ||
          face == ClockFace::TibetanBowl || face == ClockFace::Rocket || face == ClockFace::Faculty ||
          face == ClockFace::Tarot || face == ClockFace::Ocarina || face == ClockFace::Bongo ||
-         face == ClockFace::Piano || face == ClockFace::Alethiometer;
+         face == ClockFace::Piano || face == ClockFace::Tuning || face == ClockFace::Alethiometer;
 }
 
 bool pm_audio_route_handle_gesture(PmGestureKind kind, ClockFace face, char *banner, size_t banner_len) {

@@ -16,6 +16,9 @@ void pm_voice_result_free(PmVoiceResult *r);
 /** Short reason after a failed voice call (for UI / Serial). */
 const char *pm_voice_last_error(void);
 
+/** Probe the configured voice-pipeline host; optionally refresh DNS/WiFi before failing. */
+bool pm_voice_pipeline_host_ready(bool recover);
+
 /** POST mono LINEAR16 PCM @ 16 kHz to Supabase `voice-pipeline`. Allocates r->mp3 on success. */
 bool pm_voice_post_pcm(const uint8_t *pcm, size_t pcm_len, const char *system_instruction, PmVoiceResult *r);
 

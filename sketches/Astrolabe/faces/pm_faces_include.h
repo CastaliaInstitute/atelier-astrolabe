@@ -26,3 +26,4 @@
 #include "faces/spotify/pm_face_spotify.h"
 #include "faces/synastry/pm_face_synastry.h"
 #include "faces/tarot/pm_face_tarot.h"
+#include "faces/tuning/pm_face_tuning.h"

@@ -50,6 +50,8 @@ enum class ClockFace : uint8_t {
   Piano,
   /** IMU bubble level: top of the display is forward; BOOT speaks the correction. */
   Level,
+  /** Live microphone tuner: detected notes move across a treble staff. */
+  Tuning,
   /** 14-note touch-playable handpan / pan drum face. */
   PanDrum,
   /** Alethiometer compass: 36 symbols, three question needles, one answer needle. */
@@ -70,5 +72,5 @@ void pm_faces_draw_home_gem_pulse(void);
 uint16_t pm_faces_last_bg565(void);
 bool pm_faces_local_hm_changed(int hour, int min);
 
-/** False on Spectrum — PWR/BOOT are not used for voice STT/TTS on that face. */
+/** False on live mic faces — PWR/BOOT are not used for voice STT/TTS there. */
 bool pm_faces_voice_input_enabled(void);

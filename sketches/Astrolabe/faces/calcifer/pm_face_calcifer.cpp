@@ -297,8 +297,9 @@ void pm_face_calcifer_draw() {
     pm_face_draw_centered_line("NOW", 248, c_label, 1, 1);
     pm_face_draw_centered_line(g_calcifer_ui.current.summary, 268, c_big, 1, 1);
     pm_face_calcifer_format_countdown(g_calcifer_ui.current.end_unix, line, sizeof(line));
-    snprintf(line, sizeof(line), "until %s", line);
-    pm_face_draw_centered_line(line, 292, urgent ? pm_gfx->color565(255, 110, 95) : c_dim, 1, 1);
+    char until_line[sizeof(line) + 8];
+    snprintf(until_line, sizeof(until_line), "until %s", line);
+    pm_face_draw_centered_line(until_line, 292, urgent ? pm_gfx->color565(255, 110, 95) : c_dim, 1, 1);
   } else {
     pm_face_draw_centered_line("Open Time", 248, c_label, 1, 1);
     if (g_calcifer_ui.next.valid) {

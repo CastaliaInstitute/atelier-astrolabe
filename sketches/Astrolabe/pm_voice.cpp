@@ -1,6 +1,7 @@
 #include "pm_voice.h"
 
 #include <HTTPClient.h>
+#include <WiFi.h>
 #include <WiFiClient.h>
 #include <WiFiClientSecure.h>
 #include <mbedtls/base64.h>
@@ -8,6 +9,7 @@
 
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_netif.h"
 #include "esp_task_wdt.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -16,10 +18,11 @@
 #include "pm_daily_briefing.h"
 #include "pm_geo_tz.h"
 #include "pm_speaker.h"
+#include "pm_wifi_ntp.h"
 
 static const char *TAG = "pm_voice";
 
-static constexpr uint32_t kVoiceNetTaskStack = 32768;
+static constexpr uint32_t kVoiceNetTaskStack = 16384;
 /** STT + Gemini + TTS + large chunked JSON (astrology readings). */
 static constexpr uint32_t kVoiceHttpTimeoutMs = 660000;
 /** voice-pipeline JSON + base64 MP3. */
@@ -52,6 +55,97 @@ static const char *kVoiceMp3Headers[] = {
     "X-Voice-Route",
     "X-Voice-Tts-Chars",
 };
+
+static void voice_set_error(const char *msg);
+
+static bool voice_pipeline_host(char *out, size_t out_cap) {
+  if (!out || out_cap == 0 || strlen(MYNAH_SUPABASE_URL) == 0) {
+    return false;
+  }
+  const char *p = strstr(MYNAH_SUPABASE_URL, "://");
+  p = p ? p + 3 : MYNAH_SUPABASE_URL;
+  size_t len = 0;
+  while (p[len] && p[len] != '/' && p[len] != ':' && len + 1 < out_cap) {
+    ++len;
+  }
+  if (len == 0 || len + 1 >= out_cap) {
+    return false;
+  }
+  memcpy(out, p, len);
+  out[len] = '\0';
+  return true;
+}
+
+static bool voice_dns_probe(const char *host, IPAddress *out_ip) {
+  if (!pm_wifi_connected() || !host || host[0] == '\0') {
+    voice_set_error(pm_wifi_connected() ? "dns host" : "no wifi");
+    return false;
+  }
+  IPAddress ip;
+  const bool ok = WiFi.hostByName(host, ip) == 1 && ip != IPAddress(0, 0, 0, 0) &&
+                  ip != IPAddress(255, 255, 255, 255);
+  if (ok && out_ip) {
+    *out_ip = ip;
+  }
+  return ok;
+}
+
+static void voice_set_fallback_dns(void) {
+  esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+  if (!netif) {
+    return;
+  }
+  esp_netif_dns_info_t dns = {};
+  dns.ip.type = ESP_IPADDR_TYPE_V4;
+  dns.ip.u_addr.ip4.addr = static_cast<uint32_t>(IPAddress(1, 1, 1, 1));
+  (void)esp_netif_set_dns_info(netif, ESP_NETIF_DNS_MAIN, &dns);
+  dns.ip.u_addr.ip4.addr = static_cast<uint32_t>(IPAddress(8, 8, 8, 8));
+  (void)esp_netif_set_dns_info(netif, ESP_NETIF_DNS_BACKUP, &dns);
+}
+
+bool pm_voice_pipeline_host_ready(bool recover) {
+  char host[96];
+  if (!voice_pipeline_host(host, sizeof(host))) {
+    voice_set_error("no supabase host");
+    return false;
+  }
+
+  IPAddress ip;
+  if (voice_dns_probe(host, &ip)) {
+    Serial.printf("voice: DNS ok %s -> %s\n", host, ip.toString().c_str());
+    voice_set_error(nullptr);
+    return true;
+  }
+
+  Serial.printf("voice: DNS fail %s\n", host);
+  if (!recover) {
+    voice_set_error("dns fail");
+    return false;
+  }
+
+  Serial.println("voice: DNS recovery set 1.1.1.1/8.8.8.8");
+  voice_set_fallback_dns();
+  delay(250);
+  if (voice_dns_probe(host, &ip)) {
+    Serial.printf("voice: DNS recovered %s -> %s\n", host, ip.toString().c_str());
+    voice_set_error(nullptr);
+    return true;
+  }
+
+  Serial.println("voice: DNS recovery reconnect");
+  if (pm_wifi_reconnect()) {
+    voice_set_fallback_dns();
+    delay(250);
+    if (voice_dns_probe(host, &ip)) {
+      Serial.printf("voice: DNS recovered %s -> %s\n", host, ip.toString().c_str());
+      voice_set_error(nullptr);
+      return true;
+    }
+  }
+
+  voice_set_error("dns fail");
+  return false;
+}
 
 static void body_read_set_err(const char *msg) {
   s_body_read_err = msg ? msg : "bad response";
@@ -651,6 +745,9 @@ static bool voice_post_message_inner(const char *message, const char *system_ins
     ESP_LOGW(TAG, "Supabase URL or anon key empty");
     return false;
   }
+  if (!pm_voice_pipeline_host_ready(true)) {
+    return false;
+  }
   (void)pm_castalia_auth_prepare_for_voice();
 
   char base[160];
@@ -1197,6 +1294,7 @@ static void voice_net_task_ensure() {
   if (s_voice_task) {
     return;
   }
+  (void)pm_speaker_release_idle_task();
   xTaskCreatePinnedToCore(voice_net_task, "voice_net", kVoiceNetTaskStack, nullptr, 1, &s_voice_task, 1);
 }
 

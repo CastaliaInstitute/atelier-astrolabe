@@ -78,6 +78,14 @@ static bool post_action(const char *action, PmSpotifyStatus *out) {
     snprintf(out->error, sizeof(out->error), "Supabase not configured");
     return false;
   }
+  if (!pm_castalia_has_session()) {
+    snprintf(out->error, sizeof(out->error), "Sign in on Castalia");
+    return false;
+  }
+  if (!pm_castalia_auth_prepare_for_voice()) {
+    snprintf(out->error, sizeof(out->error), "Castalia auth failed");
+    return false;
+  }
   if (!pm_heap_tls_ready(MYNAH_SPOTIFY_MIN_FETCH_HEAP, "spotify")) {
     snprintf(out->error, sizeof(out->error), "low memory");
     return false;

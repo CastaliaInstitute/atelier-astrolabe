@@ -132,6 +132,14 @@ bool pm_calcifer_fetch(PmCalciferStatus *out, time_t epoch_seconds) {
     snprintf(out->error, sizeof(out->error), "Supabase not configured");
     return false;
   }
+  if (!pm_castalia_has_session()) {
+    snprintf(out->error, sizeof(out->error), "Sign in on Castalia");
+    return false;
+  }
+  if (!pm_castalia_auth_prepare_for_voice()) {
+    snprintf(out->error, sizeof(out->error), "Castalia auth failed");
+    return false;
+  }
   if (!pm_heap_tls_ready(MYNAH_FACE_FETCH_MIN_HEAP, "calcifer")) {
     snprintf(out->error, sizeof(out->error), "low memory");
     return false;

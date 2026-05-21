@@ -95,7 +95,7 @@ static esp_err_t i2s_tx_begin(int sample_hz, int channels) {
 }
 
 static esp_err_t i2s_write_all(const int16_t *pcm, size_t total_s16) {
-  if (pm_faces_current() == ClockFace::Spectrum) {
+  if (pm_faces_current() == ClockFace::Spectrum || pm_faces_current() == ClockFace::Tuning) {
     const int channels = s_channels > 0 ? s_channels : 1;
     pm_audio_analyzer_feed_out(pcm, total_s16, channels);
   }

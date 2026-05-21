@@ -6,7 +6,7 @@ PlatformIO firmware for the Waveshare **[ESP32-S3-Touch-AMOLED-1.75C](https://gi
 
 | Path | Role |
 |------|------|
-| [`sketches/Astrolabe/`](sketches/Astrolabe/) | **WiFi** + **NTP** hue clock faces (analog, Apocalypso, digital, Spotify, **Astrology**, **Moon**, **schedule** countdown, **Castalia** QR, **Settings** LAN config QR, **Version** build info + GitHub QR); **PWR hold** = STT, **BOOT** = replay last TTS (or CalDAV agenda on analog/digital/schedule); **voice-pipeline** with Castalia JWT. **Gestures**: swipe to change face. |
+| [`sketches/Astrolabe/`](sketches/Astrolabe/) | **WiFi** + **NTP** hue clock faces (analog, Apocalypso, digital, Spotify, **Astrology**, **Moon**, **schedule** countdown, **Castalia** QR, **Settings**, **Notes** offline Commonplace capture); **PWR hold** = STT / notes, **BOOT** = replay last TTS (or CalDAV agenda on analog/digital/schedule); **voice-pipeline** with Castalia JWT. **Gestures**: swipe to change face. |
 | [`sketches/01_HelloWorld/`](sketches/01_HelloWorld/) | Minimal display sanity check; set `src_dir` in [`platformio.ini`](platformio.ini) to switch back. |
 | [`lib/waveshare_board_audio/`](lib/waveshare_board_audio/) | Vendor **ES7210** / **ES8311** sources from the Waveshare tree (MIT / Apache-2.0). |
 | [`lib/minimp3/`](lib/minimp3/) | [lieff/minimp3](https://github.com/lieff/minimp3) (public domain) for decoding TTS MP3. |
