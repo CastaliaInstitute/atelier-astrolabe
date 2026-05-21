@@ -579,9 +579,10 @@ static bool face_index_from_name(const char *name, int *out) {
            {"flute", 21},      {"bongo", 22},
            {"drum", 22},       {"drums", 22},        {"conga", 22},      {"piano", 23},
            {"keys", 23},       {"keyboard", 23},    {"level", 24},      {"bubble", 24},
-           {"bubble_level", 24}, {"imu", 24},        {"pandrum", 25},    {"pan_drum", 25},
-           {"pan-drum", 25},    {"pandrom", 25},     {"pandrom_face", 25}, {"handpan", 25},
-           {"hang", 25}};
+           {"bubble_level", 24}, {"imu", 24},        {"tuning", 25},     {"tuner", 25},
+           {"staff", 25},      {"pitch", 25},       {"pandrum", 26},    {"pan_drum", 26},
+           {"pan-drum", 26},    {"pandrom", 26},     {"pandrom_face", 26}, {"handpan", 26},
+           {"hang", 26}};
   for (const auto &e : k) {
     if (strcasecmp(name, e.n) == 0) {
       *out = e.idx;
@@ -652,6 +653,8 @@ static const FaceTourInfo k_face_tour[] = {
      "local piano tones are available", "local piano tones are available", false, false},
     {"level", "IMU rolling-sphere level with the top of the display as forward",
      "the current level nudge", "IMU level is drawing", "IMU unavailable", false, false},
+    {"tuning", "live microphone tuning staff with detected notes", "the currently detected pitch and cents",
+     "local pitch detector is listening", "local pitch detector is listening", false, false},
     {"pandrum", "14-note touch-playable handpan", "the active pan drum note and resonance",
      "local pan drum tones are available", "local pan drum tones are available", false, false},
 };
@@ -693,6 +696,56 @@ static const char *face_tour_health_text(const FaceTourInfo *info) {
     return info->warn;
   }
   return info->ok;
+}
+
+static const ClockFace k_instrument_stack[] = {
+    ClockFace::Chakra,      ClockFace::TibetanBowl, ClockFace::Ocarina, ClockFace::Bongo,
+    ClockFace::Piano,       ClockFace::PanDrum,     ClockFace::Tuning,
+};
+
+static const char *instrument_stack_label(ClockFace face) {
+  switch (face) {
+    case ClockFace::Chakra:
+      return "chakra";
+    case ClockFace::TibetanBowl:
+      return "bowl";
+    case ClockFace::Ocarina:
+      return "ocarina";
+    case ClockFace::Bongo:
+      return "bongo";
+    case ClockFace::Piano:
+      return "piano";
+    case ClockFace::PanDrum:
+      return "pandrum";
+    case ClockFace::Tuning:
+      return "tuning";
+    default:
+      return "instrument";
+  }
+}
+
+static bool instrument_stack_swipe(PmGestureKind kind) {
+  if (kind != PmGestureKind::SwipeUp && kind != PmGestureKind::SwipeDown) {
+    return false;
+  }
+  const ClockFace cur = pm_faces_current();
+  constexpr int n = static_cast<int>(sizeof(k_instrument_stack) / sizeof(k_instrument_stack[0]));
+  int idx = -1;
+  for (int i = 0; i < n; ++i) {
+    if (k_instrument_stack[i] == cur) {
+      idx = i;
+      break;
+    }
+  }
+  if (idx < 0) {
+    return false;
+  }
+  const int delta = kind == PmGestureKind::SwipeUp ? 1 : -1;
+  idx = (idx + delta + n) % n;
+  const ClockFace next = k_instrument_stack[idx];
+  pm_faces_set(next);
+  snprintf(g_gesture_banner, sizeof(g_gesture_banner), "%s %d/%d", instrument_stack_label(next), idx + 1, n);
+  return true;
 }
 
 static void face_tour_format_clock(char *out, size_t cap) {
@@ -1504,7 +1557,8 @@ static void poll_serial_birth_commands() {
           Serial.println("qa: 22 bongo");
           Serial.println("qa: 23 piano");
           Serial.println("qa: 24 level");
-          Serial.println("qa: 25 pandrum");
+          Serial.println("qa: 25 tuning");
+          Serial.println("qa: 26 pandrum");
         } else if (strncmp(args, "tour", 4) == 0 && (args[4] == '\0' || args[4] == ' ')) {
           handle_tour_command(args + 4);
         } else if (!pm_qa_inject_command(args)) {
@@ -1897,10 +1951,7 @@ void loop() {
       snprintf(g_gesture_banner, sizeof(g_gesture_banner), "viz %s", pm_face_spectrum_mode_label());
       g_clock_repaint_pending = true;
       continue;
-    } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Chakra &&
-               (ge.kind == PmGestureKind::SwipeUp || ge.kind == PmGestureKind::SwipeDown)) {
-      pm_face_chakra_cycle(ge.kind == PmGestureKind::SwipeUp ? 1 : -1);
-      snprintf(g_gesture_banner, sizeof(g_gesture_banner), "chakra %d/7", pm_face_chakra_index() + 1);
+    } else if (g_state == AppState::kClock && instrument_stack_swipe(ge.kind)) {
       g_clock_repaint_pending = true;
       continue;
     } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Chakra &&
@@ -1913,22 +1964,8 @@ void loop() {
       g_clock_repaint_pending = true;
       continue;
     } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::TibetanBowl &&
-               (ge.kind == PmGestureKind::SwipeUp || ge.kind == PmGestureKind::SwipeDown)) {
-      const int idx = pm_face_tibetan_bowl_cycle_chakra(ge.kind == PmGestureKind::SwipeUp ? 1 : -1);
-      snprintf(g_gesture_banner, sizeof(g_gesture_banner), "bowl chakra %d/7", idx + 1);
-      Serial.printf("[gesture] %s @ %d,%d\n", g_gesture_banner, static_cast<int>(ge.x), static_cast<int>(ge.y));
-      g_clock_repaint_pending = true;
-      continue;
-    } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::TibetanBowl &&
                ge.kind == PmGestureKind::Tap) {
       pm_face_tibetan_bowl_touch_tick(now);
-      g_clock_repaint_pending = true;
-      continue;
-    } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Ocarina &&
-               (ge.kind == PmGestureKind::SwipeUp || ge.kind == PmGestureKind::SwipeDown)) {
-      pm_face_ocarina_cycle_key(ge.kind == PmGestureKind::SwipeUp ? 1 : -1);
-      snprintf(g_gesture_banner, sizeof(g_gesture_banner), "ocarina: key %s",
-               pm_face_ocarina_key_label());
       g_clock_repaint_pending = true;
       continue;
     } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Ocarina &&
