@@ -119,6 +119,8 @@ static int s_face_tour_loaded_idx = -1;
 static uint32_t s_face_tour_last_ms = 0;
 static uint32_t s_face_tour_dwell_ms = 2800;
 static uint32_t s_face_tour_overlay_started_ms = 0;
+static uint32_t s_face_tour_bust_retry_ms = 0;
+static char s_face_tour_guide_slug[32] = "";
 static bool s_face_tour_narrate = false;
 static bool s_face_tour_button_test = false;
 static bool s_face_tour_first_run = false;
@@ -1585,9 +1587,20 @@ static bool face_tour_guide_bust_ensure(void) {
   if (!guide.valid) {
     return false;
   }
+  if (strcmp(s_face_tour_guide_slug, guide.slug) != 0) {
+    strncpy(s_face_tour_guide_slug, guide.slug, sizeof(s_face_tour_guide_slug) - 1);
+    s_face_tour_guide_slug[sizeof(s_face_tour_guide_slug) - 1] = '\0';
+    s_face_tour_bust_retry_ms = 0;
+  }
+  pm_faculty_pin_bust(guide.slug);
   if (pm_faculty_bust_ready_for(guide.slug)) {
     return true;
   }
+  const uint32_t now = millis();
+  if (s_face_tour_bust_retry_ms != 0 && now - s_face_tour_bust_retry_ms < 1500u) {
+    return false;
+  }
+  s_face_tour_bust_retry_ms = now;
   (void)pm_faculty_request_bust(guide.slug);
   return pm_faculty_bust_ready_for(guide.slug);
 }
@@ -1816,8 +1829,11 @@ static void face_tour_stop(void) {
   s_face_tour_loaded_idx = -1;
   s_face_tour_last_ms = 0;
   s_face_tour_overlay_started_ms = 0;
+  s_face_tour_bust_retry_ms = 0;
+  s_face_tour_guide_slug[0] = '\0';
   pm_presence_ble_set_suppressed(false);
   face_tour_voice_reset();
+  pm_faculty_unpin_bust();
   pm_speaker_set_auto_release(true);
   tour_mode_set_enabled(false);
   g_gesture_banner[0] = '\0';
@@ -1837,7 +1853,6 @@ static void face_tour_draw_guide_overlay(void) {
   if (!guide.valid) {
     return;
   }
-  (void)face_tour_guide_bust_ensure();
   if (!pm_faculty_bust_ready_for(guide.slug)) {
     return;
   }
@@ -1897,6 +1912,7 @@ static void face_tour_tick(uint32_t now) {
   if (pm_faculty_tick(now)) {
     g_clock_repaint_pending = true;
   }
+  (void)face_tour_guide_bust_ensure();
   if (pm_faculty_bust_status() == PmFacultyBustStatus::Working) {
     g_clock_repaint_pending = true;
   }
@@ -1996,6 +2012,7 @@ static void face_tour_tick(uint32_t now) {
     }
     pm_presence_ble_set_suppressed(false);
     face_tour_voice_reset();
+    pm_faculty_unpin_bust();
     pm_speaker_set_auto_release(true);
     g_gesture_banner[0] = '\0';
     g_clock_repaint_pending = true;

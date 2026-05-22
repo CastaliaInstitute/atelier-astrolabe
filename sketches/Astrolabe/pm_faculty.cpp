@@ -49,6 +49,7 @@ static char s_bust_flash_path[64] = "";
 static char s_bust_error[80] = "";
 static char s_bust_bearer[1536] = "";
 static char s_bust_auth[1560] = "";
+static char s_bust_pin_slug[32] = "";
 
 static constexpr int kBustFooterTop = LCD_HEIGHT - 104;
 static constexpr int kBustMaxDrawH = LCD_HEIGHT / 2;
@@ -1120,10 +1121,16 @@ static void bust_free_decoded(void) {
 }
 
 void pm_faculty_release_bust_cache(void) {
-  bust_free_decoded();
   if (s_bust_status == PmFacultyBustStatus::Working) {
+    if (s_bust_pin_slug[0] != '\0' && strcmp(s_bust_pin_slug, s_bust_req_slug) == 0) {
+      return;
+    }
     return;
   }
+  if (s_bust_pin_slug[0] != '\0' && strcmp(s_bust_pin_slug, s_bust_slug) == 0) {
+    return;
+  }
+  bust_free_decoded();
   free(s_bust_bytes);
   s_bust_bytes = nullptr;
   s_bust_len = 0;
@@ -1132,6 +1139,18 @@ void pm_faculty_release_bust_cache(void) {
   s_rise_active = false;
   s_bust_status = PmFacultyBustStatus::Idle;
   s_bust_done = false;
+}
+
+void pm_faculty_pin_bust(const char *slug) {
+  if (!slug_sane(slug)) {
+    return;
+  }
+  strncpy(s_bust_pin_slug, slug, sizeof(s_bust_pin_slug) - 1);
+  s_bust_pin_slug[sizeof(s_bust_pin_slug) - 1] = '\0';
+}
+
+void pm_faculty_unpin_bust(void) {
+  s_bust_pin_slug[0] = '\0';
 }
 
 static int bust_jpeg_draw(JPEGDRAW *pDraw) {

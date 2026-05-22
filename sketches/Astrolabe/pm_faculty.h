@@ -51,6 +51,9 @@ bool pm_faculty_draw_real_bust_for_at(const PmFacultyProfile *faculty, int cx, i
 void pm_faculty_draw_bust_fullscreen(void);
 /** Call when the active faculty slug changes (cycle / set active). */
 void pm_faculty_on_active_changed(void);
+/** Keep a faculty bust resident for cross-face overlays until unpinned. */
+void pm_faculty_pin_bust(const char *slug);
+void pm_faculty_unpin_bust(void);
 /** Release cached portrait bytes/decoded framebuffer when leaving Faculty. */
 void pm_faculty_release_bust_cache(void);
 PmFacultyBustStatus pm_faculty_bust_status(void);
