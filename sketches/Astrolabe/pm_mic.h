@@ -22,3 +22,7 @@ bool pm_mic_read_frame(int16_t *out, size_t frame_samples, size_t *bytes_read);
 void pm_mic_pick_channel(const int16_t *interleaved, size_t frame_samples, int channel, int16_t *mono);
 void pm_mic_pick_capture_channel(const int16_t *interleaved, size_t frame_samples, int capture_channel,
                                  int16_t *mono);
+/** Mix active capture slots into mono; returns false if no capture slots are configured. */
+bool pm_mic_mix_capture_channels(const int16_t *interleaved, size_t frame_samples, int16_t *mono);
+/** Repair sparse mono frames where every other sample is zero from the TDM readout path. */
+bool pm_mic_repair_sparse_mono(int16_t *mono, size_t frame_samples);

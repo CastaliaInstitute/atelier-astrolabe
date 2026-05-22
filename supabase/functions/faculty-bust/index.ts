@@ -2,7 +2,9 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { Image } from "https://deno.land/x/imagescript@1.2.15/mod.ts";
 
 import {
+  facultyBustPathIsPoseFallback,
   facultyBustPathCandidates,
+  generateFacultyBustPoseIfMissing,
   normalizeFacultyParam,
   signedFacultyBustUrl,
 } from "../_shared/facultyBust.ts";
@@ -19,7 +21,7 @@ function clampInt(value: string | null, fallback: number, lo: number, hi: number
   return Math.max(lo, Math.min(hi, Math.round(n)));
 }
 
-async function resizeBustToJpeg(upstream: Response, width: number, height: number, quality: number, fit: string) {
+async function resizeBust(upstream: Response, width: number, height: number, quality: number, fit: string, format: string) {
   const src = new Uint8Array(await upstream.arrayBuffer());
   const image = await Image.decode(src);
   if (fit === "cover") {
@@ -27,7 +29,10 @@ async function resizeBustToJpeg(upstream: Response, width: number, height: numbe
   } else {
     image.fit(width, height);
   }
-  return await image.encodeJPEG(quality);
+  if (format === "jpg" || format === "jpeg") {
+    return { bytes: await image.encodeJPEG(quality), contentType: "image/jpeg", transform: "imagescript-jpeg" };
+  }
+  return { bytes: await image.encode(2), contentType: "image/png", transform: "imagescript-png" };
 }
 
 Deno.serve(async (req) => {
@@ -40,18 +45,31 @@ Deno.serve(async (req) => {
 
   const u = new URL(req.url);
   const slug = normalizeFacultyParam(u.searchParams.get("faculty") ?? u.searchParams.get("slug") ?? "");
-  const width = clampInt(u.searchParams.get("w") ?? u.searchParams.get("width"), 192, 48, 320);
-  const height = clampInt(u.searchParams.get("h") ?? u.searchParams.get("height"), 240, 48, 360);
+  const width = clampInt(u.searchParams.get("w") ?? u.searchParams.get("width"), 200, 48, 400);
+  const height = clampInt(u.searchParams.get("h") ?? u.searchParams.get("height"), 200, 48, 400);
   const quality = clampInt(u.searchParams.get("q") ?? u.searchParams.get("quality"), 72, 35, 90);
   const resize = (u.searchParams.get("resize") ?? "contain").trim().toLowerCase();
   const fit = resize === "cover" || resize === "fill" ? resize : "contain";
+  const format = (u.searchParams.get("format") ?? "png").trim().toLowerCase();
+  const pose = (u.searchParams.get("pose") ?? "right").trim().toLowerCase();
 
   try {
-    const signed = await signedFacultyBustUrl(slug, { width, height, quality, resize: fit });
+    let generatedPath = "";
+    let generatedError = "";
+    let signed = await signedFacultyBustUrl(slug, { width, height, quality, resize: fit }, pose);
+    if (signed && facultyBustPathIsPoseFallback(signed.path, pose)) {
+      const generated = await generateFacultyBustPoseIfMissing(slug, pose);
+      if (generated.generated) {
+        generatedPath = generated.path ?? "";
+        signed = await signedFacultyBustUrl(slug, { width, height, quality, resize: fit }, pose) ?? signed;
+      } else {
+        generatedError = generated.error ?? "generation skipped";
+      }
+    }
     if (!signed) {
-      const candidates = facultyBustPathCandidates(slug);
+      const candidates = facultyBustPathCandidates(slug, pose);
       return Response.json(
-        { error: "faculty bust not found", faculty: slug, ...candidates },
+        { error: "faculty bust not found", faculty: slug, pose, ...candidates },
         { status: 404, headers: { ...corsHeaders, "Cache-Control": "no-store" } },
       );
     }
@@ -66,18 +84,21 @@ Deno.serve(async (req) => {
       );
     }
 
-    const jpeg = await resizeBustToJpeg(upstream, width, height, quality, fit);
+    const out = await resizeBust(upstream, width, height, quality, fit, format);
 
     const h = new Headers(corsHeaders);
-    h.set("Content-Type", "image/jpeg");
+    h.set("Content-Type", out.contentType);
     h.set("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800");
     h.set("X-Faculty-Slug", signed.slug);
     h.set("X-Faculty-Bust-Bucket", signed.bucket);
     h.set("X-Faculty-Bust-Path", signed.path);
+    h.set("X-Faculty-Bust-Pose", pose);
+    if (generatedPath) h.set("X-Faculty-Bust-Generated", generatedPath);
+    if (generatedError) h.set("X-Faculty-Bust-Generation-Error", generatedError.slice(0, 180));
     h.set("X-Faculty-Bust-Size", `${width}x${height}`);
-    h.set("X-Faculty-Bust-Transform", "imagescript-jpeg");
-    h.set("Content-Length", String(jpeg.byteLength));
-    return new Response(jpeg, { status: 200, headers: h });
+    h.set("X-Faculty-Bust-Transform", out.transform);
+    h.set("Content-Length", String(out.bytes.byteLength));
+    return new Response(out.bytes, { status: 200, headers: h });
   } catch (err) {
     console.error("faculty-bust failed", err);
     return Response.json(

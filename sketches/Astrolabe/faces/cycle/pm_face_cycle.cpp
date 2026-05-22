@@ -82,7 +82,7 @@ void draw_phase_dot(int x, int y, int r, float illum, bool waxing) {
       if (dx * dx + dy * dy > r * r) {
         continue;
       }
-      if (pm_moon_point_lit(dx, r, illum, waxing)) {
+      if (pm_moon_point_lit_curved(dx, dy, r, illum, waxing)) {
         pm_gfx->drawPixel(x + dx, y + dy, c_lit);
       }
     }

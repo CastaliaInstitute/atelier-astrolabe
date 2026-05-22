@@ -149,4 +149,90 @@ void pm_mic_pick_capture_channel(const int16_t *interleaved, size_t frame_sample
   pm_mic_pick_channel(interleaved, frame_samples, slot, mono);
 }
 
+bool pm_mic_mix_capture_channels(const int16_t *interleaved, size_t frame_samples, int16_t *mono) {
+  if (!interleaved || !mono || frame_samples == 0) {
+    return false;
+  }
+  const int capture_ch = pm_mic_capture_channels();
+  const int nch = pm_mic_i2s_channels();
+  int slots[PM_MIC_CAPTURE_CHANNELS] = {};
+  int slot_count = 0;
+  for (int ch = 0; ch < capture_ch && slot_count < PM_MIC_CAPTURE_CHANNELS; ++ch) {
+    const int slot = pm_mic_capture_slot(ch);
+    if (slot >= 0 && slot < nch) {
+      slots[slot_count++] = slot;
+    }
+  }
+  if (slot_count <= 0) {
+    memset(mono, 0, frame_samples * sizeof(int16_t));
+    return false;
+  }
+  if (slot_count == 1) {
+    pm_mic_pick_channel(interleaved, frame_samples, slots[0], mono);
+    return true;
+  }
+
+  for (size_t i = 0; i < frame_samples; ++i) {
+    int32_t sum = 0;
+    for (int s = 0; s < slot_count; ++s) {
+      sum += interleaved[i * static_cast<size_t>(nch) + static_cast<size_t>(slots[s])];
+    }
+    mono[i] = static_cast<int16_t>(sum / slot_count);
+  }
+  return true;
+}
+
+bool pm_mic_repair_sparse_mono(int16_t *mono, size_t frame_samples) {
+  if (!mono || frame_samples < 4) {
+    return false;
+  }
+
+  uint32_t nonzero[2] = {};
+  uint64_t sum_abs[2] = {};
+  for (size_t i = 0; i < frame_samples; ++i) {
+    const int32_t v = mono[i];
+    const uint32_t a = static_cast<uint32_t>(v < 0 ? -v : v);
+    if (a > 0) {
+      nonzero[i & 1u]++;
+      sum_abs[i & 1u] += a;
+    }
+  }
+
+  const size_t half = frame_samples / 2;
+  int active = -1;
+  int sparse = -1;
+  if (nonzero[0] > half / 4 && nonzero[1] <= half / 16 && sum_abs[0] > sum_abs[1] * 8u) {
+    active = 0;
+    sparse = 1;
+  } else if (nonzero[1] > half / 4 && nonzero[0] <= half / 16 && sum_abs[1] > sum_abs[0] * 8u) {
+    active = 1;
+    sparse = 0;
+  } else {
+    return false;
+  }
+
+  for (size_t i = static_cast<size_t>(sparse); i < frame_samples; i += 2) {
+    int32_t prev = 0;
+    int32_t next = 0;
+    bool have_prev = false;
+    bool have_next = false;
+    if (i > 0 && ((i - 1u) & 1u) == static_cast<size_t>(active)) {
+      prev = mono[i - 1u];
+      have_prev = true;
+    }
+    if (i + 1u < frame_samples && ((i + 1u) & 1u) == static_cast<size_t>(active)) {
+      next = mono[i + 1u];
+      have_next = true;
+    }
+    if (have_prev && have_next) {
+      mono[i] = static_cast<int16_t>((prev + next) / 2);
+    } else if (have_prev) {
+      mono[i] = static_cast<int16_t>(prev);
+    } else if (have_next) {
+      mono[i] = static_cast<int16_t>(next);
+    }
+  }
+  return true;
+}
+
 size_t pm_mic_frame_samples() { return VAD_BUFFER_LENGTH; }

@@ -30,14 +30,18 @@ static const char *TAG = "pm_faculty";
 
 static constexpr const char *kNvsNs = "mynah";
 static constexpr const char *kKeyActive = "fac_active";
-static constexpr size_t kBustMaxBytes = 128u * 1024u;
-static constexpr size_t kBustFlashMaxBytes = 160u * 1024u;
-static constexpr uint32_t kBustTaskStack = 12288;
+static constexpr size_t kBustMaxBytes = 320u * 1024u;
+static constexpr size_t kBustFlashMaxBytes = 360u * 1024u;
+static constexpr uint32_t kBustTaskStack = 8192;
 static constexpr uint32_t kBustPreloadMinIntervalMs = 2500u;
+
+enum class BustVariant : uint8_t { Small = 0, High = 1 };
 
 static TaskHandle_t s_bust_task = nullptr;
 static volatile PmFacultyBustStatus s_bust_status = PmFacultyBustStatus::Idle;
+static volatile bool s_bust_bg_busy = false;
 static volatile bool s_bust_done = false;
+static volatile bool s_bust_req_high_only = false;
 static char s_bust_req_slug[32] = "";
 static char s_bust_slug[32] = "";
 static uint8_t *s_bust_bytes = nullptr;
@@ -52,6 +56,7 @@ static constexpr uint32_t kBustRiseMs = 420u;
 static constexpr int kBustJpegMaxDim = 512;
 
 static uint16_t *s_decoded_fb = nullptr;
+static uint8_t *s_decoded_alpha = nullptr;
 static int s_decoded_w = 0;
 static int s_decoded_h = 0;
 static char s_decoded_slug[32] = "";
@@ -61,7 +66,6 @@ static bool s_rise_active = false;
 static uint32_t s_rise_start_ms = 0;
 static PmFacultyBustStatus s_prev_bust_status = PmFacultyBustStatus::Idle;
 static uint32_t s_last_preload_ms = 0;
-static int s_preload_slot = -1;
 
 static void key_for_slot(char *out, size_t cap, int slot, const char *suffix) {
   snprintf(out, cap, "fac%d_%s", slot, suffix);
@@ -526,7 +530,23 @@ static bool bust_cache_fs_begin(void) {
   return true;
 }
 
-static bool bust_cache_path(const char *slug, char *out, size_t cap) {
+static const char *bust_variant_suffix(BustVariant variant) {
+  return variant == BustVariant::High ? "400pr" : "200pr";
+}
+
+static int bust_variant_width(BustVariant variant) {
+  return variant == BustVariant::High ? MYNAH_FACULTY_BUST_HI_WIDTH : MYNAH_FACULTY_BUST_WIDTH;
+}
+
+static int bust_variant_height(BustVariant variant) {
+  return variant == BustVariant::High ? MYNAH_FACULTY_BUST_HI_HEIGHT : MYNAH_FACULTY_BUST_HEIGHT;
+}
+
+static int bust_variant_quality(BustVariant variant) {
+  return variant == BustVariant::High ? MYNAH_FACULTY_BUST_HI_QUALITY : MYNAH_FACULTY_BUST_QUALITY;
+}
+
+static bool bust_cache_path(const char *slug, BustVariant variant, char *out, size_t cap) {
   if (!slug_sane(slug) || !out || cap == 0) {
     return false;
   }
@@ -540,13 +560,13 @@ static bool bust_cache_path(const char *slug, char *out, size_t cap) {
       *p = '-';
     }
   }
-  const int n = snprintf(out, cap, "/busts/%s.bin", clean);
+  const int n = snprintf(out, cap, "/busts/%s-%s.bin", clean, bust_variant_suffix(variant));
   return n > 0 && static_cast<size_t>(n) < cap;
 }
 
-static bool bust_flash_cached(const char *slug) {
+static bool bust_flash_cached(const char *slug, BustVariant variant = BustVariant::Small) {
   char path[64];
-  if (!bust_cache_path(slug, path, sizeof(path)) || !bust_cache_fs_begin()) {
+  if (!bust_cache_path(slug, variant, path, sizeof(path)) || !bust_cache_fs_begin()) {
     return false;
   }
   File f = LittleFS.open(path, "r");
@@ -558,9 +578,9 @@ static bool bust_flash_cached(const char *slug) {
   return sz > 0 && sz <= kBustFlashMaxBytes;
 }
 
-static bool load_flash_bust(const char *slug) {
+static bool load_flash_bust(const char *slug, BustVariant variant = BustVariant::Small) {
   char path[64];
-  if (!bust_cache_path(slug, path, sizeof(path)) || !bust_cache_fs_begin()) {
+  if (!bust_cache_path(slug, variant, path, sizeof(path)) || !bust_cache_fs_begin()) {
     return false;
   }
   File f = LittleFS.open(path, "r");
@@ -592,16 +612,17 @@ static bool load_flash_bust(const char *slug) {
   strncpy(s_bust_slug, slug, sizeof(s_bust_slug) - 1);
   s_bust_slug[sizeof(s_bust_slug) - 1] = '\0';
   bust_set_error(nullptr);
-  Serial.printf("pm_faculty: flash bust %s (%u B)\n", s_bust_slug, static_cast<unsigned>(s_bust_len));
+  Serial.printf("pm_faculty: flash bust %s/%s (%u B)\n", s_bust_slug, bust_variant_suffix(variant),
+                static_cast<unsigned>(s_bust_len));
   return true;
 }
 
-static bool save_flash_bust(const char *slug, const uint8_t *bytes, size_t len) {
+static bool save_flash_bust(const char *slug, BustVariant variant, const uint8_t *bytes, size_t len) {
   if (!bytes || len == 0 || len > kBustFlashMaxBytes) {
     return false;
   }
   char path[64];
-  if (!bust_cache_path(slug, path, sizeof(path)) || !bust_cache_fs_begin()) {
+  if (!bust_cache_path(slug, variant, path, sizeof(path)) || !bust_cache_fs_begin()) {
     return false;
   }
   File f = LittleFS.open(path, "w");
@@ -614,7 +635,8 @@ static bool save_flash_bust(const char *slug, const uint8_t *bytes, size_t len) 
     (void)LittleFS.remove(path);
     return false;
   }
-  Serial.printf("pm_faculty: flash cached bust %s (%u B)\n", slug, static_cast<unsigned>(len));
+  Serial.printf("pm_faculty: flash cached bust %s/%s (%u B)\n", slug, bust_variant_suffix(variant),
+                static_cast<unsigned>(len));
   return true;
 }
 
@@ -670,7 +692,7 @@ static bool read_binary_body(HTTPClient *http, uint8_t **out, size_t *out_len) {
   return true;
 }
 
-static bool build_castalia_bust_url(const char *slug, char *url, size_t cap) {
+static bool build_castalia_bust_url(const char *slug, BustVariant variant, char *url, size_t cap) {
   if (!url || cap == 0 || strlen(MYNAH_FACULTY_BUST_ORIGIN) == 0) {
     return false;
   }
@@ -678,8 +700,8 @@ static bool build_castalia_bust_url(const char *slug, char *url, size_t cap) {
   strncpy(base, MYNAH_FACULTY_BUST_ORIGIN, sizeof(base) - 1);
   base[sizeof(base) - 1] = '\0';
   trim_base_url(base, sizeof(base));
-  const int n = snprintf(url, cap, "%s/api/faculty-bust/?faculty=%s&w=%d&h=%d&q=%d", base, slug,
-                         MYNAH_FACULTY_BUST_WIDTH, MYNAH_FACULTY_BUST_HEIGHT, MYNAH_FACULTY_BUST_QUALITY);
+  const int n = snprintf(url, cap, "%s/api/faculty-bust/?faculty=%s&w=%d&h=%d&q=%d&format=png&pose=right", base, slug,
+                         bust_variant_width(variant), bust_variant_height(variant), bust_variant_quality(variant));
   return n > 0 && static_cast<size_t>(n) < cap;
 }
 
@@ -709,7 +731,7 @@ static bool build_static_avatar_url(const char *slug, char *url, size_t cap) {
   return n > 0 && static_cast<size_t>(n) < cap;
 }
 
-static bool build_supabase_bust_url(const char *slug, char *url, size_t cap) {
+static bool build_supabase_bust_url(const char *slug, BustVariant variant, char *url, size_t cap) {
   if (!url || cap == 0 || strlen(MYNAH_SUPABASE_URL) == 0) {
     return false;
   }
@@ -717,8 +739,8 @@ static bool build_supabase_bust_url(const char *slug, char *url, size_t cap) {
   strncpy(base, MYNAH_SUPABASE_URL, sizeof(base) - 1);
   base[sizeof(base) - 1] = '\0';
   trim_base_url(base, sizeof(base));
-  const int n = snprintf(url, cap, "%s/functions/v1/faculty-bust?faculty=%s&w=%d&h=%d&q=%d", base, slug,
-                         MYNAH_FACULTY_BUST_WIDTH, MYNAH_FACULTY_BUST_HEIGHT, MYNAH_FACULTY_BUST_QUALITY);
+  const int n = snprintf(url, cap, "%s/functions/v1/faculty-bust?faculty=%s&w=%d&h=%d&q=%d&format=png&pose=right", base, slug,
+                         bust_variant_width(variant), bust_variant_height(variant), bust_variant_quality(variant));
   return n > 0 && static_cast<size_t>(n) < cap;
 }
 
@@ -746,7 +768,7 @@ static bool fetch_bust_url(const char *url, const char *label, uint8_t **bytes, 
     return false;
   }
   pm_castalia_auth_apply_headers(&http);
-  http.addHeader("Accept", "image/jpeg,image/*;q=0.8,*/*;q=0.1");
+  http.addHeader("Accept", "image/png,image/jpeg,image/*;q=0.8,*/*;q=0.1");
   const int code = http.GET();
   if (code != 200) {
     ESP_LOGW(TAG, "faculty-bust %s HTTP %d", label ? label : "url", code);
@@ -801,38 +823,52 @@ static bool cache_embedded_bust(const char *slug) {
   return true;
 }
 
-static bool fetch_bust_inner(const char *slug) {
+static bool fetch_bust_variant(const char *slug, BustVariant variant, bool store_ram) {
   if (!slug_sane(slug)) {
     bust_set_error("bad slug");
     return false;
   }
-  if (cache_embedded_bust(slug)) {
+  if (store_ram && load_flash_bust(slug, variant)) {
     return true;
   }
-  if (load_flash_bust(slug)) {
+  if (!store_ram && bust_flash_cached(slug, variant)) {
     return true;
   }
   if (!pm_wifi_connected()) {
     bust_set_error("no wifi");
-    return false;
+    return store_ram && variant == BustVariant::Small && cache_embedded_bust(slug);
   }
-  if (strlen(MYNAH_FACULTY_BUST_ORIGIN) == 0) {
+  if (strlen(MYNAH_FACULTY_BUST_ORIGIN) == 0 && strlen(MYNAH_SUPABASE_URL) == 0) {
     bust_set_error("no bust host");
-    return false;
+    return store_ram && variant == BustVariant::Small && cache_embedded_bust(slug);
   }
   (void)pm_castalia_auth_prepare_for_voice();
 
   uint8_t *bytes = nullptr;
   size_t len = 0;
   char url[240];
-  if (build_static_avatar_url(slug, url, sizeof(url)) && fetch_bust_url(url, "avatar", &bytes, &len)) {
+  if (build_castalia_bust_url(slug, variant, url, sizeof(url)) &&
+             fetch_bust_url(url, variant == BustVariant::High ? "castalia-400" : "castalia-200", &bytes, &len)) {
     /* ok */
-  } else if (build_castalia_bust_url(slug, url, sizeof(url)) && fetch_bust_url(url, "castalia", &bytes, &len)) {
+  } else if (build_supabase_bust_url(slug, variant, url, sizeof(url)) &&
+             fetch_bust_url(url, variant == BustVariant::High ? "supabase-400" : "supabase-200", &bytes, &len)) {
     /* ok */
-  } else if (build_supabase_bust_url(slug, url, sizeof(url)) && fetch_bust_url(url, "supabase", &bytes, &len)) {
+  } else if (variant == BustVariant::Small && build_static_avatar_url(slug, url, sizeof(url)) &&
+             fetch_bust_url(url, "avatar", &bytes, &len)) {
     /* ok */
   } else {
-    return false;
+    return store_ram && variant == BustVariant::Small && cache_embedded_bust(slug);
+  }
+
+  if (!store_ram) {
+    const bool saved = save_flash_bust(slug, variant, bytes, len);
+    free(bytes);
+    if (!saved) {
+      bust_set_error("flash save failed");
+      return false;
+    }
+    Serial.printf("pm_faculty: background bust %s/%s stored\n", slug, bust_variant_suffix(variant));
+    return true;
   }
 
   free(s_bust_bytes);
@@ -840,27 +876,81 @@ static bool fetch_bust_inner(const char *slug) {
   s_bust_len = len;
   strncpy(s_bust_slug, slug, sizeof(s_bust_slug) - 1);
   s_bust_slug[sizeof(s_bust_slug) - 1] = '\0';
-  (void)save_flash_bust(slug, s_bust_bytes, s_bust_len);
+  (void)save_flash_bust(slug, variant, s_bust_bytes, s_bust_len);
   bust_set_error(nullptr);
-  Serial.printf("pm_faculty: cached bust %s (%u B)\n", s_bust_slug, static_cast<unsigned>(s_bust_len));
+  Serial.printf("pm_faculty: cached bust %s/%s (%u B)\n", s_bust_slug, bust_variant_suffix(variant),
+                static_cast<unsigned>(s_bust_len));
   return true;
+}
+
+static bool fetch_bust_inner(const char *slug) {
+  return fetch_bust_variant(slug, BustVariant::Small, true);
 }
 
 static void bust_task(void *arg) {
   (void)arg;
-  for (;;) {
-    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-    const bool ok = fetch_bust_inner(s_bust_req_slug);
+  ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+  char slug[sizeof(s_bust_req_slug)];
+  strncpy(slug, s_bust_req_slug, sizeof(slug) - 1);
+  slug[sizeof(slug) - 1] = '\0';
+  const bool high_only = s_bust_req_high_only;
+  s_bust_req_high_only = false;
+  s_bust_bg_busy = true;
+  const bool ok = high_only ? true : fetch_bust_inner(slug);
+  if (!high_only) {
     s_bust_status = ok ? PmFacultyBustStatus::DoneOk : PmFacultyBustStatus::DoneFail;
     s_bust_done = true;
   }
+  if (ok && !bust_flash_cached(slug, BustVariant::High)) {
+    const uint32_t free_i = pm_heap_internal_free();
+    const uint32_t largest_i = pm_heap_internal_largest();
+    if (free_i >= MYNAH_FACULTY_MIN_FETCH_HEAP && largest_i >= 16000u) {
+      (void)fetch_bust_variant(slug, BustVariant::High, false);
+    } else {
+      Serial.printf("pm_faculty: defer 400 bust %s heap=%u largest=%u\n", slug, static_cast<unsigned>(free_i),
+                    static_cast<unsigned>(largest_i));
+    }
+  }
+  s_bust_bg_busy = false;
+  s_bust_task = nullptr;
+  vTaskDelete(nullptr);
 }
 
 static void bust_task_ensure(void) {
   if (s_bust_task) {
     return;
   }
-  xTaskCreatePinnedToCore(bust_task, "faculty_bust", kBustTaskStack, nullptr, 1, &s_bust_task, 1);
+  const uint32_t largest_i = pm_heap_internal_largest();
+  if (largest_i < kBustTaskStack + 4096u) {
+    Serial.printf("pm_faculty: bust task deferred heap=%u largest=%u\n",
+                  static_cast<unsigned>(pm_heap_internal_free()), static_cast<unsigned>(largest_i));
+    return;
+  }
+  const BaseType_t ok = xTaskCreatePinnedToCore(bust_task, "faculty_bust", kBustTaskStack, nullptr, 1, &s_bust_task, 1);
+  if (ok != pdPASS) {
+    s_bust_task = nullptr;
+  }
+}
+
+static bool queue_high_bust_fetch(const char *slug) {
+  if (!slug_sane(slug) || !pm_wifi_connected() || bust_flash_cached(slug, BustVariant::High) || s_bust_bg_busy ||
+      s_bust_status == PmFacultyBustStatus::Working) {
+    return false;
+  }
+  const uint32_t free_i = pm_heap_internal_free();
+  const uint32_t largest_i = pm_heap_internal_largest();
+  if (free_i < MYNAH_FACULTY_MIN_FETCH_HEAP || largest_i < 16000u) {
+    return false;
+  }
+  bust_task_ensure();
+  if (!s_bust_task) {
+    return false;
+  }
+  strncpy(s_bust_req_slug, slug, sizeof(s_bust_req_slug) - 1);
+  s_bust_req_slug[sizeof(s_bust_req_slug) - 1] = '\0';
+  s_bust_req_high_only = true;
+  xTaskNotify(s_bust_task, 1, eSetBits);
+  return true;
 }
 
 bool pm_faculty_tick_bust_fetch(void) {
@@ -876,18 +966,11 @@ bool pm_faculty_request_bust(const char *slug) {
     bust_set_error("bad slug");
     return false;
   }
-  if (s_bust_status == PmFacultyBustStatus::Working) {
+  if (s_bust_status == PmFacultyBustStatus::Working || s_bust_bg_busy) {
     return false;
   }
   if (s_bust_len > 0 && strcmp(s_bust_slug, slug) == 0) {
     return false;
-  }
-  if (cache_embedded_bust(slug)) {
-    s_bust_done = true;
-    s_bust_status = PmFacultyBustStatus::DoneOk;
-    s_rise_active = true;
-    s_rise_start_ms = millis();
-    return true;
   }
   if (load_flash_bust(slug)) {
     s_bust_done = true;
@@ -897,6 +980,13 @@ bool pm_faculty_request_bust(const char *slug) {
     return true;
   }
   if (!pm_wifi_connected()) {
+    if (cache_embedded_bust(slug)) {
+      s_bust_done = true;
+      s_bust_status = PmFacultyBustStatus::DoneOk;
+      s_rise_active = true;
+      s_rise_start_ms = millis();
+      return true;
+    }
     return false;
   }
   const uint32_t free_i = pm_heap_internal_free();
@@ -921,32 +1011,31 @@ bool pm_faculty_request_bust(const char *slug) {
 
 bool pm_faculty_preload_busts(const char *quote_slug) {
   const uint32_t now = millis();
-  if (s_bust_status == PmFacultyBustStatus::Working ||
+  if (s_bust_status == PmFacultyBustStatus::Working || s_bust_bg_busy ||
       (s_last_preload_ms != 0 && now - s_last_preload_ms < kBustPreloadMinIntervalMs)) {
     return false;
   }
   s_last_preload_ms = now;
 
-  if (slug_sane(quote_slug) && !bust_flash_cached(quote_slug)) {
-    return pm_faculty_request_bust(quote_slug);
-  }
-
-  constexpr int n = kPmFacultySlots;
-  for (int tries = 0; tries < n; ++tries) {
-    s_preload_slot = (s_preload_slot + 1 + n) % n;
-    PmFacultyProfile f = {};
-    if (!pm_faculty_get_slot(s_preload_slot, &f)) {
-      continue;
+  if (slug_sane(quote_slug)) {
+    if (!bust_flash_cached(quote_slug, BustVariant::Small)) {
+      return pm_faculty_request_bust(quote_slug);
     }
-    if (bust_flash_cached(f.slug)) {
-      continue;
+    if (!bust_flash_cached(quote_slug, BustVariant::High)) {
+      return queue_high_bust_fetch(quote_slug);
     }
-    return pm_faculty_request_bust(f.slug);
   }
 
   PmFacultyProfile active = {};
-  if (pm_faculty_active(&active) && s_bust_len == 0) {
-    return pm_faculty_request_bust(active.slug);
+  if (pm_faculty_active(&active)) {
+    const bool active_loaded =
+        (s_bust_len > 0 && strcmp(s_bust_slug, active.slug) == 0) || bust_flash_cached(active.slug, BustVariant::Small);
+    if (!active_loaded) {
+      return pm_faculty_request_bust(active.slug);
+    }
+    if (!bust_flash_cached(active.slug, BustVariant::High)) {
+      return queue_high_bust_fetch(active.slug);
+    }
   }
   return false;
 }
@@ -978,6 +1067,10 @@ static void bust_free_decoded(void) {
     free(s_decoded_fb);
     s_decoded_fb = nullptr;
   }
+  if (s_decoded_alpha) {
+    free(s_decoded_alpha);
+    s_decoded_alpha = nullptr;
+  }
   s_decoded_w = 0;
   s_decoded_h = 0;
   s_decoded_slug[0] = '\0';
@@ -988,7 +1081,13 @@ void pm_faculty_release_bust_cache(void) {
   if (s_bust_status == PmFacultyBustStatus::Working) {
     return;
   }
+  free(s_bust_bytes);
+  s_bust_bytes = nullptr;
+  s_bust_len = 0;
+  s_bust_slug[0] = '\0';
   s_rise_active = false;
+  s_bust_status = PmFacultyBustStatus::Idle;
+  s_bust_done = false;
 }
 
 static int bust_jpeg_draw(JPEGDRAW *pDraw) {
@@ -1008,7 +1107,22 @@ static int bust_png_draw(PNGDRAW *pDraw) {
     return 0;
   }
   uint16_t *dst = s_decoded_fb + pDraw->y * s_decoded_w;
-  s_bust_png.getLineAsRGB565(pDraw, dst, PNG_RGB565_BIG_ENDIAN, 0xffffffff);
+  s_bust_png.getLineAsRGB565(pDraw, dst, PNG_RGB565_LITTLE_ENDIAN, 0xffffffff);
+  if (s_decoded_alpha) {
+    uint8_t alpha_mask[(kBustJpegMaxDim + 7) / 8] = {};
+    uint8_t *row_alpha = s_decoded_alpha + static_cast<size_t>(pDraw->y) * ((s_decoded_w + 7) / 8);
+    if (s_bust_png.getAlphaMask(pDraw, alpha_mask, 8)) {
+      for (int x = 0; x < pDraw->iWidth; ++x) {
+        if ((alpha_mask[x >> 3] & (0x80u >> (x & 7))) != 0) {
+          row_alpha[x >> 3] |= (0x80u >> (x & 7));
+        }
+      }
+    } else {
+      for (int x = 0; x < pDraw->iWidth; ++x) {
+        row_alpha[x >> 3] |= (0x80u >> (x & 7));
+      }
+    }
+  }
   return 1;
 }
 
@@ -1025,6 +1139,7 @@ static bool bust_decode_jpeg_locked(const char *slug) {
   }
   s_decoded_w = w;
   s_decoded_h = h;
+  s_decoded_alpha = nullptr;
   const size_t px = static_cast<size_t>(w) * static_cast<size_t>(h);
   s_decoded_fb = static_cast<uint16_t *>(pm_heap_alloc_response(px * sizeof(uint16_t)));
   if (!s_decoded_fb) {
@@ -1033,7 +1148,7 @@ static bool bust_decode_jpeg_locked(const char *slug) {
     return false;
   }
   memset(s_decoded_fb, 0, px * sizeof(uint16_t));
-  jpg.setPixelType(RGB565_BIG_ENDIAN);
+  jpg.setPixelType(RGB565_LITTLE_ENDIAN);
   if (jpg.decode(0, 0, 0) != 1) {
     jpg.close();
     bust_free_decoded();
@@ -1058,13 +1173,16 @@ static bool bust_decode_png_locked(const char *slug) {
   s_decoded_w = w;
   s_decoded_h = h;
   const size_t px = static_cast<size_t>(w) * static_cast<size_t>(h);
+  const size_t alpha_bytes = static_cast<size_t>(h) * static_cast<size_t>((w + 7) / 8);
   s_decoded_fb = static_cast<uint16_t *>(pm_heap_alloc_response(px * sizeof(uint16_t)));
-  if (!s_decoded_fb) {
+  s_decoded_alpha = static_cast<uint8_t *>(pm_heap_alloc_response(alpha_bytes));
+  if (!s_decoded_fb || !s_decoded_alpha) {
     s_bust_png.close();
     bust_free_decoded();
     return false;
   }
   memset(s_decoded_fb, 0, px * sizeof(uint16_t));
+  memset(s_decoded_alpha, 0, alpha_bytes);
   const int rc = s_bust_png.decode(nullptr, 0);
   s_bust_png.close();
   if (rc != PNG_SUCCESS) {
@@ -1144,6 +1262,12 @@ static void bust_draw_scaled_jpeg(int cx, int bottom_y, int draw_w, int draw_h, 
         continue;
       }
       const int sx = dx * s_decoded_w / draw_w;
+      if (s_decoded_alpha) {
+        const uint8_t *row_alpha = s_decoded_alpha + static_cast<size_t>(sy) * ((s_decoded_w + 7) / 8);
+        if ((row_alpha[sx >> 3] & (0x80u >> (sx & 7))) == 0) {
+          continue;
+        }
+      }
       pm_gfx->writePixel(x, y, s_decoded_fb[sy * s_decoded_w + sx]);
     }
   }
@@ -1247,6 +1371,25 @@ static void pm_faculty_draw_bust_for_mode(const PmFacultyProfile *faculty, bool 
 
   if (s_decoded_fb && strcmp(s_decoded_slug, faculty->slug) == 0) {
     bust_draw_scaled_jpeg(cx, bottom_y, draw_w, draw_h, fullscreen ? 0 : 48, fullscreen ? LCD_HEIGHT : kBustFooterTop);
+    return;
+  }
+  bust_draw_placeholder(*faculty, cx, bottom_y, draw_h);
+}
+
+void pm_faculty_draw_bust_for_at(const PmFacultyProfile *faculty, int cx, int bottom_y, int max_w, int max_h) {
+  if (!pm_gfx || !faculty || !faculty->valid || max_w < 32 || max_h < 32) {
+    return;
+  }
+  if (strcmp(s_decoded_slug, faculty->slug) != 0) {
+    bust_free_decoded();
+  }
+  (void)bust_try_decode_for_slug(faculty->slug);
+
+  int draw_w = max_w;
+  int draw_h = max_h;
+  if (s_decoded_fb && strcmp(s_decoded_slug, faculty->slug) == 0) {
+    bust_compute_draw_size(s_decoded_w, s_decoded_h, max_w, max_h, &draw_w, &draw_h);
+    bust_draw_scaled_jpeg(cx, bottom_y, draw_w, draw_h, 0, LCD_HEIGHT);
     return;
   }
   bust_draw_placeholder(*faculty, cx, bottom_y, draw_h);

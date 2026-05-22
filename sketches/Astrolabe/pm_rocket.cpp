@@ -39,6 +39,127 @@ static volatile bool s_fetch_done = false;
 static PmRocketStatus s_fetch_result = {};
 
 static constexpr uint32_t kRocketFetchTaskStack = 32768;
+static constexpr time_t kStarship12LaunchEpoch = 1779406200;  // 2026-05-21 23:30:00 UTC
+static constexpr time_t kStarship12WindowCloseEpoch = 1779411600;  // 2026-05-22 01:00:00 UTC
+
+static bool fetch_starship12_media_timeline(PmRocketStatus *out);
+
+static bool rocket_heap_ready(uint32_t min_free, uint32_t min_largest, const char *tag) {
+  const uint32_t free_i = pm_heap_internal_free();
+  const uint32_t largest_i = pm_heap_internal_largest();
+  if (free_i < min_free || largest_i < min_largest) {
+    ESP_LOGW(TAG, "%s low heap: internal=%u largest=%u psram=%u need=%u/%u",
+             tag ? tag : "rocket", static_cast<unsigned>(free_i), static_cast<unsigned>(largest_i),
+             static_cast<unsigned>(pm_heap_psram_free()), static_cast<unsigned>(min_free),
+             static_cast<unsigned>(min_largest));
+    return false;
+  }
+  return true;
+}
+
+static bool is_starship_flight_12(const PmRocketLaunch &launch) {
+  return strstr(launch.name, "Starship Flight 12") != nullptr ||
+         strstr(launch.name, "Starship | Flight 12") != nullptr;
+}
+
+static void copy_starship12_stream_url(PmRocketLaunch *launch) {
+  if (!launch) {
+    return;
+  }
+  if (strlen(MYNAH_SUPABASE_URL) > 0) {
+    char base[96];
+    strncpy(base, MYNAH_SUPABASE_URL, sizeof(base) - 1);
+    base[sizeof(base) - 1] = '\0';
+    size_t n = strlen(base);
+    while (n > 0 && base[n - 1] == '/') {
+      base[--n] = '\0';
+    }
+    snprintf(launch->webcast_url, sizeof(launch->webcast_url),
+             "%s/functions/v1/media-stream?l=s12&r=1", base);
+    return;
+  }
+  strncpy(launch->webcast_url, "https://www.spacex.com/launches/starship-flight-12",
+          sizeof(launch->webcast_url) - 1);
+  launch->webcast_url[sizeof(launch->webcast_url) - 1] = '\0';
+}
+
+static void maybe_apply_starship12_webcast(PmRocketLaunch *launch) {
+  if (!launch || !launch->valid || !is_starship_flight_12(*launch)) {
+    return;
+  }
+  launch->net_unix = static_cast<int64_t>(kStarship12LaunchEpoch);
+  if (launch->webcast_url[0] != '\0') {
+    return;
+  }
+  copy_starship12_stream_url(launch);
+}
+
+static void rocket_timeline_add(PmRocketStatus *out, int32_t offset_sec, const char *label) {
+  if (!out || !label || !label[0] || out->timeline_count >= kPmRocketMaxTimelineEvents) {
+    return;
+  }
+  PmRocketTimelineEvent &e = out->timeline[out->timeline_count++];
+  e.valid = true;
+  e.offset_sec = offset_sec;
+  strncpy(e.label, label, sizeof(e.label) - 1);
+  e.label[sizeof(e.label) - 1] = '\0';
+}
+
+static void fill_starship12_static_timeline(PmRocketStatus *out) {
+  if (!out || out->timeline_count > 0) {
+    return;
+  }
+  rocket_timeline_add(out, -3000, "GO poll");
+  rocket_timeline_add(out, -2333, "Ship LOX");
+  rocket_timeline_add(out, -2100, "Booster LOX");
+  rocket_timeline_add(out, -1979, "Ship fuel");
+  rocket_timeline_add(out, -1290, "Raptor chill");
+  rocket_timeline_add(out, -170, "Booster load done");
+  rocket_timeline_add(out, -30, "GO for launch");
+  rocket_timeline_add(out, 0, "Liftoff");
+  rocket_timeline_add(out, 45, "Max Q");
+  rocket_timeline_add(out, 142, "MECO");
+  rocket_timeline_add(out, 144, "Hot stage");
+  rocket_timeline_add(out, 491, "Ship cutoff");
+  rocket_timeline_add(out, 1057, "Payload deploy");
+  rocket_timeline_add(out, 2317, "Relight demo");
+  rocket_timeline_add(out, 2867, "Entry");
+  rocket_timeline_add(out, 3906, "Landing burn");
+  rocket_timeline_add(out, 3908, "Landing flip");
+  rocket_timeline_add(out, 3926, "Landing");
+}
+
+static bool fill_starship12_demo(PmRocketStatus *out, const char *reason) {
+  if (!out) {
+    return false;
+  }
+  const time_t now_epoch = time(nullptr);
+  if (now_epoch > kStarship12WindowCloseEpoch + 2 * 3600) {
+    return false;
+  }
+
+  memset(out, 0, sizeof(*out));
+  PmRocketLaunch &launch = out->launches[0];
+  launch.valid = true;
+  strncpy(launch.id, "starship-flight-12-demo", sizeof(launch.id) - 1);
+  strncpy(launch.name, "Starship Flight 12", sizeof(launch.name) - 1);
+  strncpy(launch.vehicle, "Starship", sizeof(launch.vehicle) - 1);
+  strncpy(launch.provider, "SpaceX", sizeof(launch.provider) - 1);
+  strncpy(launch.pad, "Orbital Pad B", sizeof(launch.pad) - 1);
+  strncpy(launch.location, "Starbase, Texas", sizeof(launch.location) - 1);
+  strncpy(launch.status_abbrev, reason && reason[0] ? "Fallback" : "Scheduled", sizeof(launch.status_abbrev) - 1);
+  launch.net_unix = static_cast<int64_t>(kStarship12LaunchEpoch);
+  maybe_apply_starship12_webcast(&launch);
+  if (!fetch_starship12_media_timeline(out)) {
+    fill_starship12_static_timeline(out);
+  }
+  out->ok = true;
+  out->count = 1;
+  if (reason && reason[0]) {
+    snprintf(out->error, sizeof(out->error), "fallback: %.70s", reason);
+  }
+  return true;
+}
 
 static bool extract_json_string_field(const char *json, const char *key, char *out, size_t out_cap) {
   char pat[48];
@@ -319,7 +440,7 @@ static bool http_download_binary(const char *url, uint8_t **out_buf, size_t *out
   }
   *out_buf = nullptr;
   *out_len = 0;
-  if (!pm_heap_tls_ready(MYNAH_ROCKET_MIN_FETCH_HEAP, "rocket image")) {
+  if (!rocket_heap_ready(MYNAH_ROCKET_DETAIL_MIN_FETCH_HEAP, MYNAH_ROCKET_MIN_LARGEST_INTERNAL, "rocket image")) {
     return false;
   }
 
@@ -615,6 +736,121 @@ static bool read_http_body(HTTPClient &http, int streamLen, char **out_resp, siz
   return rd > 0;
 }
 
+static bool extract_json_int_field_from(const char *json, const char *key, int32_t *out) {
+  if (!json || !key || !out) {
+    return false;
+  }
+  char pat[48];
+  snprintf(pat, sizeof(pat), "\"%s\":", key);
+  const char *p = strstr(json, pat);
+  if (!p) {
+    return false;
+  }
+  p += strlen(pat);
+  while (*p == ' ' || *p == '\t' || *p == '"') {
+    ++p;
+  }
+  char *end = nullptr;
+  const long v = strtol(p, &end, 10);
+  if (!end || end == p) {
+    return false;
+  }
+  *out = static_cast<int32_t>(v);
+  return true;
+}
+
+static void parse_media_timeline_json(const char *json, PmRocketStatus *out) {
+  if (!json || !out) {
+    return;
+  }
+  const char *timeline = strstr(json, "\"timeline\":");
+  if (!timeline) {
+    return;
+  }
+  const char *entries = strstr(timeline, "\"entries\":");
+  if (!entries) {
+    return;
+  }
+  out->timeline_count = 0;
+  const char *p = entries;
+  while (out->timeline_count < kPmRocketMaxTimelineEvents && (p = strstr(p, "\"offsetSeconds\":")) != nullptr) {
+    const char *end = strstr(p + 1, "\"offsetSeconds\":");
+    if (!end) {
+      end = json + strlen(json);
+    }
+    int32_t offset = 0;
+    char label[56];
+    label[0] = '\0';
+    if (extract_json_int_field_from(p, "offsetSeconds", &offset) &&
+        extract_json_string_field(p, "label", label, sizeof(label))) {
+      rocket_timeline_add(out, offset, label);
+    }
+    p = end;
+  }
+}
+
+static bool fetch_starship12_media_timeline(PmRocketStatus *out) {
+  if (!out || strlen(MYNAH_SUPABASE_URL) == 0) {
+    return false;
+  }
+  char base[96];
+  strncpy(base, MYNAH_SUPABASE_URL, sizeof(base) - 1);
+  base[sizeof(base) - 1] = '\0';
+  size_t n = strlen(base);
+  while (n > 0 && base[n - 1] == '/') {
+    base[--n] = '\0';
+  }
+  char url[160];
+  snprintf(url, sizeof(url), "%s/functions/v1/media-stream?l=s12", base);
+  if (!rocket_heap_ready(MYNAH_ROCKET_DETAIL_MIN_FETCH_HEAP, MYNAH_ROCKET_MIN_LARGEST_INTERNAL, "rocket timeline")) {
+    return false;
+  }
+
+  WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient http;
+  http.setTimeout(MYNAH_ROCKET_HTTP_MS);
+  http.addHeader("User-Agent", kLl2UserAgent);
+  http.addHeader("Accept", "application/json");
+  if (!http.begin(client, url)) {
+    return false;
+  }
+  const int code = http.GET();
+  const int streamLen = http.getSize();
+  if (code != 200 || streamLen <= 0 || streamLen > MYNAH_ROCKET_MAX_BYTES) {
+    ESP_LOGW(TAG, "timeline HTTP %d len %d", code, streamLen);
+    http.end();
+    return false;
+  }
+  char *resp = nullptr;
+  size_t rd = 0;
+  if (!read_http_body(http, streamLen, &resp, &rd)) {
+    http.end();
+    return false;
+  }
+  http.end();
+  parse_media_timeline_json(resp, out);
+  char image_url[256];
+  image_url[0] = '\0';
+  const bool has_image_url = extract_json_string_field(resp, "imageUrl", image_url, sizeof(image_url)) && image_url[0];
+  free(resp);
+  resp = nullptr;
+  if (has_image_url) {
+    const bool launch_changed = strcmp(s_pad_launch_id, "starship-flight-12") != 0;
+    if (launch_changed || !pm_rocket_pad_image_ready()) {
+      if (launch_changed) {
+        pm_rocket_pad_image_release();
+      }
+      if (fetch_pad_image_for_url(image_url)) {
+        strncpy(s_pad_launch_id, "starship-flight-12", sizeof(s_pad_launch_id) - 1);
+        s_pad_launch_id[sizeof(s_pad_launch_id) - 1] = '\0';
+      }
+    }
+  }
+  ESP_LOGI(TAG, "timeline events=%d", out->timeline_count);
+  return out->timeline_count > 0;
+}
+
 static bool fetch_launch_detail(PmRocketLaunch *launch) {
   if (!launch || !launch->valid || launch->id[0] == '\0') {
     return false;
@@ -622,7 +858,7 @@ static bool fetch_launch_detail(PmRocketLaunch *launch) {
 
   char url[120];
   snprintf(url, sizeof(url), "https://ll.thespacedevs.com/2.2.0/launch/%s/", launch->id);
-  if (!pm_heap_tls_ready(MYNAH_ROCKET_MIN_FETCH_HEAP, "rocket detail")) {
+  if (!rocket_heap_ready(MYNAH_ROCKET_DETAIL_MIN_FETCH_HEAP, MYNAH_ROCKET_MIN_LARGEST_INTERNAL, "rocket detail")) {
     return false;
   }
 
@@ -799,6 +1035,7 @@ static bool parse_rll_launch_block(const char *block, size_t block_len, time_t n
     return false;
   }
   out->valid = true;
+  maybe_apply_starship12_webcast(out);
   return true;
 }
 
@@ -842,10 +1079,10 @@ bool pm_rocket_fetch(PmRocketStatus *out) {
     return false;
   }
   memset(out, 0, sizeof(*out));
-  if (!pm_heap_tls_ready(MYNAH_ROCKET_MIN_FETCH_HEAP, "rocket")) {
+  if (!rocket_heap_ready(MYNAH_ROCKET_MIN_FETCH_HEAP, MYNAH_ROCKET_MIN_LARGEST_INTERNAL, "rocket")) {
     snprintf(out->error, sizeof(out->error), "low memory");
     pm_rocket_pad_image_release();
-    return false;
+    return fill_starship12_demo(out, "low memory");
   }
 
   WiFiClientSecure client;
@@ -855,7 +1092,7 @@ bool pm_rocket_fetch(PmRocketStatus *out) {
   http.addHeader("User-Agent", kLl2UserAgent);
   if (!http.begin(client, kLl2UpcomingUrl)) {
     snprintf(out->error, sizeof(out->error), "HTTP begin failed");
-    return false;
+    return fill_starship12_demo(out, "HTTP begin failed");
   }
 
   const int code = http.GET();
@@ -864,14 +1101,16 @@ bool pm_rocket_fetch(PmRocketStatus *out) {
     ESP_LOGW(TAG, "LL2 HTTP %d len %d", code, streamLen);
     snprintf(out->error, sizeof(out->error), "HTTP %d", code);
     http.end();
-    return false;
+    char reason[24];
+    snprintf(reason, sizeof(reason), "HTTP %d", code);
+    return fill_starship12_demo(out, reason);
   }
 
   char *resp = static_cast<char *>(pm_heap_alloc_response(static_cast<size_t>(streamLen) + 1));
   if (!resp) {
     http.end();
     snprintf(out->error, sizeof(out->error), "alloc");
-    return false;
+    return fill_starship12_demo(out, "alloc");
   }
 
   WiFiClient *stream = http.getStreamPtr();
@@ -896,24 +1135,33 @@ bool pm_rocket_fetch(PmRocketStatus *out) {
   if (rd == 0) {
     free(resp);
     snprintf(out->error, sizeof(out->error), "empty body");
-    return false;
+    return fill_starship12_demo(out, "empty body");
   }
 
   out->count = collect_rll_launches(resp, out->launches, kPmRocketMaxLaunches);
   if (out->count <= 0) {
     out->count = collect_upcoming_launches(resp, out->launches, kPmRocketMaxLaunches);
   }
+  free(resp);
+  resp = nullptr;
   if (out->count > 0) {
     out->ok = true;
     ESP_LOGI(TAG, "launch clock: %d upcoming (next %s @ %lld)", out->count, out->launches[0].name,
              static_cast<long long>(out->launches[0].net_unix));
-    if (pm_heap_internal_free() >= 140000u && fetch_launch_detail(&out->launches[0])) {
+    maybe_apply_starship12_webcast(&out->launches[0]);
+    if (is_starship_flight_12(out->launches[0])) {
+      if (!fetch_starship12_media_timeline(out)) {
+        fill_starship12_static_timeline(out);
+      }
+    }
+    if (pm_heap_internal_free() >= MYNAH_ROCKET_DETAIL_MIN_FETCH_HEAP && fetch_launch_detail(&out->launches[0])) {
+      maybe_apply_starship12_webcast(&out->launches[0]);
       ESP_LOGI(TAG, "webcast: %s live=%d", out->launches[0].webcast_url, out->launches[0].webcast_live ? 1 : 0);
     }
   } else {
     snprintf(out->error, sizeof(out->error), "no upcoming launch");
+    (void)fill_starship12_demo(out, "no upcoming launch");
   }
-  free(resp);
   return out->ok;
 }
 

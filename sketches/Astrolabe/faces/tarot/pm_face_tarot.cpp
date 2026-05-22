@@ -10,6 +10,7 @@
 #include <ctime>
 
 #include "faces/shared/pm_face_draw.h"
+#include "esp_idf_version.h"
 #include "freertos/idf_additions.h"
 #include "pin_config.h"
 #include "pm_display.h"
@@ -365,8 +366,11 @@ void tarot_fetch_task(void *arg) {
 
 void fetch_task_ensure() {
   if (!s_fetch_task) {
-    BaseType_t ok = xTaskCreatePinnedToCoreWithCaps(tarot_fetch_task, "tarot_img", kTarotTaskStack, nullptr, 1,
-                                                    &s_fetch_task, 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    BaseType_t ok = pdFAIL;
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)
+    ok = xTaskCreatePinnedToCoreWithCaps(tarot_fetch_task, "tarot_img", kTarotTaskStack, nullptr, 1,
+                                         &s_fetch_task, 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+#endif
     if (ok != pdPASS) {
       ok = xTaskCreatePinnedToCore(tarot_fetch_task, "tarot_img", kTarotTaskStack, nullptr, 1, &s_fetch_task, 1);
     }

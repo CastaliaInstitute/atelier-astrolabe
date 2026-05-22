@@ -207,6 +207,17 @@ void pm_chart_profiles_ensure_demo_seed(void) {
   }
 }
 
+void pm_chart_profiles_load_family_demo(void) {
+  pm_chart_profiles_ensure_demo_seed();
+  for (int i = 0; i < kPmChartProfileSlots; ++i) {
+    PmChartProfile profile = {};
+    if (pm_chart_profile_get(i, &profile) && strcasecmp(profile.name, "Camille") == 0) {
+      (void)pm_chart_profiles_set_active_slot(i);
+      return;
+    }
+  }
+}
+
 int pm_chart_profiles_active_slot(void) {
   Preferences pref;
   if (!pref.begin(kNvsNs, true)) {

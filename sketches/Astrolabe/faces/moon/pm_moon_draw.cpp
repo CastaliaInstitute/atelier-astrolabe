@@ -32,19 +32,22 @@ bool pm_moon_phase_from_transit(const PmTransitPositions *tp, float *illum, bool
 }
 
 bool pm_moon_point_lit(int dx, int screen_r, float illum, bool waxing) {
+  return pm_moon_point_lit_curved(dx, 0, screen_r, illum, waxing);
+}
+
+bool pm_moon_point_lit_curved(int dx, int dy, int screen_r, float illum, bool waxing) {
   if (screen_r <= 0) {
     return false;
   }
-  const float t = (1.f - 2.f * illum) * static_cast<float>(screen_r);
+  const int r2 = screen_r * screen_r;
+  const int y2 = dy * dy;
+  if (dx * dx + y2 > r2) {
+    return false;
+  }
+  const float limb_x = sqrtf(static_cast<float>(r2 - y2));
+  const float terminator_x = (1.f - 2.f * illum) * limb_x;
   const float x = static_cast<float>(dx);
-  if (waxing) {
-    return x > t;
-  }
-  /* After full moon: gibbous (illum>0.5) shares waxing geometry; crescent uses mirrored limb. */
-  if (illum > 0.5f) {
-    return x > t;
-  }
-  return x < -t;
+  return waxing ? (x >= terminator_x) : (x <= -terminator_x);
 }
 
 static uint16_t gray_to_565(Arduino_GFX *gfx, uint8_t g) {
@@ -68,12 +71,14 @@ static float moon_pixel_shade(int dx, int dy, int r, float illum, bool waxing) {
   if (dx * dx + dy * dy > r * r) {
     return -1.f;
   }
-  if (!pm_moon_point_lit(dx, r, illum, waxing)) {
+  if (!pm_moon_point_lit_curved(dx, dy, r, illum, waxing)) {
     return 0.07f;
   }
   constexpr float k_edge = 1.25f;
-  const float t = (1.f - 2.f * illum) * static_cast<float>(r);
-  const float d = waxing || illum > 0.5f ? (static_cast<float>(dx) - t) : (-t - static_cast<float>(dx));
+  const float limb_x = sqrtf(static_cast<float>(r * r - dy * dy));
+  const float terminator_x = (1.f - 2.f * illum) * limb_x;
+  const float d = waxing ? (static_cast<float>(dx) - terminator_x)
+                         : (-terminator_x - static_cast<float>(dx));
   if (d >= k_edge) {
     return 1.f;
   }

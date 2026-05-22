@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <Arduino_GFX_Library.h>
+#include <Preferences.h>
 #include <WiFi.h>
 #include <Wire.h>
 #include <cstdio>
@@ -9,10 +10,12 @@
 #include <ctime>
 #include <cstring>
 #include <strings.h>
+#include <mbedtls/base64.h>
 
 #include "esp_heap_caps.h"
 #include <esp_system.h>
 #include "esp32-hal-tinyusb.h"
+#include "minimp3.h"
 
 #include "pin_config.h"
 #include "pm_config.h"
@@ -111,6 +114,7 @@ static uint32_t s_face_tour_last_ms = 0;
 static uint32_t s_face_tour_dwell_ms = 2800;
 static bool s_face_tour_narrate = false;
 static bool s_face_tour_button_test = false;
+static bool s_face_tour_first_run = false;
 static uint8_t s_face_tour_voice_phase = 0;
 static uint32_t s_face_tour_voice_started_ms = 0;
 static uint8_t s_face_tour_tts_retry = 0;
@@ -134,6 +138,28 @@ static char *g_moon_sys_prompt = nullptr;
 static char *g_runes_voice_msg = nullptr;
 static char *g_runes_sys_prompt = nullptr;
 static bool g_moon_voice_pcm = false;
+
+static constexpr const char *kTourPrefsNs = "tour";
+static constexpr const char *kTourPlayedKey = "played";
+
+static bool tour_played_load(void) {
+  Preferences pref;
+  if (!pref.begin(kTourPrefsNs, true)) {
+    return false;
+  }
+  const bool played = pref.getBool(kTourPlayedKey, false);
+  pref.end();
+  return played;
+}
+
+static void tour_played_set(bool played) {
+  Preferences pref;
+  if (!pref.begin(kTourPrefsNs, false)) {
+    return;
+  }
+  pref.putBool(kTourPlayedKey, played);
+  pref.end();
+}
 /** Tap fortune: stay on Moon face during think/speak. */
 static bool g_moon_fortune_active = false;
 /** Tap fortune: stay on Runes face during think/speak. */
@@ -367,11 +393,66 @@ static bool gesture_cycle_face(int delta) {
   if (g_state != AppState::kClock) {
     gesture_end_voice_ui();
   }
+  if (pm_faces_current() == ClockFace::Settings) {
+    pm_settings_on_leave();
+    pm_faces_set(delta >= 0 ? ClockFace::Synastry : ClockFace::CalciferCountdown);
+    g_gesture_banner[0] = '\0';
+    g_clock_repaint_pending = true;
+    Serial.printf("[gesture] face -> %d\n", static_cast<int>(pm_faces_current()));
+    return true;
+  }
   pm_faces_cycle(delta);
   g_gesture_banner[0] = '\0';
   g_clock_repaint_pending = true;
   Serial.printf("[gesture] face -> %d\n", static_cast<int>(pm_faces_current()));
   return true;
+}
+
+static void global_horizontal_nav_touch_tick() {
+  int16_t xs[1];
+  int16_t ys[1];
+  const uint8_t n = pm_touch_sample(xs, ys, 1);
+  static bool down = false;
+  static bool emitted = false;
+  static int16_t x0 = 0;
+  static int16_t y0 = 0;
+  static int16_t max_dx = 0;
+  static int16_t max_dy = 0;
+
+  if (n == 0) {
+    down = false;
+    emitted = false;
+    max_dx = 0;
+    max_dy = 0;
+    return;
+  }
+  if (!down) {
+    down = true;
+    emitted = false;
+    x0 = xs[0];
+    y0 = ys[0];
+    max_dx = 0;
+    max_dy = 0;
+    return;
+  }
+  const int16_t dx = static_cast<int16_t>(xs[0] - x0);
+  const int16_t dy = static_cast<int16_t>(ys[0] - y0);
+  const int16_t adx = dx < 0 ? static_cast<int16_t>(-dx) : dx;
+  const int16_t ady = dy < 0 ? static_cast<int16_t>(-dy) : dy;
+  if (adx > max_dx) {
+    max_dx = adx;
+  }
+  if (ady > max_dy) {
+    max_dy = ady;
+  }
+  if (emitted || pm_ptt_button_held()) {
+    return;
+  }
+  if (max_dx >= 28 && max_dx > max_dy + 4) {
+    emitted = true;
+    pm_gesture_reset();
+    (void)gesture_cycle_face(dx < 0 ? 1 : -1);
+  }
 }
 
 static void handle_usb_audio_stream_event(void) {
@@ -806,8 +887,8 @@ static const char *face_tour_demo_text(const FaceTourInfo *info) {
 }
 
 static const ClockFace k_instrument_stack[] = {
-    ClockFace::Chakra,      ClockFace::TibetanBowl, ClockFace::Ocarina, ClockFace::Bongo,
-    ClockFace::Piano,       ClockFace::PanDrum,     ClockFace::Tuning,
+    ClockFace::Chakra, ClockFace::Ocarina, ClockFace::Bongo,
+    ClockFace::Piano,  ClockFace::PanDrum, ClockFace::Tuning,
 };
 
 static const char *instrument_stack_label(ClockFace face) {
@@ -1061,8 +1142,10 @@ static bool face_voice_build_prompt(const FaceTourInfo *info, int idx, char *msg
                "Face: Tibetan bowl. Current state: rim instrument ready. Speak a short bowl meditation cue.");
       break;
     case ClockFace::Rocket: {
-      if ((!g_rocket_ui.ok || g_rocket_ui.count <= 0) && pm_wifi_connected() && pm_time_valid() &&
-          ESP.getFreeHeap() >= MYNAH_ROCKET_MIN_FETCH_HEAP) {
+      if ((!g_rocket_ui.ok || g_rocket_ui.count <= 0) && pm_wifi_connected() && pm_time_valid()) {
+        pm_faculty_release_bust_cache();
+        (void)pm_speaker_release_idle_task();
+        (void)pm_voice_release_idle_task();
         (void)pm_rocket_request_fetch();
       }
       const PmRocketLaunch *launch = pm_rocket_next(&g_rocket_ui);
@@ -1320,16 +1403,27 @@ static void face_tour_voice_start(const FaceTourInfo *info, int idx) {
                                         s_face_voice_faculty_slug, s_face_voice_faculty_name,
                                         &s_face_tour_voice_result);
   } else {
+    PmFacultyProfile guide = {};
+    if (pm_faculty_active(&guide)) {
+      snprintf(s_face_voice_faculty_slug, sizeof(s_face_voice_faculty_slug), "%s", guide.slug);
+      snprintf(s_face_voice_faculty_name, sizeof(s_face_voice_faculty_name), "%s", guide.name);
+    } else {
+      s_face_voice_faculty_slug[0] = '\0';
+      s_face_voice_faculty_name[0] = '\0';
+    }
     const char *health = face_tour_health_text(info);
     snprintf(s_face_tour_voice_msg, kFaceTourVoiceMsgCap,
-             "Astrolabe tour face %d of %d, %s. Product purpose: %s. Demo state: %s. Introduce what this face "
-             "is meant to do for someone seeing the device for the first time.",
-             idx + 1, static_cast<int>(ClockFace::kNumFaces), info->name, info->summary, health);
-    started = pm_voice_begin_message(s_face_tour_voice_msg,
-                                     "You narrate a first-time product tour for the Mynah Astrolabe. Be warm, "
-                                     "concrete, and brief. Explain intended product value, not implementation "
-                                     "details, unless something is unavailable.",
-                                     &s_face_tour_voice_result);
+             "Astrolabe tour face %d of %d, %s. Tour guide: %s. Product purpose: %s. Demo state: %s. "
+             "Introduce what this face is meant to do for someone seeing the device for the first time.",
+             idx + 1, static_cast<int>(ClockFace::kNumFaces), info->name,
+             guide.valid ? guide.name : "Mynah", info->summary, health);
+    started = pm_voice_begin_message_ex(s_face_tour_voice_msg,
+                                        "You narrate a first-time product tour for the Mynah Astrolabe. Speak as "
+                                        "the selected faculty guide when one is provided. Be warm, concrete, and "
+                                        "brief. Explain intended product value, not implementation details, unless "
+                                        "something is unavailable.",
+                                        "tour", s_face_voice_faculty_slug, s_face_voice_faculty_name,
+                                        &s_face_tour_voice_result);
   }
   if (!started) {
     Serial.printf("tour: narrate skipped %s err=%s\n", info->name, pm_voice_last_error());
@@ -1377,6 +1471,10 @@ static void face_tour_select(int idx) {
   if ((s_face_tour_narrate || s_face_tour_button_test) &&
       (idx == static_cast<int>(ClockFace::Spectrum) || idx == static_cast<int>(ClockFace::Tuning))) {
     pm_audio_analyzer_mic_end();
+  }
+  PmFacultyProfile guide = {};
+  if (pm_faculty_active(&guide)) {
+    (void)pm_faculty_request_bust(guide.slug);
   }
   s_face_tour_tts_retry = 0;
   snprintf(g_gesture_banner, sizeof(g_gesture_banner), "tour: %.28s", info->name);
@@ -1431,6 +1529,23 @@ static void face_tour_stop(void) {
   g_gesture_banner[0] = '\0';
   g_clock_repaint_pending = true;
   Serial.println("tour: stopped");
+}
+
+static void face_tour_draw_guide_overlay(void) {
+  if (!s_face_tour_active || !pm_gfx) {
+    return;
+  }
+  PmFacultyProfile guide = {};
+  if (!pm_faculty_active(&guide)) {
+    return;
+  }
+  const int box = LCD_WIDTH / 8;
+  const int pad = 8;
+  const int x = pad;
+  const int y = LCD_HEIGHT - box - pad;
+  pm_gfx->fillRoundRect(x - 3, y - 3, box + 6, box + 6, 6, pm_gfx->color565(6, 8, 16));
+  pm_gfx->drawRoundRect(x - 3, y - 3, box + 6, box + 6, 6, pm_gfx->color565(120, 150, 220));
+  pm_faculty_draw_bust_for_at(&guide, x + box / 2, y + box - 2, box, box);
 }
 
 static bool face_voice_begin_current(void) {
@@ -1554,6 +1669,10 @@ static void face_tour_tick(uint32_t now) {
     s_face_tour_narrate = false;
     s_face_tour_button_test = false;
     s_face_tour_idx = 0;
+    if (s_face_tour_first_run) {
+      tour_played_set(true);
+      s_face_tour_first_run = false;
+    }
     pm_presence_ble_set_suppressed(false);
     face_tour_voice_reset();
     g_gesture_banner[0] = '\0';
@@ -1688,6 +1807,21 @@ static void handle_tour_command(const char *args) {
   }
   if (strcmp(p, "stop") == 0) {
     face_tour_stop();
+    return;
+  }
+  if (strcmp(p, "reset") == 0 || strcmp(p, "unplayed") == 0) {
+    tour_played_set(false);
+    Serial.println("tour: played reset");
+    return;
+  }
+  if (strcmp(p, "played") == 0 || strcmp(p, "status") == 0) {
+    Serial.printf("tour: played=%d active=%d guide=", tour_played_load() ? 1 : 0, s_face_tour_active ? 1 : 0);
+    PmFacultyProfile guide = {};
+    if (pm_faculty_active(&guide)) {
+      Serial.printf("%s (%s)\n", guide.name, guide.slug);
+    } else {
+      Serial.println("-");
+    }
     return;
   }
   bool narrate = false;
@@ -1831,8 +1965,11 @@ static void qa_note_capture() {
     if (best_peak > capture_peak) {
       capture_peak = best_peak;
     }
-    pm_mic_pick_capture_channel(raw, ns, best_ch, mono);
-    pm_audio_analyzer_cancel_echo_channel(best_ch, mono, ns);
+    if (!pm_mic_mix_capture_channels(raw, ns, mono)) {
+      pm_mic_pick_capture_channel(raw, ns, best_ch, mono);
+    }
+    (void)pm_mic_repair_sparse_mono(mono, ns);
+    pm_audio_analyzer_cancel_echo_channel(0, mono, ns);
     memcpy(g_pcm + pcm_len, mono, frame_bytes);
     pcm_len += frame_bytes;
   }
@@ -1853,6 +1990,219 @@ static void qa_note_capture() {
                   static_cast<unsigned>(capture_peak), static_cast<unsigned>(pm_commonplace_offline_note_count()),
                   pm_commonplace_last_error());
   }
+}
+
+static void qa_pcm_dump(uint32_t duration_ms) {
+  if (duration_ms == 0 || duration_ms > 5000u) {
+    duration_ms = 3000u;
+  }
+  ensure_pcm_buffer();
+  if (!g_pcm) {
+    Serial.println("qa: pcm dump no buffer");
+    return;
+  }
+  if (!pm_mic_begin()) {
+    Serial.println("qa: pcm dump mic begin failed");
+    return;
+  }
+
+  const size_t ns = pm_mic_frame_samples();
+  const int nch = pm_mic_i2s_channels();
+  static int16_t raw[512 * 4];
+  static int16_t mono[512];
+  const size_t frame_bytes = ns * sizeof(int16_t);
+  if (nch <= 0 || ns == 0 || ns > sizeof(mono) / sizeof(mono[0]) ||
+      ns * static_cast<size_t>(nch) > sizeof(raw) / sizeof(raw[0]) || frame_bytes == 0) {
+    Serial.printf("qa: pcm dump bad geometry ns=%u channels=%d\n", static_cast<unsigned>(ns), nch);
+    pm_mic_stop();
+    return;
+  }
+
+  const uint32_t target_frames = (duration_ms + 29u) / 30u;
+  size_t pcm_len = 0;
+  uint32_t peak = 0;
+  uint32_t frames_ok = 0;
+  Serial.printf("qa: pcm dump capture duration_ms=%u frames=%u\n", static_cast<unsigned>(duration_ms),
+                static_cast<unsigned>(target_frames));
+  for (uint32_t frame_idx = 0; frame_idx < target_frames &&
+                               pcm_len + frame_bytes <= MYNAH_VOICE_MAX_PCM_BYTES;
+       ++frame_idx) {
+    size_t br = 0;
+    if (!pm_mic_read_frame(raw, ns, &br) || br == 0) {
+      continue;
+    }
+    ++frames_ok;
+    if (!pm_mic_mix_capture_channels(raw, ns, mono)) {
+      pm_mic_pick_capture_channel(raw, ns, 0, mono);
+    }
+    (void)pm_mic_repair_sparse_mono(mono, ns);
+    pm_audio_analyzer_cancel_echo_channel(0, mono, ns);
+    for (size_t i = 0; i < ns; ++i) {
+      const int32_t sample = mono[i];
+      const uint32_t a = static_cast<uint32_t>(sample < 0 ? -sample : sample);
+      if (a > peak) {
+        peak = a;
+      }
+    }
+    memcpy(g_pcm + pcm_len, mono, frame_bytes);
+    pcm_len += frame_bytes;
+  }
+  pm_mic_stop();
+
+  size_t b64_len = 0;
+  const int probe = mbedtls_base64_encode(nullptr, 0, &b64_len, g_pcm, pcm_len);
+  if (probe != MBEDTLS_ERR_BASE64_BUFFER_TOO_SMALL || b64_len == 0) {
+    Serial.printf("qa: pcm dump b64 size failed rc=%d bytes=%u\n", probe, static_cast<unsigned>(pcm_len));
+    return;
+  }
+  uint8_t *b64 = static_cast<uint8_t *>(heap_caps_malloc(b64_len + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  if (!b64) {
+    b64 = static_cast<uint8_t *>(malloc(b64_len + 1));
+  }
+  if (!b64) {
+    Serial.printf("qa: pcm dump oom b64 bytes=%u b64=%u\n", static_cast<unsigned>(pcm_len),
+                  static_cast<unsigned>(b64_len));
+    return;
+  }
+  size_t olen = 0;
+  if (mbedtls_base64_encode(b64, b64_len + 1, &olen, g_pcm, pcm_len) != 0) {
+    free(b64);
+    Serial.println("qa: pcm dump b64 encode failed");
+    return;
+  }
+  b64[olen] = '\0';
+
+  Serial.printf("QA_PCM_BEGIN bytes=%u sample_rate=16000 channels=1 encoding=s16le frames=%u peak=%u\n",
+                static_cast<unsigned>(pcm_len), static_cast<unsigned>(frames_ok), static_cast<unsigned>(peak));
+  for (size_t off = 0; off < olen; off += 512u) {
+    const size_t n = (olen - off > 512u) ? 512u : (olen - off);
+    Serial.write(b64 + off, n);
+    Serial.write('\n');
+    delay(2);
+  }
+  Serial.println("QA_PCM_END");
+  free(b64);
+}
+
+static bool qa_decode_mp3_to_16k_mono(const uint8_t *mp3, size_t mp3_len, uint8_t *pcm_out, size_t pcm_cap,
+                                      size_t *pcm_len_out, uint32_t *peak_out) {
+  if (!mp3 || mp3_len == 0 || !pcm_out || pcm_cap == 0 || !pcm_len_out || !peak_out) {
+    return false;
+  }
+  *pcm_len_out = 0;
+  *peak_out = 0;
+  mp3dec_t *dec = static_cast<mp3dec_t *>(heap_caps_malloc(sizeof(mp3dec_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  if (!dec) {
+    dec = static_cast<mp3dec_t *>(malloc(sizeof(mp3dec_t)));
+  }
+  int16_t *frame_pcm = static_cast<int16_t *>(heap_caps_malloc(MINIMP3_MAX_SAMPLES_PER_FRAME * sizeof(int16_t),
+                                                               MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  if (!frame_pcm) {
+    frame_pcm = static_cast<int16_t *>(malloc(MINIMP3_MAX_SAMPLES_PER_FRAME * sizeof(int16_t)));
+  }
+  if (!dec || !frame_pcm) {
+    free(dec);
+    free(frame_pcm);
+    return false;
+  }
+  mp3dec_init(dec);
+  const uint8_t *buf = mp3;
+  int bytes_left = static_cast<int>(mp3_len);
+  double src_pos = 0.0;
+  int frame_hz = 0;
+
+  while (bytes_left > 0 && *pcm_len_out + sizeof(int16_t) <= pcm_cap) {
+    mp3dec_frame_info_t info = {};
+    const int samples_per_ch = mp3dec_decode_frame(dec, buf, bytes_left, frame_pcm, &info);
+    if (info.frame_bytes <= 0) {
+      break;
+    }
+    buf += info.frame_bytes;
+    bytes_left -= info.frame_bytes;
+    if (samples_per_ch <= 0 || info.hz <= 0 || info.channels <= 0) {
+      continue;
+    }
+    if (frame_hz != info.hz) {
+      frame_hz = info.hz;
+      src_pos = 0.0;
+    }
+    const double step = static_cast<double>(info.hz) / 16000.0;
+    while (src_pos < samples_per_ch && *pcm_len_out + sizeof(int16_t) <= pcm_cap) {
+      const int idx = static_cast<int>(src_pos);
+      int32_t mixed = 0;
+      for (int ch = 0; ch < info.channels; ++ch) {
+        mixed += frame_pcm[idx * info.channels + ch];
+      }
+      int16_t sample = static_cast<int16_t>(mixed / info.channels);
+      const int32_t a = sample < 0 ? -static_cast<int32_t>(sample) : static_cast<int32_t>(sample);
+      if (static_cast<uint32_t>(a) > *peak_out) {
+        *peak_out = static_cast<uint32_t>(a);
+      }
+      memcpy(pcm_out + *pcm_len_out, &sample, sizeof(sample));
+      *pcm_len_out += sizeof(sample);
+      src_pos += step;
+    }
+    src_pos -= samples_per_ch;
+  }
+  free(frame_pcm);
+  free(dec);
+  return *pcm_len_out > 0;
+}
+
+static void qa_stt_tts_loop() {
+  static const char kPhrase[] = "Mynah test phrase.";
+  static const char kTtsSys[] = "Speak the user's sentence exactly. Do not add words.";
+  static const char kSttSys[] = "Transcribe the audio. Return only what was said.";
+
+  ensure_pcm_buffer();
+  if (!g_pcm) {
+    Serial.println("qa: stt tts no pcm buffer");
+    return;
+  }
+  if (!pm_wifi_connected()) {
+    Serial.println("qa: stt tts need wifi");
+    return;
+  }
+  pm_faculty_release_bust_cache();
+  (void)pm_speaker_release_idle_task();
+  (void)pm_voice_release_idle_task();
+  Serial.printf("qa: stt tts heap_before=%u largest=%u psram=%u\n",
+                static_cast<unsigned>(pm_heap_internal_free()),
+                static_cast<unsigned>(pm_heap_internal_largest()),
+                static_cast<unsigned>(pm_heap_psram_free()));
+
+  PmVoiceResult tts = {};
+  PmVoiceResult stt = {};
+  Serial.printf("qa: stt tts phrase=\"%s\"\n", kPhrase);
+  if (!pm_voice_post_message(kPhrase, kTtsSys, &tts) || !tts.mp3 || tts.mp3_len == 0) {
+    Serial.printf("qa: stt tts tts failed err=%s\n", pm_voice_last_error());
+    pm_voice_result_free(&tts);
+    return;
+  }
+  Serial.printf("qa: stt tts mp3=%u\n", static_cast<unsigned>(tts.mp3_len));
+
+  size_t pcm_len = 0;
+  uint32_t peak = 0;
+  if (!qa_decode_mp3_to_16k_mono(tts.mp3, tts.mp3_len, g_pcm, MYNAH_VOICE_MAX_PCM_BYTES, &pcm_len, &peak)) {
+    Serial.println("qa: stt tts decode failed");
+    pm_voice_result_free(&tts);
+    return;
+  }
+  Serial.printf("qa: stt tts decoded pcm16k=%u peak=%u\n", static_cast<unsigned>(pcm_len),
+                static_cast<unsigned>(peak));
+  pm_voice_result_free(&tts);
+  Serial.printf("qa: stt tts heap_pre_stt=%u largest=%u psram=%u\n",
+                static_cast<unsigned>(pm_heap_internal_free()),
+                static_cast<unsigned>(pm_heap_internal_largest()),
+                static_cast<unsigned>(pm_heap_psram_free()));
+
+  if (pm_voice_post_pcm(g_pcm, pcm_len, kSttSys, &stt)) {
+    Serial.printf("qa: stt tts transcript=\"%s\" reply=\"%s\" mp3=%u\n", stt.transcript, stt.reply,
+                  static_cast<unsigned>(stt.mp3_len));
+  } else {
+    Serial.printf("qa: stt tts stt failed err=%s\n", pm_voice_last_error());
+  }
+  pm_voice_result_free(&stt);
 }
 
 static void poll_serial_birth_commands() {
@@ -1958,6 +2308,17 @@ static void poll_serial_birth_commands() {
           qa_mic_probe();
         } else if (strcmp(args, "note") == 0) {
           qa_note_capture();
+        } else if (strcmp(args, "pcm") == 0 || strncmp(args, "pcm ", 4) == 0) {
+          uint32_t duration_ms = 3000u;
+          if (strncmp(args, "pcm ", 4) == 0) {
+            const long parsed = strtol(args + 4, nullptr, 10);
+            if (parsed > 0) {
+              duration_ms = static_cast<uint32_t>(parsed);
+            }
+          }
+          qa_pcm_dump(duration_ms);
+        } else if (strcmp(args, "stt tts") == 0 || strcmp(args, "tts stt") == 0) {
+          qa_stt_tts_loop();
         } else if (strcmp(args, "time") == 0) {
           print_time_status("qa time");
         } else if (strcmp(args, "briefing") == 0 || strcmp(args, "brief") == 0) {
@@ -1999,7 +2360,7 @@ static void poll_serial_birth_commands() {
         } else if (strncmp(args, "tour", 4) == 0 && (args[4] == '\0' || args[4] == ' ')) {
           handle_tour_command(args + 4);
         } else if (!pm_qa_inject_command(args)) {
-          Serial.println("qa: usage: status | heap | audio | mic | note | time | briefing | tone | bowl | faces | tour [narrate|tts] [dwell_ms] | tour stop | inject …");
+          Serial.println("qa: usage: status | heap | audio | mic | note | pcm [ms] | stt tts | time | briefing | tone | bowl | faces | tour [narrate|tts] [dwell_ms] | tour stop | inject …");
         }
       } else if (strncmp(line, "face ", 5) == 0) {
         s_face_tour_active = false;
@@ -2033,6 +2394,8 @@ static void poll_serial_birth_commands() {
           page = SettingsPage::WiFi;
         } else if (strcmp(p, "castalia") == 0) {
           page = SettingsPage::Castalia;
+        } else if (strcmp(p, "tour") == 0) {
+          page = SettingsPage::Tour;
         } else if (strcmp(p, "aec") == 0 || strcmp(p, "echo") == 0) {
           page = SettingsPage::Aec;
         } else {
@@ -2048,7 +2411,7 @@ static void poll_serial_birth_commands() {
           g_clock_repaint_pending = true;
           Serial.printf("settings: %s\n", pm_settings_page_name(page));
         } else {
-          Serial.println("settings: usage: settings wifi|castalia|aec");
+          Serial.println("settings: usage: settings wifi|castalia|tour|aec");
         }
       } else if (strncmp(line, "tour", 4) == 0 && (line[4] == '\0' || line[4] == ' ')) {
         handle_tour_command(line + 4);
@@ -2220,7 +2583,7 @@ void setup() {
   pm_gesture_reset();
   (void)pm_side_buttons_begin();
   pm_birth_ensure_demo();
-  pm_chart_profiles_ensure_demo_seed();
+  pm_chart_profiles_load_family_demo();
   pm_faculty_ensure_demo_seed();
   pm_home_gem_pulse_begin();
   pm_user_begin();
@@ -2244,6 +2607,10 @@ void setup() {
                 pm_wifi_mdns_name(), pm_wifi_mac_string(), WiFi.localIP().toString().c_str(), static_cast<unsigned>(pm_heap_internal_free()),
                 static_cast<unsigned>(pm_heap_internal_largest()), static_cast<unsigned>(pm_heap_psram_free()));
   Serial.println("Mynah Astrolabe ready");
+  if (!tour_played_load()) {
+    s_face_tour_first_run = true;
+    face_tour_start(1200u, true, false);
+  }
 #endif
 }
 
@@ -2254,6 +2621,7 @@ void loop() {
 #endif
   const uint32_t now = millis();
   pm_gesture_poll(now);
+  global_horizontal_nav_touch_tick();
   pm_presence_tick(now);
   poll_serial_birth_commands();
   face_tour_tick(now);
@@ -2268,6 +2636,11 @@ void loop() {
 
   PmGestureEvent ge;
   while (pm_gesture_consume(&ge)) {
+    if (ge.kind == PmGestureKind::SwipeLeft || ge.kind == PmGestureKind::SwipeRight) {
+      const int delta = ge.kind == PmGestureKind::SwipeLeft ? 1 : -1;
+      (void)gesture_cycle_face(delta);
+      continue;
+    }
     if (g_state == AppState::kClock && pm_faces_is_commonplace_home() &&
         ge.kind == PmGestureKind::Tap) {
       if (home_begin_daily_briefing()) {
@@ -2309,6 +2682,36 @@ void loop() {
           pm_faces_draw();
         }
         continue;
+      }
+      if (pm_settings_page() == SettingsPage::Tour) {
+        if (ge.kind == PmGestureKind::Tap) {
+          s_face_tour_first_run = false;
+          face_tour_start(1200u, true, false);
+          continue;
+        }
+        if (ge.kind == PmGestureKind::LongPress) {
+          tour_played_set(false);
+          snprintf(g_gesture_banner, sizeof(g_gesture_banner), "tour: reset");
+          g_clock_repaint_pending = false;
+          if (pm_gfx) {
+            pm_faces_draw();
+          }
+          continue;
+        }
+        if (ge.kind == PmGestureKind::SwipeUp || ge.kind == PmGestureKind::SwipeDown) {
+          PmFacultyProfile faculty = {};
+          if (pm_faculty_cycle_active(ge.kind == PmGestureKind::SwipeDown ? 1 : -1, &faculty)) {
+            snprintf(g_gesture_banner, sizeof(g_gesture_banner), "guide: %.25s", faculty.name);
+            (void)pm_faculty_tick_bust_fetch();
+          } else {
+            snprintf(g_gesture_banner, sizeof(g_gesture_banner), "guide: no faculty");
+          }
+          g_clock_repaint_pending = false;
+          if (pm_gfx) {
+            pm_faces_draw();
+          }
+          continue;
+        }
       }
       if (ge.kind == PmGestureKind::SwipeUp) {
         pm_settings_on_leave();
@@ -2409,6 +2812,12 @@ void loop() {
       snprintf(g_gesture_banner, sizeof(g_gesture_banner), "chakra %d/7", idx + 1);
       g_clock_repaint_pending = true;
       continue;
+    } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::TibetanBowl &&
+               (ge.kind == PmGestureKind::SwipeUp || ge.kind == PmGestureKind::SwipeDown)) {
+      const int idx = pm_face_tibetan_bowl_cycle_chakra(ge.kind == PmGestureKind::SwipeUp ? 1 : -1);
+      snprintf(g_gesture_banner, sizeof(g_gesture_banner), "bowl %d/7", idx + 1);
+      g_clock_repaint_pending = true;
+      continue;
     } else if (g_state == AppState::kClock && instrument_stack_swipe(ge.kind)) {
       g_clock_repaint_pending = true;
       continue;
@@ -2474,7 +2883,7 @@ void loop() {
     } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Faculty &&
                (ge.kind == PmGestureKind::SwipeUp || ge.kind == PmGestureKind::SwipeDown)) {
       PmFacultyProfile faculty = {};
-      if (pm_faculty_cycle_active(ge.kind == PmGestureKind::SwipeUp ? 1 : -1, &faculty)) {
+      if (pm_faculty_cycle_active(ge.kind == PmGestureKind::SwipeDown ? 1 : -1, &faculty)) {
         snprintf(g_gesture_banner, sizeof(g_gesture_banner), "faculty: %.25s", faculty.name);
         (void)pm_faculty_tick_bust_fetch();
       } else {
@@ -2525,14 +2934,7 @@ void loop() {
       continue;
     } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Rocket &&
                ge.kind == PmGestureKind::Tap) {
-      if (pm_face_rocket_has_stream()) {
-        pm_face_rocket_toggle_stream_qr();
-        snprintf(g_gesture_banner, sizeof(g_gesture_banner),
-                 pm_face_rocket_stream_qr_visible() ? "launch: stream QR" : "launch: clock");
-        g_gesture_banner[sizeof(g_gesture_banner) - 1] = '\0';
-      } else {
-        snprintf(g_gesture_banner, sizeof(g_gesture_banner), "launch: no stream");
-      }
+      (void)pm_face_rocket_tap(ge.x, ge.y, g_gesture_banner, sizeof(g_gesture_banner));
       g_clock_repaint_pending = true;
     } else if (ge.kind != PmGestureKind::SwipeUp && ge.kind != PmGestureKind::SwipeDown) {
       snprintf(g_gesture_banner, sizeof(g_gesture_banner), "%s", gesture_label(ge.kind));
@@ -2786,6 +3188,8 @@ void loop() {
       const bool calcifer_sec =
           pm_faces_current() == ClockFace::CalciferCountdown && valid && sec_tick;
       const bool rocket_sec = pm_faces_current() == ClockFace::Rocket && valid && sec_tick;
+      const bool rocket_anim =
+          pm_faces_current() == ClockFace::Rocket && valid && pm_face_rocket_needs_repaint(now);
       static uint32_t s_last_wifi_settings_graph_ms = 0;
       bool wifi_settings_graph = false;
       if (pm_faces_current() == ClockFace::Settings && pm_settings_page() == SettingsPage::WiFi &&
@@ -2807,7 +3211,7 @@ void loop() {
 #endif
       const bool non_gem_paint = !s_clock_paint_inited || slow_no_time || banner_chg || wifi_chg ||
                                  g_clock_repaint_pending || local_hm_chg || spotify_stale || calcifer_stale ||
-                                 weather_stale || quotes_face_stale || quotes_preload_due || rocket_stale || sec_tick_paint || calcifer_sec || rocket_sec ||
+                                 weather_stale || quotes_face_stale || quotes_preload_due || rocket_stale || sec_tick_paint || calcifer_sec || rocket_sec || rocket_anim ||
                                  astro_repaint || spectrum_anim || chakra_anim || bowl_anim || ocarina_anim || bongo_anim ||
                                  piano_anim || pandrum_anim || alethiometer_anim || radar_anim || level_anim || faculty_anim ||
                                  wifi_settings_graph || aec_settings_anim;
@@ -2867,10 +3271,13 @@ void loop() {
           s_last_quotes_poll_ms = now;
           s_quotes_have_data = true;
         }
-        if (s_quotes_have_data && g_quotes_ui.ok && g_quotes_ui.faculty_slug[0]) {
-          (void)pm_faculty_preload_busts(g_quotes_ui.faculty_slug);
-        } else {
-          (void)pm_faculty_preload_busts(nullptr);
+        if (g_state == AppState::kClock &&
+            (pm_faces_current() == ClockFace::Quotes || pm_faces_current() == ClockFace::Faculty)) {
+          if (s_quotes_have_data && g_quotes_ui.ok && g_quotes_ui.faculty_slug[0]) {
+            (void)pm_faculty_preload_busts(g_quotes_ui.faculty_slug);
+          } else {
+            (void)pm_faculty_preload_busts(nullptr);
+          }
         }
 
         if (pm_faces_current() == ClockFace::Quotes) {
@@ -2893,14 +3300,11 @@ void loop() {
         }
         if (pm_faces_current() == ClockFace::Rocket && pm_wifi_connected() && valid) {
           if (!s_rocket_have_data || rocket_stale) {
-            if (ESP.getFreeHeap() < MYNAH_ROCKET_MIN_FETCH_HEAP) {
-              memset(&g_rocket_ui, 0, sizeof(g_rocket_ui));
-              snprintf(g_rocket_ui.error, sizeof(g_rocket_ui.error), "low memory");
-              pm_rocket_pad_image_release();
-            } else {
-              pm_face_rocket_reset_selection();
-              (void)pm_rocket_request_fetch();
-            }
+            pm_faculty_release_bust_cache();
+            (void)pm_speaker_release_idle_task();
+            (void)pm_voice_release_idle_task();
+            pm_face_rocket_reset_selection();
+            (void)pm_rocket_request_fetch();
             s_last_rocket_poll_ms = now;
             s_rocket_have_data = true;
           }
@@ -2910,6 +3314,10 @@ void loop() {
             pm_faces_draw_home_gem_pulse();
           } else {
             pm_faces_draw();
+          }
+          face_tour_draw_guide_overlay();
+          if (s_face_tour_active) {
+            gfx->flush();
           }
         }
         if (!valid) {
@@ -3104,8 +3512,11 @@ void loop() {
             pm_mic_pick_capture_channel(raw, ns, ch, frame);
             pm_audio_analyzer_feed_in_channel(ch, frame, ns);
           }
-          pm_mic_pick_capture_channel(raw, ns, best_ch, frame);
-          pm_audio_analyzer_cancel_echo_channel(best_ch, frame, ns);
+          if (!pm_mic_mix_capture_channels(raw, ns, frame)) {
+            pm_mic_pick_capture_channel(raw, ns, best_ch, frame);
+          }
+          (void)pm_mic_repair_sparse_mono(frame, ns);
+          pm_audio_analyzer_cancel_echo_channel(0, frame, ns);
           memcpy(g_pcm + g_pcm_len, frame, frame_bytes);
           g_pcm_len += frame_bytes;
         }
@@ -3532,6 +3943,13 @@ void loop() {
         const char *question = g_voice_result.transcript[0] ? g_voice_result.transcript : "";
         const char *reply = g_voice_result.reply[0] ? g_voice_result.reply : question;
         pm_face_alethiometer_seed_from_text(question, reply);
+      }
+      if (g_voice_result.faculty_slug[0] != '\0') {
+        pm_faculty_note_turn(g_voice_result.faculty_slug, g_voice_result.faculty_name,
+                             g_voice_result.transcript, g_voice_result.reply);
+        if (pm_faces_current() == ClockFace::Faculty) {
+          (void)pm_faculty_tick_bust_fetch();
+        }
       }
       if (voice_audio_buffered) {
         voice_last_play_save(g_voice_result.mp3, g_voice_result.mp3_len);

@@ -4,11 +4,13 @@
 #include <WiFi.h>
 #include <WiFiClient.h>
 #include <WiFiClientSecure.h>
+#include <math.h>
 #include <mbedtls/base64.h>
 #include <mbedtls/platform.h>
 #include <string.h>
 
 #include "esp_heap_caps.h"
+#include "esp_idf_version.h"
 #include "esp_log.h"
 #include "esp_netif.h"
 #include "esp_task_wdt.h"
@@ -24,7 +26,7 @@
 
 static const char *TAG = "pm_voice";
 
-static constexpr uint32_t kVoiceNetTaskStack = 16384;
+static constexpr uint32_t kVoiceNetTaskStack = 28672;
 /** STT + Gemini + TTS + large chunked JSON (astrology readings). */
 static constexpr uint32_t kVoiceHttpTimeoutMs = 660000;
 /** voice-pipeline JSON + base64 MP3. */
@@ -39,6 +41,8 @@ static volatile uint8_t s_voice_op = 0; /** 1 = message, 2 = pcm, 3 = clock_agen
 static volatile bool s_voice_cancel = false;
 static volatile bool s_daily_briefing_streamed = false;
 static volatile bool s_daily_briefing_streaming_play = false;
+static volatile bool s_message_streamed = false;
+static volatile bool s_message_streaming_play = false;
 static uint32_t s_voice_started_ms = 0;
 
 static const char *s_req_message = nullptr;
@@ -58,6 +62,8 @@ static const char *kVoiceMp3Headers[] = {
     "X-Voice-Transcript",
     "X-Voice-Route",
     "X-Voice-Tts-Chars",
+    "X-Faculty-Slug",
+    "X-Faculty-Name",
 };
 
 static void voice_set_error(const char *msg);
@@ -75,21 +81,12 @@ static void *voice_mbedtls_calloc(size_t n, size_t size) {
   if (size != 0 && n > SIZE_MAX / size) {
     return nullptr;
   }
-  const size_t bytes = n * size;
-  constexpr size_t kPreferPsramThreshold = 64;
   void *p = nullptr;
-  if (bytes >= kPreferPsramThreshold) {
-    p = heap_caps_calloc(n, size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (p) {
-      return p;
-    }
-    return heap_caps_calloc(n, size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-  }
-  p = heap_caps_calloc(n, size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  p = heap_caps_calloc(n, size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (p) {
     return p;
   }
-  return heap_caps_calloc(n, size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  return heap_caps_calloc(n, size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
 }
 
 static void voice_mbedtls_free(void *p) {
@@ -258,6 +255,14 @@ static void voice_copy_mp3_headers(HTTPClient *http, PmVoiceResult *r) {
   if (reply_raw.length() > 0) {
     copy_percent_decoded(reply_raw, r->reply, sizeof(r->reply));
   }
+  const String faculty_slug_raw = http->header("X-Faculty-Slug");
+  if (faculty_slug_raw.length() > 0) {
+    copy_percent_decoded(faculty_slug_raw, r->faculty_slug, sizeof(r->faculty_slug));
+  }
+  const String faculty_name_raw = http->header("X-Faculty-Name");
+  if (faculty_name_raw.length() > 0) {
+    copy_percent_decoded(faculty_name_raw, r->faculty_name, sizeof(r->faculty_name));
+  }
 }
 
 static void voice_print_reply_preview(const char *prefix, const char *reply) {
@@ -307,6 +312,10 @@ void pm_voice_result_free(PmVoiceResult *r) {
   if (!r) {
     return;
   }
+  r->transcript[0] = '\0';
+  r->reply[0] = '\0';
+  r->faculty_slug[0] = '\0';
+  r->faculty_name[0] = '\0';
   free(r->mp3);
   r->mp3 = nullptr;
   r->mp3_len = 0;
@@ -750,6 +759,61 @@ static void voice_set_http_error(int code) {
   }
 }
 
+static uint32_t voice_pcm_peak(const uint8_t *pcm, size_t pcm_len) {
+  if (!pcm || pcm_len < sizeof(int16_t)) {
+    return 0;
+  }
+  uint32_t peak = 0;
+  const size_t samples = pcm_len / sizeof(int16_t);
+  for (size_t i = 0; i < samples; ++i) {
+    int16_t s = 0;
+    memcpy(&s, pcm + i * sizeof(int16_t), sizeof(s));
+    const int32_t v = s;
+    const uint32_t a = static_cast<uint32_t>(v < 0 ? -v : v);
+    if (a > peak) {
+      peak = a;
+    }
+  }
+  return peak;
+}
+
+static void voice_pcm_normalize_in_place(uint8_t *pcm, size_t pcm_len) {
+  if (!pcm || pcm_len < sizeof(int16_t)) {
+    return;
+  }
+  const uint32_t peak = voice_pcm_peak(pcm, pcm_len);
+  if (peak < MYNAH_VOICE_PCM_MIN_GAIN_PEAK || peak >= MYNAH_VOICE_PCM_TARGET_PEAK) {
+    Serial.printf("voice: pcm peak=%u gain=1.00\n", static_cast<unsigned>(peak));
+    return;
+  }
+
+  float gain = static_cast<float>(MYNAH_VOICE_PCM_TARGET_PEAK) / static_cast<float>(peak);
+  if (gain > MYNAH_VOICE_PCM_MAX_GAIN) {
+    gain = MYNAH_VOICE_PCM_MAX_GAIN;
+  }
+  if (gain <= 1.05f) {
+    Serial.printf("voice: pcm peak=%u gain=1.00\n", static_cast<unsigned>(peak));
+    return;
+  }
+
+  const size_t samples = pcm_len / sizeof(int16_t);
+  for (size_t i = 0; i < samples; ++i) {
+    int16_t s = 0;
+    memcpy(&s, pcm + i * sizeof(int16_t), sizeof(s));
+    int32_t v = static_cast<int32_t>(lrintf(static_cast<float>(s) * gain));
+    if (v > 32767) {
+      v = 32767;
+    } else if (v < -32768) {
+      v = -32768;
+    }
+    s = static_cast<int16_t>(v);
+    memcpy(pcm + i * sizeof(int16_t), &s, sizeof(s));
+  }
+  const uint32_t out_peak = voice_pcm_peak(pcm, pcm_len);
+  Serial.printf("voice: pcm peak=%u gain=%.2f out_peak=%u\n", static_cast<unsigned>(peak),
+                static_cast<double>(gain), static_cast<unsigned>(out_peak));
+}
+
 static bool voice_post_message_inner(const char *message, const char *system_instruction, PmVoiceResult *r) {
   if (!r || !message || message[0] == '\0') {
     voice_set_error("empty message");
@@ -922,6 +986,42 @@ static bool voice_post_message_inner(const char *message, const char *system_ins
 
     if (code == 200) {
       voice_copy_mp3_headers(&http, r);
+      const bool stream_message = s_req_face && strcmp(s_req_face, "rocket") == 0;
+      if (stream_message) {
+        WiFiClient *stream = http.getStreamPtr();
+        const int declared = http.getSize();
+        if (!stream) {
+          http.end();
+          free(body);
+          voice_set_error("no stream");
+          return false;
+        }
+        s_message_streamed = false;
+        s_message_streaming_play = true;
+        if (!pm_speaker_play_mp3_http_stream(stream, declared, &s_voice_cancel)) {
+          s_message_streaming_play = false;
+          http.end();
+          free(body);
+          voice_set_error(s_voice_cancel ? "cancelled" : "stream playback failed");
+          return false;
+        }
+        http.end();
+        free(body);
+        s_message_streaming_play = false;
+        s_message_streamed = true;
+        r->audio_streamed = true;
+        if (r->transcript[0] == '\0') {
+          strncpy(r->transcript, message, sizeof(r->transcript) - 1);
+          r->transcript[sizeof(r->transcript) - 1] = '\0';
+        }
+        if (r->reply[0] == '\0') {
+          strncpy(r->reply, "streamed MP3 response", sizeof(r->reply) - 1);
+          r->reply[sizeof(r->reply) - 1] = '\0';
+        }
+        voice_set_error(nullptr);
+        ESP_LOGI(TAG, "voice (message) streamed");
+        return true;
+      }
       const bool ok = read_http_mp3_body(&http, &r->mp3, &r->mp3_len);
       http.end();
       free(body);
@@ -962,12 +1062,114 @@ static bool voice_post_message_inner(const char *message, const char *system_ins
   return false;
 }
 
+static bool voice_post_pcm_stream_inner(const uint8_t *pcm, size_t pcm_len, PmVoiceResult *r) {
+  if (!r || !pcm || pcm_len == 0) {
+    voice_set_error("empty pcm");
+    return false;
+  }
+  memset(r->transcript, 0, sizeof(r->transcript));
+  memset(r->reply, 0, sizeof(r->reply));
+  r->mp3 = nullptr;
+  r->mp3_len = 0;
+  r->audio_streamed = false;
+
+  if (strlen(MYNAH_SUPABASE_URL) == 0 || strlen(MYNAH_SUPABASE_ANON_KEY) == 0) {
+    voice_set_error("no supabase config");
+    ESP_LOGW(TAG, "Supabase URL or anon key empty");
+    return false;
+  }
+  if (!pm_voice_pipeline_host_ready(true)) {
+    return false;
+  }
+  voice_prepare_mbedtls_psram();
+  (void)pm_castalia_auth_prepare_for_voice();
+
+  char base[160];
+  strncpy(base, MYNAH_SUPABASE_URL, sizeof(base) - 1);
+  base[sizeof(base) - 1] = '\0';
+  trim_supabase_url(base, sizeof(base));
+
+  char url[224];
+  snprintf(url, sizeof(url), "%s/functions/v1/voice-stream", base);
+
+  WiFiClientSecure client;
+  HTTPClient http;
+  voice_begin_http(&client, &http);
+  if (!http.begin(client, url)) {
+    voice_set_error("http begin");
+    return false;
+  }
+  http.addHeader("Content-Type", "application/octet-stream");
+  http.addHeader("Accept", "audio/mpeg");
+  http.addHeader("x-sample-rate-hertz", "16000");
+  http.addHeader("x-language-code", "en-US");
+  collect_voice_mp3_headers(&http);
+  pm_castalia_auth_apply_headers(&http);
+
+  Serial.printf("voice: HTTP POST voice-stream pcm=%u B\n", static_cast<unsigned>(pcm_len));
+  const int code = http.POST(const_cast<uint8_t *>(pcm), pcm_len);
+  Serial.printf("voice: HTTP %d (voice-stream pcm)\n", code);
+
+  if (code != 200) {
+    ESP_LOGW(TAG, "voice-stream (pcm) HTTP %d", code);
+    voice_set_http_error(code);
+    http.end();
+    pm_voice_result_free(r);
+    return false;
+  }
+
+  const String ctype = http.header("Content-Type");
+  if (ctype.indexOf("audio/mpeg") < 0 && ctype.indexOf("audio/mp3") < 0) {
+    ESP_LOGW(TAG, "voice-stream unexpected Content-Type: %s", ctype.c_str());
+  }
+  voice_copy_mp3_headers(&http, r);
+  const bool ok = read_http_mp3_body(&http, &r->mp3, &r->mp3_len);
+  http.end();
+  if (!ok) {
+    ESP_LOGW(TAG, "voice-stream (pcm) MP3 read fail");
+    Serial.printf("voice: stream body read fail (%s)\n", s_body_read_err);
+    voice_set_error(s_body_read_err);
+    pm_voice_result_free(r);
+    return false;
+  }
+  if (r->reply[0] == '\0') {
+    strncpy(r->reply, "spoken MP3 response", sizeof(r->reply) - 1);
+    r->reply[sizeof(r->reply) - 1] = '\0';
+  }
+  if (r->transcript[0] != '\0') {
+    Serial.printf("pm_voice: stream transcript: %.120s%s\n", r->transcript,
+                  strlen(r->transcript) > 120 ? "…" : "");
+  }
+  ESP_LOGI(TAG, "voice-stream (pcm) mp3 %u bytes", static_cast<unsigned>(r->mp3_len));
+  if (!voice_result_ok(r)) {
+    voice_set_error("empty reply");
+    pm_voice_result_free(r);
+    return false;
+  }
+  voice_set_error(nullptr);
+  return true;
+}
+
 static bool voice_post_pcm_inner(const uint8_t *pcm, size_t pcm_len, const char *system_instruction,
                                  PmVoiceResult *r) {
   if (!r || !pcm || pcm_len == 0) {
     voice_set_error("empty pcm");
     return false;
   }
+  uint8_t *upload_pcm = const_cast<uint8_t *>(pcm);
+  voice_pcm_normalize_in_place(upload_pcm, pcm_len);
+
+#if MYNAH_VOICE_STREAM_PCM
+  const bool stream_have_sys = system_instruction && system_instruction[0] != '\0';
+  if (!stream_have_sys) {
+    if (voice_post_pcm_stream_inner(upload_pcm, pcm_len, r)) {
+      return true;
+    }
+    Serial.printf("voice: voice-stream failed (%s)\n", pm_voice_last_error());
+    return false;
+  }
+#endif
+
   memset(r->transcript, 0, sizeof(r->transcript));
   memset(r->reply, 0, sizeof(r->reply));
   r->mp3 = nullptr;
@@ -1020,7 +1222,7 @@ static bool voice_post_pcm_inner(const uint8_t *pcm, size_t pcm_len, const char 
           body + sizeof(kPrefix) - 1,
           body_cap - (sizeof(kPrefix) - 1),
           &nout,
-          pcm,
+          upload_pcm,
           pcm_len) != 0) {
     free(esc_sys_pcm);
     free(body);
@@ -1093,6 +1295,8 @@ static bool voice_post_pcm_inner(const uint8_t *pcm, size_t pcm_len, const char 
 
   extract_json_string_field(resp, "transcript", r->transcript, sizeof(r->transcript));
   extract_json_string_field(resp, "reply", r->reply, sizeof(r->reply));
+  extract_json_string_field(resp, "facultySlug", r->faculty_slug, sizeof(r->faculty_slug));
+  extract_json_string_field(resp, "facultyName", r->faculty_name, sizeof(r->faculty_name));
   if (r->transcript[0] != '\0') {
     Serial.printf("pm_voice: STT transcript: %.120s%s\n", r->transcript,
                   strlen(r->transcript) > 120 ? "…" : "");
@@ -1319,6 +1523,8 @@ static bool voice_post_clock_agenda_inner(PmVoiceResult *r) {
 
   extract_json_string_field(resp, "transcript", r->transcript, sizeof(r->transcript));
   extract_json_string_field(resp, "reply", r->reply, sizeof(r->reply));
+  extract_json_string_field(resp, "facultySlug", r->faculty_slug, sizeof(r->faculty_slug));
+  extract_json_string_field(resp, "facultyName", r->faculty_name, sizeof(r->faculty_name));
   if (!extract_audio_base64(resp, &r->mp3, &r->mp3_len)) {
     ESP_LOGI(TAG, "voice (clock_agenda) text-only");
   } else {
@@ -1384,8 +1590,11 @@ static void voice_net_task_ensure() {
   if (s_voice_task) {
     return;
   }
-  BaseType_t ok = xTaskCreatePinnedToCoreWithCaps(voice_net_task, "voice_net", kVoiceNetTaskStack, nullptr, 1,
-                                                  &s_voice_task, 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  BaseType_t ok = pdFAIL;
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)
+  ok = xTaskCreatePinnedToCoreWithCaps(voice_net_task, "voice_net", kVoiceNetTaskStack, nullptr, 1,
+                                       &s_voice_task, 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+#endif
   s_voice_task_with_caps = ok == pdPASS;
   if (ok != pdPASS) {
     ok = xTaskCreatePinnedToCore(voice_net_task, "voice_net", kVoiceNetTaskStack, nullptr, 1,
@@ -1418,6 +1627,8 @@ static bool voice_net_begin(uint8_t op) {
   s_voice_cancel = false;
   s_daily_briefing_streamed = false;
   s_daily_briefing_streaming_play = false;
+  s_message_streamed = false;
+  s_message_streaming_play = false;
   s_voice_started_ms = millis();
   s_voice_op = op;
   s_voice_done = false;
@@ -1498,11 +1709,16 @@ bool pm_voice_release_idle_task(void) {
   const bool task_with_caps = s_voice_task_with_caps;
   s_voice_task = nullptr;
   s_voice_task_with_caps = false;
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)
   if (task_with_caps) {
     vTaskDeleteWithCaps(task);
   } else {
     vTaskDelete(task);
   }
+#else
+  (void)task_with_caps;
+  vTaskDelete(task);
+#endif
   return true;
 }
 
@@ -1512,6 +1728,10 @@ bool pm_voice_daily_briefing_streamed(void) {
 
 bool pm_voice_daily_briefing_streaming_play(void) {
   return s_daily_briefing_streaming_play;
+}
+
+bool pm_voice_message_streaming_play(void) {
+  return s_message_streaming_play;
 }
 
 void pm_voice_abort(void) {

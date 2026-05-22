@@ -7,6 +7,8 @@
 struct PmVoiceResult {
   char transcript[320];
   char reply[768];
+  char faculty_slug[64];
+  char faculty_name[96];
   uint8_t *mp3 = nullptr;
   size_t mp3_len = 0;
   bool audio_streamed = false;
@@ -20,7 +22,7 @@ const char *pm_voice_last_error(void);
 /** Probe the configured voice-pipeline host; optionally refresh DNS/WiFi before failing. */
 bool pm_voice_pipeline_host_ready(bool recover);
 
-/** POST mono LINEAR16 PCM @ 16 kHz to Supabase `voice-pipeline`. Allocates r->mp3 on success. */
+/** POST mono LINEAR16 PCM @ 16 kHz. Promptless turns use `voice-stream`; prompted turns use `voice-pipeline`. */
 bool pm_voice_post_pcm(const uint8_t *pcm, size_t pcm_len, const char *system_instruction, PmVoiceResult *r);
 
 /**
@@ -46,6 +48,8 @@ bool pm_voice_begin_daily_briefing(PmVoiceResult *r);
 bool pm_voice_daily_briefing_streamed(void);
 /** True while daily briefing is actively decoding/playing the HTTP MPEG body. */
 bool pm_voice_daily_briefing_streaming_play(void);
+/** True while a generic face narration is actively decoding/playing the HTTP MPEG body. */
+bool pm_voice_message_streaming_play(void);
 PmVoiceStatus pm_voice_poll(void);
 uint32_t pm_voice_stack_high_water(void);
 bool pm_voice_release_idle_task(void);

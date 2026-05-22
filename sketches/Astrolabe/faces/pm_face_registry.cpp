@@ -171,7 +171,7 @@ const PmFaceDescriptor kFaces[] = {
     {ClockFace::Synastry, "synastry", "Synastry", kLow | kNoMinute, draw_synastry, nullptr, leave_ephemeris},
     {ClockFace::Spectrum, "spectrum", "Spectrum", kStandardLowOwnNoMinuteSkip | kNoVoice, draw_spectrum, enter_spectrum, leave_spectrum},
     {ClockFace::Chakra, "chakra", "Chakra", kLow | kOwnBg | kNoMinute, draw_chakra, nullptr, leave_chakra},
-    {ClockFace::TibetanBowl, "tibetan_bowl", "Tibetan Bowl", kStandardLowOwnNoMinuteSkip, draw_tibetan_bowl, nullptr, leave_tibetan_bowl},
+    {ClockFace::TibetanBowl, "tibetan_bowl", "Tibetan Bowl", kStandardLowOwnNoMinuteSkip | kHidden, draw_tibetan_bowl, nullptr, leave_tibetan_bowl},
     {ClockFace::Rocket, "rocket", "Rocket", kStandardLowOwnNoMinuteSkip, draw_rocket, nullptr, leave_rocket},
     {ClockFace::Radar, "radar", "Radar", kStandardLowOwnNoMinuteSkip, draw_radar, enter_radar, leave_radar},
     {ClockFace::Faculty, "faculty", "Faculty", kStandardLowOwnNoMinuteSkip, draw_faculty, nullptr, leave_faculty},

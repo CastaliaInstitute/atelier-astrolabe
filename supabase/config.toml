@@ -3,5 +3,14 @@
 [functions.voice-pipeline]
 verify_jwt = true
 
+[functions.voice-stream]
+verify_jwt = true
+
+[functions.media-stream]
+verify_jwt = false
+
+[functions.ask-faculty]
+verify_jwt = true
+
 [functions.faculty-bust]
 verify_jwt = true

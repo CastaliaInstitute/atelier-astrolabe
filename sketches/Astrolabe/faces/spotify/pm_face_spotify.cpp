@@ -13,10 +13,11 @@ PmSpotifyStatus g_spotify_ui = {};
 namespace {
 
 constexpr int kCx = LCD_WIDTH / 2;
-constexpr int kCy = 210;
 constexpr int kRecordR = 86;
 constexpr int kAlbumR = 38;
-constexpr int kQueueY[] = {58, 98, 0, 318, 358};
+constexpr int kCy = LCD_HEIGHT / 2;
+constexpr int kSelectedY = kCy - kRecordR - 42;
+constexpr int kQueueY[] = {42, 72, 0, 372, 404};
 
 struct StreamState {
   PmSpotifyStreamItem items[PM_SPOTIFY_STREAM_MAX];
@@ -368,7 +369,7 @@ void pm_face_spotify_draw() {
 
   draw_record(sel, sel_i == s_stream.playing_index, true,
               sel_i == s_stream.playing_index, millis());
-  draw_queue_row(sel_i, kCy - 52, 1.f, true);
+  draw_queue_row(sel_i, kSelectedY, 1.f, true);
   draw_now_marker();
 
   if (s_stream.hub_overlay && g_spotify_ui.device[0] != '\0') {

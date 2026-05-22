@@ -12,6 +12,8 @@ bool pm_moon_phase_from_transit(const PmTransitPositions *tp, float *illum, bool
 
 /** Northern-hemisphere view: +x is east; waxing lights the right limb. */
 bool pm_moon_point_lit(int dx, int screen_r, float illum, bool waxing);
+/** Curved terminator variant for actual disk pixels. */
+bool pm_moon_point_lit_curved(int dx, int dy, int screen_r, float illum, bool waxing);
 
 /** Photo disk + terminator; `show_rim` optional 1px outline. */
 void pm_moon_draw_disk(Arduino_Canvas *gfx, int cx, int cy, int screen_r, float illum, bool waxing,

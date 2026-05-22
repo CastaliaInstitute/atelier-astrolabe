@@ -6,6 +6,7 @@
 enum class SettingsPage : uint8_t {
   WiFi = 0,
   Castalia,
+  Tour,
   Aec,
   kCount,
 };

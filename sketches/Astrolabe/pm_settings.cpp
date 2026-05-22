@@ -6,6 +6,7 @@
 #include "faces/shared/pm_face_draw.h"
 #include "pin_config.h"
 #include "pm_display.h"
+#include "pm_faculty.h"
 
 static SettingsPage s_page = SettingsPage::WiFi;
 
@@ -17,6 +18,8 @@ const char *pm_settings_page_name(SettingsPage page) {
       return "wifi";
     case SettingsPage::Castalia:
       return "castalia";
+    case SettingsPage::Tour:
+      return "tour";
     case SettingsPage::Aec:
       return "aec";
     default:
@@ -66,7 +69,28 @@ static void pm_settings_draw_chrome(void) {
     const uint16_t col = (i == idx) ? c_hi : c_dim;
     pm_gfx->fillCircle(cx, dot_y, i == idx ? 5 : 3, col);
   }
-  pm_face_draw_centered_line("swipe ← →", 430, c_dim, 1, 1);
+  pm_face_draw_centered_line("swipe L/R", 430, c_dim, 1, 1);
+}
+
+static void pm_settings_draw_tour(void) {
+  const uint16_t c_hi = pm_gfx->color565(220, 225, 245);
+  const uint16_t c_dim = pm_gfx->color565(120, 128, 150);
+  const uint16_t c_accent = pm_gfx->color565(170, 210, 255);
+
+  pm_face_draw_centered_line("Tour", 56, c_hi, 2, 2);
+  pm_face_draw_centered_line("tap plays intro", 112, c_accent, 1, 2);
+  pm_face_draw_centered_line("long press resets played", 146, c_dim, 1, 1);
+  pm_face_draw_centered_line("up/down selects guide", 174, c_dim, 1, 1);
+
+  PmFacultyProfile faculty = {};
+  if (pm_faculty_active(&faculty)) {
+    pm_face_draw_centered_line("guide", 238, c_dim, 1, 1);
+    pm_face_draw_centered_line(faculty.name, 268, c_hi, 1, 2);
+  } else {
+    pm_face_draw_centered_line("no guide selected", 252, c_dim, 1, 1);
+  }
+
+  pm_face_draw_centered_line("first boot plays once", 336, c_dim, 1, 1);
 }
 
 void pm_settings_draw(void) {
@@ -76,6 +100,9 @@ void pm_settings_draw(void) {
       break;
     case SettingsPage::Castalia:
       pm_face_castalia_draw();
+      break;
+    case SettingsPage::Tour:
+      pm_settings_draw_tour();
       break;
     case SettingsPage::Aec:
       pm_face_settings_aec_draw();

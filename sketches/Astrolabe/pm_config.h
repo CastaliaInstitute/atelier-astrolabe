@@ -42,6 +42,21 @@
 #define MYNAH_VOICE_MAX_PCM_BYTES (16000 * 2 * 5)
 #endif
 
+/** Route promptless recorded PCM through Supabase `voice-stream` raw-audio backend. */
+#ifndef MYNAH_VOICE_STREAM_PCM
+#define MYNAH_VOICE_STREAM_PCM 1
+#endif
+/** Normalize quiet mic captures before STT upload. */
+#ifndef MYNAH_VOICE_PCM_TARGET_PEAK
+#define MYNAH_VOICE_PCM_TARGET_PEAK 14000
+#endif
+#ifndef MYNAH_VOICE_PCM_MIN_GAIN_PEAK
+#define MYNAH_VOICE_PCM_MIN_GAIN_PEAK 128
+#endif
+#ifndef MYNAH_VOICE_PCM_MAX_GAIN
+#define MYNAH_VOICE_PCM_MAX_GAIN 12.0f
+#endif
+
 /** Touch Y ≥ this is treated as “bottom rim” for gesture swipe suppression (not used for PTT). */
 #ifndef MYNAH_PTT_MIN_Y
 #define MYNAH_PTT_MIN_Y 260
@@ -130,7 +145,17 @@
 
 /** Skip Rocket HTTPS refresh when BLE/Radar has left too little heap for TLS. */
 #ifndef MYNAH_ROCKET_MIN_FETCH_HEAP
-#define MYNAH_ROCKET_MIN_FETCH_HEAP 100000u
+#define MYNAH_ROCKET_MIN_FETCH_HEAP 24000u
+#endif
+
+/** Rocket fetches run on their own task and can tolerate a smaller contiguous block than foreground face fetches. */
+#ifndef MYNAH_ROCKET_MIN_LARGEST_INTERNAL
+#define MYNAH_ROCKET_MIN_LARGEST_INTERNAL 20000u
+#endif
+
+/** Optional detail/image fetches are skipped unless there is enough heap headroom. */
+#ifndef MYNAH_ROCKET_DETAIL_MIN_FETCH_HEAP
+#define MYNAH_ROCKET_DETAIL_MIN_FETCH_HEAP 60000u
 #endif
 
 /** Skip Faculty portrait HTTPS refresh when Radar/BLE leaves too little heap for TLS. */
@@ -138,13 +163,22 @@
 #define MYNAH_FACULTY_MIN_FETCH_HEAP 24000u
 #endif
 #ifndef MYNAH_FACULTY_BUST_WIDTH
-#define MYNAH_FACULTY_BUST_WIDTH 192
+#define MYNAH_FACULTY_BUST_WIDTH 200
 #endif
 #ifndef MYNAH_FACULTY_BUST_HEIGHT
-#define MYNAH_FACULTY_BUST_HEIGHT 240
+#define MYNAH_FACULTY_BUST_HEIGHT 200
 #endif
 #ifndef MYNAH_FACULTY_BUST_QUALITY
 #define MYNAH_FACULTY_BUST_QUALITY 72
+#endif
+#ifndef MYNAH_FACULTY_BUST_HI_WIDTH
+#define MYNAH_FACULTY_BUST_HI_WIDTH 400
+#endif
+#ifndef MYNAH_FACULTY_BUST_HI_HEIGHT
+#define MYNAH_FACULTY_BUST_HI_HEIGHT 400
+#endif
+#ifndef MYNAH_FACULTY_BUST_HI_QUALITY
+#define MYNAH_FACULTY_BUST_HI_QUALITY 76
 #endif
 #ifndef MYNAH_FACULTY_BUST_ORIGIN
 #define MYNAH_FACULTY_BUST_ORIGIN MYNAH_CASTALIA_WEB_ORIGIN

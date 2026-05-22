@@ -99,6 +99,7 @@ static int16_t g_last_cy = 0;
 static int16_t g_madx = 0;
 static int16_t g_mady = 0;
 static uint8_t g_max_pts = 0;
+static bool g_swipe_emitted = false;
 
 static uint8_t g_chain = 0;
 static uint32_t g_chain_deadline = 0;
@@ -148,6 +149,9 @@ static PmGestureKind multi_kind(uint8_t n) {
 }
 
 static void on_release(uint32_t now, int16_t cx, int16_t cy) {
+  if (g_swipe_emitted) {
+    return;
+  }
   const uint32_t dt = now - g_t_down;
   const int16_t move = max_i16(g_madx, g_mady);
   const int32_t slop2 =
@@ -248,6 +252,7 @@ void pm_gesture_poll(uint32_t now_ms) {
     g_last_cy = g_y0;
     g_madx = 0;
     g_mady = 0;
+    g_swipe_emitted = false;
     return;
   }
 
@@ -256,4 +261,16 @@ void pm_gesture_poll(uint32_t now_ms) {
   g_last_cy = centroid(ys, n);
   g_madx = max_i16(g_madx, i16abs(static_cast<int16_t>(g_last_cx - g_x0)));
   g_mady = max_i16(g_mady, i16abs(static_cast<int16_t>(g_last_cy - g_y0)));
+  const bool from_ptt_rim = g_y0 >= MYNAH_PTT_MIN_Y && pm_ptt_button_held();
+  if (!g_swipe_emitted && !from_ptt_rim && g_madx >= MYNAH_GESTURE_SWIPE_MIN_PX &&
+      g_madx > g_mady + 12) {
+    g_chain = 0;
+    g_chain_deadline = 0;
+    PmGestureEvent ev = {};
+    ev.kind = (g_last_cx > g_x0) ? PmGestureKind::SwipeRight : PmGestureKind::SwipeLeft;
+    ev.x = g_last_cx;
+    ev.y = g_last_cy;
+    q_push(ev);
+    g_swipe_emitted = true;
+  }
 }

@@ -100,13 +100,16 @@ static bool chakra_strike_current(void) {
   s_ripple_start = millis();
   s_wave_phase = 0.f;
   s_wave_last_ms = 0;
-  PmBowlVoiceCtrl strike = {};
-  strike.target_hz = ch.hz;
-  strike.center_strike = true;
-  strike.excitation = 1.f;
-  strike.brightness = 0.78f;
-  strike.rim_quality = 0.8f;
-  pm_speaker_bowl_voice_push(strike);
+  static constexpr float kPartials[] = {1.0f, 1.5f, 2.0f, 2.72f};
+  for (float partial : kPartials) {
+    PmBowlVoiceCtrl strike = {};
+    strike.target_hz = ch.hz * partial;
+    strike.center_strike = true;
+    strike.excitation = 1.f;
+    strike.brightness = partial < 2.f ? 0.92f : 0.68f;
+    strike.rim_quality = 0.86f;
+    pm_speaker_bowl_voice_push(strike);
+  }
   return true;
 }
 

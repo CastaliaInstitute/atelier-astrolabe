@@ -36,6 +36,8 @@ int pm_chart_profile_first_free_slot(void);
 
 /** Seeds Camille, Aidan, Finn, and Aleia into empty/missing NVS slots without overwriting user edits. */
 void pm_chart_profiles_ensure_demo_seed(void);
+/** Demo mode: ensure family seed profiles exist and select Camille as the active synastry target. */
+void pm_chart_profiles_load_family_demo(void);
 
 int pm_chart_profiles_active_slot(void);
 bool pm_chart_profiles_set_active_slot(int slot);

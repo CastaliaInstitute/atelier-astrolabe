@@ -12,6 +12,7 @@
 #include <cmath>
 #include <cstring>
 
+#include <esp_idf_version.h>
 #include <esp_mac.h>
 
 #if !defined(ASTROLABE_QEMU) && !defined(ESP_PLATFORM) && __has_include(<BLEDevice.h>)
@@ -38,7 +39,7 @@
 namespace {
 
 String pm_presence_mdns_address_string(int idx) {
-#if defined(ESP_PLATFORM)
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)
   return MDNS.address(idx).toString();
 #else
   return MDNS.IP(idx).toString();

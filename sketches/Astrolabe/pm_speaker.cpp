@@ -9,6 +9,7 @@
 #include "driver/i2c.h"
 #include "driver/i2s.h"
 #include "esp_check.h"
+#include "esp_idf_version.h"
 #include "esp_log.h"
 #include "esp_random.h"
 #include "esp_task_wdt.h"
@@ -34,8 +35,9 @@ static const char *TAG = "pm_speaker";
 
 #define I2S_TX I2S_NUM_0
 static constexpr uint32_t kSpeakerTaskStack = 49152;
+static constexpr uint32_t kSpeakerTaskFallbackStack = 32768;
 static constexpr UBaseType_t kSpeakerTaskPriority = 3;
-static constexpr int kSpeakerVolume = 70;
+static constexpr int kSpeakerVolume = 88;
 static uint32_t s_max_play_seconds = 180u;
 
 static void speaker_task_wdt_reset() {
@@ -1081,12 +1083,15 @@ static void speaker_task_ensure() {
   if (s_speaker_task) {
     return;
   }
-  BaseType_t ok = xTaskCreatePinnedToCoreWithCaps(speaker_play_task, "spk_play", kSpeakerTaskStack, nullptr,
-                                                  kSpeakerTaskPriority, &s_speaker_task, 1,
-                                                  MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  BaseType_t ok = pdFAIL;
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)
+  ok = xTaskCreatePinnedToCoreWithCaps(speaker_play_task, "spk_play", kSpeakerTaskStack, nullptr,
+                                       kSpeakerTaskPriority, &s_speaker_task, 1,
+                                       MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+#endif
   s_speaker_task_with_caps = ok == pdPASS;
   if (ok != pdPASS) {
-    ok = xTaskCreatePinnedToCore(speaker_play_task, "spk_play", 16384, nullptr,
+    ok = xTaskCreatePinnedToCore(speaker_play_task, "spk_play", kSpeakerTaskFallbackStack, nullptr,
                                  kSpeakerTaskPriority, &s_speaker_task, 1);
     s_speaker_task_with_caps = false;
   }
@@ -1336,11 +1341,16 @@ bool pm_speaker_release_idle_task(void) {
   const bool task_with_caps = s_speaker_task_with_caps;
   s_speaker_task = nullptr;
   s_speaker_task_with_caps = false;
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)
   if (task_with_caps) {
     vTaskDeleteWithCaps(task);
   } else {
     vTaskDelete(task);
   }
+#else
+  (void)task_with_caps;
+  vTaskDelete(task);
+#endif
   return true;
 }
 

@@ -1,5 +1,4 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "npm:@supabase/supabase-js@2.49.8";
 
 import { buildClockAgendaTranscript } from "../_shared/calciferClockBrief.ts";
 import {
@@ -15,11 +14,17 @@ import {
   speechRecognize,
   ttsMp3Base64,
   ttsMp3Bytes,
-  type WatchTtsVoiceSelection,
   watchTtsVoiceSelection,
   watchTtsMaxChars,
   watchTtsMaxCharsDailyBriefing,
 } from "../_shared/googleVoice.ts";
+import { inferFacultySlug } from "../_shared/facultyBust.ts";
+import {
+  buildFacultyVoicePrompt,
+  normalizeFacultyVoiceSlug,
+  resolveFacultyVoiceProfile,
+  voiceFromUnknown,
+} from "../_shared/facultyVoice.ts";
 import {
   SYSTEM_VOICE_FACE_CLOCK_AGENDA,
   VOICE_FACE_ASTRO,
@@ -71,6 +76,13 @@ type AskFacultyResponse = {
   facultySlug?: string;
   facultyName?: string;
   facultyBustUrl?: string | null;
+  facultyVoice?: {
+    ethnicity?: string;
+    accent?: string;
+    language?: string;
+    prompt?: string;
+    ttsVoice?: unknown;
+  };
 };
 
 function commonplaceRoute(face: string, fallback: string): string {
@@ -107,130 +119,6 @@ function requestLocalHour(body: ReqBody): number | undefined {
   if (!Number.isFinite(hour)) return undefined;
   if (hour < 0 || hour > 23) return undefined;
   return Math.floor(hour);
-}
-
-function cleanFacultySlug(raw: unknown): string {
-  return typeof raw === "string" ? raw.trim().replace(/-/g, ".") : "";
-}
-
-function voiceFromUnknown(value: unknown): WatchTtsVoiceSelection | undefined {
-  if (!value) return undefined;
-  if (typeof value === "string") {
-    const name = value.trim();
-    return name ? { languageCode: languageFromVoiceName(name), name } : undefined;
-  }
-  if (typeof value !== "object" || Array.isArray(value)) return undefined;
-  const r = value as Record<string, unknown>;
-  const name =
-    stringField(r.name) ||
-    stringField(r.voiceName) ||
-    stringField(r.voice_name) ||
-    stringField(r.googleVoiceName) ||
-    stringField(r.google_voice_name) ||
-    stringField(r.ttsVoiceName) ||
-    stringField(r.tts_voice_name);
-  if (!name) return undefined;
-  const languageCode =
-    stringField(r.languageCode) ||
-    stringField(r.language_code) ||
-    stringField(r.googleLanguageCode) ||
-    stringField(r.google_language_code) ||
-    stringField(r.ttsLanguageCode) ||
-    stringField(r.tts_language_code) ||
-    languageFromVoiceName(name);
-  return { languageCode, name };
-}
-
-function stringField(value: unknown): string {
-  return typeof value === "string" ? value.trim() : "";
-}
-
-function languageFromVoiceName(name: string): string {
-  const parts = name.trim().split("-");
-  return parts.length >= 2 && parts[0] && parts[1] ? `${parts[0]}-${parts[1]}` : "en-US";
-}
-
-function voiceFromEnv(slug: string): WatchTtsVoiceSelection | undefined {
-  if (!slug) return undefined;
-  const keySlug = slug.toUpperCase().replace(/[^A-Z0-9]+/g, "_");
-  const name =
-    Deno.env.get(`FACULTY_TTS_VOICE_${keySlug}`)?.trim() ||
-    Deno.env.get(`FACULTY_GOOGLE_TTS_VOICE_${keySlug}`)?.trim() ||
-    "";
-  if (!name) return undefined;
-  const languageCode =
-    Deno.env.get(`FACULTY_TTS_LANGUAGE_${keySlug}`)?.trim() ||
-    Deno.env.get(`FACULTY_GOOGLE_TTS_LANGUAGE_${keySlug}`)?.trim() ||
-    languageFromVoiceName(name);
-  return { languageCode, name };
-}
-
-function voiceFromFacultyRow(row: Record<string, unknown>): WatchTtsVoiceSelection | undefined {
-  const directName =
-    stringField(row.google_tts_voice_name) ||
-    stringField(row.tts_voice_name) ||
-    stringField(row.google_voice_name);
-  if (directName) {
-    return {
-      languageCode:
-        stringField(row.google_tts_language_code) ||
-        stringField(row.tts_language_code) ||
-        stringField(row.google_language_code) ||
-        languageFromVoiceName(directName),
-      name: directName,
-    };
-  }
-
-  const voice = typeof row.voice === "object" && row.voice && !Array.isArray(row.voice)
-    ? (row.voice as Record<string, unknown>)
-    : {};
-  const voiceCard = typeof row.voice_card === "object" && row.voice_card && !Array.isArray(row.voice_card)
-    ? (row.voice_card as Record<string, unknown>)
-    : {};
-
-  return (
-    voiceFromUnknown(row.google_tts_voice) ||
-    voiceFromUnknown(row.tts_voice) ||
-    voiceFromUnknown(voice.googleTts) ||
-    voiceFromUnknown(voice.google_tts) ||
-    voiceFromUnknown(voiceCard.googleTts) ||
-    voiceFromUnknown(voiceCard.google_tts) ||
-    voiceFromUnknown(voiceCard.ttsVoice) ||
-    voiceFromUnknown(voiceCard.tts_voice)
-  );
-}
-
-async function resolveFacultyTtsVoice(slugRaw: unknown): Promise<WatchTtsVoiceSelection | undefined> {
-  const slug = cleanFacultySlug(slugRaw);
-  if (!slug) return undefined;
-
-  const envVoice = voiceFromEnv(slug);
-  if (envVoice) return envVoice;
-
-  const url = Deno.env.get("SUPABASE_URL")?.trim() ?? "";
-  const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")?.trim() ?? "";
-  if (!url || !key) return undefined;
-
-  try {
-    const supabase = createClient(url, key);
-    const select = "id,slug,google_tts_voice_name,google_tts_language_code";
-    let row: Record<string, unknown> | null = null;
-    const byId = await supabase.from("faculty").select(select).eq("id", slug).maybeSingle();
-    if (!byId.error && byId.data) {
-      row = byId.data as Record<string, unknown>;
-    }
-    if (!row) {
-      const bySlug = await supabase.from("faculty").select(select).eq("slug", slug).maybeSingle();
-      if (!bySlug.error && bySlug.data) {
-        row = bySlug.data as Record<string, unknown>;
-      }
-    }
-    if (!row) return undefined;
-    return voiceFromFacultyRow(row);
-  } catch (e) {
-    console.warn("voice-pipeline: faculty TTS voice lookup failed", e);
-    return undefined;
-  }
 }
 
 async function voicePipelineOk(
@@ -272,7 +160,8 @@ async function voicePipelineOk(
     reply: payload.reply,
   });
 
-  const ttsVoice = await resolveFacultyTtsVoice(payload.facultySlug);
+  const facultyVoice = await resolveFacultyVoiceProfile(payload.facultySlug);
+  const ttsVoice = facultyVoice?.ttsVoice;
 
   if (wantsMp3Response(req, body)) {
     const localHour = requestLocalHour(body);
@@ -335,6 +224,8 @@ async function forwardToAskFaculty(
     rawTranscript: string;
     skipLlm: boolean;
     localHour?: number;
+    facultySlug?: string;
+    facultyName?: string;
     /** Only forwarded when the client set `systemInstruction`; otherwise ask-faculty uses its faculty default. */
     overrideSystemInstruction?: string;
   },
@@ -342,6 +233,11 @@ async function forwardToAskFaculty(
   const url = siblingFunctionUrl("ask-faculty");
   const auth = req.headers.get("Authorization") ?? "";
   const apikey = req.headers.get("apikey") ?? "";
+  const facultySlug =
+    normalizeFacultyVoiceSlug(payload.facultySlug) ||
+    normalizeFacultyVoiceSlug(inferFacultySlug(payload.message));
+  const facultyVoice = await resolveFacultyVoiceProfile(facultySlug);
+  const facultyVoicePrompt = buildFacultyVoicePrompt(facultyVoice);
   const body: Record<string, unknown> = {
     message: payload.message,
     languageCode: payload.languageCode,
@@ -349,6 +245,13 @@ async function forwardToAskFaculty(
     rawTranscript: payload.rawTranscript,
     skipLlm: payload.skipLlm,
   };
+  if (facultySlug) body.facultySlug = facultySlug;
+  if (payload.facultyName?.trim()) body.facultyName = payload.facultyName.trim();
+  if (facultyVoice?.ethnicity) body.facultyEthnicity = facultyVoice.ethnicity;
+  if (facultyVoice?.accent) body.facultyAccent = facultyVoice.accent;
+  if (facultyVoice?.language) body.facultyLanguage = facultyVoice.language;
+  if (facultyVoicePrompt) body.facultyVoicePrompt = facultyVoicePrompt;
+  if (facultyVoice?.ttsVoice) body.facultyTtsVoice = facultyVoice.ttsVoice;
   if (payload.localHour !== undefined) {
     body.localHour = payload.localHour;
   }
@@ -411,6 +314,7 @@ async function askFacultyPipelineResponse(
   const transcript = (faculty.transcript ?? "").trim();
   const reply = (faculty.reply ?? "").trim();
   const audioBase64 = (faculty.audioBase64 ?? "").trim();
+  const upstreamVoice = voiceFromUnknown(faculty.facultyVoice?.ttsVoice);
 
   if (wantsMp3Response(req, body) && audioBase64) {
     const mp3 = decodeBase64Audio(audioBase64);
@@ -421,6 +325,12 @@ async function askFacultyPipelineResponse(
         "X-Voice-Route": "ask-faculty",
         "X-Voice-Tts-Source": "ask-faculty",
         "X-Voice-Tts-Chars": String(reply.length),
+        ...(upstreamVoice
+          ? {
+            "X-Voice-Language": upstreamVoice.languageCode,
+            "X-Voice-Name": upstreamVoice.name,
+          }
+          : {}),
         ...routeHeaders,
       };
       const localHour = requestLocalHour(body);
@@ -435,6 +345,10 @@ async function askFacultyPipelineResponse(
       if (slugHeader) headers["X-Faculty-Slug"] = slugHeader;
       const nameHeader = headerMetaFromUnknown(faculty.facultyName, 120);
       if (nameHeader) headers["X-Faculty-Name"] = nameHeader;
+      const accentHeader = headerMetaFromUnknown(faculty.facultyVoice?.accent, 140);
+      if (accentHeader) headers["X-Faculty-Accent"] = accentHeader;
+      const languageHeader = headerMetaFromUnknown(faculty.facultyVoice?.language, 140);
+      if (languageHeader) headers["X-Faculty-Language"] = languageHeader;
       if (face) headers["X-Voice-Face"] = face;
 
       return new Response(mp3, { status: 200, headers });

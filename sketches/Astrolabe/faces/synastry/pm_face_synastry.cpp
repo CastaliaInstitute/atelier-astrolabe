@@ -271,6 +271,22 @@ static void draw_aspect_lines(int cx, int cy, int r_user, int r_target) {
   }
 }
 
+static void draw_target_name_label(void) {
+  if (s_target_profile.name[0] == '\0') {
+    return;
+  }
+
+  char label[40] = {};
+  snprintf(label, sizeof(label), "with %.28s", s_target_profile.name);
+
+  const uint16_t c_bg = pm_gfx->color565(8, 10, 18);
+  const uint16_t c_edge = pm_gfx->color565(92, 76, 128);
+  const uint16_t c_text = pm_gfx->color565(245, 230, 255);
+  pm_gfx->fillRoundRect(44, LCD_HEIGHT - 31, LCD_WIDTH - 88, 25, 6, c_bg);
+  pm_gfx->drawRoundRect(44, LCD_HEIGHT - 31, LCD_WIDTH - 88, 25, 6, c_edge);
+  pm_face_draw_centered_line(label, LCD_HEIGHT - 25, c_text, 1, 1);
+}
+
 static void draw_synastry_chart(void) {
   const uint16_t c_ring = pm_gfx->color565(48, 56, 76);
   const uint16_t c_spoke = pm_gfx->color565(62, 72, 96);
@@ -306,6 +322,7 @@ static void draw_synastry_chart(void) {
   pm_gfx->drawCircle(cx, cy, 38, pm_gfx->color565(30, 36, 54));
   pm_alethiometer_draw_emoji_glyph_scaled(pm_gfx, cx, cy, synastry_symbol_index(),
                                           pm_gfx->color565(245, 230, 255), 3);
+  draw_target_name_label();
 }
 
 void pm_face_synastry_draw(const struct tm *tm_local, bool valid_local) {
