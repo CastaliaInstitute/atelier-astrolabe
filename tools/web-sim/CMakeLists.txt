@@ -47,4 +47,5 @@ target_link_options(astrolabe-web-sim PRIVATE
 set_target_properties(astrolabe-web-sim PROPERTIES
   OUTPUT_NAME "astrolabe-web-sim"
   SUFFIX ".html"
+  LINK_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/public/shell.html"
 )

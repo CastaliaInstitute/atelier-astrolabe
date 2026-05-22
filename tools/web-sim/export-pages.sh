@@ -12,5 +12,6 @@ mkdir -p "${OUT_DIR}"
 cp "${BUILD_DIR}/astrolabe-web-sim.html" "${OUT_DIR}/index.html"
 cp "${BUILD_DIR}/astrolabe-web-sim.js" "${OUT_DIR}/"
 cp "${BUILD_DIR}/astrolabe-web-sim.wasm" "${OUT_DIR}/"
+cp -R "${BUILD_DIR}/assets" "${OUT_DIR}/assets"
 
 echo "${OUT_DIR}/index.html"

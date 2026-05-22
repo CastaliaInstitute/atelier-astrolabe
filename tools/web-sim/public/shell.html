@@ -34,6 +34,7 @@
       }
 
       .watch {
+        position: relative;
         width: min(466px, calc(100vw - 32px));
         aspect-ratio: 1;
         border-radius: 50%;
@@ -47,6 +48,44 @@
         width: 100%;
         height: 100%;
         touch-action: none;
+      }
+
+      .asset-overlay {
+        position: absolute;
+        inset: 0;
+        display: none;
+        pointer-events: none;
+      }
+
+      .asset-overlay.is-visible {
+        display: block;
+      }
+
+      .asset-overlay img {
+        display: block;
+        object-fit: contain;
+      }
+
+      .faculty-bust {
+        width: 76%;
+        height: 76%;
+        margin: 10% auto 0;
+        filter: drop-shadow(0 16px 30px rgb(0 0 0 / 55%));
+      }
+
+      .quote-bust {
+        width: 28%;
+        height: 28%;
+        margin: 18% auto 0;
+        border-radius: 50%;
+        box-shadow: 0 0 0 2px rgb(217 199 255 / 65%);
+      }
+
+      .tarot-card {
+        width: 58%;
+        height: 58%;
+        margin: 18% auto 0;
+        filter: drop-shadow(0 14px 24px rgb(0 0 0 / 60%));
       }
 
       .controls {
@@ -95,6 +134,15 @@
     <main>
       <div class="watch">
         <canvas id="astrolabe-canvas" width="466" height="466"></canvas>
+        <div class="asset-overlay" id="faculty-overlay" aria-hidden="true">
+          <img class="faculty-bust" src="assets/faculty/hypatia.png" alt="" />
+        </div>
+        <div class="asset-overlay" id="quote-overlay" aria-hidden="true">
+          <img class="quote-bust" src="assets/faculty/a.einstein.png" alt="" />
+        </div>
+        <div class="asset-overlay" id="tarot-overlay" aria-hidden="true">
+          <img class="tarot-card" id="tarot-card" src="assets/tarot/00-fool.png" alt="" />
+        </div>
       </div>
       <div class="controls" aria-label="Watch face controls">
         <button type="button" id="prev-face" aria-label="Previous face" disabled>‹</button>
@@ -157,6 +205,53 @@
     <script>
       const faceSelect = controls.select;
       const faceCount = faceSelect.options.length;
+      const overlays = {
+        faculty: document.querySelector("#faculty-overlay"),
+        quote: document.querySelector("#quote-overlay"),
+        tarot: document.querySelector("#tarot-overlay"),
+        tarotCard: document.querySelector("#tarot-card"),
+      };
+      const tarotCards = [
+        "00-fool",
+        "01-magician",
+        "02-priestess",
+        "03-empress",
+        "04-emperor",
+        "05-hierophant",
+        "06-lovers",
+        "07-chariot",
+        "08-strength",
+        "09-hermit",
+        "10-fortune",
+        "11-justice",
+        "12-hanged",
+        "13-death",
+        "14-temperance",
+        "15-devil",
+        "16-tower",
+        "17-star",
+        "18-moon",
+        "19-sun",
+        "20-judgement",
+        "21-world",
+      ];
+
+      function tarotIndexForToday() {
+        const now = new Date();
+        const start = new Date(now.getFullYear(), 0, 0);
+        const yday = Math.floor((now - start) / 86400000);
+        return (yday + now.getFullYear() * 7) % tarotCards.length;
+      }
+
+      function updateAssetOverlays(face) {
+        overlays.faculty.classList.toggle("is-visible", face === 15);
+        overlays.quote.classList.toggle("is-visible", face === 17);
+        overlays.tarot.classList.toggle("is-visible", face === 19);
+        if (face === 19) {
+          const card = tarotCards[tarotIndexForToday()];
+          overlays.tarotCard.src = `assets/tarot/${card}.png`;
+        }
+      }
 
       function setFace(face) {
         if (!Module.ccall) {
@@ -164,9 +259,11 @@
         }
         const normalized = ((face % faceCount) + faceCount) % faceCount;
         faceSelect.value = String(normalized);
+        updateAssetOverlays(normalized);
         Module.ccall("astrolabe_web_set_face", null, ["number"], [normalized]);
       }
 
+      updateAssetOverlays(Number(faceSelect.value));
       faceSelect.addEventListener("change", () => setFace(Number(faceSelect.value)));
       controls.prev.addEventListener("click", () => setFace(Number(faceSelect.value) - 1));
       controls.next.addEventListener("click", () => setFace(Number(faceSelect.value) + 1));
