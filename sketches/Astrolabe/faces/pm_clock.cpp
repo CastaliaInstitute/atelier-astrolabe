@@ -9,6 +9,7 @@
 #include "faces/shared/pm_face_draw.h"
 #include "pm_config.h"
 #include "pm_display.h"
+#include "pm_heap.h"
 #include "pm_settings.h"
 #include "pm_wifi_ntp.h"
 
@@ -45,6 +46,7 @@ static void pm_faces_transition_to(ClockFace face) {
   }
 
   const PmFaceDescriptor *prev_descriptor = pm_face_registry_find(prev);
+  pm_heap_trace("face-leave", static_cast<int>(prev));
   if (prev_descriptor && prev_descriptor->on_leave) {
     prev_descriptor->on_leave(face);
   }
@@ -52,9 +54,11 @@ static void pm_faces_transition_to(ClockFace face) {
   s_clock_face = face;
 
   const PmFaceDescriptor *next_descriptor = pm_face_registry_find(face);
+  pm_heap_trace("face-enter", static_cast<int>(face));
   if (next_descriptor && next_descriptor->on_enter) {
     next_descriptor->on_enter(prev);
   }
+  pm_heap_trace("face-transition", static_cast<int>(face));
 }
 
 ClockFace pm_faces_current(void) { return s_clock_face; }
@@ -119,6 +123,14 @@ void pm_faces_draw(float thinking_progress) {
                            pm_time_valid() ? tm.tm_min : 0};
   if (face && face->draw) {
     face->draw(ctx);
+  }
+  static ClockFace s_last_draw_trace_face = ClockFace::kNumFaces;
+  static uint32_t s_last_draw_trace_ms = 0;
+  const uint32_t now_ms = millis();
+  if (s_last_draw_trace_face != s_clock_face || now_ms - s_last_draw_trace_ms >= 10000u) {
+    s_last_draw_trace_face = s_clock_face;
+    s_last_draw_trace_ms = now_ms;
+    pm_heap_trace("face-draw", static_cast<int>(s_clock_face));
   }
 
   const int banner_y = pm_face_has_flag(face, kPmFaceLowGestureBanner) ? 352 : 320;

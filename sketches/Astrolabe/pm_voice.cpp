@@ -21,6 +21,7 @@
 #include "pm_castalia_auth.h"
 #include "pm_daily_briefing.h"
 #include "pm_geo_tz.h"
+#include "pm_heap.h"
 #include "pm_speaker.h"
 #include "pm_wifi_ntp.h"
 
@@ -1580,6 +1581,7 @@ static void voice_net_task(void *arg) {
       }
     }
     s_voice_status = s_voice_ok ? PmVoiceStatus::DoneOk : PmVoiceStatus::DoneFail;
+    pm_heap_trace(s_voice_ok ? "voice-end" : "voice-fail", -1);
     s_voice_done = true;
     s_voice_cancel = false;
     s_voice_task_active = false;
@@ -1630,6 +1632,7 @@ static bool voice_net_begin(uint8_t op) {
   s_message_streamed = false;
   s_message_streaming_play = false;
   s_voice_started_ms = millis();
+  pm_heap_trace("voice-start", -1);
   s_voice_op = op;
   s_voice_done = false;
   s_voice_ok = false;

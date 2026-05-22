@@ -4,8 +4,8 @@ Goal: reduce internal heap pressure while moving Astrolabe away from Arduino run
 
 ## Phase 1: Measure and Stop Avoidable Allocations
 
-- [ ] Add a per-face heap telemetry line for enter, draw, network fetch, voice start, voice end, and leave.
-- [ ] Track free internal heap, largest internal block, free PSRAM, and largest PSRAM block.
+- [x] Add a per-face heap telemetry line for enter, draw, network fetch, voice start, voice end, and leave.
+- [x] Track free internal heap, largest internal block, free PSRAM, and largest PSRAM block.
 - [ ] Add a resource governor so TTS, STT, media stream, bust fetch, and analyzer/AEC cannot all own heavy buffers at once.
 - [x] Move simple persistent settings from Arduino `Preferences` to direct ESP-IDF NVS.
 - [x] Remove `String` use from boot and simple persistence paths where fixed buffers are enough.

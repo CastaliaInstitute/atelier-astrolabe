@@ -6,6 +6,7 @@
 #include "esp_http_client.h"
 #include "esp_err.h"
 #include "esp_log.h"
+#include "pm_heap.h"
 
 static const char *TAG = "pm_http";
 
@@ -60,6 +61,7 @@ bool pm_http_request_text(const char *url, const char *method, const char *body,
   const int body_len = body ? static_cast<int>(strlen(body)) : 0;
   bool ok = false;
   esp_err_t err = esp_http_client_open(client, body_len);
+  pm_heap_trace("network-fetch", -1);
   if (err != ESP_OK) {
     ESP_LOGW(TAG, "open failed %s err=%d", url, static_cast<int>(err));
     esp_http_client_cleanup(client);
@@ -113,6 +115,7 @@ bool pm_http_request_text(const char *url, const char *method, const char *body,
 
   esp_http_client_close(client);
   esp_http_client_cleanup(client);
+  pm_heap_trace(ok ? "network-done" : "network-fail", -1);
   return ok;
 }
 
@@ -151,6 +154,7 @@ bool pm_http_request_stream(const char *url, const char *method, const char *bod
 
   const int body_len = body ? static_cast<int>(strlen(body)) : 0;
   esp_err_t err = esp_http_client_open(client, body_len);
+  pm_heap_trace("network-stream", -1);
   if (err != ESP_OK) {
     ESP_LOGW(TAG, "open failed %s err=%d", url, static_cast<int>(err));
     esp_http_client_cleanup(client);
@@ -210,6 +214,7 @@ bool pm_http_request_stream(const char *url, const char *method, const char *bod
   free(buf);
   esp_http_client_close(client);
   esp_http_client_cleanup(client);
+  pm_heap_trace(ok ? "network-stream-done" : "network-stream-fail", -1);
   return ok;
 }
 
