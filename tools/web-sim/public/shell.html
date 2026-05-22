@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="data:," />
+    <title>Astrolabe LVGL Web Simulator</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #111418;
+        color: #eef3f6;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        min-height: 100vh;
+        margin: 0;
+        display: grid;
+        place-items: center;
+        background: radial-gradient(circle at center, #202833 0, #111418 58%, #090b0f 100%);
+      }
+
+      main {
+        width: min(100vw, 760px);
+        padding: 24px;
+        display: grid;
+        justify-items: center;
+        gap: 18px;
+      }
+
+      .watch {
+        position: relative;
+        width: min(466px, calc(100vw - 32px));
+        aspect-ratio: 1;
+        border-radius: 50%;
+        background: #050608;
+        box-shadow: 0 0 0 10px #1b222b, 0 24px 80px rgb(0 0 0 / 55%);
+        overflow: hidden;
+      }
+
+      canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+        touch-action: none;
+      }
+
+      .asset-overlay {
+        position: absolute;
+        inset: 0;
+        display: none;
+        pointer-events: none;
+      }
+
+      .asset-overlay.is-visible {
+        display: block;
+      }
+
+      .asset-overlay img {
+        display: block;
+        object-fit: contain;
+      }
+
+      .faculty-bust {
+        width: 76%;
+        height: 76%;
+        margin: 10% auto 0;
+        filter: drop-shadow(0 16px 30px rgb(0 0 0 / 55%));
+      }
+
+      .quote-bust {
+        width: 28%;
+        height: 28%;
+        margin: 18% auto 0;
+        border-radius: 50%;
+        box-shadow: 0 0 0 2px rgb(217 199 255 / 65%);
+      }
+
+      .tarot-card {
+        width: 58%;
+        height: 58%;
+        margin: 18% auto 0;
+        filter: drop-shadow(0 14px 24px rgb(0 0 0 / 60%));
+      }
+
+      .controls {
+        width: min(466px, calc(100vw - 32px));
+        display: grid;
+        grid-template-columns: 38px 1fr 38px;
+        align-items: center;
+        gap: 8px;
+      }
+
+      button,
+      select {
+        min-height: 38px;
+        border: 1px solid #384655;
+        border-radius: 7px;
+        background: #1b232c;
+        color: #eef3f6;
+        font: inherit;
+        cursor: pointer;
+      }
+
+      select {
+        width: 100%;
+        padding: 0 10px;
+      }
+
+      button {
+        display: grid;
+        place-items: center;
+        padding: 0;
+      }
+
+      button:hover,
+      select:hover {
+        background: #24303b;
+      }
+
+      button:disabled,
+      select:disabled {
+        cursor: wait;
+        opacity: 0.55;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="watch">
+        <canvas id="astrolabe-canvas" width="466" height="466"></canvas>
+        <div class="asset-overlay" id="faculty-overlay" aria-hidden="true">
+          <img class="faculty-bust" src="assets/faculty/hypatia.png" alt="" />
+        </div>
+        <div class="asset-overlay" id="quote-overlay" aria-hidden="true">
+          <img class="quote-bust" src="assets/faculty/a.einstein.png" alt="" />
+        </div>
+        <div class="asset-overlay" id="tarot-overlay" aria-hidden="true">
+          <img class="tarot-card" id="tarot-card" src="assets/tarot/00-fool.png" alt="" />
+        </div>
+      </div>
+      <div class="controls" aria-label="Watch face controls">
+        <button type="button" id="prev-face" aria-label="Previous face" disabled>‹</button>
+        <select id="face-select" aria-label="Face" disabled>
+          <option value="0">00 Classic</option>
+          <option value="1">01 Apocalypso</option>
+          <option value="2">02 Digital</option>
+          <option value="3">03 Spotify</option>
+          <option value="4">04 Astrology</option>
+          <option value="5">05 Moon</option>
+          <option value="6">06 CalciferCountdown</option>
+          <option value="7">07 Castalia</option>
+          <option value="8">08 Settings</option>
+          <option value="9">09 Synastry</option>
+          <option value="10">10 Spectrum</option>
+          <option value="11">11 Chakra</option>
+          <option value="12">12 TibetanBowl</option>
+          <option value="13">13 Rocket</option>
+          <option value="14">14 Radar</option>
+          <option value="15">15 Faculty</option>
+          <option value="16">16 Weather</option>
+          <option value="17">17 Quotes</option>
+          <option value="18">18 LiveTransits</option>
+          <option value="19">19 Tarot</option>
+          <option value="20">20 Notes</option>
+          <option value="21">21 Ocarina</option>
+          <option value="22">22 Bongo</option>
+          <option value="23">23 Piano</option>
+          <option value="24">24 Level</option>
+          <option value="25">25 Tuning</option>
+          <option value="26">26 PanDrum</option>
+          <option value="27">27 Alethiometer</option>
+          <option value="28">28 Runes</option>
+        </select>
+        <button type="button" id="next-face" aria-label="Next face" disabled>›</button>
+      </div>
+    </main>
+
+    <script>
+      const controls = {
+        prev: document.querySelector("#prev-face"),
+        next: document.querySelector("#next-face"),
+        select: document.querySelector("#face-select"),
+      };
+
+      var Module = {
+        locateFile(path) {
+          return new URL(path, document.baseURI).href;
+        },
+        onRuntimeInitialized() {
+          controls.prev.disabled = false;
+          controls.next.disabled = false;
+          controls.select.disabled = false;
+        },
+      };
+    </script>
+
+    {{{ SCRIPT }}}
+
+    <script>
+      const faceSelect = controls.select;
+      const faceCount = faceSelect.options.length;
+      const overlays = {
+        faculty: document.querySelector("#faculty-overlay"),
+        quote: document.querySelector("#quote-overlay"),
+        tarot: document.querySelector("#tarot-overlay"),
+        tarotCard: document.querySelector("#tarot-card"),
+      };
+      const tarotCards = [
+        "00-fool",
+        "01-magician",
+        "02-priestess",
+        "03-empress",
+        "04-emperor",
+        "05-hierophant",
+        "06-lovers",
+        "07-chariot",
+        "08-strength",
+        "09-hermit",
+        "10-fortune",
+        "11-justice",
+        "12-hanged",
+        "13-death",
+        "14-temperance",
+        "15-devil",
+        "16-tower",
+        "17-star",
+        "18-moon",
+        "19-sun",
+        "20-judgement",
+        "21-world",
+      ];
+
+      function tarotIndexForToday() {
+        const now = new Date();
+        const start = new Date(now.getFullYear(), 0, 0);
+        const yday = Math.floor((now - start) / 86400000);
+        return (yday + now.getFullYear() * 7) % tarotCards.length;
+      }
+
+      function updateAssetOverlays(face) {
+        overlays.faculty.classList.toggle("is-visible", face === 15);
+        overlays.quote.classList.toggle("is-visible", face === 17);
+        overlays.tarot.classList.toggle("is-visible", face === 19);
+        if (face === 19) {
+          const card = tarotCards[tarotIndexForToday()];
+          overlays.tarotCard.src = `assets/tarot/${card}.png`;
+        }
+      }
+
+      function setFace(face) {
+        if (!Module.ccall) {
+          return;
+        }
+        const normalized = ((face % faceCount) + faceCount) % faceCount;
+        faceSelect.value = String(normalized);
+        updateAssetOverlays(normalized);
+        Module.ccall("astrolabe_web_set_face", null, ["number"], [normalized]);
+      }
+
+      updateAssetOverlays(Number(faceSelect.value));
+      faceSelect.addEventListener("change", () => setFace(Number(faceSelect.value)));
+      controls.prev.addEventListener("click", () => setFace(Number(faceSelect.value) - 1));
+      controls.next.addEventListener("click", () => setFace(Number(faceSelect.value) + 1));
+
+      const canvas = document.querySelector("#astrolabe-canvas");
+      let swipeStart = null;
+
+      canvas.addEventListener("pointerdown", (event) => {
+        if (event.pointerType === "mouse" && event.button !== 0) {
+          return;
+        }
+        swipeStart = {
+          id: event.pointerId,
+          x: event.clientX,
+          y: event.clientY,
+          time: performance.now(),
+        };
+        canvas.setPointerCapture(event.pointerId);
+      });
+
+      canvas.addEventListener("pointerup", (event) => {
+        if (!swipeStart || swipeStart.id !== event.pointerId) {
+          return;
+        }
+        const dx = event.clientX - swipeStart.x;
+        const dy = event.clientY - swipeStart.y;
+        const dt = performance.now() - swipeStart.time;
+        swipeStart = null;
+        if (Math.abs(dx) < 48 || Math.abs(dx) < Math.abs(dy) * 1.4 || dt > 900) {
+          return;
+        }
+        setFace(Number(faceSelect.value) + (dx < 0 ? 1 : -1));
+      });
+
+      canvas.addEventListener("pointercancel", () => {
+        swipeStart = null;
+      });
+    </script>
+  </body>
+</html>

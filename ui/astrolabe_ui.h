@@ -1,0 +1,56 @@
+#pragma once
+
+#include <stdint.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+enum {
+  ASTROLABE_UI_WIDTH = 466,
+  ASTROLABE_UI_HEIGHT = 466,
+};
+
+typedef enum {
+  ASTROLABE_UI_FACE_CLASSIC_ANALOG = 0,
+  ASTROLABE_UI_FACE_APOCALYPSO,
+  ASTROLABE_UI_FACE_DIGITAL_LOCAL,
+  ASTROLABE_UI_FACE_SPOTIFY,
+  ASTROLABE_UI_FACE_ASTROLOGY,
+  ASTROLABE_UI_FACE_MOON,
+  ASTROLABE_UI_FACE_CALCIFER_COUNTDOWN,
+  ASTROLABE_UI_FACE_CASTALIA,
+  ASTROLABE_UI_FACE_SETTINGS,
+  ASTROLABE_UI_FACE_SYNASTRY,
+  ASTROLABE_UI_FACE_SPECTRUM,
+  ASTROLABE_UI_FACE_CHAKRA,
+  ASTROLABE_UI_FACE_TIBETAN_BOWL,
+  ASTROLABE_UI_FACE_ROCKET,
+  ASTROLABE_UI_FACE_RADAR,
+  ASTROLABE_UI_FACE_FACULTY,
+  ASTROLABE_UI_FACE_WEATHER,
+  ASTROLABE_UI_FACE_QUOTES,
+  ASTROLABE_UI_FACE_LIVE_TRANSITS,
+  ASTROLABE_UI_FACE_TAROT,
+  ASTROLABE_UI_FACE_NOTES,
+  ASTROLABE_UI_FACE_OCARINA,
+  ASTROLABE_UI_FACE_BONGO,
+  ASTROLABE_UI_FACE_PIANO,
+  ASTROLABE_UI_FACE_LEVEL,
+  ASTROLABE_UI_FACE_TUNING,
+  ASTROLABE_UI_FACE_PAN_DRUM,
+  ASTROLABE_UI_FACE_ALETHIOMETER,
+  ASTROLABE_UI_FACE_RUNES,
+  ASTROLABE_UI_FACE_COUNT,
+} astrolabe_ui_face_t;
+
+void astrolabe_ui_init(void);
+void astrolabe_ui_set_face(astrolabe_ui_face_t face);
+astrolabe_ui_face_t astrolabe_ui_current_face(void);
+const char *astrolabe_ui_face_name(astrolabe_ui_face_t face);
+const char *astrolabe_ui_face_summary(astrolabe_ui_face_t face);
+void astrolabe_ui_tick(uint32_t elapsed_ms);
+
+#ifdef __cplusplus
+}
+#endif
