@@ -3,7 +3,6 @@
 #include <Arduino.h>
 
 class Arduino_Canvas;
-class HTTPClient;
 
 /** NVS + pairing poll; same Supabase project as Android Mynah. */
 void pm_castalia_auth_init();
@@ -25,9 +24,6 @@ bool pm_castalia_auth_prepare_for_voice(void);
 
 /** Background refresh when signed in (non-blocking; castalia_net task). */
 bool pm_castalia_tick_refresh_session(void);
-
-/** Sets Supabase `Authorization` + `apikey` headers (anon apikey always). */
-void pm_castalia_auth_apply_headers(HTTPClient *http);
 
 /** After WiFi is up: start pairing + QR encode in background (reuse on Castalia face). */
 void pm_castalia_warmup_after_wifi(void);

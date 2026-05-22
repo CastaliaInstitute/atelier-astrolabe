@@ -1,6 +1,5 @@
 #include "pm_castalia_auth.h"
 
-#include <HTTPClient.h>
 #include <ctype.h>
 #include <cstring>
 #include <ctime>
@@ -351,17 +350,6 @@ bool pm_castalia_auth_prepare_for_voice() {
     }
   }
   return true;
-}
-
-static char s_auth_bearer_buf[1536];
-
-void pm_castalia_auth_apply_headers(HTTPClient *http) {
-  if (!http) {
-    return;
-  }
-  pm_castalia_auth_bearer(s_auth_bearer_buf, sizeof(s_auth_bearer_buf));
-  http->addHeader("Authorization", String("Bearer ") + s_auth_bearer_buf);
-  http->addHeader("apikey", MYNAH_SUPABASE_ANON_KEY);
 }
 
 static void invalidate_qr_cache() {

@@ -1,9 +1,6 @@
 #include "pm_voice.h"
 
-#include <HTTPClient.h>
 #include <WiFi.h>
-#include <WiFiClient.h>
-#include <WiFiClientSecure.h>
 #include <math.h>
 #include <mbedtls/base64.h>
 #include <mbedtls/platform.h>
@@ -60,15 +57,6 @@ static PmVoiceResult *s_req_result = nullptr;
 static char s_last_error[80] = "";
 static const char *s_body_read_err = "bad response";
 static bool s_voice_mbedtls_psram_ready = false;
-static const char *kVoiceMp3Headers[] = {
-    "X-Voice-Reply",
-    "X-Voice-Transcript",
-    "X-Voice-Route",
-    "X-Voice-Tts-Chars",
-    "X-Faculty-Slug",
-    "X-Faculty-Name",
-};
-
 static void voice_set_error(const char *msg);
 static void body_read_set_err(const char *msg);
 static void voice_set_http_error(int code);
@@ -200,13 +188,6 @@ static void body_read_set_err(const char *msg) {
   s_body_read_err = msg ? msg : "bad response";
 }
 
-static void voice_begin_http(WiFiClientSecure *client, HTTPClient *http) {
-  voice_prepare_mbedtls_psram();
-  client->setInsecure();
-  client->setTimeout(360);
-  http->setTimeout(65535);
-}
-
 static int hex_nibble(char c) {
   if (c >= '0' && c <= '9') {
     return c - '0';
@@ -243,39 +224,6 @@ static void copy_percent_decoded_cstr(const char *in, char *out, size_t out_cap)
     out[o++] = c;
   }
   out[o] = '\0';
-}
-
-static void copy_percent_decoded(const String &in, char *out, size_t out_cap) {
-  copy_percent_decoded_cstr(in.c_str(), out, out_cap);
-}
-
-static void collect_voice_mp3_headers(HTTPClient *http) {
-  if (!http) {
-    return;
-  }
-  http->collectHeaders(kVoiceMp3Headers, sizeof(kVoiceMp3Headers) / sizeof(kVoiceMp3Headers[0]));
-}
-
-static void voice_copy_mp3_headers(HTTPClient *http, PmVoiceResult *r) {
-  if (!http || !r) {
-    return;
-  }
-  const String transcript_raw = http->header("X-Voice-Transcript");
-  if (transcript_raw.length() > 0) {
-    copy_percent_decoded(transcript_raw, r->transcript, sizeof(r->transcript));
-  }
-  const String reply_raw = http->header("X-Voice-Reply");
-  if (reply_raw.length() > 0) {
-    copy_percent_decoded(reply_raw, r->reply, sizeof(r->reply));
-  }
-  const String faculty_slug_raw = http->header("X-Faculty-Slug");
-  if (faculty_slug_raw.length() > 0) {
-    copy_percent_decoded(faculty_slug_raw, r->faculty_slug, sizeof(r->faculty_slug));
-  }
-  const String faculty_name_raw = http->header("X-Faculty-Name");
-  if (faculty_name_raw.length() > 0) {
-    copy_percent_decoded(faculty_name_raw, r->faculty_name, sizeof(r->faculty_name));
-  }
 }
 
 typedef struct {
@@ -339,6 +287,10 @@ typedef struct {
 static bool voice_mp3_collect_on_data(const uint8_t *data, size_t len, void *ctx) {
   VoiceMp3Collect *mp3 = static_cast<VoiceMp3Collect *>(ctx);
   if (!mp3 || !data || len == 0) {
+    return false;
+  }
+  if (s_voice_cancel) {
+    body_read_set_err("cancelled");
     return false;
   }
   if (mp3->len + len > mp3->max_len) {
@@ -506,56 +458,6 @@ static const char *json_find_last(const char *hay, const char *needle) {
   return last;
 }
 
-/** Trim trailing chunked-encoding garbage after the final `}`. */
-static size_t voice_json_trim_len(const char *buf, size_t len) {
-  if (!buf || len < 2) {
-    return len;
-  }
-  const char *route = json_find_last(buf, "\"route\":\"voice-pipeline\"}");
-  if (route) {
-    const char *end = strchr(route, '}');
-    if (end && static_cast<size_t>(end - buf) + 1u <= len) {
-      return static_cast<size_t>(end - buf) + 1u;
-    }
-  }
-  const char *end = strrchr(buf, '}');
-  if (end && static_cast<size_t>(end - buf) + 1u <= len) {
-    return static_cast<size_t>(end - buf) + 1u;
-  }
-  return len;
-}
-
-/** True when the voice-pipeline JSON body looks complete (not truncated mid-field). */
-static bool voice_response_json_complete(const char *buf, size_t len) {
-  if (!buf || len < 8 || buf[0] != '{') {
-    return false;
-  }
-  len = voice_json_trim_len(buf, len);
-  const char *route = json_find_last(buf, "\"route\":\"voice-pipeline\"}");
-  if (route) {
-    const char *end = strchr(route, '}');
-    return end != nullptr && static_cast<size_t>(end - buf) + 1u <= len;
-  }
-  const char *k = "\"audioBase64\":\"";
-  const char *p = json_find_last(buf, k);
-  if (p) {
-    p += strlen(k);
-    while (p < buf + len && *p != '"') {
-      ++p;
-    }
-    return p < buf + len && *p == '"';
-  }
-  if (strstr(buf, "\"audioBase64\"") != nullptr) {
-    return false;
-  }
-  size_t end = len;
-  while (end > 0 && (buf[end - 1] == ' ' || buf[end - 1] == '\n' || buf[end - 1] == '\r' ||
-                     buf[end - 1] == '\t' || buf[end - 1] == '0')) {
-    --end;
-  }
-  return end >= 1 && buf[end - 1] == '}';
-}
-
 static bool voice_result_ok(PmVoiceResult *r) {
   if (!r) {
     return false;
@@ -612,254 +514,6 @@ static bool extract_audio_base64(const char *json, uint8_t **out_bin, size_t *ou
   }
   *out_bin = buf;
   *out_len = olen;
-  return true;
-}
-
-static bool read_http_json_body(HTTPClient *http, char **out_resp, size_t max_cap) {
-  if (!http || !out_resp || max_cap < 64) {
-    return false;
-  }
-  *out_resp = nullptr;
-
-  const int declared = http->getSize();
-  WiFiClient *stream = http->getStreamPtr();
-  if (!stream) {
-    return false;
-  }
-  if (declared > 0 && static_cast<size_t>(declared) > max_cap) {
-    ESP_LOGW(TAG, "HTTP Content-Length %d exceeds cap %u", declared, static_cast<unsigned>(max_cap));
-    return false;
-  }
-
-  char *buf = static_cast<char *>(
-      heap_caps_malloc(max_cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-  if (!buf) {
-    buf = static_cast<char *>(malloc(max_cap));
-  }
-  if (!buf) {
-    ESP_LOGE(TAG, "OOM for HTTP body alloc %u", static_cast<unsigned>(max_cap));
-    return false;
-  }
-
-  size_t rd = 0;
-  const size_t read_cap = max_cap - 1u;
-  const bool chunked = (declared < 0);
-  const size_t target_len = (declared > 0) ? static_cast<size_t>(declared) : 0;
-  const uint32_t deadline = millis() + 600000u;
-  uint32_t last_rx_ms = 0;
-  uint32_t last_prog_rd = 0;
-  uint32_t last_stall_log_ms = 0;
-  body_read_set_err("bad response");
-  if (declared > 0) {
-    Serial.printf("voice: Content-Length %d\n", declared);
-  } else {
-    Serial.println("voice: chunked response");
-  }
-
-  for (;;) {
-    voice_task_wdt_reset();
-    if (s_voice_cancel) {
-      free(buf);
-      body_read_set_err("cancelled");
-      return false;
-    }
-    if (static_cast<int32_t>(millis() - deadline) >= 0) {
-      ESP_LOGW(TAG, "HTTP body read timeout (%u bytes)", static_cast<unsigned>(rd));
-      body_read_set_err("read timeout");
-      break;
-    }
-
-    const int avail = stream->available();
-    if (avail > 0) {
-      if (rd >= read_cap) {
-        body_read_set_err("reply too large");
-        break;
-      }
-      const size_t take =
-          static_cast<size_t>(avail) < (read_cap - rd) ? static_cast<size_t>(avail) : (read_cap - rd);
-      const int n = stream->readBytes(buf + rd, take);
-      if (n > 0) {
-        rd += static_cast<size_t>(n);
-        last_rx_ms = millis();
-        buf[rd] = '\0';
-        if (rd - last_prog_rd >= 32768u) {
-          Serial.printf("voice: recv %u B…\n", static_cast<unsigned>(rd));
-          last_prog_rd = rd;
-        }
-        if (target_len > 0 && rd >= target_len) {
-          break;
-        }
-        if (chunked && rd >= 4096u && voice_response_json_complete(buf, rd)) {
-          rd = voice_json_trim_len(buf, rd);
-          buf[rd] = '\0';
-          Serial.printf("voice: JSON complete at %u B\n", static_cast<unsigned>(rd));
-          break;
-        }
-        continue;
-      }
-    }
-
-    if (!http->connected() && stream->available() == 0) {
-      break;
-    }
-
-    if (rd > 0 && last_rx_ms != 0) {
-      const uint32_t idle = millis() - last_rx_ms;
-      const uint32_t idle_limit = chunked ? (rd > 65536u ? 45000u : 15000u) : 12000u;
-      if (idle > idle_limit) {
-        Serial.printf("voice: HTTP idle %lu ms at %u B (chunked=%d)\n", static_cast<unsigned long>(idle),
-                      static_cast<unsigned>(rd),
-                      chunked ? 1 : 0);
-        body_read_set_err("read stalled");
-        break;
-      }
-      if (chunked && idle > 15000u && (millis() - last_stall_log_ms) > 15000u) {
-        Serial.printf("voice: waiting… %u B (%lu ms idle)\n", static_cast<unsigned>(rd),
-                      static_cast<unsigned long>(idle));
-        last_stall_log_ms = millis();
-      }
-    }
-
-    delay(5);
-  }
-
-  for (uint8_t drain = 0; drain < 48 && stream->available() > 0 && rd < read_cap; ++drain) {
-    const int n = stream->readBytes(buf + rd, read_cap - rd);
-    if (n > 0) {
-      rd += static_cast<size_t>(n);
-      last_rx_ms = millis();
-    } else {
-      delay(5);
-    }
-  }
-
-  rd = voice_json_trim_len(buf, rd);
-  buf[rd] = '\0';
-  if (rd == 0) {
-    ESP_LOGW(TAG, "HTTP body empty (declared %d)", declared);
-    free(buf);
-    body_read_set_err("bad response (empty)");
-    return false;
-  }
-
-  if (rd >= read_cap) {
-    ESP_LOGW(TAG, "HTTP body exceeds cap %u bytes", static_cast<unsigned>(read_cap));
-    Serial.printf("pm_voice: reply too large (%u bytes)\n", static_cast<unsigned>(rd));
-    free(buf);
-    body_read_set_err("reply too large");
-    return false;
-  }
-
-  if (target_len > 0 && rd < target_len) {
-    ESP_LOGW(TAG, "HTTP short read %u/%u", static_cast<unsigned>(rd), static_cast<unsigned>(target_len));
-    free(buf);
-    body_read_set_err("bad response (truncated)");
-    return false;
-  }
-
-  if (!voice_response_json_complete(buf, rd)) {
-    const int extra = stream->available();
-    ESP_LOGW(TAG, "HTTP incomplete JSON %u bytes (declared %d, +%d pending)", static_cast<unsigned>(rd), declared,
-             extra);
-    Serial.printf("pm_voice: incomplete JSON %u bytes declared=%d extra=%d\n", static_cast<unsigned>(rd),
-                  declared, extra);
-    if (rd > 160) {
-      char tail[161];
-      memcpy(tail, buf + rd - 160, 160);
-      tail[160] = '\0';
-      Serial.printf("pm_voice: tail …%s\n", tail);
-    }
-    free(buf);
-    body_read_set_err("bad response (truncated)");
-    return false;
-  }
-
-  *out_resp = buf;
-  Serial.printf("voice: body complete %u B (declared %d)\n", static_cast<unsigned>(rd), declared);
-  ESP_LOGI(TAG, "HTTP body %u bytes (declared %d)", static_cast<unsigned>(rd), declared);
-  return true;
-}
-
-static bool read_http_mp3_body(HTTPClient *http, uint8_t **out_mp3, size_t *out_len) {
-  if (!http || !out_mp3 || !out_len) {
-    return false;
-  }
-  *out_mp3 = nullptr;
-  *out_len = 0;
-
-  const int declared = http->getSize();
-  WiFiClient *stream = http->getStreamPtr();
-  if (!stream) {
-    return false;
-  }
-  if (declared <= 0) {
-    body_read_set_err("missing mp3 length");
-    return false;
-  }
-  if (declared > 768 * 1024) {
-    ESP_LOGW(TAG, "MP3 Content-Length %d exceeds message cap", declared);
-    body_read_set_err("reply too large");
-    return false;
-  }
-
-  uint8_t *buf = static_cast<uint8_t *>(
-      heap_caps_malloc(static_cast<size_t>(declared), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-  if (!buf) {
-    body_read_set_err("oom mp3");
-    return false;
-  }
-
-  size_t rd = 0;
-  uint32_t last_rx_ms = millis();
-  const uint32_t deadline = millis() + 180000u;
-  body_read_set_err("bad response");
-  Serial.printf("voice: MP3 Content-Length %d\n", declared);
-
-  while (rd < static_cast<size_t>(declared)) {
-    voice_task_wdt_reset();
-    if (s_voice_cancel) {
-      free(buf);
-      body_read_set_err("cancelled");
-      return false;
-    }
-    if (static_cast<int32_t>(millis() - deadline) >= 0) {
-      free(buf);
-      body_read_set_err("read timeout");
-      return false;
-    }
-
-    const size_t remaining = static_cast<size_t>(declared) - rd;
-    const size_t take = remaining > 4096u ? 4096u : remaining;
-    const int n = stream->readBytes(buf + rd, take);
-    if (n > 0) {
-      rd += static_cast<size_t>(n);
-      last_rx_ms = millis();
-      if (rd == static_cast<size_t>(n) || rd / 65536u > (rd - static_cast<size_t>(n)) / 65536u) {
-        Serial.printf("voice: MP3 recv %u B...\n", static_cast<unsigned>(rd));
-      }
-      continue;
-    }
-
-    if (!http->connected()) {
-      break;
-    }
-    if (millis() - last_rx_ms > 25000u) {
-      free(buf);
-      body_read_set_err("read stalled");
-      return false;
-    }
-    delay(5);
-  }
-
-  if (rd < 64 || rd < static_cast<size_t>(declared)) {
-    free(buf);
-    body_read_set_err(rd < 64 ? "bad response (empty)" : "bad response (truncated)");
-    return false;
-  }
-
-  *out_mp3 = buf;
-  *out_len = rd;
-  Serial.printf("voice: MP3 complete %u B\n", static_cast<unsigned>(rd));
   return true;
 }
 
@@ -1484,63 +1138,35 @@ static bool voice_post_daily_briefing_inner(PmVoiceResult *r) {
   char url[224];
   snprintf(url, sizeof(url), "%s/functions/v1/voice-pipeline", base);
 
-  WiFiClientSecure client;
-  HTTPClient http;
-  voice_begin_http(&client, &http);
-  if (!http.begin(client, url)) {
-    free(body);
-    voice_set_error("http begin");
-    return false;
-  }
-  http.addHeader("Content-Type", "application/json");
-  http.addHeader("Accept", "audio/mpeg");
-  collect_voice_mp3_headers(&http);
-  pm_castalia_auth_apply_headers(&http);
+  char bearer[1536];
+  char auth[1560];
+  voice_prepare_auth_headers(bearer, sizeof(bearer), auth, sizeof(auth));
+  const PmHttpHeader headers[] = {
+      {"Content-Type", "application/json"},
+      {"Accept", "audio/mpeg"},
+      {"Authorization", auth},
+      {"apikey", MYNAH_SUPABASE_ANON_KEY},
+  };
 
   Serial.printf("voice: POST daily_briefing (%u B)…\n", static_cast<unsigned>(n));
-  const int code = http.POST(reinterpret_cast<uint8_t *>(body), static_cast<size_t>(n));
+  VoiceHttpHeaders response_headers = {};
+  PmHttpTextResult http_result = {};
+  const bool ok = voice_post_collect_mp3(url, reinterpret_cast<const uint8_t *>(body),
+                                         static_cast<size_t>(n), headers,
+                                         sizeof(headers) / sizeof(headers[0]),
+                                         &response_headers, r, &http_result);
   free(body);
-  Serial.printf("voice: HTTP %d (daily_briefing)\n", code);
-
-  if (code != 200) {
-    WiFiClient *stream = http.getStreamPtr();
-    if (stream && stream->available()) {
-      char errsnippet[160] = "";
-      const size_t n = stream->readBytes(errsnippet, sizeof(errsnippet) - 1);
-      errsnippet[n] = '\0';
-      Serial.printf("voice: daily_briefing err: %s\n", errsnippet);
-    }
-    voice_set_http_error(code);
-    http.end();
-    return false;
-  }
-
-  const String ctype = http.header("Content-Type");
-  if (ctype.indexOf("audio/mpeg") < 0 && ctype.indexOf("audio/mp3") < 0) {
-    ESP_LOGW(TAG, "daily_briefing unexpected Content-Type: %s", ctype.c_str());
-  }
-  voice_copy_mp3_headers(&http, r);
-
-  WiFiClient *stream = http.getStreamPtr();
-  const int declared = http.getSize();
+  Serial.printf("voice: HTTP %d (daily_briefing)\n", http_result.status_code);
   s_daily_briefing_streamed = false;
   s_daily_briefing_streaming_play = false;
-  if (!stream) {
-    voice_set_error("no stream");
-    http.end();
+  if (!ok) {
+    ESP_LOGW(TAG, "daily_briefing HTTP/read fail %d", http_result.status_code);
     return false;
   }
-  s_daily_briefing_streaming_play = true;
-  if (!pm_speaker_play_mp3_http_stream(stream, declared, &s_voice_cancel)) {
-    s_daily_briefing_streaming_play = false;
-    voice_set_error(s_voice_cancel ? "cancelled" : "stream playback failed");
-    http.end();
-    return false;
+  if (strstr(response_headers.content_type, "audio/mpeg") == nullptr &&
+      strstr(response_headers.content_type, "audio/mp3") == nullptr) {
+    ESP_LOGW(TAG, "daily_briefing unexpected Content-Type: %s", response_headers.content_type);
   }
-  http.end();
-  s_daily_briefing_streaming_play = false;
-  s_daily_briefing_streamed = true;
-  r->audio_streamed = true;
 
   strncpy(r->transcript, "daily briefing", sizeof(r->transcript) - 1);
 
@@ -1549,7 +1175,7 @@ static bool voice_post_daily_briefing_inner(PmVoiceResult *r) {
     return false;
   }
   voice_set_error(nullptr);
-  ESP_LOGI(TAG, "daily briefing streamed");
+  ESP_LOGI(TAG, "daily briefing mp3 %u bytes", static_cast<unsigned>(r->mp3_len));
   return true;
 }
 

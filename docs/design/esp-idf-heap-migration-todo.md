@@ -15,7 +15,7 @@ Goal: reduce internal heap pressure while moving Astrolabe away from Arduino run
 - [x] Add one shared ESP-IDF HTTP helper around `esp_http_client`.
 - [x] Support callback streaming, fixed-cap JSON reads, and direct-to-flash downloads.
 - [x] Port small JSON clients first: weather, quotes, Calcifer, Spotify status.
-- [ ] Port binary/streaming clients next: faculty busts, voice MP3, rocket media.
+- [x] Port binary/streaming clients next: faculty busts, voice MP3, rocket media.
 - [ ] Tune mbedTLS fragment sizes in `sdkconfig` after HTTPClient is gone.
 
 ## Phase 3: Face Memory Lifecycle
@@ -31,7 +31,7 @@ Goal: reduce internal heap pressure while moving Astrolabe away from Arduino run
 - [ ] Replace Arduino `WebServer` with `esp_http_server`.
 - [ ] Replace Arduino WiFi calls with `esp_wifi`, `esp_netif`, and `esp_event`.
 - [ ] Replace Arduino time/network glue with IDF SNTP and netif APIs.
-- [ ] Remove direct dependency on Arduino `WiFiClient`/`WiFiClientSecure`.
+- [x] Remove direct dependency on Arduino `WiFiClient`/`WiFiClientSecure`.
 - [ ] Remove Arduino framework from the default build after display/touch/audio dependencies are isolated or replaced.
 
 ## Gates
