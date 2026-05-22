@@ -23,8 +23,8 @@ Goal: reduce internal heap pressure while moving Astrolabe away from Arduino run
 - [x] Give every face explicit `enter()`, `tick()`, `draw()`, and `leave()` hooks.
 - [x] Add a face scratch arena that is reset on face leave.
 - [x] Ensure image/audio decoded buffers are released on face leave.
-- [ ] Keep one decoded faculty/quote bust resident at a time.
-- [ ] Stream JPEG decode from flash where possible.
+- [x] Keep one decoded faculty/quote bust resident at a time.
+- [x] Stream JPEG decode from flash where possible.
 
 ## Phase 4: Arduino Runtime Removal
 

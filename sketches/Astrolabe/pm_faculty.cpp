@@ -45,6 +45,7 @@ static char s_bust_req_slug[32] = "";
 static char s_bust_slug[32] = "";
 static uint8_t *s_bust_bytes = nullptr;
 static size_t s_bust_len = 0;
+static char s_bust_flash_path[64] = "";
 static char s_bust_error[80] = "";
 static char s_bust_bearer[1536] = "";
 static char s_bust_auth[1560] = "";
@@ -552,6 +553,28 @@ static bool load_flash_bust(const char *slug, BustVariant variant = BustVariant:
     bust_set_error("bad cached bust");
     return false;
   }
+  uint8_t sig[4] = {};
+  const size_t sig_rd = f.read(sig, sizeof(sig));
+  if (!f.seek(0)) {
+    f.close();
+    bust_set_error("seek cached bust");
+    return false;
+  }
+  const bool is_png = sig_rd == sizeof(sig) && sig[0] == 0x89 && sig[1] == 'P' && sig[2] == 'N' && sig[3] == 'G';
+  if (!is_png) {
+    f.close();
+    free(s_bust_bytes);
+    s_bust_bytes = nullptr;
+    s_bust_len = sz;
+    strncpy(s_bust_slug, slug, sizeof(s_bust_slug) - 1);
+    s_bust_slug[sizeof(s_bust_slug) - 1] = '\0';
+    strncpy(s_bust_flash_path, path, sizeof(s_bust_flash_path) - 1);
+    s_bust_flash_path[sizeof(s_bust_flash_path) - 1] = '\0';
+    bust_set_error(nullptr);
+    Serial.printf("pm_faculty: flash JPEG bust %s/%s (%u B)\n", s_bust_slug, bust_variant_suffix(variant),
+                  static_cast<unsigned>(s_bust_len));
+    return true;
+  }
   uint8_t *buf = static_cast<uint8_t *>(pm_heap_alloc_response(sz));
   if (!buf) {
     f.close();
@@ -570,8 +593,9 @@ static bool load_flash_bust(const char *slug, BustVariant variant = BustVariant:
   s_bust_len = sz;
   strncpy(s_bust_slug, slug, sizeof(s_bust_slug) - 1);
   s_bust_slug[sizeof(s_bust_slug) - 1] = '\0';
+  s_bust_flash_path[0] = '\0';
   bust_set_error(nullptr);
-  Serial.printf("pm_faculty: flash bust %s/%s (%u B)\n", s_bust_slug, bust_variant_suffix(variant),
+  Serial.printf("pm_faculty: flash PNG bust %s/%s (%u B)\n", s_bust_slug, bust_variant_suffix(variant),
                 static_cast<unsigned>(s_bust_len));
   return true;
 }
@@ -816,6 +840,7 @@ static bool cache_embedded_bust(const char *slug) {
   s_bust_len = embedded_len;
   strncpy(s_bust_slug, slug, sizeof(s_bust_slug) - 1);
   s_bust_slug[sizeof(s_bust_slug) - 1] = '\0';
+  s_bust_flash_path[0] = '\0';
   bust_set_error(nullptr);
   Serial.printf("pm_faculty: embedded bust %s (%u B)\n", s_bust_slug, static_cast<unsigned>(s_bust_len));
   return true;
@@ -886,6 +911,7 @@ static bool fetch_bust_variant(const char *slug, BustVariant variant, bool store
   s_bust_len = len;
   strncpy(s_bust_slug, slug, sizeof(s_bust_slug) - 1);
   s_bust_slug[sizeof(s_bust_slug) - 1] = '\0';
+  s_bust_flash_path[0] = '\0';
   (void)save_flash_bust(slug, variant, s_bust_bytes, s_bust_len);
   bust_set_error(nullptr);
   Serial.printf("pm_faculty: cached bust %s/%s (%u B)\n", s_bust_slug, bust_variant_suffix(variant),
@@ -1102,6 +1128,7 @@ void pm_faculty_release_bust_cache(void) {
   s_bust_bytes = nullptr;
   s_bust_len = 0;
   s_bust_slug[0] = '\0';
+  s_bust_flash_path[0] = '\0';
   s_rise_active = false;
   s_bust_status = PmFacultyBustStatus::Idle;
   s_bust_done = false;
@@ -1177,6 +1204,48 @@ static bool bust_decode_jpeg_locked(const char *slug) {
   return true;
 }
 
+static bool bust_decode_flash_jpeg_locked(const char *slug) {
+  if (s_bust_flash_path[0] == '\0') {
+    return false;
+  }
+  File f = LittleFS.open(s_bust_flash_path, "r");
+  if (!f) {
+    return false;
+  }
+  JPEGDEC jpg;
+  if (jpg.open(f, bust_jpeg_draw) != 1) {
+    f.close();
+    return false;
+  }
+  const int w = jpg.getWidth();
+  const int h = jpg.getHeight();
+  if (w <= 0 || h <= 0 || w > kBustJpegMaxDim || h > kBustJpegMaxDim) {
+    jpg.close();
+    return false;
+  }
+  s_decoded_w = w;
+  s_decoded_h = h;
+  s_decoded_alpha = nullptr;
+  const size_t px = static_cast<size_t>(w) * static_cast<size_t>(h);
+  s_decoded_fb = static_cast<uint16_t *>(pm_heap_alloc_response(px * sizeof(uint16_t)));
+  if (!s_decoded_fb) {
+    jpg.close();
+    bust_free_decoded();
+    return false;
+  }
+  memset(s_decoded_fb, 0, px * sizeof(uint16_t));
+  jpg.setPixelType(RGB565_LITTLE_ENDIAN);
+  if (jpg.decode(0, 0, 0) != 1) {
+    jpg.close();
+    bust_free_decoded();
+    return false;
+  }
+  jpg.close();
+  strncpy(s_decoded_slug, slug, sizeof(s_decoded_slug) - 1);
+  s_decoded_slug[sizeof(s_decoded_slug) - 1] = '\0';
+  return true;
+}
+
 static bool bust_decode_png_locked(const char *slug) {
   if (s_bust_png.openRAM(s_bust_bytes, static_cast<int>(s_bust_len), bust_png_draw) != PNG_SUCCESS) {
     return false;
@@ -1219,8 +1288,11 @@ static bool bust_try_decode_for_slug(const char *slug) {
     return true;
   }
   bust_free_decoded();
-  if (s_bust_len >= 8 && s_bust_bytes[0] == 0x89 && s_bust_bytes[1] == 'P' && s_bust_bytes[2] == 'N' &&
-      s_bust_bytes[3] == 'G') {
+  if (!s_bust_bytes && s_bust_flash_path[0] != '\0') {
+    return bust_decode_flash_jpeg_locked(slug);
+  }
+  if (s_bust_len >= 8 && s_bust_bytes && s_bust_bytes[0] == 0x89 && s_bust_bytes[1] == 'P' &&
+      s_bust_bytes[2] == 'N' && s_bust_bytes[3] == 'G') {
     return bust_decode_png_locked(slug);
   }
   return bust_decode_jpeg_locked(slug);
