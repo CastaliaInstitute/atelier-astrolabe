@@ -8,12 +8,12 @@
 #include "pm_wifi_ntp.h"
 
 #include <Arduino.h>
-#include <ESPmDNS.h>
 #include <cmath>
 #include <cstring>
 
 #include <esp_idf_version.h>
 #include <esp_mac.h>
+#include <mdns.h>
 
 #if !defined(ASTROLABE_QEMU) && !defined(ESP_PLATFORM) && __has_include(<BLEDevice.h>)
 #include <BLEAdvertisedDevice.h>
@@ -38,12 +38,17 @@
 
 namespace {
 
-String pm_presence_mdns_address_string(int idx) {
-#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)
-  return MDNS.address(idx).toString();
-#else
-  return MDNS.IP(idx).toString();
-#endif
+void pm_presence_mdns_address_string(const mdns_result_t *result, char *out, size_t cap) {
+  if (!out || cap == 0) {
+    return;
+  }
+  out[0] = '\0';
+  for (const mdns_ip_addr_t *addr = result ? result->addr : nullptr; addr; addr = addr->next) {
+    if (addr->addr.type == ESP_IPADDR_TYPE_V4) {
+      snprintf(out, cap, IPSTR, IP2STR(&addr->addr.u_addr.ip4));
+      return;
+    }
+  }
 }
 
 constexpr uint8_t kMaxAdvReports = kPmPresenceAdvMaxReports;
@@ -147,11 +152,14 @@ void scan_mdns_peers(uint32_t now_ms) {
     return;
   }
   s_last_mdns_scan_ms = now_ms;
-  const int n = MDNS.queryService("http", "tcp");
+  mdns_result_t *results = nullptr;
+  const esp_err_t err = mdns_query_ptr("_http", "_tcp", 1200, kPmPresenceMaxPeers, &results);
+  if (err != ESP_OK || !results) {
+    return;
+  }
   const char *self_suffix = pm_wifi_mac_suffix();
-  for (int i = 0; i < n; ++i) {
-    const String host_s = MDNS.hostname(i);
-    const char *host = host_s.c_str();
+  for (mdns_result_t *r = results; r; r = r->next) {
+    const char *host = r->instance_name ? r->instance_name : r->hostname;
     if (strncmp(host, "astrolabe", 9) != 0) {
       continue;
     }
@@ -168,10 +176,12 @@ void scan_mdns_peers(uint32_t now_ms) {
     const bool is_new = find_peer(id) < 0;
     upsert_peer(id, -76, now_ms, PmPresenceGraphNodeKind::MobilePeer);
     if (is_new) {
-      Serial.printf("presence: mdns peer host=%s id=%08x ip=%s\n", host, static_cast<unsigned>(id),
-                    pm_presence_mdns_address_string(i).c_str());
+      char ip[24];
+      pm_presence_mdns_address_string(r, ip, sizeof(ip));
+      Serial.printf("presence: mdns peer host=%s id=%08x ip=%s\n", host, static_cast<unsigned>(id), ip);
     }
   }
+  mdns_query_results_free(results);
 }
 
 void expire_peers(uint32_t now_ms) {

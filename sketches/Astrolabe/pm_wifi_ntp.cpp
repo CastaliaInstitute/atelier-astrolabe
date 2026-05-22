@@ -1,6 +1,5 @@
 #include "pm_wifi_ntp.h"
 
-#include <ESPmDNS.h>
 #if __has_include(<esp_bt.h>)
 #include <esp_bt.h>
 #define PM_WIFI_HAS_ESP_BT 1
@@ -13,6 +12,7 @@
 #include <esp_netif.h>
 #include <esp_sntp.h>
 #include <esp_wifi.h>
+#include <mdns.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -188,16 +188,24 @@ static void pm_wifi_mdns_begin(void) {
   if (s_mdns_started || !pm_wifi_connected()) {
     return;
   }
-  if (!MDNS.begin(pm_wifi_hostname())) {
+  esp_err_t err = mdns_init();
+  if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
     ESP_LOGW(TAG, "mDNS start failed");
     pm_log_printf(false, "wifi: mdns failed host=%s", pm_wifi_mdns_name());
     return;
   }
-  MDNS.addService("http", "tcp", 80);
-  MDNS.addServiceTxt("http", "tcp", "host", pm_wifi_hostname());
-  MDNS.addServiceTxt("http", "tcp", "mac", pm_wifi_mac_string());
-  MDNS.addServiceTxt("http", "tcp", "mac6", pm_wifi_mac_suffix());
-  MDNS.addServiceTxt("http", "tcp", "product", "Mynah Astrolabe");
+  (void)mdns_hostname_set(pm_wifi_hostname());
+  (void)mdns_instance_name_set("Mynah Astrolabe");
+  mdns_txt_item_t txt[] = {
+      {"host", pm_wifi_hostname()},
+      {"mac", pm_wifi_mac_string()},
+      {"mac6", pm_wifi_mac_suffix()},
+      {"product", "Mynah Astrolabe"},
+  };
+  err = mdns_service_add(pm_wifi_hostname(), "_http", "_tcp", 80, txt, sizeof(txt) / sizeof(txt[0]));
+  if (err != ESP_OK) {
+    ESP_LOGW(TAG, "mDNS service add failed %d", static_cast<int>(err));
+  }
   s_mdns_started = true;
   ESP_LOGI(TAG, "mDNS http://%s/", pm_wifi_mdns_name());
   pm_log_printf(false, "wifi: mdns http://%s/ ip=%s mac=%s", pm_wifi_mdns_name(),
@@ -208,7 +216,7 @@ static void pm_wifi_mdns_end(void) {
   if (!s_mdns_started) {
     return;
   }
-  MDNS.end();
+  mdns_free();
   s_mdns_started = false;
 }
 
