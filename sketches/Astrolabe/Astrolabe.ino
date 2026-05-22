@@ -2617,6 +2617,8 @@ void loop() {
   poll_serial_birth_commands();
   face_tour_tick(now);
   handle_usb_audio_stream_event();
+  (void)pm_speaker_poll();
+  (void)pm_voice_release_idle_task();
   const uint8_t side_ev = pm_side_buttons_poll(now);
 
   if (g_state == AppState::kClock && pm_faces_current() == ClockFace::TibetanBowl) {
