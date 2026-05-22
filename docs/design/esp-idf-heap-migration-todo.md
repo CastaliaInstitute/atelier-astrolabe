@@ -12,7 +12,7 @@ Goal: reduce internal heap pressure while moving Astrolabe away from Arduino run
 
 ## Phase 2: Network and TLS
 
-- [ ] Add one shared ESP-IDF HTTP helper around `esp_http_client`.
+- [x] Add one shared ESP-IDF HTTP helper around `esp_http_client`.
 - [ ] Support callback streaming, fixed-cap JSON reads, and direct-to-flash downloads.
 - [ ] Port small JSON clients first: weather, quotes, Calcifer, Spotify status.
 - [ ] Port binary/streaming clients next: faculty busts, voice MP3, rocket media.

@@ -1,11 +1,11 @@
 #include "pm_geo_tz.h"
 
-#include <HTTPClient.h>
 #include <WiFi.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "pm_config.h"
+#include "pm_http.h"
 
 #ifndef MYNAH_TZ_FALLBACK_OFFSET_SEC
 /** Default to America/Denver daylight time for the local development device. */
@@ -82,23 +82,7 @@ static bool fetch_url_body(const char *url, char *buf, size_t buf_cap) {
   if (!buf || buf_cap < 32) {
     return false;
   }
-  HTTPClient http;
-  http.setTimeout(12000);
-  if (!http.begin(url)) {
-    return false;
-  }
-  const int code = http.GET();
-  if (code != HTTP_CODE_OK) {
-    http.end();
-    return false;
-  }
-  const String body = http.getString();
-  http.end();
-  if (body.length() == 0 || static_cast<size_t>(body.length()) >= buf_cap) {
-    return false;
-  }
-  memcpy(buf, body.c_str(), static_cast<size_t>(body.length()) + 1);
-  return true;
+  return pm_http_get_text(url, buf, buf_cap, 12000);
 }
 
 bool pm_geo_tz_refresh_from_ip() {
