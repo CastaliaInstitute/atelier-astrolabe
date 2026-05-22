@@ -4,7 +4,11 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="icon" href="data:," />
-    <title>Astrolabe LVGL Web Simulator</title>
+    <title>Astrolabe Simulator — Try the dial</title>
+    <meta
+      name="description"
+      content="Try the Astrolabe face library in a browser: swipe the round device, change faces, and preview the inquiry surfaces."
+    />
     <style>
       :root {
         color-scheme: dark;
@@ -21,16 +25,84 @@
         min-height: 100vh;
         margin: 0;
         display: grid;
-        place-items: center;
+        grid-template-rows: auto 1fr auto;
         background: radial-gradient(circle at center, #202833 0, #111418 58%, #090b0f 100%);
+      }
+
+      a {
+        color: inherit;
+      }
+
+      .topbar,
+      .foot {
+        width: min(100vw, 920px);
+        margin: 0 auto;
+        padding: 18px 24px;
+      }
+
+      .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+      }
+
+      .brand {
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-decoration: none;
+        text-transform: uppercase;
+      }
+
+      .topbar nav {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        color: #b8c3ce;
+        font-size: 0.9rem;
+      }
+
+      .topbar nav a {
+        text-decoration: none;
+      }
+
+      .topbar nav a:hover {
+        color: #f0c792;
       }
 
       main {
         width: min(100vw, 760px);
-        padding: 24px;
+        margin: auto;
+        padding: 12px 24px 24px;
         display: grid;
         justify-items: center;
-        gap: 18px;
+        gap: 16px;
+      }
+
+      .intro {
+        max-width: 560px;
+        text-align: center;
+      }
+
+      .eyebrow {
+        margin: 0 0 6px;
+        color: #f0c792;
+        font-size: 0.75rem;
+        font-weight: 700;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: clamp(2rem, 6vw, 3.25rem);
+        line-height: 0.95;
+      }
+
+      .intro p:last-child,
+      .gesture-status,
+      .foot {
+        color: #b8c3ce;
       }
 
       .watch {
@@ -128,10 +200,49 @@
         cursor: wait;
         opacity: 0.55;
       }
+
+      .gesture-status {
+        min-height: 1.3em;
+        font-size: 0.88rem;
+        text-align: center;
+      }
+
+      .foot {
+        text-align: center;
+        font-size: 0.82rem;
+      }
+
+      @media (max-width: 560px) {
+        .topbar {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+
+        .topbar nav {
+          flex-wrap: wrap;
+        }
+
+        main {
+          padding-top: 0;
+        }
+      }
     </style>
   </head>
   <body>
+    <header class="topbar">
+      <a class="brand" href="../">Astrolabe</a>
+      <nav aria-label="Simulator navigation">
+        <a href="../">Inquiry</a>
+        <a href="../faces/">Faces</a>
+        <a href="../#founding">Founder Bundle</a>
+      </nav>
+    </header>
     <main>
+      <section class="intro" aria-labelledby="sim-title">
+        <p class="eyebrow">Live device preview</p>
+        <h1 id="sim-title">Try the dial.</h1>
+        <p>Swipe the round screen or choose a face to preview the Astrolabe inquiry surfaces.</p>
+      </section>
       <div class="watch">
         <canvas id="astrolabe-canvas" width="466" height="466"></canvas>
         <div class="asset-overlay" id="faculty-overlay" aria-hidden="true">
@@ -144,6 +255,7 @@
           <img class="tarot-card" id="tarot-card" src="assets/tarot/00-fool.png" alt="" />
         </div>
       </div>
+      <div class="gesture-status" id="gesture-status" aria-live="polite">Swipe left or right to change face.</div>
       <div class="controls" aria-label="Watch face controls">
         <button type="button" id="prev-face" aria-label="Previous face" disabled>‹</button>
         <select id="face-select" aria-label="Face" disabled>
@@ -153,19 +265,19 @@
           <option value="3">03 Spotify</option>
           <option value="4">04 Astrology</option>
           <option value="5">05 Moon</option>
-          <option value="6">06 CalciferCountdown</option>
+          <option value="6">06 Calcifer Countdown</option>
           <option value="7">07 Castalia</option>
           <option value="8">08 Settings</option>
           <option value="9">09 Synastry</option>
           <option value="10">10 Spectrum</option>
           <option value="11">11 Chakra</option>
-          <option value="12">12 TibetanBowl</option>
+          <option value="12">12 Tibetan Bowl</option>
           <option value="13">13 Rocket</option>
           <option value="14">14 Radar</option>
           <option value="15">15 Faculty</option>
           <option value="16">16 Weather</option>
           <option value="17">17 Quotes</option>
-          <option value="18">18 LiveTransits</option>
+          <option value="18">18 Live Transits</option>
           <option value="19">19 Tarot</option>
           <option value="20">20 Notes</option>
           <option value="21">21 Ocarina</option>
@@ -173,13 +285,14 @@
           <option value="23">23 Piano</option>
           <option value="24">24 Level</option>
           <option value="25">25 Tuning</option>
-          <option value="26">26 PanDrum</option>
+          <option value="26">26 Pan Drum</option>
           <option value="27">27 Alethiometer</option>
           <option value="28">28 Runes</option>
         </select>
         <button type="button" id="next-face" aria-label="Next face" disabled>›</button>
       </div>
     </main>
+    <footer class="foot">Browser preview of the LVGL face library. The physical Astrolabe adds buttons, sensors, voice, and Castalia memory.</footer>
 
     <script>
       const controls = {
@@ -204,6 +317,7 @@
 
     <script>
       const faceSelect = controls.select;
+      const gestureStatus = document.querySelector("#gesture-status");
       const faceCount = faceSelect.options.length;
       const overlays = {
         faculty: document.querySelector("#faculty-overlay"),
@@ -253,7 +367,7 @@
         }
       }
 
-      function setFace(face) {
+      function setFace(face, gestureLabel = "") {
         if (!Module.ccall) {
           return;
         }
@@ -261,12 +375,24 @@
         faceSelect.value = String(normalized);
         updateAssetOverlays(normalized);
         Module.ccall("astrolabe_web_set_face", null, ["number"], [normalized]);
+        const showing = `Showing ${faceSelect.options[normalized].textContent}.`;
+        gestureStatus.textContent = gestureLabel ? `${gestureLabel} ${showing}` : showing;
+      }
+
+      function showGesture(direction) {
+        const labels = {
+          up: "Swipe up mirrored. This preview keeps the current face selected.",
+          down: "Swipe down mirrored. This preview keeps the current face selected.",
+          left: "Swipe left: next face.",
+          right: "Swipe right: previous face.",
+        };
+        gestureStatus.textContent = labels[direction] || "Gesture mirrored.";
       }
 
       updateAssetOverlays(Number(faceSelect.value));
       faceSelect.addEventListener("change", () => setFace(Number(faceSelect.value)));
-      controls.prev.addEventListener("click", () => setFace(Number(faceSelect.value) - 1));
-      controls.next.addEventListener("click", () => setFace(Number(faceSelect.value) + 1));
+      controls.prev.addEventListener("click", () => setFace(Number(faceSelect.value) - 1, "Previous face."));
+      controls.next.addEventListener("click", () => setFace(Number(faceSelect.value) + 1, "Next face."));
 
       const canvas = document.querySelector("#astrolabe-canvas");
       let swipeStart = null;
@@ -292,10 +418,18 @@
         const dy = event.clientY - swipeStart.y;
         const dt = performance.now() - swipeStart.time;
         swipeStart = null;
-        if (Math.abs(dx) < 48 || Math.abs(dx) < Math.abs(dy) * 1.4 || dt > 900) {
+        if (dt > 900) {
           return;
         }
-        setFace(Number(faceSelect.value) + (dx < 0 ? 1 : -1));
+        if (Math.abs(dx) >= 48 && Math.abs(dx) >= Math.abs(dy) * 1.4) {
+          const direction = dx < 0 ? "left" : "right";
+          showGesture(direction);
+          setFace(Number(faceSelect.value) + (dx < 0 ? 1 : -1), direction === "left" ? "Swipe left." : "Swipe right.");
+          return;
+        }
+        if (Math.abs(dy) >= 48 && Math.abs(dy) >= Math.abs(dx) * 1.4) {
+          showGesture(dy < 0 ? "up" : "down");
+        }
       });
 
       canvas.addEventListener("pointercancel", () => {

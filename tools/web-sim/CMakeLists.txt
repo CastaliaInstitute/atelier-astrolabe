@@ -17,6 +17,7 @@ set(CONFIG_LV_USE_THORVG_INTERNAL OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(
   lvgl
   URL https://github.com/lvgl/lvgl/archive/refs/tags/v9.3.0.tar.gz
+  URL_HASH SHA256=00d31d2f8a3376f5e29748c0f81c0b6bf4bcbc41e3c8befdc3574208e227d0d8
 )
 FetchContent_MakeAvailable(lvgl)
 
