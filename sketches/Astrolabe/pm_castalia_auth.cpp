@@ -1,8 +1,6 @@
 #include "pm_castalia_auth.h"
 
 #include <HTTPClient.h>
-#include <WiFiClient.h>
-#include <WiFiClientSecure.h>
 #include <ctype.h>
 #include <cstring>
 #include <ctime>
@@ -12,6 +10,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "pm_config.h"
+#include "pm_http.h"
 #include "pm_nvs.h"
 #include "pm_speaker.h"
 #include "pm_wifi_ntp.h"
@@ -73,7 +72,6 @@ static char s_qr_failed_url[sizeof(s_signin_url)] = "";
 static bool s_qr_modules_valid = false;
 
 static constexpr uint32_t kCastaliaHttpTimeoutMs = 12000;
-static constexpr uint32_t kCastaliaBodyReadMs = 10000;
 static constexpr uint32_t kCastaliaPollIntervalMs = 2000;
 
 static void trim_supabase_url(char *url, size_t cap) {
@@ -170,34 +168,11 @@ static void url_encode_component(const char *in, char *out, size_t cap) {
   out[j] = '\0';
 }
 
-static bool read_small_json_body(HTTPClient *http, char *buf, size_t cap) {
-  buf[0] = '\0';
-  WiFiClient *stream = http->getStreamPtr();
-  if (!stream) {
-    return false;
+static void castalia_anon_auth(char *auth, size_t auth_cap) {
+  if (!auth || auth_cap == 0) {
+    return;
   }
-  size_t rd = 0;
-  const uint32_t deadline = millis() + kCastaliaBodyReadMs;
-  while (rd + 1 < cap) {
-    const int avail = stream->available();
-    if (avail > 0) {
-      const int n = stream->readBytes(buf + rd, static_cast<size_t>(avail) < (cap - 1 - rd) ? avail : static_cast<int>(cap - 1 - rd));
-      if (n > 0) {
-        rd += static_cast<size_t>(n);
-        continue;
-      }
-    }
-    if (!http->connected() && stream->available() == 0) {
-      break;
-    }
-    if (static_cast<int32_t>(millis() - deadline) >= 0) {
-      break;
-    }
-    yield();
-    delay(1);
-  }
-  buf[rd] = '\0';
-  return rd > 0;
+  snprintf(auth, auth_cap, "Bearer %s", MYNAH_SUPABASE_ANON_KEY);
 }
 
 static void prefs_load() {
@@ -289,28 +264,21 @@ static bool refresh_session_http() {
   snprintf(body, sizeof(body), "{\"refresh_token\":\"%s\"}", s_refresh);
   // refresh_token may contain quotes? unlikely - if so would need JSON escape; JWT uses . -
 
-  WiFiClientSecure client;
-  client.setInsecure();
-  HTTPClient http;
-  http.setTimeout(kCastaliaHttpTimeoutMs);
-  if (!http.begin(client, url)) {
-    return false;
-  }
-  http.addHeader("Content-Type", "application/json");
-  http.addHeader("apikey", MYNAH_SUPABASE_ANON_KEY);
-  http.addHeader("Authorization", String("Bearer ") + MYNAH_SUPABASE_ANON_KEY);
-  const int code = http.POST(body);
-  if (code != 200) {
-    ESP_LOGW(TAG, "refresh HTTP %d", code);
-    http.end();
+  char auth[1560];
+  castalia_anon_auth(auth, sizeof(auth));
+  const PmHttpHeader headers[] = {
+      {"Content-Type", "application/json"},
+      {"apikey", MYNAH_SUPABASE_ANON_KEY},
+      {"Authorization", auth},
+  };
+  PmHttpTextResult result = {};
+  if (!pm_http_request_text(url, "POST", body, headers, sizeof(headers) / sizeof(headers[0]),
+                            s_http_json_buf, sizeof(s_http_json_buf), kCastaliaHttpTimeoutMs,
+                            &result)) {
+    ESP_LOGW(TAG, "refresh HTTP/read fail %d", result.status_code);
     prefs_clear_session();
     return false;
   }
-  if (!read_small_json_body(&http, s_http_json_buf, sizeof(s_http_json_buf))) {
-    http.end();
-    return false;
-  }
-  http.end();
 
   char at[sizeof(s_access)] = "";
   char rt[sizeof(s_refresh)] = "";
@@ -542,51 +510,41 @@ static bool http_post_json(const char *url, const char *body, char *resp, size_t
   if (http_code_out) {
     *http_code_out = -1;
   }
-  WiFiClientSecure client;
-  client.setInsecure();
-  HTTPClient http;
-  http.setTimeout(kCastaliaHttpTimeoutMs);
-  if (!http.begin(client, url)) {
-    return false;
-  }
-  http.addHeader("Content-Type", "application/json");
-  http.addHeader("apikey", MYNAH_SUPABASE_ANON_KEY);
-  http.addHeader("Authorization", String("Bearer ") + MYNAH_SUPABASE_ANON_KEY);
-  const int code = http.POST(body ? body : "{}");
+  char auth[1560];
+  castalia_anon_auth(auth, sizeof(auth));
+  const PmHttpHeader headers[] = {
+      {"Content-Type", "application/json"},
+      {"apikey", MYNAH_SUPABASE_ANON_KEY},
+      {"Authorization", auth},
+  };
+  PmHttpTextResult result = {};
+  const bool ok = pm_http_request_text(url, "POST", body ? body : "{}", headers,
+                                       sizeof(headers) / sizeof(headers[0]), resp, resp_cap,
+                                       kCastaliaHttpTimeoutMs, &result);
   if (http_code_out) {
-    *http_code_out = code;
+    *http_code_out = result.status_code;
   }
-  if (code != 200) {
-    ESP_LOGW(TAG, "POST %s -> %d", url, code);
-    read_small_json_body(&http, resp, resp_cap);
-    http.end();
+  if (!ok) {
+    ESP_LOGW(TAG, "POST %s -> %d", url, result.status_code);
     return false;
   }
-  const bool ok = read_small_json_body(&http, resp, resp_cap);
-  http.end();
   return ok;
 }
 
 static bool http_get_text(const char *url, char *resp, size_t resp_cap) {
-  WiFiClientSecure client;
-  client.setInsecure();
-  HTTPClient http;
-  http.setTimeout(kCastaliaHttpTimeoutMs);
-  if (!http.begin(client, url)) {
+  char auth[1560];
+  castalia_anon_auth(auth, sizeof(auth));
+  const PmHttpHeader headers[] = {
+      {"apikey", MYNAH_SUPABASE_ANON_KEY},
+      {"Authorization", auth},
+  };
+  PmHttpTextResult result = {};
+  if (!pm_http_request_text(url, "GET", nullptr, headers, sizeof(headers) / sizeof(headers[0]),
+                            resp, resp_cap, kCastaliaHttpTimeoutMs, &result)) {
+    ESP_LOGW(TAG, "GET %s -> %d", url, result.status_code);
     return false;
   }
-  http.addHeader("apikey", MYNAH_SUPABASE_ANON_KEY);
-  http.addHeader("Authorization", String("Bearer ") + MYNAH_SUPABASE_ANON_KEY);
-  const int code = http.GET();
-  if (code != 200) {
-    ESP_LOGW(TAG, "GET %s -> %d", url, code);
-    read_small_json_body(&http, resp, resp_cap);
-    http.end();
-    return false;
-  }
-  const bool ok = read_small_json_body(&http, resp, resp_cap);
-  http.end();
-  return ok;
+  return true;
 }
 
 static bool castalia_pair_start_http() {
