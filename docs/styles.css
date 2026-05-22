@@ -748,6 +748,7 @@ section {
 
 /* Offer */
 .offer {
+  width: 100%;
   max-width: 480px;
   margin: 0 auto;
   padding: 2rem;
@@ -793,6 +794,102 @@ section {
   font-size: 0.85rem;
   color: var(--text-muted);
   margin-top: 1rem;
+}
+
+.price-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+@media (min-width: 920px) {
+  .price-grid {
+    grid-template-columns: 1.12fr 0.94fr 0.94fr;
+    align-items: stretch;
+  }
+}
+
+.price-card {
+  display: flex;
+  flex-direction: column;
+  max-width: none;
+  min-height: 100%;
+}
+
+.price-card--focus {
+  background:
+    radial-gradient(circle at top, rgba(232, 212, 154, 0.12), transparent 44%),
+    var(--bg-card);
+  box-shadow: 0 22px 70px rgba(0, 0, 0, 0.28);
+}
+
+.price-card .btn {
+  align-self: center;
+  margin-top: auto;
+}
+
+.price-card .offer__fine {
+  margin-bottom: 0;
+}
+
+.sku-pricing {
+  display: grid;
+  gap: 1.2rem;
+  margin-top: 1.1rem;
+  padding: 1.2rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(7, 9, 15, 0.34);
+}
+
+@media (min-width: 860px) {
+  .sku-pricing {
+    grid-template-columns: 0.8fr 1.2fr;
+    align-items: center;
+  }
+}
+
+.sku-pricing h3 {
+  max-width: 36ch;
+}
+
+.sku-pricing dl {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0;
+}
+
+@media (min-width: 640px) {
+  .sku-pricing dl {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.sku-pricing dl > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid rgba(232, 212, 154, 0.14);
+  border-radius: 12px;
+  background: rgba(20, 28, 42, 0.58);
+}
+
+.sku-pricing dt,
+.sku-pricing dd {
+  margin: 0;
+}
+
+.sku-pricing dt {
+  color: var(--text);
+  font-size: 0.92rem;
+}
+
+.sku-pricing dd {
+  color: var(--gold-soft);
+  font-family: "Instrument Serif", serif;
+  font-size: 1.18rem;
+  white-space: nowrap;
 }
 
 /* FAQ */
