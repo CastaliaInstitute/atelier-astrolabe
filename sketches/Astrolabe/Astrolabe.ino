@@ -288,6 +288,7 @@ static uint8_t *g_pcm = nullptr;
 static size_t g_pcm_len = 0;
 static PmVoiceResult g_voice_result = {};
 char g_gesture_banner[44] = "";
+static bool instrument_stack_contains(ClockFace face);
 /** Last full clock paint background (for second-hand erasure). */
 static bool s_spotify_have_data = false;
 static uint32_t s_last_spotify_poll_ms = 0;
@@ -458,6 +459,13 @@ static bool gesture_cycle_face(int delta) {
   if (pm_faces_current() == ClockFace::Settings) {
     pm_settings_on_leave();
     pm_faces_set(delta >= 0 ? ClockFace::Synastry : ClockFace::CalciferCountdown);
+    g_gesture_banner[0] = '\0';
+    g_clock_repaint_pending = true;
+    Serial.printf("[gesture] face -> %d\n", static_cast<int>(pm_faces_current()));
+    return true;
+  }
+  if (instrument_stack_contains(pm_faces_current())) {
+    pm_faces_set(delta >= 0 ? ClockFace::Rocket : ClockFace::Spectrum);
     g_gesture_banner[0] = '\0';
     g_clock_repaint_pending = true;
     Serial.printf("[gesture] face -> %d\n", static_cast<int>(pm_faces_current()));
@@ -3115,6 +3123,9 @@ void loop() {
       }
       g_clock_repaint_pending = true;
       continue;
+    } else if (g_state == AppState::kClock && instrument_stack_swipe(ge.kind)) {
+      g_clock_repaint_pending = true;
+      continue;
     } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Spectrum &&
                (ge.kind == PmGestureKind::SwipeUp || ge.kind == PmGestureKind::SwipeDown)) {
       pm_face_spectrum_cycle(ge.kind == PmGestureKind::SwipeUp ? 1 : -1);
@@ -3137,9 +3148,6 @@ void loop() {
                (ge.kind == PmGestureKind::SwipeUp || ge.kind == PmGestureKind::SwipeDown)) {
       const uint8_t len = pm_cycle_adjust_cycle_length_preset(ge.kind == PmGestureKind::SwipeUp ? 1 : -1);
       snprintf(g_gesture_banner, sizeof(g_gesture_banner), "cycle: %u days", len);
-      g_clock_repaint_pending = true;
-      continue;
-    } else if (g_state == AppState::kClock && instrument_stack_swipe(ge.kind)) {
       g_clock_repaint_pending = true;
       continue;
     } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Chakra &&
