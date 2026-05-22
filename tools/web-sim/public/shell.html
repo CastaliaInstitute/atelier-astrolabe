@@ -3,6 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="data:," />
     <title>Astrolabe LVGL Web Simulator</title>
     <style>
       :root {
@@ -82,6 +83,12 @@
       select:hover {
         background: #24303b;
       }
+
+      button:disabled,
+      select:disabled {
+        cursor: wait;
+        opacity: 0.55;
+      }
     </style>
   </head>
   <body>
@@ -90,8 +97,8 @@
         <canvas id="astrolabe-canvas" width="466" height="466"></canvas>
       </div>
       <div class="controls" aria-label="Watch face controls">
-        <button type="button" id="prev-face" aria-label="Previous face">‹</button>
-        <select id="face-select" aria-label="Face">
+        <button type="button" id="prev-face" aria-label="Previous face" disabled>‹</button>
+        <select id="face-select" aria-label="Face" disabled>
           <option value="0">00 Classic</option>
           <option value="1">01 Apocalypso</option>
           <option value="2">02 Digital</option>
@@ -122,25 +129,47 @@
           <option value="27">27 Alethiometer</option>
           <option value="28">28 Runes</option>
         </select>
-        <button type="button" id="next-face" aria-label="Next face">›</button>
+        <button type="button" id="next-face" aria-label="Next face" disabled>›</button>
       </div>
     </main>
+
+    <script>
+      const controls = {
+        prev: document.querySelector("#prev-face"),
+        next: document.querySelector("#next-face"),
+        select: document.querySelector("#face-select"),
+      };
+
+      var Module = {
+        locateFile(path) {
+          return new URL(path, document.baseURI).href;
+        },
+        onRuntimeInitialized() {
+          controls.prev.disabled = false;
+          controls.next.disabled = false;
+          controls.select.disabled = false;
+        },
+      };
+    </script>
 
     {{{ SCRIPT }}}
 
     <script>
-      const faceSelect = document.querySelector("#face-select");
+      const faceSelect = controls.select;
       const faceCount = faceSelect.options.length;
 
       function setFace(face) {
+        if (!Module.ccall) {
+          return;
+        }
         const normalized = ((face % faceCount) + faceCount) % faceCount;
         faceSelect.value = String(normalized);
         Module.ccall("astrolabe_web_set_face", null, ["number"], [normalized]);
       }
 
       faceSelect.addEventListener("change", () => setFace(Number(faceSelect.value)));
-      document.querySelector("#prev-face").addEventListener("click", () => setFace(Number(faceSelect.value) - 1));
-      document.querySelector("#next-face").addEventListener("click", () => setFace(Number(faceSelect.value) + 1));
+      controls.prev.addEventListener("click", () => setFace(Number(faceSelect.value) - 1));
+      controls.next.addEventListener("click", () => setFace(Number(faceSelect.value) + 1));
     </script>
   </body>
 </html>
