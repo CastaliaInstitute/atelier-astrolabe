@@ -1,10 +1,7 @@
 #include "pm_rocket.h"
 
 #include <Arduino_GFX_Library.h>
-#include <HTTPClient.h>
 #include <JPEGDEC.h>
-#include <WiFiClient.h>
-#include <WiFiClientSecure.h>
 #include <cstdlib>
 #include <cstdio>
 #include <cstring>
@@ -15,6 +12,7 @@
 #include "pm_config.h"
 #include "pm_display.h"
 #include "pm_heap.h"
+#include "pm_http.h"
 #include "pm_resource.h"
 
 static const char *TAG = "pm_rocket";
@@ -435,7 +433,53 @@ static bool parse_launch_image_url(const char *json, char *out, size_t cap) {
   return false;
 }
 
-static bool http_download_binary(const char *url, uint8_t **out_buf, size_t *out_len) {
+typedef struct {
+  uint8_t *buf;
+  size_t cap;
+  size_t len;
+} RocketBinaryDownload;
+
+static bool rocket_binary_on_data(const uint8_t *data, size_t len, void *ctx) {
+  RocketBinaryDownload *dl = static_cast<RocketBinaryDownload *>(ctx);
+  if (!dl || !data || len == 0) {
+    return false;
+  }
+  if (dl->len + len > dl->cap) {
+    return false;
+  }
+  memcpy(dl->buf + dl->len, data, len);
+  dl->len += len;
+  return true;
+}
+
+static bool rocket_http_get_text_alloc(const char *url, const char *accept, char **out_resp, size_t *out_rd) {
+  if (!url || !out_resp || !out_rd) {
+    return false;
+  }
+  *out_resp = nullptr;
+  *out_rd = 0;
+  char *resp = static_cast<char *>(pm_heap_alloc_response(MYNAH_ROCKET_MAX_BYTES + 1u));
+  if (!resp) {
+    return false;
+  }
+  const PmHttpHeader headers[] = {
+      {"User-Agent", kLl2UserAgent},
+      {"Accept", accept ? accept : "application/json"},
+  };
+  PmHttpTextResult result = {};
+  const bool ok = pm_http_request_text(url, "GET", nullptr, headers, sizeof(headers) / sizeof(headers[0]), resp,
+                                       MYNAH_ROCKET_MAX_BYTES + 1u, MYNAH_ROCKET_HTTP_MS, &result);
+  if (!ok) {
+    ESP_LOGW(TAG, "GET %s HTTP %d len %u", url, result.status_code, static_cast<unsigned>(result.bytes_read));
+    free(resp);
+    return false;
+  }
+  *out_rd = result.bytes_read;
+  *out_resp = resp;
+  return true;
+}
+
+static bool rocket_http_download_binary(const char *url, uint8_t **out_buf, size_t *out_len) {
   if (!url || !url[0] || !out_buf || !out_len) {
     return false;
   }
@@ -444,58 +488,26 @@ static bool http_download_binary(const char *url, uint8_t **out_buf, size_t *out
   if (!rocket_heap_ready(MYNAH_ROCKET_DETAIL_MIN_FETCH_HEAP, MYNAH_ROCKET_MIN_LARGEST_INTERNAL, "rocket image")) {
     return false;
   }
-
-  WiFiClientSecure client;
-  client.setInsecure();
-  HTTPClient http;
-  http.setTimeout(MYNAH_ROCKET_HTTP_MS);
-  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-  http.addHeader("User-Agent", kLl2UserAgent);
-  if (!http.begin(client, url)) {
+  RocketBinaryDownload dl = {};
+  dl.cap = MYNAH_ROCKET_IMAGE_MAX_BYTES;
+  dl.buf = static_cast<uint8_t *>(pm_heap_alloc_response(dl.cap));
+  if (!dl.buf) {
     return false;
   }
-
-  const int code = http.GET();
-  const int len = http.getSize();
-  if (code != 200 || len <= 0 || len > MYNAH_ROCKET_IMAGE_MAX_BYTES) {
-    ESP_LOGW(TAG, "image GET %d len %d", code, len);
-    http.end();
+  const PmHttpHeader headers[] = {
+      {"User-Agent", kLl2UserAgent},
+      {"Accept", "image/jpeg,image/png,image/*;q=0.8,*/*;q=0.1"},
+  };
+  PmHttpTextResult result = {};
+  const bool ok = pm_http_request_stream(url, "GET", nullptr, headers, sizeof(headers) / sizeof(headers[0]),
+                                         MYNAH_ROCKET_HTTP_MS, rocket_binary_on_data, &dl, &result);
+  if (!ok || dl.len < 8) {
+    ESP_LOGW(TAG, "image stream HTTP %d len %u", result.status_code, static_cast<unsigned>(result.bytes_read));
+    free(dl.buf);
     return false;
   }
-
-  uint8_t *buf = static_cast<uint8_t *>(pm_heap_alloc_response(static_cast<size_t>(len)));
-  if (!buf) {
-    http.end();
-    return false;
-  }
-
-  WiFiClient *stream = http.getStreamPtr();
-  size_t rd = 0;
-  const uint32_t deadline = millis() + MYNAH_ROCKET_HTTP_MS;
-  while (rd < static_cast<size_t>(len)) {
-    if (stream->available() > 0) {
-      const int n = stream->readBytes(buf + rd, static_cast<size_t>(len) - rd);
-      if (n > 0) {
-        rd += static_cast<size_t>(n);
-        continue;
-      }
-    }
-    if (!http.connected() && stream->available() == 0) {
-      break;
-    }
-    if (static_cast<int32_t>(millis() - deadline) >= 0) {
-      break;
-    }
-    yield();
-    delay(1);
-  }
-  http.end();
-  if (rd < 8) {
-    free(buf);
-    return false;
-  }
-  *out_buf = buf;
-  *out_len = rd;
+  *out_buf = dl.buf;
+  *out_len = dl.len;
   return true;
 }
 
@@ -580,7 +592,7 @@ static bool pad_decode_jpeg(const uint8_t *data, size_t len) {
 static bool fetch_pad_image_for_url(const char *url) {
   uint8_t *img = nullptr;
   size_t img_len = 0;
-  if (!http_download_binary(url, &img, &img_len) || !img) {
+  if (!rocket_http_download_binary(url, &img, &img_len) || !img) {
     return false;
   }
   const bool ok = pad_decode_jpeg(img, img_len);
@@ -706,37 +718,6 @@ static bool parse_webcast_from_detail_json(const char *json, PmRocketLaunch *out
   return false;
 }
 
-static bool read_http_body(HTTPClient &http, int streamLen, char **out_resp, size_t *out_rd) {
-  if (!out_resp || !out_rd || streamLen <= 0) {
-    return false;
-  }
-  char *resp = static_cast<char *>(pm_heap_alloc_response(static_cast<size_t>(streamLen) + 1));
-  if (!resp) {
-    return false;
-  }
-
-  WiFiClient *stream = http.getStreamPtr();
-  size_t rd = 0;
-  const uint32_t deadline = millis() + MYNAH_ROCKET_HTTP_MS;
-  while (rd < static_cast<size_t>(streamLen)) {
-    if (stream->available() > 0) {
-      const int n = stream->readBytes(resp + rd, static_cast<size_t>(streamLen) - rd);
-      if (n > 0) {
-        rd += static_cast<size_t>(n);
-        continue;
-      }
-    }
-    if (static_cast<int32_t>(millis() - deadline) >= 0) {
-      break;
-    }
-    delay(2);
-  }
-  resp[rd] = '\0';
-  *out_resp = resp;
-  *out_rd = rd;
-  return rd > 0;
-}
-
 static bool extract_json_int_field_from(const char *json, const char *key, int32_t *out) {
   if (!json || !key || !out) {
     return false;
@@ -807,29 +788,11 @@ static bool fetch_starship12_media_timeline(PmRocketStatus *out) {
     return false;
   }
 
-  WiFiClientSecure client;
-  client.setInsecure();
-  HTTPClient http;
-  http.setTimeout(MYNAH_ROCKET_HTTP_MS);
-  http.addHeader("User-Agent", kLl2UserAgent);
-  http.addHeader("Accept", "application/json");
-  if (!http.begin(client, url)) {
-    return false;
-  }
-  const int code = http.GET();
-  const int streamLen = http.getSize();
-  if (code != 200 || streamLen <= 0 || streamLen > MYNAH_ROCKET_MAX_BYTES) {
-    ESP_LOGW(TAG, "timeline HTTP %d len %d", code, streamLen);
-    http.end();
-    return false;
-  }
   char *resp = nullptr;
   size_t rd = 0;
-  if (!read_http_body(http, streamLen, &resp, &rd)) {
-    http.end();
+  if (!rocket_http_get_text_alloc(url, "application/json", &resp, &rd)) {
     return false;
   }
-  http.end();
   parse_media_timeline_json(resp, out);
   char image_url[256];
   image_url[0] = '\0';
@@ -863,29 +826,11 @@ static bool fetch_launch_detail(PmRocketLaunch *launch) {
     return false;
   }
 
-  WiFiClientSecure client;
-  client.setInsecure();
-  HTTPClient http;
-  http.setTimeout(MYNAH_ROCKET_HTTP_MS);
-  http.addHeader("User-Agent", kLl2UserAgent);
-  if (!http.begin(client, url)) {
-    return false;
-  }
-
-  const int code = http.GET();
-  const int streamLen = http.getSize();
-  if (code != 200 || streamLen <= 0 || streamLen > MYNAH_ROCKET_MAX_BYTES) {
-    http.end();
-    return false;
-  }
-
   char *resp = nullptr;
   size_t rd = 0;
-  if (!read_http_body(http, streamLen, &resp, &rd)) {
-    http.end();
+  if (!rocket_http_get_text_alloc(url, "application/json", &resp, &rd)) {
     return false;
   }
-  http.end();
 
   const bool webcast_ok = parse_webcast_from_detail_json(resp, launch);
 
@@ -1086,55 +1031,9 @@ bool pm_rocket_fetch(PmRocketStatus *out) {
     return fill_starship12_demo(out, "low memory");
   }
 
-  WiFiClientSecure client;
-  client.setInsecure();
-  HTTPClient http;
-  http.setTimeout(MYNAH_ROCKET_HTTP_MS);
-  http.addHeader("User-Agent", kLl2UserAgent);
-  if (!http.begin(client, kLl2UpcomingUrl)) {
-    snprintf(out->error, sizeof(out->error), "HTTP begin failed");
-    return fill_starship12_demo(out, "HTTP begin failed");
-  }
-
-  const int code = http.GET();
-  const int streamLen = http.getSize();
-  if (code != 200 || streamLen <= 0 || streamLen > MYNAH_ROCKET_MAX_BYTES) {
-    ESP_LOGW(TAG, "LL2 HTTP %d len %d", code, streamLen);
-    snprintf(out->error, sizeof(out->error), "HTTP %d", code);
-    http.end();
-    char reason[24];
-    snprintf(reason, sizeof(reason), "HTTP %d", code);
-    return fill_starship12_demo(out, reason);
-  }
-
-  char *resp = static_cast<char *>(pm_heap_alloc_response(static_cast<size_t>(streamLen) + 1));
-  if (!resp) {
-    http.end();
-    snprintf(out->error, sizeof(out->error), "alloc");
-    return fill_starship12_demo(out, "alloc");
-  }
-
-  WiFiClient *stream = http.getStreamPtr();
+  char *resp = nullptr;
   size_t rd = 0;
-  const uint32_t deadline = millis() + MYNAH_ROCKET_HTTP_MS;
-  while (rd < static_cast<size_t>(streamLen)) {
-    if (stream->available() > 0) {
-      const int n = stream->readBytes(resp + rd, static_cast<size_t>(streamLen) - rd);
-      if (n > 0) {
-        rd += static_cast<size_t>(n);
-        continue;
-      }
-    }
-    if (static_cast<int32_t>(millis() - deadline) >= 0) {
-      break;
-    }
-    delay(2);
-  }
-  resp[rd] = '\0';
-  http.end();
-
-  if (rd == 0) {
-    free(resp);
+  if (!rocket_http_get_text_alloc(kLl2UpcomingUrl, "application/json", &resp, &rd)) {
     snprintf(out->error, sizeof(out->error), "empty body");
     return fill_starship12_demo(out, "empty body");
   }
