@@ -1,9 +1,7 @@
 #include "faces/tarot/pm_face_tarot.h"
 
 #include <Arduino_GFX_Library.h>
-#include <HTTPClient.h>
 #include <PNGdec.h>
-#include <WiFiClient.h>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -16,6 +14,7 @@
 #include "pm_config.h"
 #include "pm_display.h"
 #include "pm_heap.h"
+#include "pm_http.h"
 #include "pm_wifi_ntp.h"
 
 namespace {
@@ -187,6 +186,25 @@ bool build_card_url(int idx, char *url, size_t cap) {
   return n > 0 && static_cast<size_t>(n) < cap;
 }
 
+struct TarotDownload {
+  uint8_t *buf;
+  size_t cap;
+  size_t len;
+};
+
+bool tarot_download_on_data(const uint8_t *data, size_t len, void *ctx) {
+  TarotDownload *dl = static_cast<TarotDownload *>(ctx);
+  if (!dl || !data || len == 0) {
+    return false;
+  }
+  if (dl->len + len > dl->cap) {
+    return false;
+  }
+  memcpy(dl->buf + dl->len, data, len);
+  dl->len += len;
+  return true;
+}
+
 bool download_card_png(const char *url, uint8_t **out_buf, size_t *out_len) {
   if (!url || !out_buf || !out_len) {
     return false;
@@ -202,60 +220,31 @@ bool download_card_png(const char *url, uint8_t **out_buf, size_t *out_len) {
     return false;
   }
 
-  WiFiClient client;
-  HTTPClient http;
-  http.setTimeout(kTarotFetchTimeoutMs);
-  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-  http.addHeader("Accept", "image/png,image/*;q=0.8,*/*;q=0.1");
-  http.addHeader("User-Agent", "Astrolabe/1.0");
-  if (!http.begin(client, url)) {
-    set_error("http begin");
-    return false;
-  }
-  const int code = http.GET();
-  const int len = http.getSize();
-  if (code != 200 || len <= 0 || len > kTarotMaxImageBytes) {
-    char err[32];
-    snprintf(err, sizeof(err), "HTTP %d", code);
-    set_error(err);
-    Serial.printf("tarot: image GET %d len %d\n", code, len);
-    http.end();
-    return false;
-  }
-  uint8_t *buf = static_cast<uint8_t *>(pm_heap_alloc_response(static_cast<size_t>(len)));
-  if (!buf) {
+  TarotDownload dl = {};
+  dl.cap = static_cast<size_t>(kTarotMaxImageBytes);
+  dl.buf = static_cast<uint8_t *>(pm_heap_alloc_response(dl.cap));
+  if (!dl.buf) {
     set_error("alloc png");
-    http.end();
     return false;
   }
-  WiFiClient *stream = http.getStreamPtr();
-  size_t rd = 0;
-  const uint32_t deadline = millis() + kTarotFetchTimeoutMs;
-  while (rd < static_cast<size_t>(len)) {
-    if (stream && stream->available() > 0) {
-      const int n = stream->readBytes(buf + rd, static_cast<size_t>(len) - rd);
-      if (n > 0) {
-        rd += static_cast<size_t>(n);
-        continue;
-      }
-    }
-    if (!http.connected() && (!stream || stream->available() == 0)) {
-      break;
-    }
-    if (static_cast<int32_t>(millis() - deadline) >= 0) {
-      break;
-    }
-    yield();
-    delay(1);
-  }
-  http.end();
-  if (rd < 8 || rd < static_cast<size_t>(len)) {
-    free(buf);
-    set_error("short png");
+  const PmHttpHeader headers[] = {
+      {"Accept", "image/png,image/*;q=0.8,*/*;q=0.1"},
+      {"User-Agent", "Astrolabe/1.0"},
+  };
+  PmHttpTextResult result = {};
+  const bool ok = pm_http_request_stream(url, "GET", nullptr, headers, sizeof(headers) / sizeof(headers[0]),
+                                         kTarotFetchTimeoutMs, tarot_download_on_data, &dl, &result);
+  if (!ok || dl.len < 8) {
+    char err[32];
+    snprintf(err, sizeof(err), "HTTP %d", result.status_code);
+    set_error(err);
+    Serial.printf("tarot: image GET %d len %u\n", result.status_code,
+                  static_cast<unsigned>(result.bytes_read));
+    free(dl.buf);
     return false;
   }
-  *out_buf = buf;
-  *out_len = rd;
+  *out_buf = dl.buf;
+  *out_len = dl.len;
   return true;
 }
 
