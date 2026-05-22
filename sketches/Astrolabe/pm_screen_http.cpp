@@ -1,17 +1,18 @@
 #include "pm_screen_http.h"
 
-#include <WebServer.h>
 #include <WiFi.h>
 #include <cstring>
 
 #include "Arduino_GFX_Library.h"
 #include "esp32-hal-tinyusb.h"
+#include "esp_http_server.h"
 #include "esp_heap_caps.h"
 
 #include "pm_log.h"
 #include "pm_wifi_ntp.h"
 
-static WebServer s_server(80);
+static httpd_handle_t s_server = nullptr;
+static httpd_req_t *s_chunk_req = nullptr;
 static Arduino_Canvas *s_canvas = nullptr;
 static bool s_http_started = false;
 
@@ -27,7 +28,7 @@ static void put_le16(uint8_t *p, uint16_t v) {
   p[1] = static_cast<uint8_t>((v >> 8) & 0xffu);
 }
 
-static void handle_root() {
+static esp_err_t handle_root(httpd_req_t *req) {
   char html[768];
   snprintf(html, sizeof(html),
            "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" "
@@ -40,69 +41,81 @@ static void handle_root() {
            "<img src=\"/screen.bmp\" style=\"width:100%%;max-width:466px;height:auto;display:block;margin:0 auto;\" "
            "alt=\"screen\"></body></html>",
            pm_wifi_mdns_name(), pm_wifi_mdns_name(), pm_wifi_mac_suffix());
-  s_server.send(200, "text/html", html);
+  httpd_resp_set_type(req, "text/html");
+  return httpd_resp_send(req, html, HTTPD_RESP_USE_STRLEN);
 }
 
 static void http_send_log_chunk(const char *data, size_t len) {
-  if (data && len > 0) {
-    s_server.sendContent(data, len);
+  if (s_chunk_req && data && len > 0) {
+    (void)httpd_resp_send_chunk(s_chunk_req, data, len);
   }
 }
 
-static void handle_logs_txt() {
+static esp_err_t handle_logs_txt(httpd_req_t *req) {
   if (!pm_wifi_connected()) {
-    s_server.send(503, "text/plain", "logs unavailable");
-    return;
+    httpd_resp_set_status(req, "503 Service Unavailable");
+    httpd_resp_set_type(req, "text/plain");
+    return httpd_resp_sendstr(req, "logs unavailable");
   }
-  s_server.setContentLength(CONTENT_LENGTH_UNKNOWN);
-  s_server.send(200, "text/plain", "");
+  httpd_resp_set_type(req, "text/plain");
+  s_chunk_req = req;
   pm_log_stream_to_http(http_send_log_chunk);
-  s_server.sendContent("");
+  s_chunk_req = nullptr;
+  return httpd_resp_send_chunk(req, nullptr, 0);
 }
 
-static void handle_logs() {
+static esp_err_t handle_logs(httpd_req_t *req) {
   if (!pm_wifi_connected()) {
-    s_server.send(503, "text/plain", "logs unavailable");
-    return;
+    httpd_resp_set_status(req, "503 Service Unavailable");
+    httpd_resp_set_type(req, "text/plain");
+    return httpd_resp_sendstr(req, "logs unavailable");
   }
-  s_server.setContentLength(CONTENT_LENGTH_UNKNOWN);
-  s_server.send(200, "text/html; charset=utf-8", "");
-  s_server.sendContent(
+  httpd_resp_set_type(req, "text/html; charset=utf-8");
+  httpd_resp_send_chunk(
+      req,
       "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" "
       "content=\"width=device-width,initial-scale=1\"><meta http-equiv=\"refresh\" content=\"2\">"
       "<title>Astrolabe Logs</title></head><body style=\"margin:0;background:#0b0c10;color:#d7dde8;"
       "font:13px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;\">"
       "<div style=\"position:sticky;top:0;background:#151821;padding:8px 10px;\">"
       "<a href=\"/\" style=\"color:#8cf\">screen</a> <a href=\"/logs.txt\" style=\"color:#8cf\">logs.txt</a>"
-      "</div><pre style=\"white-space:pre-wrap;margin:0;padding:10px;\">");
+      "</div><pre style=\"white-space:pre-wrap;margin:0;padding:10px;\">",
+      HTTPD_RESP_USE_STRLEN);
+  s_chunk_req = req;
   pm_log_stream_to_http(http_send_log_chunk);
-  s_server.sendContent("</pre></body></html>");
-  s_server.sendContent("");
+  s_chunk_req = nullptr;
+  httpd_resp_send_chunk(req, "</pre></body></html>", HTTPD_RESP_USE_STRLEN);
+  return httpd_resp_send_chunk(req, nullptr, 0);
 }
 
-static void handle_bootloader() {
+static esp_err_t handle_bootloader(httpd_req_t *req) {
   pm_log_printf(false, "http: entering USB CDC bootloader");
-  s_server.send(200, "text/plain", "entering bootloader\n");
+  httpd_resp_set_type(req, "text/plain");
+  httpd_resp_sendstr(req, "entering bootloader\n");
   delay(100);
   usb_persist_restart(RESTART_BOOTLOADER);
+  return ESP_OK;
 }
 
-static void handle_screen_bmp() {
+static esp_err_t handle_screen_bmp(httpd_req_t *req) {
   if (!s_canvas || !pm_wifi_connected()) {
-    s_server.send(503, "text/plain", "screen unavailable");
-    return;
+    httpd_resp_set_status(req, "503 Service Unavailable");
+    httpd_resp_set_type(req, "text/plain");
+    return httpd_resp_sendstr(req, "screen unavailable");
   }
   uint16_t *fb = s_canvas->getFramebuffer();
   if (!fb) {
-    s_server.send(503, "text/plain", "no framebuffer");
-    return;
+    httpd_resp_set_status(req, "503 Service Unavailable");
+    httpd_resp_set_type(req, "text/plain");
+    return httpd_resp_sendstr(req, "no framebuffer");
   }
 
   const int32_t w = s_canvas->width();
   const int32_t h = s_canvas->height();
   if (w <= 0 || h <= 0 || w > 1024 || h > 1024) {
-    s_server.send(500, "text/plain", "bad size");
-    return;
+    httpd_resp_set_status(req, "500 Internal Server Error");
+    httpd_resp_set_type(req, "text/plain");
+    return httpd_resp_sendstr(req, "bad size");
   }
 
   const uint32_t row_stride = ((static_cast<uint32_t>(w) * 24u + 31u) / 32u) * 4u;
@@ -115,8 +128,9 @@ static void handle_screen_bmp() {
     buf = static_cast<uint8_t *>(malloc(file_size));
   }
   if (!buf) {
-    s_server.send(500, "text/plain", "alloc failed");
-    return;
+    httpd_resp_set_status(req, "500 Internal Server Error");
+    httpd_resp_set_type(req, "text/plain");
+    return httpd_resp_sendstr(req, "alloc failed");
   }
 
   std::memset(buf, 0, file_size);
@@ -166,10 +180,28 @@ static void handle_screen_bmp() {
     free(snap);
   }
 
-  s_server.setContentLength(file_size);
-  s_server.send(200, "image/bmp", "");
-  s_server.sendContent(reinterpret_cast<const char *>(buf), file_size);
+  httpd_resp_set_type(req, "image/bmp");
+  const esp_err_t rc = httpd_resp_send(req, reinterpret_cast<const char *>(buf), file_size);
   free(buf);
+  return rc;
+}
+
+static void register_get(const char *uri, esp_err_t (*handler)(httpd_req_t *)) {
+  httpd_uri_t h = {};
+  h.uri = uri;
+  h.method = HTTP_GET;
+  h.handler = handler;
+  h.user_ctx = nullptr;
+  (void)httpd_register_uri_handler(s_server, &h);
+}
+
+static void register_post(const char *uri, esp_err_t (*handler)(httpd_req_t *)) {
+  httpd_uri_t h = {};
+  h.uri = uri;
+  h.method = HTTP_POST;
+  h.handler = handler;
+  h.user_ctx = nullptr;
+  (void)httpd_register_uri_handler(s_server, &h);
 }
 
 void pm_screen_http_begin(Arduino_Canvas *canvas) {
@@ -177,12 +209,21 @@ void pm_screen_http_begin(Arduino_Canvas *canvas) {
   if (s_http_started || !canvas || !pm_wifi_connected()) {
     return;
   }
-  s_server.on("/", HTTP_GET, handle_root);
-  s_server.on("/screen.bmp", HTTP_GET, handle_screen_bmp);
-  s_server.on("/logs", HTTP_GET, handle_logs);
-  s_server.on("/logs.txt", HTTP_GET, handle_logs_txt);
-  s_server.on("/bootloader", HTTP_POST, handle_bootloader);
-  s_server.begin();
+  httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+  config.server_port = 80;
+  config.max_uri_handlers = 8;
+  config.stack_size = 6144;
+  config.lru_purge_enable = true;
+  if (httpd_start(&s_server, &config) != ESP_OK || !s_server) {
+    s_server = nullptr;
+    pm_log_printf(false, "http: esp_http_server start failed");
+    return;
+  }
+  register_get("/", handle_root);
+  register_get("/screen.bmp", handle_screen_bmp);
+  register_get("/logs", handle_logs);
+  register_get("/logs.txt", handle_logs_txt);
+  register_post("/bootloader", handle_bootloader);
   s_http_started = true;
   pm_log_printf(false, "http: ready http://%s/ ip=%s", pm_wifi_mdns_name(),
                 WiFi.localIP().toString().c_str());
@@ -197,8 +238,4 @@ void pm_screen_http_loop() {
     }
     return;
   }
-  if (!pm_wifi_connected()) {
-    return;
-  }
-  s_server.handleClient();
 }

@@ -110,6 +110,7 @@ static uint8_t g_text_voice_route = k_tv_none;
 static bool g_calcifer_briefing = false;
 /** Home / first-run: full daily LLM+TTS briefing (schedule + sky). */
 static bool g_daily_briefing = false;
+static constexpr bool kAutoDailyBriefingEnabled = false;
 static bool s_daily_brief_auto_armed = false;
 static bool s_face_tour_active = false;
 static int s_face_tour_idx = 0;
@@ -3305,7 +3306,7 @@ void loop() {
         }
       }
 
-      if (wifi && valid && !s_face_tour_active && s_clock_paint_inited && !s_daily_brief_auto_armed &&
+      if (kAutoDailyBriefingEnabled && wifi && valid && !s_face_tour_active && s_clock_paint_inited && !s_daily_brief_auto_armed &&
           pm_daily_briefing_should_auto_play(&tm_now)) {
         s_daily_brief_auto_armed = true;
         if (home_begin_daily_briefing()) {
