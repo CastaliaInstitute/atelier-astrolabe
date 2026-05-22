@@ -4,11 +4,25 @@
 
 #include "esp_http_client.h"
 #include "esp_log.h"
+#include "esp_crt_bundle.h"
 
 static const char *TAG = "pm_http";
 
-bool pm_http_get_text(const char *url, char *out, size_t out_cap, int timeout_ms,
-                      PmHttpTextResult *result) {
+static bool url_is_https(const char *url) { return url && strncmp(url, "https://", 8) == 0; }
+
+static esp_http_client_method_t method_from_string(const char *method) {
+  if (!method || strcmp(method, "GET") == 0) {
+    return HTTP_METHOD_GET;
+  }
+  if (strcmp(method, "POST") == 0) {
+    return HTTP_METHOD_POST;
+  }
+  return HTTP_METHOD_GET;
+}
+
+bool pm_http_request_text(const char *url, const char *method, const char *body,
+                          const PmHttpHeader *headers, size_t header_count, char *out,
+                          size_t out_cap, int timeout_ms, PmHttpTextResult *result) {
   if (result) {
     result->status_code = -1;
     result->bytes_read = 0;
@@ -24,19 +38,38 @@ bool pm_http_get_text(const char *url, char *out, size_t out_cap, int timeout_ms
   config.buffer_size = 512;
   config.buffer_size_tx = 512;
   config.disable_auto_redirect = false;
+  config.method = method_from_string(method);
+  if (url_is_https(url)) {
+    config.crt_bundle_attach = arduino_esp_crt_bundle_attach;
+  }
 
   esp_http_client_handle_t client = esp_http_client_init(&config);
   if (!client) {
     return false;
   }
-  esp_http_client_set_method(client, HTTP_METHOD_GET);
+  esp_http_client_set_method(client, method_from_string(method));
+  for (size_t i = 0; headers && i < header_count; ++i) {
+    if (headers[i].name && headers[i].value) {
+      esp_http_client_set_header(client, headers[i].name, headers[i].value);
+    }
+  }
 
+  const int body_len = body ? static_cast<int>(strlen(body)) : 0;
   bool ok = false;
-  esp_err_t err = esp_http_client_open(client, 0);
+  esp_err_t err = esp_http_client_open(client, body_len);
   if (err != ESP_OK) {
     ESP_LOGW(TAG, "open failed %s err=%d", url, static_cast<int>(err));
     esp_http_client_cleanup(client);
     return false;
+  }
+  if (body_len > 0) {
+    const int wr = esp_http_client_write(client, body, body_len);
+    if (wr != body_len) {
+      ESP_LOGW(TAG, "write failed %s wr=%d len=%d", url, wr, body_len);
+      esp_http_client_close(client);
+      esp_http_client_cleanup(client);
+      return false;
+    }
   }
 
   (void)esp_http_client_fetch_headers(client);
@@ -78,4 +111,9 @@ bool pm_http_get_text(const char *url, char *out, size_t out_cap, int timeout_ms
   esp_http_client_close(client);
   esp_http_client_cleanup(client);
   return ok;
+}
+
+bool pm_http_get_text(const char *url, char *out, size_t out_cap, int timeout_ms,
+                      PmHttpTextResult *result) {
+  return pm_http_request_text(url, "GET", nullptr, nullptr, 0, out, out_cap, timeout_ms, result);
 }

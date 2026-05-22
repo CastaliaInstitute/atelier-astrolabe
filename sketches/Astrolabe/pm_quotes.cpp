@@ -1,15 +1,13 @@
 #include "pm_quotes.h"
 
 #include <ArduinoJson.h>
-#include <HTTPClient.h>
-#include <WiFiClient.h>
-#include <WiFiClientSecure.h>
 #include <cstdio>
 #include <cstring>
 
 #include "esp_log.h"
 #include "pm_config.h"
 #include "pm_heap.h"
+#include "pm_http.h"
 #include "pm_wifi_ntp.h"
 
 static const char *TAG = "pm_quotes";
@@ -43,52 +41,25 @@ void pm_quotes_fill_demo(PmQuoteOfDay *out) {
   snprintf(out->book_author, sizeof(out->book_author), "Plato");
 }
 
-static bool read_http_body(HTTPClient &http, char **out_resp, size_t *out_len) {
+static bool read_quote_body(char **out_resp, size_t *out_len) {
   if (!out_resp || !out_len) {
     return false;
   }
   *out_resp = nullptr;
   *out_len = 0;
-  const int declared = http.getSize();
-  if (declared > 0 && static_cast<size_t>(declared) > kQotdMaxBytes) {
-    return false;
-  }
-  const size_t cap = declared > 0 ? static_cast<size_t>(declared) : kQotdMaxBytes;
-  char *resp = static_cast<char *>(pm_heap_alloc_response(cap + 1));
+  char *resp = static_cast<char *>(pm_heap_alloc_response(kQotdMaxBytes + 1));
   if (!resp) {
     return false;
   }
-  WiFiClient *stream = http.getStreamPtr();
-  if (!stream) {
-    free(resp);
-    return false;
-  }
-  size_t rd = 0;
-  const uint32_t deadline = millis() + 12000u;
-  while (rd < cap && static_cast<int32_t>(millis() - deadline) < 0) {
-    const int avail = stream->available();
-    if (avail > 0) {
-      const size_t take = static_cast<size_t>(avail) < (cap - rd) ? static_cast<size_t>(avail) : (cap - rd);
-      const int n = stream->readBytes(resp + rd, take);
-      if (n > 0) {
-        rd += static_cast<size_t>(n);
-      }
-      if (declared > 0 && rd >= static_cast<size_t>(declared)) {
-        break;
-      }
-    } else if (!http.connected()) {
-      break;
-    } else {
-      delay(2);
-    }
-  }
-  resp[rd] = '\0';
-  if (rd == 0) {
+  const PmHttpHeader headers[] = {{"Accept", "application/json"}};
+  PmHttpTextResult result = {};
+  if (!pm_http_request_text(kQotdUrl, "GET", nullptr, headers, 1, resp, kQotdMaxBytes + 1, 15000,
+                            &result)) {
     free(resp);
     return false;
   }
   *out_resp = resp;
-  *out_len = rd;
+  *out_len = result.bytes_read;
   return true;
 }
 
@@ -113,34 +84,13 @@ bool pm_quotes_fetch(PmQuoteOfDay *out) {
     return out->ok;
   }
 
-  WiFiClientSecure client;
-  client.setInsecure();
-  HTTPClient http;
-  http.setTimeout(15000);
-  if (!http.begin(client, kQotdUrl)) {
-    snprintf(out->error, sizeof(out->error), "HTTP begin");
-    pm_quotes_fill_demo(out);
-    return out->ok;
-  }
-  http.addHeader("Accept", "application/json");
-  const int code = http.GET();
-  if (code != 200) {
-    ESP_LOGW(TAG, "QOTD HTTP %d", code);
-    snprintf(out->error, sizeof(out->error), "HTTP %d", code);
-    http.end();
-    pm_quotes_fill_demo(out);
-    return out->ok;
-  }
-
   char *resp = nullptr;
   size_t len = 0;
-  if (!read_http_body(http, &resp, &len)) {
-    http.end();
+  if (!read_quote_body(&resp, &len)) {
     snprintf(out->error, sizeof(out->error), "empty body");
     pm_quotes_fill_demo(out);
     return out->ok;
   }
-  http.end();
 
   JsonDocument doc;
   DeserializationError err = deserializeJson(doc, resp, len);
