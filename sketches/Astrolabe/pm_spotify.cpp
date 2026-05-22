@@ -1,8 +1,5 @@
 #include "pm_spotify.h"
 
-#include <HTTPClient.h>
-#include <WiFiClient.h>
-#include <WiFiClientSecure.h>
 #include <cstring>
 #include <cstdio>
 
@@ -10,6 +7,7 @@
 #include "pm_config.h"
 #include "pm_castalia_auth.h"
 #include "pm_heap.h"
+#include "pm_http.h"
 
 static const char *TAG = "pm_spotify";
 
@@ -102,45 +100,31 @@ static bool post_action(const char *action, PmSpotifyStatus *out) {
   char body[96];
   snprintf(body, sizeof(body), "{\"action\":\"%s\"}", action);
 
-  WiFiClientSecure client;
-  client.setInsecure();
-  HTTPClient http;
-  http.setTimeout(20000);
-  if (!http.begin(client, url)) {
-    snprintf(out->error, sizeof(out->error), "HTTP begin failed");
-    return false;
-  }
-  http.addHeader("Content-Type", "application/json");
-  pm_castalia_auth_apply_headers(&http);
+  char bearer[1536];
+  char auth[1560];
+  pm_castalia_auth_bearer(bearer, sizeof(bearer));
+  snprintf(auth, sizeof(auth), "Bearer %s", bearer);
+  const PmHttpHeader headers[] = {
+      {"Content-Type", "application/json"},
+      {"Authorization", auth},
+      {"apikey", MYNAH_SUPABASE_ANON_KEY},
+  };
 
-  const int code = http.POST(reinterpret_cast<uint8_t *>(body), strlen(body));
-
-  const int streamLen = http.getSize();
-  if (code != 200 || streamLen <= 0 || streamLen > 8192) {
-    ESP_LOGW(TAG, "mynah-spotify HTTP %d len %d", code, streamLen);
-    snprintf(out->error, sizeof(out->error), "HTTP %d", code);
-    http.end();
-    return false;
-  }
-
-  char *resp = static_cast<char *>(pm_heap_alloc_response(static_cast<size_t>(streamLen) + 1));
+  char *resp = static_cast<char *>(pm_heap_alloc_response(8192 + 1));
   if (!resp) {
-    http.end();
     snprintf(out->error, sizeof(out->error), "alloc");
     return false;
   }
 
-  WiFiClient *s = http.getStreamPtr();
-  size_t rd = 0;
-  while (rd < static_cast<size_t>(streamLen) && s->connected()) {
-    const int n = s->readBytes(resp + rd, static_cast<size_t>(streamLen) - rd);
-    if (n <= 0) {
-      break;
-    }
-    rd += static_cast<size_t>(n);
+  PmHttpTextResult result = {};
+  if (!pm_http_request_text(url, "POST", body, headers, sizeof(headers) / sizeof(headers[0]), resp,
+                            8192 + 1, 20000, &result)) {
+    ESP_LOGW(TAG, "mynah-spotify HTTP %d len %u", result.status_code,
+             static_cast<unsigned>(result.bytes_read));
+    snprintf(out->error, sizeof(out->error), "HTTP %d", result.status_code);
+    free(resp);
+    return false;
   }
-  resp[rd] = '\0';
-  http.end();
 
   parse_status_json(resp, out);
   free(resp);

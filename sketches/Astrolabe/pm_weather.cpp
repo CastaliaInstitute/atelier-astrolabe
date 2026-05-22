@@ -1,8 +1,5 @@
 #include "pm_weather.h"
 
-#include <HTTPClient.h>
-#include <WiFiClient.h>
-#include <WiFiClientSecure.h>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -13,6 +10,7 @@
 #include "pm_config.h"
 #include "pm_geo_tz.h"
 #include "pm_heap.h"
+#include "pm_http.h"
 #include "pm_wifi_ntp.h"
 
 static const char *TAG = "pm_weather";
@@ -250,58 +248,30 @@ bool pm_weather_fetch(PmWeatherStatus *out) {
   char body[96];
   snprintf(body, sizeof(body), "{\"tzOffsetSec\":%ld}", static_cast<long>(tz));
 
-  WiFiClientSecure client;
-  client.setInsecure();
-  HTTPClient http;
-  http.setTimeout(25000);
-  if (!http.begin(client, url)) {
-    snprintf(out->error, sizeof(out->error), "HTTP begin failed");
-    pm_weather_fill_demo(out, local_hour);
-    return out->ok;
-  }
-  http.addHeader("Content-Type", "application/json");
-  pm_castalia_auth_apply_headers(&http);
+  char bearer[1536];
+  char auth[1560];
+  pm_castalia_auth_bearer(bearer, sizeof(bearer));
+  snprintf(auth, sizeof(auth), "Bearer %s", bearer);
+  const PmHttpHeader headers[] = {
+      {"Content-Type", "application/json"},
+      {"Authorization", auth},
+      {"apikey", MYNAH_SUPABASE_ANON_KEY},
+  };
 
-  const int code = http.POST(reinterpret_cast<uint8_t *>(body), strlen(body));
-  const int streamLen = http.getSize();
-  if (code != 200 || streamLen <= 0 || streamLen > 16384) {
-    ESP_LOGW(TAG, "weather-status HTTP %d len %d", code, streamLen);
-    snprintf(out->error, sizeof(out->error), "HTTP %d", code);
-    http.end();
-    pm_weather_fill_demo(out, local_hour);
-    return out->ok;
-  }
-
-  char *resp = static_cast<char *>(pm_heap_alloc_response(static_cast<size_t>(streamLen) + 1));
+  char *resp = static_cast<char *>(pm_heap_alloc_response(16384 + 1));
   if (!resp) {
-    http.end();
     snprintf(out->error, sizeof(out->error), "alloc");
     pm_weather_fill_demo(out, local_hour);
     return out->ok;
   }
 
-  WiFiClient *stream = http.getStreamPtr();
-  size_t rd = 0;
-  const uint32_t deadline = millis() + 20000u;
-  while (rd < static_cast<size_t>(streamLen)) {
-    if (stream->available() > 0) {
-      const int n = stream->readBytes(resp + rd, static_cast<size_t>(streamLen) - rd);
-      if (n > 0) {
-        rd += static_cast<size_t>(n);
-        continue;
-      }
-    }
-    if (static_cast<int32_t>(millis() - deadline) >= 0) {
-      break;
-    }
-    delay(2);
-  }
-  resp[rd] = '\0';
-  http.end();
-
-  if (rd == 0) {
+  PmHttpTextResult result = {};
+  if (!pm_http_request_text(url, "POST", body, headers, sizeof(headers) / sizeof(headers[0]), resp,
+                            16384 + 1, 25000, &result)) {
+    ESP_LOGW(TAG, "weather-status HTTP %d len %u", result.status_code,
+             static_cast<unsigned>(result.bytes_read));
     free(resp);
-    snprintf(out->error, sizeof(out->error), "empty body");
+    snprintf(out->error, sizeof(out->error), "HTTP %d", result.status_code);
     pm_weather_fill_demo(out, local_hour);
     return out->ok;
   }
