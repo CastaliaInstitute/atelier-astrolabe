@@ -1,13 +1,13 @@
 # Development workflow (GitHub + Cursor)
 
-Astrolabe uses **GitHub Issues** for trackable work, **one branch per issue**, and **[`docs/BACKLOG.md`](BACKLOG.md)** as the product roadmap. **Cursor Cloud** (and local Cursor agents) implement from an issue on a dedicated branch, open a PR into **`integration`**, and may merge when CI is green. **`main`** is updated only after **build + on-device flash** (promotion).
+Astrolabe uses **GitHub Issues** for trackable work, **one branch per issue**, and **[`docs/BACKLOG.md`](BACKLOG.md)** as the product roadmap. **Cursor Cloud** (and local Cursor agents) implement from an issue on a dedicated branch, open a PR into **`integration`**, and may merge when CI is green. Firmware on **`main`** is updated only after **build + on-device flash** (promotion). GitHub Pages is a site deploy and may publish from `integration`.
 
 ## Branches
 
 | Branch | Role |
 |--------|------|
 | **`integration`** | Default merge target for issue PRs; CI build on every PR/push |
-| **`main`** | Release line — must always build and have been flashed before promotion |
+| **`main`** | Firmware release line — must always build and have been flashed before firmware promotion |
 | `feature/<#>-slug` / `fix/<#>-slug` | One issue per branch; branch **from** `integration` |
 
 ```text
@@ -28,6 +28,7 @@ GitHub: set the repo **default branch for pull requests** to **`integration`** (
 
 - Required status checks: **Firmware build** + **Integration sim gate** (`ENABLE_INTEGRATION_SIM_GATE=true`)
 - **Integration device gate** runs on m1 after each build but is **not** a merge requirement — it gates promotion to **`main`**
+- **Deploy GitHub Pages** publishes the static site from `docs/` on pushes to **`integration`** or **`main`**; this is exempt from the hardware flash gate because it does not change device firmware.
 
 ## Roles
 
@@ -123,6 +124,10 @@ Hardware: cloud agents cannot flash the watch. Sim gate (QEMU) covers merge; ben
 
 Merging to **`integration`** does **not** require the bench watch — **Integration sim gate** (QEMU) is the automated gate. Run **hardware QA** on **`integration`** before **promoting** to **`main`** ([`hardware-qa.mdc`](../.cursor/rules/hardware-qa.mdc)).
 
+GitHub Pages deploys are separate from firmware promotion: docs/site-only changes
+publish from **`integration`** via the Pages workflow and do not require a watch
+flash.
+
 ### CI
 
 | Workflow | Runner | What |
@@ -133,6 +138,7 @@ Merging to **`integration`** does **not** require the bench watch — **Integrat
 | [Firmware flash](../.github/workflows/firmware-flash.yml) | **`self-hosted` + `astrolabe-watch`** | Manual / legacy `ENABLE_INTEGRATION_FLASH` only |
 | [Firmware functional test](../.github/workflows/firmware-functional-test.yml) | **`self-hosted` + `astrolabe-watch`** | Manual dispatch only |
 | [Firmware hardware QA](../.github/workflows/firmware-hardware-qa.yml) | **`self-hosted` + `astrolabe-watch`** | Manual: one face screenshot → issue |
+| [Deploy GitHub Pages](../.github/workflows/deploy-github-pages.yml) | `ubuntu-latest` | Static site / simulator deploy from `docs/` — exempt from hardware gate |
 
 GitHub **cloud** runners cannot see USB. To flash in CI, register a [self-hosted runner](https://docs.github.com/en/actions/hosting-your-own-runners/managing-self-hosted-runners/adding-self-hosted-runners) on the Mac where the watch is plugged in.
 
@@ -216,7 +222,7 @@ Logs: `artifacts/bench/`. Uses `ASTROLABE_UHUBCTL_SEARCH=Espressif` for hub powe
 3. **Unmerge** — only if `ASTROLABE_FT_UNMERGE_PUSH=1` (default **off**); approve via `astrolabe-watch` environment
 4. **Fix agent** — optional `ASTROLABE_FT_DISPATCH_AGENT=1`
 
-**Promotion** — `./scripts/promote-integration.sh --flash-ok` requires a **hardware** report (`artifacts/functional/latest/report.json`, `"gate": "hardware"`, `failed: 0`) matching `integration` HEAD (`--skip-functional` to override).
+**Promotion** — firmware promotion with `./scripts/promote-integration.sh --flash-ok` requires a **hardware** report (`artifacts/functional/latest/report.json`, `"gate": "hardware"`, `failed: 0`) matching `integration` HEAD (`--skip-functional` to override). Docs/site-only Pages deploys are not firmware promotion.
 
 Secrets: `include/secrets.local.h` on the laptop (`ASTROLABE_SECRETS_FILE`) or GitHub Actions secrets `MYNAH_WIFI_*` / `MYNAH_SUPABASE_*`.
 
@@ -237,7 +243,7 @@ Optional repo variables: `ENABLE_INTEGRATION_HW_QA=true`, `ASTROLABE_QA_ISSUE=2`
 
 1. Merge PR into **`integration`** when **Firmware build** + **Integration sim gate** are green (see [integration-branch.mdc](../.cursor/rules/integration-branch.mdc)); face/UI PRs do not need the bench watch to merge.
 2. Mark backlog `[x]`, move to **Done** with `YYYY-MM-DD` and PR link.
-3. Before **`main`**: **hardware QA** on **`integration`** for new/changed clock faces ([`hardware-qa.mdc`](../.cursor/rules/hardware-qa.mdc)) or green **Integration device gate**; then `./scripts/promote-integration.sh --flash-ok`.
+3. Before firmware **`main`** promotion: **hardware QA** on **`integration`** for new/changed clock faces ([`hardware-qa.mdc`](../.cursor/rules/hardware-qa.mdc)) or green **Integration device gate**; then `./scripts/promote-integration.sh --flash-ok`. Docs/site-only Pages deploys publish from **`integration`** and skip this gate.
 5. Delete the issue branch after merge.
 
 ## Branch naming

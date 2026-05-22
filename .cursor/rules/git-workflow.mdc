@@ -36,7 +36,7 @@ alwaysApply: true
 ## Branches and PRs
 
 - One **issue** → one **branch** → one **PR** into **`integration`** (see [github-workflow.mdc](github-workflow.mdc)).
-- **`main`**: promote only with `./scripts/promote-integration.sh --flash-ok` after hardware flash QA.
+- Firmware **`main`** promotion: use `./scripts/promote-integration.sh --flash-ok` after hardware flash QA. Docs/site-only GitHub Pages deploys publish from `integration` and do not need the watch gate.
 
 ## Related rules
 
