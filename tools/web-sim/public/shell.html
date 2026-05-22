@@ -49,13 +49,15 @@
       }
 
       .controls {
-        display: flex;
+        width: min(466px, calc(100vw - 32px));
+        display: grid;
+        grid-template-columns: 38px 1fr 38px;
         align-items: center;
         gap: 8px;
       }
 
-      button {
-        min-width: 96px;
+      button,
+      select {
         min-height: 38px;
         border: 1px solid #384655;
         border-radius: 7px;
@@ -65,7 +67,19 @@
         cursor: pointer;
       }
 
-      button:hover {
+      select {
+        width: 100%;
+        padding: 0 10px;
+      }
+
+      button {
+        display: grid;
+        place-items: center;
+        padding: 0;
+      }
+
+      button:hover,
+      select:hover {
         background: #24303b;
       }
     </style>
@@ -76,19 +90,57 @@
         <canvas id="astrolabe-canvas" width="466" height="466"></canvas>
       </div>
       <div class="controls" aria-label="Watch face controls">
-        <button type="button" data-face="0">Digital</button>
-        <button type="button" data-face="1">Classic</button>
+        <button type="button" id="prev-face" aria-label="Previous face">‹</button>
+        <select id="face-select" aria-label="Face">
+          <option value="0">00 Classic</option>
+          <option value="1">01 Apocalypso</option>
+          <option value="2">02 Digital</option>
+          <option value="3">03 Spotify</option>
+          <option value="4">04 Astrology</option>
+          <option value="5">05 Moon</option>
+          <option value="6">06 Calcifer</option>
+          <option value="7">07 Castalia</option>
+          <option value="8">08 Settings</option>
+          <option value="9">09 Synastry</option>
+          <option value="10">10 Spectrum</option>
+          <option value="11">11 Chakra</option>
+          <option value="12">12 Bowl</option>
+          <option value="13">13 Rocket</option>
+          <option value="14">14 Radar</option>
+          <option value="15">15 Faculty</option>
+          <option value="16">16 Weather</option>
+          <option value="17">17 Quotes</option>
+          <option value="18">18 Transits</option>
+          <option value="19">19 Tarot</option>
+          <option value="20">20 Notes</option>
+          <option value="21">21 Ocarina</option>
+          <option value="22">22 Bongo</option>
+          <option value="23">23 Piano</option>
+          <option value="24">24 Level</option>
+          <option value="25">25 Tuning</option>
+          <option value="26">26 PanDrum</option>
+          <option value="27">27 Alethiometer</option>
+          <option value="28">28 Runes</option>
+        </select>
+        <button type="button" id="next-face" aria-label="Next face">›</button>
       </div>
     </main>
 
     {{{ SCRIPT }}}
 
     <script>
-      document.querySelectorAll("[data-face]").forEach((button) => {
-        button.addEventListener("click", () => {
-          Module.ccall("astrolabe_web_set_face", null, ["number"], [Number(button.dataset.face)]);
-        });
-      });
+      const faceSelect = document.querySelector("#face-select");
+      const faceCount = faceSelect.options.length;
+
+      function setFace(face) {
+        const normalized = ((face % faceCount) + faceCount) % faceCount;
+        faceSelect.value = String(normalized);
+        Module.ccall("astrolabe_web_set_face", null, ["number"], [normalized]);
+      }
+
+      faceSelect.addEventListener("change", () => setFace(Number(faceSelect.value)));
+      document.querySelector("#prev-face").addEventListener("click", () => setFace(Number(faceSelect.value) - 1));
+      document.querySelector("#next-face").addEventListener("click", () => setFace(Number(faceSelect.value) + 1));
     </script>
   </body>
 </html>

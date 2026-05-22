@@ -33,6 +33,9 @@ If Emscripten is not installed locally but Docker or Podman is running:
 - Future ESP-IDF integration should provide a parallel adapter that initializes
   `esp_lcd`, touch, and LVGL before calling `astrolabe_ui_init()`.
 
-The first scaffold renders two minimal faces at the target 466x466 watch
-resolution: a digital face and a classic analog placeholder. Existing
-Arduino_GFX faces should be ported into the shared LVGL UI module incrementally.
+The scaffold exposes every current Astrolabe face ID in the firmware
+`ClockFace` order. `Classic` and `Digital` have simple LVGL implementations;
+the rest render LVGL placeholders with their face name, summary, and matching
+index so routing, selection, and future porting can be verified incrementally.
+Existing Arduino_GFX faces should be ported into the shared LVGL UI module one
+face at a time.

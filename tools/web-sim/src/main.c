@@ -101,11 +101,10 @@ static void frame(void) {
 }
 
 void astrolabe_web_set_face(int face_id) {
-  if (face_id == ASTROLABE_UI_FACE_CLASSIC) {
-    astrolabe_ui_set_face(ASTROLABE_UI_FACE_CLASSIC);
-  } else {
-    astrolabe_ui_set_face(ASTROLABE_UI_FACE_DIGITAL);
+  if (face_id < 0 || face_id >= ASTROLABE_UI_FACE_COUNT) {
+    face_id = ASTROLABE_UI_FACE_CLASSIC_ANALOG;
   }
+  astrolabe_ui_set_face((astrolabe_ui_face_t)face_id);
 }
 
 int main(void) {

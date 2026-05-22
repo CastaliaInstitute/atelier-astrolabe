@@ -26,12 +26,16 @@ The platform adapter owns the hardware or host plumbing:
 ## First Milestone
 
 The initial scaffold lives in `tools/web-sim` and renders `ui/astrolabe_ui.c` to
-a 466x466 browser canvas. It intentionally starts with simple LVGL faces so the
-boundary can stabilize before porting complex Arduino_GFX faces.
+a 466x466 browser canvas. It exposes all current firmware face IDs in the same
+order as `ClockFace`, with simple LVGL implementations for `Classic` and
+`Digital` and placeholders for the remaining faces.
+
+This gives the simulator complete navigation/routing coverage first. Visual
+parity remains incremental: each Arduino_GFX face can be replaced by a real LVGL
+implementation behind the same face ID without changing the browser harness.
 
 ## Out Of Scope
 
 - Simulating ESP32 peripherals, Wi-Fi, audio, NVS, or USB.
 - Preserving Arduino_GFX as a browser target.
-- Full visual parity with existing faces before the ESP-IDF/LVGL display path is
-  selected.
+- Full visual parity for all faces in the first scaffold.

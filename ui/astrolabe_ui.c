@@ -10,8 +10,46 @@ static lv_obj_t *s_face_label;
 static lv_obj_t *s_time_label;
 static lv_obj_t *s_hint_label;
 static lv_obj_t *s_dial;
-static astrolabe_ui_face_t s_face = ASTROLABE_UI_FACE_DIGITAL;
+static astrolabe_ui_face_t s_face = ASTROLABE_UI_FACE_CLASSIC_ANALOG;
 static uint32_t s_elapsed_ms;
+
+typedef struct {
+  const char *name;
+  const char *summary;
+  uint32_t accent;
+} face_meta_t;
+
+static const face_meta_t k_faces[ASTROLABE_UI_FACE_COUNT] = {
+    {"Classic", "Analog clock face", 0x7fcde0},
+    {"Apocalypso", "Orbital apocalypse glance", 0xff6b6b},
+    {"Digital", "Local digital clock", 0xffcf66},
+    {"Spotify", "Now playing and queue state", 0x1ed760},
+    {"Astrology", "Natal chart and transits", 0xb891ff},
+    {"Moon", "Lunar phase disk", 0xd7e8ee},
+    {"Calcifer", "Hue daywheel countdown", 0xff8a3d},
+    {"Castalia", "Sign-in and Castalia QR", 0x6cc7ff},
+    {"Settings", "Wi-Fi and watch settings", 0x92a4b8},
+    {"Synastry", "Partner and family charts", 0xff99cc},
+    {"Spectrum", "Audio visualizer", 0x00d4ff},
+    {"Chakra", "Solfeggio tone wheel", 0xff5bbd},
+    {"Bowl", "Singing bowl instrument", 0xd6b56d},
+    {"Rocket", "Launch countdown", 0xff734d},
+    {"Radar", "BLE peer radar", 0x6dff91},
+    {"Faculty", "Ask-faculty conversations", 0xffe08a},
+    {"Weather", "Temperature and humidity rings", 0x63b3ff},
+    {"Quotes", "Castalia quote of the day", 0xd9c7ff},
+    {"Transits", "Live celestial transits", 0xa4e3ff},
+    {"Tarot", "Daily Major Arcana card", 0xd99a5f},
+    {"Notes", "Offline voice notes", 0xb4c6d8},
+    {"Ocarina", "Touch-playable ocarina", 0x8fd6c8},
+    {"Bongo", "Touch-playable bongo", 0xd8865b},
+    {"Piano", "Circular one-octave piano", 0xf4f7fb},
+    {"Level", "IMU bubble level", 0x9dff7f},
+    {"Tuning", "Microphone tuner", 0xffa64d},
+    {"PanDrum", "Touch-playable handpan", 0xb8e0ff},
+    {"Alethiometer", "Compass of symbols", 0xf0c36a},
+    {"Runes", "Past/present/future spread", 0xc1d6a4},
+};
 
 static int32_t ui_cx(void) { return ASTROLABE_UI_WIDTH / 2; }
 static int32_t ui_cy(void) { return ASTROLABE_UI_HEIGHT / 2; }
@@ -70,6 +108,33 @@ static void create_digital_face(void) {
   lv_obj_set_style_arc_width(arc, 8, LV_PART_INDICATOR);
   lv_obj_set_style_arc_color(arc, lv_color_hex(0x1c2630), LV_PART_MAIN);
   lv_obj_set_style_arc_color(arc, lv_color_hex(0xffcf66), LV_PART_INDICATOR);
+  s_dial = arc;
+}
+
+static void create_placeholder_face(astrolabe_ui_face_t face) {
+  clear_face();
+  style_screen();
+  draw_round_mask();
+
+  const face_meta_t *meta = &k_faces[face];
+  char index_text[24];
+  snprintf(index_text, sizeof(index_text), "Face %u / %u", (unsigned)face + 1u, (unsigned)ASTROLABE_UI_FACE_COUNT);
+
+  s_face_label = make_label(meta->name, 94, &lv_font_montserrat_24, meta->accent);
+  s_hint_label = make_label(meta->summary, 202, &lv_font_montserrat_16, 0xf8fbff);
+  s_time_label = make_label("--:--:--", 258, &lv_font_montserrat_22, 0x8e9ba8);
+  make_label(index_text, 314, &lv_font_montserrat_16, 0x6f7d8a);
+
+  lv_obj_t *arc = lv_arc_create(s_root);
+  lv_obj_set_size(arc, 382, 382);
+  lv_obj_center(arc);
+  lv_arc_set_range(arc, 0, ASTROLABE_UI_FACE_COUNT - 1);
+  lv_arc_set_value(arc, (int32_t)face);
+  lv_obj_remove_style(arc, NULL, LV_PART_KNOB);
+  lv_obj_set_style_arc_width(arc, 6, LV_PART_MAIN);
+  lv_obj_set_style_arc_width(arc, 6, LV_PART_INDICATOR);
+  lv_obj_set_style_arc_color(arc, lv_color_hex(0x1c2630), LV_PART_MAIN);
+  lv_obj_set_style_arc_color(arc, lv_color_hex(meta->accent), LV_PART_INDICATOR);
   s_dial = arc;
 }
 
@@ -158,7 +223,7 @@ static void refresh_time_labels(void) {
   if (s_time_label) {
     lv_label_set_text(s_time_label, time_text);
   }
-  if (s_face == ASTROLABE_UI_FACE_DIGITAL && s_dial) {
+  if (s_face == ASTROLABE_UI_FACE_DIGITAL_LOCAL && s_dial) {
     lv_arc_set_value(s_dial, (int32_t)(((s_elapsed_ms % 60000u) * 1000u) / 60000u));
   }
 }
@@ -166,28 +231,46 @@ static void refresh_time_labels(void) {
 void astrolabe_ui_init(void) {
   s_root = lv_screen_active();
   s_elapsed_ms = 12u * 3600u * 1000u;
-  astrolabe_ui_set_face(ASTROLABE_UI_FACE_DIGITAL);
+  astrolabe_ui_set_face(ASTROLABE_UI_FACE_CLASSIC_ANALOG);
 }
 
 void astrolabe_ui_set_face(astrolabe_ui_face_t face) {
   if (!s_root) {
     return;
   }
+  if (face < 0 || face >= ASTROLABE_UI_FACE_COUNT) {
+    face = ASTROLABE_UI_FACE_CLASSIC_ANALOG;
+  }
   s_face = face;
   switch (s_face) {
-  case ASTROLABE_UI_FACE_CLASSIC:
+  case ASTROLABE_UI_FACE_CLASSIC_ANALOG:
     create_classic_face();
     break;
-  case ASTROLABE_UI_FACE_DIGITAL:
-  default:
-    s_face = ASTROLABE_UI_FACE_DIGITAL;
+  case ASTROLABE_UI_FACE_DIGITAL_LOCAL:
     create_digital_face();
+    break;
+  default:
+    create_placeholder_face(s_face);
     break;
   }
   refresh_time_labels();
 }
 
 astrolabe_ui_face_t astrolabe_ui_current_face(void) { return s_face; }
+
+const char *astrolabe_ui_face_name(astrolabe_ui_face_t face) {
+  if (face < 0 || face >= ASTROLABE_UI_FACE_COUNT) {
+    return "";
+  }
+  return k_faces[face].name;
+}
+
+const char *astrolabe_ui_face_summary(astrolabe_ui_face_t face) {
+  if (face < 0 || face >= ASTROLABE_UI_FACE_COUNT) {
+    return "";
+  }
+  return k_faces[face].summary;
+}
 
 void astrolabe_ui_tick(uint32_t elapsed_ms) {
   s_elapsed_ms += elapsed_ms;
