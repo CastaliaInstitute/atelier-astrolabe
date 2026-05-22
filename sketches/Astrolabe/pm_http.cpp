@@ -1,5 +1,6 @@
 #include "pm_http.h"
 
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -9,6 +10,7 @@
 #include "pm_heap.h"
 
 static const char *TAG = "pm_http";
+static constexpr int kPmHttpRxBufferBytes = 2048;
 
 extern "C" esp_err_t esp_crt_bundle_attach(void *conf);
 
@@ -27,9 +29,24 @@ static esp_http_client_method_t method_from_string(const char *method) {
 bool pm_http_request_text(const char *url, const char *method, const char *body,
                           const PmHttpHeader *headers, size_t header_count, char *out,
                           size_t out_cap, int timeout_ms, PmHttpTextResult *result) {
+  const uint8_t *body_bytes = reinterpret_cast<const uint8_t *>(body);
+  const size_t body_len = body ? strlen(body) : 0;
+  return pm_http_request_text_bytes(url, method, body_bytes, body_len, headers, header_count, out,
+                                    out_cap, timeout_ms, result, nullptr, 0, nullptr);
+}
+
+bool pm_http_request_text_bytes(const char *url, const char *method, const uint8_t *body,
+                                size_t body_len, const PmHttpHeader *headers,
+                                size_t header_count, char *out, size_t out_cap,
+                                int timeout_ms, PmHttpTextResult *result,
+                                PmHttpResponseHeader *response_headers,
+                                size_t response_header_count, int *content_length) {
   if (result) {
     result->status_code = -1;
     result->bytes_read = 0;
+  }
+  if (content_length) {
+    *content_length = -1;
   }
   if (!url || !out || out_cap < 2) {
     return false;
@@ -39,7 +56,7 @@ bool pm_http_request_text(const char *url, const char *method, const char *body,
   esp_http_client_config_t config = {};
   config.url = url;
   config.timeout_ms = timeout_ms > 0 ? timeout_ms : 12000;
-  config.buffer_size = 512;
+  config.buffer_size = kPmHttpRxBufferBytes;
   config.buffer_size_tx = 512;
   config.disable_auto_redirect = false;
   config.method = method_from_string(method);
@@ -58,9 +75,12 @@ bool pm_http_request_text(const char *url, const char *method, const char *body,
     }
   }
 
-  const int body_len = body ? static_cast<int>(strlen(body)) : 0;
   bool ok = false;
-  esp_err_t err = esp_http_client_open(client, body_len);
+  if (body_len > static_cast<size_t>(INT_MAX)) {
+    esp_http_client_cleanup(client);
+    return false;
+  }
+  esp_err_t err = esp_http_client_open(client, static_cast<int>(body_len));
   pm_heap_trace("network-fetch", -1);
   if (err != ESP_OK) {
     ESP_LOGW(TAG, "open failed %s err=%d", url, static_cast<int>(err));
@@ -68,9 +88,9 @@ bool pm_http_request_text(const char *url, const char *method, const char *body,
     return false;
   }
   if (body_len > 0) {
-    const int wr = esp_http_client_write(client, body, body_len);
-    if (wr != body_len) {
-      ESP_LOGW(TAG, "write failed %s wr=%d len=%d", url, wr, body_len);
+    const int wr = esp_http_client_write(client, reinterpret_cast<const char *>(body), static_cast<int>(body_len));
+    if (wr != static_cast<int>(body_len)) {
+      ESP_LOGW(TAG, "write failed %s wr=%d len=%u", url, wr, static_cast<unsigned>(body_len));
       esp_http_client_close(client);
       esp_http_client_cleanup(client);
       return false;
@@ -81,6 +101,20 @@ bool pm_http_request_text(const char *url, const char *method, const char *body,
   const int status = esp_http_client_get_status_code(client);
   if (result) {
     result->status_code = status;
+  }
+  if (content_length) {
+    *content_length = esp_http_client_get_content_length(client);
+  }
+  for (size_t i = 0; response_headers && i < response_header_count; ++i) {
+    if (!response_headers[i].name || !response_headers[i].value || response_headers[i].value_cap == 0) {
+      continue;
+    }
+    response_headers[i].value[0] = '\0';
+    char *value = nullptr;
+    if (esp_http_client_get_header(client, response_headers[i].name, &value) == ESP_OK && value) {
+      strncpy(response_headers[i].value, value, response_headers[i].value_cap - 1);
+      response_headers[i].value[response_headers[i].value_cap - 1] = '\0';
+    }
   }
   if (status != 200) {
     ESP_LOGW(TAG, "GET %s -> %d", url, status);
@@ -122,9 +156,25 @@ bool pm_http_request_text(const char *url, const char *method, const char *body,
 bool pm_http_request_stream(const char *url, const char *method, const char *body,
                             const PmHttpHeader *headers, size_t header_count, int timeout_ms,
                             PmHttpDataCallback on_data, void *ctx, PmHttpTextResult *result) {
+  const uint8_t *body_bytes = reinterpret_cast<const uint8_t *>(body);
+  const size_t body_len = body ? strlen(body) : 0;
+  return pm_http_request_stream_bytes(url, method, body_bytes, body_len, headers, header_count,
+                                      timeout_ms, on_data, ctx, result, nullptr, 0, nullptr);
+}
+
+bool pm_http_request_stream_bytes(const char *url, const char *method, const uint8_t *body,
+                                  size_t body_len, const PmHttpHeader *headers,
+                                  size_t header_count, int timeout_ms,
+                                  PmHttpDataCallback on_data, void *ctx,
+                                  PmHttpTextResult *result,
+                                  PmHttpResponseHeader *response_headers,
+                                  size_t response_header_count, int *content_length) {
   if (result) {
     result->status_code = -1;
     result->bytes_read = 0;
+  }
+  if (content_length) {
+    *content_length = -1;
   }
   if (!url || !on_data) {
     return false;
@@ -133,7 +183,7 @@ bool pm_http_request_stream(const char *url, const char *method, const char *bod
   esp_http_client_config_t config = {};
   config.url = url;
   config.timeout_ms = timeout_ms > 0 ? timeout_ms : 12000;
-  config.buffer_size = 1024;
+  config.buffer_size = kPmHttpRxBufferBytes;
   config.buffer_size_tx = 512;
   config.disable_auto_redirect = false;
   config.method = method_from_string(method);
@@ -152,8 +202,11 @@ bool pm_http_request_stream(const char *url, const char *method, const char *bod
     }
   }
 
-  const int body_len = body ? static_cast<int>(strlen(body)) : 0;
-  esp_err_t err = esp_http_client_open(client, body_len);
+  if (body_len > static_cast<size_t>(INT_MAX)) {
+    esp_http_client_cleanup(client);
+    return false;
+  }
+  esp_err_t err = esp_http_client_open(client, static_cast<int>(body_len));
   pm_heap_trace("network-stream", -1);
   if (err != ESP_OK) {
     ESP_LOGW(TAG, "open failed %s err=%d", url, static_cast<int>(err));
@@ -161,9 +214,9 @@ bool pm_http_request_stream(const char *url, const char *method, const char *bod
     return false;
   }
   if (body_len > 0) {
-    const int wr = esp_http_client_write(client, body, body_len);
-    if (wr != body_len) {
-      ESP_LOGW(TAG, "write failed %s wr=%d len=%d", url, wr, body_len);
+    const int wr = esp_http_client_write(client, reinterpret_cast<const char *>(body), static_cast<int>(body_len));
+    if (wr != static_cast<int>(body_len)) {
+      ESP_LOGW(TAG, "write failed %s wr=%d len=%u", url, wr, static_cast<unsigned>(body_len));
       esp_http_client_close(client);
       esp_http_client_cleanup(client);
       return false;
@@ -175,6 +228,20 @@ bool pm_http_request_stream(const char *url, const char *method, const char *bod
   if (result) {
     result->status_code = status;
   }
+  if (content_length) {
+    *content_length = esp_http_client_get_content_length(client);
+  }
+  for (size_t i = 0; response_headers && i < response_header_count; ++i) {
+    if (!response_headers[i].name || !response_headers[i].value || response_headers[i].value_cap == 0) {
+      continue;
+    }
+    response_headers[i].value[0] = '\0';
+    char *value = nullptr;
+    if (esp_http_client_get_header(client, response_headers[i].name, &value) == ESP_OK && value) {
+      strncpy(response_headers[i].value, value, response_headers[i].value_cap - 1);
+      response_headers[i].value[response_headers[i].value_cap - 1] = '\0';
+    }
+  }
   if (status != 200) {
     ESP_LOGW(TAG, "HTTP %s -> %d", url, status);
     esp_http_client_close(client);
@@ -182,7 +249,7 @@ bool pm_http_request_stream(const char *url, const char *method, const char *bod
     return false;
   }
 
-  uint8_t *buf = static_cast<uint8_t *>(malloc(1024));
+  uint8_t *buf = static_cast<uint8_t *>(malloc(kPmHttpRxBufferBytes));
   if (!buf) {
     esp_http_client_close(client);
     esp_http_client_cleanup(client);
@@ -191,7 +258,7 @@ bool pm_http_request_stream(const char *url, const char *method, const char *bod
   size_t rd = 0;
   bool ok = false;
   for (;;) {
-    const int n = esp_http_client_read(client, reinterpret_cast<char *>(buf), 1024);
+    const int n = esp_http_client_read(client, reinterpret_cast<char *>(buf), kPmHttpRxBufferBytes);
     if (n > 0) {
       if (!on_data(buf, static_cast<size_t>(n), ctx)) {
         ok = false;
