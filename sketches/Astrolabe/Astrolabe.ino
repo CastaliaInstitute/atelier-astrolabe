@@ -1049,6 +1049,31 @@ static void face_tour_format_clock(char *out, size_t cap) {
   strftime(out, cap, "%A %H:%M local time", &tm);
 }
 
+static bool face_voice_is_einstein(const char *slug, const char *name) {
+  if (slug && (strcmp(slug, "a.einstein") == 0 || strcmp(slug, "a-einstein") == 0 ||
+               strcmp(slug, "einstein") == 0)) {
+    return true;
+  }
+  if (name && strstr(name, "Einstein")) {
+    return true;
+  }
+  return false;
+}
+
+static void face_voice_append_einstein_style(char *sys, size_t sys_cap, const char *slug, const char *name) {
+  if (!sys || sys_cap == 0 || !face_voice_is_einstein(slug, name)) {
+    return;
+  }
+  const char *style =
+      " If the selected guide is Einstein, speak in clear English with a light German accent and "
+      "German-influenced cadence. Keep it natural, respectful, and easy to understand; do not caricature.";
+  const size_t len = strlen(sys);
+  if (len + 1 >= sys_cap) {
+    return;
+  }
+  snprintf(sys + len, sys_cap - len, "%s", style);
+}
+
 static bool face_voice_build_prompt(const FaceTourInfo *info, int idx, char *msg, size_t msg_cap,
                                     char *sys, size_t sys_cap, bool tour_test) {
   if (!info || !msg || msg_cap == 0 || !sys || sys_cap == 0) {
@@ -1428,6 +1453,7 @@ static bool face_voice_build_prompt(const FaceTourInfo *info, int idx, char *msg
                idx + 1, static_cast<int>(ClockFace::kNumFaces), info->name, info->summary, demo);
       break;
   }
+  face_voice_append_einstein_style(sys, sys_cap, s_face_voice_faculty_slug, s_face_voice_faculty_name);
   return msg[0] != '\0';
 }
 
@@ -1502,11 +1528,14 @@ static void face_tour_voice_start(const FaceTourInfo *info, int idx) {
              "Introduce what this face is meant to do for someone seeing the device for the first time.",
              idx + 1, static_cast<int>(ClockFace::kNumFaces), info->name,
              guide.valid ? guide.name : "Mynah", info->summary, health);
-    started = pm_voice_begin_message_ex(s_face_tour_voice_msg,
-                                        "You narrate a first-time product tour for the Mynah Astrolabe. Speak as "
-                                        "the selected faculty guide when one is provided. Be warm, concrete, and "
-                                        "brief. Explain intended product value, not implementation details, unless "
-                                        "something is unavailable.",
+    snprintf(s_face_tour_sys_prompt, kFaceTourSysPromptCap,
+             "You narrate a first-time product tour for the Mynah Astrolabe. Speak as "
+             "the selected faculty guide when one is provided. Be warm, concrete, and "
+             "brief. Explain intended product value, not implementation details, unless "
+             "something is unavailable.");
+    face_voice_append_einstein_style(s_face_tour_sys_prompt, kFaceTourSysPromptCap,
+                                     s_face_voice_faculty_slug, s_face_voice_faculty_name);
+    started = pm_voice_begin_message_ex(s_face_tour_voice_msg, s_face_tour_sys_prompt,
                                         "tour", s_face_voice_faculty_slug, s_face_voice_faculty_name,
                                         &s_face_tour_voice_result);
   }
