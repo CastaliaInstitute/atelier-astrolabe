@@ -16,7 +16,7 @@ Goal: reduce internal heap pressure while moving Astrolabe away from Arduino run
 - [x] Support callback streaming, fixed-cap JSON reads, and direct-to-flash downloads.
 - [x] Port small JSON clients first: weather, quotes, Calcifer, Spotify status.
 - [x] Port binary/streaming clients next: faculty busts, voice MP3, rocket media.
-- [ ] Tune mbedTLS fragment sizes in `sdkconfig` after HTTPClient is gone.
+- [x] Tune mbedTLS fragment sizes in `sdkconfig` after HTTPClient is gone.
 
 ## Phase 3: Face Memory Lifecycle
 
