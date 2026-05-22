@@ -5,7 +5,6 @@
 #include <JPEGDEC.h>
 #include <LittleFS.h>
 #include <PNGdec.h>
-#include <Preferences.h>
 #include <WiFiClient.h>
 #include <WiFiClientSecure.h>
 #include <ctype.h>
@@ -24,6 +23,7 @@
 #include "pm_heap.h"
 #include "pm_display.h"
 #include "pm_faculty_assets.h"
+#include "pm_nvs.h"
 #include "pm_wifi_ntp.h"
 
 static const char *TAG = "pm_faculty";
@@ -165,68 +165,61 @@ void pm_faculty_label_from_slug(const char *slug, char *out, size_t cap) {
   out[o] = '\0';
 }
 
-static bool load_slot(Preferences &pref, int slot, PmFacultyProfile *out) {
+static bool load_slot(int slot, PmFacultyProfile *out) {
   char key[16];
   key_for_slot(key, sizeof(key), slot, "slug");
-  const String slug_s = pref.getString(key, "");
-  if (slug_s.length() <= 0) {
+  char slug[sizeof(out->slug)] = "";
+  pm_nvs_get_str(kNvsNs, key, slug, sizeof(slug), "");
+  if (slug[0] == '\0') {
     return false;
   }
   memset(out, 0, sizeof(*out));
-  strncpy(out->slug, slug_s.c_str(), sizeof(out->slug) - 1);
+  strncpy(out->slug, slug, sizeof(out->slug) - 1);
   out->slug[sizeof(out->slug) - 1] = '\0';
   if (!slug_sane(out->slug)) {
     return false;
   }
   key_for_slot(key, sizeof(key), slot, "name");
-  const String name_s = pref.getString(key, "");
-  if (name_s.length() > 0) {
-    strncpy(out->name, name_s.c_str(), sizeof(out->name) - 1);
-  } else {
+  pm_nvs_get_str(kNvsNs, key, out->name, sizeof(out->name), "");
+  if (out->name[0] == '\0') {
     pm_faculty_label_from_slug(out->slug, out->name, sizeof(out->name));
   }
   out->name[sizeof(out->name) - 1] = '\0';
   key_for_slot(key, sizeof(key), slot, "q");
-  const String q_s = pref.getString(key, "");
-  strncpy(out->last_user, q_s.c_str(), sizeof(out->last_user) - 1);
+  pm_nvs_get_str(kNvsNs, key, out->last_user, sizeof(out->last_user), "");
   out->last_user[sizeof(out->last_user) - 1] = '\0';
   key_for_slot(key, sizeof(key), slot, "a");
-  const String a_s = pref.getString(key, "");
-  strncpy(out->last_reply, a_s.c_str(), sizeof(out->last_reply) - 1);
+  pm_nvs_get_str(kNvsNs, key, out->last_reply, sizeof(out->last_reply), "");
   out->last_reply[sizeof(out->last_reply) - 1] = '\0';
   out->valid = true;
   return true;
 }
 
-static bool save_slot(Preferences &pref, int slot, const PmFacultyProfile *in) {
+static bool save_slot(int slot, const PmFacultyProfile *in) {
   if (!in || !in->valid || !slug_sane(in->slug) || slot < 0 || slot >= kPmFacultySlots) {
     return false;
   }
+  bool ok = true;
   char key[16];
   key_for_slot(key, sizeof(key), slot, "slug");
-  pref.putString(key, in->slug);
+  ok &= pm_nvs_set_str(kNvsNs, key, in->slug);
   key_for_slot(key, sizeof(key), slot, "name");
-  pref.putString(key, in->name);
+  ok &= pm_nvs_set_str(kNvsNs, key, in->name);
   key_for_slot(key, sizeof(key), slot, "q");
-  pref.putString(key, in->last_user);
+  ok &= pm_nvs_set_str(kNvsNs, key, in->last_user);
   key_for_slot(key, sizeof(key), slot, "a");
-  pref.putString(key, in->last_reply);
-  return true;
+  ok &= pm_nvs_set_str(kNvsNs, key, in->last_reply);
+  return ok;
 }
 
 int pm_faculty_count(void) {
-  Preferences pref;
-  if (!pref.begin(kNvsNs, true)) {
-    return 0;
-  }
   int n = 0;
   for (int i = 0; i < kPmFacultySlots; ++i) {
     PmFacultyProfile tmp = {};
-    if (load_slot(pref, i, &tmp)) {
+    if (load_slot(i, &tmp)) {
       ++n;
     }
   }
-  pref.end();
   return n;
 }
 
@@ -234,37 +227,26 @@ bool pm_faculty_get_slot(int slot, PmFacultyProfile *out) {
   if (!out || slot < 0 || slot >= kPmFacultySlots) {
     return false;
   }
-  Preferences pref;
-  if (!pref.begin(kNvsNs, true)) {
-    return false;
-  }
-  const bool ok = load_slot(pref, slot, out);
-  pref.end();
-  return ok;
+  return load_slot(slot, out);
 }
 
-static int active_slot_raw(Preferences &pref) {
-  const int slot = pref.getInt(kKeyActive, 0);
+static int active_slot_raw(void) {
+  const int slot = pm_nvs_get_i32(kNvsNs, kKeyActive, 0);
   return (slot >= 0 && slot < kPmFacultySlots) ? slot : 0;
 }
 
 bool pm_faculty_active(PmFacultyProfile *out) {
   pm_faculty_ensure_seed();
-  Preferences pref;
-  if (!pref.begin(kNvsNs, true)) {
-    return false;
-  }
-  int slot = active_slot_raw(pref);
-  bool ok = load_slot(pref, slot, out);
+  int slot = active_slot_raw();
+  bool ok = load_slot(slot, out);
   if (!ok) {
     for (int i = 0; i < kPmFacultySlots; ++i) {
-      if (load_slot(pref, i, out)) {
+      if (load_slot(i, out)) {
         ok = true;
         break;
       }
     }
   }
-  pref.end();
   return ok;
 }
 
@@ -273,12 +255,9 @@ bool pm_faculty_set_active_slot(int slot) {
   if (!pm_faculty_get_slot(slot, &tmp)) {
     return false;
   }
-  Preferences pref;
-  if (!pref.begin(kNvsNs, false)) {
+  if (!pm_nvs_set_i32(kNvsNs, kKeyActive, slot)) {
     return false;
   }
-  pref.putInt(kKeyActive, slot);
-  pref.end();
   pm_faculty_on_active_changed();
   return true;
 }
@@ -296,12 +275,7 @@ bool pm_faculty_cycle_active(int delta, PmFacultyProfile *out) {
   if (n <= 0) {
     return false;
   }
-  Preferences pref;
-  int cur = 0;
-  if (pref.begin(kNvsNs, true)) {
-    cur = active_slot_raw(pref);
-    pref.end();
-  }
+  int cur = active_slot_raw();
   int pos = 0;
   for (int i = 0; i < n; ++i) {
     if (slots[i] == cur) {
@@ -352,27 +326,21 @@ bool pm_faculty_remember(const char *slug_in, const char *name_in) {
     next[o++] = old[i];
   }
 
-  Preferences pref;
-  if (!pref.begin(kNvsNs, false)) {
-    return false;
-  }
   for (int i = 0; i < kPmFacultySlots; ++i) {
     char key[16];
     key_for_slot(key, sizeof(key), i, "slug");
-    pref.remove(key);
+    (void)pm_nvs_remove(kNvsNs, key);
     key_for_slot(key, sizeof(key), i, "name");
-    pref.remove(key);
+    (void)pm_nvs_remove(kNvsNs, key);
     key_for_slot(key, sizeof(key), i, "q");
-    pref.remove(key);
+    (void)pm_nvs_remove(kNvsNs, key);
     key_for_slot(key, sizeof(key), i, "a");
-    pref.remove(key);
+    (void)pm_nvs_remove(kNvsNs, key);
     if (next[i].valid) {
-      (void)save_slot(pref, i, &next[i]);
+      (void)save_slot(i, &next[i]);
     }
   }
-  pref.putInt(kKeyActive, 0);
-  pref.end();
-  return true;
+  return pm_nvs_set_i32(kNvsNs, kKeyActive, 0);
 }
 
 bool pm_faculty_set_active_slug(const char *slug, const char *name) {
@@ -406,13 +374,8 @@ void pm_faculty_note_turn(const char *slug, const char *name, const char *transc
     strncpy(cur.last_reply, reply, sizeof(cur.last_reply) - 1);
     cur.last_reply[sizeof(cur.last_reply) - 1] = '\0';
   }
-  Preferences pref;
-  if (!pref.begin(kNvsNs, false)) {
-    return;
-  }
-  (void)save_slot(pref, 0, &cur);
-  pref.putInt(kKeyActive, 0);
-  pref.end();
+  (void)save_slot(0, &cur);
+  (void)pm_nvs_set_i32(kNvsNs, kKeyActive, 0);
 }
 
 bool pm_faculty_build_history(char *out, size_t cap) {
@@ -453,15 +416,10 @@ void pm_faculty_ensure_seed(void) {
       {"hypatia", "Hypatia", "", "", true},
       {"socrates", "Socrates", "", "", true},
   };
-  Preferences pref;
-  if (!pref.begin(kNvsNs, false)) {
-    return;
-  }
   for (int i = 0; i < static_cast<int>(sizeof(kSeeds) / sizeof(kSeeds[0])) && i < kPmFacultySlots; ++i) {
-    (void)save_slot(pref, i, &kSeeds[i]);
+    (void)save_slot(i, &kSeeds[i]);
   }
-  pref.putInt(kKeyActive, 0);
-  pref.end();
+  (void)pm_nvs_set_i32(kNvsNs, kKeyActive, 0);
 }
 
 void pm_faculty_ensure_demo_seed(void) {
