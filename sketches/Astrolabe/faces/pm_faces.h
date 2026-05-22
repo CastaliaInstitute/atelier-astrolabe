@@ -58,6 +58,8 @@ enum class ClockFace : uint8_t {
   Alethiometer,
   /** Three-rune past / present / future spread; tap casts and speaks a fortune. */
   Runes,
+  /** Menstrual cycle ring: tap logs day 1, swipe up/down adjusts cycle length. */
+  Cycle,
   kNumFaces,
 };
 

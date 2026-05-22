@@ -10,6 +10,7 @@
 #include "faces/castalia/pm_face_castalia.h"
 #include "faces/chakra/pm_face_chakra.h"
 #include "faces/classic_analog/pm_face_classic_analog.h"
+#include "faces/cycle/pm_face_cycle.h"
 #include "faces/digital/pm_face_digital.h"
 #include "faces/faculty/pm_face_faculty.h"
 #include "faces/level/pm_face_level.h"
@@ -154,6 +155,7 @@ void leave_tuning(ClockFace) { pm_face_tuning_on_leave(); }
 
 void draw_alethiometer(const PmFaceDrawContext &) { pm_face_alethiometer_draw(); }
 void draw_runes(const PmFaceDrawContext &ctx) { pm_face_runes_draw(ctx.local_time, ctx.time_valid); }
+void draw_cycle(const PmFaceDrawContext &ctx) { pm_face_cycle_draw(ctx.local_time, ctx.time_valid); }
 void leave_settings(ClockFace) { pm_settings_on_leave(); }
 
 constexpr uint32_t kStandardLowOwnNoMinuteSkip = kLow | kOwnBg | kNoMinute | kSkipRainbow;
@@ -188,6 +190,7 @@ const PmFaceDescriptor kFaces[] = {
     {ClockFace::PanDrum, "pandrum", "Pan Drum", kStandardLowOwnNoMinuteSkip, draw_pandrum, nullptr, leave_pandrum},
     {ClockFace::Alethiometer, "alethiometer", "Alethiometer", kStandardLowOwnNoMinuteSkip, draw_alethiometer, nullptr, nullptr},
     {ClockFace::Runes, "runes", "Runes", kStandardLowOwnNoMinuteSkip, draw_runes, nullptr, nullptr},
+    {ClockFace::Cycle, "cycle", "Cycle", kStandardLowOwnNoMinuteSkip, draw_cycle, nullptr, nullptr},
 };
 
 }  // namespace

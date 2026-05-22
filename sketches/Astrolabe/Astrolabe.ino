@@ -39,6 +39,7 @@
 #include "pm_calcifer.h"
 #include "pm_rocket.h"
 #include "pm_commonplace.h"
+#include "pm_cycle_nvs.h"
 #include "pm_astro_highlight.h"
 #include "faces/pm_faces.h"
 #include "faces/shared/pm_face_draw.h"
@@ -57,6 +58,7 @@
 #include "faces/spotify/pm_face_spotify.h"
 #include "faces/calcifer/pm_face_calcifer.h"
 #include "faces/level/pm_face_level.h"
+#include "faces/cycle/pm_face_cycle.h"
 #include "faces/weather/pm_face_weather.h"
 #include "faces/settings/pm_face_settings_aec.h"
 #include "faces/settings/pm_face_settings_wifi.h"
@@ -714,7 +716,7 @@ static bool face_index_from_name(const char *name, int *out) {
            {"pan-drum", 26},    {"pandrom", 26},     {"pandrom_face", 26}, {"handpan", 26},
            {"hang", 26},        {"alethiometer", 27}, {"aleth", 27},     {"compass", 27},
            {"golden_compass", 27}, {"runes", 28},     {"rune", 28},      {"futhark", 28},
-           {"fortune", 28}};
+           {"fortune", 28},        {"cycle", 29},     {"menstrual", 29}, {"period", 29}};
   for (const auto &e : k) {
     if (strcasecmp(name, e.n) == 0) {
       *out = e.idx;
@@ -821,6 +823,9 @@ static const FaceTourInfo k_face_tour[] = {
     {"runes", "a three-rune spread for turning a question into a past, present, future reading",
      "the selected rune spread and spoken fortune",
      "WiFi is available for TTS fortune", "offline, visual spread only", true, false},
+    {"cycle", "a private menstrual cycle ring for day-one logging, fertile window, and lunar context",
+     "the current cycle day and next embodied check-in",
+     "local cycle data is available", "set day one with a tap", false, true},
 };
 
 static const FaceTourInfo *face_tour_info(int idx) {
@@ -2346,6 +2351,8 @@ static void poll_serial_birth_commands() {
           Serial.println("qa: 25 tuning");
           Serial.println("qa: 26 pandrum");
           Serial.println("qa: 27 alethiometer");
+          Serial.println("qa: 28 runes");
+          Serial.println("qa: 29 cycle");
         } else if (strncmp(args, "tour", 4) == 0 && (args[4] == '\0' || args[4] == ' ')) {
           handle_tour_command(args + 4);
         } else if (!pm_qa_inject_command(args)) {
@@ -2807,6 +2814,12 @@ void loop() {
       snprintf(g_gesture_banner, sizeof(g_gesture_banner), "bowl %d/7", idx + 1);
       g_clock_repaint_pending = true;
       continue;
+    } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Cycle &&
+               (ge.kind == PmGestureKind::SwipeUp || ge.kind == PmGestureKind::SwipeDown)) {
+      const uint8_t len = pm_cycle_adjust_cycle_length_preset(ge.kind == PmGestureKind::SwipeUp ? 1 : -1);
+      snprintf(g_gesture_banner, sizeof(g_gesture_banner), "cycle: %u days", len);
+      g_clock_repaint_pending = true;
+      continue;
     } else if (g_state == AppState::kClock && instrument_stack_swipe(ge.kind)) {
       g_clock_repaint_pending = true;
       continue;
@@ -2828,6 +2841,28 @@ void loop() {
     } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::TibetanBowl &&
                ge.kind == PmGestureKind::Tap) {
       pm_face_tibetan_bowl_touch_tick(now);
+      g_clock_repaint_pending = true;
+      continue;
+    } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Cycle &&
+               ge.kind == PmGestureKind::Tap) {
+      struct tm local = {};
+      if (pm_time_valid()) {
+        pm_time_local(&local);
+      }
+      if (pm_cycle_log_period_started_today(pm_time_valid() ? &local : nullptr)) {
+        pm_face_cycle_flash_confirm(now + 1200u);
+        pm_face_cycle_on_period_logged();
+        pm_face_cycle_schedule_full_ring(now + 1300u);
+        snprintf(g_gesture_banner, sizeof(g_gesture_banner), "cycle: day 1");
+      } else {
+        snprintf(g_gesture_banner, sizeof(g_gesture_banner), "cycle: need time");
+      }
+      g_clock_repaint_pending = true;
+      continue;
+    } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Cycle &&
+               ge.kind == PmGestureKind::LongPress) {
+      pm_cycle_clear();
+      snprintf(g_gesture_banner, sizeof(g_gesture_banner), "cycle: cleared");
       g_clock_repaint_pending = true;
       continue;
     } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Ocarina &&
@@ -3159,6 +3194,9 @@ void loop() {
       const bool faculty_anim =
           (pm_faces_current() == ClockFace::Faculty || pm_faces_current() == ClockFace::Quotes) &&
           pm_faculty_tick(now);
+      const bool cycle_anim =
+          pm_faces_current() == ClockFace::Cycle &&
+          (pm_face_cycle_confirm_active(now) || pm_face_cycle_take_full_ring_scheduled(now));
       const bool home_gem_breath =
           pm_faces_current() == ClockFace::ClassicAnalog && pm_home_gem_pulse_enabled();
       const bool sec_tick_paint =
@@ -3172,7 +3210,7 @@ void loop() {
           pm_faces_current() != ClockFace::Ocarina && pm_faces_current() != ClockFace::Bongo &&
           pm_faces_current() != ClockFace::Piano && pm_faces_current() != ClockFace::Level &&
           pm_faces_current() != ClockFace::PanDrum && pm_faces_current() != ClockFace::Alethiometer &&
-          pm_faces_current() != ClockFace::Runes &&
+          pm_faces_current() != ClockFace::Runes && pm_faces_current() != ClockFace::Cycle &&
           !home_gem_breath;
       const bool calcifer_sec =
           pm_faces_current() == ClockFace::CalciferCountdown && valid && sec_tick;
@@ -3203,7 +3241,7 @@ void loop() {
                                  weather_stale || quotes_face_stale || quotes_preload_due || rocket_stale || sec_tick_paint || calcifer_sec || rocket_sec || rocket_anim ||
                                  astro_repaint || spectrum_anim || chakra_anim || bowl_anim || ocarina_anim || bongo_anim ||
                                  piano_anim || pandrum_anim || alethiometer_anim || radar_anim || level_anim || faculty_anim ||
-                                 wifi_settings_graph || aec_settings_anim;
+                                 cycle_anim || wifi_settings_graph || aec_settings_anim;
 #if MYNAH_HUE_HOME_ONLY
       const bool gem_only_paint = gem_pulse_paint && s_clock_paint_inited && !non_gem_paint;
       const bool full_paint = non_gem_paint || gem_pulse_paint;
