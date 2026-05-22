@@ -1065,8 +1065,9 @@ static void face_voice_append_einstein_style(char *sys, size_t sys_cap, const ch
     return;
   }
   const char *style =
-      " If the selected guide is Einstein, speak in clear English with a light German accent and "
-      "German-influenced cadence. Keep it natural, respectful, and easy to understand; do not caricature.";
+      " If the selected guide is Einstein, speak in clear English with a noticeably German accent and "
+      "German-influenced cadence. Pronounce the English as a German-born physicist would, while keeping it "
+      "natural, respectful, and easy to understand; do not caricature.";
   const size_t len = strlen(sys);
   if (len + 1 >= sys_cap) {
     return;
@@ -1894,8 +1895,6 @@ static void face_tour_draw_guide_overlay(void) {
   const int x = (elapsed >= dur) ? end_x
                                  : start_x + static_cast<int>((end_x - start_x) * elapsed / dur);
   const int y = LCD_HEIGHT - box - pad;
-  pm_gfx->fillRoundRect(x - 3, y - 3, box + 6, box + 6, 6, pm_gfx->color565(6, 8, 16));
-  pm_gfx->drawRoundRect(x - 3, y - 3, box + 6, box + 6, 6, pm_gfx->color565(120, 150, 220));
   (void)pm_faculty_draw_real_bust_for_at(&guide, x + box / 2, y + box - 2, box, box);
 }
 

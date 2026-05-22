@@ -134,9 +134,11 @@ function fallbackProfile(slugRaw: unknown): FacultyVoiceProfile | undefined {
   const profiles: Record<string, Omit<FacultyVoiceProfile, "facultySlug">> = {
     "a.einstein": {
       ethnicity: "Ashkenazi Jewish, German-born Swiss-American",
-      accent: "light German-influenced English",
+      accent: "noticeably German-accented English",
       language: "German and English",
-      ttsVoice: { languageCode: "en-US", name: "en-US-Neural2-D" },
+      prompt:
+        "Einstein should sound like a German-born physicist speaking English: German cadence, crisp consonants, and occasional German phrasing. Keep it intelligible and respectful; do not turn it into parody.",
+      ttsVoice: { languageCode: "de-DE", name: "de-DE-Neural2-B" },
     },
     "a.curie": {
       ethnicity: "Polish-born French",
@@ -193,7 +195,7 @@ export function buildFacultyVoicePrompt(profile?: FacultyVoiceProfile): string {
   return [
     base,
     custom,
-    "Use this only to guide respectful voice, vocabulary, pronunciation, and cadence. Do not caricature or overstate accent. Keep the reply understandable to an English-speaking listener unless the user explicitly asks for another language.",
+    "Use this to guide respectful voice, vocabulary, pronunciation, and cadence. The accent should be audible when the profile calls for one, but never cartoonish. Keep the reply understandable to an English-speaking listener unless the user explicitly asks for another language.",
   ].filter(Boolean).join(" ");
 }
 
