@@ -214,9 +214,9 @@
           {
             id: "unsorted",
             title: "Unsorted",
-            subtitle: "Needs SKU assignment",
+            subtitle: "Needs edition assignment",
             promise: "Review before publishing",
-            accessory: "These faces need an explicit product SKU or core-firmware home.",
+            accessory: "These faces need an explicit edition or core-firmware home.",
           },
         ])
       : variants;
@@ -247,7 +247,7 @@
             </a>
             <div class="face-card__body">
               <p class="eyebrow">${escapeHtml(face.kicker)}</p>
-              <h2><a href="${face.slug}.html">${escapeHtml(face.title)}</a></h2>
+              <h3><a href="${face.slug}.html">${escapeHtml(face.title)}</a></h3>
               <p>${escapeHtml(face.summary)}</p>
               <p class="face-card__question">${escapeHtml(face.inquiry)}</p>
             </div>
@@ -281,7 +281,7 @@
           <div class="nav__links">
             <a href="./">Faces</a>
             <a href="../#how">How it works</a>
-            <a href="../#founding">Founding batch</a>
+            <a href="../#founding">Founder Bundle</a>
           </div>
         </nav>
       </div>
