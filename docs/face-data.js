@@ -25,8 +25,8 @@
       id: "cameo",
       title: "Astrolabe Cameo",
       subtitle: "Necklace pendant SKU",
-      promise: "Remember · honor · connect",
-      accessory: "Pendant presentation for memory, presence, and keepsake rituals.",
+      promise: "Faculty · counsel · perspective",
+      accessory: "Pendant presentation for ask-faculty counsel and named perspectives.",
     },
     {
       id: "enso",
@@ -376,9 +376,9 @@
       slug: "faculty",
       title: "Faculty",
       kicker: "Ask from a named perspective",
-      image: "../assets/faces/bench-15-faculty.png",
+      image: "../assets/faces/bench-15-cameo.png",
       summary:
-        "A face for recent ask-faculty conversations, keeping a chosen voice or lens close at hand.",
+        "A Cameo face for recent ask-faculty conversations, keeping a right-facing bust and chosen voice close at hand.",
       inquiry: "Which perspective should help me think about this?",
       questions: [
         "Who should I ask this as?",
@@ -388,7 +388,7 @@
       use: [
         "Swipe through recent faculty voices.",
         "Hold PWR to ask in context when voice input is enabled.",
-        "Use the bust and name as a prompt for angle of inquiry.",
+        "Use the right-facing bust and name as a prompt for angle of inquiry.",
       ],
       interactions: "Swipe up or down cycles recent faculty. Swipe left exits.",
     },
