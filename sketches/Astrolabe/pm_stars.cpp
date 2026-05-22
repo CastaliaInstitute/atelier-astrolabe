@@ -1,9 +1,6 @@
 #include "pm_stars.h"
 
-#include <HTTPClient.h>
 #include <WiFi.h>
-#include <WiFiClient.h>
-#include <WiFiClientSecure.h>
 #include <esp_log.h>
 #include <math.h>
 #include <stdio.h>
@@ -11,6 +8,7 @@
 #include <string.h>
 
 #include "pm_config.h"
+#include "pm_http.h"
 
 static const char *TAG = "pm_stars";
 
@@ -149,34 +147,23 @@ bool pm_stars_ensure_catalog(void) {
 
 #if MYNAH_EPHEMERIS_ENABLE
   if (WiFi.status() == WL_CONNECTED && strlen(MYNAH_STARS_CATALOG_URL) > 0) {
-    WiFiClientSecure client;
-    client.setInsecure();
-    HTTPClient http;
-    http.setTimeout(static_cast<uint16_t>(MYNAH_EPHEMERIS_HTTP_MS));
-    if (http.begin(client, MYNAH_STARS_CATALOG_URL)) {
-      const int code = http.GET();
-      if (code == HTTP_CODE_OK) {
-        const int len = http.getSize();
-        if (len > 0 && len < static_cast<int>(MYNAH_STARS_CATALOG_MAX_BYTES)) {
-          char *buf = static_cast<char *>(malloc(static_cast<size_t>(len) + 1u));
-          if (buf) {
-            WiFiClient *stream = http.getStreamPtr();
-            const int rd =
-                stream ? stream->readBytes(buf, len) : static_cast<int>(http.getSize());
-            buf[rd] = '\0';
-            const int pn = parse_stars_json(buf);
-            if (pn > 0) {
-              s_catalog_count = pn;
-              s_catalog_from_net = true;
-              ESP_LOGI(TAG, "catalog from net (%d stars)", pn);
-            }
-            free(buf);
-          }
+    char *buf = static_cast<char *>(malloc(static_cast<size_t>(MYNAH_STARS_CATALOG_MAX_BYTES) + 1u));
+    if (buf) {
+      PmHttpTextResult result = {};
+      if (pm_http_request_text(MYNAH_STARS_CATALOG_URL, "GET", nullptr, nullptr, 0, buf,
+                               static_cast<size_t>(MYNAH_STARS_CATALOG_MAX_BYTES) + 1u,
+                               MYNAH_EPHEMERIS_HTTP_MS, &result)) {
+        const int pn = parse_stars_json(buf);
+        if (pn > 0) {
+          s_catalog_count = pn;
+          s_catalog_from_net = true;
+          ESP_LOGI(TAG, "catalog from net (%d stars)", pn);
         }
       } else {
-        ESP_LOGW(TAG, "catalog GET %d", code);
+        ESP_LOGW(TAG, "catalog GET %d (%u bytes)", result.status_code,
+                 static_cast<unsigned>(result.bytes_read));
       }
-      http.end();
+      free(buf);
     }
   }
 #endif

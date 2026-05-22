@@ -1,9 +1,6 @@
 #include "pm_ephemeris.h"
 
-#include <HTTPClient.h>
 #include <WiFi.h>
-#include <WiFiClient.h>
-#include <WiFiClientSecure.h>
 #include <esp_log.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,6 +9,7 @@
 
 #include "pm_config.h"
 #include "pm_heap.h"
+#include "pm_http.h"
 
 static const char *TAG = "pm_ephem";
 
@@ -167,55 +165,28 @@ static bool ensure_month_loaded(const char *month_key) {
   char url[192];
   snprintf(url, sizeof(url), "%s/%s.json", MYNAH_EPHEMERIS_DATA_BASE, month_key);
 
-  WiFiClientSecure client;
-  client.setInsecure();
-  HTTPClient http;
-  http.setTimeout(static_cast<uint16_t>(MYNAH_EPHEMERIS_HTTP_MS));
-  if (!http.begin(client, url)) {
-    return false;
-  }
-  const int code = http.GET();
-  if (code != HTTP_CODE_OK) {
-    ESP_LOGW(TAG, "month GET %d %s", code, month_key);
-    http.end();
-    return false;
-  }
-  const int len = http.getSize();
-  if (len <= 0 || len > static_cast<int>(MYNAH_EPHEMERIS_MONTH_MAX_BYTES)) {
-    ESP_LOGW(TAG, "month size %d", len);
-    http.end();
-    return false;
-  }
-  if (!s_month_json || s_month_json_cap < static_cast<size_t>(len) + 1u) {
+  if (!s_month_json || s_month_json_cap < MYNAH_EPHEMERIS_MONTH_MAX_BYTES + 1u) {
     if (s_month_json) {
       free(s_month_json);
       s_month_json = nullptr;
     }
-    s_month_json_cap = static_cast<size_t>(len) + 1u;
+    s_month_json_cap = MYNAH_EPHEMERIS_MONTH_MAX_BYTES + 1u;
     s_month_json = static_cast<char *>(pm_heap_alloc_response(s_month_json_cap));
   }
   if (!s_month_json) {
-    http.end();
     return false;
   }
-  WiFiClient *stream = http.getStreamPtr();
-  int rd = 0;
-  while (rd < len) {
-    const int n = stream->readBytes(s_month_json + rd, static_cast<size_t>(len - rd));
-    if (n <= 0) {
-      break;
-    }
-    rd += n;
-  }
-  http.end();
-  if (rd != len) {
-    ESP_LOGW(TAG, "month read short %d/%d", rd, len);
+  PmHttpTextResult result = {};
+  const bool ok = pm_http_request_text(url, "GET", nullptr, nullptr, 0, s_month_json, s_month_json_cap,
+                                       MYNAH_EPHEMERIS_HTTP_MS, &result);
+  if (!ok) {
+    ESP_LOGW(TAG, "month GET %d %s (%u bytes)", result.status_code, month_key,
+             static_cast<unsigned>(result.bytes_read));
     return false;
   }
-  s_month_json[rd] = '\0';
   strncpy(s_month_key, month_key, sizeof(s_month_key) - 1);
   s_month_key[sizeof(s_month_key) - 1] = '\0';
-  ESP_LOGI(TAG, "loaded %s (%d bytes)", month_key, rd);
+  ESP_LOGI(TAG, "loaded %s (%u bytes)", month_key, static_cast<unsigned>(result.bytes_read));
   return true;
 }
 
