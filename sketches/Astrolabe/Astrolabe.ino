@@ -1065,9 +1065,10 @@ static void face_voice_append_einstein_style(char *sys, size_t sys_cap, const ch
     return;
   }
   const char *style =
-      " If the selected guide is Einstein, speak in clear English with a noticeably German accent and "
-      "German-influenced cadence. Pronounce the English as a German-born physicist would, while keeping it "
-      "natural, respectful, and easy to understand; do not caricature.";
+      " If the selected guide is Einstein, speak in clear English with a southern German, Swabian-tinged "
+      "accent: measured, thoughtful, German-native cadence, crisp consonants, and slightly rounded vowels. "
+      "This is Einstein's adult English, not a Bavarian or comic German imitation; keep it respectful, "
+      "intelligible, and never caricatured.";
   const size_t len = strlen(sys);
   if (len + 1 >= sys_cap) {
     return;

@@ -134,10 +134,10 @@ function fallbackProfile(slugRaw: unknown): FacultyVoiceProfile | undefined {
   const profiles: Record<string, Omit<FacultyVoiceProfile, "facultySlug">> = {
     "a.einstein": {
       ethnicity: "Ashkenazi Jewish, German-born Swiss-American",
-      accent: "noticeably German-accented English",
+      accent: "southern German, Swabian-tinged English",
       language: "German and English",
       prompt:
-        "Einstein should sound like a German-born physicist speaking English: German cadence, crisp consonants, and occasional German phrasing. Keep it intelligible and respectful; do not turn it into parody.",
+        "Einstein should sound like his adult English: a German-native, southern German / Swabian-tinged accent shaped by Ulm/Württemberg origins, Munich upbringing, Swiss academic life, and later Princeton years. Use measured pacing, thoughtful pauses, crisp consonants, and slightly rounded vowels. Do not make him Bavarian, theatrical, or comic; keep it intelligible and respectful.",
       ttsVoice: { languageCode: "de-DE", name: "de-DE-Neural2-B" },
     },
     "a.curie": {
