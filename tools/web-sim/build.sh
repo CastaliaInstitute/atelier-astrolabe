@@ -18,4 +18,7 @@ cmake_args=(
 emcmake cmake "${cmake_args[@]}"
 cmake --build "${BUILD_DIR}" --parallel
 
+rm -rf "${BUILD_DIR}/assets"
+cp -R "${ROOT}/tools/web-sim/public/assets" "${BUILD_DIR}/assets"
+
 echo "${BUILD_DIR}/astrolabe-web-sim.html"
