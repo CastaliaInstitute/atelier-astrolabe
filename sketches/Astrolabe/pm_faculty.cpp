@@ -531,7 +531,7 @@ static bool bust_cache_fs_begin(void) {
 }
 
 static const char *bust_variant_suffix(BustVariant variant) {
-  return variant == BustVariant::High ? "400pr" : "200pr";
+  return variant == BustVariant::High ? "400jpg" : "200jpg";
 }
 
 static int bust_variant_width(BustVariant variant) {
@@ -700,7 +700,7 @@ static bool build_castalia_bust_url(const char *slug, BustVariant variant, char 
   strncpy(base, MYNAH_FACULTY_BUST_ORIGIN, sizeof(base) - 1);
   base[sizeof(base) - 1] = '\0';
   trim_base_url(base, sizeof(base));
-  const int n = snprintf(url, cap, "%s/api/faculty-bust/?faculty=%s&w=%d&h=%d&q=%d&format=png&pose=right", base, slug,
+  const int n = snprintf(url, cap, "%s/api/faculty-bust/?faculty=%s&w=%d&h=%d&q=%d&format=jpg&pose=right", base, slug,
                          bust_variant_width(variant), bust_variant_height(variant), bust_variant_quality(variant));
   return n > 0 && static_cast<size_t>(n) < cap;
 }
@@ -739,7 +739,7 @@ static bool build_supabase_bust_url(const char *slug, BustVariant variant, char 
   strncpy(base, MYNAH_SUPABASE_URL, sizeof(base) - 1);
   base[sizeof(base) - 1] = '\0';
   trim_base_url(base, sizeof(base));
-  const int n = snprintf(url, cap, "%s/functions/v1/faculty-bust?faculty=%s&w=%d&h=%d&q=%d&format=png&pose=right", base, slug,
+  const int n = snprintf(url, cap, "%s/functions/v1/faculty-bust?faculty=%s&w=%d&h=%d&q=%d&format=jpg&pose=right", base, slug,
                          bust_variant_width(variant), bust_variant_height(variant), bust_variant_quality(variant));
   return n > 0 && static_cast<size_t>(n) < cap;
 }

@@ -108,6 +108,9 @@ void pm_face_quotes_draw(void) {
   strncpy(faculty.name, g_quotes_ui.faculty_name, sizeof(faculty.name) - 1);
   faculty.valid = true;
 
+  if (!pm_faculty_bust_ready_for(faculty.slug)) {
+    (void)pm_faculty_request_bust(faculty.slug);
+  }
   pm_faculty_draw_bust_for(&faculty);
 
   pm_gfx->fillRect(0, LCD_HEIGHT - 150, LCD_WIDTH, 150, c_panel);
