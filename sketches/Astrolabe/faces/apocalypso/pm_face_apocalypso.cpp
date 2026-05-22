@@ -15,20 +15,21 @@ void pm_face_apocalypso_draw(const struct tm *tm, bool valid) {
   const uint16_t c_pct = pm_gfx->color565(140, 148, 158);
   const uint16_t c_white = RGB565_WHITE;
 
-  static const char *const k_lab[12] = {
+  static const char *const k_lab[] = {
       "Biblical", "Nuclear", "Bio",       "AI",      "Cyber",    "Infra",
-      "Market",   "State",   "Epistemic", "Climate", "Biosphere", "Solar",
+      "Market",   "State",   "Epistemic", "Climate", "Biosphere", "Solar", "Impact",
   };
-  static const uint16_t k_col[12] = {
+  static const uint16_t k_col[] = {
       pm_gfx->color565(227, 179, 65),  pm_gfx->color565(255, 123, 114), pm_gfx->color565(86, 211, 100),
       pm_gfx->color565(121, 192, 255), pm_gfx->color565(188, 160, 220), pm_gfx->color565(240, 136, 62),
       pm_gfx->color565(227, 200, 80),  pm_gfx->color565(255, 171, 145), pm_gfx->color565(210, 168, 255),
       pm_gfx->color565(86, 212, 220),  pm_gfx->color565(63, 185, 80),   pm_gfx->color565(242, 204, 96),
+      pm_gfx->color565(139, 148, 158),
   };
 
-  /** Demo profile (0..1 of outer ring); Climate peak, AI & Biblical elevated. */
-  static const float k_risk[12] = {
-      0.28f, 0.10f, 0.15f, 0.28f, 0.12f, 0.14f, 0.08f, 0.10f, 0.12f, 0.45f, 0.18f, 0.12f,
+  /** Demo profile (0..1 of outer ring), aligned with the Apocalypso APOC ticker modules. */
+  static const float k_risk[] = {
+      0.38f, 0.24f, 0.12f, 0.41f, 0.28f, 0.19f, 0.35f, 0.31f, 0.44f, 0.275f, 0.52f, 0.08f, 0.03f,
   };
 
   const int rcx = LCD_WIDTH / 2;
@@ -36,7 +37,7 @@ void pm_face_apocalypso_draw(const struct tm *tm, bool valid) {
   const int R = min(LCD_WIDTH, LCD_HEIGHT) / 2;
   /** Full-disk chart: outer axis labels sit ~36 px outside rmax. */
   const int rmax = R - 44;
-  constexpr int k_axes = 12;
+  constexpr int k_axes = static_cast<int>(sizeof(k_risk) / sizeof(k_risk[0]));
 
   char ttop[8];
   if (valid) {
@@ -60,8 +61,8 @@ void pm_face_apocalypso_draw(const struct tm *tm, bool valid) {
     pm_gfx->drawLine(rcx, rcy, xe, ye, c_spoke);
   }
 
-  int vx[12];
-  int vy[12];
+  int vx[k_axes];
+  int vy[k_axes];
   for (int i = 0; i < k_axes; ++i) {
     const float ang = i * (pm_face_k_two_pi / static_cast<float>(k_axes)) - pm_face_k_pi * 0.5f;
     const int ri = static_cast<int>(lrintf(static_cast<float>(rmax) * k_risk[i]));
@@ -97,9 +98,5 @@ void pm_face_apocalypso_draw(const struct tm *tm, bool valid) {
     const float ang = i * (pm_face_k_two_pi / static_cast<float>(k_axes)) - pm_face_k_pi * 0.5f;
     pm_face_draw_label_at_polar(rcx, rcy, r_lab, ang, k_lab[i], k_col[i]);
   }
-
-  const float ang_imp = -pm_face_k_pi * 0.5f - (pm_face_k_two_pi / static_cast<float>(k_axes)) * 0.5f;
-  pm_face_draw_label_at_polar(rcx, rcy, r_lab + 22, ang_imp, "Impact", c_pct);
 }
-
 

@@ -811,9 +811,9 @@ static const FaceTourInfo k_face_tour[] = {
     {"classic", "the home base: time, mood, and a living gem that makes the watch feel awake",
      "a short daily orientation from the home clock",
      "drawing locally", "heap is low", false, false},
-    {"apocalypso", "a day wheel for seeing the shape and pressure of the day at a glance",
-     "a brief reading of the day wheel and risk-radar mood",
-     "drawing local time", "time is not synced", false, true},
+    {"apocalypso", "a civilizational-risk observatory for the thirteen apocalypses, with live APOC tickers and a risk-profile radar",
+     "the Observatory's civilizational risk profile across nuclear, bio, AI, cyber, infrastructure, market, state, epistemic, climate, biosphere, solar, impact, and biblical risk",
+     "risk radar is drawing", "risk ticker refresh needs WiFi", true, false},
     {"digital", "a clean, glanceable clock for when the device should simply be a watch",
      "a concise spoken local-time check-in", "drawing local time",
      "time is not synced", false, true},
@@ -1140,9 +1140,10 @@ static bool face_voice_build_prompt(const FaceTourInfo *info, int idx, char *msg
       break;
     case ClockFace::Apocalypso:
       snprintf(msg, msg_cap,
-               "Tour face %d of %d: Apocalypso. Product purpose: %s. Current state: %s; %s. Explain this as "
-               "a narrative day wheel: the watch should help someone feel the contour of the day before they "
-               "open a calendar.",
+               "Tour face %d of %d: Apocalypso. Product purpose: %s. Current state: %s; %s. Explain that "
+               "Apocalypso is the Inquiry Institute Observatory of Civilizational Risk: a live ledger, not "
+               "prophecy, tracking APOC risk tickers across thirteen apocalypses and turning them into a "
+               "glanceable radar on the watch.",
                idx + 1, static_cast<int>(ClockFace::kNumFaces), info->summary, when, demo);
       break;
     case ClockFace::DigitalLocal:
