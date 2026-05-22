@@ -79,6 +79,7 @@
 #include "pm_home_gem_pulse.h"
 #include "pm_heap.h"
 #include "pm_log.h"
+#include "pm_resource.h"
 #include "pm_settings.h"
 #include "pm_daily_briefing.h"
 #include "pm_daily_briefing_nvs.h"
@@ -2253,11 +2254,12 @@ static void poll_serial_birth_commands() {
           ++args;
         }
         if (strcmp(args, "status") == 0) {
-          Serial.printf("qa: face=%d state=%d heap=%u iheap=%u largest=%u psram=%u psram_largest=%u voice_stack_hw=%u spk_stack_hw=%u rocket_stack_hw=%u wifi=%d time=%d ip=%s name=%s banner=\"%s\"\n",
+          Serial.printf("qa: face=%d state=%d heap=%u iheap=%u largest=%u psram=%u psram_largest=%u res=0x%08x voice_stack_hw=%u spk_stack_hw=%u rocket_stack_hw=%u wifi=%d time=%d ip=%s name=%s banner=\"%s\"\n",
                         static_cast<int>(pm_faces_current()), static_cast<int>(g_state),
                         static_cast<unsigned>(ESP.getFreeHeap()), static_cast<unsigned>(pm_heap_internal_free()),
                         static_cast<unsigned>(pm_heap_internal_largest()), static_cast<unsigned>(pm_heap_psram_free()),
                         static_cast<unsigned>(pm_heap_psram_largest()),
+                        static_cast<unsigned>(pm_resource_owners()),
                         static_cast<unsigned>(pm_voice_stack_high_water()),
                         static_cast<unsigned>(pm_speaker_stack_high_water()),
                         static_cast<unsigned>(pm_rocket_fetch_stack_high_water()), pm_wifi_connected() ? 1 : 0,

@@ -15,6 +15,7 @@
 #include "pm_config.h"
 #include "pm_display.h"
 #include "pm_heap.h"
+#include "pm_resource.h"
 
 static const char *TAG = "pm_rocket";
 
@@ -1176,7 +1177,14 @@ static void rocket_fetch_task(void *arg) {
   for (;;) {
     (void)ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
     PmRocketStatus result = {};
-    (void)pm_rocket_fetch(&result);
+    if (pm_resource_acquire(kPmResourceMediaStream, kPmResourceVoice | kPmResourceBustFetch | kPmResourceAnalyzer,
+                            "rocket-media")) {
+      (void)pm_rocket_fetch(&result);
+      pm_resource_release(kPmResourceMediaStream, "rocket-media");
+    } else {
+      result.ok = false;
+      snprintf(result.error, sizeof(result.error), "resource busy");
+    }
     fetch_mux_ensure();
     if (!s_fetch_mux || xSemaphoreTake(s_fetch_mux, pdMS_TO_TICKS(1000)) == pdTRUE) {
       s_fetch_result = result;

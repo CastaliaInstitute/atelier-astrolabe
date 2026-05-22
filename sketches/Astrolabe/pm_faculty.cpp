@@ -22,6 +22,7 @@
 #include "pm_faculty_assets.h"
 #include "pm_http.h"
 #include "pm_nvs.h"
+#include "pm_resource.h"
 #include "pm_wifi_ntp.h"
 
 static const char *TAG = "pm_faculty";
@@ -819,20 +820,27 @@ static void bust_task(void *arg) {
   const bool high_only = s_bust_req_high_only;
   s_bust_req_high_only = false;
   s_bust_bg_busy = true;
-  const bool ok = high_only ? true : fetch_bust_inner(slug);
+  bool ok = false;
+  if (pm_resource_acquire(kPmResourceBustFetch, kPmResourceVoice | kPmResourceAnalyzer | kPmResourceMediaStream,
+                          "faculty-bust")) {
+    ok = high_only ? true : fetch_bust_inner(slug);
+    if (ok && !bust_flash_cached(slug, BustVariant::High)) {
+      const uint32_t free_i = pm_heap_internal_free();
+      const uint32_t largest_i = pm_heap_internal_largest();
+      if (free_i >= MYNAH_FACULTY_MIN_FETCH_HEAP && largest_i >= 16000u) {
+        (void)fetch_bust_variant(slug, BustVariant::High, false);
+      } else {
+        Serial.printf("pm_faculty: defer 400 bust %s heap=%u largest=%u\n", slug, static_cast<unsigned>(free_i),
+                      static_cast<unsigned>(largest_i));
+      }
+    }
+    pm_resource_release(kPmResourceBustFetch, "faculty-bust");
+  } else {
+    bust_set_error("resource busy");
+  }
   if (!high_only) {
     s_bust_status = ok ? PmFacultyBustStatus::DoneOk : PmFacultyBustStatus::DoneFail;
     s_bust_done = true;
-  }
-  if (ok && !bust_flash_cached(slug, BustVariant::High)) {
-    const uint32_t free_i = pm_heap_internal_free();
-    const uint32_t largest_i = pm_heap_internal_largest();
-    if (free_i >= MYNAH_FACULTY_MIN_FETCH_HEAP && largest_i >= 16000u) {
-      (void)fetch_bust_variant(slug, BustVariant::High, false);
-    } else {
-      Serial.printf("pm_faculty: defer 400 bust %s heap=%u largest=%u\n", slug, static_cast<unsigned>(free_i),
-                    static_cast<unsigned>(largest_i));
-    }
   }
   s_bust_bg_busy = false;
   s_bust_task = nullptr;

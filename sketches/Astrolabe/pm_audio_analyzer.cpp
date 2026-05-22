@@ -9,6 +9,7 @@
 #include "pm_audio_route.h"
 #include "pm_fft.h"
 #include "pm_mic.h"
+#include "pm_resource.h"
 
 static SemaphoreHandle_t s_analyzer_mux = nullptr;
 static size_t s_in_fill[PM_AUDIO_ANALYZER_IN_CHANNELS];
@@ -663,11 +664,20 @@ void pm_audio_analyzer_get_pitch(PmAudioPitch *out) {
 #ifndef ASTROLABE_QEMU
 
 bool pm_audio_analyzer_mic_begin(void) {
-  return pm_mic_begin();
+  if (!pm_resource_acquire(kPmResourceAnalyzer, kPmResourceVoice | kPmResourceBustFetch | kPmResourceMediaStream,
+                           "audio-analyzer")) {
+    return false;
+  }
+  if (!pm_mic_begin()) {
+    pm_resource_release(kPmResourceAnalyzer, "audio-analyzer");
+    return false;
+  }
+  return true;
 }
 
 void pm_audio_analyzer_mic_end(void) {
   pm_mic_stop();
+  pm_resource_release(kPmResourceAnalyzer, "audio-analyzer");
 }
 
 void pm_audio_analyzer_tick(void) {
