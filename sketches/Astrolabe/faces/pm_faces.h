@@ -70,6 +70,7 @@ void pm_faces_open_settings(void);
 bool pm_faces_castalia_active(void);
 bool pm_faces_is_commonplace_home(void);
 bool pm_faces_banner_low(void);
+bool pm_faces_tick(uint32_t now_ms);
 void pm_faces_draw(float thinking_progress = -1.f);
 /** Home gem + rainbow only (breath animation). */
 void pm_faces_draw_home_gem_pulse(void);

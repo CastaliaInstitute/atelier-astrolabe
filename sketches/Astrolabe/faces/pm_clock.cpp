@@ -80,6 +80,15 @@ bool pm_faces_castalia_active(void) {
   return s_clock_face == ClockFace::Settings && pm_settings_page() == SettingsPage::Castalia;
 }
 
+bool pm_faces_tick(uint32_t now_ms) {
+  const PmFaceDescriptor *face = pm_faces_current_descriptor();
+  if (!face || !face->tick) {
+    return false;
+  }
+  const PmFaceTickContext ctx = {now_ms};
+  return face->tick(ctx);
+}
+
 void pm_faces_cycle(int delta) {
   if (s_clock_face == ClockFace::Settings) {
     return;

@@ -3070,14 +3070,6 @@ void loop() {
         s_prev_dial_face = pm_faces_current();
       }
 
-      static uint32_t s_last_spectrum_ms = 0;
-      const bool spectrum_anim =
-          pm_faces_current() == ClockFace::Spectrum && g_state == AppState::kClock &&
-          (now - s_last_spectrum_ms >= 50u);
-      if (spectrum_anim) {
-        s_last_spectrum_ms = now;
-        pm_face_spectrum_tick();
-      }
       static uint32_t s_last_aec_settings_ms = 0;
       const bool aec_settings_anim =
           pm_faces_current() == ClockFace::Settings && pm_settings_page() == SettingsPage::Aec &&
@@ -3085,24 +3077,6 @@ void loop() {
       if (aec_settings_anim) {
         s_last_aec_settings_ms = now;
         pm_face_settings_aec_tick();
-      }
-
-      static uint32_t s_last_radar_ms = 0;
-      const bool radar_anim =
-          pm_faces_current() == ClockFace::Radar && g_state == AppState::kClock &&
-          (now - s_last_radar_ms >= 80u);
-      if (radar_anim) {
-        s_last_radar_ms = now;
-        pm_face_radar_tick(now);
-      }
-
-      static uint32_t s_last_level_ms = 0;
-      const bool level_anim =
-          pm_faces_current() == ClockFace::Level && g_state == AppState::kClock &&
-          (now - s_last_level_ms >= 50u);
-      if (level_anim) {
-        s_last_level_ms = now;
-        (void)pm_face_level_anim_tick(now);
       }
 
       if (pm_faces_castalia_active() && wifi && pm_castalia_tick_pair_start()) {
@@ -3130,8 +3104,7 @@ void loop() {
         s_spotify_have_data = false;
       }
       if (pm_faces_current() == ClockFace::Spotify) {
-        pm_face_spotify_tick(now);
-        if (pm_face_spotify_needs_repaint(now)) {
+        if (pm_faces_tick(now)) {
           g_clock_repaint_pending = true;
         }
       }
@@ -3178,28 +3151,7 @@ void loop() {
           (pm_faces_current() == ClockFace::Astrology || pm_faces_current() == ClockFace::LiveTransits) &&
           valid && epoch_min_bucket != s_prev_astro_epoch_min;
 
-      const bool chakra_anim =
-          pm_faces_current() == ClockFace::Chakra && pm_face_chakra_anim_tick(now);
-      const bool bowl_anim =
-          pm_faces_current() == ClockFace::TibetanBowl && pm_face_tibetan_bowl_anim_tick(now);
-      const bool ocarina_anim =
-          pm_faces_current() == ClockFace::Ocarina && pm_face_ocarina_anim_tick(now);
-      const bool bongo_anim =
-          pm_faces_current() == ClockFace::Bongo &&
-          (pm_face_bongo_motion_tick(now) || pm_face_bongo_anim_tick(now));
-      const bool piano_anim =
-          pm_faces_current() == ClockFace::Piano && pm_face_piano_anim_tick(now);
-      const bool pandrum_anim =
-          pm_faces_current() == ClockFace::PanDrum &&
-          (pm_face_pandrum_motion_tick(now) || pm_face_pandrum_anim_tick(now));
-      const bool alethiometer_anim =
-          pm_faces_current() == ClockFace::Alethiometer && pm_face_alethiometer_anim_tick(now);
-      const bool faculty_anim =
-          (pm_faces_current() == ClockFace::Faculty || pm_faces_current() == ClockFace::Quotes) &&
-          pm_faculty_tick(now);
-      const bool cycle_anim =
-          pm_faces_current() == ClockFace::Cycle &&
-          (pm_face_cycle_confirm_active(now) || pm_face_cycle_take_full_ring_scheduled(now));
+      const bool face_anim = pm_faces_current() != ClockFace::Spotify && pm_faces_tick(now);
       const bool home_gem_breath =
           pm_faces_current() == ClockFace::ClassicAnalog && pm_home_gem_pulse_enabled();
       const bool sec_tick_paint =
@@ -3242,9 +3194,7 @@ void loop() {
       const bool non_gem_paint = !s_clock_paint_inited || slow_no_time || banner_chg || wifi_chg ||
                                  g_clock_repaint_pending || local_hm_chg || spotify_stale || calcifer_stale ||
                                  weather_stale || quotes_face_stale || quotes_preload_due || rocket_stale || sec_tick_paint || calcifer_sec || rocket_sec || rocket_anim ||
-                                 astro_repaint || spectrum_anim || chakra_anim || bowl_anim || ocarina_anim || bongo_anim ||
-                                 piano_anim || pandrum_anim || alethiometer_anim || radar_anim || level_anim || faculty_anim ||
-                                 cycle_anim || wifi_settings_graph || aec_settings_anim;
+                                 astro_repaint || face_anim || wifi_settings_graph || aec_settings_anim;
 #if MYNAH_HUE_HOME_ONLY
       const bool gem_only_paint = gem_pulse_paint && s_clock_paint_inited && !non_gem_paint;
       const bool full_paint = non_gem_paint || gem_pulse_paint;

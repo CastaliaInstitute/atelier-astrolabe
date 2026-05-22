@@ -22,12 +22,17 @@ struct PmFaceDrawContext {
   int local_min;
 };
 
+struct PmFaceTickContext {
+  uint32_t now_ms;
+};
+
 struct PmFaceDescriptor {
   ClockFace id;
   const char *slug;
   const char *label;
   uint32_t flags;
   void (*draw)(const PmFaceDrawContext &ctx);
+  bool (*tick)(const PmFaceTickContext &ctx);
   void (*on_enter)(ClockFace from);
   void (*on_leave)(ClockFace to);
 };
