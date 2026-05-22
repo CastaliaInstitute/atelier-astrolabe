@@ -99,7 +99,7 @@ enum class ClockFace : uint8_t {
   CalciferCountdown,
   /** On-device menstrual cycle ring; NVS only, low-text wellness glance. */
   Cycle,
-  /** QR → castalia.institute Google sign-in; tokens stored on watch for Edge Functions. */
+  /** QR -> configured web-origin Google sign-in; tokens stored on watch for Edge Functions. */
   Castalia,
   /** QR → on-device LAN settings page (`/settings`). */
   Settings,
@@ -424,7 +424,7 @@ static void draw_analog_clock(uint16_t bg565, const struct tm *tm, bool valid) {
   gfx->fillCircle(cx, cy, kAnalogHubHoleR, bg565);
 }
 
-/** Apocalypso risk radar (12 axes, 5 rings) — matches apocalypso.castalia.institute RISK PROFILE widget. */
+/** Apocalypso risk radar (12 axes, 5 rings) — matches the web RISK PROFILE widget. */
 static void draw_label_at_polar(int rcx, int rcy, int r, float ang, const char *text, uint16_t col) {
   gfx->setTextSize(1, 1);
   gfx->setTextColor(col);

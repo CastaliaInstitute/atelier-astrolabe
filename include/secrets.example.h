@@ -15,7 +15,7 @@
 
 /** Web origin for QR sign-in (Google -> /auth/mynah-device/ handoff). */
 #ifndef MYNAH_CASTALIA_WEB_ORIGIN
-#define MYNAH_CASTALIA_WEB_ORIGIN "https://inquiry.institute"
+#define MYNAH_CASTALIA_WEB_ORIGIN "https://cartalia.institute"
 #endif
 
 /* Spotify Connect (watch): deploy `mynah-spotify` and set Supabase secrets
