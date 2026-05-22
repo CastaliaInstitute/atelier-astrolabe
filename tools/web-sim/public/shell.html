@@ -170,6 +170,40 @@
       faceSelect.addEventListener("change", () => setFace(Number(faceSelect.value)));
       controls.prev.addEventListener("click", () => setFace(Number(faceSelect.value) - 1));
       controls.next.addEventListener("click", () => setFace(Number(faceSelect.value) + 1));
+
+      const canvas = document.querySelector("#astrolabe-canvas");
+      let swipeStart = null;
+
+      canvas.addEventListener("pointerdown", (event) => {
+        if (event.pointerType === "mouse" && event.button !== 0) {
+          return;
+        }
+        swipeStart = {
+          id: event.pointerId,
+          x: event.clientX,
+          y: event.clientY,
+          time: performance.now(),
+        };
+        canvas.setPointerCapture(event.pointerId);
+      });
+
+      canvas.addEventListener("pointerup", (event) => {
+        if (!swipeStart || swipeStart.id !== event.pointerId) {
+          return;
+        }
+        const dx = event.clientX - swipeStart.x;
+        const dy = event.clientY - swipeStart.y;
+        const dt = performance.now() - swipeStart.time;
+        swipeStart = null;
+        if (Math.abs(dx) < 48 || Math.abs(dx) < Math.abs(dy) * 1.4 || dt > 900) {
+          return;
+        }
+        setFace(Number(faceSelect.value) + (dx < 0 ? 1 : -1));
+      });
+
+      canvas.addEventListener("pointercancel", () => {
+        swipeStart = null;
+      });
     </script>
   </body>
 </html>
