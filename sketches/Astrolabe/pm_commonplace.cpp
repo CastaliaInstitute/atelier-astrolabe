@@ -1,9 +1,6 @@
 #include "pm_commonplace.h"
 
-#include <HTTPClient.h>
 #include <LittleFS.h>
-#include <WiFiClient.h>
-#include <WiFiClientSecure.h>
 #include <mbedtls/base64.h>
 #include <string.h>
 
@@ -13,6 +10,7 @@
 #include "freertos/task.h"
 #include "pm_castalia_auth.h"
 #include "pm_config.h"
+#include "pm_http.h"
 
 static const char *TAG = "pm_commonplace";
 
@@ -108,43 +106,20 @@ static void trim_supabase_url(char *url, size_t cap) {
   }
 }
 
-static bool read_small_json_body(HTTPClient *http, char **out_resp) {
-  WiFiClient *stream = http->getStreamPtr();
-  if (!stream) {
-    return false;
-  }
+static char *alloc_small_json_body(void) {
   char *buf = static_cast<char *>(heap_caps_malloc(kRespMaxBytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
   if (!buf) {
     buf = static_cast<char *>(malloc(kRespMaxBytes));
   }
-  if (!buf) {
-    return false;
+  return buf;
+}
+
+static void prepare_commonplace_auth_headers(char *bearer, size_t bearer_cap, char *auth, size_t auth_cap) {
+  if (!bearer || bearer_cap == 0 || !auth || auth_cap == 0) {
+    return;
   }
-  size_t rd = 0;
-  const uint32_t deadline = millis() + 60000u;
-  while (rd < kRespMaxBytes - 1 && static_cast<int32_t>(millis() - deadline) < 0) {
-    const int avail = stream->available();
-    if (avail > 0) {
-      const size_t take = static_cast<size_t>(avail) < (kRespMaxBytes - 1 - rd)
-                              ? static_cast<size_t>(avail)
-                              : (kRespMaxBytes - 1 - rd);
-      const int n = stream->readBytes(buf + rd, take);
-      if (n > 0) {
-        rd += static_cast<size_t>(n);
-      }
-    } else if (!http->connected()) {
-      break;
-    } else {
-      delay(5);
-    }
-  }
-  buf[rd] = '\0';
-  if (rd == 0) {
-    free(buf);
-    return false;
-  }
-  *out_resp = buf;
-  return true;
+  pm_castalia_auth_bearer(bearer, bearer_cap);
+  snprintf(auth, auth_cap, "Bearer %s", bearer);
 }
 
 static bool post_pcm_journal_inner(const uint8_t *pcm, size_t pcm_len) {
@@ -200,45 +175,41 @@ static bool post_pcm_journal_inner(const uint8_t *pcm, size_t pcm_len) {
   body[body_len++] = '"';
   body[body_len++] = '}';
 
-  WiFiClientSecure client;
-  client.setInsecure();
-  client.setTimeout(120);
-  HTTPClient http;
-  http.setTimeout(65535);
-  if (!http.begin(client, url)) {
-    free(body);
-    set_error("http begin");
-    return false;
-  }
-  http.addHeader("Content-Type", "application/json");
-  pm_castalia_auth_apply_headers(&http);
+  char bearer[1536];
+  char auth[1560];
+  prepare_commonplace_auth_headers(bearer, sizeof(bearer), auth, sizeof(auth));
+  const PmHttpHeader headers[] = {
+      {"Content-Type", "application/json"},
+      {"Authorization", auth},
+      {"apikey", MYNAH_SUPABASE_ANON_KEY},
+  };
 
   Serial.printf("pm_commonplace: journal POST pcm=%u B\n", static_cast<unsigned>(pcm_len));
-  const int code = http.POST(body, body_len);
+  char *resp = alloc_small_json_body();
+  if (!resp) {
+    free(body);
+    set_error("oom response");
+    return false;
+  }
+  PmHttpTextResult result = {};
+  const bool http_ok = pm_http_request_text_bytes(url, "POST", body, body_len, headers,
+                                                  sizeof(headers) / sizeof(headers[0]), resp,
+                                                  kRespMaxBytes, 65535, &result);
   free(body);
-
-  if (code != 200) {
-    ESP_LOGW(TAG, "mynah-pocket-journal HTTP %d", code);
-    if (code == 401) {
+  if (!http_ok) {
+    ESP_LOGW(TAG, "mynah-pocket-journal HTTP/read fail %d", result.status_code);
+    free(resp);
+    if (result.status_code == 401) {
       set_error("sign in on Castalia face");
-    } else if (code == 422) {
+    } else if (result.status_code == 422) {
       set_error("no speech heard");
     } else {
       char errbuf[24];
-      snprintf(errbuf, sizeof(errbuf), "HTTP %d", code);
+      snprintf(errbuf, sizeof(errbuf), "HTTP %d", result.status_code);
       set_error(errbuf);
     }
-    http.end();
     return false;
   }
-
-  char *resp = nullptr;
-  if (!read_small_json_body(&http, &resp)) {
-    http.end();
-    set_error("bad response");
-    return false;
-  }
-  http.end();
 
   bool ok = false;
   (void)extract_json_bool_field(resp, "ok", &ok);

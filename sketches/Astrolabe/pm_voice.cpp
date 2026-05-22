@@ -60,8 +60,6 @@ static PmVoiceResult *s_req_result = nullptr;
 static char s_last_error[80] = "";
 static const char *s_body_read_err = "bad response";
 static bool s_voice_mbedtls_psram_ready = false;
-static char s_voice_bearer[1536];
-static char s_voice_auth[1560];
 static const char *kVoiceMp3Headers[] = {
     "X-Voice-Reply",
     "X-Voice-Transcript",
@@ -323,9 +321,12 @@ static void voice_copy_mp3_headers_from_values(const VoiceHttpHeaders *h, PmVoic
   }
 }
 
-static void voice_prepare_auth_headers(void) {
-  pm_castalia_auth_bearer(s_voice_bearer, sizeof(s_voice_bearer));
-  snprintf(s_voice_auth, sizeof(s_voice_auth), "Bearer %s", s_voice_bearer);
+static void voice_prepare_auth_headers(char *bearer, size_t bearer_cap, char *auth, size_t auth_cap) {
+  if (!bearer || bearer_cap == 0 || !auth || auth_cap == 0) {
+    return;
+  }
+  pm_castalia_auth_bearer(bearer, bearer_cap);
+  snprintf(auth, auth_cap, "Bearer %s", bearer);
 }
 
 typedef struct {
@@ -1104,11 +1105,13 @@ static bool voice_post_message_inner(const char *message, const char *system_ins
   }
 
   for (uint8_t attempt = 0; attempt < 2; ++attempt) {
-    voice_prepare_auth_headers();
+    char bearer[1536];
+    char auth[1560];
+    voice_prepare_auth_headers(bearer, sizeof(bearer), auth, sizeof(auth));
     const PmHttpHeader headers[] = {
         {"Content-Type", "application/json"},
         {"Accept", "audio/mpeg"},
-        {"Authorization", s_voice_auth},
+        {"Authorization", auth},
         {"apikey", MYNAH_SUPABASE_ANON_KEY},
     };
     VoiceHttpHeaders response_headers = {};
@@ -1184,13 +1187,15 @@ static bool voice_post_pcm_stream_inner(const uint8_t *pcm, size_t pcm_len, PmVo
   char url[224];
   snprintf(url, sizeof(url), "%s/functions/v1/voice-stream", base);
 
-  voice_prepare_auth_headers();
+  char bearer[1536];
+  char auth[1560];
+  voice_prepare_auth_headers(bearer, sizeof(bearer), auth, sizeof(auth));
   const PmHttpHeader headers[] = {
       {"Content-Type", "application/octet-stream"},
       {"Accept", "audio/mpeg"},
       {"x-sample-rate-hertz", "16000"},
       {"x-language-code", "en-US"},
-      {"Authorization", s_voice_auth},
+      {"Authorization", auth},
       {"apikey", MYNAH_SUPABASE_ANON_KEY},
   };
 
@@ -1334,10 +1339,12 @@ static bool voice_post_pcm_inner(const uint8_t *pcm, size_t pcm_len, const char 
   }
   body[body_len++] = '}';
 
-  voice_prepare_auth_headers();
+  char bearer[1536];
+  char auth[1560];
+  voice_prepare_auth_headers(bearer, sizeof(bearer), auth, sizeof(auth));
   const PmHttpHeader headers[] = {
       {"Content-Type", "application/json"},
-      {"Authorization", s_voice_auth},
+      {"Authorization", auth},
       {"apikey", MYNAH_SUPABASE_ANON_KEY},
   };
 
@@ -1578,10 +1585,12 @@ static bool voice_post_clock_agenda_inner(PmVoiceResult *r) {
            "{\"face\":\"clock_agenda\",\"epochSeconds\":%lld,\"skipLlm\":true}",
            static_cast<long long>(epoch));
 
-  voice_prepare_auth_headers();
+  char bearer[1536];
+  char auth[1560];
+  voice_prepare_auth_headers(bearer, sizeof(bearer), auth, sizeof(auth));
   const PmHttpHeader headers[] = {
       {"Content-Type", "application/json"},
-      {"Authorization", s_voice_auth},
+      {"Authorization", auth},
       {"apikey", MYNAH_SUPABASE_ANON_KEY},
   };
 
