@@ -21,6 +21,10 @@ static void map_graph_xy(float x_m, float y_m, int rcx, int rcy, float ppm, int 
 void pm_face_radar_on_enter(void) {
   s_last_motion_ms = 0;
   pm_presence_graph_reset();
+  if (pm_presence_ble_suppressed()) {
+    pm_presence_seed_demo_peers(millis());
+    return;
+  }
   if (!pm_presence_ble_begin()) {
     pm_wifi_pause_for_ble();
     if (!pm_presence_ble_begin()) {

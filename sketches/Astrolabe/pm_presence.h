@@ -34,6 +34,7 @@ bool pm_presence_ble_failed(void);
 void pm_presence_ble_set_radar_active(bool active);
 /** Temporarily keep BLE off when another heap-hungry flow, such as tour TTS, owns the radio heap. */
 void pm_presence_ble_set_suppressed(bool suppressed);
+bool pm_presence_ble_suppressed(void);
 /** Stop BLE and return controller/host heap after leaving Radar. Reinitialized on next Radar entry. */
 void pm_presence_ble_end(void);
 

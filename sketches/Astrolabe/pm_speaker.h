@@ -9,6 +9,12 @@ enum class PmSpeakerStatus : int8_t { Idle = 0, Playing = 1, DoneOk = 2, DoneFai
 /** Start MP3 playback on the speaker task (non-blocking). Waits for prior playback to finish. */
 bool pm_speaker_play_begin(const uint8_t *mp3, size_t mp3_len);
 
+/** Allocate the playback task before audio is needed, while heap is healthy. */
+bool pm_speaker_prepare(void);
+
+/** When disabled, keep the idle playback task resident until re-enabled. */
+void pm_speaker_set_auto_release(bool enabled);
+
 /** Poll playback; call from loop() while Playing. */
 PmSpeakerStatus pm_speaker_poll();
 

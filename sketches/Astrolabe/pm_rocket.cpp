@@ -1139,3 +1139,13 @@ bool pm_rocket_fetch_busy(void) { return s_fetch_busy; }
 uint32_t pm_rocket_fetch_stack_high_water(void) {
   return s_fetch_task ? static_cast<uint32_t>(uxTaskGetStackHighWaterMark(s_fetch_task)) : 0u;
 }
+
+bool pm_rocket_release_idle_task(void) {
+  if (!s_fetch_task || s_fetch_busy || s_fetch_done) {
+    return false;
+  }
+  TaskHandle_t task = s_fetch_task;
+  s_fetch_task = nullptr;
+  vTaskDelete(task);
+  return true;
+}

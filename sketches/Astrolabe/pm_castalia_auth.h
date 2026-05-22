@@ -25,6 +25,9 @@ bool pm_castalia_auth_prepare_for_voice(void);
 /** Background refresh when signed in (non-blocking; castalia_net task). */
 bool pm_castalia_tick_refresh_session(void);
 
+/** Delete the idle Castalia network task after pending work has been collected. */
+bool pm_castalia_release_idle_task(void);
+
 /** After WiFi is up: start pairing + QR encode in background (reuse on Castalia face). */
 void pm_castalia_warmup_after_wifi(void);
 

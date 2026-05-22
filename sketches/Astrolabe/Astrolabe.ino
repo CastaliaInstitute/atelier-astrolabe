@@ -1088,7 +1088,7 @@ static bool face_voice_build_prompt(const FaceTourInfo *info, int idx, char *msg
                demo);
       break;
     case ClockFace::CalciferCountdown:
-      if (!g_calcifer_ui.ok && pm_wifi_connected() && pm_time_valid() &&
+      if (!s_face_tour_active && !g_calcifer_ui.ok && pm_wifi_connected() && pm_time_valid() &&
           ESP.getFreeHeap() >= MYNAH_FACE_FETCH_MIN_HEAP) {
         (void)pm_calcifer_fetch(&g_calcifer_ui, time(nullptr));
         s_calcifer_have_data = true;
@@ -1137,7 +1137,8 @@ static bool face_voice_build_prompt(const FaceTourInfo *info, int idx, char *msg
                "Face: Tibetan bowl. Current state: rim instrument ready. Speak a short bowl meditation cue.");
       break;
     case ClockFace::Rocket: {
-      if ((!g_rocket_ui.ok || g_rocket_ui.count <= 0) && pm_wifi_connected() && pm_time_valid()) {
+      if (!s_face_tour_active && (!g_rocket_ui.ok || g_rocket_ui.count <= 0) &&
+          pm_wifi_connected() && pm_time_valid()) {
         pm_faculty_release_bust_cache();
         (void)pm_speaker_release_idle_task();
         (void)pm_voice_release_idle_task();
@@ -1181,7 +1182,8 @@ static bool face_voice_build_prompt(const FaceTourInfo *info, int idx, char *msg
       break;
     }
     case ClockFace::Weather:
-      if (!g_weather_ui.ok && pm_wifi_connected() && ESP.getFreeHeap() >= MYNAH_FACE_FETCH_MIN_HEAP) {
+      if (!s_face_tour_active && !g_weather_ui.ok && pm_wifi_connected() &&
+          ESP.getFreeHeap() >= MYNAH_FACE_FETCH_MIN_HEAP) {
         (void)pm_weather_fetch(&g_weather_ui);
       }
       if (g_weather_ui.ok) {
@@ -1198,7 +1200,8 @@ static bool face_voice_build_prompt(const FaceTourInfo *info, int idx, char *msg
       }
       break;
     case ClockFace::Quotes:
-      if (!g_quotes_ui.ok && pm_wifi_connected() && ESP.getFreeHeap() >= MYNAH_FACE_FETCH_MIN_HEAP) {
+      if (!s_face_tour_active && !g_quotes_ui.ok && pm_wifi_connected() &&
+          ESP.getFreeHeap() >= MYNAH_FACE_FETCH_MIN_HEAP) {
         (void)pm_quotes_fetch(&g_quotes_ui);
         s_quotes_have_data = true;
       }
@@ -1365,22 +1368,28 @@ static void face_tour_voice_start(const FaceTourInfo *info, int idx) {
     ++s_face_tour_tts_skip;
     return;
   }
-  if (!pm_wifi_connected()) {
-    Serial.printf("tour: %s skipped %d %s reason=no wifi\n", s_face_tour_button_test ? "tts" : "narrate", idx,
-                  info->name);
-    ++s_face_tour_tts_skip;
-    return;
-  }
   if (idx == static_cast<int>(ClockFace::Radar)) {
     pm_presence_ble_set_suppressed(true);
     for (uint8_t i = 0; i < 8; ++i) {
       pm_presence_tick(millis());
       pm_presence_ble_end();
-      delay(50);
+      pm_wifi_resume_after_ble();
+      pm_wifi_poll();
+      delay(75);
+      if (pm_wifi_connected()) {
+        break;
+      }
     }
-    Serial.printf("tour: radar BLE paused for TTS heap=%u largest=%u\n",
+    Serial.printf("tour: radar BLE paused for TTS heap=%u largest=%u wifi=%s\n",
                   static_cast<unsigned>(pm_heap_internal_free()),
-                  static_cast<unsigned>(pm_heap_internal_largest()));
+                  static_cast<unsigned>(pm_heap_internal_largest()),
+                  pm_wifi_connected() ? "yes" : "no");
+  }
+  if (!pm_wifi_connected()) {
+    Serial.printf("tour: %s skipped %d %s reason=no wifi\n", s_face_tour_button_test ? "tts" : "narrate", idx,
+                  info->name);
+    ++s_face_tour_tts_skip;
+    return;
   }
   if (pm_speaker_is_playing()) {
     return;
@@ -1452,6 +1461,140 @@ static bool face_tour_voice_retry(const char *reason) {
   return s_face_tour_voice_phase == 1;
 }
 
+static void face_tour_prefetch_pump(uint32_t wait_ms) {
+  const uint32_t start = millis();
+  do {
+#ifndef ASTROLABE_QEMU
+    pm_screen_http_loop();
+    pm_wifi_poll();
+#endif
+    if (pm_rocket_consume_fetch(&g_rocket_ui)) {
+      s_rocket_have_data = true;
+      s_last_rocket_poll_ms = millis();
+    }
+    if (pm_castalia_tick_background_pairing() || pm_castalia_tick_pair_start()) {
+      g_clock_repaint_pending = true;
+    }
+    if (pm_castalia_has_session()) {
+      (void)pm_castalia_tick_refresh_session();
+    }
+    (void)pm_castalia_release_idle_task();
+    (void)pm_rocket_release_idle_task();
+    (void)pm_speaker_poll();
+    (void)pm_voice_release_idle_task();
+    if (wait_ms == 0) {
+      break;
+    }
+    delay(50);
+  } while (millis() - start < wait_ms);
+}
+
+static void face_tour_wait_for_bust(uint32_t timeout_ms) {
+  const uint32_t start = millis();
+  while (pm_faculty_bust_status() == PmFacultyBustStatus::Working &&
+         millis() - start < timeout_ms) {
+    face_tour_prefetch_pump(50);
+  }
+}
+
+static bool face_tour_wait_for_heap(uint32_t min_free, uint32_t min_largest, uint32_t timeout_ms) {
+  const uint32_t start = millis();
+  while ((pm_heap_internal_free() < min_free || pm_heap_internal_largest() < min_largest) &&
+         millis() - start < timeout_ms) {
+    face_tour_prefetch_pump(100);
+  }
+  return pm_heap_internal_free() >= min_free && pm_heap_internal_largest() >= min_largest;
+}
+
+static void face_tour_prefetch(void) {
+  Serial.printf("tour: prefetch begin heap=%u largest=%u psram=%u\n",
+                static_cast<unsigned>(pm_heap_internal_free()),
+                static_cast<unsigned>(pm_heap_internal_largest()),
+                static_cast<unsigned>(pm_heap_psram_free()));
+  face_tour_prefetch_pump(0);
+
+  if (!pm_wifi_connected()) {
+    Serial.println("tour: prefetch offline");
+    return;
+  }
+
+  if (pm_time_valid() && !g_calcifer_ui.ok &&
+      pm_heap_internal_free() >= MYNAH_FACE_FETCH_MIN_HEAP) {
+    (void)pm_calcifer_fetch(&g_calcifer_ui, time(nullptr));
+    s_calcifer_have_data = true;
+    s_last_calcifer_poll_ms = millis();
+    Serial.printf("tour: prefetch calcifer ok=%d heap=%u largest=%u\n", g_calcifer_ui.ok ? 1 : 0,
+                  static_cast<unsigned>(pm_heap_internal_free()),
+                  static_cast<unsigned>(pm_heap_internal_largest()));
+  }
+
+  if (!g_weather_ui.ok && pm_heap_internal_free() >= MYNAH_FACE_FETCH_MIN_HEAP) {
+    (void)pm_weather_fetch(&g_weather_ui);
+    if (!g_weather_ui.ok) {
+      struct tm local = {};
+      const bool valid = pm_time_valid();
+      if (valid) {
+        pm_time_local(&local);
+      }
+      pm_weather_fill_demo(&g_weather_ui, valid ? local.tm_hour : 12);
+    }
+    s_weather_have_data = true;
+    s_last_weather_poll_ms = millis();
+    Serial.printf("tour: prefetch weather ok=%d heap=%u largest=%u\n", g_weather_ui.ok ? 1 : 0,
+                  static_cast<unsigned>(pm_heap_internal_free()),
+                  static_cast<unsigned>(pm_heap_internal_largest()));
+  }
+
+  if (!g_quotes_ui.ok && pm_heap_internal_free() >= MYNAH_FACE_FETCH_MIN_HEAP) {
+    (void)pm_quotes_fetch(&g_quotes_ui);
+    if (!g_quotes_ui.ok) {
+      pm_quotes_fill_demo(&g_quotes_ui);
+    }
+    s_quotes_have_data = true;
+    s_last_quotes_poll_ms = millis();
+    Serial.printf("tour: prefetch quotes ok=%d faculty=%s heap=%u largest=%u\n", g_quotes_ui.ok ? 1 : 0,
+                  g_quotes_ui.faculty_slug,
+                  static_cast<unsigned>(pm_heap_internal_free()),
+                  static_cast<unsigned>(pm_heap_internal_largest()));
+  }
+
+  PmFacultyProfile guide = {};
+  if (pm_faculty_active(&guide)) {
+    (void)pm_faculty_request_bust(guide.slug);
+    face_tour_wait_for_bust(8000);
+  }
+  if (g_quotes_ui.ok && g_quotes_ui.faculty_slug[0]) {
+    (void)pm_faculty_request_bust(g_quotes_ui.faculty_slug);
+    face_tour_wait_for_bust(8000);
+  }
+
+  if (pm_time_valid() && (!g_rocket_ui.ok || g_rocket_ui.count <= 0)) {
+    if (pm_rocket_request_fetch()) {
+      face_tour_prefetch_pump(16000);
+    }
+    if (pm_rocket_consume_fetch(&g_rocket_ui)) {
+      s_rocket_have_data = true;
+      s_last_rocket_poll_ms = millis();
+    }
+    Serial.printf("tour: prefetch rocket ok=%d count=%d heap=%u largest=%u\n",
+                  g_rocket_ui.ok ? 1 : 0, g_rocket_ui.count,
+                  static_cast<unsigned>(pm_heap_internal_free()),
+                  static_cast<unsigned>(pm_heap_internal_largest()));
+  }
+
+  pm_castalia_warmup_after_wifi();
+  face_tour_prefetch_pump(14000);
+  if (!face_tour_wait_for_heap(50000u, 28000u, 12000u)) {
+    Serial.printf("tour: prefetch heap still low heap=%u largest=%u\n",
+                  static_cast<unsigned>(pm_heap_internal_free()),
+                  static_cast<unsigned>(pm_heap_internal_largest()));
+  }
+  Serial.printf("tour: prefetch done heap=%u largest=%u psram=%u\n",
+                static_cast<unsigned>(pm_heap_internal_free()),
+                static_cast<unsigned>(pm_heap_internal_largest()),
+                static_cast<unsigned>(pm_heap_psram_free()));
+}
+
 static void face_tour_select(int idx) {
   const FaceTourInfo *info = face_tour_info(idx);
   if (!info) {
@@ -1463,6 +1606,15 @@ static void face_tour_select(int idx) {
   pm_presence_ble_set_suppressed((s_face_tour_narrate || s_face_tour_button_test) &&
                                  idx == static_cast<int>(ClockFace::Radar));
   pm_faces_set(static_cast<ClockFace>(idx));
+  if (pm_faces_current() == ClockFace::CalciferCountdown && g_calcifer_ui.ok) {
+    s_calcifer_have_data = true;
+  }
+  if (pm_faces_current() == ClockFace::Weather && g_weather_ui.ok) {
+    s_weather_have_data = true;
+  }
+  if (pm_faces_current() == ClockFace::Rocket && g_rocket_ui.ok) {
+    s_rocket_have_data = true;
+  }
   if ((s_face_tour_narrate || s_face_tour_button_test) &&
       (idx == static_cast<int>(ClockFace::Spectrum) || idx == static_cast<int>(ClockFace::Tuning))) {
     pm_audio_analyzer_mic_end();
@@ -1506,6 +1658,15 @@ static void face_tour_start(uint32_t dwell_ms, bool narrate = false, bool button
                 static_cast<int>(ClockFace::kNumFaces), static_cast<unsigned>(s_face_tour_dwell_ms),
                 s_face_tour_narrate ? 1 : 0, s_face_tour_button_test ? 1 : 0, pm_wifi_connected() ? 1 : 0,
                 pm_time_valid() ? 1 : 0);
+  if (s_face_tour_narrate || s_face_tour_button_test) {
+    face_tour_prefetch();
+    if (!pm_speaker_prepare()) {
+      Serial.printf("tour: speaker prepare failed heap=%u largest=%u\n",
+                    static_cast<unsigned>(pm_heap_internal_free()),
+                    static_cast<unsigned>(pm_heap_internal_largest()));
+    }
+    pm_speaker_set_auto_release(false);
+  }
   face_tour_select(s_face_tour_idx);
 }
 
@@ -1521,6 +1682,7 @@ static void face_tour_stop(void) {
   s_face_tour_last_ms = 0;
   pm_presence_ble_set_suppressed(false);
   face_tour_voice_reset();
+  pm_speaker_set_auto_release(true);
   g_gesture_banner[0] = '\0';
   g_clock_repaint_pending = true;
   Serial.println("tour: stopped");
@@ -1670,6 +1832,7 @@ static void face_tour_tick(uint32_t now) {
     }
     pm_presence_ble_set_suppressed(false);
     face_tour_voice_reset();
+    pm_speaker_set_auto_release(true);
     g_gesture_banner[0] = '\0';
     g_clock_repaint_pending = true;
     if (report_tts_tour) {
@@ -2619,6 +2782,8 @@ void loop() {
   handle_usb_audio_stream_event();
   (void)pm_speaker_poll();
   (void)pm_voice_release_idle_task();
+  (void)pm_castalia_release_idle_task();
+  (void)pm_rocket_release_idle_task();
   const uint8_t side_ev = pm_side_buttons_poll(now);
 
   if (g_state == AppState::kClock && pm_faces_current() == ClockFace::TibetanBowl) {
@@ -3102,13 +3267,13 @@ void loop() {
           g_clock_repaint_pending = true;
         }
       }
-      if (pm_faces_current() != ClockFace::CalciferCountdown) {
+      if (!s_face_tour_active && pm_faces_current() != ClockFace::CalciferCountdown) {
         s_calcifer_have_data = false;
       }
-      if (pm_faces_current() != ClockFace::Weather) {
+      if (!s_face_tour_active && pm_faces_current() != ClockFace::Weather) {
         s_weather_have_data = false;
       }
-      if (pm_faces_current() != ClockFace::Rocket) {
+      if (!s_face_tour_active && pm_faces_current() != ClockFace::Rocket) {
         s_rocket_have_data = false;
         pm_face_rocket_set_stream_qr_visible(false);
         pm_rocket_pad_image_release();

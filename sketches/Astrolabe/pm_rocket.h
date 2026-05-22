@@ -53,6 +53,9 @@ bool pm_rocket_fetch_busy(void);
 /** FreeRTOS stack high-water mark for the background fetch task. */
 uint32_t pm_rocket_fetch_stack_high_water(void);
 
+/** Delete the idle background fetch task after its result has been consumed. */
+bool pm_rocket_release_idle_task(void);
+
 /** First valid launch in `status`, or nullptr. */
 const PmRocketLaunch *pm_rocket_next(const PmRocketStatus *status);
 

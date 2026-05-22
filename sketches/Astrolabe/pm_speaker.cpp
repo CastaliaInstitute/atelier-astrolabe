@@ -34,7 +34,7 @@ static const char *TAG = "pm_speaker";
 
 #define I2S_TX I2S_NUM_0
 static constexpr uint32_t kSpeakerTaskStack = 49152;
-static constexpr uint32_t kSpeakerTaskFallbackStack = 32768;
+static constexpr uint32_t kSpeakerTaskFallbackStack = 28672;
 static constexpr UBaseType_t kSpeakerTaskPriority = 3;
 static constexpr int kSpeakerVolume = 88;
 static uint32_t s_max_play_seconds = 180u;
@@ -90,6 +90,7 @@ static volatile uint32_t s_play_pcm_frames = 0;
 static volatile uint32_t s_play_pcm_hz = 0;
 static volatile bool s_tone_stop = false;
 static volatile bool s_http_mp3_stream_active = false;
+static bool s_speaker_auto_release = true;
 
 static esp_err_t es8311_board_init(int sample_hz) {
   if (!s_es) {
@@ -865,11 +866,23 @@ bool pm_speaker_play_begin(const uint8_t *mp3, size_t mp3_len) {
 
 PmSpeakerStatus pm_speaker_poll() {
   const PmSpeakerStatus st = s_speaker_status;
-  if ((st == PmSpeakerStatus::DoneOk || st == PmSpeakerStatus::DoneFail) && s_speaker_task &&
+  if (s_speaker_auto_release && (st == PmSpeakerStatus::DoneOk || st == PmSpeakerStatus::DoneFail) && s_speaker_task &&
       !s_spk_task_busy) {
     pm_speaker_release_idle_task();
   }
   return st;
+}
+
+bool pm_speaker_prepare(void) {
+  speaker_task_ensure();
+  return s_speaker_task != nullptr;
+}
+
+void pm_speaker_set_auto_release(bool enabled) {
+  s_speaker_auto_release = enabled;
+  if (enabled) {
+    (void)pm_speaker_release_idle_task();
+  }
 }
 
 void pm_speaker_abort(void) {
@@ -1051,6 +1064,9 @@ uint32_t pm_speaker_stack_high_water(void) {
 }
 
 bool pm_speaker_release_idle_task(void) {
+  if (!s_speaker_auto_release) {
+    return false;
+  }
   if (!s_speaker_task || s_spk_task_busy || s_speaker_status == PmSpeakerStatus::Playing) {
     return false;
   }

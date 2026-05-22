@@ -478,6 +478,14 @@ void pm_presence_ble_set_suppressed(bool suppressed) {
 #endif
 }
 
+bool pm_presence_ble_suppressed(void) {
+#if PM_PRESENCE_BLE
+  return s_ble_suppressed;
+#else
+  return false;
+#endif
+}
+
 void pm_presence_ble_end(void) {
 #if PM_PRESENCE_BLE
   s_ble_radar_active = false;

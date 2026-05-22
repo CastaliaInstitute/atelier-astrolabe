@@ -475,6 +475,16 @@ bool pm_castalia_tick_refresh_session() {
   return castalia_net_run(3, kCastaliaHttpTimeoutMs + 4000u);
 }
 
+bool pm_castalia_release_idle_task(void) {
+  if (!s_net_task || s_net_busy || s_net_done) {
+    return false;
+  }
+  TaskHandle_t task = s_net_task;
+  s_net_task = nullptr;
+  vTaskDelete(task);
+  return true;
+}
+
 static void build_signin_url() {
   s_signin_url[0] = '\0';
   invalidate_qr_cache();
