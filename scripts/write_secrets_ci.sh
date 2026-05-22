@@ -19,7 +19,7 @@ cat >"$OUT" <<EOF
 #define MYNAH_SUPABASE_URL "${MYNAH_SUPABASE_URL}"
 #define MYNAH_SUPABASE_ANON_KEY "${MYNAH_SUPABASE_ANON_KEY}"
 #ifndef MYNAH_CASTALIA_WEB_ORIGIN
-#define MYNAH_CASTALIA_WEB_ORIGIN "${MYNAH_CASTALIA_WEB_ORIGIN:-https://cartalia.institute}"
+#define MYNAH_CASTALIA_WEB_ORIGIN "${MYNAH_CASTALIA_WEB_ORIGIN:-https://castalia.institute}"
 #endif
 EOF
 echo "→ wrote ${OUT}"
