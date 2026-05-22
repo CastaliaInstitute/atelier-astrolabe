@@ -1,7 +1,5 @@
 #include "faces/settings/pm_face_settings_wifi.h"
 
-#include <WiFi.h>
-
 #include "faces/shared/pm_face_draw.h"
 #include "pm_display.h"
 #include "pm_wifi_creds.h"
@@ -43,10 +41,9 @@ void pm_face_settings_wifi_draw(void) {
 
   if (pm_wifi_connected()) {
     pm_face_draw_centered_line("connected", 168, c_hi, 1, 2);
-    const String ip = WiFi.localIP().toString();
-    pm_face_draw_centered_line(ip.c_str(), 200, c_dim, 1, 1);
+    pm_face_draw_centered_line(pm_wifi_local_ip(), 200, c_dim, 1, 1);
     char rssi_line[32];
-    snprintf(rssi_line, sizeof(rssi_line), "%d dBm", WiFi.RSSI());
+    snprintf(rssi_line, sizeof(rssi_line), "%d dBm", pm_wifi_rssi());
     pm_face_draw_centered_line(rssi_line, 228, c_dim, 1, 1);
   } else {
     pm_face_draw_centered_line("offline", 168, c_dim, 2, 2);

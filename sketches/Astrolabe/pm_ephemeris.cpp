@@ -1,6 +1,5 @@
 #include "pm_ephemeris.h"
 
-#include <WiFi.h>
 #include <esp_log.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,6 +9,7 @@
 #include "pm_config.h"
 #include "pm_heap.h"
 #include "pm_http.h"
+#include "pm_wifi_ntp.h"
 
 static const char *TAG = "pm_ephem";
 
@@ -152,7 +152,7 @@ static bool ensure_month_loaded(const char *month_key) {
   if (s_month_json && strcmp(s_month_key, month_key) == 0) {
     return true;
   }
-  if (WiFi.status() != WL_CONNECTED) {
+  if (!pm_wifi_connected()) {
     return false;
   }
   if (!pm_heap_tls_ready(MYNAH_EPHEMERIS_MIN_FETCH_HEAP, "ephemeris")) {
@@ -198,7 +198,7 @@ bool pm_ephemeris_fetch_utc(const struct tm *utc, PmTransitPositions *out) {
 #if !MYNAH_EPHEMERIS_ENABLE
   return false;
 #endif
-  if (WiFi.status() != WL_CONNECTED) {
+  if (!pm_wifi_connected()) {
     return false;
   }
   const uint32_t now_ms = millis();

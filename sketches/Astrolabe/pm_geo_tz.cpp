@@ -1,11 +1,11 @@
 #include "pm_geo_tz.h"
 
-#include <WiFi.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "pm_config.h"
 #include "pm_http.h"
+#include "pm_wifi_ntp.h"
 
 #ifndef MYNAH_TZ_FALLBACK_OFFSET_SEC
 /** Default to America/Denver daylight time for the local development device. */
@@ -86,7 +86,7 @@ static bool fetch_url_body(const char *url, char *buf, size_t buf_cap) {
 }
 
 bool pm_geo_tz_refresh_from_ip() {
-  if (WiFi.status() != WL_CONNECTED) {
+  if (!pm_wifi_connected()) {
     return false;
   }
   char buf[1536];

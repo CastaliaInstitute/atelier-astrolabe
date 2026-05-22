@@ -1,9 +1,9 @@
 #include "pm_voice.h"
 
-#include <WiFi.h>
 #include <math.h>
 #include <mbedtls/base64.h>
 #include <mbedtls/platform.h>
+#include <netdb.h>
 #include <string.h>
 
 #include "esp_heap_caps.h"
@@ -113,17 +113,35 @@ static bool voice_pipeline_host(char *out, size_t out_cap) {
   return true;
 }
 
-static bool voice_dns_probe(const char *host, IPAddress *out_ip) {
+static bool voice_dns_probe(const char *host, char *out_ip, size_t out_ip_cap) {
   if (!pm_wifi_connected() || !host || host[0] == '\0') {
     voice_set_error(pm_wifi_connected() ? "dns host" : "no wifi");
     return false;
   }
-  IPAddress ip;
-  const bool ok = WiFi.hostByName(host, ip) == 1 && ip != IPAddress(0, 0, 0, 0) &&
-                  ip != IPAddress(255, 255, 255, 255);
-  if (ok && out_ip) {
-    *out_ip = ip;
+  addrinfo hints = {};
+  hints.ai_family = AF_INET;
+  hints.ai_socktype = SOCK_STREAM;
+  addrinfo *res = nullptr;
+  if (getaddrinfo(host, nullptr, &hints, &res) != 0 || !res) {
+    return false;
   }
+  bool ok = false;
+  for (addrinfo *ai = res; ai; ai = ai->ai_next) {
+    if (ai->ai_family != AF_INET || !ai->ai_addr) {
+      continue;
+    }
+    const sockaddr_in *addr = reinterpret_cast<const sockaddr_in *>(ai->ai_addr);
+    const uint32_t ip = ntohl(addr->sin_addr.s_addr);
+    if (ip == 0u || ip == 0xffffffffu) {
+      continue;
+    }
+    if (out_ip && out_ip_cap > 0) {
+      inet_ntop(AF_INET, &addr->sin_addr, out_ip, out_ip_cap);
+    }
+    ok = true;
+    break;
+  }
+  freeaddrinfo(res);
   return ok;
 }
 
@@ -134,9 +152,9 @@ static void voice_set_fallback_dns(void) {
   }
   esp_netif_dns_info_t dns = {};
   dns.ip.type = ESP_IPADDR_TYPE_V4;
-  dns.ip.u_addr.ip4.addr = static_cast<uint32_t>(IPAddress(1, 1, 1, 1));
+  dns.ip.u_addr.ip4.addr = esp_ip4addr_aton("1.1.1.1");
   (void)esp_netif_set_dns_info(netif, ESP_NETIF_DNS_MAIN, &dns);
-  dns.ip.u_addr.ip4.addr = static_cast<uint32_t>(IPAddress(8, 8, 8, 8));
+  dns.ip.u_addr.ip4.addr = esp_ip4addr_aton("8.8.8.8");
   (void)esp_netif_set_dns_info(netif, ESP_NETIF_DNS_BACKUP, &dns);
 }
 
@@ -147,9 +165,9 @@ bool pm_voice_pipeline_host_ready(bool recover) {
     return false;
   }
 
-  IPAddress ip;
-  if (voice_dns_probe(host, &ip)) {
-    Serial.printf("voice: DNS ok %s -> %s\n", host, ip.toString().c_str());
+  char ip[INET_ADDRSTRLEN] = "";
+  if (voice_dns_probe(host, ip, sizeof(ip))) {
+    Serial.printf("voice: DNS ok %s -> %s\n", host, ip);
     voice_set_error(nullptr);
     return true;
   }
@@ -163,8 +181,8 @@ bool pm_voice_pipeline_host_ready(bool recover) {
   Serial.println("voice: DNS recovery set 1.1.1.1/8.8.8.8");
   voice_set_fallback_dns();
   delay(250);
-  if (voice_dns_probe(host, &ip)) {
-    Serial.printf("voice: DNS recovered %s -> %s\n", host, ip.toString().c_str());
+  if (voice_dns_probe(host, ip, sizeof(ip))) {
+    Serial.printf("voice: DNS recovered %s -> %s\n", host, ip);
     voice_set_error(nullptr);
     return true;
   }
@@ -173,8 +191,8 @@ bool pm_voice_pipeline_host_ready(bool recover) {
   if (pm_wifi_reconnect()) {
     voice_set_fallback_dns();
     delay(250);
-    if (voice_dns_probe(host, &ip)) {
-      Serial.printf("voice: DNS recovered %s -> %s\n", host, ip.toString().c_str());
+    if (voice_dns_probe(host, ip, sizeof(ip))) {
+      Serial.printf("voice: DNS recovered %s -> %s\n", host, ip);
       voice_set_error(nullptr);
       return true;
     }

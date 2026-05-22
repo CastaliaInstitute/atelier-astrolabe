@@ -2,7 +2,6 @@
 
 #include <Arduino.h>
 #include <Arduino_GFX_Library.h>
-#include <WiFi.h>
 #include <Wire.h>
 #include <cstdio>
 #include <cmath>
@@ -1745,21 +1744,13 @@ static bool handle_wifi_serial_command(char *line) {
     const bool have = pm_wifi_credentials_load(ssid, sizeof(ssid), pass, sizeof(pass));
     Serial.printf("wifi: connected=%d status=%d host=%s mac=%s ssid=%s ip=%s rssi=%d nvs=%d\n",
                   pm_wifi_connected() ? 1 : 0,
-                  static_cast<int>(WiFi.status()), pm_wifi_mdns_name(), pm_wifi_mac_string(), have ? ssid : "",
-                  WiFi.localIP().toString().c_str(), pm_wifi_connected() ? static_cast<int>(WiFi.RSSI()) : 0,
+                  pm_wifi_status_code(), pm_wifi_mdns_name(), pm_wifi_mac_string(), have ? ssid : "",
+                  pm_wifi_local_ip(), pm_wifi_rssi(),
                   have ? 1 : 0);
     return true;
   }
   if (strcmp(cmd, "scan") == 0) {
-    WiFi.mode(WIFI_STA);
-    const int n = WiFi.scanNetworks(false, true);
-    Serial.printf("wifi: scan count=%d\n", n);
-    for (int i = 0; i < n && i < 12; ++i) {
-      Serial.printf("wifi: ap %d ssid=%s rssi=%d channel=%d enc=%d\n", i, WiFi.SSID(i).c_str(),
-                    static_cast<int>(WiFi.RSSI(i)), static_cast<int>(WiFi.channel(i)),
-                    static_cast<int>(WiFi.encryptionType(i)));
-    }
-    WiFi.scanDelete();
+    pm_wifi_print_scan();
     return true;
   }
   if (strcmp(cmd, "clear") == 0) {
@@ -1773,7 +1764,7 @@ static bool handle_wifi_serial_command(char *line) {
   if (strcmp(cmd, "reconnect") == 0) {
     const bool ok = pm_wifi_reconnect();
     Serial.printf("wifi: reconnect %s ip=%s; ntp/http handled by loop\n", ok ? "ok" : "failed",
-                  WiFi.localIP().toString().c_str());
+                  pm_wifi_local_ip());
     g_clock_repaint_pending = true;
     return true;
   }
@@ -1791,7 +1782,7 @@ static bool handle_wifi_serial_command(char *line) {
   Serial.printf("wifi: saved ssid=%s, reconnecting\n", ssid);
   const bool ok = pm_wifi_reconnect();
   Serial.printf("wifi: reconnect %s ip=%s; ntp/http handled by loop\n", ok ? "ok" : "failed",
-                WiFi.localIP().toString().c_str());
+                pm_wifi_local_ip());
   g_clock_repaint_pending = true;
   return true;
 }
@@ -1863,7 +1854,7 @@ static void print_time_status(const char *prefix) {
   Serial.printf("%s: valid=%d epoch=%lld utc=%s local=%s offset_sec=%ld wifi=%d ip=%s\n",
                 prefix ? prefix : "time", pm_time_valid() ? 1 : 0, static_cast<long long>(epoch), utc_s, local_s,
                 static_cast<long>(pm_geo_tz_offset_sec()), pm_wifi_connected() ? 1 : 0,
-                WiFi.localIP().toString().c_str());
+                pm_wifi_local_ip());
 }
 
 static void qa_mic_probe() {
@@ -2264,7 +2255,7 @@ static void poll_serial_birth_commands() {
                         static_cast<unsigned>(pm_voice_stack_high_water()),
                         static_cast<unsigned>(pm_speaker_stack_high_water()),
                         static_cast<unsigned>(pm_rocket_fetch_stack_high_water()), pm_wifi_connected() ? 1 : 0,
-                        pm_time_valid() ? 1 : 0, WiFi.localIP().toString().c_str(), pm_user_display_name(),
+                        pm_time_valid() ? 1 : 0, pm_wifi_local_ip(), pm_user_display_name(),
                         g_gesture_banner);
         } else if (strcmp(args, "heap") == 0) {
           pm_heap_log("qa");
@@ -2604,7 +2595,7 @@ void setup() {
   (void)pm_presence_begin();
 
   pm_log_printf(false, "boot: Mynah Astrolabe ready host=%s mac=%s ip=%s heap=%u largest=%u psram=%u",
-                pm_wifi_mdns_name(), pm_wifi_mac_string(), WiFi.localIP().toString().c_str(), static_cast<unsigned>(pm_heap_internal_free()),
+                pm_wifi_mdns_name(), pm_wifi_mac_string(), pm_wifi_local_ip(), static_cast<unsigned>(pm_heap_internal_free()),
                 static_cast<unsigned>(pm_heap_internal_largest()), static_cast<unsigned>(pm_heap_psram_free()));
   Serial.println("Mynah Astrolabe ready");
   if (!tour_played_load()) {

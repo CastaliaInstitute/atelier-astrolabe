@@ -1,6 +1,5 @@
 #include "pm_stars.h"
 
-#include <WiFi.h>
 #include <esp_log.h>
 #include <math.h>
 #include <stdio.h>
@@ -9,6 +8,7 @@
 
 #include "pm_config.h"
 #include "pm_http.h"
+#include "pm_wifi_ntp.h"
 
 static const char *TAG = "pm_stars";
 
@@ -146,7 +146,7 @@ bool pm_stars_ensure_catalog(void) {
   s_catalog_ready = true;
 
 #if MYNAH_EPHEMERIS_ENABLE
-  if (WiFi.status() == WL_CONNECTED && strlen(MYNAH_STARS_CATALOG_URL) > 0) {
+  if (pm_wifi_connected() && strlen(MYNAH_STARS_CATALOG_URL) > 0) {
     char *buf = static_cast<char *>(malloc(static_cast<size_t>(MYNAH_STARS_CATALOG_MAX_BYTES) + 1u));
     if (buf) {
       PmHttpTextResult result = {};

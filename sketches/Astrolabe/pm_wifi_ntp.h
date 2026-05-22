@@ -9,6 +9,10 @@ const char *pm_wifi_hostname();
 const char *pm_wifi_mdns_name();
 const char *pm_wifi_mac_suffix();
 const char *pm_wifi_mac_string();
+const char *pm_wifi_local_ip();
+int pm_wifi_rssi();
+int pm_wifi_status_code();
+void pm_wifi_print_scan();
 /**
  * Required before starting the BT controller while WiFi is up (Radar / presence BLE).
  * Enables WiFi modem sleep (WIFI_PS_MIN_MODEM) so WiFi + BLE coexistence does not abort().

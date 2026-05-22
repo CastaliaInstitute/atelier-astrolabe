@@ -1,6 +1,5 @@
 #include "pm_screen_http.h"
 
-#include <WiFi.h>
 #include <cstring>
 
 #include "Arduino_GFX_Library.h"
@@ -226,9 +225,9 @@ void pm_screen_http_begin(Arduino_Canvas *canvas) {
   register_post("/bootloader", handle_bootloader);
   s_http_started = true;
   pm_log_printf(false, "http: ready http://%s/ ip=%s", pm_wifi_mdns_name(),
-                WiFi.localIP().toString().c_str());
+                pm_wifi_local_ip());
   Serial.printf("Screen over WiFi: http://%s/ or http://%s/  (GET /screen.bmp)\n",
-                pm_wifi_mdns_name(), WiFi.localIP().toString().c_str());
+                pm_wifi_mdns_name(), pm_wifi_local_ip());
 }
 
 void pm_screen_http_loop() {
