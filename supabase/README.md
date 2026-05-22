@@ -1,9 +1,9 @@
 # Supabase Edge Functions (Astrolabe)
 
-Firmware calls **`voice-pipeline`** for STT → Gemini → TTS. Source is kept in
-this repo next to the watch sketch; deploy to the **same Supabase project** as
-[mynah](https://github.com/CastaliaInstitute/mynah) (`MYNAH_SUPABASE_URL` in
-`include/secrets.local.h`).
+Firmware calls this watch-facing Supabase bundle for sign-in, voice, faculty,
+journal, calendar, media, and Spotify. Source is kept in this repo next to the
+watch sketch so Astrolabe can deploy its own backend bundle (`MYNAH_SUPABASE_URL`
+in `include/secrets.local.h`).
 
 ## Deploy
 
@@ -27,12 +27,28 @@ supabase functions deploy voice-stream
 supabase functions deploy media-stream
 supabase functions deploy ask-faculty
 supabase functions deploy faculty-bust
+supabase functions deploy mynah-castalia-link
+supabase functions deploy mynah-pocket-journal
+supabase functions deploy calcifer-status
+supabase functions deploy mynah-spotify
 ```
 
 JWT verification is on for private voice/faculty functions (`config.toml`). The
 watch sends Supabase `apikey` + Castalia `Authorization` when signed in.
 `media-stream` is intentionally public so a phone camera can open QR redirect
 links without auth headers.
+
+## Migrated watch functions
+
+The Astrolabe repo owns the source for these watch functions that were
+previously deployed from the Mynah/Castalia tree:
+
+| Function | Used by |
+| --- | --- |
+| `mynah-castalia-link` | Castalia QR sign-in and device token polling |
+| `mynah-pocket-journal` | Home face PWR journal capture |
+| `calcifer-status` | Calendar/Calcifer agenda and countdown |
+| `mynah-spotify` | Spotify face status/control |
 
 ## `voice-pipeline` contract
 
@@ -167,8 +183,8 @@ With `MYNAH_VOICE_RESPONSE_MP3` (see `pm_config.h`), Astrolabe POSTs
 `"responseFormat":"mp3"` and reads raw MPEG instead of buffering a giant JSON
 document.
 
-Canonical copy also lives under `mynah/supabase/functions/voice-pipeline/`;
-merge improvements both ways when changing behavior.
+Astrolabe is the canonical source for the watch voice pipeline and companion
+watch functions in this directory.
 
 ## `ask-faculty` voice metadata
 

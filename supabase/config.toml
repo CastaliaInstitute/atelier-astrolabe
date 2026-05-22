@@ -1,4 +1,4 @@
-# Astrolabe: voice-pipeline (ported from mynah; deploy to the same Supabase project as Android Mynah).
+# Astrolabe watch-facing Supabase functions.
 
 [functions.voice-pipeline]
 verify_jwt = true
@@ -13,4 +13,17 @@ verify_jwt = false
 verify_jwt = true
 
 [functions.faculty-bust]
+verify_jwt = true
+
+# PKCE sign-in page + pairing API (device polls with pair_secret; no user JWT yet).
+[functions.mynah-castalia-link]
+verify_jwt = false
+
+[functions.mynah-pocket-journal]
+verify_jwt = true
+
+[functions.calcifer-status]
+verify_jwt = true
+
+[functions.mynah-spotify]
 verify_jwt = true
