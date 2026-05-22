@@ -45,6 +45,8 @@ void pm_faculty_draw_bust(void);
 void pm_faculty_draw_bust_for(const PmFacultyProfile *faculty);
 /** Draw portrait/placeholder constrained to an explicit rectangle, for tour overlays. */
 void pm_faculty_draw_bust_for_at(const PmFacultyProfile *faculty, int cx, int bottom_y, int max_w, int max_h);
+/** Draw only a decoded real portrait constrained to a rectangle; returns false if unavailable. */
+bool pm_faculty_draw_real_bust_for_at(const PmFacultyProfile *faculty, int cx, int bottom_y, int max_w, int max_h);
 /** Draw the active faculty portrait as the primary full-face visual, with no rise animation. */
 void pm_faculty_draw_bust_fullscreen(void);
 /** Call when the active faculty slug changes (cycle / set active). */

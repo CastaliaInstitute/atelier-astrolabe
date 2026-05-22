@@ -1576,6 +1576,22 @@ static void face_tour_wait_for_bust(uint32_t timeout_ms) {
   }
 }
 
+static bool face_tour_guide_bust_ensure(void) {
+  PmFacultyProfile guide = {};
+  if (!pm_faculty_active(&guide)) {
+    pm_faculty_ensure_demo_seed();
+    (void)pm_faculty_active(&guide);
+  }
+  if (!guide.valid) {
+    return false;
+  }
+  if (pm_faculty_bust_ready_for(guide.slug)) {
+    return true;
+  }
+  (void)pm_faculty_request_bust(guide.slug);
+  return pm_faculty_bust_ready_for(guide.slug);
+}
+
 static bool face_tour_wait_for_heap(uint32_t min_free, uint32_t min_largest, uint32_t timeout_ms) {
   const uint32_t start = millis();
   while ((pm_heap_internal_free() < min_free || pm_heap_internal_largest() < min_largest) &&
@@ -1702,6 +1718,7 @@ static void face_tour_select(int idx) {
   if (pm_faculty_active(&guide)) {
     (void)pm_faculty_request_bust(guide.slug);
   }
+  (void)face_tour_guide_bust_ensure();
   s_face_tour_tts_retry = 0;
   s_face_tour_loaded_idx = idx;
   s_face_tour_overlay_started_ms = millis();
@@ -1732,6 +1749,7 @@ static void face_tour_note_current_face(void) {
   s_face_tour_loaded_idx = idx;
   s_face_tour_overlay_started_ms = millis();
   tour_mark_face_seen(idx);
+  (void)face_tour_guide_bust_ensure();
   snprintf(g_gesture_banner, sizeof(g_gesture_banner), "tour: %.28s", info->name);
   g_clock_repaint_pending = true;
   Serial.printf("tour: seen %d %s progress=%u/%u\n", idx, info->name,
@@ -1813,6 +1831,14 @@ static void face_tour_draw_guide_overlay(void) {
   }
   PmFacultyProfile guide = {};
   if (!pm_faculty_active(&guide)) {
+    pm_faculty_ensure_demo_seed();
+    (void)pm_faculty_active(&guide);
+  }
+  if (!guide.valid) {
+    return;
+  }
+  (void)face_tour_guide_bust_ensure();
+  if (!pm_faculty_bust_ready_for(guide.slug)) {
     return;
   }
   const int box = LCD_WIDTH / 4;
@@ -1826,7 +1852,7 @@ static void face_tour_draw_guide_overlay(void) {
   const int y = LCD_HEIGHT - box - pad;
   pm_gfx->fillRoundRect(x - 3, y - 3, box + 6, box + 6, 6, pm_gfx->color565(6, 8, 16));
   pm_gfx->drawRoundRect(x - 3, y - 3, box + 6, box + 6, 6, pm_gfx->color565(120, 150, 220));
-  pm_faculty_draw_bust_for_at(&guide, x + box / 2, y + box - 2, box, box);
+  (void)pm_faculty_draw_real_bust_for_at(&guide, x + box / 2, y + box - 2, box, box);
 }
 
 static bool face_voice_begin_current(void) {
@@ -1867,6 +1893,12 @@ static bool face_voice_begin_current(void) {
 static void face_tour_tick(uint32_t now) {
   if (!s_face_tour_active || g_state != AppState::kClock) {
     return;
+  }
+  if (pm_faculty_tick(now)) {
+    g_clock_repaint_pending = true;
+  }
+  if (pm_faculty_bust_status() == PmFacultyBustStatus::Working) {
+    g_clock_repaint_pending = true;
   }
   if (!s_face_tour_auto_advance && s_face_tour_overlay_started_ms != 0 &&
       now - s_face_tour_overlay_started_ms < 620u) {

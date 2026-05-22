@@ -1484,6 +1484,25 @@ void pm_faculty_draw_bust_for_at(const PmFacultyProfile *faculty, int cx, int bo
   bust_draw_placeholder(*faculty, cx, bottom_y, draw_h);
 }
 
+bool pm_faculty_draw_real_bust_for_at(const PmFacultyProfile *faculty, int cx, int bottom_y, int max_w, int max_h) {
+  if (!pm_gfx || !faculty || !faculty->valid || max_w < 32 || max_h < 32) {
+    return false;
+  }
+  if (strcmp(s_decoded_slug, faculty->slug) != 0) {
+    bust_free_decoded();
+  }
+  (void)bust_try_decode_for_slug(faculty->slug);
+  if (!s_decoded_fb || strcmp(s_decoded_slug, faculty->slug) != 0) {
+    return false;
+  }
+
+  int draw_w = max_w;
+  int draw_h = max_h;
+  bust_compute_draw_size(s_decoded_w, s_decoded_h, max_w, max_h, &draw_w, &draw_h);
+  bust_draw_scaled_jpeg(cx, bottom_y, draw_w, draw_h, 0, LCD_HEIGHT);
+  return true;
+}
+
 void pm_faculty_draw_bust_for(const PmFacultyProfile *faculty) {
   pm_faculty_draw_bust_for_mode(faculty, false);
 }
