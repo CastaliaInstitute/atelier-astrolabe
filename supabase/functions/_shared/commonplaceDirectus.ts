@@ -1,6 +1,6 @@
 /**
  * Append Mynah conversation / artifact entries to Commonplace (Directus).
- * Default host: https://commonplace.castalia.institute — set DIRECTUS_URL to override.
+ * Set DIRECTUS_URL to enable logging to Commonplace (Directus).
  */
 
 type EdgeRt = { waitUntil: (promise: Promise<unknown>) => void };
@@ -208,9 +208,11 @@ export async function appendMynahCommonplaceEntry(
 ): Promise<void> {
   if (Deno.env.get("MYNAH_COMMONPLACE_DISABLED") === "true") return;
 
-  const DIRECTUS_URL = (
-    Deno.env.get("DIRECTUS_URL") ?? "https://commonplace.castalia.institute"
-  ).replace(/\/+$/, "");
+  const DIRECTUS_URL = (Deno.env.get("DIRECTUS_URL") ?? "").trim().replace(/\/+$/, "");
+  if (!DIRECTUS_URL) {
+    console.warn("mynah commonplace: DIRECTUS_URL not set; skip log");
+    return;
+  }
   const DIRECTUS_TOKEN = Deno.env.get("DIRECTUS_STATIC_TOKEN")?.trim();
   if (!DIRECTUS_TOKEN) {
     console.warn("mynah commonplace: DIRECTUS_STATIC_TOKEN not set; skip log");

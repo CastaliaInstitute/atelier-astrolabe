@@ -160,6 +160,9 @@ static bool ensure_month_loaded(const char *month_key) {
   if (!pm_heap_tls_ready(MYNAH_EPHEMERIS_MIN_FETCH_HEAP, "ephemeris")) {
     return false;
   }
+  if (strlen(MYNAH_EPHEMERIS_DATA_BASE) == 0) {
+    return false;
+  }
 
   char url[192];
   snprintf(url, sizeof(url), "%s/%s.json", MYNAH_EPHEMERIS_DATA_BASE, month_key);

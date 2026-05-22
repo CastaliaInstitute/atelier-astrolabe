@@ -54,7 +54,7 @@ Mynah Astrolabe always sends Supabase's anon key as the `apikey` header. The
   This is the bootstrapping mode used before the watch has a Castalia session.
 - **Signed in**: swipe to the
   [`Castalia` sign-in face](sketches/Astrolabe/Astrolabe.ino), scan the QR
-  code, and complete Google sign-in on `castalia.institute`. The watch stores the
+  code, and complete Google sign-in on the configured web origin. The watch stores the
   returned Supabase access and refresh tokens in NVS, refreshes stale sessions in
   the background, and uses `Authorization: Bearer <Castalia JWT>` while the
   access token is valid.

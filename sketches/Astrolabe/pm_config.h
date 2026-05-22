@@ -21,7 +21,7 @@
 #define MYNAH_USER_NAME_DEFAULT "Daniel"
 #endif
 
-/** Castalia profile/settings identity used during face login (NVS override via serial). */
+/** Profile/settings identity used during face login (NVS override via serial). */
 #ifndef MYNAH_CASTALIA_INDIVIDUAL_DEFAULT
 #define MYNAH_CASTALIA_INDIVIDUAL_DEFAULT "DanielCMcShan"
 #endif
@@ -181,7 +181,7 @@
 #define MYNAH_FACULTY_BUST_HI_QUALITY 76
 #endif
 #ifndef MYNAH_FACULTY_BUST_ORIGIN
-#define MYNAH_FACULTY_BUST_ORIGIN MYNAH_CASTALIA_WEB_ORIGIN
+#define MYNAH_FACULTY_BUST_ORIGIN ""
 #endif
 
 /** Reject unsynced/stale RTC values older than 2024-01-01 UTC. */
@@ -224,14 +224,14 @@
 #define MYNAH_RESPONSE_INTERNAL_FLOOR 90000u
 #endif
 
-/** 1 = fetch Swiss Ephemeris from ephemeris.castalia.institute when WiFi is up. */
+/** 1 = fetch Swiss Ephemeris JSON when WiFi is up and a data base URL is configured. */
 #ifndef MYNAH_EPHEMERIS_ENABLE
 #define MYNAH_EPHEMERIS_ENABLE 1
 #endif
 
-/** Base URL for precomputed monthly JSON (GitHub Pages). */
+/** Base URL for precomputed monthly JSON. Empty uses on-device approximations only. */
 #ifndef MYNAH_EPHEMERIS_DATA_BASE
-#define MYNAH_EPHEMERIS_DATA_BASE "https://ephemeris.castalia.institute/data/ephem"
+#define MYNAH_EPHEMERIS_DATA_BASE ""
 #endif
 
 #ifndef MYNAH_EPHEMERIS_HTTP_MS
@@ -242,11 +242,24 @@
 #define MYNAH_EPHEMERIS_MONTH_MAX_BYTES (220000)
 #endif
 
-/** Static bright-star catalog (J2000); Stellarium-compatible data, not a live Stellarium host. */
+/** Static bright-star catalog (J2000). Empty uses the embedded bright-star subset. */
 #ifndef MYNAH_STARS_CATALOG_URL
-#define MYNAH_STARS_CATALOG_URL "https://ephemeris.castalia.institute/data/stars/bright-stars.json"
+#define MYNAH_STARS_CATALOG_URL ""
 #endif
 
 #ifndef MYNAH_STARS_CATALOG_MAX_BYTES
 #define MYNAH_STARS_CATALOG_MAX_BYTES (16384)
+#endif
+
+/** Optional tarot art CDN. Empty keeps the generated on-device deck art. */
+#ifndef MYNAH_TAROT_MANIFEST_URL
+#define MYNAH_TAROT_MANIFEST_URL ""
+#endif
+#ifndef MYNAH_TAROT_ASSET_BASE_URL
+#define MYNAH_TAROT_ASSET_BASE_URL ""
+#endif
+
+/** Optional quote-of-the-day JSON endpoint. Empty uses the embedded demo quote. */
+#ifndef MYNAH_QUOTES_QOTD_URL
+#define MYNAH_QUOTES_QOTD_URL ""
 #endif

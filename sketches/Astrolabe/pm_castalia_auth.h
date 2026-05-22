@@ -5,7 +5,7 @@
 class Arduino_Canvas;
 class HTTPClient;
 
-/** NVS + pairing poll; same Supabase project as castalia.institute / Android Mynah. */
+/** NVS + pairing poll; same Supabase project as Android Mynah. */
 void pm_castalia_auth_init();
 
 /** True when access + refresh tokens are stored and not expired (with 60s skew). */

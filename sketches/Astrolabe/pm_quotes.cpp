@@ -13,7 +13,7 @@
 #include "pm_wifi_ntp.h"
 
 static const char *TAG = "pm_quotes";
-static constexpr const char *kQotdUrl = "https://quotes.castalia.institute/quote-of-the-day.json";
+static constexpr const char *kQotdUrl = MYNAH_QUOTES_QOTD_URL;
 static constexpr size_t kQotdMaxBytes = 8192;
 
 static void copy_json_string(const JsonVariantConst &v, char *out, size_t cap) {
@@ -99,6 +99,11 @@ bool pm_quotes_fetch(PmQuoteOfDay *out) {
   memset(out, 0, sizeof(*out));
   if (!pm_wifi_connected()) {
     snprintf(out->error, sizeof(out->error), "no WiFi");
+    pm_quotes_fill_demo(out);
+    return out->ok;
+  }
+  if (strlen(kQotdUrl) == 0) {
+    snprintf(out->error, sizeof(out->error), "no quote host");
     pm_quotes_fill_demo(out);
     return out->ok;
   }

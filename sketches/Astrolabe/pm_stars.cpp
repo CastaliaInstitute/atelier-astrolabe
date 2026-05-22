@@ -15,7 +15,7 @@
 static const char *TAG = "pm_stars";
 
 #ifndef MYNAH_STARS_CATALOG_URL
-#define MYNAH_STARS_CATALOG_URL "https://ephemeris.castalia.institute/data/stars/bright-stars.json"
+#define MYNAH_STARS_CATALOG_URL ""
 #endif
 
 #ifndef MYNAH_STARS_CATALOG_MAX_BYTES
@@ -148,7 +148,7 @@ bool pm_stars_ensure_catalog(void) {
   s_catalog_ready = true;
 
 #if MYNAH_EPHEMERIS_ENABLE
-  if (WiFi.status() == WL_CONNECTED) {
+  if (WiFi.status() == WL_CONNECTED && strlen(MYNAH_STARS_CATALOG_URL) > 0) {
     WiFiClientSecure client;
     client.setInsecure();
     HTTPClient http;

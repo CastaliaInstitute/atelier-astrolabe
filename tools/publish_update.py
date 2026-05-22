@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Publish runtime .bin and face-pack .img to updates.castalia.institute layout (stub)."""
+"""Publish runtime .bin and face-pack .img to the configured update bucket layout (stub)."""
 
 from __future__ import annotations
 

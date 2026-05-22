@@ -572,7 +572,7 @@ static void build_signin_url() {
   strncpy(origin_trim, origin, sizeof(origin_trim) - 1);
   origin_trim[sizeof(origin_trim) - 1] = '\0';
   trim_supabase_url(origin_trim, sizeof(origin_trim));
-  /** Real HTML on castalia.institute (Supabase Edge serves HTML as text/plain). */
+  /** Real HTML on the configured web origin (Supabase Edge serves HTML as text/plain). */
   snprintf(s_signin_url, sizeof(s_signin_url), "%s/auth/signin/?provider=google&redirect=%s", origin_trim, enc_path);
 }
 

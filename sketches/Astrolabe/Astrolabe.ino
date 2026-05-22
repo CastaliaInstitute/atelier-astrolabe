@@ -272,7 +272,7 @@ static const char *gesture_label(PmGestureKind k) {
   }
 }
 
-/** Apocalypso risk radar (12 axes, 5 rings) — matches apocalypso.castalia.institute RISK PROFILE widget. */
+/** Apocalypso risk radar (12 axes, 5 rings) — matches the web RISK PROFILE widget. */
 /** Zodiac glyph ring sits just inside the outer chart circle. */
 /** Planet dots sit inside the sign band (glyph centers at sign radius). */
 static uint32_t s_thinking_t0_ms = 0;

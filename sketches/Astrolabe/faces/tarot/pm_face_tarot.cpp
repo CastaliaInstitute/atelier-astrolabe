@@ -13,6 +13,7 @@
 #include "esp_idf_version.h"
 #include "freertos/idf_additions.h"
 #include "pin_config.h"
+#include "pm_config.h"
 #include "pm_display.h"
 #include "pm_heap.h"
 #include "pm_wifi_ntp.h"
@@ -22,8 +23,8 @@ namespace {
 constexpr int kCardCount = 22;
 constexpr int kCx = LCD_WIDTH / 2;
 constexpr int kCy = LCD_HEIGHT / 2;
-constexpr const char *kManifestUrl = "http://tarot.castalia.institute/assets/major/manifest.json";
-constexpr const char *kAssetBaseUrl = "http://tarot.castalia.institute/assets/major/half";
+constexpr const char *kManifestUrl = MYNAH_TAROT_MANIFEST_URL;
+constexpr const char *kAssetBaseUrl = MYNAH_TAROT_ASSET_BASE_URL;
 constexpr uint32_t kTarotFetchTimeoutMs = 30000u;
 constexpr uint32_t kTarotMinFetchHeap = 18000u;
 constexpr int kTarotMaxImageBytes = 160000;
@@ -179,7 +180,7 @@ bool mask_get(const uint8_t *mask, int idx) {
 }
 
 bool build_card_url(int idx, char *url, size_t cap) {
-  if (idx < 0 || idx >= kCardCount || !url || cap == 0) {
+  if (idx < 0 || idx >= kCardCount || !url || cap == 0 || strlen(kAssetBaseUrl) == 0) {
     return false;
   }
   const int n = snprintf(url, cap, "%s/%02d-%s.png", kAssetBaseUrl, idx, kCards[idx].slug);
@@ -382,7 +383,8 @@ void fetch_task_ensure() {
 }
 
 void request_card_image(int idx) {
-  if (idx < 0 || idx >= kCardCount || s_cached_idx == idx || s_fetch_busy || !pm_wifi_connected()) {
+  if (idx < 0 || idx >= kCardCount || s_cached_idx == idx || s_fetch_busy || strlen(kAssetBaseUrl) == 0 ||
+      !pm_wifi_connected()) {
     return;
   }
   fetch_task_ensure();
