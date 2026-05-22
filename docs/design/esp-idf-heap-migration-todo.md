@@ -30,7 +30,7 @@ Goal: reduce internal heap pressure while moving Astrolabe away from Arduino run
 
 - [x] Replace Arduino `WebServer` with `esp_http_server`.
 - [ ] Replace Arduino WiFi calls with `esp_wifi`, `esp_netif`, and `esp_event`.
-- [ ] Replace Arduino time/network glue with IDF SNTP and netif APIs.
+- [x] Replace Arduino time/network glue with IDF SNTP and netif APIs.
 - [x] Remove direct dependency on Arduino `WiFiClient`/`WiFiClientSecure`.
 - [ ] Remove Arduino framework from the default build after display/touch/audio dependencies are isolated or replaced.
 

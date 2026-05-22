@@ -10,6 +10,7 @@
 #endif
 #include <esp_log.h>
 #include <esp_mac.h>
+#include <esp_sntp.h>
 #include <esp_wifi.h>
 #include <stdlib.h>
 #include <time.h>
@@ -260,7 +261,14 @@ bool pm_wifi_connected() { return WiFi.status() == WL_CONNECTED; }
 static void ntp_start() {
   setenv("TZ", "UTC0", 1);
   tzset();
-  configTime(0, 0, "time.google.com", "time.cloudflare.com", "pool.ntp.org");
+  if (esp_sntp_enabled()) {
+    esp_sntp_stop();
+  }
+  esp_sntp_setoperatingmode(static_cast<esp_sntp_operatingmode_t>(SNTP_OPMODE_POLL));
+  esp_sntp_setservername(0, "time.google.com");
+  esp_sntp_setservername(1, "time.cloudflare.com");
+  esp_sntp_setservername(2, "pool.ntp.org");
+  esp_sntp_init();
 }
 
 void pm_ntp_sync_blocking() {
@@ -269,10 +277,8 @@ void pm_ntp_sync_blocking() {
   }
   const bool tz_ok = pm_geo_tz_refresh_from_ip();
   ntp_start();
-  struct tm ti = {};
   for (int i = 0; i < 120 && !pm_time_valid(); ++i) {
-    (void)getLocalTime(&ti, 500);
-    delay(50);
+    delay(500);
   }
   if (pm_time_valid()) {
     struct tm utc = {};
@@ -295,8 +301,7 @@ void pm_ntp_retry_if_stale() {
     return;
   }
   ntp_start();
-  struct tm ti = {};
-  (void)getLocalTime(&ti, 800);
+  delay(800);
 }
 
 bool pm_time_valid() { return time(nullptr) >= static_cast<time_t>(MYNAH_TIME_VALID_MIN_EPOCH); }
