@@ -1,12 +1,9 @@
 #include "pm_faculty.h"
 
 #include <Arduino_GFX_Library.h>
-#include <HTTPClient.h>
 #include <JPEGDEC.h>
 #include <LittleFS.h>
 #include <PNGdec.h>
-#include <WiFiClient.h>
-#include <WiFiClientSecure.h>
 #include <ctype.h>
 #include <math.h>
 #include <stdio.h>
@@ -23,6 +20,7 @@
 #include "pm_heap.h"
 #include "pm_display.h"
 #include "pm_faculty_assets.h"
+#include "pm_http.h"
 #include "pm_nvs.h"
 #include "pm_wifi_ntp.h"
 
@@ -32,7 +30,7 @@ static constexpr const char *kNvsNs = "mynah";
 static constexpr const char *kKeyActive = "fac_active";
 static constexpr size_t kBustMaxBytes = 320u * 1024u;
 static constexpr size_t kBustFlashMaxBytes = 360u * 1024u;
-static constexpr uint32_t kBustTaskStack = 8192;
+static constexpr uint32_t kBustTaskStack = 16384;
 static constexpr uint32_t kBustPreloadMinIntervalMs = 2500u;
 
 enum class BustVariant : uint8_t { Small = 0, High = 1 };
@@ -47,6 +45,8 @@ static char s_bust_slug[32] = "";
 static uint8_t *s_bust_bytes = nullptr;
 static size_t s_bust_len = 0;
 static char s_bust_error[80] = "";
+static char s_bust_bearer[1536] = "";
+static char s_bust_auth[1560] = "";
 
 static constexpr int kBustFooterTop = LCD_HEIGHT - 104;
 static constexpr int kBustMaxDrawH = LCD_HEIGHT / 2;
@@ -598,55 +598,23 @@ static bool save_flash_bust(const char *slug, BustVariant variant, const uint8_t
   return true;
 }
 
-static bool read_binary_body(HTTPClient *http, uint8_t **out, size_t *out_len) {
-  if (!http || !out || !out_len) {
+typedef struct {
+  uint8_t *buf;
+  size_t cap;
+  size_t len;
+} BustDownload;
+
+static bool bust_download_on_data(const uint8_t *data, size_t len, void *ctx) {
+  BustDownload *dl = static_cast<BustDownload *>(ctx);
+  if (!dl || !data || len == 0) {
     return false;
   }
-  *out = nullptr;
-  *out_len = 0;
-  const int declared = http->getSize();
-  if (declared > 0 && static_cast<size_t>(declared) > kBustMaxBytes) {
+  if (dl->len + len > dl->cap) {
     bust_set_error("bust too large");
     return false;
   }
-  const size_t cap = declared > 0 ? static_cast<size_t>(declared) : kBustMaxBytes;
-  uint8_t *buf = static_cast<uint8_t *>(pm_heap_alloc_response(cap));
-  if (!buf) {
-    bust_set_error("oom bust");
-    return false;
-  }
-  WiFiClient *stream = http->getStreamPtr();
-  if (!stream) {
-    free(buf);
-    bust_set_error("bad stream");
-    return false;
-  }
-  size_t rd = 0;
-  const uint32_t deadline = millis() + 90000u;
-  while (rd < cap && static_cast<int32_t>(millis() - deadline) < 0) {
-    const int avail = stream->available();
-    if (avail > 0) {
-      const size_t take = static_cast<size_t>(avail) < (cap - rd) ? static_cast<size_t>(avail) : (cap - rd);
-      const int n = stream->readBytes(buf + rd, take);
-      if (n > 0) {
-        rd += static_cast<size_t>(n);
-      }
-      if (declared > 0 && rd >= static_cast<size_t>(declared)) {
-        break;
-      }
-    } else if (!http->connected()) {
-      break;
-    } else {
-      delay(5);
-    }
-  }
-  if (rd == 0 || (declared > 0 && rd < static_cast<size_t>(declared))) {
-    free(buf);
-    bust_set_error("short bust");
-    return false;
-  }
-  *out = buf;
-  *out_len = rd;
+  memcpy(dl->buf + dl->len, data, len);
+  dl->len += len;
   return true;
 }
 
@@ -702,61 +670,58 @@ static bool build_supabase_bust_url(const char *slug, BustVariant variant, char 
   return n > 0 && static_cast<size_t>(n) < cap;
 }
 
-static bool url_is_https(const char *url) {
-  return url && strncasecmp(url, "https://", 8) == 0;
-}
-
 static bool fetch_bust_url(const char *url, const char *label, uint8_t **bytes, size_t *len, int depth = 0) {
   if (depth > 1) {
     bust_set_error("redirect depth");
     return false;
   }
-  WiFiClient plain_client;
-  WiFiClientSecure secure_client;
-  WiFiClient *client = &plain_client;
-  if (url_is_https(url)) {
-    secure_client.setInsecure();
-    client = &secure_client;
-  }
-  client->setTimeout(90);
-  HTTPClient http;
-  http.setTimeout(65535);
-  if (!http.begin(*client, url)) {
-    bust_set_error("http begin");
+
+  pm_castalia_auth_bearer(s_bust_bearer, sizeof(s_bust_bearer));
+  snprintf(s_bust_auth, sizeof(s_bust_auth), "Bearer %s", s_bust_bearer);
+  const PmHttpHeader headers[] = {
+      {"Authorization", s_bust_auth},
+      {"apikey", MYNAH_SUPABASE_ANON_KEY},
+      {"Accept", "image/png,image/jpeg,image/*;q=0.8,*/*;q=0.1"},
+  };
+
+  BustDownload dl = {};
+  dl.cap = kBustMaxBytes;
+  dl.buf = static_cast<uint8_t *>(pm_heap_alloc_response(dl.cap));
+  if (!dl.buf) {
+    bust_set_error("oom bust");
     return false;
   }
-  pm_castalia_auth_apply_headers(&http);
-  http.addHeader("Accept", "image/png,image/jpeg,image/*;q=0.8,*/*;q=0.1");
-  const int code = http.GET();
-  if (code != 200) {
-    ESP_LOGW(TAG, "faculty-bust %s HTTP %d", label ? label : "url", code);
-    Serial.printf("pm_faculty: bust %s HTTP %d\n", label ? label : "url", code);
+  PmHttpTextResult result = {};
+  const bool ok = pm_http_request_stream(url, "GET", nullptr, headers, sizeof(headers) / sizeof(headers[0]),
+                                         90000, bust_download_on_data, &dl, &result);
+  if (!ok) {
+    ESP_LOGW(TAG, "faculty-bust %s HTTP %d len %u", label ? label : "url", result.status_code,
+             static_cast<unsigned>(result.bytes_read));
+    Serial.printf("pm_faculty: bust %s HTTP %d\n", label ? label : "url", result.status_code);
     char errbuf[32];
-    snprintf(errbuf, sizeof(errbuf), "bust HTTP %d", code);
+    snprintf(errbuf, sizeof(errbuf), "bust HTTP %d", result.status_code);
     bust_set_error(errbuf);
-    http.end();
+    free(dl.buf);
     return false;
   }
 
-  const bool ok = read_binary_body(&http, bytes, len);
-  http.end();
-  if (ok) {
-    Serial.printf("pm_faculty: bust %s fetched %u B\n", label ? label : "url", static_cast<unsigned>(*len));
-    if (*bytes && *len > 2 && (*bytes)[0] == '{') {
-      char signed_url[384];
-      const bool have_url =
-          extract_json_string_field(reinterpret_cast<const char *>(*bytes), "url", signed_url, sizeof(signed_url));
-      free(*bytes);
-      *bytes = nullptr;
-      *len = 0;
-      if (!have_url) {
-        bust_set_error("json no url");
-        return false;
-      }
-      return fetch_bust_url(signed_url, "signed", bytes, len, depth + 1);
+  *bytes = dl.buf;
+  *len = dl.len;
+  Serial.printf("pm_faculty: bust %s fetched %u B\n", label ? label : "url", static_cast<unsigned>(*len));
+  if (*bytes && *len > 2 && (*bytes)[0] == '{') {
+    char signed_url[384];
+    const bool have_url =
+        extract_json_string_field(reinterpret_cast<const char *>(*bytes), "url", signed_url, sizeof(signed_url));
+    free(*bytes);
+    *bytes = nullptr;
+    *len = 0;
+    if (!have_url) {
+      bust_set_error("json no url");
+      return false;
     }
+    return fetch_bust_url(signed_url, "signed", bytes, len, depth + 1);
   }
-  return ok;
+  return true;
 }
 
 static bool cache_embedded_bust(const char *slug) {
