@@ -1,7 +1,6 @@
 #include "pm_castalia_auth.h"
 
 #include <HTTPClient.h>
-#include <Preferences.h>
 #include <WiFiClient.h>
 #include <WiFiClientSecure.h>
 #include <ctype.h>
@@ -13,6 +12,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "pm_config.h"
+#include "pm_nvs.h"
 #include "pm_speaker.h"
 #include "pm_wifi_ntp.h"
 
@@ -27,7 +27,6 @@ static const char kRt[] = "refresh_token";
 static const char kEx[] = "exp_ms";
 static const char kIndividual[] = "individual";
 
-static Preferences s_pref;
 static bool s_inited = false;
 
 static char s_pair_id[48] = "";
@@ -208,62 +207,41 @@ static void prefs_load() {
     s_individual_id[sizeof(s_individual_id) - 1] = '\0';
   }
   rebuild_repo_name();
-  if (!s_pref.begin(kNs, true)) {
-    return;
-  }
   s_access[0] = '\0';
   s_refresh[0] = '\0';
   s_expires_at_ms = 0;
-  if (s_pref.isKey(kAt)) {
-    s_pref.getString(kAt, s_access, sizeof(s_access));
-  }
-  if (s_pref.isKey(kRt)) {
-    s_pref.getString(kRt, s_refresh, sizeof(s_refresh));
-  }
-  if (s_pref.isKey(kEx)) {
-    const String exp_str = s_pref.getString(kEx, "0");
-    s_expires_at_ms = strtoull(exp_str.c_str(), nullptr, 10);
-  }
-  if (s_pref.isKey(kIndividual)) {
+  pm_nvs_get_str(kNs, kAt, s_access, sizeof(s_access), "");
+  pm_nvs_get_str(kNs, kRt, s_refresh, sizeof(s_refresh), "");
+  char exp_str[24];
+  pm_nvs_get_str(kNs, kEx, exp_str, sizeof(exp_str), "0");
+  s_expires_at_ms = strtoull(exp_str, nullptr, 10);
+  if (pm_nvs_has_key(kNs, kIndividual)) {
     char saved[sizeof(s_individual_id)] = "";
-    s_pref.getString(kIndividual, saved, sizeof(saved));
+    pm_nvs_get_str(kNs, kIndividual, saved, sizeof(saved), "");
     normalize_individual(saved, s_individual_id, sizeof(s_individual_id));
     if (s_individual_id[0] == '\0') {
       normalize_individual(MYNAH_CASTALIA_INDIVIDUAL_DEFAULT, s_individual_id, sizeof(s_individual_id));
     }
     rebuild_repo_name();
   }
-  s_pref.end();
 }
 
 static void prefs_save_individual() {
-  if (!s_pref.begin(kNs, false)) {
-    return;
-  }
-  s_pref.putString(kIndividual, s_individual_id);
-  s_pref.end();
+  (void)pm_nvs_set_str(kNs, kIndividual, s_individual_id);
 }
 
 static void prefs_save_session() {
-  if (!s_pref.begin(kNs, false)) {
-    return;
-  }
-  s_pref.putString(kAt, s_access);
-  s_pref.putString(kRt, s_refresh);
+  (void)pm_nvs_set_str(kNs, kAt, s_access);
+  (void)pm_nvs_set_str(kNs, kRt, s_refresh);
   char expbuf[24];
   snprintf(expbuf, sizeof(expbuf), "%llu", static_cast<unsigned long long>(s_expires_at_ms));
-  s_pref.putString(kEx, expbuf);
-  s_pref.end();
+  (void)pm_nvs_set_str(kNs, kEx, expbuf);
 }
 
 static void prefs_clear_session() {
-  if (!s_pref.begin(kNs, false)) {
-    return;
-  }
-  s_pref.remove(kAt);
-  s_pref.remove(kRt);
-  s_pref.remove(kEx);
-  s_pref.end();
+  (void)pm_nvs_remove(kNs, kAt);
+  (void)pm_nvs_remove(kNs, kRt);
+  (void)pm_nvs_remove(kNs, kEx);
   s_access[0] = '\0';
   s_refresh[0] = '\0';
   s_expires_at_ms = 0;
