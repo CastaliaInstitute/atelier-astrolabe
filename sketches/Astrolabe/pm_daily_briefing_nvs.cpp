@@ -1,9 +1,10 @@
 #include "pm_daily_briefing_nvs.h"
 
-#include <Preferences.h>
 #include <string.h>
+#include <time.h>
 
 #include "pm_build_info.h"
+#include "pm_nvs.h"
 
 static int ymd_key(const struct tm *local_tm) {
   if (!local_tm) {
@@ -17,14 +18,9 @@ bool pm_daily_briefing_should_auto_play(const struct tm *local_tm) {
   if (today <= 0) {
     return false;
   }
-  Preferences pref;
-  if (!pref.begin("mynah", true)) {
-    return true;
-  }
-  const int last = pref.getInt("daily_brief_ymd", 0);
   char stored_sha[48] = "";
-  pref.getString("flash_sha", stored_sha, sizeof(stored_sha));
-  pref.end();
+  const int last = pm_nvs_get_i32("mynah", "daily_brief_ymd", 0);
+  (void)pm_nvs_get_str("mynah", "flash_sha", stored_sha, sizeof(stored_sha), "");
   if (strcmp(stored_sha, PM_BUILD_GIT_SHA_FULL) != 0) {
     return true;
   }
@@ -36,11 +32,6 @@ void pm_daily_briefing_mark_played(const struct tm *local_tm) {
   if (today <= 0) {
     return;
   }
-  Preferences pref;
-  if (!pref.begin("mynah", false)) {
-    return;
-  }
-  pref.putInt("daily_brief_ymd", today);
-  pref.putString("flash_sha", PM_BUILD_GIT_SHA_FULL);
-  pref.end();
+  (void)pm_nvs_set_i32("mynah", "daily_brief_ymd", today);
+  (void)pm_nvs_set_str("mynah", "flash_sha", PM_BUILD_GIT_SHA_FULL);
 }

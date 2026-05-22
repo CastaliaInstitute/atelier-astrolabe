@@ -2,7 +2,6 @@
 
 #include <Arduino.h>
 #include <Arduino_GFX_Library.h>
-#include <Preferences.h>
 #include <WiFi.h>
 #include <Wire.h>
 #include <cstdio>
@@ -22,6 +21,7 @@
 #include "pm_gesture.h"
 #include "pm_geo_tz.h"
 #include "pm_mic.h"
+#include "pm_nvs.h"
 #include "pm_side_buttons.h"
 #include "pm_speaker.h"
 #include "pm_audio_route.h"
@@ -143,22 +143,11 @@ static constexpr const char *kTourPrefsNs = "tour";
 static constexpr const char *kTourPlayedKey = "played";
 
 static bool tour_played_load(void) {
-  Preferences pref;
-  if (!pref.begin(kTourPrefsNs, true)) {
-    return false;
-  }
-  const bool played = pref.getBool(kTourPlayedKey, false);
-  pref.end();
-  return played;
+  return pm_nvs_get_bool(kTourPrefsNs, kTourPlayedKey, false);
 }
 
 static void tour_played_set(bool played) {
-  Preferences pref;
-  if (!pref.begin(kTourPrefsNs, false)) {
-    return;
-  }
-  pref.putBool(kTourPlayedKey, played);
-  pref.end();
+  (void)pm_nvs_set_bool(kTourPrefsNs, kTourPlayedKey, played);
 }
 /** Tap fortune: stay on Moon face during think/speak. */
 static bool g_moon_fortune_active = false;

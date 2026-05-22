@@ -1,11 +1,11 @@
 #include "pm_audio_route.h"
 
-#include <Preferences.h>
 #include <stdio.h>
 
+#include "pm_log.h"
+#include "pm_nvs.h"
 #include "pm_speaker_pcm.h"
 #include "pm_usb_uac.h"
-#include "pm_log.h"
 #include "sdkconfig.h"
 
 static PmAudioRoute s_route = PmAudioRoute::Onboard;
@@ -37,12 +37,7 @@ void pm_audio_route_begin(void) {
   pm_log_printf(false, "audio-route: using build default USB");
   return;
 #endif
-  Preferences pref;
-  if (!pref.begin("audio_rt", true)) {
-    return;
-  }
-  const uint8_t v = pref.getUChar("route", static_cast<uint8_t>(default_route()));
-  pref.end();
+  const uint8_t v = pm_nvs_get_u8("audio_rt", "route", static_cast<uint8_t>(default_route()));
   s_route = (v == static_cast<uint8_t>(PmAudioRoute::Usb)) ? PmAudioRoute::Usb : PmAudioRoute::Onboard;
   pm_log_printf(false, "audio-route: loaded %s", s_route == PmAudioRoute::Usb ? "USB" : "onboard");
 }
@@ -59,12 +54,7 @@ static void persist_route(PmAudioRoute route) {
   if (!uac_compiled()) {
     return;
   }
-  Preferences pref;
-  if (!pref.begin("audio_rt", false)) {
-    return;
-  }
-  pref.putUChar("route", static_cast<uint8_t>(route));
-  pref.end();
+  (void)pm_nvs_set_u8("audio_rt", "route", static_cast<uint8_t>(route));
 }
 
 void pm_audio_route_set(PmAudioRoute route) {

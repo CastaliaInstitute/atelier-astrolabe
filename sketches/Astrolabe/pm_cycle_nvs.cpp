@@ -1,8 +1,9 @@
 #include "pm_cycle_nvs.h"
 
-#include <Preferences.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include "pm_nvs.h"
 
 static constexpr const char *kNvsNs = "mynah";
 static constexpr const char *kKeyOk = "cyc_ok";
@@ -80,24 +81,19 @@ bool pm_cycle_load(PmCycleProfile *out) {
   out->cycle_length_days = PM_CYCLE_DEFAULT_LENGTH_DAYS;
   out->period_length_days = PM_CYCLE_DEFAULT_PERIOD_DAYS;
 
-  Preferences pref;
-  if (!pref.begin(kNvsNs, true)) {
-    return false;
-  }
-  out->cycle_length_days = clamp_cycle_len(pref.getUChar(kKeyLen, PM_CYCLE_DEFAULT_LENGTH_DAYS));
+  out->cycle_length_days = clamp_cycle_len(pm_nvs_get_u8(kNvsNs, kKeyLen, PM_CYCLE_DEFAULT_LENGTH_DAYS));
   out->period_length_days =
-      clamp_period_len(pref.getUChar(kKeyPeriod, PM_CYCLE_DEFAULT_PERIOD_DAYS), out->cycle_length_days);
+      clamp_period_len(pm_nvs_get_u8(kNvsNs, kKeyPeriod, PM_CYCLE_DEFAULT_PERIOD_DAYS), out->cycle_length_days);
 
-  const bool ok = pref.getBool(kKeyOk, false);
-  out->last_period_year = static_cast<uint16_t>(pref.getUShort(kKeyY, 0));
-  out->last_period_month = pref.getUChar(kKeyMo, 0);
-  out->last_period_day = pref.getUChar(kKeyD, 0);
+  const bool ok = pm_nvs_get_bool(kNvsNs, kKeyOk, false);
+  out->last_period_year = static_cast<uint16_t>(pm_nvs_get_u16(kNvsNs, kKeyY, 0));
+  out->last_period_month = pm_nvs_get_u8(kNvsNs, kKeyMo, 0);
+  out->last_period_day = pm_nvs_get_u8(kNvsNs, kKeyD, 0);
 
-  out->pregnancy_active = pref.getBool(kKeyPreg, false);
-  out->due_year = static_cast<uint16_t>(pref.getUShort(kKeyDueY, 0));
-  out->due_month = pref.getUChar(kKeyDueMo, 0);
-  out->due_day = pref.getUChar(kKeyDueD, 0);
-  pref.end();
+  out->pregnancy_active = pm_nvs_get_bool(kNvsNs, kKeyPreg, false);
+  out->due_year = static_cast<uint16_t>(pm_nvs_get_u16(kNvsNs, kKeyDueY, 0));
+  out->due_month = pm_nvs_get_u8(kNvsNs, kKeyDueMo, 0);
+  out->due_day = pm_nvs_get_u8(kNvsNs, kKeyDueD, 0);
 
   out->has_last_period = ok && pm_cycle_ymd_sane(out->last_period_year, out->last_period_month,
                                                  out->last_period_day);
@@ -128,27 +124,22 @@ void pm_cycle_save(const PmCycleProfile *in) {
                                                                  in->last_period_month,
                                                                  in->last_period_day);
 
-  Preferences pref;
-  if (!pref.begin(kNvsNs, false)) {
-    return;
-  }
-  pref.putUChar(kKeyLen, cycle_len);
-  pref.putUChar(kKeyPeriod, period_len);
-  pref.putBool(kKeyOk, has_last);
+  (void)pm_nvs_set_u8(kNvsNs, kKeyLen, cycle_len);
+  (void)pm_nvs_set_u8(kNvsNs, kKeyPeriod, period_len);
+  (void)pm_nvs_set_bool(kNvsNs, kKeyOk, has_last);
   if (has_last) {
-    pref.putUShort(kKeyY, in->last_period_year);
-    pref.putUChar(kKeyMo, in->last_period_month);
-    pref.putUChar(kKeyD, in->last_period_day);
+    (void)pm_nvs_set_u16(kNvsNs, kKeyY, in->last_period_year);
+    (void)pm_nvs_set_u8(kNvsNs, kKeyMo, in->last_period_month);
+    (void)pm_nvs_set_u8(kNvsNs, kKeyD, in->last_period_day);
   }
   const bool has_due =
       in->pregnancy_active && pm_cycle_ymd_sane(in->due_year, in->due_month, in->due_day);
-  pref.putBool(kKeyPreg, in->pregnancy_active && has_due);
+  (void)pm_nvs_set_bool(kNvsNs, kKeyPreg, in->pregnancy_active && has_due);
   if (has_due) {
-    pref.putUShort(kKeyDueY, in->due_year);
-    pref.putUChar(kKeyDueMo, in->due_month);
-    pref.putUChar(kKeyDueD, in->due_day);
+    (void)pm_nvs_set_u16(kNvsNs, kKeyDueY, in->due_year);
+    (void)pm_nvs_set_u8(kNvsNs, kKeyDueMo, in->due_month);
+    (void)pm_nvs_set_u8(kNvsNs, kKeyDueD, in->due_day);
   }
-  pref.end();
 }
 
 void pm_cycle_clear(void) {

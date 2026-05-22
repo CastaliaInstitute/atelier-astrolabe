@@ -3,7 +3,7 @@
 #include <Arduino.h>
 #include <cstring>
 
-#include <Preferences.h>
+#include "pm_nvs.h"
 
 namespace {
 
@@ -36,18 +36,11 @@ uint32_t pm_presence_location_beacon_id(uint16_t slot) {
 
 void pm_presence_locations_begin(void) {
   s_catalog_count = 0;
-  Preferences prefs;
-  if (!prefs.begin("mynah_loc", true)) {
-#ifdef ASTROLABE_QEMU
-    add_demo_locations();
-#endif
-    return;
-  }
-  const uint8_t n = prefs.getUChar("count", 0);
+  const uint8_t n = pm_nvs_get_u8("mynah_loc", "count", 0);
   for (uint8_t i = 0; i < n && s_catalog_count < kPmPresenceMaxLocations; ++i) {
     char key[8];
     snprintf(key, sizeof(key), "id%u", static_cast<unsigned>(i));
-    const uint32_t bid = prefs.getUInt(key, 0);
+    const uint32_t bid = pm_nvs_get_u32("mynah_loc", key, 0);
     if (!pm_presence_is_location_id(bid)) {
       continue;
     }
@@ -55,15 +48,14 @@ void pm_presence_locations_begin(void) {
     d.slot = static_cast<uint16_t>(bid & 0xFFFFu);
     d.beacon_id = bid;
     snprintf(key, sizeof(key), "nm%u", static_cast<unsigned>(i));
-    prefs.getString(key, d.name, sizeof(d.name));
+    (void)pm_nvs_get_str("mynah_loc", key, d.name, sizeof(d.name), "");
     snprintf(key, sizeof(key), "x%u", static_cast<unsigned>(i));
-    d.anchor_x_m = prefs.getFloat(key, 0.f);
+    d.anchor_x_m = pm_nvs_get_float("mynah_loc", key, 0.f);
     snprintf(key, sizeof(key), "y%u", static_cast<unsigned>(i));
-    d.anchor_y_m = prefs.getFloat(key, 0.f);
+    d.anchor_y_m = pm_nvs_get_float("mynah_loc", key, 0.f);
     snprintf(key, sizeof(key), "fx%u", static_cast<unsigned>(i));
-    d.has_anchor = prefs.getBool(key, false);
+    d.has_anchor = pm_nvs_get_bool("mynah_loc", key, false);
   }
-  prefs.end();
 #ifdef ASTROLABE_QEMU
   if (s_catalog_count == 0) {
     add_demo_locations();

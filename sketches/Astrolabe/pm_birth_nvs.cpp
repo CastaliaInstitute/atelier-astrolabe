@@ -1,8 +1,9 @@
 #include "pm_birth_nvs.h"
 
-#include <Preferences.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include "pm_nvs.h"
 
 static constexpr const char *kNvsNs = "mynah";
 static constexpr const char *kKeyOk = "birth_ok";
@@ -26,29 +27,19 @@ bool pm_birth_load(PmBirthSpec *out) {
     return false;
   }
   memset(out, 0, sizeof(*out));
-  Preferences pref;
-  if (!pref.begin(kNvsNs, true)) {
-    return false;
-  }
-  const bool ok = pref.getBool(kKeyOk, false);
+  const bool ok = pm_nvs_get_bool(kNvsNs, kKeyOk, false);
   if (!ok) {
-    pref.end();
     return false;
   }
-  out->year = static_cast<uint16_t>(pref.getUShort(kKeyY, 0));
-  out->month = pref.getUChar(kKeyMo, 0);
-  out->day = pref.getUChar(kKeyD, 0);
-  out->hour = pref.getUChar(kKeyH, 0);
-  out->minute = pref.getUChar(kKeyMi, 0);
-  out->lat_deg = pref.getFloat(kKeyLat, 0.f);
-  out->lon_deg = pref.getFloat(kKeyLon, 0.f);
-  out->tz_offset_sec = pref.getInt(kKeyTz, 0);
-  {
-    const String place = pref.getString(kKeyPlace, "");
-    strncpy(out->place, place.c_str(), sizeof(out->place) - 1);
-    out->place[sizeof(out->place) - 1] = '\0';
-  }
-  pref.end();
+  out->year = static_cast<uint16_t>(pm_nvs_get_u16(kNvsNs, kKeyY, 0));
+  out->month = pm_nvs_get_u8(kNvsNs, kKeyMo, 0);
+  out->day = pm_nvs_get_u8(kNvsNs, kKeyD, 0);
+  out->hour = pm_nvs_get_u8(kNvsNs, kKeyH, 0);
+  out->minute = pm_nvs_get_u8(kNvsNs, kKeyMi, 0);
+  out->lat_deg = pm_nvs_get_float(kNvsNs, kKeyLat, 0.f);
+  out->lon_deg = pm_nvs_get_float(kNvsNs, kKeyLon, 0.f);
+  out->tz_offset_sec = pm_nvs_get_i32(kNvsNs, kKeyTz, 0);
+  (void)pm_nvs_get_str(kNvsNs, kKeyPlace, out->place, sizeof(out->place), "");
   if (!birth_fields_sane(out)) {
     out->valid = false;
     return false;
@@ -61,30 +52,20 @@ void pm_birth_save(const PmBirthSpec *in) {
   if (!in || !in->valid || !birth_fields_sane(in)) {
     return;
   }
-  Preferences pref;
-  if (!pref.begin(kNvsNs, false)) {
-    return;
-  }
-  pref.putBool(kKeyOk, true);
-  pref.putUShort(kKeyY, in->year);
-  pref.putUChar(kKeyMo, in->month);
-  pref.putUChar(kKeyD, in->day);
-  pref.putUChar(kKeyH, in->hour);
-  pref.putUChar(kKeyMi, in->minute);
-  pref.putFloat(kKeyLat, in->lat_deg);
-  pref.putFloat(kKeyLon, in->lon_deg);
-  pref.putInt(kKeyTz, in->tz_offset_sec);
-  pref.putString(kKeyPlace, in->place);
-  pref.end();
+  (void)pm_nvs_set_bool(kNvsNs, kKeyOk, true);
+  (void)pm_nvs_set_u16(kNvsNs, kKeyY, in->year);
+  (void)pm_nvs_set_u8(kNvsNs, kKeyMo, in->month);
+  (void)pm_nvs_set_u8(kNvsNs, kKeyD, in->day);
+  (void)pm_nvs_set_u8(kNvsNs, kKeyH, in->hour);
+  (void)pm_nvs_set_u8(kNvsNs, kKeyMi, in->minute);
+  (void)pm_nvs_set_float(kNvsNs, kKeyLat, in->lat_deg);
+  (void)pm_nvs_set_float(kNvsNs, kKeyLon, in->lon_deg);
+  (void)pm_nvs_set_i32(kNvsNs, kKeyTz, in->tz_offset_sec);
+  (void)pm_nvs_set_str(kNvsNs, kKeyPlace, in->place);
 }
 
 void pm_birth_clear(void) {
-  Preferences pref;
-  if (!pref.begin(kNvsNs, false)) {
-    return;
-  }
-  pref.putBool(kKeyOk, false);
-  pref.end();
+  (void)pm_nvs_set_bool(kNvsNs, kKeyOk, false);
 }
 
 bool pm_birth_to_utc_epoch(const PmBirthSpec *birth, time_t *utc_out) {

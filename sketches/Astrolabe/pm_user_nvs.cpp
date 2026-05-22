@@ -1,12 +1,12 @@
 #include "pm_user_nvs.h"
 
 #include <Arduino.h>
-#include <Preferences.h>
 #include <ctype.h>
 #include <stdio.h>
 #include <string.h>
 
 #include "pm_config.h"
+#include "pm_nvs.h"
 
 namespace {
 
@@ -67,12 +67,7 @@ bool normalize_name(const char *in, char *out, size_t out_sz) {
 }
 
 void save_name(void) {
-  Preferences pref;
-  if (!pref.begin(kNs, false)) {
-    return;
-  }
-  pref.putString(kKeyName, s_name);
-  pref.end();
+  (void)pm_nvs_set_str(kNs, kKeyName, s_name);
 }
 
 }  // namespace
@@ -81,23 +76,11 @@ void pm_user_begin(void) {
   strncpy(s_name, MYNAH_USER_NAME_DEFAULT, kNameMax);
   s_name[kNameMax] = '\0';
 
-  Preferences pref;
-  if (!pref.begin(kNs, true)) {
+  if (!pm_nvs_has_key(kNs, kKeyName)) {
+    save_name();
     return;
   }
-  if (!pref.isKey(kKeyName)) {
-    pref.end();
-    Preferences wr;
-    if (wr.begin(kNs, false)) {
-      wr.putString(kKeyName, s_name);
-      wr.end();
-    }
-    return;
-  }
-  const String stored = pref.getString(kKeyName, s_name);
-  pref.end();
-  strncpy(s_name, stored.c_str(), kNameMax);
-  s_name[kNameMax] = '\0';
+  (void)pm_nvs_get_str(kNs, kKeyName, s_name, kNameMax + 1, s_name);
   trim_inplace(s_name);
   if (s_name[0] == '\0') {
     strncpy(s_name, MYNAH_USER_NAME_DEFAULT, kNameMax);

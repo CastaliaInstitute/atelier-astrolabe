@@ -1,11 +1,11 @@
 #include "pm_home_gem_pulse.h"
 
-#include <Preferences.h>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
 
 #include "pm_config.h"
+#include "pm_nvs.h"
 
 namespace {
 
@@ -57,13 +57,8 @@ float breath_amount(uint32_t now_ms) {
 }
 
 void save_nvs(void) {
-  Preferences pref;
-  if (!pref.begin(kNs, false)) {
-    return;
-  }
-  pref.putBool(kKeyEn, s_enabled);
-  pref.putUChar(kKeyBpm, s_bpm);
-  pref.end();
+  (void)pm_nvs_set_bool(kNs, kKeyEn, s_enabled);
+  (void)pm_nvs_set_u8(kNs, kKeyBpm, s_bpm);
 }
 
 uint8_t clamp_bpm(int bpm) {
@@ -79,17 +74,12 @@ uint8_t clamp_bpm(int bpm) {
 }  // namespace
 
 void pm_home_gem_pulse_begin(void) {
-  Preferences pref;
-  if (!pref.begin(kNs, true)) {
-    return;
+  if (pm_nvs_has_key(kNs, kKeyEn)) {
+    s_enabled = pm_nvs_get_bool(kNs, kKeyEn, s_enabled);
   }
-  if (pref.isKey(kKeyEn)) {
-    s_enabled = pref.getBool(kKeyEn, s_enabled);
+  if (pm_nvs_has_key(kNs, kKeyBpm)) {
+    s_bpm = clamp_bpm(static_cast<int>(pm_nvs_get_u8(kNs, kKeyBpm, s_bpm)));
   }
-  if (pref.isKey(kKeyBpm)) {
-    s_bpm = clamp_bpm(static_cast<int>(pref.getUChar(kKeyBpm, s_bpm)));
-  }
-  pref.end();
 }
 
 bool pm_home_gem_pulse_enabled(void) { return s_enabled; }
