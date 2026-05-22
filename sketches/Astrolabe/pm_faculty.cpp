@@ -605,6 +605,13 @@ typedef struct {
   size_t len;
 } BustDownload;
 
+typedef struct {
+  File file;
+  size_t cap;
+  size_t len;
+  uint8_t first;
+} BustFlashDownload;
+
 static bool bust_download_on_data(const uint8_t *data, size_t len, void *ctx) {
   BustDownload *dl = static_cast<BustDownload *>(ctx);
   if (!dl || !data || len == 0) {
@@ -615,6 +622,27 @@ static bool bust_download_on_data(const uint8_t *data, size_t len, void *ctx) {
     return false;
   }
   memcpy(dl->buf + dl->len, data, len);
+  dl->len += len;
+  return true;
+}
+
+static bool bust_flash_download_on_data(const uint8_t *data, size_t len, void *ctx) {
+  BustFlashDownload *dl = static_cast<BustFlashDownload *>(ctx);
+  if (!dl || !data || len == 0 || !dl->file) {
+    return false;
+  }
+  if (dl->len + len > dl->cap) {
+    bust_set_error("bust too large");
+    return false;
+  }
+  if (dl->len == 0) {
+    dl->first = data[0];
+  }
+  const size_t wr = dl->file.write(data, len);
+  if (wr != len) {
+    bust_set_error("flash write failed");
+    return false;
+  }
   dl->len += len;
   return true;
 }
@@ -725,6 +753,52 @@ static bool fetch_bust_url(const char *url, const char *label, uint8_t **bytes, 
   return true;
 }
 
+static bool fetch_bust_url_to_flash(const char *url, const char *label, const char *slug, BustVariant variant) {
+  char path[64];
+  if (!bust_cache_path(slug, variant, path, sizeof(path)) || !bust_cache_fs_begin()) {
+    return false;
+  }
+  char tmp_path[72];
+  snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", path);
+  (void)LittleFS.remove(tmp_path);
+
+  pm_castalia_auth_bearer(s_bust_bearer, sizeof(s_bust_bearer));
+  snprintf(s_bust_auth, sizeof(s_bust_auth), "Bearer %s", s_bust_bearer);
+  const PmHttpHeader headers[] = {
+      {"Authorization", s_bust_auth},
+      {"apikey", MYNAH_SUPABASE_ANON_KEY},
+      {"Accept", "image/png,image/jpeg,image/*;q=0.8,*/*;q=0.1"},
+  };
+
+  BustFlashDownload dl = {};
+  dl.cap = kBustFlashMaxBytes;
+  dl.file = LittleFS.open(tmp_path, "w");
+  if (!dl.file) {
+    bust_set_error("flash open failed");
+    return false;
+  }
+  PmHttpTextResult result = {};
+  const bool ok = pm_http_request_stream(url, "GET", nullptr, headers, sizeof(headers) / sizeof(headers[0]),
+                                         90000, bust_flash_download_on_data, &dl, &result);
+  dl.file.close();
+  if (!ok || dl.len == 0 || dl.first == '{') {
+    (void)LittleFS.remove(tmp_path);
+    char errbuf[32];
+    snprintf(errbuf, sizeof(errbuf), "bust HTTP %d", result.status_code);
+    bust_set_error(ok && dl.first == '{' ? "json redirect" : errbuf);
+    return false;
+  }
+  (void)LittleFS.remove(path);
+  if (!LittleFS.rename(tmp_path, path)) {
+    (void)LittleFS.remove(tmp_path);
+    bust_set_error("flash rename failed");
+    return false;
+  }
+  Serial.printf("pm_faculty: bust %s streamed to flash %u B\n", label ? label : "url",
+                static_cast<unsigned>(dl.len));
+  return true;
+}
+
 static bool cache_embedded_bust(const char *slug) {
   const uint8_t *embedded = nullptr;
   size_t embedded_len = 0;
@@ -771,6 +845,18 @@ static bool fetch_bust_variant(const char *slug, BustVariant variant, bool store
   uint8_t *bytes = nullptr;
   size_t len = 0;
   char url[240];
+  if (!store_ram) {
+    if (build_castalia_bust_url(slug, variant, url, sizeof(url)) &&
+        fetch_bust_url_to_flash(url, variant == BustVariant::High ? "castalia-400" : "castalia-200", slug, variant)) {
+      Serial.printf("pm_faculty: background bust %s/%s stored direct\n", slug, bust_variant_suffix(variant));
+      return true;
+    }
+    if (build_supabase_bust_url(slug, variant, url, sizeof(url)) &&
+        fetch_bust_url_to_flash(url, variant == BustVariant::High ? "supabase-400" : "supabase-200", slug, variant)) {
+      Serial.printf("pm_faculty: background bust %s/%s stored direct\n", slug, bust_variant_suffix(variant));
+      return true;
+    }
+  }
   if (build_castalia_bust_url(slug, variant, url, sizeof(url)) &&
              fetch_bust_url(url, variant == BustVariant::High ? "castalia-400" : "castalia-200", &bytes, &len)) {
     /* ok */
