@@ -197,6 +197,22 @@ a {
   color: var(--text-muted);
 }
 
+.question-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 1.2rem;
+}
+
+.question-strip span {
+  padding: 0.45rem 0.68rem;
+  border: 1px solid rgba(232, 212, 154, 0.18);
+  border-radius: 999px;
+  background: rgba(201, 168, 76, 0.08);
+  color: var(--gold-soft);
+  font-size: 0.82rem;
+}
+
 .hero--module {
   align-items: center;
   padding-bottom: 2rem;
