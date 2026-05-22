@@ -21,8 +21,8 @@ Goal: reduce internal heap pressure while moving Astrolabe away from Arduino run
 ## Phase 3: Face Memory Lifecycle
 
 - [x] Give every face explicit `enter()`, `tick()`, `draw()`, and `leave()` hooks.
-- [ ] Add a face scratch arena that is reset on face leave.
-- [ ] Ensure image/audio decoded buffers are released on face leave.
+- [x] Add a face scratch arena that is reset on face leave.
+- [x] Ensure image/audio decoded buffers are released on face leave.
 - [ ] Keep one decoded faculty/quote bust resident at a time.
 - [ ] Stream JPEG decode from flash where possible.
 

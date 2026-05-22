@@ -6,6 +6,7 @@
 #include <ctime>
 
 #include "faces/pm_face_registry.h"
+#include "faces/pm_face_scratch.h"
 #include "faces/shared/pm_face_draw.h"
 #include "pm_config.h"
 #include "pm_display.h"
@@ -50,6 +51,7 @@ static void pm_faces_transition_to(ClockFace face) {
   if (prev_descriptor && prev_descriptor->on_leave) {
     prev_descriptor->on_leave(face);
   }
+  pm_face_scratch_reset();
 
   s_clock_face = face;
 

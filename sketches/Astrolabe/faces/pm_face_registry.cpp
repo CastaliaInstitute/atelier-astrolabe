@@ -163,6 +163,7 @@ void leave_quotes(ClockFace) {
 }
 
 void draw_tarot(const PmFaceDrawContext &ctx) { pm_face_tarot_draw(ctx.local_time, ctx.time_valid); }
+void leave_tarot(ClockFace) { pm_face_tarot_on_leave(); }
 void draw_notes(const PmFaceDrawContext &) { pm_face_notes_draw(); }
 
 void draw_ocarina(const PmFaceDrawContext &) { pm_face_ocarina_draw(); }
@@ -233,7 +234,7 @@ const PmFaceDescriptor kFaces[] = {
     {ClockFace::Weather, "weather", "Weather", kStandardLowOwnNoMinuteSkip, draw_weather, nullptr, nullptr, leave_weather},
     {ClockFace::Quotes, "quotes", "Quotes", kStandardLowOwnNoMinuteSkip, draw_quotes, tick_quotes, nullptr, leave_quotes},
     {ClockFace::LiveTransits, "live_transits", "Live Transits", kStandardLowOwnNoMinuteSkip, draw_live_transits, nullptr, nullptr, leave_ephemeris},
-    {ClockFace::Tarot, "tarot", "Tarot", kLow | kNoMinute | kSkipRainbow, draw_tarot, nullptr, nullptr, nullptr},
+    {ClockFace::Tarot, "tarot", "Tarot", kLow | kNoMinute | kSkipRainbow, draw_tarot, nullptr, nullptr, leave_tarot},
     {ClockFace::Notes, "notes", "Notes", kStandardLowOwnNoMinuteSkip, draw_notes, nullptr, nullptr, nullptr},
     {ClockFace::Ocarina, "ocarina", "Ocarina", kStandardLowOwnNoMinuteSkip, draw_ocarina, tick_ocarina, nullptr, leave_ocarina},
     {ClockFace::Bongo, "bongo", "Bongo", kStandardLowOwnNoMinuteSkip, draw_bongo, tick_bongo, nullptr, leave_bongo},

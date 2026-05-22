@@ -595,6 +595,17 @@ int pm_face_tarot_index(const struct tm *tm_local, bool valid_local) {
 
 void pm_face_tarot_reset_daily(void) { s_selected = -1; }
 
+void pm_face_tarot_on_leave(void) {
+  if (image_mux_take(250)) {
+    free_active_image_locked();
+    image_mux_give();
+  }
+  free_decode_image();
+  s_fetch_done = false;
+  s_fetch_ok = false;
+  s_last_error[0] = '\0';
+}
+
 bool pm_face_tarot_cycle(int delta) {
   struct tm tm = {};
   const bool valid = pm_time_valid();
