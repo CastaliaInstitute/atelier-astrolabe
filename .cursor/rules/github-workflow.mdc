@@ -19,7 +19,7 @@ Use **issues + branches + PRs** for feature and bugfix work. Roadmap stays in [`
 - Agent works only on that branch; does not mix other backlog items.
 - Deliverable: **PR into `integration`** with `Closes #<issue>`, BACKLOG updated, `./scripts/build.sh` passes.
 - **May merge into `integration`** when **Firmware build** + **Integration sim gate** are green and scope is a single issue (face/UI included — no bench watch required). See [integration-branch.mdc](integration-branch.mdc).
-- **Do not merge to `main`** (use promotion script).
+- **Do not merge firmware/device work to `main`** (use promotion script).
 
 ## Finishing
 
@@ -27,7 +27,7 @@ Use **issues + branches + PRs** for feature and bugfix work. Roadmap stays in [`
 2. Visual polish: optional [hardware-qa.mdc](hardware-qa.mdc) screenshot on an issue (not a merge blocker).
 3. PR description uses [`.github/pull_request_template.md`](../.github/pull_request_template.md).
 4. Backlog **Done** line includes date + PR link.
-5. **`main`**: only via `./scripts/promote-integration.sh --flash-ok` after device gate + flash QA.
+5. Firmware **`main`** promotion: only via `./scripts/promote-integration.sh --flash-ok` after device gate + flash QA. GitHub Pages deploys from `integration` and are exempt.
 
 ## Do not
 

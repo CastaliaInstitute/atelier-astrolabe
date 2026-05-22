@@ -5,7 +5,7 @@ alwaysApply: true
 
 # Integration branch
 
-**`integration`** is the merge target for issue work. **`main`** is the release line: it must **build**, pass the **hardware device gate** on **m1** (`astrolabe-watch`), and have been **flashed** before promotion.
+**`integration`** is the merge target for issue work. **`main`** is the firmware release line: it must **build**, pass the **hardware device gate** on **m1** (`astrolabe-watch`), and have been **flashed** before firmware promotion. GitHub Pages is a site deploy and may publish from `integration`.
 
 ## Branch flow
 
@@ -22,6 +22,7 @@ fix|feature/<#>-slug  ──PR──►  integration  ──promote──►  ma
 | **Firmware build** | `ubuntu-latest` | Merge to **`integration`** |
 | **Integration sim gate** (QEMU) | `ubuntu-latest` | Merge to **`integration`** when `ENABLE_INTEGRATION_SIM_GATE=true` |
 | **Integration device gate** | `astrolabe-watch` (m1) | **`main` promotion** only — not a merge blocker on `integration` |
+| **Deploy GitHub Pages** | `ubuntu-latest` | Static site / simulator deploy from `integration` or `main` — no hardware gate |
 
 Sim gate exercises serial face/qa paths in QEMU (subset matrix). Hardware gate runs full BMP/Wi‑Fi matrix on the bench watch before `promote-integration.sh`.
 
@@ -39,7 +40,7 @@ Sim gate exercises serial face/qa paths in QEMU (subset matrix). Hardware gate r
 - No secrets in the diff
 - Applies to **all** changes (docs, scripts, faces, gestures) — **no bench watch / device gate required to merge**
 
-**Before `main` promotion:** green **Integration device gate** on m1 (or local `./scripts/functional_test.py --flash`) at `integration` HEAD. Optional hardware QA anytime on `integration` for screenshots ([hardware-qa.mdc](hardware-qa.mdc)).
+**Before firmware `main` promotion:** green **Integration device gate** on m1 (or local `./scripts/functional_test.py --flash`) at `integration` HEAD. Optional hardware QA anytime on `integration` for screenshots ([hardware-qa.mdc](hardware-qa.mdc)). Docs/site-only Pages deploys are exempt and publish from `integration`.
 
 **Do not** push or merge directly to **`main`**. Promotion only:
 
@@ -47,7 +48,7 @@ Sim gate exercises serial face/qa paths in QEMU (subset matrix). Hardware gate r
 ./scripts/promote-integration.sh --flash-ok
 ```
 
-Requires a passing **hardware** report (`gate: hardware` in `artifacts/functional/latest/report.json`) at `integration` HEAD (unless `--skip-functional`). Sim reports live under `artifacts/functional-sim/` and do not qualify.
+Requires a passing **hardware** report (`gate: hardware` in `artifacts/functional/latest/report.json`) at `integration` HEAD (unless `--skip-functional`). Sim reports live under `artifacts/functional-sim/` and do not qualify. This requirement applies to firmware release promotion, not Pages.
 
 ## Humans
 
