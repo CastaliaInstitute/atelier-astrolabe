@@ -126,6 +126,27 @@ static void draw_rect(lv_layer_t *layer, int32_t x0, int32_t y0, int32_t x1, int
   lv_draw_rect(layer, &dsc, &area);
 }
 
+static void draw_round_rect(lv_layer_t *layer, int32_t x0, int32_t y0, int32_t x1, int32_t y1, int32_t radius,
+                            uint32_t color) {
+  lv_area_t area = {x0, y0, x1, y1};
+  lv_draw_rect_dsc_t dsc;
+  lv_draw_rect_dsc_init(&dsc);
+  dsc.radius = radius;
+  dsc.bg_opa = LV_OPA_COVER;
+  dsc.bg_color = lv_color_hex(color);
+  lv_draw_rect(layer, &dsc, &area);
+}
+
+static uint32_t shade_color(uint32_t color, int32_t pct) {
+  int32_t r = (int32_t)((color >> 16) & 0xff) * pct / 100;
+  int32_t g = (int32_t)((color >> 8) & 0xff) * pct / 100;
+  int32_t b = (int32_t)(color & 0xff) * pct / 100;
+  if (r > 255) r = 255;
+  if (g > 255) g = 255;
+  if (b > 255) b = 255;
+  return ((uint32_t)r << 16) | ((uint32_t)g << 8) | (uint32_t)b;
+}
+
 static void draw_arc(lv_layer_t *layer, int32_t radius, int32_t start_angle, int32_t end_angle, uint32_t color,
                      int32_t width) {
   lv_draw_arc_dsc_t dsc;
@@ -160,6 +181,81 @@ static void draw_staff(lv_layer_t *layer) {
   }
 }
 
+static void draw_demo_moon(lv_layer_t *layer) {
+  const int32_t cx = ui_cx();
+  const int32_t cy = ui_cy();
+  const int32_t radius = 206;
+  draw_circle(layer, cx, cy, radius, 0x090b12, true, 0);
+
+  for (int32_t r = radius; r > 0; r -= 4) {
+    const int32_t pct = 52 + ((radius - r) * 47) / radius;
+    draw_circle(layer, cx, cy, r, shade_color(0xd8d6ca, pct), true, 0);
+  }
+
+  static const struct {
+    int32_t x;
+    int32_t y;
+    int32_t r;
+    int32_t shade;
+  } craters[] = {
+      {-72, -88, 22, 72}, {-26, -126, 13, 78}, {58, -98, 18, 70},  {104, -42, 24, 76},
+      {-112, -14, 19, 69}, {-52, 34, 31, 74}, {34, 18, 16, 67},   {88, 78, 20, 80},
+      {-12, 118, 15, 73}, {-138, 84, 12, 82}, {136, 14, 10, 78},  {22, -42, 8, 62},
+  };
+  for (uint32_t i = 0; i < sizeof(craters) / sizeof(craters[0]); ++i) {
+    draw_circle(layer, cx + craters[i].x, cy + craters[i].y, craters[i].r, shade_color(0xd8d6ca, craters[i].shade),
+                true, 0);
+    draw_circle(layer, cx + craters[i].x - craters[i].r / 4, cy + craters[i].y - craters[i].r / 4,
+                craters[i].r / 2, shade_color(0xf3f1e7, 92), false, 2);
+  }
+
+  draw_circle(layer, cx, cy, radius, 0x6d7890, false, 2);
+  draw_circle(layer, cx - 132, cy - 12, 170, 0x090b12, true, 0);
+  draw_arc(layer, radius + 1, 80, 280, 0xb8c3d0, 3);
+}
+
+static void draw_faculty_bust(lv_layer_t *layer) {
+  const int32_t cx = ui_cx();
+  draw_round_rect(layer, 72, 42, 394, 424, 20, 0x0b0d17);
+  draw_circle(layer, cx, 198, 168, 0x2a2444, true, 0);
+  draw_circle(layer, cx, 198, 160, 0x121225, true, 0);
+
+  draw_circle(layer, cx, 150, 72, 0xd3b58e, true, 0);
+  draw_circle(layer, cx - 48, 132, 30, 0xf0e0c3, true, 0);
+  draw_circle(layer, cx + 50, 132, 34, 0xefe0c7, true, 0);
+  draw_circle(layer, cx - 10, 94, 42, 0xf5e6c8, true, 0);
+  draw_circle(layer, cx - 78, 160, 28, 0xdbc39f, true, 0);
+  draw_circle(layer, cx + 80, 160, 26, 0xdbc39f, true, 0);
+
+  draw_circle(layer, cx - 24, 146, 5, 0x151018, true, 0);
+  draw_circle(layer, cx + 24, 146, 5, 0x151018, true, 0);
+  draw_line(layer, cx - 22, 126, cx - 5, 122, 0x563e35, 3);
+  draw_line(layer, cx + 7, 122, cx + 28, 126, 0x563e35, 3);
+  draw_line(layer, cx - 8, 154, cx - 14, 178, 0x7a5546, 2);
+  draw_arc(layer, 28, 52, 128, 0x6d3830, 3);
+
+  draw_round_rect(layer, 156, 220, 310, 390, 46, 0x4d3b5b);
+  draw_round_rect(layer, 132, 284, 334, 424, 50, 0x725b79);
+  draw_round_rect(layer, 170, 248, 296, 410, 38, 0xd2bb8d);
+  draw_circle(layer, cx, 246, 34, 0xd3b58e, true, 0);
+  draw_line(layer, 132, 334, 334, 334, 0xf1d98e, 2);
+  draw_line(layer, 152, 366, 314, 366, 0x372d4f, 3);
+}
+
+static void draw_weather_demo(lv_layer_t *layer) {
+  const int32_t cx = ui_cx();
+  const int32_t cy = ui_cy();
+  for (int32_t i = 0; i < 24; ++i) draw_arc(layer, 186, i * 15 + 1, i * 15 + 10, i < 12 ? 0x63b3ff : 0xffa64d, 8);
+  draw_arc(layer, 160, 20, 314, 0x294c66, 8);
+  draw_circle(layer, cx, cy, 92, 0x101824, true, 0);
+  draw_circle(layer, cx - 22, cy - 20, 26, 0xd9e8f6, true, 0);
+  draw_circle(layer, cx + 8, cy - 20, 30, 0xd9e8f6, true, 0);
+  draw_circle(layer, cx + 34, cy - 14, 22, 0xd9e8f6, true, 0);
+  draw_rect(layer, 142, 306, 324, 312, 0x2d4052);
+  draw_rect(layer, 142, 330, 272, 336, 0x2d4052);
+  draw_rect(layer, 142, 354, 298, 360, 0x2d4052);
+}
+
 static void draw_device_face_event(lv_event_t *event) {
   lv_layer_t *layer = lv_event_get_layer(event);
   const float spin = (float)(s_elapsed_ms % 60000u) / 60000.0f;
@@ -176,10 +272,15 @@ static void draw_device_face_event(lv_event_t *event) {
     draw_arc(layer, 190, 312, 354, 0xff6b6b, 9);
     break;
   case ASTROLABE_UI_FACE_SPOTIFY:
-    draw_circle(layer, cx, cy - 14, 158, 0x08090b, true, 0);
-    for (int32_t r = 42; r < 154; r += 18) draw_circle(layer, cx, cy - 14, r, 0x203327, false, 2);
-    draw_circle(layer, cx, cy - 14, 58, 0x1ed760, true, 0);
+    draw_circle(layer, cx, cy - 26, 150, 0x08090b, true, 0);
+    for (int32_t r = 42; r < 154; r += 18) draw_circle(layer, cx, cy - 26, r, 0x203327, false, 2);
+    draw_circle(layer, cx, cy - 26, 58, 0x1ed760, true, 0);
     draw_circle(layer, cx, cy - 14, 9, 0xf5f5ee, true, 0);
+    for (int32_t i = 0; i < 24; ++i) {
+      draw_radial_line(layer, i * 15.0f, 164, 174 + ((i * 11 + (int32_t)(spin * 60)) % 24), 0x1ed760, 3);
+    }
+    draw_round_rect(layer, 116, 330, 350, 356, 12, 0x102018);
+    draw_rect(layer, 132, 342, 276, 346, 0x1ed760);
     draw_arc(layer, 199, 205, 336, 0x1ed760, 4);
     break;
   case ASTROLABE_UI_FACE_ASTROLOGY:
@@ -192,11 +293,8 @@ static void draw_device_face_event(lv_event_t *event) {
     if (s_face == ASTROLABE_UI_FACE_SYNASTRY) draw_orbit_points(layer, 8, 88, 0xff99cc, 4);
     break;
   case ASTROLABE_UI_FACE_MOON:
-    draw_circle(layer, cx, cy, 156, 0x1d2531, true, 0);
-    draw_circle(layer, cx - 26, cy - 8, 132, 0xe5e1d2, true, 0);
-    draw_circle(layer, cx + 34, cy - 8, 132, 0x1d2531, true, 0);
-    draw_circle(layer, cx, cy, 158, 0x596574, false, 3);
-    draw_orbit_points(layer, 8, 188, 0xd7e8ee, 3);
+    draw_demo_moon(layer);
+    for (int32_t i = 0; i < 24; ++i) draw_arc(layer, 222, i * 15 + 2, i * 15 + 8, 0x31445c, 3);
     break;
   case ASTROLABE_UI_FACE_CALCIFER_COUNTDOWN:
     for (int32_t i = 0; i < 12; ++i) draw_arc(layer, 194, i * 30 + 3, i * 30 + 24, i % 3 == 0 ? 0xff8a3d : 0x315068, 8);
@@ -256,30 +354,30 @@ static void draw_device_face_event(lv_event_t *event) {
     draw_circle(layer, cx - 98, cy + 68, 5, 0x56d364, true, 0);
     break;
   case ASTROLABE_UI_FACE_FACULTY:
-    draw_circle(layer, cx, cy - 14, 118, 0x32281f, true, 0);
-    draw_circle(layer, cx, cy - 42, 46, 0xffe08a, true, 0);
-    draw_rect(layer, cx - 54, cy + 8, cx + 54, cy + 102, 0x6b5a36);
-    draw_circle(layer, cx - 16, cy - 46, 5, 0x19140c, true, 0);
-    draw_circle(layer, cx + 16, cy - 46, 5, 0x19140c, true, 0);
+    draw_faculty_bust(layer);
     break;
   case ASTROLABE_UI_FACE_WEATHER:
-    for (int32_t i = 0; i < 24; ++i) draw_arc(layer, 186, i * 15 + 1, i * 15 + 10, i < 12 ? 0x63b3ff : 0xffa64d, 8);
-    draw_arc(layer, 160, 20, 314, 0x294c66, 8);
-    draw_circle(layer, cx, cy, 92, 0x101824, true, 0);
-    draw_circle(layer, cx - 22, cy - 20, 26, 0xd9e8f6, true, 0);
-    draw_circle(layer, cx + 8, cy - 20, 30, 0xd9e8f6, true, 0);
-    draw_circle(layer, cx + 34, cy - 14, 22, 0xd9e8f6, true, 0);
+    draw_weather_demo(layer);
     break;
   case ASTROLABE_UI_FACE_QUOTES:
     draw_rect(layer, 0, 316, ASTROLABE_UI_WIDTH, ASTROLABE_UI_HEIGHT, 0x16132a);
     draw_circle(layer, cx, 170, 72, 0xd9c7ff, false, 3);
+    draw_circle(layer, cx, 146, 25, 0xd9c7ff, true, 0);
+    draw_round_rect(layer, cx - 34, 174, cx + 34, 226, 28, 0x5e4a82);
+    draw_line(layer, cx - 82, 92, cx - 54, 132, 0x8e7ca8, 3);
+    draw_line(layer, cx + 82, 92, cx + 54, 132, 0x8e7ca8, 3);
     draw_line(layer, 118, 242, 348, 242, 0xd9c7ff, 2);
     break;
   case ASTROLABE_UI_FACE_LIVE_TRANSITS:
     draw_arc(layer, 192, 0, (int32_t)(spin * 360.0f), 0xa4e3ff, 8);
-    draw_circle(layer, cx - 72, cy - 10, 62, 0x11192a, true, 0);
-    draw_circle(layer, cx + 72, cy - 10, 62, 0x11192a, true, 0);
-    draw_orbit_points(layer, 9, 72, 0xa4e3ff, 4);
+    draw_circle(layer, cx, cy, 138, 0x11192a, true, 0);
+    draw_circle(layer, cx, cy, 106, 0x26334a, false, 2);
+    draw_circle(layer, cx, cy, 68, 0x26334a, false, 2);
+    for (int32_t i = 0; i < 12; ++i) draw_radial_line(layer, i * 30.0f, 68, 138, 0x26334a, 1);
+    draw_orbit_points(layer, 9, 98, 0xa4e3ff, 4);
+    draw_orbit_points(layer, 4, 58, 0xffcf66, 5);
+    draw_round_rect(layer, 118, 330, 348, 368, 16, 0x132235);
+    draw_rect(layer, 138, 348, 292, 352, 0xa4e3ff);
     break;
   case ASTROLABE_UI_FACE_TAROT:
     draw_rect(layer, cx - 92, 88, cx + 92, 314, 0x231a22);
@@ -385,10 +483,23 @@ static void create_device_face(astrolabe_ui_face_t face) {
   lv_obj_add_event_cb(s_dial, draw_device_face_event, LV_EVENT_DRAW_MAIN, NULL);
 
   switch (face) {
+  case ASTROLABE_UI_FACE_SPOTIFY:
+    s_face_label = make_label("Vinyl Queue", 40, &lv_font_montserrat_22, meta->accent);
+    s_hint_label = make_label("Nina Simone  -  Sinnerman", 364, &lv_font_montserrat_16, 0xf2fff5);
+    make_label("demo stream  2:14 / 4:06", 392, &lv_font_montserrat_16, 0x7ab88d);
+    break;
+  case ASTROLABE_UI_FACE_MOON:
+    s_face_label = make_label("Waxing crescent", 18, &lv_font_montserrat_22, 0xd7e8ee);
+    s_hint_label = make_label("Moon  34% lit  -  lunar fortune ready", 402, &lv_font_montserrat_16, 0x9aabba);
+    break;
+  case ASTROLABE_UI_FACE_FACULTY:
+    s_face_label = make_label("Hypatia", 18, &lv_font_montserrat_22, 0xffe08a);
+    s_hint_label = make_label("recent: how should I read today's sky?", 396, &lv_font_montserrat_16, 0xdacbff);
+    break;
   case ASTROLABE_UI_FACE_WEATHER:
-    s_face_label = make_label(meta->line1, 206, &lv_font_montserrat_48, 0xf8fbff);
-    s_hint_label = make_label("partly cloudy", 250, &lv_font_montserrat_16, 0xb0c0da);
-    make_label(meta->line2, 380, &lv_font_montserrat_16, 0x6f7d8a);
+    s_face_label = make_label("72 deg", 202, &lv_font_montserrat_48, 0xf8fbff);
+    s_hint_label = make_label("partly cloudy  -  42% humidity", 258, &lv_font_montserrat_16, 0xb0c0da);
+    make_label("Denver  high 77  low 54", 382, &lv_font_montserrat_16, 0x6f7d8a);
     break;
   case ASTROLABE_UI_FACE_TUNING:
     s_face_label = make_label(meta->line1, 44, &lv_font_montserrat_22, meta->accent);
@@ -420,9 +531,12 @@ static void create_device_face(astrolabe_ui_face_t face) {
   case ASTROLABE_UI_FACE_ALETHIOMETER:
   case ASTROLABE_UI_FACE_RUNES:
   case ASTROLABE_UI_FACE_NOTES:
-  case ASTROLABE_UI_FACE_LIVE_TRANSITS:
     s_face_label = make_label(meta->line1, 30, &lv_font_montserrat_22, meta->accent);
     s_hint_label = make_label(meta->line2, 56, &lv_font_montserrat_16, 0x8e9ba8);
+    break;
+  case ASTROLABE_UI_FACE_LIVE_TRANSITS:
+    s_face_label = make_label("Moon trine Venus", 30, &lv_font_montserrat_22, meta->accent);
+    s_hint_label = make_label("exact in 2h 18m  -  4-day motion", 56, &lv_font_montserrat_16, 0x8e9ba8);
     break;
   default:
     s_face_label = make_label(meta->line1[0] ? meta->line1 : meta->name, 42, &lv_font_montserrat_22, meta->accent);
