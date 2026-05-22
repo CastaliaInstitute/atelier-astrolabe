@@ -255,19 +255,19 @@
     {
       slug: "synastry",
       title: "Synastry",
-      kicker: "Relationship patterns at a glance",
+      kicker: "The household sky at a glance",
       image: "../assets/faces/bench-09-synastry.png",
       summary:
-        "A dual-chart face for saved partner and family profiles, built for questions about relational timing.",
-      inquiry: "What pattern appears between us today?",
+        "A dual-chart face for partners, children, siblings, ancestors, and chosen family, built for questions about relational timing.",
+      inquiry: "What does this family need from me today?",
       questions: [
-        "Which relationship field is active?",
-        "Where is there harmony, friction, or a need for care?",
-        "What conversation would benefit from better timing?",
+        "Why do we keep repeating this pattern?",
+        "Where do we harmonize, and where do we misread each other?",
+        "What should I remember before I speak?",
       ],
       use: [
-        "Compare saved profiles without opening a charting app.",
-        "Use aspect highlights as a prompt, not a verdict.",
+        "Compare saved family profiles without opening a charting app.",
+        "Use aspect highlights as a bearing, not a verdict.",
         "Ask a more specific question aloud when the face surfaces tension.",
       ],
       interactions: "Tap the center to focus the relationship view. Swipe left to continue.",
