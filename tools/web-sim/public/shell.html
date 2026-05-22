@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Astrolabe LVGL Web Simulator</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #111418;
+        color: #eef3f6;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        min-height: 100vh;
+        margin: 0;
+        display: grid;
+        place-items: center;
+        background: radial-gradient(circle at center, #202833 0, #111418 58%, #090b0f 100%);
+      }
+
+      main {
+        width: min(100vw, 760px);
+        padding: 24px;
+        display: grid;
+        justify-items: center;
+        gap: 18px;
+      }
+
+      .watch {
+        width: min(466px, calc(100vw - 32px));
+        aspect-ratio: 1;
+        border-radius: 50%;
+        background: #050608;
+        box-shadow: 0 0 0 10px #1b222b, 0 24px 80px rgb(0 0 0 / 55%);
+        overflow: hidden;
+      }
+
+      canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+        touch-action: none;
+      }
+
+      .controls {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      button {
+        min-width: 96px;
+        min-height: 38px;
+        border: 1px solid #384655;
+        border-radius: 7px;
+        background: #1b232c;
+        color: #eef3f6;
+        font: inherit;
+        cursor: pointer;
+      }
+
+      button:hover {
+        background: #24303b;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="watch">
+        <canvas id="astrolabe-canvas" width="466" height="466"></canvas>
+      </div>
+      <div class="controls" aria-label="Watch face controls">
+        <button type="button" data-face="0">Digital</button>
+        <button type="button" data-face="1">Classic</button>
+      </div>
+    </main>
+
+    {{{ SCRIPT }}}
+
+    <script>
+      document.querySelectorAll("[data-face]").forEach((button) => {
+        button.addEventListener("click", () => {
+          Module.ccall("astrolabe_web_set_face", null, ["number"], [Number(button.dataset.face)]);
+        });
+      });
+    </script>
+  </body>
+</html>
