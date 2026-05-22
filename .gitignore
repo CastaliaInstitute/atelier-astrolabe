@@ -36,5 +36,6 @@ sdkconfig.*
 !idf/sdkconfig.defaults
 sdkconfig.old
 compile_commands.json
+build/
 .dummy/
 dependencies.lock
