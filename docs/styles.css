@@ -235,6 +235,24 @@ a {
   padding-top: 18px;
 }
 
+@media (max-width: 680px) {
+  .hero {
+    padding-top: 0;
+  }
+
+  .hero-stage {
+    gap: 0.85rem;
+  }
+
+  .hero-module {
+    width: min(250px, 64vw);
+  }
+
+  .sku-rail {
+    width: min(360px, 92vw);
+  }
+}
+
 .hero-module__case {
   position: relative;
   display: grid;
