@@ -36,7 +36,7 @@ static const char *TAG = "pm_speaker";
 static constexpr uint32_t kSpeakerTaskStack = 49152;
 static constexpr uint32_t kSpeakerTaskFallbackStack = 28672;
 static constexpr UBaseType_t kSpeakerTaskPriority = 3;
-static constexpr int kSpeakerVolume = 88;
+static constexpr int kSpeakerVolume = 72;
 static uint32_t s_max_play_seconds = 180u;
 
 static void speaker_task_wdt_reset() {

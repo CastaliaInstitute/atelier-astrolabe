@@ -80,6 +80,7 @@
 #include "pm_log.h"
 #include "pm_resource.h"
 #include "pm_settings.h"
+#include "pm_tour_mode.h"
 #include "pm_daily_briefing.h"
 #include "pm_daily_briefing_nvs.h"
 #include "pm_user_nvs.h"
@@ -112,9 +113,12 @@ static bool g_daily_briefing = false;
 static constexpr bool kAutoDailyBriefingEnabled = false;
 static bool s_daily_brief_auto_armed = false;
 static bool s_face_tour_active = false;
+static bool s_face_tour_auto_advance = false;
 static int s_face_tour_idx = 0;
+static int s_face_tour_loaded_idx = -1;
 static uint32_t s_face_tour_last_ms = 0;
 static uint32_t s_face_tour_dwell_ms = 2800;
+static uint32_t s_face_tour_overlay_started_ms = 0;
 static bool s_face_tour_narrate = false;
 static bool s_face_tour_button_test = false;
 static bool s_face_tour_first_run = false;
@@ -144,13 +148,79 @@ static bool g_moon_voice_pcm = false;
 
 static constexpr const char *kTourPrefsNs = "tour";
 static constexpr const char *kTourPlayedKey = "played";
+static constexpr const char *kTourModeKey = "mode";
+static constexpr const char *kTourSeenKey = "seen";
+
+static uint32_t tour_all_seen_mask(void) {
+  const uint32_t n = static_cast<uint32_t>(ClockFace::kNumFaces);
+  return n >= 32u ? 0xffffffffu : ((1u << n) - 1u);
+}
+
+static uint32_t tour_seen_mask_load(void) {
+  return pm_nvs_get_u32(kTourPrefsNs, kTourSeenKey, 0) & tour_all_seen_mask();
+}
+
+static void tour_seen_mask_set(uint32_t mask) {
+  (void)pm_nvs_set_u32(kTourPrefsNs, kTourSeenKey, mask & tour_all_seen_mask());
+}
+
+static bool tour_face_seen(int idx) {
+  if (idx < 0 || idx >= static_cast<int>(ClockFace::kNumFaces)) {
+    return false;
+  }
+  return (tour_seen_mask_load() & (1u << static_cast<uint32_t>(idx))) != 0;
+}
+
+static void tour_mark_face_seen(int idx) {
+  if (idx < 0 || idx >= static_cast<int>(ClockFace::kNumFaces)) {
+    return;
+  }
+  const uint32_t bit = 1u << static_cast<uint32_t>(idx);
+  const uint32_t mask = tour_seen_mask_load();
+  if ((mask & bit) == 0) {
+    const uint32_t next = mask | bit;
+    tour_seen_mask_set(next);
+    if (next == tour_all_seen_mask()) {
+      (void)pm_nvs_set_bool(kTourPrefsNs, kTourPlayedKey, true);
+    }
+  }
+}
+
+static void tour_seen_reset(void) {
+  tour_seen_mask_set(0);
+  (void)pm_nvs_set_bool(kTourPrefsNs, kTourPlayedKey, false);
+}
+
+uint8_t pm_tour_seen_count(void) {
+  uint32_t mask = tour_seen_mask_load();
+  uint8_t n = 0;
+  while (mask) {
+    n += static_cast<uint8_t>(mask & 1u);
+    mask >>= 1;
+  }
+  return n;
+}
+
+uint8_t pm_tour_total_count(void) {
+  return static_cast<uint8_t>(ClockFace::kNumFaces);
+}
+
+bool pm_tour_mode_enabled(void) {
+  return pm_nvs_get_bool(kTourPrefsNs, kTourModeKey, false);
+}
+
+static void tour_mode_set_enabled(bool enabled) {
+  (void)pm_nvs_set_bool(kTourPrefsNs, kTourModeKey, enabled);
+}
 
 static bool tour_played_load(void) {
-  return pm_nvs_get_bool(kTourPrefsNs, kTourPlayedKey, false);
+  return pm_nvs_get_bool(kTourPrefsNs, kTourPlayedKey, false) ||
+         tour_seen_mask_load() == tour_all_seen_mask();
 }
 
 static void tour_played_set(bool played) {
   (void)pm_nvs_set_bool(kTourPrefsNs, kTourPlayedKey, played);
+  tour_seen_mask_set(played ? tour_all_seen_mask() : 0);
 }
 /** Tap fortune: stay on Moon face during think/speak. */
 static bool g_moon_fortune_active = false;
@@ -1624,6 +1694,8 @@ static void face_tour_select(int idx) {
     (void)pm_faculty_request_bust(guide.slug);
   }
   s_face_tour_tts_retry = 0;
+  s_face_tour_loaded_idx = idx;
+  s_face_tour_overlay_started_ms = millis();
   snprintf(g_gesture_banner, sizeof(g_gesture_banner), "tour: %.28s", info->name);
   g_clock_repaint_pending = true;
   const char *health = face_tour_health_text(info);
@@ -1633,7 +1705,34 @@ static void face_tour_select(int idx) {
   face_tour_voice_start(info, idx);
 }
 
-static void face_tour_start(uint32_t dwell_ms, bool narrate = false, bool button_test = false) {
+static void face_tour_note_current_face(void) {
+  if (!s_face_tour_active || s_face_tour_auto_advance || g_state != AppState::kClock) {
+    return;
+  }
+  const int idx = static_cast<int>(pm_faces_current());
+  const FaceTourInfo *info = face_tour_info(idx);
+  if (!info || idx == s_face_tour_loaded_idx) {
+    return;
+  }
+  if (idx == static_cast<int>(ClockFace::Settings) && pm_settings_page() == SettingsPage::Tour) {
+    return;
+  }
+  face_tour_voice_reset();
+  s_face_tour_idx = idx;
+  s_face_tour_tts_retry = 0;
+  s_face_tour_loaded_idx = idx;
+  s_face_tour_overlay_started_ms = millis();
+  tour_mark_face_seen(idx);
+  snprintf(g_gesture_banner, sizeof(g_gesture_banner), "tour: %.28s", info->name);
+  g_clock_repaint_pending = true;
+  Serial.printf("tour: seen %d %s progress=%u/%u\n", idx, info->name,
+                static_cast<unsigned>(pm_tour_seen_count()),
+                static_cast<unsigned>(pm_tour_total_count()));
+  face_tour_voice_start(info, idx);
+}
+
+static void face_tour_start(uint32_t dwell_ms, bool narrate = false, bool button_test = false,
+                            bool auto_advance = true) {
   if (dwell_ms < 900u) {
     dwell_ms = 900u;
   } else if (dwell_ms > 45000u) {
@@ -1644,6 +1743,7 @@ static void face_tour_start(uint32_t dwell_ms, bool narrate = false, bool button
   }
   face_tour_voice_reset();
   s_face_tour_active = true;
+  s_face_tour_auto_advance = auto_advance;
   s_face_tour_narrate = narrate;
   s_face_tour_button_test = button_test;
   s_face_tour_tts_ok = 0;
@@ -1651,6 +1751,8 @@ static void face_tour_start(uint32_t dwell_ms, bool narrate = false, bool button
   s_face_tour_tts_skip = 0;
   s_face_tour_tts_retry = 0;
   s_face_tour_idx = 0;
+  s_face_tour_loaded_idx = -1;
+  s_face_tour_overlay_started_ms = 0;
   s_face_tour_dwell_ms = dwell_ms;
   s_face_tour_last_ms = 0;
   s_face_tour_tts_retry = 0;
@@ -1667,7 +1769,11 @@ static void face_tour_start(uint32_t dwell_ms, bool narrate = false, bool button
     }
     pm_speaker_set_auto_release(false);
   }
-  face_tour_select(s_face_tour_idx);
+  if (s_face_tour_auto_advance) {
+    face_tour_select(s_face_tour_idx);
+  } else {
+    face_tour_note_current_face();
+  }
 }
 
 static void face_tour_stop(void) {
@@ -1676,13 +1782,17 @@ static void face_tour_stop(void) {
     return;
   }
   s_face_tour_active = false;
+  s_face_tour_auto_advance = false;
   s_face_tour_narrate = false;
   s_face_tour_button_test = false;
   s_face_tour_idx = 0;
+  s_face_tour_loaded_idx = -1;
   s_face_tour_last_ms = 0;
+  s_face_tour_overlay_started_ms = 0;
   pm_presence_ble_set_suppressed(false);
   face_tour_voice_reset();
   pm_speaker_set_auto_release(true);
+  tour_mode_set_enabled(false);
   g_gesture_banner[0] = '\0';
   g_clock_repaint_pending = true;
   Serial.println("tour: stopped");
@@ -1696,9 +1806,14 @@ static void face_tour_draw_guide_overlay(void) {
   if (!pm_faculty_active(&guide)) {
     return;
   }
-  const int box = LCD_WIDTH / 8;
+  const int box = LCD_WIDTH / 4;
   const int pad = 8;
-  const int x = pad;
+  const uint32_t elapsed = millis() - s_face_tour_overlay_started_ms;
+  const uint32_t dur = 520u;
+  const int start_x = -box - 8;
+  const int end_x = pad;
+  const int x = (elapsed >= dur) ? end_x
+                                 : start_x + static_cast<int>((end_x - start_x) * elapsed / dur);
   const int y = LCD_HEIGHT - box - pad;
   pm_gfx->fillRoundRect(x - 3, y - 3, box + 6, box + 6, 6, pm_gfx->color565(6, 8, 16));
   pm_gfx->drawRoundRect(x - 3, y - 3, box + 6, box + 6, 6, pm_gfx->color565(120, 150, 220));
@@ -1743,6 +1858,10 @@ static bool face_voice_begin_current(void) {
 static void face_tour_tick(uint32_t now) {
   if (!s_face_tour_active || g_state != AppState::kClock) {
     return;
+  }
+  if (!s_face_tour_auto_advance && s_face_tour_overlay_started_ms != 0 &&
+      now - s_face_tour_overlay_started_ms < 620u) {
+    g_clock_repaint_pending = true;
   }
   if (s_face_tour_voice_phase == 1) {
     const PmVoiceStatus vs = pm_voice_poll();
@@ -1811,6 +1930,9 @@ static void face_tour_tick(uint32_t now) {
     }
     face_tour_voice_reset();
   }
+  if (!s_face_tour_auto_advance) {
+    return;
+  }
   if (s_face_tour_last_ms == 0) {
     s_face_tour_last_ms = now;
     return;
@@ -1823,6 +1945,7 @@ static void face_tour_tick(uint32_t now) {
   if (s_face_tour_idx >= static_cast<int>(ClockFace::kNumFaces)) {
     const bool report_tts_tour = s_face_tour_narrate || s_face_tour_button_test;
     s_face_tour_active = false;
+    s_face_tour_auto_advance = false;
     s_face_tour_narrate = false;
     s_face_tour_button_test = false;
     s_face_tour_idx = 0;
@@ -1960,12 +2083,28 @@ static void handle_tour_command(const char *args) {
     return;
   }
   if (strcmp(p, "reset") == 0 || strcmp(p, "unplayed") == 0) {
-    tour_played_set(false);
-    Serial.println("tour: played reset");
+    tour_seen_reset();
+    s_face_tour_loaded_idx = -1;
+    Serial.println("tour: seen reset");
+    return;
+  }
+  if (strcmp(p, "mode on") == 0 || strcmp(p, "on") == 0) {
+    tour_mode_set_enabled(true);
+    face_tour_start(1200u, true, false, false);
+    Serial.println("tour: mode on");
+    return;
+  }
+  if (strcmp(p, "mode off") == 0 || strcmp(p, "off") == 0) {
+    face_tour_stop();
+    Serial.println("tour: mode off");
     return;
   }
   if (strcmp(p, "played") == 0 || strcmp(p, "status") == 0) {
-    Serial.printf("tour: played=%d active=%d guide=", tour_played_load() ? 1 : 0, s_face_tour_active ? 1 : 0);
+    Serial.printf("tour: played=%d active=%d mode=%d seen=%u/%u guide=",
+                  tour_played_load() ? 1 : 0, s_face_tour_active ? 1 : 0,
+                  pm_tour_mode_enabled() ? 1 : 0,
+                  static_cast<unsigned>(pm_tour_seen_count()),
+                  static_cast<unsigned>(pm_tour_total_count()));
     PmFacultyProfile guide = {};
     if (pm_faculty_active(&guide)) {
       Serial.printf("%s (%s)\n", guide.name, guide.slug);
@@ -2517,7 +2656,10 @@ static void poll_serial_birth_commands() {
           Serial.println("qa: usage: status | heap | audio | mic | note | pcm [ms] | stt tts | time | briefing | tone | bowl | faces | tour [narrate|tts] [dwell_ms] | tour stop | inject …");
         }
       } else if (strncmp(line, "face ", 5) == 0) {
-        s_face_tour_active = false;
+        if (s_face_tour_auto_advance) {
+          s_face_tour_active = false;
+          s_face_tour_auto_advance = false;
+        }
         int idx = -1;
         const char *p = line + 5;
         while (*p == ' ') {
@@ -2556,7 +2698,10 @@ static void poll_serial_birth_commands() {
           ok = false;
         }
         if (ok) {
-          s_face_tour_active = false;
+          if (s_face_tour_auto_advance) {
+            s_face_tour_active = false;
+            s_face_tour_auto_advance = false;
+          }
           if (page == SettingsPage::Aec) {
             gesture_end_voice_ui();
           }
@@ -2761,9 +2906,10 @@ void setup() {
                 pm_wifi_mdns_name(), pm_wifi_mac_string(), pm_wifi_local_ip(), static_cast<unsigned>(pm_heap_internal_free()),
                 static_cast<unsigned>(pm_heap_internal_largest()), static_cast<unsigned>(pm_heap_psram_free()));
   Serial.println("Mynah Astrolabe ready");
-  if (!tour_played_load()) {
+  if (pm_tour_mode_enabled() || !tour_played_load()) {
     s_face_tour_first_run = true;
-    face_tour_start(1200u, true, false);
+    tour_mode_set_enabled(true);
+    face_tour_start(1200u, true, false, false);
   }
 #endif
 }
@@ -2779,6 +2925,7 @@ void loop() {
   pm_presence_tick(now);
   poll_serial_birth_commands();
   face_tour_tick(now);
+  face_tour_note_current_face();
   handle_usb_audio_stream_event();
   (void)pm_speaker_poll();
   (void)pm_voice_release_idle_task();
@@ -2843,13 +2990,22 @@ void loop() {
       }
       if (pm_settings_page() == SettingsPage::Tour) {
         if (ge.kind == PmGestureKind::Tap) {
+          const bool enabled = !s_face_tour_active;
           s_face_tour_first_run = false;
-          face_tour_start(1200u, true, false);
+          tour_mode_set_enabled(enabled);
+          if (enabled) {
+            snprintf(g_gesture_banner, sizeof(g_gesture_banner), "tour: mode on");
+            face_tour_start(1200u, true, false, false);
+          } else {
+            face_tour_stop();
+            snprintf(g_gesture_banner, sizeof(g_gesture_banner), "tour: mode off");
+          }
           continue;
         }
         if (ge.kind == PmGestureKind::LongPress) {
-          tour_played_set(false);
-          snprintf(g_gesture_banner, sizeof(g_gesture_banner), "tour: reset");
+          tour_seen_reset();
+          s_face_tour_loaded_idx = -1;
+          snprintf(g_gesture_banner, sizeof(g_gesture_banner), "tour: reset seen");
           g_clock_repaint_pending = false;
           if (pm_gfx) {
             pm_faces_draw();

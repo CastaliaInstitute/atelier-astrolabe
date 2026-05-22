@@ -26,7 +26,7 @@
 
 static const char *TAG = "pm_voice";
 
-static constexpr uint32_t kVoiceNetTaskStack = 20480;
+static constexpr uint32_t kVoiceNetTaskStack = 14336;
 /** STT + Gemini + TTS + large chunked JSON (astrology readings). */
 static constexpr uint32_t kVoiceHttpTimeoutMs = 660000;
 /** voice-pipeline JSON + base64 MP3. */

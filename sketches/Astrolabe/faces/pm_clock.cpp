@@ -8,10 +8,14 @@
 #include "faces/pm_face_registry.h"
 #include "faces/pm_face_scratch.h"
 #include "faces/shared/pm_face_draw.h"
+#include "pm_castalia_auth.h"
 #include "pm_config.h"
 #include "pm_display.h"
 #include "pm_heap.h"
+#include "pm_rocket.h"
 #include "pm_settings.h"
+#include "pm_speaker.h"
+#include "pm_voice.h"
 #include "pm_wifi_ntp.h"
 
 extern char g_gesture_banner[44];
@@ -40,6 +44,15 @@ static const PmFaceDescriptor *pm_faces_current_descriptor(void) {
   return pm_face_registry_find(s_clock_face);
 }
 
+static void pm_faces_groom_after_leave(ClockFace prev) {
+  (void)pm_speaker_poll();
+  (void)pm_speaker_release_idle_task();
+  (void)pm_voice_release_idle_task();
+  (void)pm_castalia_release_idle_task();
+  (void)pm_rocket_release_idle_task();
+  pm_heap_trace("face-leave-groom", static_cast<int>(prev));
+}
+
 static void pm_faces_transition_to(ClockFace face) {
   const ClockFace prev = s_clock_face;
   if (prev == face) {
@@ -52,6 +65,7 @@ static void pm_faces_transition_to(ClockFace face) {
     prev_descriptor->on_leave(face);
   }
   pm_face_scratch_reset();
+  pm_faces_groom_after_leave(prev);
 
   s_clock_face = face;
 

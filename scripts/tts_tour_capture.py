@@ -239,7 +239,7 @@ def main() -> int:
                         statuses.append(line)
                         m = STATUS_RE.search(line)
                         if m:
-                            ip = m.group(1)
+                            ip = m.group(3)
 
                     m = LOAD_RE.search(line)
                     if m:
@@ -256,9 +256,6 @@ def main() -> int:
                         mark_timing(faces[face_id], "load_ts", line_ts)
                         ser.write(b"qa status\n")
                         ser.flush()
-                        if ip:
-                            bmp = out_dir / f"{face_id:02d}-{name}.bmp"
-                            captures.append((face_id, name, executor.submit(fetch_screenshot, ip, bmp)))
 
                     m = TTS_START_RE.search(line)
                     if m:
@@ -317,6 +314,12 @@ def main() -> int:
                         face = faces.setdefault(face_id, {"id": face_id, "name": str(face_id)})
                         mark_timing(face, "tts_ok_ts", line_ts)
                         face.setdefault("timing", {})["outcome"] = "ok"
+                        if ip:
+                            name = str(face.get("name", face_id)).replace(" ", "_")
+                            bmp = out_dir / f"{face_id:02d}-{name}.bmp"
+                            fut = executor.submit(fetch_screenshot, ip, bmp)
+                            captures.append((face_id, name, fut))
+                            fut.result()
                         active_face_id = None
                     m = TTS_FAIL_RE.search(line)
                     if m:
