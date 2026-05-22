@@ -3063,6 +3063,7 @@ void setup() {
     pm_castalia_warmup_after_wifi();
   }
   pm_display_bind(gfx);
+  pm_faces_set_overlay_drawer(face_tour_draw_guide_overlay);
   pm_screen_http_begin(gfx);
   pm_faces_draw();
 
@@ -3786,10 +3787,6 @@ void loop() {
             pm_faces_draw_home_gem_pulse();
           } else {
             pm_faces_draw();
-          }
-          face_tour_draw_guide_overlay();
-          if (s_face_tour_active) {
-            gfx->flush();
           }
         }
         if (!valid) {

@@ -50,6 +50,7 @@ static char s_bust_error[80] = "";
 static char s_bust_bearer[1536] = "";
 static char s_bust_auth[1560] = "";
 static char s_bust_pin_slug[32] = "";
+static bool s_bust_embedded = false;
 
 static constexpr int kBustFooterTop = LCD_HEIGHT - 104;
 static constexpr int kBustMaxDrawH = LCD_HEIGHT / 2;
@@ -576,6 +577,7 @@ static bool load_flash_bust(const char *slug, BustVariant variant = BustVariant:
     s_bust_slug[sizeof(s_bust_slug) - 1] = '\0';
     strncpy(s_bust_flash_path, path, sizeof(s_bust_flash_path) - 1);
     s_bust_flash_path[sizeof(s_bust_flash_path) - 1] = '\0';
+    s_bust_embedded = false;
     bust_set_error(nullptr);
     Serial.printf("pm_faculty: flash JPEG bust %s/%s (%u B)\n", s_bust_slug, bust_variant_suffix(variant),
                   static_cast<unsigned>(s_bust_len));
@@ -600,6 +602,7 @@ static bool load_flash_bust(const char *slug, BustVariant variant = BustVariant:
   strncpy(s_bust_slug, slug, sizeof(s_bust_slug) - 1);
   s_bust_slug[sizeof(s_bust_slug) - 1] = '\0';
   s_bust_flash_path[0] = '\0';
+  s_bust_embedded = false;
   bust_set_error(nullptr);
   Serial.printf("pm_faculty: flash PNG bust %s/%s (%u B)\n", s_bust_slug, bust_variant_suffix(variant),
                 static_cast<unsigned>(s_bust_len));
@@ -849,9 +852,16 @@ static bool cache_embedded_bust(const char *slug) {
   strncpy(s_bust_slug, slug, sizeof(s_bust_slug) - 1);
   s_bust_slug[sizeof(s_bust_slug) - 1] = '\0';
   s_bust_flash_path[0] = '\0';
+  s_bust_embedded = true;
   bust_set_error(nullptr);
   Serial.printf("pm_faculty: embedded bust %s (%u B)\n", s_bust_slug, static_cast<unsigned>(s_bust_len));
   return true;
+}
+
+static bool has_embedded_bust(const char *slug) {
+  const uint8_t *embedded = nullptr;
+  size_t embedded_len = 0;
+  return pm_faculty_embedded_bust(slug, &embedded, &embedded_len) && embedded_len > 0;
 }
 
 static bool fetch_bust_variant(const char *slug, BustVariant variant, bool store_ram) {
@@ -924,6 +934,7 @@ static bool fetch_bust_variant(const char *slug, BustVariant variant, bool store
   strncpy(s_bust_slug, slug, sizeof(s_bust_slug) - 1);
   s_bust_slug[sizeof(s_bust_slug) - 1] = '\0';
   s_bust_flash_path[0] = '\0';
+  s_bust_embedded = false;
   (void)save_flash_bust(slug, variant, s_bust_bytes, s_bust_len);
   bust_set_error(nullptr);
   Serial.printf("pm_faculty: cached bust %s/%s (%u B)\n", s_bust_slug, bust_variant_suffix(variant),
@@ -1032,8 +1043,16 @@ bool pm_faculty_request_bust(const char *slug) {
   if (s_bust_status == PmFacultyBustStatus::Working || s_bust_bg_busy) {
     return false;
   }
-  if (s_bust_len > 0 && strcmp(s_bust_slug, slug) == 0) {
+  const bool have_embedded = has_embedded_bust(slug);
+  if (s_bust_len > 0 && strcmp(s_bust_slug, slug) == 0 && (!have_embedded || s_bust_embedded)) {
     return false;
+  }
+  if (have_embedded && cache_embedded_bust(slug)) {
+    s_bust_done = true;
+    s_bust_status = PmFacultyBustStatus::DoneOk;
+    s_rise_active = true;
+    s_rise_start_ms = millis();
+    return true;
   }
   if (load_flash_bust(slug)) {
     s_bust_done = true;
@@ -1155,6 +1174,7 @@ void pm_faculty_release_bust_cache(void) {
   s_bust_len = 0;
   s_bust_slug[0] = '\0';
   s_bust_flash_path[0] = '\0';
+  s_bust_embedded = false;
   s_rise_active = false;
   s_bust_status = PmFacultyBustStatus::Idle;
   s_bust_done = false;

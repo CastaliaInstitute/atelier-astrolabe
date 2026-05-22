@@ -74,6 +74,8 @@ bool pm_faces_tick(uint32_t now_ms);
 void pm_faces_draw(float thinking_progress = -1.f);
 /** Home gem + rainbow only (breath animation). */
 void pm_faces_draw_home_gem_pulse(void);
+using PmFacesOverlayDrawFn = void (*)();
+void pm_faces_set_overlay_drawer(PmFacesOverlayDrawFn fn);
 uint16_t pm_faces_last_bg565(void);
 bool pm_faces_local_hm_changed(int hour, int min);
 

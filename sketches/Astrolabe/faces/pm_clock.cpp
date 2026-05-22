@@ -24,6 +24,7 @@ static ClockFace s_clock_face = ClockFace::ClassicAnalog;
 static uint16_t s_clock_bg565 = 0;
 static int s_analog_saved_local_h = -1;
 static int s_analog_saved_local_m = -1;
+static PmFacesOverlayDrawFn s_overlay_drawer = nullptr;
 
 static float pm_faces_home_hue_deg(void) {
   struct tm tm = {};
@@ -175,6 +176,9 @@ void pm_faces_draw(float thinking_progress) {
     s_analog_saved_local_h = tm.tm_hour;
     s_analog_saved_local_m = tm.tm_min;
   }
+  if (s_overlay_drawer) {
+    s_overlay_drawer();
+  }
   pm_gfx->flush();
 }
 
@@ -185,10 +189,17 @@ void pm_faces_draw_home_gem_pulse(void) {
   }
   const float hue = pm_faces_home_hue_deg();
   pm_face_draw_home_gem_breath_only(hue);
+  if (s_overlay_drawer) {
+    s_overlay_drawer();
+  }
   pm_gfx->flush();
 #else
   (void)0;
 #endif
+}
+
+void pm_faces_set_overlay_drawer(PmFacesOverlayDrawFn fn) {
+  s_overlay_drawer = fn;
 }
 
 bool pm_faces_banner_low(void) {
