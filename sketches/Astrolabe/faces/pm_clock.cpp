@@ -5,6 +5,7 @@
 #include <cstring>
 #include <ctime>
 
+#include "esp_heap_caps.h"
 #include "faces/apocalypso/pm_face_apocalypso.h"
 #include "faces/alethiometer/pm_face_alethiometer.h"
 #include "faces/astrology/pm_face_astrology.h"
@@ -17,9 +18,11 @@
 #include "faces/faculty/pm_face_faculty.h"
 #include "faces/level/pm_face_level.h"
 #include "faces/live_transits/pm_face_live_transits.h"
+#include "faces/luopan/pm_face_luopan.h"
 #include "faces/moon/pm_face_moon.h"
 #include "faces/notes/pm_face_notes.h"
 #include "faces/ocarina/pm_face_ocarina.h"
+#include "faces/orientation/pm_face_orientation.h"
 #include "faces/pandrum/pm_face_pandrum.h"
 #include "faces/piano/pm_face_piano.h"
 #include "faces/quotes/pm_face_quotes.h"
@@ -39,18 +42,103 @@
 #include "pm_ephemeris.h"
 #include "pm_faculty.h"
 #include "pm_settings.h"
+#include "pm_variant.h"
 #include "pm_wifi_ntp.h"
 
 extern char g_gesture_banner[44];
 
 static bool pm_faces_skip_in_dial(ClockFace face) {
-  return face == ClockFace::Castalia || face == ClockFace::Settings;
+  return face == ClockFace::Castalia || face == ClockFace::Settings || !pm_variant_face_allowed(face);
 }
+
+static const ClockFace k_face_dial_order[] = {
+    // Astrolabe / Pocket: orientation, time, presence, and daily rhythm.
+    ClockFace::ClassicAnalog,
+    ClockFace::DigitalLocal,
+    ClockFace::Apocalypso,
+    ClockFace::CalciferCountdown,
+    ClockFace::Weather,
+    ClockFace::Radar,
+    ClockFace::Level,
+    ClockFace::Rocket,
+
+    // Lunasay: lunar, astrological, and divination surfaces.
+    ClockFace::Moon,
+    ClockFace::Astrology,
+    ClockFace::LiveTransits,
+    ClockFace::Synastry,
+    ClockFace::Tarot,
+    ClockFace::Runes,
+    ClockFace::Alethiometer,
+
+    // Ocarina: breath, music, and sound instruments.
+    ClockFace::Ocarina,
+    ClockFace::Tuning,
+    ClockFace::Spectrum,
+    ClockFace::Chakra,
+    ClockFace::TibetanBowl,
+    ClockFace::Bongo,
+    ClockFace::Piano,
+    ClockFace::PanDrum,
+
+    // Cameo: memory, identity, and companion context.
+    ClockFace::Faculty,
+    ClockFace::Quotes,
+    ClockFace::Notes,
+
+    // Luopan: direction and feng-shui alignment.
+    ClockFace::Orientation,
+    ClockFace::Luopan,
+};
 
 static ClockFace s_clock_face = ClockFace::ClassicAnalog;
 static uint16_t s_clock_bg565 = 0;
 static int s_analog_saved_local_h = -1;
 static int s_analog_saved_local_m = -1;
+static bool s_navigation_mode = false;
+
+static void pm_faces_draw_navigation_zoom(void) {
+  if (!pm_gfx) {
+    return;
+  }
+  uint16_t *fb = pm_gfx->getFramebuffer();
+  if (!fb) {
+    return;
+  }
+  static uint16_t *s_zoom_src = nullptr;
+  constexpr size_t kFbPixels = static_cast<size_t>(LCD_WIDTH) * LCD_HEIGHT;
+  if (!s_zoom_src) {
+    s_zoom_src = static_cast<uint16_t *>(
+        heap_caps_malloc(kFbPixels * sizeof(uint16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  }
+  if (!s_zoom_src) {
+    pm_gfx->drawCircle(pm_face_lcd_cx, pm_face_lcd_cy, 216, pm_gfx->color565(255, 220, 160));
+    pm_face_draw_centered_line("nav", 28, pm_gfx->color565(255, 220, 160), 1, 1);
+    return;
+  }
+  memcpy(s_zoom_src, fb, kFbPixels * sizeof(uint16_t));
+  pm_gfx->fillScreen(0);
+
+  constexpr int kDstW = 420;
+  constexpr int kDstH = 420;
+  constexpr int kOffX = (LCD_WIDTH - kDstW) / 2;
+  constexpr int kOffY = (LCD_HEIGHT - kDstH) / 2;
+  for (int y = 0; y < kDstH; ++y) {
+    const int src_y = (y * LCD_HEIGHT) / kDstH;
+    uint16_t *dst = fb + (kOffY + y) * LCD_WIDTH + kOffX;
+    const uint16_t *src_row = s_zoom_src + src_y * LCD_WIDTH;
+    for (int x = 0; x < kDstW; ++x) {
+      const int src_x = (x * LCD_WIDTH) / kDstW;
+      dst[x] = src_row[src_x];
+    }
+  }
+
+  const uint16_t accent = pm_gfx->color565(255, 220, 160);
+  const uint16_t dim = pm_gfx->color565(88, 78, 56);
+  pm_gfx->drawCircle(pm_face_lcd_cx, pm_face_lcd_cy, 222, dim);
+  pm_gfx->drawCircle(pm_face_lcd_cx, pm_face_lcd_cy, 218, accent);
+  pm_face_draw_centered_line("navigation", 18, accent, 1, 1);
+}
 
 static float pm_faces_home_hue_deg(void) {
   struct tm tm = {};
@@ -165,6 +253,10 @@ void pm_faces_set(ClockFace face) {
   pm_faces_transition_to(face);
 }
 
+void pm_faces_set_navigation_mode(bool active) { s_navigation_mode = active; }
+
+bool pm_faces_navigation_mode(void) { return s_navigation_mode; }
+
 void pm_faces_open_settings(void) {
   pm_settings_set_page(SettingsPage::WiFi);
   pm_faces_set(ClockFace::Settings);
@@ -178,12 +270,30 @@ void pm_faces_cycle(int delta) {
   if (s_clock_face == ClockFace::Settings) {
     return;
   }
-  int v = static_cast<int>(s_clock_face);
-  const int n = static_cast<int>(ClockFace::kNumFaces);
-  do {
-    v = (v + delta + n) % n;
-  } while (pm_faces_skip_in_dial(static_cast<ClockFace>(v)));
-  pm_faces_transition_to(static_cast<ClockFace>(v));
+  constexpr int n = static_cast<int>(sizeof(k_face_dial_order) / sizeof(k_face_dial_order[0]));
+  int idx = -1;
+  for (int i = 0; i < n; ++i) {
+    if (k_face_dial_order[i] == s_clock_face) {
+      idx = i;
+      break;
+    }
+  }
+  if (idx < 0) {
+    int v = static_cast<int>(s_clock_face);
+    const int face_count = static_cast<int>(ClockFace::kNumFaces);
+    do {
+      v = (v + delta + face_count) % face_count;
+    } while (pm_faces_skip_in_dial(static_cast<ClockFace>(v)));
+    pm_faces_transition_to(static_cast<ClockFace>(v));
+    return;
+  }
+  for (int step = 0; step < n; ++step) {
+    idx = (idx + delta + n) % n;
+    if (!pm_faces_skip_in_dial(k_face_dial_order[idx])) {
+      pm_faces_transition_to(k_face_dial_order[idx]);
+      return;
+    }
+  }
 }
 
 
@@ -209,7 +319,8 @@ void pm_faces_draw(float thinking_progress) {
       s_clock_face != ClockFace::Notes && s_clock_face != ClockFace::Ocarina &&
       s_clock_face != ClockFace::Bongo && s_clock_face != ClockFace::PanDrum &&
       s_clock_face != ClockFace::Piano && s_clock_face != ClockFace::Tuning &&
-      s_clock_face != ClockFace::Level && s_clock_face != ClockFace::Alethiometer &&
+      s_clock_face != ClockFace::Level && s_clock_face != ClockFace::Orientation &&
+      s_clock_face != ClockFace::Luopan && s_clock_face != ClockFace::Alethiometer &&
       s_clock_face != ClockFace::Runes) {
 #if MYNAH_HUE_HOME_ONLY
     if (s_clock_face == ClockFace::ClassicAnalog) {
@@ -309,6 +420,12 @@ void pm_faces_draw(float thinking_progress) {
     case ClockFace::Level:
       pm_face_level_draw();
       break;
+    case ClockFace::Orientation:
+      pm_face_orientation_draw();
+      break;
+    case ClockFace::Luopan:
+      pm_face_luopan_draw();
+      break;
     case ClockFace::Tuning:
       pm_face_tuning_draw();
       break;
@@ -334,7 +451,8 @@ void pm_faces_draw(float thinking_progress) {
                         s_clock_face == ClockFace::Tarot || s_clock_face == ClockFace::Notes ||
                         s_clock_face == ClockFace::Ocarina || s_clock_face == ClockFace::Bongo ||
                         s_clock_face == ClockFace::PanDrum || s_clock_face == ClockFace::Piano ||
-                        s_clock_face == ClockFace::Level || s_clock_face == ClockFace::Tuning ||
+                        s_clock_face == ClockFace::Level || s_clock_face == ClockFace::Orientation ||
+                        s_clock_face == ClockFace::Luopan || s_clock_face == ClockFace::Tuning ||
                         s_clock_face == ClockFace::Alethiometer || s_clock_face == ClockFace::Runes)
                            ? 352
                            : 320;
@@ -353,12 +471,16 @@ void pm_faces_draw(float thinking_progress) {
       s_clock_face != ClockFace::Tarot && s_clock_face != ClockFace::Notes &&
       s_clock_face != ClockFace::Ocarina && s_clock_face != ClockFace::Bongo &&
       s_clock_face != ClockFace::PanDrum && s_clock_face != ClockFace::Piano &&
-      s_clock_face != ClockFace::Level && s_clock_face != ClockFace::Tuning &&
+      s_clock_face != ClockFace::Level && s_clock_face != ClockFace::Orientation &&
+      s_clock_face != ClockFace::Luopan && s_clock_face != ClockFace::Tuning &&
       s_clock_face != ClockFace::Alethiometer && s_clock_face != ClockFace::Runes) {
     pm_face_draw_circumference_rainbow_24h(pm_time_valid());
     if (thinking_progress >= 0.f) {
       pm_face_draw_thinking_progress_ring(thinking_progress);
     }
+  }
+  if (s_navigation_mode) {
+    pm_faces_draw_navigation_zoom();
   }
   s_clock_bg565 = bg;
   if (pm_time_valid()) {
@@ -390,8 +512,9 @@ bool pm_faces_banner_low(void) {
          f == ClockFace::Radar || f == ClockFace::Faculty || f == ClockFace::Weather ||
          f == ClockFace::Quotes || f == ClockFace::Tarot || f == ClockFace::Notes ||
          f == ClockFace::Ocarina || f == ClockFace::Bongo || f == ClockFace::PanDrum ||
-         f == ClockFace::Piano || f == ClockFace::Level || f == ClockFace::Tuning ||
-         f == ClockFace::Alethiometer || f == ClockFace::Runes;
+         f == ClockFace::Piano || f == ClockFace::Level || f == ClockFace::Orientation ||
+         f == ClockFace::Luopan || f == ClockFace::Tuning || f == ClockFace::Alethiometer ||
+         f == ClockFace::Runes;
 }
 
 uint16_t pm_faces_last_bg565(void) { return s_clock_bg565; }
@@ -406,6 +529,7 @@ bool pm_faces_local_hm_changed(int hour, int min) {
       s_clock_face == ClockFace::Notes || s_clock_face == ClockFace::Ocarina ||
       s_clock_face == ClockFace::Bongo || s_clock_face == ClockFace::PanDrum ||
       s_clock_face == ClockFace::Piano || s_clock_face == ClockFace::Level ||
+      s_clock_face == ClockFace::Orientation || s_clock_face == ClockFace::Luopan ||
       s_clock_face == ClockFace::Tuning || s_clock_face == ClockFace::Alethiometer ||
       s_clock_face == ClockFace::Runes) {
     return false;

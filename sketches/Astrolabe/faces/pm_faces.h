@@ -58,6 +58,10 @@ enum class ClockFace : uint8_t {
   Alethiometer,
   /** Three-rune past / present / future spread; tap casts and speaks a fortune. */
   Runes,
+  /** Relative heading + tilt orientation dial for the Luopan variant. */
+  Orientation,
+  /** Feng-shui luopan dial; relative heading only on 6DOF hardware. */
+  Luopan,
   kNumFaces,
 };
 
@@ -68,6 +72,8 @@ void pm_faces_open_settings(void);
 bool pm_faces_castalia_active(void);
 bool pm_faces_is_commonplace_home(void);
 bool pm_faces_banner_low(void);
+void pm_faces_set_navigation_mode(bool active);
+bool pm_faces_navigation_mode(void);
 void pm_faces_draw(float thinking_progress = -1.f);
 /** Home gem + rainbow only (breath animation). */
 void pm_faces_draw_home_gem_pulse(void);

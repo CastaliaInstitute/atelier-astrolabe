@@ -1,6 +1,7 @@
 #include "pm_settings.h"
 
 #include "faces/castalia/pm_face_castalia.h"
+#include "faces/settings/pm_face_settings_variant.h"
 #include "faces/settings/pm_face_settings_wifi.h"
 #include "faces/shared/pm_face_draw.h"
 #include "pin_config.h"
@@ -22,6 +23,19 @@ void pm_settings_cycle(int delta) {
   const int n = static_cast<int>(SettingsPage::kCount);
   v = (v % n + n) % n;
   s_page = static_cast<SettingsPage>(v);
+}
+
+const char *pm_settings_page_label(SettingsPage page) {
+  switch (page) {
+    case SettingsPage::WiFi:
+      return "wifi";
+    case SettingsPage::Variant:
+      return "variant";
+    case SettingsPage::Castalia:
+      return "castalia";
+    default:
+      return "settings";
+  }
 }
 
 static void pm_settings_draw_chrome(void) {
@@ -46,6 +60,9 @@ void pm_settings_draw(void) {
   switch (s_page) {
     case SettingsPage::WiFi:
       pm_face_settings_wifi_draw();
+      break;
+    case SettingsPage::Variant:
+      pm_face_settings_variant_draw();
       break;
     case SettingsPage::Castalia:
       pm_face_castalia_draw();

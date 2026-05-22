@@ -54,6 +54,7 @@
 #include "faces/spotify/pm_face_spotify.h"
 #include "faces/calcifer/pm_face_calcifer.h"
 #include "faces/level/pm_face_level.h"
+#include "faces/luopan/pm_face_luopan.h"
 #include "faces/weather/pm_face_weather.h"
 #include "faces/settings/pm_face_settings_wifi.h"
 #include "pm_weather.h"
@@ -62,6 +63,7 @@
 #include "faces/spectrum/pm_face_spectrum.h"
 #include "faces/synastry/pm_face_synastry.h"
 #include "faces/radar/pm_face_radar.h"
+#include "faces/orientation/pm_face_orientation.h"
 #include "pm_presence.h"
 #include "pm_motion.h"
 #include "pm_faculty.h"
@@ -77,6 +79,7 @@
 #include "pm_daily_briefing.h"
 #include "pm_daily_briefing_nvs.h"
 #include "pm_user_nvs.h"
+#include "pm_variant.h"
 #include "faces/home/pm_face_home_briefing.h"
 #include "pm_speaker.h"
 
@@ -297,6 +300,7 @@ static float recording_progress_now() {
 
 /** Stop voice/PTT and return to clock (swipe away from Moon fortune, astro, etc.). */
 static void gesture_end_voice_ui(void) {
+  pm_faces_set_navigation_mode(false);
   pm_voice_abort();
   pm_commonplace_abort();
   pm_speaker_abort();
@@ -370,6 +374,15 @@ static bool gesture_cycle_face(int delta) {
   g_clock_repaint_pending = true;
   Serial.printf("[gesture] face -> %d\n", static_cast<int>(pm_faces_current()));
   return true;
+}
+
+static bool gesture_is_navigation_swipe(PmGestureKind kind) {
+  return kind == PmGestureKind::SwipeLeft || kind == PmGestureKind::SwipeRight ||
+         kind == PmGestureKind::SwipeUp || kind == PmGestureKind::SwipeDown;
+}
+
+static int gesture_navigation_delta(PmGestureKind kind) {
+  return (kind == PmGestureKind::SwipeLeft || kind == PmGestureKind::SwipeUp) ? 1 : -1;
 }
 
 static void handle_usb_audio_stream_event(void) {
@@ -642,7 +655,9 @@ static bool face_index_from_name(const char *name, int *out) {
            {"pan-drum", 26},    {"pandrom", 26},     {"pandrom_face", 26}, {"handpan", 26},
            {"hang", 26},        {"alethiometer", 27}, {"aleth", 27},     {"compass", 27},
            {"golden_compass", 27}, {"runes", 28},     {"rune", 28},      {"futhark", 28},
-           {"fortune", 28}};
+           {"fortune", 28},      {"orientation", 29},  {"orient", 29},    {"heading", 29},
+           {"relative_heading", 29}, {"luopan", 30},   {"fengshui", 30},  {"feng_shui", 30},
+           {"feng-shui", 30}};
   for (const auto &e : k) {
     if (strcasecmp(name, e.n) == 0) {
       *out = e.idx;
@@ -722,6 +737,10 @@ static const FaceTourInfo k_face_tour[] = {
      "WiFi is available for LLM interpretation", "offline, compass animation only", true, false},
     {"runes", "three-rune past, present, future fortune spread", "the selected rune spread and spoken fortune",
      "WiFi is available for TTS fortune", "offline, visual spread only", true, false},
+    {"orientation", "relative heading and pitch/roll orientation dial", "the current relative orientation",
+     "6DOF orientation is drawing", "IMU unavailable", false, false},
+    {"luopan", "feng-shui luopan dial with 24 mountains", "the active relative luopan alignment",
+     "relative luopan is drawing", "IMU unavailable", false, false},
 };
 
 static const FaceTourInfo *face_tour_info(int idx) {
@@ -797,6 +816,18 @@ static bool instrument_stack_contains(ClockFace face) {
     }
   }
   return false;
+}
+
+static void release_noninstrument_speaker_task(uint32_t now) {
+  static uint32_t s_last_release_try_ms = 0;
+  if (g_state != AppState::kClock || instrument_stack_contains(pm_faces_current())) {
+    return;
+  }
+  if (now - s_last_release_try_ms < 1000u) {
+    return;
+  }
+  s_last_release_try_ms = now;
+  (void)pm_speaker_release_idle_task();
 }
 
 static bool instrument_stack_horizontal_exit(PmGestureKind kind) {
@@ -1685,6 +1716,9 @@ static void poll_serial_birth_commands() {
           Serial.println("qa: 25 tuning");
           Serial.println("qa: 26 pandrum");
           Serial.println("qa: 27 alethiometer");
+          Serial.println("qa: 28 runes");
+          Serial.println("qa: 29 orientation");
+          Serial.println("qa: 30 luopan");
         } else if (strncmp(args, "tour", 4) == 0 && (args[4] == '\0' || args[4] == ' ')) {
           handle_tour_command(args + 4);
         } else if (!pm_qa_inject_command(args)) {
@@ -1885,6 +1919,7 @@ void setup() {
   pm_faculty_ensure_demo_seed();
   pm_home_gem_pulse_begin();
   pm_user_begin();
+  pm_variant_begin();
 
   if (pm_wifi_begin()) {
     pm_ntp_sync_blocking();
@@ -1920,6 +1955,7 @@ void loop() {
   face_tour_tick(now);
   handle_usb_audio_stream_event();
   const uint8_t side_ev = pm_side_buttons_poll(now);
+  release_noninstrument_speaker_task(now);
 
   if (g_state == AppState::kClock && pm_faces_current() == ClockFace::TibetanBowl) {
     if (pm_face_tibetan_bowl_touch_tick(now)) {
@@ -1929,6 +1965,36 @@ void loop() {
 
   PmGestureEvent ge;
   while (pm_gesture_consume(&ge)) {
+    if (g_state == AppState::kClock && ge.kind == PmGestureKind::DoubleTap) {
+      if (pm_faces_navigation_mode()) {
+        pm_faces_set_navigation_mode(false);
+        g_clock_repaint_pending = true;
+        ge.kind = PmGestureKind::Tap;
+      } else {
+        pm_faces_set_navigation_mode(true);
+        snprintf(g_gesture_banner, sizeof(g_gesture_banner), "navigation");
+        g_clock_repaint_pending = true;
+        continue;
+      }
+    }
+    if (g_state == AppState::kClock && pm_faces_navigation_mode() &&
+        gesture_is_navigation_swipe(ge.kind)) {
+      if (pm_faces_current() == ClockFace::Settings && ge.kind == PmGestureKind::SwipeUp) {
+        pm_faces_set_navigation_mode(false);
+        pm_faces_set(pm_variant_home_face());
+        g_gesture_banner[0] = '\0';
+        g_clock_repaint_pending = false;
+        if (pm_gfx) {
+          pm_faces_draw();
+        }
+        continue;
+      }
+      const int delta = gesture_navigation_delta(ge.kind);
+      (void)gesture_cycle_face(delta);
+      pm_faces_set_navigation_mode(true);
+      snprintf(g_gesture_banner, sizeof(g_gesture_banner), "navigation");
+      continue;
+    }
     if (g_state == AppState::kClock && pm_faces_is_commonplace_home() &&
         ge.kind == PmGestureKind::Tap) {
       if (home_begin_daily_briefing()) {
@@ -1962,8 +2028,17 @@ void loop() {
         }
         continue;
       }
+      if (ge.kind == PmGestureKind::Tap && pm_settings_page() == SettingsPage::Variant) {
+        const PmDeviceVariant variant = pm_variant_cycle(1);
+        snprintf(g_gesture_banner, sizeof(g_gesture_banner), "variant: %s", pm_variant_label(variant));
+        g_clock_repaint_pending = false;
+        if (pm_gfx) {
+          pm_faces_draw();
+        }
+        continue;
+      }
       if (ge.kind == PmGestureKind::SwipeUp) {
-        pm_faces_set(ClockFace::ClassicAnalog);
+        pm_faces_set(pm_variant_home_face());
         g_gesture_banner[0] = '\0';
         g_clock_repaint_pending = false;
         if (pm_gfx) {
@@ -1979,7 +2054,7 @@ void loop() {
           pm_castalia_on_face_enter();
         }
         snprintf(g_gesture_banner, sizeof(g_gesture_banner), "settings: %s",
-                 pm_settings_page() == SettingsPage::WiFi ? "wifi" : "castalia");
+                 pm_settings_page_label(pm_settings_page()));
         g_clock_repaint_pending = false;
         if (pm_gfx) {
           pm_faces_draw();
@@ -1987,32 +2062,9 @@ void loop() {
         continue;
       }
     }
-    if (ge.kind == PmGestureKind::SwipeLeft || ge.kind == PmGestureKind::SwipeRight ||
-        (pm_faces_current() == ClockFace::Moon &&
-         (ge.kind == PmGestureKind::SwipeUp || ge.kind == PmGestureKind::SwipeDown)) ||
-        (pm_faces_current() == ClockFace::Radar &&
-         (ge.kind == PmGestureKind::SwipeUp || ge.kind == PmGestureKind::SwipeDown))) {
-      if (pm_faces_current() == ClockFace::Settings) {
-        continue;
-      }
-      if (g_state == AppState::kClock && instrument_stack_horizontal_exit(ge.kind)) {
-        continue;
-      }
-      if (g_state == AppState::kClock &&
-          (ge.kind == PmGestureKind::SwipeLeft || ge.kind == PmGestureKind::SwipeRight)) {
-        if (pm_faces_current() == ClockFace::TibetanBowl &&
-            pm_face_tibetan_bowl_consume_rim_swipe_block()) {
-          g_clock_repaint_pending = true;
-          continue;
-        }
-      }
-      const int delta =
-          (ge.kind == PmGestureKind::SwipeLeft || ge.kind == PmGestureKind::SwipeUp) ? 1 : -1;
-      (void)gesture_cycle_face(delta);
-      continue;
-    } else if (g_state == AppState::kClock &&
-               pm_audio_route_handle_gesture(ge.kind, pm_faces_current(), g_gesture_banner,
-                                             sizeof(g_gesture_banner))) {
+    if (g_state == AppState::kClock &&
+        pm_audio_route_handle_gesture(ge.kind, pm_faces_current(), g_gesture_banner,
+                                      sizeof(g_gesture_banner))) {
       if (pm_faces_current() == ClockFace::Spectrum) {
         pm_audio_analyzer_mic_end();
         (void)pm_audio_analyzer_mic_begin();
@@ -2317,6 +2369,20 @@ void loop() {
       if (level_anim) {
         s_last_level_ms = now;
         (void)pm_face_level_anim_tick(now);
+      }
+
+      static uint32_t s_last_orientation_ms = 0;
+      const bool orientation_anim =
+          (pm_faces_current() == ClockFace::Orientation || pm_faces_current() == ClockFace::Luopan) &&
+          g_state == AppState::kClock && (now - s_last_orientation_ms >= 80u);
+      if (orientation_anim) {
+        s_last_orientation_ms = now;
+        if (pm_faces_current() == ClockFace::Luopan) {
+          pm_face_luopan_tick(now);
+        } else {
+          pm_face_orientation_tick(now);
+        }
+        g_clock_repaint_pending = true;
       }
 
       if (pm_faces_castalia_active() && wifi && pm_castalia_tick_pair_start()) {
