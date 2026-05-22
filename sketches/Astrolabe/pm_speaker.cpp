@@ -33,8 +33,8 @@ extern "C" {
 static const char *TAG = "pm_speaker";
 
 #define I2S_TX I2S_NUM_0
-static constexpr uint32_t kSpeakerTaskStack = 49152;
-static constexpr uint32_t kSpeakerTaskFallbackStack = 28672;
+static constexpr uint32_t kSpeakerTaskStack = 32768;
+static constexpr uint32_t kSpeakerTaskFallbackStack = 20480;
 static constexpr UBaseType_t kSpeakerTaskPriority = 3;
 static constexpr int kSpeakerVolume = 72;
 static uint32_t s_max_play_seconds = 180u;
@@ -89,6 +89,7 @@ static uint32_t s_play_est_ms = 1;
 static volatile uint32_t s_play_pcm_frames = 0;
 static volatile uint32_t s_play_pcm_hz = 0;
 static volatile bool s_tone_stop = false;
+static volatile bool s_mp3_stop = false;
 static volatile bool s_http_mp3_stream_active = false;
 static bool s_speaker_auto_release = true;
 
@@ -622,11 +623,15 @@ static bool play_mp3_streaming(const uint8_t *mp3, size_t mp3_len) {
   int out_hz = 0;
   int out_channels = 0;
   uint32_t pcm_frames_at_hz = 0;
+  s_mp3_stop = false;
 
   static int16_t pcm[MINIMP3_MAX_SAMPLES_PER_FRAME];
   static int16_t stereo_up[MINIMP3_MAX_SAMPLES_PER_FRAME];
 
   while (bytes_left > 0) {
+    if (s_mp3_stop || s_speaker_status == PmSpeakerStatus::DoneFail) {
+      break;
+    }
     speaker_task_wdt_reset();
 
     mp3dec_frame_info_t info = {};
@@ -703,6 +708,9 @@ static bool play_mp3_streaming(const uint8_t *mp3, size_t mp3_len) {
         stereo_up[2 * i] = s;
         stereo_up[2 * i + 1] = s;
       }
+      if (s_mp3_stop || s_speaker_status == PmSpeakerStatus::DoneFail) {
+        break;
+      }
       if (i2s_write_all(stereo_up, n * 2) != ESP_OK) {
         i2s_tx_stop();
         return false;
@@ -713,11 +721,22 @@ static bool play_mp3_streaming(const uint8_t *mp3, size_t mp3_len) {
         ESP_LOGW(TAG, "stereo frame too large");
         break;
       }
+      if (s_mp3_stop || s_speaker_status == PmSpeakerStatus::DoneFail) {
+        break;
+      }
       if (i2s_write_all(pcm, pcm_s16) != ESP_OK) {
         i2s_tx_stop();
         return false;
       }
     }
+  }
+
+  if (s_mp3_stop || s_speaker_status == PmSpeakerStatus::DoneFail) {
+    if (i2s_ready) {
+      i2s_tx_stop();
+    }
+    s_mp3_stop = false;
+    return false;
   }
 
   if (bytes_left > 32) {
@@ -894,6 +913,8 @@ void pm_speaker_abort(void) {
       s_bowl_stop = true;
     } else if (s_play_mode == 3) {
       s_bongo_stop = true;
+    } else {
+      s_mp3_stop = true;
     }
     s_speaker_status = PmSpeakerStatus::DoneFail;
     (void)speaker_wait_idle(10000);

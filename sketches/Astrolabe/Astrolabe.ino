@@ -415,6 +415,21 @@ static void gesture_end_voice_ui(void) {
   g_state = AppState::kClock;
 }
 
+static bool emergency_mute_tap(const PmGestureEvent &ge) {
+  if (ge.kind != PmGestureKind::Tap) {
+    return false;
+  }
+  if (g_state != AppState::kPlaying && !pm_speaker_is_playing() &&
+      !pm_voice_message_streaming_play() && !pm_voice_daily_briefing_streaming_play()) {
+    return false;
+  }
+  gesture_end_voice_ui();
+  snprintf(g_gesture_banner, sizeof(g_gesture_banner), "muted");
+  g_clock_repaint_pending = true;
+  Serial.println("voice: emergency mute tap");
+  return true;
+}
+
 static bool home_begin_daily_briefing(void) {
   if (s_face_tour_active) {
     snprintf(g_gesture_banner, sizeof(g_gesture_banner), "brief: tour active");
@@ -1699,10 +1714,12 @@ static void face_tour_prefetch(void) {
 
   PmFacultyProfile guide = {};
   if (pm_faculty_active(&guide)) {
+    pm_faculty_pin_bust(guide.slug);
     (void)pm_faculty_request_bust(guide.slug);
     face_tour_wait_for_bust(8000);
   }
-  if (g_quotes_ui.ok && g_quotes_ui.faculty_slug[0]) {
+  if (g_quotes_ui.ok && g_quotes_ui.faculty_slug[0] &&
+      (!guide.valid || strcmp(g_quotes_ui.faculty_slug, guide.slug) == 0)) {
     (void)pm_faculty_request_bust(g_quotes_ui.faculty_slug);
     face_tour_wait_for_bust(8000);
   }
@@ -1765,14 +1782,20 @@ static void face_tour_select(int idx) {
   (void)face_tour_guide_bust_ensure();
   s_face_tour_tts_retry = 0;
   s_face_tour_loaded_idx = idx;
-  s_face_tour_overlay_started_ms = millis();
+  if (s_face_tour_overlay_started_ms == 0) {
+    s_face_tour_overlay_started_ms = millis();
+  }
   snprintf(g_gesture_banner, sizeof(g_gesture_banner), "tour: %.28s", info->name);
   g_clock_repaint_pending = true;
   const char *health = face_tour_health_text(info);
   Serial.printf("tour: loading %d %s heap=%u largest=%u psram=%u health=%s - %s\n", idx, info->name,
                 static_cast<unsigned>(pm_heap_internal_free()), static_cast<unsigned>(pm_heap_internal_largest()),
                 static_cast<unsigned>(pm_heap_psram_free()), health, info->summary);
-  face_tour_voice_start(info, idx);
+  if (s_face_tour_auto_advance || s_face_tour_button_test) {
+    face_tour_voice_start(info, idx);
+  } else if (s_face_tour_narrate) {
+    Serial.printf("tour: %d %s ready; tap bust for narration\n", idx, info->name);
+  }
 }
 
 static void face_tour_note_current_face(void) {
@@ -1791,7 +1814,9 @@ static void face_tour_note_current_face(void) {
   s_face_tour_idx = idx;
   s_face_tour_tts_retry = 0;
   s_face_tour_loaded_idx = idx;
-  s_face_tour_overlay_started_ms = millis();
+  if (s_face_tour_overlay_started_ms == 0) {
+    s_face_tour_overlay_started_ms = millis();
+  }
   tour_mark_face_seen(idx);
   (void)face_tour_guide_bust_ensure();
   snprintf(g_gesture_banner, sizeof(g_gesture_banner), "tour: %.28s", info->name);
@@ -1799,7 +1824,11 @@ static void face_tour_note_current_face(void) {
   Serial.printf("tour: seen %d %s progress=%u/%u\n", idx, info->name,
                 static_cast<unsigned>(pm_tour_seen_count()),
                 static_cast<unsigned>(pm_tour_total_count()));
-  face_tour_voice_start(info, idx);
+  if (s_face_tour_button_test) {
+    face_tour_voice_start(info, idx);
+  } else if (s_face_tour_narrate) {
+    Serial.printf("tour: %d %s ready; tap bust for narration\n", idx, info->name);
+  }
 }
 
 static void face_tour_start(uint32_t dwell_ms, bool narrate = false, bool button_test = false,
@@ -1872,6 +1901,31 @@ static void face_tour_stop(void) {
   Serial.println("tour: stopped");
 }
 
+static bool face_tour_guide_overlay_bounds(int *out_x, int *out_y, int *out_box) {
+  if (!s_face_tour_active) {
+    return false;
+  }
+  const int box = LCD_WIDTH / 4;
+  const int pad = 8;
+  const uint32_t dur = 520u;
+  const uint32_t elapsed = s_face_tour_overlay_started_ms == 0 ? dur : millis() - s_face_tour_overlay_started_ms;
+  const int start_x = -box - 8;
+  const int end_x = pad;
+  const int x = (elapsed >= dur) ? end_x
+                                 : start_x + static_cast<int>((end_x - start_x) * elapsed / dur);
+  const int y = LCD_HEIGHT - box - pad;
+  if (out_x) {
+    *out_x = x;
+  }
+  if (out_y) {
+    *out_y = y;
+  }
+  if (out_box) {
+    *out_box = box;
+  }
+  return true;
+}
+
 static void face_tour_draw_guide_overlay(void) {
   if (!s_face_tour_active || !pm_gfx) {
     return;
@@ -1887,15 +1941,12 @@ static void face_tour_draw_guide_overlay(void) {
   if (!pm_faculty_bust_ready_for(guide.slug)) {
     return;
   }
-  const int box = LCD_WIDTH / 4;
-  const int pad = 8;
-  const uint32_t elapsed = millis() - s_face_tour_overlay_started_ms;
-  const uint32_t dur = 520u;
-  const int start_x = -box - 8;
-  const int end_x = pad;
-  const int x = (elapsed >= dur) ? end_x
-                                 : start_x + static_cast<int>((end_x - start_x) * elapsed / dur);
-  const int y = LCD_HEIGHT - box - pad;
+  int x = 0;
+  int y = 0;
+  int box = 0;
+  if (!face_tour_guide_overlay_bounds(&x, &y, &box)) {
+    return;
+  }
   (void)pm_faculty_draw_real_bust_for_at(&guide, x + box / 2, y + box - 2, box, box);
 }
 
@@ -1931,6 +1982,39 @@ static bool face_voice_begin_current(void) {
   g_moon_voice_pcm = false;
   g_voice_play_reset = true;
   g_state = AppState::kThinking;
+  return true;
+}
+
+static bool face_tour_handle_bust_tap(const PmGestureEvent &ge) {
+  if (!s_face_tour_active || ge.kind != PmGestureKind::Tap || g_state != AppState::kClock) {
+    return false;
+  }
+  int x = 0;
+  int y = 0;
+  int box = 0;
+  if (!face_tour_guide_overlay_bounds(&x, &y, &box)) {
+    return false;
+  }
+  if (ge.x < x || ge.x >= x + box || ge.y < y || ge.y >= y + box) {
+    return false;
+  }
+  if (s_face_tour_voice_phase == 1 || pm_speaker_is_playing()) {
+    face_tour_voice_reset();
+    pm_speaker_abort();
+    snprintf(g_gesture_banner, sizeof(g_gesture_banner), "muted");
+    g_clock_repaint_pending = true;
+    Serial.println("tour: bust tap muted narration");
+    return true;
+  }
+  const int idx = static_cast<int>(pm_faces_current());
+  const FaceTourInfo *info = face_tour_info(idx);
+  if (!info) {
+    snprintf(g_gesture_banner, sizeof(g_gesture_banner), "tour: no voice");
+    return true;
+  }
+  face_tour_voice_start(info, idx);
+  g_clock_repaint_pending = true;
+  Serial.printf("tour: bust tap narrate %d %s\n", idx, info->name);
   return true;
 }
 
@@ -3028,9 +3112,15 @@ void loop() {
 
   PmGestureEvent ge;
   while (pm_gesture_consume(&ge)) {
+    if (emergency_mute_tap(ge)) {
+      continue;
+    }
     if (ge.kind == PmGestureKind::SwipeLeft || ge.kind == PmGestureKind::SwipeRight) {
       const int delta = ge.kind == PmGestureKind::SwipeLeft ? 1 : -1;
       (void)gesture_cycle_face(delta);
+      continue;
+    }
+    if (face_tour_handle_bust_tap(ge)) {
       continue;
     }
     if (g_state == AppState::kClock && pm_faces_is_commonplace_home() &&
