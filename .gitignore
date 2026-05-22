@@ -37,5 +37,6 @@ sdkconfig.*
 sdkconfig.old
 compile_commands.json
 build/
+docs/sim/
 .dummy/
 dependencies.lock

@@ -6,10 +6,14 @@ include(FetchContent)
 
 set(LV_CONF_INCLUDE_SIMPLE ON CACHE BOOL "" FORCE)
 set(LV_CONF_PATH "${CMAKE_CURRENT_SOURCE_DIR}/lv_conf.h" CACHE FILEPATH "" FORCE)
+set(CONFIG_LV_BUILD_DEMOS OFF CACHE BOOL "" FORCE)
+set(CONFIG_LV_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(CONFIG_LV_USE_THORVG_INTERNAL OFF CACHE BOOL "" FORCE)
 
 FetchContent_Declare(
   lvgl
   URL https://github.com/lvgl/lvgl/archive/refs/tags/v9.3.0.tar.gz
+  DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 FetchContent_MakeAvailable(lvgl)
 
