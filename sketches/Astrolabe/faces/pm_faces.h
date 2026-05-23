@@ -78,6 +78,8 @@ enum class ClockFace : uint8_t {
   Pythia,
   /** Daily geomantic figure; swipe up/down browses the 16 figures. */
   Geomancy,
+  /** Enochian Angel visage: luminous tablet oracle face. */
+  EnochianAngel,
   kNumFaces,
 };
 

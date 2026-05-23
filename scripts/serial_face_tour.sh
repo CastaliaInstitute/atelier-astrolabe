@@ -27,7 +27,7 @@ CRASH = re.compile(
 
 port = sys.argv[1]
 dwell_ms = int(sys.argv[2])
-face_count = 39
+face_count = 40
 timeout = max(30.0, (face_count * dwell_ms / 1000.0) + 18.0)
 
 ser = serial.Serial(port, 115200, timeout=0.25)

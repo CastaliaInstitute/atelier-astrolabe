@@ -62,6 +62,7 @@
 #include "faces/lenormand/pm_face_lenormand.h"
 #include "faces/luopan/pm_face_luopan.h"
 #include "faces/pythia/pm_face_pythia.h"
+#include "faces/enochian_angel/pm_face_enochian_angel.h"
 #include "faces/weather/pm_face_weather.h"
 #include "faces/settings/pm_face_settings_wifi.h"
 #include "pm_weather.h"
@@ -789,7 +790,9 @@ static bool face_index_from_name(const char *name, int *out) {
       {"oracle", ClockFace::Lenormand}, {"petit_lenormand", ClockFace::Lenormand},
       {"pythia", ClockFace::Pythia}, {"delphi", ClockFace::Pythia},
       {"geomancy", ClockFace::Geomancy}, {"geomantic", ClockFace::Geomancy},
-      {"geo", ClockFace::Geomancy}, {"figures", ClockFace::Geomancy}};
+      {"geo", ClockFace::Geomancy}, {"figures", ClockFace::Geomancy},
+      {"enochian", ClockFace::EnochianAngel}, {"angel", ClockFace::EnochianAngel},
+      {"enochian_angel", ClockFace::EnochianAngel}, {"enochian-angel", ClockFace::EnochianAngel}};
   for (const auto &e : k) {
     if (strcasecmp(name, e.n) == 0) {
       *out = static_cast<int>(e.face);
@@ -898,6 +901,9 @@ static const FaceTourInfo k_face_tour[] = {
     {ClockFace::Geomancy, "geomancy", "daily geomantic figure from the 16 traditional figures",
      "the active geomantic figure and its practical keyword",
      "drawing local geomancy figures", "drawing local geomancy figures", false, false},
+    {ClockFace::EnochianAngel, "enochian", "luminous Enochian Angel visage and tablet geometry",
+     "an angelic oracle reflection from the tablet face",
+     "WiFi is available for angelic oracle voice", "offline, angel face only", true, false},
 };
 
 static constexpr int face_tour_count(void) {
@@ -1335,6 +1341,17 @@ static bool face_voice_build_prompt(const FaceTourInfo *info, char *msg, size_t 
                "%sThe asker stands before the Pythia face but has not spoken a specific question. Give a "
                "brief Delphic omen inviting a better question.",
                tour_test ? "Tour-test the Pythia TTS button. " : "");
+      break;
+    case ClockFace::EnochianAngel:
+      snprintf(s_face_voice_face, sizeof(s_face_voice_face), "enochian");
+      if (!pm_face_enochian_angel_build_system_prompt(sys, sys_cap)) {
+        snprintf(g_gesture_banner, sizeof(g_gesture_banner), "enochian: prompt fail");
+        return false;
+      }
+      snprintf(msg, msg_cap,
+               "%sFace: Enochian Angel. The display shows a luminous angelic visage, ordered stars, and "
+               "tablet geometry. Give a concise symbolic reflection for the current threshold.",
+               tour_test ? "Tour-test the Enochian Angel TTS button. " : "");
       break;
     case ClockFace::Notes:
       snprintf(msg, msg_cap,

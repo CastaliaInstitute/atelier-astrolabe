@@ -10,6 +10,7 @@
 #include "faces/castalia/pm_face_castalia.h"
 #include "faces/classic_analog/pm_face_classic_analog.h"
 #include "faces/digital/pm_face_digital.h"
+#include "faces/enochian_angel/pm_face_enochian_angel.h"
 #include "faces/faculty/pm_face_faculty.h"
 #include "faces/focus/pm_face_focus.h"
 #include "faces/geomancy/pm_face_geomancy.h"

@@ -57,6 +57,10 @@ static const face_meta_t k_faces[ASTROLABE_UI_FACE_COUNT] = {
     {"Question", "QUESTION", "daily prompt", 0xe3b6ff},
     {"Focus", "FOCUS", "pomodoro timer", 0x8ff0b8},
     {"Biometrics", "sensor inference", "WiFi BLE IMU audio", 0x5ee0ca},
+    {"Lenormand", "LENORMAND", "daily 36-card draw", 0xf3c56b},
+    {"Pythia", "PYTHIA", "Delphi oracle", 0xd8c3ff},
+    {"Geomancy", "GEOMANCY", "daily figure", 0xd9c17a},
+    {"Enochian", "ENOCHIAN ANGEL", "tablet oracle", 0x9fe7ff},
 };
 
 static int32_t ui_cx(void) { return ASTROLABE_UI_WIDTH / 2; }
@@ -501,6 +505,46 @@ static void draw_device_face_event(lv_event_t *event) {
     draw_radial_line(layer, 270, 76, 150, 0xff7692, 3);
     draw_orbit_points(layer, 4, 150, 0xf8fbff, 10);
     break;
+  case ASTROLABE_UI_FACE_LENORMAND:
+    draw_rect(layer, 136, 88, 330, 360, 0xf3d28b);
+    draw_rect(layer, 148, 104, 318, 344, 0x21190f);
+    draw_circle(layer, cx, 188, 58, 0xf8e5b0, true, 0);
+    draw_circle(layer, cx - 24, 178, 14, 0x51371c, true, 0);
+    draw_circle(layer, cx + 24, 178, 14, 0x51371c, true, 0);
+    draw_line(layer, cx - 48, 254, cx + 48, 254, 0xf3c56b, 4);
+    draw_line(layer, cx - 32, 286, cx + 32, 286, 0xf3c56b, 3);
+    break;
+  case ASTROLABE_UI_FACE_PYTHIA:
+    draw_circle(layer, cx, cy, 178, 0x221a34, true, 0);
+    draw_circle(layer, cx, 176, 70, 0xd8c3ff, true, 0);
+    draw_circle(layer, cx - 24, 166, 7, 0x151018, true, 0);
+    draw_circle(layer, cx + 24, 166, 7, 0x151018, true, 0);
+    draw_arc(layer, 42, 40, 140, 0x6a4aa3, 4);
+    for (int32_t i = 0; i < 5; ++i) draw_arc(layer, 110 + i * 18, 210 + i * 9, 312 + i * 6, 0x9e7ee4, 4);
+    draw_rect(layer, 152, 282, 314, 290, 0xd8c3ff);
+    break;
+  case ASTROLABE_UI_FACE_GEOMANCY:
+    draw_circle(layer, cx, cy, 172, 0x241f18, true, 0);
+    draw_circle(layer, cx, cy, 172, 0xd9c17a, false, 3);
+    for (int32_t row = 0; row < 4; ++row) {
+      const int32_t y = 148 + row * 46;
+      const bool pair = row == 0 || row == 3;
+      draw_circle(layer, cx - (pair ? 28 : 0), y, 9, 0xf8e7b0, true, 0);
+      if (pair) draw_circle(layer, cx + 28, y, 9, 0xf8e7b0, true, 0);
+    }
+    draw_arc(layer, 204, 18, 342, 0xd9c17a, 2);
+    for (int32_t i = 0; i < 16; ++i) draw_radial_line(layer, i * 22.5f, 186, 204, 0x7a6840, 2);
+    break;
+  case ASTROLABE_UI_FACE_ENOCHIAN_ANGEL:
+    draw_circle(layer, cx, cy, 178, 0x071a24, true, 0);
+    draw_circle(layer, cx, 176, 82, 0x9fe7ff, false, 4);
+    draw_line(layer, cx, 104, cx - 62, 232, 0x9fe7ff, 3);
+    draw_line(layer, cx, 104, cx + 62, 232, 0x9fe7ff, 3);
+    draw_line(layer, cx - 62, 232, cx + 62, 232, 0x9fe7ff, 3);
+    draw_circle(layer, cx - 28, 170, 8, 0xf8fbff, true, 0);
+    draw_circle(layer, cx + 28, 170, 8, 0xf8fbff, true, 0);
+    for (int32_t i = 0; i < 7; ++i) draw_arc(layer, 118 + i * 11, i * 20, 28 + i * 20, 0x70cce8, 3);
+    break;
   default:
     draw_arc(layer, 188, 0, (int32_t)(spin * 360.0f), k_faces[s_face].accent, 8);
     draw_circle(layer, cx, cy, 94, 0x111820, true, 0);
@@ -588,6 +632,10 @@ static void create_device_face(astrolabe_ui_face_t face) {
   case ASTROLABE_UI_FACE_ALETHIOMETER:
   case ASTROLABE_UI_FACE_RUNES:
   case ASTROLABE_UI_FACE_NOTES:
+  case ASTROLABE_UI_FACE_LENORMAND:
+  case ASTROLABE_UI_FACE_PYTHIA:
+  case ASTROLABE_UI_FACE_GEOMANCY:
+  case ASTROLABE_UI_FACE_ENOCHIAN_ANGEL:
     s_face_label = make_label(meta->line1, 30, &lv_font_montserrat_22, meta->accent);
     s_hint_label = make_label(meta->line2, 56, &lv_font_montserrat_16, 0x8e9ba8);
     break;

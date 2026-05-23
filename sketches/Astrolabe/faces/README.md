@@ -36,6 +36,7 @@ Each face is a self-contained module under `faces/<name>/`. The app shell (`Astr
 | `lenormand/` | Daily 36-card Lenormand face using the shared monochrome Noto Emoji glyphs |
 | `geomancy/` | Daily geomantic figure face with the 16 traditional figures |
 | `pythia/` | Delphi oracle face with a Pythia bust and obtuse LLM replies |
+| `enochian_angel/` | Enochian Angel visage with tablet geometry and compact oracle replies |
 
 ## Public API per face
 

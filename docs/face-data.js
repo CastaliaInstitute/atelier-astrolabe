@@ -530,6 +530,25 @@
       interactions: "PWR hold asks Pythia. BOOT replays the last TTS response.",
     },
     {
+      slug: "enochian",
+      title: "Enochian Angel",
+      kicker: "Angelic tablet geometry",
+      summary:
+        "A luminous angelic visage with ordered stars, crystalline wings, and Enochian tablet geometry.",
+      inquiry: "What threshold is asking for a more ordered kind of attention?",
+      questions: [
+        "What gate or measure is the image placing before me?",
+        "Which part of the answer feels like light and which feels like command?",
+        "What changes if I read the angel as a mirror for discipline?",
+      ],
+      use: [
+        "Read the face as a symbolic threshold rather than a prediction.",
+        "Use BOOT for a concise angelic oracle reflection when WiFi voice is available.",
+        "Let the tablet grid and gaze serve as a centering object.",
+      ],
+      interactions: "BOOT requests an oracle reflection. Swipe left or right navigates.",
+    },
+    {
       slug: "notes",
       title: "Notes",
       kicker: "Commonplace capture without a phone",
@@ -743,6 +762,7 @@
     tarot: "lunasay",
     lenormand: "lunasay",
     geomancy: "lunasay",
+    enochian: "lunasay",
     pythia: "lunasay",
 
     spotify: "ocarina",
