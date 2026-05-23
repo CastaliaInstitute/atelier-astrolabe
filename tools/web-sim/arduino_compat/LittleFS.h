@@ -3,6 +3,7 @@
 class File {
  public:
   bool available() const { return false; }
+  size_t size() const { return 0; }
   int read() { return -1; }
   size_t read(uint8_t *, size_t) { return 0; }
   size_t readBytes(char *out, size_t len) { if (len) out[0] = '\0'; return 0; }
