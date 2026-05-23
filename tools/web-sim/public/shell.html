@@ -30,7 +30,29 @@
         padding: 24px;
         display: grid;
         justify-items: center;
-        gap: 18px;
+        gap: 16px;
+      }
+
+      .intro {
+        width: min(466px, calc(100vw - 32px));
+        display: grid;
+        gap: 6px;
+      }
+
+      h1,
+      p {
+        margin: 0;
+      }
+
+      h1 {
+        font-size: clamp(1.15rem, 4vw, 1.55rem);
+        line-height: 1.1;
+      }
+
+      p {
+        color: #aebbc7;
+        font-size: 0.92rem;
+        line-height: 1.45;
       }
 
       .watch {
@@ -90,12 +112,48 @@
         cursor: wait;
         opacity: 0.55;
       }
+
+      .status {
+        width: min(466px, calc(100vw - 32px));
+        min-height: 1.35em;
+        color: #aebbc7;
+        font-size: 0.82rem;
+        text-align: center;
+      }
+
+      .status[data-state="error"] {
+        color: #ffb4a8;
+      }
+
+      .face-description {
+        width: min(466px, calc(100vw - 32px));
+        min-height: 3.2em;
+        color: #d4dde6;
+        font-size: 0.95rem;
+        line-height: 1.45;
+        text-align: center;
+      }
+
+      a {
+        color: #d5e8ff;
+      }
     </style>
   </head>
   <body>
     <main>
+      <div class="intro">
+        <h1>Astrolabe Device Face Simulator</h1>
+        <p>Preview firmware face sketches in the browser. Use the selector, arrow buttons, or horizontal swipes on the round display.</p>
+      </div>
       <div class="watch">
-        <canvas id="astrolabe-canvas" width="466" height="466"></canvas>
+        <canvas
+          id="astrolabe-canvas"
+          width="466"
+          height="466"
+          role="img"
+          aria-describedby="face-description"
+          aria-label="Astrolabe watch face preview. Current face: Classic."
+        ></canvas>
       </div>
       <div class="controls" aria-label="Watch face controls">
         <button type="button" id="prev-face" aria-label="Previous face" disabled>‹</button>
@@ -143,6 +201,9 @@
         </select>
         <button type="button" id="next-face" aria-label="Next face" disabled>›</button>
       </div>
+      <p class="face-description" id="face-description">A calm analog hearth for local time, circadian color, and the first question of the day.</p>
+      <p class="status" id="sim-status" role="status" aria-live="polite">Loading simulator...</p>
+      <noscript><p class="status" data-state="error">Enable JavaScript to run the simulator.</p></noscript>
     </main>
 
     <script>
@@ -151,17 +212,140 @@
         next: document.querySelector("#next-face"),
         select: document.querySelector("#face-select"),
       };
+      const statusEl = document.querySelector("#sim-status");
+      const canvasEl = document.querySelector("#astrolabe-canvas");
+      const descriptionEl = document.querySelector("#face-description");
+      const faceSlugs = [
+        "classic",
+        "apocalypso",
+        "digital",
+        "spotify",
+        "astrology",
+        "moon",
+        "calcifer",
+        "castalia",
+        "settings",
+        "synastry",
+        "spectrum",
+        "chakra",
+        "tibetan-bowl",
+        "rocket",
+        "radar",
+        "faculty",
+        "weather",
+        "globe",
+        "sky",
+        "quotes",
+        "live-transits",
+        "tarot",
+        "notes",
+        "ocarina",
+        "bongo",
+        "piano",
+        "level",
+        "tuning",
+        "pan-drum",
+        "alethiometer",
+        "runes",
+        "orientation",
+        "luopan",
+        "question-of-day",
+        "focus-timer",
+        "biometrics",
+        "lenormand",
+        "pythia",
+        "geomancy",
+        "enochian-angel",
+      ];
+      const faceDescriptions = [
+        "A calm analog hearth for local time, circadian color, and the first question of the day.",
+        "A storm-bright risk dial for reading weather, consequence, and the pressure of the outside world.",
+        "Large, exact local time for appointments, thresholds, and moments that need no ornament.",
+        "A tiny room-tone console that treats the current track as part of the household atmosphere.",
+        "A celestial question wheel for planets, houses, and the symbolic weather of the present hour.",
+        "A lunar mirror for phase, tide, release, renewal, and the quieter rhythm beneath the clock.",
+        "A glowing daywheel for approaching events, warm countdowns, and the fire kept under ordinary time.",
+        "A Castalia threshold face for identity, sign-in, and the context that lets the instrument answer personally.",
+        "A compact workshop bench for network, pairing, identity, and the practical rituals of setup.",
+        "Twin-chart geometry for relationship weather, shared timing, and the pattern that appears between two lives.",
+        "A polar field of sound and color that turns the room's signal into a living instrument.",
+        "Seven centers arranged as a small altar for breath, attention, tone, and embodied balance.",
+        "A resonant bowl for settling the room before language arrives.",
+        "A launch chronicle for rockets, countdowns, windows, and the human habit of looking up.",
+        "A presence radar for nearby signals, peers, motion, and the social weather around the device.",
+        "A pocket faculty salon where a chosen mind can lend angle, voice, and intellectual company.",
+        "A radial weather day with temperature, humidity, and the practical shape of the hours ahead.",
+        "A turning Earth for daylight, nightfall, geography, and the planetary scale behind local time.",
+        "A hand-held sky for stars, constellations, bearings, and the old habit of navigating by wonder.",
+        "A daily sentence held like a seed crystal: compact enough to carry, sharp enough to return to.",
+        "A live transit chamber for what is moving now and which celestial change comes next.",
+        "A major-arcana window where image, archetype, and question meet for a single daily draw.",
+        "A quiet commonplace pocket for catching thoughts before they vanish into the rest of the day.",
+        "A clay breath-instrument face where a question can begin as fingering, tone, and play.",
+        "A tactile rhythm circle for returning attention to the body through pulse and touch.",
+        "A round keyboard for sketching melody without leaving the watch face.",
+        "A bubble-level compass for surfaces, posture, tilt, and the visible fact of being off center.",
+        "A listening staff for pitch, note names, and the small discipline of coming into tune.",
+        "A handpan constellation for thumb-played patterns, soft percussion, and circular melody.",
+        "A golden-symbol dial for framing a question before the answer needle begins to speak.",
+        "A three-rune casting table for past, present, future, and the hard clarity of small signs.",
+        "A relative-bearing face for tilt, heading, and the body learning which way it is turned.",
+        "A feng-shui luopan for choosing direction before reading the room.",
+        "A daily prompt face for questions worth answering slowly and saving into memory.",
+        "A focused interval flame for choosing one task and letting the rest of the world wait.",
+        "A signal-body mandala for wellness inference, radio presence, motion, and vital pattern.",
+        "A Lenormand card window for plainspoken omens, domestic signs, and practical daily counsel.",
+        "A Delphic bust for answers that arrive slantwise, luminous, and unwilling to become mere instruction.",
+        "A geomantic figure caster where chance, touch, and the moment condense into an old symbolic grammar.",
+        "An angelic tablet of ordered stars, crystalline presence, and threshold attention.",
+      ];
+      let runtimeReady = false;
+
+      function setStatus(message, state = "ready") {
+        statusEl.textContent = message;
+        statusEl.dataset.state = state;
+      }
+
+      function selectedFaceLabel() {
+        return controls.select.options[controls.select.selectedIndex]?.textContent || "Classic";
+      }
+
+      function enableControls() {
+        controls.prev.disabled = false;
+        controls.next.disabled = false;
+        controls.select.disabled = false;
+      }
+
+      function showLoadFailure(message) {
+        setStatus(message, "error");
+      }
 
       var Module = {
         locateFile(path) {
           return new URL(path, document.baseURI).href;
         },
         onRuntimeInitialized() {
-          controls.prev.disabled = false;
-          controls.next.disabled = false;
-          controls.select.disabled = false;
+          runtimeReady = true;
+          enableControls();
+          setInitialFaceFromHash();
+          updateFaceStatus();
+        },
+        onAbort() {
+          showLoadFailure("Simulator failed to start. Refresh the page, or try again after the latest deploy finishes propagating.");
         },
       };
+
+      window.addEventListener("error", (event) => {
+        if (event.target?.tagName === "SCRIPT") {
+          showLoadFailure("Simulator script failed to load.");
+        }
+      }, true);
+
+      window.setTimeout(() => {
+        if (!runtimeReady) {
+          showLoadFailure("Simulator is still loading. If this does not resolve, refresh the page.");
+        }
+      }, 10000);
     </script>
 
     {{{ SCRIPT }}}
@@ -170,20 +354,71 @@
       const faceSelect = controls.select;
       const faceCount = faceSelect.options.length;
 
-      function setFace(face) {
+      function setFace(face, urlMode = "push") {
         if (!Module.ccall) {
           return;
         }
         const normalized = ((face % faceCount) + faceCount) % faceCount;
         faceSelect.value = String(normalized);
         Module.ccall("astrolabe_web_set_face", null, ["number"], [normalized]);
+        updateFaceStatus();
+        const slug = faceSlugs[normalized] || String(normalized);
+        if (urlMode === "push" && location.hash !== `#${slug}`) {
+          history.pushState(null, "", `#${slug}`);
+        } else if (urlMode === "replace" && location.hash !== `#${slug}`) {
+          history.replaceState(null, "", `#${slug}`);
+        }
       }
 
       faceSelect.addEventListener("change", () => setFace(Number(faceSelect.value)));
       controls.prev.addEventListener("click", () => setFace(Number(faceSelect.value) - 1));
       controls.next.addEventListener("click", () => setFace(Number(faceSelect.value) + 1));
 
-      const canvas = document.querySelector("#astrolabe-canvas");
+      function updateFaceStatus() {
+        const label = selectedFaceLabel();
+        const face = Number(faceSelect.value);
+        const description = faceDescriptions[face] || "A firmware face preview rendered from the Astrolabe simulator.";
+        descriptionEl.textContent = description;
+        canvasEl.setAttribute("aria-label", `Astrolabe watch face preview. Current face: ${label}.`);
+        setStatus(`${label}. Swipe horizontally on the display or use the controls.`);
+      }
+
+      function faceFromHash() {
+        const hash = decodeURIComponent(location.hash.replace(/^#/, "")).trim().toLowerCase();
+        if (!hash) {
+          return null;
+        }
+        if (/^\d+$/.test(hash)) {
+          const face = Number(hash);
+          return Number.isInteger(face) && face >= 0 && face < faceCount ? face : null;
+        }
+        const slugIndex = faceSlugs.indexOf(hash);
+        if (slugIndex >= 0 && slugIndex < faceCount) {
+          return slugIndex;
+        }
+        return null;
+      }
+
+      function setInitialFaceFromHash() {
+        const face = faceFromHash();
+        if (face !== null) {
+          setFace(face, "none");
+        } else {
+          updateFaceStatus();
+        }
+      }
+
+      window.addEventListener("hashchange", () => {
+        if (!runtimeReady) {
+          return;
+        }
+        const face = faceFromHash();
+        if (face !== null && Number(faceSelect.value) !== face) {
+          setFace(face, "none");
+        }
+      });
+
+      const canvas = canvasEl;
       let swipeStart = null;
 
       canvas.addEventListener("pointerdown", (event) => {
