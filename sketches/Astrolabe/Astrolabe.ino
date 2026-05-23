@@ -733,41 +733,66 @@ static bool face_index_from_name(const char *name, int *out) {
   }
   struct {
     const char *n;
-    int idx;
-  } k[] = {{"classic", 0},     {"hue", 0},          {"analog", 0},       {"apocalypso", 1},
-           {"digital", 2},     {"spotify", 3},      {"astro", 4},        {"astrology", 4},
-           {"moon", 5},        {"calcifer", 6},     {"schedule", 6},     {"castalia", 7},
-           {"settings", 8},    {"wifi", 8},         {"synastry", 9},     {"syn", 9},
-           {"spectrum", 10},   {"fft", 10},         {"audio", 10},       {"sound", 10},
-           {"chakra", 11},     {"bowl", 12},        {"tibetan", 12},     {"tibetan_bowl", 12},
-           {"rocket", 13},     {"launch", 13},      {"launchclock", 13}, {"radar", 14},
-           {"presence", 14},   {"peers", 14},       {"locator", 14},     {"locations", 14},
-           {"faculty", 15},    {"fac", 15},         {"weather", 16},    {"globe", 17},
-           {"earth", 17},      {"sky", 18},         {"stars", 18},      {"quotes", 19},
-           {"quote", 19},      {"transits", 20},    {"live_transits", 20},
-           {"live-transits", 20}, {"live", 20},      {"tarot", 21},      {"cards", 21},
-           {"card", 21},       {"arcana", 21},      {"notes", 22},      {"note", 22},
-           {"commonplace", 22}, {"notebook", 22},   {"ocarina", 23},    {"ocarina_face", 23},
-           {"flute", 23},      {"bongo", 24},
-           {"drum", 24},       {"drums", 24},       {"conga", 24},      {"piano", 25},
-           {"keys", 25},       {"keyboard", 25},    {"level", 26},      {"bubble", 26},
-           {"bubble_level", 26}, {"imu", 26},       {"tuning", 27},     {"tuner", 27},
-           {"staff", 27},      {"pitch", 27},      {"pandrum", 28},    {"pan_drum", 28},
-           {"pan-drum", 28},   {"pandrom", 28},    {"pandrom_face", 28}, {"handpan", 28},
-           {"hang", 28},       {"alethiometer", 29}, {"aleth", 29},     {"compass", 29},
-           {"golden_compass", 29}, {"runes", 30},  {"rune", 30},       {"futhark", 30},
-           {"fortune", 30},    {"orientation", 31}, {"orient", 31},    {"heading", 31},
-           {"relative_heading", 31}, {"luopan", 32}, {"fengshui", 32}, {"feng_shui", 32},
-           {"feng-shui", 32},  {"qotd", 33},       {"question", 33},   {"question_day", 33},
-           {"question-of-day", 33}, {"question_of_the_day", 33},
-           {"focus", 34},      {"timer", 34},      {"pomodoro", 34},   {"productivity", 34},
-           {"biometrics", 35}, {"bio", 35},        {"signals", 35},    {"lenormand", 36},
-           {"len", 36},        {"oracle", 36},     {"petit_lenormand", 36},
-           {"pythia", 37},     {"delphi", 37},     {"geomancy", 38},   {"geomantic", 38},
-           {"geo", 38},        {"figures", 38}};
+    ClockFace face;
+  } k[] = {
+      {"classic", ClockFace::ClassicAnalog}, {"hue", ClockFace::ClassicAnalog},
+      {"analog", ClockFace::ClassicAnalog}, {"apocalypso", ClockFace::Apocalypso},
+      {"digital", ClockFace::DigitalLocal}, {"spotify", ClockFace::Spotify},
+      {"astro", ClockFace::Astrology}, {"astrology", ClockFace::Astrology},
+      {"moon", ClockFace::Moon}, {"calcifer", ClockFace::CalciferCountdown},
+      {"schedule", ClockFace::CalciferCountdown}, {"castalia", ClockFace::Castalia},
+      {"settings", ClockFace::Settings}, {"wifi", ClockFace::Settings},
+      {"synastry", ClockFace::Synastry}, {"syn", ClockFace::Synastry},
+      {"spectrum", ClockFace::Spectrum}, {"fft", ClockFace::Spectrum},
+      {"audio", ClockFace::Spectrum}, {"sound", ClockFace::Spectrum},
+      {"chakra", ClockFace::Chakra}, {"bowl", ClockFace::TibetanBowl},
+      {"tibetan", ClockFace::TibetanBowl}, {"tibetan_bowl", ClockFace::TibetanBowl},
+      {"rocket", ClockFace::Rocket}, {"launch", ClockFace::Rocket},
+      {"launchclock", ClockFace::Rocket}, {"radar", ClockFace::Radar},
+      {"presence", ClockFace::Radar}, {"peers", ClockFace::Radar},
+      {"locator", ClockFace::Radar}, {"locations", ClockFace::Radar},
+      {"faculty", ClockFace::Faculty}, {"fac", ClockFace::Faculty},
+      {"weather", ClockFace::Weather}, {"globe", ClockFace::Globe},
+      {"earth", ClockFace::Globe}, {"sky", ClockFace::Sky}, {"stars", ClockFace::Sky},
+      {"quotes", ClockFace::Quotes}, {"quote", ClockFace::Quotes},
+      {"transits", ClockFace::LiveTransits}, {"live_transits", ClockFace::LiveTransits},
+      {"live-transits", ClockFace::LiveTransits}, {"live", ClockFace::LiveTransits},
+      {"tarot", ClockFace::Tarot}, {"cards", ClockFace::Tarot}, {"card", ClockFace::Tarot},
+      {"arcana", ClockFace::Tarot}, {"notes", ClockFace::Notes}, {"note", ClockFace::Notes},
+      {"commonplace", ClockFace::Notes}, {"notebook", ClockFace::Notes},
+      {"ocarina", ClockFace::Ocarina}, {"ocarina_face", ClockFace::Ocarina},
+      {"flute", ClockFace::Ocarina}, {"bongo", ClockFace::Bongo},
+      {"drum", ClockFace::Bongo}, {"drums", ClockFace::Bongo}, {"conga", ClockFace::Bongo},
+      {"piano", ClockFace::Piano}, {"keys", ClockFace::Piano},
+      {"keyboard", ClockFace::Piano}, {"level", ClockFace::Level},
+      {"bubble", ClockFace::Level}, {"bubble_level", ClockFace::Level}, {"imu", ClockFace::Level},
+      {"tuning", ClockFace::Tuning}, {"tuner", ClockFace::Tuning},
+      {"staff", ClockFace::Tuning}, {"pitch", ClockFace::Tuning},
+      {"pandrum", ClockFace::PanDrum}, {"pan_drum", ClockFace::PanDrum},
+      {"pan-drum", ClockFace::PanDrum}, {"pandrom", ClockFace::PanDrum},
+      {"pandrom_face", ClockFace::PanDrum}, {"handpan", ClockFace::PanDrum},
+      {"hang", ClockFace::PanDrum}, {"alethiometer", ClockFace::Alethiometer},
+      {"aleth", ClockFace::Alethiometer}, {"compass", ClockFace::Alethiometer},
+      {"golden_compass", ClockFace::Alethiometer}, {"runes", ClockFace::Runes},
+      {"rune", ClockFace::Runes}, {"futhark", ClockFace::Runes}, {"fortune", ClockFace::Runes},
+      {"orientation", ClockFace::Orientation}, {"orient", ClockFace::Orientation},
+      {"heading", ClockFace::Orientation}, {"relative_heading", ClockFace::Orientation},
+      {"luopan", ClockFace::Luopan}, {"fengshui", ClockFace::Luopan},
+      {"feng_shui", ClockFace::Luopan}, {"feng-shui", ClockFace::Luopan},
+      {"qotd", ClockFace::QuestionOfDay}, {"question", ClockFace::QuestionOfDay},
+      {"question_day", ClockFace::QuestionOfDay}, {"question-of-day", ClockFace::QuestionOfDay},
+      {"question_of_the_day", ClockFace::QuestionOfDay}, {"focus", ClockFace::FocusTimer},
+      {"timer", ClockFace::FocusTimer}, {"pomodoro", ClockFace::FocusTimer},
+      {"productivity", ClockFace::FocusTimer}, {"biometrics", ClockFace::Biometrics},
+      {"bio", ClockFace::Biometrics}, {"signals", ClockFace::Biometrics},
+      {"lenormand", ClockFace::Lenormand}, {"len", ClockFace::Lenormand},
+      {"oracle", ClockFace::Lenormand}, {"petit_lenormand", ClockFace::Lenormand},
+      {"pythia", ClockFace::Pythia}, {"delphi", ClockFace::Pythia},
+      {"geomancy", ClockFace::Geomancy}, {"geomantic", ClockFace::Geomancy},
+      {"geo", ClockFace::Geomancy}, {"figures", ClockFace::Geomancy}};
   for (const auto &e : k) {
     if (strcasecmp(name, e.n) == 0) {
-      *out = e.idx;
+      *out = static_cast<int>(e.face);
       return true;
     }
   }
@@ -1897,46 +1922,11 @@ static void poll_serial_birth_commands() {
         } else if (strcmp(args, "bowl") == 0) {
           Serial.printf("qa: bowl %s\n", pm_speaker_bowl_voice_test(320.f, 1800u) ? "done" : "failed");
         } else if (strcmp(args, "faces") == 0) {
-          Serial.printf("qa: faces=%d\n", static_cast<int>(ClockFace::kNumFaces));
-          Serial.println("qa: 0 classic");
-          Serial.println("qa: 1 apocalypso");
-          Serial.println("qa: 2 digital");
-          Serial.println("qa: 3 spotify");
-          Serial.println("qa: 4 astro");
-          Serial.println("qa: 5 moon");
-          Serial.println("qa: 6 calcifer");
-          Serial.println("qa: 7 castalia");
-          Serial.println("qa: 8 settings");
-          Serial.println("qa: 9 synastry");
-          Serial.println("qa: 10 spectrum");
-          Serial.println("qa: 11 chakra");
-          Serial.println("qa: 12 bowl");
-          Serial.println("qa: 13 rocket");
-          Serial.println("qa: 14 radar");
-          Serial.println("qa: 15 faculty");
-          Serial.println("qa: 16 weather");
-          Serial.println("qa: 17 globe");
-          Serial.println("qa: 18 sky");
-          Serial.println("qa: 19 quotes");
-          Serial.println("qa: 20 transits");
-          Serial.println("qa: 21 tarot");
-          Serial.println("qa: 22 notes");
-          Serial.println("qa: 23 ocarina");
-          Serial.println("qa: 24 bongo");
-          Serial.println("qa: 25 piano");
-          Serial.println("qa: 26 level");
-          Serial.println("qa: 27 tuning");
-          Serial.println("qa: 28 pandrum");
-          Serial.println("qa: 29 alethiometer");
-          Serial.println("qa: 30 runes");
-          Serial.println("qa: 31 orientation");
-          Serial.println("qa: 32 luopan");
-          Serial.println("qa: 33 question");
-          Serial.println("qa: 34 focus");
-          Serial.println("qa: 35 biometrics");
-          Serial.println("qa: 36 lenormand");
-          Serial.println("qa: 37 pythia");
-          Serial.println("qa: 38 geomancy");
+          Serial.printf("qa: faces=%d tour=%d\n", static_cast<int>(ClockFace::kNumFaces), face_tour_count());
+          for (int i = 0; i < face_tour_count(); ++i) {
+            const FaceTourInfo &info = k_face_tour[i];
+            Serial.printf("qa: %d %s enum=%d\n", i, info.name, static_cast<int>(info.face));
+          }
         } else if (strncmp(args, "tour", 4) == 0 && (args[4] == '\0' || args[4] == ' ')) {
           handle_tour_command(args + 4);
         } else if (!pm_qa_inject_command(args)) {
