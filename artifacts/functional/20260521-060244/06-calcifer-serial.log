@@ -1,0 +1,27 @@
+qa: face=5 state=2 heap=5992 iheap=5992 largest=2036 psram=7692003 voice_stack_hw=10052 spk_stack_hw=30316 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.247 name=Daniel banner=""
+face: 6
+[161516][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1
+voice: HTTP -1 (message)
+voice: HTTP retry after connect failure
+voice: HTTP POST message (618 B body, retry)…
+qa: inject swipe left @ 233,233
+[gesture] face -> 9
+[163106][E][Preferences.cpp:483] getString(): nvs_get_str len fail: fac4_slug NOT_FOUND
+[163114][E][Preferences.cpp:483] getString(): nvs_get_str len fail: fac5_slug NOT_FOUND
+[163128][E][vfs_api.cpp:105] open(): /littlefs/busts/a-einstein.bin does not exist, no permits for creation
+pm_faculty: embedded bust a.einstein (44163 B)
+qa: inject swipe right @ 233,233
+[gesture] face -> 6
+qa: inject swipe up @ 233,233
+qa: inject swipe down @ 233,233
+[165984][E][vfs_api.cpp:105] open(): /littlefs/busts/marie-curie.bin does not exist, no permits for creation
+pm_faculty: embedded bust marie-curie (16382 B)
+qa: inject tap @ 233,233
+qa: inject boot
+[167831][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1
+voice: HTTP -1 (message)
+voice: message fail (HTTP -1)
+face: 6
+[168783][E][vfs_api.cpp:105] open(): /littlefs/busts/hypatia.bin does not exist, no permits for creation
+pm_faculty: embedded bust hypatia (37999 B)
+qa: face=6 state=0 heap=10360 iheap=10360 largest=4084 psram=7692863 voice_stack_hw=10052 spk_stack_hw=30316 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.247 name=Daniel banner=""

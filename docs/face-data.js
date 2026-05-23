@@ -213,6 +213,25 @@
       interactions: "Tap logs a new period start. Swipe up or down adjusts the cycle-length preset.",
     },
     {
+      slug: "focus",
+      title: "Focus Timer",
+      kicker: "Work and rest in clean intervals",
+      summary:
+        "A Pomodoro-style productivity timer with focus, short break, and long break presets.",
+      inquiry: "What single task belongs inside this interval?",
+      questions: [
+        "What am I committing to until the ring closes?",
+        "Is this a focus block, a short reset, or a longer recovery?",
+        "What should be out of reach until the timer ends?",
+      ],
+      use: [
+        "Tap to start, pause, or resume the current interval.",
+        "Long press to reset the active interval.",
+        "Swipe up or down to switch between focus, short break, and long break modes.",
+      ],
+      interactions: "Tap starts or pauses. Long press resets. Swipe up or down changes timer mode.",
+    },
+    {
       slug: "castalia",
       title: "Castalia Sign-In",
       kicker: "Account context for spoken answers",
@@ -655,6 +674,7 @@
     classic: "pocket",
     digital: "pocket",
     calcifer: "pocket",
+    focus: "pocket",
     apocalypso: "pocket",
     weather: "pocket",
 

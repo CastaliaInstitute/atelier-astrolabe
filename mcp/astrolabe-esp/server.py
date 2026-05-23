@@ -77,7 +77,10 @@ FACE_BY_NAME = {
     "weather": 16,
     "quotes": 17,
     "quote": 17,
-    "qotd": 17,
+    "qotd": 31,
+    "question": 31,
+    "questionofday": 31,
+    "questionoftheday": 31,
     "transits": 18,
     "livetransits": 18,
     "live": 18,
@@ -156,6 +159,7 @@ FACE_LABELS = (
     "Runes",
     "Orientation",
     "Luopan",
+    "QuestionOfDay",
 )
 
 

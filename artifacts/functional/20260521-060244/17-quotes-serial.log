@@ -1,0 +1,33 @@
+face: 17
+E (391803) esp-aes: Failed to allocate memory
+[392265][E][ssl_client.cpp:37] _handle_error(): [data_to_read():361]: (-1) ERROR - Generic error
+voice: HTTP -5 (message)
+voice: HTTP retry after connect failure
+voice: HTTP POST message (602 B body, retry)…
+[399569][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1
+voice: HTTP -1 (message)
+voice: message fail (HTTP -1)
+qa: inject swipe left @ 233,233
+[gesture] face -> 18
+[401146][E][vfs_api.cpp:105] open(): /littlefs/busts/a-plato.bin does not exist, no permits for creation
+[401159][E][vfs_api.cpp:105] open(): /littlefs/busts/a-plato.bin does not exist, no permits for creation
+pm_faculty: bust skipped low memory heap=20168 largest=7924
+qa: inject swipe right @ 233,233
+[gesture] face -> 17
+[401681][E][vfs_api.cpp:105] open(): /littlefs/busts/a-plato.bin does not exist, no permits for creation
+pm_faculty: bust skipped low memory heap=20168 largest=7924
+qa: inject swipe up @ 233,233
+qa: inject swipe down @ 233,233
+qa: inject tap @ 233,233
+[gesture] tap @ 233,233
+[404326][E][vfs_api.cpp:105] open(): /littlefs/busts/a-plato.bin does not exist, no permits for creation
+[404339][E][vfs_api.cpp:105] open(): /littlefs/busts/a-plato.bin does not exist, no permits for creation
+pm_faculty: bust skipped low memory heap=20168 largest=7924
+[404352][E][vfs_api.cpp:105] open(): /littlefs/busts/a-plato.bin does not exist, no permits for creation
+pm_faculty: bust skipped low memory heap=20168 largest=7924
+qa: inject boot
+voice: POST message…
+voice: DNS ok pilmscrodlitdrygabvo.supabase.co -> 104.18.38.10
+voice: HTTP POST message (700 B body)…
+face: 17
+qa: face=17 state=2 heap=16200 iheap=16200 largest=5620 psram=7685803 voice_stack_hw=9160 spk_stack_hw=0 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.247 name=Daniel banner="tap"

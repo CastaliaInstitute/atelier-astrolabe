@@ -1,0 +1,33 @@
+face: 17
+E (49751) esp-aes: Failed to allocate memory
+voice: HTTP POST message (602 B body, retry)…
+[ 48723][E][ssl_client.cpp:36] _handle_error(): [ssl_starttls_handshake():318]: (-1) ERROR - Generic error
+[ 48735][E][NetworkClientSecure.cpp:159] connect(): start_ssl_client: connect failed: -1
+voice: HTTP -1 (message)
+W (49778) pm_voice: voice-pipeline HTTP -1 (message)
+voice: message fail (HTTP -1)
+pm_faculty: bust skipped low memory heap=16091 largest=7680
+pm_faculty: bust skipped low memory heap=16091 largest=7680
+qa: inject swipe left @ 233,233
+[gesture] face -> 18
+W (58441) pm_heap: ephemeris low heap: internal=15839 largest=7680 psram=7741036 need=140000/36000
+qa: inject swipe right @ 233,233
+[gesture] face -> 17
+pm_faculty: bust skipped low memory heap=15839 largest=7680
+pm_faculty: bust skipped low memory heap=15839 largest=7680
+qa: inject swipe up @ 233,233
+qa: inject swipe down @ 233,233
+qa: inject tap @ 233,233
+[gesture] tap @ 233,233
+pm_faculty: bust skipped low memory heap=15839 largest=7680
+qa: face=17 state=0 heap=15839 iheap=15839 largest=7680 psram=7741036 voice_stack_hw=9548 spk_stack_hw=0 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.247 name=Daniel banner="tap"
+qa: inject boot
+voice: POST message…
+voice: DNS ok pilmscrodlitdrygabvo.supabase.co -> 172.64.149.246
+voice: HTTP POST message (638 B body)…
+E (65930) esp-aes: Failed to allocate memory
+[ 64902][E][ssl_client.cpp:36] _handle_error(): [ssl_starttls_handshake():318]: (-1) ERROR - Generic error
+[ 64914][E][NetworkClientSecure.cpp:159] connect(): start_ssl_client: connect failed: -1
+voice: HTTP -1 (message)
+W (65958) pm_voice: voice-pipeline HTTP -1 (message)
+voice: HTTP retry after connect failure

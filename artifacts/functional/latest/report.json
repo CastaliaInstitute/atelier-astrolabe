@@ -1,0 +1,128 @@
+{
+  "timestamp": "20260521-063051",
+  "gate": "hardware",
+  "matrix": "tests/functional/faces_astrolabe_comprehensive.json",
+  "ip": "192.168.86.247",
+  "port": "/dev/cu.usbmodem1301",
+  "git_head": "35edcf2b9c4cb66a02b506f2962b249d0a8c3422",
+  "passed": 0,
+  "failed": 2,
+  "faces": [
+    {
+      "id": 13,
+      "name": "rocket",
+      "ok": false,
+      "screenshot": "",
+      "serial_log": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/functional/20260521-063051/13-rocket-serial.log",
+      "source_paths": [
+        "sketches/Astrolabe/faces/rocket",
+        "sketches/Astrolabe/pm_rocket.cpp",
+        "sketches/Astrolabe/pm_rocket.h"
+      ],
+      "steps": [
+        {
+          "name": "set_face",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "screenshot",
+          "ok": false,
+          "detail": "timed out"
+        },
+        {
+          "name": "gesture:tap:233,233",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_left",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_right",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_up",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_down",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "qa_status",
+          "ok": true,
+          "detail": "qa: face=13 state=0 heap=23004 iheap=23004 largest=8692 psram=7692855 voice_stack_hw=3800 spk_stack_hw=30328 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.247 name=Daniel banner=\"\""
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "name": "radar",
+      "ok": false,
+      "screenshot": "",
+      "serial_log": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/functional/20260521-063051/14-radar-serial.log",
+      "source_paths": [
+        "sketches/Astrolabe/faces/radar",
+        "sketches/Astrolabe/pm_presence.cpp",
+        "sketches/Astrolabe/pm_presence.h",
+        "sketches/Astrolabe/pm_presence_adv.cpp",
+        "sketches/Astrolabe/pm_presence_adv.h",
+        "sketches/Astrolabe/pm_motion.cpp",
+        "sketches/Astrolabe/pm_motion.h",
+        "sketches/Astrolabe/pm_presence_graph.cpp",
+        "sketches/Astrolabe/pm_presence_graph.h",
+        "sketches/Astrolabe/pm_presence_locations.cpp",
+        "sketches/Astrolabe/pm_presence_locations.h"
+      ],
+      "steps": [
+        {
+          "name": "set_face",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "screenshot",
+          "ok": false,
+          "detail": "<urlopen error timed out>"
+        },
+        {
+          "name": "gesture:swipe_left",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_right",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_up",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_down",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:tap:233,233",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "qa_status",
+          "ok": false,
+          "detail": "no qa: face= line"
+        }
+      ]
+    }
+  ]
+}

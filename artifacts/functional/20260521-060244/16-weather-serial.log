@@ -1,0 +1,35 @@
+face: 16
+[366985][E][vfs_api.cpp:105] open(): /littlefs/busts/socrates.bin does not exist, no permits for creation
+[366998][E][vfs_api.cpp:105] open(): /littlefs/busts/socrates.bin does not exist, no permits for creation
+pm_faculty: bust skipped low memory heap=27068 largest=11252
+[374773][E][Preferences.cpp:483] getString(): nvs_get_str len fail: fac4_slug NOT_FOUND
+[374781][E][Preferences.cpp:483] getString(): nvs_get_str len fail: fac5_slug NOT_FOUND
+[374794][E][vfs_api.cpp:105] open(): /littlefs/busts/a-einstein.bin does not exist, no permits for creation
+pm_faculty: embedded bust a.einstein (44163 B)
+qa: inject swipe left @ 233,233
+[gesture] face -> 17
+[374918][E][vfs_api.cpp:105] open(): /littlefs/busts/a-plato.bin does not exist, no permits for creation
+pm_faculty: bust skipped low memory heap=26844 largest=11252
+[374931][E][vfs_api.cpp:105] open(): /littlefs/busts/a-plato.bin does not exist, no permits for creation
+pm_faculty: bust skipped low memory heap=26844 largest=11252
+[375017][E][vfs_api.cpp:105] open(): /littlefs/busts/a-plato.bin does not exist, no permits for creation
+pm_faculty: bust skipped low memory heap=26844 largest=11252
+[375103][E][vfs_api.cpp:105] open(): /littlefs/busts/a-plato.bin does not exist, no permits for creation
+pm_faculty: bust skipped low memory heap=26844 largest=11252
+[375190][E][vfs_api.cpp:105] open(): /littlefs/busts/a-plato.bin does not exist, no permits for creation
+pm_faculty: bust skipped low memory heap=26844 largest=11252
+qa: inject swipe right @ 233,233
+[gesture] face -> 16
+qa: inject swipe up @ 233,233
+qa: inject swipe down @ 233,233
+[377974][E][vfs_api.cpp:105] open(): /littlefs/busts/a-plato.bin does not exist, no permits for creation
+[377987][E][vfs_api.cpp:105] open(): /littlefs/busts/a-plato.bin does not exist, no permits for creation
+pm_faculty: bust skipped low memory heap=26844 largest=11252
+qa: inject tap @ 233,233
+[gesture] tap @ 233,233
+qa: inject boot
+voice: POST message…
+voice: DNS ok pilmscrodlitdrygabvo.supabase.co -> 104.18.38.10
+voice: HTTP POST message (602 B body)…
+face: 16
+qa: face=16 state=2 heap=16524 iheap=16524 largest=6388 psram=7652383 voice_stack_hw=9160 spk_stack_hw=0 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.247 name=Daniel banner="tap"

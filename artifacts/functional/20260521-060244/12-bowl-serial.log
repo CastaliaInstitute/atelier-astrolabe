@@ -1,0 +1,31 @@
+face: 12
+[293111][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1
+voice: HTTP -1 (message)
+voice: HTTP retry after connect failure
+voice: HTTP POST message (565 B body, retry)…
+[299428][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1
+voice: HTTP -1 (message)
+voice: message fail (HTTP -1)
+[301042][E][Preferences.cpp:483] getString(): nvs_get_str len fail: fac4_slug NOT_FOUND
+[301050][E][Preferences.cpp:483] getString(): nvs_get_str len fail: fac5_slug NOT_FOUND
+[301063][E][vfs_api.cpp:105] open(): /littlefs/busts/a-einstein.bin does not exist, no permits for creation
+pm_faculty: embedded bust a.einstein (44163 B)
+[303982][E][vfs_api.cpp:105] open(): /littlefs/busts/marie-curie.bin does not exist, no permits for creation
+[306982][E][vfs_api.cpp:105] open(): /littlefs/busts/hypatia.binpm_faculty: embedded bust marie-curie (16382 B)
+ does not exist, no permits for creation
+pm_faculty: embedded bust hypatia (37999 B)
+qa: inject tap @ 448,233
+[309654][E][vfs_api.cpp:105] open(): /littlefs/busts/socrates.bin does not exist, no permits for creation
+[309667][E][vfs_api.cpp:105] open(): /littlefs/busts/socrates.bin does not exist, no permits for creation
+pm_faculty: bust skipped low memory heap=20692 largest=7412
+qa: inject swipe left @ 233,233
+[gesture] face -> 13
+qa: inject swipe right @ 233,233
+[gesture] face -> 12
+qa: inject swipe up @ 233,233
+[312271][E][Preferences.cpp:483] getString(): nvs_get_str len fail: fac4_slug NOT_FOUND
+[312279][E][Preferences.cpp:483] getString(): nvs_get_str len fail: fac5_slug NOT_FOUND
+[312292][E][vfs_api.cpp:105] open(): /littlefs/busts/a-einstein.bin does not exist, no permits for creation
+pm_faculty: embedded bust a.einstein (44163 B)
+qa: inject swipe down @ 233,233
+qa: face=12 state=0 heap=20692 iheap=20692 largest=7412 psram=7686699 voice_stack_hw=9160 spk_stack_hw=0 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.247 name=Daniel banner="bowl 2/7"

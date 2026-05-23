@@ -1,0 +1,33 @@
+ELF file SHA256: 1fbb0fa1c07eea58
+Rebooting...
+ESP-ROM:esp32s3-20210327
+Build:Mar 27 2021
+rst:0xc (RTC_SW_CPU_RST),boot:0xb (SPI_FAST_FLASH_BOOT)
+Saved PC:0x421644d2
+SPIWP:0xee
+mode:DIO, clock div:1
+load:0x3fce3808,len:0x4bc
+load:0x403c9700,len:0xbd8
+load:0x403cc700,len:0x2a0c
+entry 0x403c98d0
+[706 00:00:16] log: ring 24576 bytes
+ASTROLABE_ALERT last_reset=4
+[ 11919][E][vfs_api.cpp:105] open(): /littlefs/busts/marie-curie.bin does not exist, no permits for creation
+pm_faculty: embedded bust marie-curie (16382 B)
+qa: inject swipe left @ 233,233
+[gesture] face -> 19
+qa: inject swipe right @ 233,233
+[gesture] face -> 18
+tarot: cached 00 fool (95440 B)
+[ 14639][E][vfs_api.cpp:105] open(): /littlefs/busts/hypatia.bin does not exist, no permits for creation
+pm_faculty: embedded bust hypatia (37999 B)
+qa: inject swipe up @ 233,233
+qa: inject swipe down @ 233,233
+qa: inject tap @ 233,233
+[gesture] tap @ 233,233
+qa: inject boot
+[ 17428][E][vfs_api.cpp:105] open(): /littlefs/busts/socrates.bin does not exist, no permits for creation
+[ 17441][E][vfs_api.cpp:105] open(): /littlefs/busts/socrates.bin does not exist, no permits for creation
+pm_faculty: bust skipped low memory heap=26172 largest=13812
+face: 18
+qa: face=18 state=0 heap=26020 iheap=26020 largest=13812 psram=7577463 voice_stack_hw=0 spk_stack_hw=30316 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.247 name=Daniel banner="tap"

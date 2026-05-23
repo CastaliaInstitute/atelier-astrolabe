@@ -1,0 +1,38 @@
+face: 10
+[240307][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1
+voice: HTTP -1 (message)
+voice: HTTP retry after connect failure
+voice: HTTP POST message (1967 B body, retry)…
+[246622][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1
+voice: HTTP -1 (message)
+voice: message fail (HTTP -1)
+synastry: voice done status=-1 mp3=0 err=HTTP -1
+[248393][E][vfs_api.cpp:105] open(): /littlefs/busts/marie-curie.bin does not exist, no permits for creation
+pm_faculty: embedded bust marie-curie (16382 B)
+[250961][E][vfs_api.cpp:105] open(): /littlefs/busts/hypatia.bin does not exist, no permits for creation
+pm_faculty: embedded bust hypatia (37999 B)
+[253536][E][vfs_api.cpp:105] open(): /littlefs/busts/socrates.bin does not exist, no permits for creation
+[253549][E][vfs_api.cpp:105] open(): /littlefs/busts/socrates.bin does not exist, no permits for creation
+[256037][E][Preferences.cpp:483] getString(): nvs_get_str len fapm_faculty: bust skipped low memory heap=15684 largest=7412
+il: fac4_slug NOT_FOUND
+[256045][E][Preferences.cpp:483] getString(): nvs_get_str len fail: fac5_slug NOT_FOUND
+[256059][E][vfs_api.cpp:105] open(): /littlefs/busts/a-einstein.bin does not exist, no permits for creation
+pm_faculty: embedded bust a.einstein (44163 B)
+qa: inject swipe left @ 233,233
+[gesture] face -> 11
+qa: inject swipe right @ 233,233
+[gesture] face -> 10
+[258708][E][vfs_api.cpp:105] open(): /littlefs/busts/marie-curie.bin does not exist, no permits for creation
+pm_faculty: embedded bust marie-curie (16382 B)
+qa: inject swipe up @ 233,233
+qa: inject swipe down @ 233,233
+[261232][E][vfs_api.cpp:105] open(): /littlefs/busts/hypatia.bin does not exist, no permits for creation
+pm_faculty: embedded bust hypatia (37999 B)
+qa: inject tap @ 233,233
+[gesture] tap @ 233,233
+qa: inject boot
+face: 10
+[263733][E][vfs_api.cpp:105] open(): /littlefs/busts/socrates.bin does not exist, no permits for creation
+[263746][E][vfs_api.cpp:105] open(): /littlefs/busts/socrates.bin does not exist, no permits for creation
+pm_faculty: bust skipped low memory heap=15672 largest=7412
+qa: face=10 state=0 heap=15672 iheap=15672 largest=7412 psram=7692759 voice_stack_hw=9160 spk_stack_hw=0 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.247 name=Daniel banner="tap"

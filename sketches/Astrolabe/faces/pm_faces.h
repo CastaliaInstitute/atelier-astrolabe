@@ -62,6 +62,10 @@ enum class ClockFace : uint8_t {
   Orientation,
   /** Feng-shui luopan dial; relative heading only on 6DOF hardware. */
   Luopan,
+  /** Context-aware daily question; PWR hold records the user's answer to Commonplace. */
+  QuestionOfDay,
+  /** Pomodoro-style productivity timer; tap starts/pauses, swipe up/down changes preset. */
+  FocusTimer,
   kNumFaces,
 };
 

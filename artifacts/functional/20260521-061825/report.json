@@ -1,0 +1,1448 @@
+{
+  "timestamp": "20260521-061825",
+  "gate": "hardware",
+  "matrix": "tests/functional/faces_astrolabe_comprehensive.json",
+  "ip": "192.168.86.247",
+  "port": "/dev/cu.usbmodem1301",
+  "git_head": "35edcf2b9c4cb66a02b506f2962b249d0a8c3422",
+  "passed": 18,
+  "failed": 8,
+  "faces": [
+    {
+      "id": 0,
+      "name": "classic",
+      "ok": true,
+      "screenshot": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/functional/20260521-061825/00-classic.bmp",
+      "serial_log": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/functional/20260521-061825/00-classic-serial.log",
+      "source_paths": [
+        "sketches/Astrolabe/faces/classic_analog"
+      ],
+      "steps": [
+        {
+          "name": "set_face",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "screenshot",
+          "ok": true,
+          "detail": "466x466"
+        },
+        {
+          "name": "gesture:swipe_left",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_right",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_up",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_down",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:tap:233,233",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "qa_status",
+          "ok": true,
+          "detail": "qa: face=8 state=0 heap=30227 iheap=30227 largest=17408 psram=7446120 voice_stack_hw=9952 spk_stack_hw=0 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.247 name=Daniel banner=\"wifi: connected\""
+        },
+        {
+          "name": "button:boot",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "button:pwr",
+          "ok": true,
+          "detail": "ok"
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "name": "apocalypso",
+      "ok": false,
+      "screenshot": "",
+      "serial_log": "",
+      "source_paths": [
+        "sketches/Astrolabe/faces/apocalypso"
+      ],
+      "steps": [
+        {
+          "name": "set_face",
+          "ok": false,
+          "detail": "no face: ack on serial"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "digital",
+      "ok": true,
+      "screenshot": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/functional/20260521-061825/02-digital.bmp",
+      "serial_log": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/functional/20260521-061825/02-digital-serial.log",
+      "source_paths": [
+        "sketches/Astrolabe/faces/digital"
+      ],
+      "steps": [
+        {
+          "name": "set_face",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "screenshot",
+          "ok": true,
+          "detail": "466x466"
+        },
+        {
+          "name": "gesture:swipe_left",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_right",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_up",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_down",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:tap:233,233",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "qa_status",
+          "ok": true,
+          "detail": "qa: face=2 state=0 heap=30079 iheap=30079 largest=17408 psram=7446120 voice_stack_hw=9952 spk_stack_hw=0 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.247 name=Daniel banner=\"tap\""
+        },
+        {
+          "name": "button:boot",
+          "ok": true,
+          "detail": "ok"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "name": "spotify",
+      "ok": true,
+      "screenshot": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/functional/20260521-061825/03-spotify.bmp",
+      "serial_log": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/functional/20260521-061825/03-spotify-serial.log",
+      "source_paths": [
+        "sketches/Astrolabe/faces/spotify",
+        "sketches/Astrolabe/pm_spotify.cpp"
+      ],
+      "steps": [
+        {
+          "name": "set_face",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "screenshot",
+          "ok": true,
+          "detail": "466x466"
+        },
+        {
+          "name": "gesture:swipe_left",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_right",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_up",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_down",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:tap:233,269",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "qa_status",
+          "ok": true,
+          "detail": "qa: face=3 state=0 heap=29851 iheap=29851 largest=18432 psram=7446120 voice_stack_hw=9952 spk_stack_hw=0 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.247 name=Daniel banner=\"pause (demo)\""
+        },
+        {
+          "name": "button:boot",
+          "ok": true,
+          "detail": "ok"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "name": "astro",
+      "ok": true,
+      "screenshot": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/functional/20260521-061825/04-astro.bmp",
+      "serial_log": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/functional/20260521-061825/04-astro-serial.log",
+      "source_paths": [
+        "sketches/Astrolabe/faces/astrology",
+        "sketches/Astrolabe/pm_transit.cpp"
+      ],
+      "steps": [
+        {
+          "name": "set_face",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "screenshot",
+          "ok": true,
+          "detail": "466x466"
+        },
+        {
+          "name": "gesture:swipe_left",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_right",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_up",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_down",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:tap:233,350",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "qa_status",
+          "ok": true,
+          "detail": "qa: face=4 state=0 heap=29651 iheap=29651 largest=16384 psram=7446120 voice_stack_hw=9952 spk_stack_hw=0 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.247 name=Daniel banner=\"tap\""
+        },
+        {
+          "name": "button:boot",
+          "ok": true,
+          "detail": "ok"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "name": "moon",
+      "ok": true,
+      "screenshot": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/functional/20260521-061825/05-moon.bmp",
+      "serial_log": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/functional/20260521-061825/05-moon-serial.log",
+      "source_paths": [
+        "sketches/Astrolabe/faces/moon"
+      ],
+      "steps": [
+        {
+          "name": "set_face",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "screenshot",
+          "ok": true,
+          "detail": "466x466"
+        },
+        {
+          "name": "gesture:swipe_left",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_right",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_up",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_down",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:tap:233,233",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "qa_status",
+          "ok": true,
+          "detail": "qa: face=6 state=0 heap=29647 iheap=29647 largest=16384 psram=7446120 voice_stack_hw=9952 spk_stack_hw=0 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.247 name=Daniel banner=\"tap\""
+        },
+        {
+          "name": "button:boot",
+          "ok": true,
+          "detail": "ok"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "name": "calcifer",
+      "ok": false,
+      "screenshot": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/functional/20260521-061825/06-calcifer.bmp",
+      "serial_log": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/functional/20260521-061825/06-calcifer-serial.log",
+      "source_paths": [
+        "sketches/Astrolabe/faces/calcifer",
+        "sketches/Astrolabe/pm_calcifer.cpp"
+      ],
+      "steps": [
+        {
+          "name": "set_face",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "screenshot",
+          "ok": true,
+          "detail": "466x466"
+        },
+        {
+          "name": "gesture:swipe_left",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_right",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_up",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_down",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:tap:233,233",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "qa_status",
+          "ok": false,
+          "detail": "no qa: face= line"
+        },
+        {
+          "name": "button:boot",
+          "ok": true,
+          "detail": "ok"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "name": "castalia",
+      "ok": true,
+      "screenshot": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/functional/20260521-061825/07-castalia.bmp",
+      "serial_log": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/functional/20260521-061825/07-castalia-serial.log",
+      "source_paths": [
+        "sketches/Astrolabe/faces/castalia",
+        "sketches/Astrolabe/pm_castalia_auth.cpp"
+      ],
+      "steps": [
+        {
+          "name": "set_face",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "screenshot",
+          "ok": true,
+          "detail": "466x466"
+        },
+        {
+          "name": "gesture:swipe_left",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_right",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_up",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_down",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:tap:233,238",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "qa_status",
+          "ok": true,
+          "detail": "qa: face=8 state=0 heap=11727 iheap=11727 largest=7680 psram=7446120 voice_stack_hw=9952 spk_stack_hw=0 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.247 name=Daniel banner=\"wifi: connected\""
+        },
+        {
+          "name": "button:boot",
+          "ok": true,
+          "detail": "ok"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "name": "settings",
+      "ok": false,
+      "screenshot": "",
+      "serial_log": "",
+      "source_paths": [
+        "sketches/Astrolabe/pm_settings.cpp",
+        "sketches/Astrolabe/pm_settings.h",
+        "sketches/Astrolabe/faces/settings"
+      ],
+      "steps": [
+        {
+          "name": "set_face",
+          "ok": false,
+          "detail": "no face: ack on serial"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "name": "synastry",
+      "ok": true,
+      "screenshot": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/functional/20260521-061825/09-synastry.bmp",
+      "serial_log": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/functional/20260521-061825/09-synastry-serial.log",
+      "source_paths": [
+        "sketches/Astrolabe/faces/synastry"
+      ],
+      "steps": [
+        {
+          "name": "set_face",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "screenshot",
+          "ok": true,
+          "detail": "466x466"
+        },
+        {
+          "name": "gesture:swipe_left",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_right",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_up",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_down",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:tap:233,233",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "qa_status",
+          "ok": true,
+          "detail": "qa: face=9 state=0 heap=11627 iheap=11627 largest=7680 psram=7446084 voice_stack_hw=9952 spk_stack_hw=0 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.247 name=Daniel banner=\"tap\""
+        },
+        {
+          "name": "button:boot",
+          "ok": true,
+          "detail": "ok"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "name": "spectrum",
+      "ok": false,
+      "screenshot": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/functional/20260521-061825/10-spectrum.bmp",
+      "serial_log": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/functional/20260521-061825/10-spectrum-serial.log",
+      "source_paths": [
+        "sketches/Astrolabe/faces/spectrum",
+        "sketches/Astrolabe/pm_fft.cpp",
+        "sketches/Astrolabe/pm_audio_analyzer.cpp"
+      ],
+      "steps": [
+        {
+          "name": "set_face",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "screenshot",
+          "ok": true,
+          "detail": "466x466"
+        },
+        {
+          "name": "gesture:swipe_left",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_right",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_up",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_down",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:tap:233,233",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "qa_status",
+          "ok": false,
+          "detail": "no qa: face= line"
+        },
+        {
+          "name": "button:boot",
+          "ok": true,
+          "detail": "ok"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "name": "chakra",
+      "ok": true,
+      "screenshot": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/functional/20260521-061825/11-chakra.bmp",
+      "serial_log": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/functional/20260521-061825/11-chakra-serial.log",
+      "source_paths": [
+        "sketches/Astrolabe/faces/chakra",
+        "sketches/Astrolabe/pm_speaker.cpp"
+      ],
+      "steps": [
+        {
+          "name": "set_face",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "screenshot",
+          "ok": true,
+          "detail": "466x466"
+        },
+        {
+          "name": "gesture:swipe_left",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_right",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_up",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_down",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:tap:233,233",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "qa_status",
+          "ok": true,
+          "detail": "qa: face=11 state=0 heap=11843 iheap=11843 largest=7680 psram=7446084 voice_stack_hw=9952 spk_stack_hw=0 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.247 name=Daniel banner=\"tone busy\""
+        },
+        {
+          "name": "button:boot",
+          "ok": true,
+          "detail": "ok"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "name": "bowl",
+      "ok": false,
+      "screenshot": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/functional/20260521-061825/12-bowl.bmp",
+      "serial_log": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/functional/20260521-061825/12-bowl-serial.log",
+      "source_paths": [
+        "sketches/Astrolabe/faces/tibetan_bowl",
+        "sketches/Astrolabe/pm_speaker.cpp"
+      ],
+      "steps": [
+        {
+          "name": "set_face",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "screenshot",
+          "ok": true,
+          "detail": "466x466"
+        },
+        {
+          "name": "gesture:tap:448,233",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_left",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_right",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_up",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_down",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "qa_status",
+          "ok": false,
+          "detail": "no qa: face= line"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "name": "rocket",
+      "ok": false,
+      "screenshot": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/functional/20260521-061825/13-rocket.bmp",
+      "serial_log": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/functional/20260521-061825/13-rocket-serial.log",
+      "source_paths": [
+        "sketches/Astrolabe/faces/rocket",
+        "sketches/Astrolabe/pm_rocket.cpp",
+        "sketches/Astrolabe/pm_rocket.h"
+      ],
+      "steps": [
+        {
+          "name": "set_face",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "screenshot",
+          "ok": true,
+          "detail": "466x466"
+        },
+        {
+          "name": "gesture:tap:233,233",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_left",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_right",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_up",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_down",
+          "ok": false,
+          "detail": "Guru Meditation Error: Core  1 panic'ed (LoadProhibited). Exception was unhandled."
+        },
+        {
+          "name": "qa_status",
+          "ok": false,
+          "detail": "no qa: face= line"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "name": "radar",
+      "ok": true,
+      "screenshot": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/functional/20260521-061825/14-radar.bmp",
+      "serial_log": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/functional/20260521-061825/14-radar-serial.log",
+      "source_paths": [
+        "sketches/Astrolabe/faces/radar",
+        "sketches/Astrolabe/pm_presence.cpp",
+        "sketches/Astrolabe/pm_presence.h",
+        "sketches/Astrolabe/pm_presence_adv.cpp",
+        "sketches/Astrolabe/pm_presence_adv.h",
+        "sketches/Astrolabe/pm_motion.cpp",
+        "sketches/Astrolabe/pm_motion.h",
+        "sketches/Astrolabe/pm_presence_graph.cpp",
+        "sketches/Astrolabe/pm_presence_graph.h",
+        "sketches/Astrolabe/pm_presence_locations.cpp",
+        "sketches/Astrolabe/pm_presence_locations.h"
+      ],
+      "steps": [
+        {
+          "name": "set_face",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "screenshot",
+          "ok": true,
+          "detail": "466x466"
+        },
+        {
+          "name": "gesture:swipe_left",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_right",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_up",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_down",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:tap:233,233",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "qa_status",
+          "ok": true,
+          "detail": "qa: face=15 state=0 heap=45299 iheap=45299 largest=17408 psram=7628388 voice_stack_hw=0 spk_stack_hw=0 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.247 name=Daniel banner=\"tap\""
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "name": "faculty",
+      "ok": true,
+      "screenshot": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/functional/20260521-061825/15-faculty.bmp",
+      "serial_log": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/functional/20260521-061825/15-faculty-serial.log",
+      "source_paths": [
+        "sketches/Astrolabe/faces/faculty",
+        "sketches/Astrolabe/pm_faculty.cpp",
+        "sketches/Astrolabe/pm_faculty.h"
+      ],
+      "steps": [
+        {
+          "name": "set_face",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "screenshot",
+          "ok": true,
+          "detail": "466x466"
+        },
+        {
+          "name": "gesture:swipe_up",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_down",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_left",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_right",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:tap:233,233",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "qa_status",
+          "ok": true,
+          "detail": "qa: face=15 state=0 heap=31667 iheap=31667 largest=15872 psram=7741036 voice_stack_hw=0 spk_stack_hw=0 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.247 name=Daniel banner=\"tap\""
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "name": "weather",
+      "ok": false,
+      "screenshot": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/functional/20260521-061825/16-weather.bmp",
+      "serial_log": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/functional/20260521-061825/16-weather-serial.log",
+      "source_paths": [
+        "sketches/Astrolabe/faces/weather",
+        "sketches/Astrolabe/pm_weather.cpp"
+      ],
+      "steps": [
+        {
+          "name": "set_face",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "screenshot",
+          "ok": true,
+          "detail": "466x466"
+        },
+        {
+          "name": "gesture:swipe_left",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_right",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_up",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_down",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:tap:233,233",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "qa_status",
+          "ok": false,
+          "detail": "no qa: face= line"
+        },
+        {
+          "name": "button:boot",
+          "ok": true,
+          "detail": "ok"
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "name": "quotes",
+      "ok": true,
+      "screenshot": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/functional/20260521-061825/17-quotes.bmp",
+      "serial_log": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/functional/20260521-061825/17-quotes-serial.log",
+      "source_paths": [
+        "sketches/Astrolabe/faces/quotes",
+        "sketches/Astrolabe/pm_quotes.cpp",
+        "sketches/Astrolabe/pm_faculty.cpp"
+      ],
+      "steps": [
+        {
+          "name": "set_face",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "screenshot",
+          "ok": true,
+          "detail": "466x466"
+        },
+        {
+          "name": "gesture:swipe_left",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_right",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_up",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_down",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:tap:233,233",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "qa_status",
+          "ok": true,
+          "detail": "qa: face=17 state=0 heap=15839 iheap=15839 largest=7680 psram=7741036 voice_stack_hw=9548 spk_stack_hw=0 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.247 name=Daniel banner=\"tap\""
+        },
+        {
+          "name": "button:boot",
+          "ok": true,
+          "detail": "ok"
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "name": "transits",
+      "ok": true,
+      "screenshot": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/functional/20260521-061825/18-transits.bmp",
+      "serial_log": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/functional/20260521-061825/18-transits-serial.log",
+      "source_paths": [
+        "sketches/Astrolabe/faces/live_transits",
+        "sketches/Astrolabe/pm_transit.cpp"
+      ],
+      "steps": [
+        {
+          "name": "set_face",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "screenshot",
+          "ok": true,
+          "detail": "466x466"
+        },
+        {
+          "name": "gesture:swipe_left",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_right",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_up",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_down",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:tap:233,233",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "qa_status",
+          "ok": true,
+          "detail": "qa: face=18 state=0 heap=15003 iheap=15003 largest=6656 psram=7741036 voice_stack_hw=9548 spk_stack_hw=0 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.247 name=Daniel banner=\"tap\""
+        },
+        {
+          "name": "button:boot",
+          "ok": true,
+          "detail": "ok"
+        }
+      ]
+    },
+    {
+      "id": 19,
+      "name": "tarot",
+      "ok": true,
+      "screenshot": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/functional/20260521-061825/19-tarot.bmp",
+      "serial_log": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/functional/20260521-061825/19-tarot-serial.log",
+      "source_paths": [
+        "sketches/Astrolabe/faces/tarot"
+      ],
+      "steps": [
+        {
+          "name": "set_face",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "screenshot",
+          "ok": true,
+          "detail": "466x466"
+        },
+        {
+          "name": "gesture:swipe_left",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_right",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_up",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_down",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:tap:233,233",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "qa_status",
+          "ok": true,
+          "detail": "qa: face=19 state=0 heap=12563 iheap=12563 largest=4096 psram=7741000 voice_stack_hw=9548 spk_stack_hw=0 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.247 name=Daniel banner=\"tarot: daily\""
+        },
+        {
+          "name": "button:boot",
+          "ok": true,
+          "detail": "ok"
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "name": "notes",
+      "ok": true,
+      "screenshot": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/functional/20260521-061825/20-notes.bmp",
+      "serial_log": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/functional/20260521-061825/20-notes-serial.log",
+      "source_paths": [
+        "sketches/Astrolabe/faces/notes",
+        "sketches/Astrolabe/pm_commonplace.cpp"
+      ],
+      "steps": [
+        {
+          "name": "set_face",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "screenshot",
+          "ok": true,
+          "detail": "466x466"
+        },
+        {
+          "name": "gesture:swipe_left",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_right",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_up",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_down",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:tap:233,233",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "qa_status",
+          "ok": true,
+          "detail": "qa: face=20 state=0 heap=12595 iheap=12595 largest=4096 psram=7741000 voice_stack_hw=9548 spk_stack_hw=0 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.247 name=Daniel banner=\"tap\""
+        },
+        {
+          "name": "button:pwr_hold",
+          "ok": true,
+          "detail": "ok"
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "name": "ocarina",
+      "ok": true,
+      "screenshot": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/functional/20260521-061825/21-ocarina.bmp",
+      "serial_log": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/functional/20260521-061825/21-ocarina-serial.log",
+      "source_paths": [
+        "sketches/Astrolabe/faces/ocarina",
+        "sketches/Astrolabe/pm_speaker.cpp"
+      ],
+      "steps": [
+        {
+          "name": "set_face",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "screenshot",
+          "ok": true,
+          "detail": "466x466"
+        },
+        {
+          "name": "gesture:swipe_left",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_right",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_up",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_down",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:tap:233,233",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "qa_status",
+          "ok": true,
+          "detail": "qa: face=21 state=0 heap=12571 iheap=12571 largest=4096 psram=7740964 voice_stack_hw=9548 spk_stack_hw=0 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.247 name=Daniel banner=\"ocarina: busy\""
+        },
+        {
+          "name": "button:boot",
+          "ok": true,
+          "detail": "ok"
+        }
+      ]
+    },
+    {
+      "id": 22,
+      "name": "bongo",
+      "ok": false,
+      "screenshot": "",
+      "serial_log": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/functional/20260521-061825/22-bongo-serial.log",
+      "source_paths": [
+        "sketches/Astrolabe/faces/bongo",
+        "sketches/Astrolabe/pm_speaker.cpp"
+      ],
+      "steps": [
+        {
+          "name": "set_face",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "screenshot",
+          "ok": false,
+          "detail": "timed out"
+        },
+        {
+          "name": "gesture:swipe_left",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_right",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_up",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_down",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:tap:233,233",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:tap:388,233",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "qa_status",
+          "ok": true,
+          "detail": "qa: face=22 state=0 heap=13231 iheap=13231 largest=4096 psram=7740964 voice_stack_hw=9548 spk_stack_hw=0 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.247 name=Daniel banner=\"bongo: busy\""
+        },
+        {
+          "name": "button:boot",
+          "ok": true,
+          "detail": "ok"
+        }
+      ]
+    },
+    {
+      "id": 23,
+      "name": "piano",
+      "ok": true,
+      "screenshot": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/functional/20260521-061825/23-piano.bmp",
+      "serial_log": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/functional/20260521-061825/23-piano-serial.log",
+      "source_paths": [
+        "sketches/Astrolabe/faces/piano",
+        "sketches/Astrolabe/pm_speaker.cpp"
+      ],
+      "steps": [
+        {
+          "name": "set_face",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "screenshot",
+          "ok": true,
+          "detail": "466x466"
+        },
+        {
+          "name": "gesture:swipe_left",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_right",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_up",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_down",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:tap:233,233",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "qa_status",
+          "ok": true,
+          "detail": "qa: face=22 state=0 heap=13207 iheap=13207 largest=4096 psram=7740964 voice_stack_hw=9548 spk_stack_hw=0 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.247 name=Daniel banner=\"bongo: busy\""
+        },
+        {
+          "name": "button:boot",
+          "ok": true,
+          "detail": "ok"
+        }
+      ]
+    },
+    {
+      "id": 24,
+      "name": "level",
+      "ok": true,
+      "screenshot": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/functional/20260521-061825/24-level.bmp",
+      "serial_log": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/functional/20260521-061825/24-level-serial.log",
+      "source_paths": [
+        "sketches/Astrolabe/faces/level",
+        "sketches/Astrolabe/pm_motion.cpp"
+      ],
+      "steps": [
+        {
+          "name": "set_face",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "screenshot",
+          "ok": true,
+          "detail": "466x466"
+        },
+        {
+          "name": "gesture:swipe_left",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_right",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_up",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_down",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:tap:233,233",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "qa_status",
+          "ok": true,
+          "detail": "qa: face=24 state=1 heap=8059 iheap=8059 largest=4096 psram=7740964 voice_stack_hw=9548 spk_stack_hw=0 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.247 name=Daniel banner=\"tap\""
+        },
+        {
+          "name": "button:boot",
+          "ok": true,
+          "detail": "ok"
+        }
+      ]
+    },
+    {
+      "id": 25,
+      "name": "pandrum",
+      "ok": true,
+      "screenshot": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/functional/20260521-061825/25-pandrum.bmp",
+      "serial_log": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/functional/20260521-061825/25-pandrum-serial.log",
+      "source_paths": [
+        "sketches/Astrolabe/faces/pandrum",
+        "sketches/Astrolabe/pm_speaker.cpp"
+      ],
+      "steps": [
+        {
+          "name": "set_face",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "screenshot",
+          "ok": true,
+          "detail": "466x466"
+        },
+        {
+          "name": "gesture:swipe_left",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_right",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_up",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_down",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:tap:233,233",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:tap:233,86",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:tap:360,160",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "qa_status",
+          "ok": true,
+          "detail": "qa: face=25 state=0 heap=12699 iheap=12699 largest=4096 psram=7740964 voice_stack_hw=9548 spk_stack_hw=0 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.247 name=Daniel banner=\"tap\""
+        },
+        {
+          "name": "button:boot",
+          "ok": true,
+          "detail": "ok"
+        }
+      ]
+    }
+  ]
+}

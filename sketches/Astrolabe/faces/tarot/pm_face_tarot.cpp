@@ -21,11 +21,11 @@ constexpr int kCardCount = 22;
 constexpr int kCx = LCD_WIDTH / 2;
 constexpr int kCy = LCD_HEIGHT / 2;
 constexpr const char *kManifestUrl = "http://tarot.castalia.institute/assets/major/manifest.json";
-constexpr const char *kAssetBaseUrl = "http://tarot.castalia.institute/assets/major/half";
+constexpr const char *kAssetBaseUrl = "http://tarot.castalia.institute/assets/major/full";
 constexpr uint32_t kTarotFetchTimeoutMs = 30000u;
 constexpr uint32_t kTarotMinFetchHeap = 18000u;
-constexpr int kTarotMaxImageBytes = 160000;
-constexpr int kTarotMaxImageDim = 260;
+constexpr int kTarotMaxImageBytes = 390000;
+constexpr int kTarotMaxImageDim = LCD_WIDTH;
 constexpr uint32_t kTarotTaskStack = 12288u;
 
 struct TarotCard {
@@ -623,32 +623,45 @@ void pm_face_tarot_draw(const struct tm *tm_local, bool valid_local) {
   const uint16_t c_glow = blend565(c_bg, c_accent, 0.22f);
   pm_gfx->fillScreen(c_bg);
 
+  const bool image_drawn = draw_cached_card_image(idx, kCx, kCy);
+
+  if (!image_drawn) {
+    const int R = min(LCD_WIDTH, LCD_HEIGHT) / 2;
+    for (int r = R - 6; r > 28; r -= 7) {
+      const float a = static_cast<float>(r - 28) / static_cast<float>(R - 34);
+      pm_gfx->drawCircle(kCx, kCy, r, blend565(c_bg, c_glow, a * 0.32f));
+    }
+
+    pm_gfx->fillCircle(kCx, kCy, 160, c_panel);
+    pm_gfx->drawCircle(kCx, kCy, 160, c_accent);
+    pm_gfx->drawCircle(kCx, kCy, 154, blend565(c_panel, c_accent, 0.38f));
+    draw_card_symbol(idx, kCx, kCy - 6, c_ink, c_accent);
+  }
+
   const int R = min(LCD_WIDTH, LCD_HEIGHT) / 2;
   for (int r = R - 6; r > 28; r -= 7) {
     const float a = static_cast<float>(r - 28) / static_cast<float>(R - 34);
-    pm_gfx->drawCircle(kCx, kCy, r, blend565(c_bg, c_glow, a * 0.32f));
+    if ((r % 28) == 0) {
+      pm_gfx->drawCircle(kCx, kCy, r, blend565(c_bg, c_glow, image_drawn ? 0.18f : a * 0.22f));
+    }
   }
-
-  pm_gfx->fillCircle(kCx, kCy, 160, c_panel);
-  pm_gfx->drawCircle(kCx, kCy, 160, c_accent);
-  pm_gfx->drawCircle(kCx, kCy, 154, blend565(c_panel, c_accent, 0.38f));
 
   for (int i = 0; i < kCardCount; ++i) {
     const float deg = static_cast<float>(i) * 360.f / static_cast<float>(kCardCount);
     const float ang = pm_face_deg_to_rad(deg);
-    const int r0 = (i == idx) ? 168 : 174;
-    const int r1 = (i == idx) ? 190 : 184;
-    const uint16_t col = (i == idx) ? c_accent : pm_gfx->color565(54, 48, 42);
+    const int r0 = (i == idx) ? 206 : 214;
+    const int r1 = (i == idx) ? 230 : 224;
+    const uint16_t col = (i == idx) ? c_accent : blend565(c_bg, c_ink, image_drawn ? 0.32f : 0.18f);
     pm_gfx->drawLine(kCx + static_cast<int>(lrintf(cosf(ang) * r0)),
                      kCy + static_cast<int>(lrintf(sinf(ang) * r0)),
                      kCx + static_cast<int>(lrintf(cosf(ang) * r1)),
                      kCy + static_cast<int>(lrintf(sinf(ang) * r1)), col);
   }
 
-  const bool image_drawn = draw_cached_card_image(idx, kCx, kCy - 10);
-  if (!image_drawn) {
-    draw_card_symbol(idx, kCx, kCy - 6, c_ink, c_accent);
-  }
+  pm_gfx->fillRect(0, 0, LCD_WIDTH, 64, image_drawn ? pm_gfx->color565(6, 7, 11) : c_bg);
+  pm_gfx->fillRect(0, 330, LCD_WIDTH, 136, image_drawn ? pm_gfx->color565(6, 7, 11) : c_bg);
+  pm_gfx->drawFastHLine(0, 64, LCD_WIDTH, blend565(c_bg, c_accent, 0.45f));
+  pm_gfx->drawFastHLine(0, 330, LCD_WIDTH, blend565(c_bg, c_accent, 0.45f));
 
   char num[8];
   snprintf(num, sizeof(num), "%02d", idx);

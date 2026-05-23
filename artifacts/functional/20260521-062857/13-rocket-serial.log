@@ -1,0 +1,25 @@
+[  9892][E][WiFiClient.cpp:429] write(): fail on fd 50, errno: 104, "Connection reset by peer"
+face: 13
+E (23209) esp-aes: Failed to allocate memory
+[ 23672][E][ssl_client.cpp:37] _handle_error(): [data_to_read():361]: (-1) ERROR - Generic error
+voice: HTTP -5 (daily_briefing)
+voice: daily_briefing fail (HTTP -5)
+[ 28440][E][vfs_api.cpp:105] open(): /littlefs/busts/marie-curie.bin does not exist, no permits for creation
+pm_faculty: embedded bust marie-curie (16382 B)
+qa: inject tap @ 233,233
+qa: inject swipe left @ 233,233
+presence: BLE deferred low heap internal=20668 largest=6132
+presence: BLE deferred low heap internal=52268 largest=15348
+[gesture] face -> 14
+[ 30984][E][vfs_api.cpp:105] open(): /littlefs/busts/hypatia.bin does not exist, no permits for creation
+pm_faculty: embedded bust hypatia (37999 B)
+qa: inject swipe right @ 233,233
+E (31515) I2S: i2s_driver_uninstall(2048): I2S port 0 has not installed
+E (32408) I2S: i2s_driver_uninstall(2048): I2S port 0 has not installed
+[ 33814][E][vfs_api.cpp:105] open(): /littlefs/busts/socrates.bi[gesture] face -> 13
+n does not exist, no permits for creation
+[ 33827][E][vfs_api.cpp:105] open(): /littlefs/busts/socrates.bin does not exist, no permits for creation
+pm_faculty: bust skipped low memory heap=23632 largest=8692
+qa: inject swipe up @ 233,233
+qa: inject swipe down @ 233,233
+qa: face=13 state=0 heap=23632 iheap=23632 largest=8692 psram=7692855 voice_stack_hw=3800 spk_stack_hw=30328 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.247 name=Daniel banner=""

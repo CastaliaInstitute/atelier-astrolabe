@@ -1,0 +1,1330 @@
+face: 21
+I (129880) ES7210: ES7210 in Slave mode
+I (129889) ES7210: Enable ES7210_INPUT_MIC1
+I (129891) ES7210: Enable ES7210_INPUT_MIC2
+I (129894) ES7210: Enable ES7210_INPUT_MIC3
+I (129896) ES7210: Enable ES7210_INPUT_MIC4
+I (129911) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (129919) ES7210: Enable ES7210_INPUT_MIC1
+I (129921) ES7210: Enable ES7210_INPUT_MIC2
+I (129923) ES7210: Enable ES7210_INPUT_MIC3
+I (129926) ES7210: Enable ES7210_INPUT_MIC4
+E (129929) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (129930) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (129937) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (129944) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (129952) ES7210: The codec is about to stop
+I (129979) ES7210: ES7210 in Slave mode
+I (129988) ES7210: Enable ES7210_INPUT_MIC1
+I (129991) ES7210: Enable ES7210_INPUT_MIC2
+I (129993) ES7210: Enable ES7210_INPUT_MIC3
+I (129995) ES7210: Enable ES7210_INPUT_MIC4
+I (130011) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (130019) ES7210: Enable ES7210_INPUT_MIC1
+I (130022) ES7210: Enable ES7210_INPUT_MIC2
+I (130025) ES7210: Enable ES7210_INPUT_MIC3
+I (130027) ES7210: Enable ES7210_INPUT_MIC4
+E (130031) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (130032) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (130038) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (130045) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (130052) ES7210: The codec is about to stop
+I (130079) ES7210: ES7210 in Slave mode
+I (130088) ES7210: Enable ES7210_INPUT_MIC1
+I (130091) ES7210: Enable ES7210_INPUT_MIC2
+I (130093) ES7210: Enable ES7210_INPUT_MIC3
+I (130095) ES7210: Enable ES7210_INPUT_MIC4
+I (130111) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (130118) ES7210: Enable ES7210_INPUT_MIC1
+I (130120) ES7210: Enable ES7210_INPUT_MIC2
+I (130123) ES7210: Enable ES7210_INPUT_MIC3
+I (130125) ES7210: Enable ES7210_INPUT_MIC4
+E (130129) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (130129) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (130137) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (130144) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (130151) ES7210: The codec is about to stop
+I (130178) ES7210: ES7210 in Slave mode
+I (130187) ES7210: Enable ES7210_INPUT_MIC1
+I (130190) ES7210: Enable ES7210_INPUT_MIC2
+I (130192) ES7210: Enable ES7210_INPUT_MIC3
+I (130194) ES7210: Enable ES7210_INPUT_MIC4
+I (130210) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (130217) ES7210: Enable ES7210_INPUT_MIC1
+I (130220) ES7210: Enable ES7210_INPUT_MIC2
+I (130222) ES7210: Enable ES7210_INPUT_MIC3
+I (130225) ES7210: Enable ES7210_INPUT_MIC4
+E (130229) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (130229) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (130236) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (130243) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (130250) ES7210: The codec is about to stop
+I (130277) ES7210: ES7210 in Slave mode
+I (130286) ES7210: Enable ES7210_INPUT_MIC1
+I (130289) ES7210: Enable ES7210_INPUT_MIC2
+I (130291) ES7210: Enable ES7210_INPUT_MIC3
+I (130294) ES7210: Enable ES7210_INPUT_MIC4
+I (130309) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (130316) ES7210: Enable ES7210_INPUT_MIC1
+I (130319) ES7210: Enable ES7210_INPUT_MIC2
+I (130321) ES7210: Enable ES7210_INPUT_MIC3
+I (130324) ES7210: Enable ES7210_INPUT_MIC4
+E (130327) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (130328) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (130335) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (130342) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (130349) ES7210: The codec is about to stop
+I (130376) ES7210: ES7210 in Slave mode
+I (130385) ES7210: Enable ES7210_INPUT_MIC1
+I (130388) ES7210: Enable ES7210_INPUT_MIC2
+I (130390) ES7210: Enable ES7210_INPUT_MIC3
+I (130392) ES7210: Enable ES7210_INPUT_MIC4
+I (130408) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (130415) ES7210: Enable ES7210_INPUT_MIC1
+I (130417) ES7210: Enable ES7210_INPUT_MIC2
+I (130420) ES7210: Enable ES7210_INPUT_MIC3
+I (130422) ES7210: Enable ES7210_INPUT_MIC4
+E (130427) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (130428) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (130433) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (130441) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (130448) ES7210: The codec is about to stop
+I (130475) ES7210: ES7210 in Slave mode
+I (130484) ES7210: Enable ES7210_INPUT_MIC1
+I (130487) ES7210: Enable ES7210_INPUT_MIC2
+I (130489) ES7210: Enable ES7210_INPUT_MIC3
+I (130491) ES7210: Enable ES7210_INPUT_MIC4
+I (130507) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (130514) ES7210: Enable ES7210_INPUT_MIC1
+I (130516) ES7210: Enable ES7210_INPUT_MIC2
+I (130519) ES7210: Enable ES7210_INPUT_MIC3
+I (130521) ES7210: Enable ES7210_INPUT_MIC4
+E (130525) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (130526) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (130533) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (130540) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (130547) ES7210: The codec is about to stop
+I (130574) ES7210: ES7210 in Slave mode
+I (130583) ES7210: Enable ES7210_INPUT_MIC1
+I (130586) ES7210: Enable ES7210_INPUT_MIC2
+I (130588) ES7210: Enable ES7210_INPUT_MIC3
+I (130590) ES7210: Enable ES7210_INPUT_MIC4
+I (130606) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (130613) ES7210: Enable ES7210_INPUT_MIC1
+I (130615) ES7210: Enable ES7210_INPUT_MIC2
+I (130618) ES7210: Enable ES7210_INPUT_MIC3
+I (130620) ES7210: Enable ES7210_INPUT_MIC4
+E (130624) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (130624) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (130631) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (130639) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (130646) ES7210: The codec is about to stop
+I (130673) ES7210: ES7210 in Slave mode
+I (130682) ES7210: Enable ES7210_INPUT_MIC1
+I (130684) ES7210: Enable ES7210_INPUT_MIC2
+I (130687) ES7210: Enable ES7210_INPUT_MIC3
+I (130689) ES7210: Enable ES7210_INPUT_MIC4
+I (130705) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (130712) ES7210: Enable ES7210_INPUT_MIC1
+I (130714) ES7210: Enable ES7210_INPUT_MIC2
+I (130717) ES7210: Enable ES7210_INPUT_MIC3
+I (130719) ES7210: Enable ES7210_INPUT_MIC4
+E (130723) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (130723) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (130731) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (130738) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (130745) ES7210: The codec is about to stop
+I (130772) ES7210: ES7210 in Slave mode
+I (130781) ES7210: Enable ES7210_INPUT_MIC1
+I (130784) ES7210: Enable ES7210_INPUT_MIC2
+I (130786) ES7210: Enable ES7210_INPUT_MIC3
+I (130788) ES7210: Enable ES7210_INPUT_MIC4
+I (130804) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (130811) ES7210: Enable ES7210_INPUT_MIC1
+I (130813) ES7210: Enable ES7210_INPUT_MIC2
+I (130816) ES7210: Enable ES7210_INPUT_MIC3
+I (130818) ES7210: Enable ES7210_INPUT_MIC4
+E (130822) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (130822) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (130829) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (130837) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (130844) ES7210: The codec is about to stop
+I (130871) ES7210: ES7210 in Slave mode
+I (130880) ES7210: Enable ES7210_INPUT_MIC1
+I (130882) ES7210: Enable ES7210_INPUT_MIC2
+I (130885) ES7210: Enable ES7210_INPUT_MIC3
+I (130887) ES7210: Enable ES7210_INPUT_MIC4
+I (130903) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (130910) ES7210: Enable ES7210_INPUT_MIC1
+I (130912) ES7210: Enable ES7210_INPUT_MIC2
+I (130915) ES7210: Enable ES7210_INPUT_MIC3
+I (130917) ES7210: Enable ES7210_INPUT_MIC4
+E (130921) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (130921) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (130928) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (130936) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (130943) ES7210: The codec is about to stop
+I (130970) ES7210: ES7210 in Slave mode
+I (130979) ES7210: Enable ES7210_INPUT_MIC1
+I (130981) ES7210: Enable ES7210_INPUT_MIC2
+I (130984) ES7210: Enable ES7210_INPUT_MIC3
+I (130986) ES7210: Enable ES7210_INPUT_MIC4
+I (131002) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (131009) ES7210: Enable ES7210_INPUT_MIC1
+I (131011) ES7210: Enable ES7210_INPUT_MIC2
+I (131014) ES7210: Enable ES7210_INPUT_MIC3
+I (131016) ES7210: Enable ES7210_INPUT_MIC4
+E (131020) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (131020) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (131027) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (131035) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (131042) ES7210: The codec is about to stop
+I (131069) ES7210: ES7210 in Slave mode
+I (131078) ES7210: Enable ES7210_INPUT_MIC1
+I (131080) ES7210: Enable ES7210_INPUT_MIC2
+I (131083) ES7210: Enable ES7210_INPUT_MIC3
+I (131085) ES7210: Enable ES7210_INPUT_MIC4
+I (131101) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (131108) ES7210: Enable ES7210_INPUT_MIC1
+I (131110) ES7210: Enable ES7210_INPUT_MIC2
+I (131113) ES7210: Enable ES7210_INPUT_MIC3
+I (131115) ES7210: Enable ES7210_INPUT_MIC4
+E (131119) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (131119) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (131126) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (131134) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (131141) ES7210: The codec is about to stop
+I (131168) ES7210: ES7210 in Slave mode
+I (131177) ES7210: Enable ES7210_INPUT_MIC1
+I (131180) ES7210: Enable ES7210_INPUT_MIC2
+I (131182) ES7210: Enable ES7210_INPUT_MIC3
+I (131184) ES7210: Enable ES7210_INPUT_MIC4
+I (131200) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (131207) ES7210: Enable ES7210_INPUT_MIC1
+I (131209) ES7210: Enable ES7210_INPUT_MIC2
+I (131212) ES7210: Enable ES7210_INPUT_MIC3
+I (131214) ES7210: Enable ES7210_INPUT_MIC4
+E (131218) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (131218) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (131225) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (131233) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (131240) ES7210: The codec is about to stop
+I (131267) ES7210: ES7210 in Slave mode
+I (131276) ES7210: Enable ES7210_INPUT_MIC1
+I (131279) ES7210: Enable ES7210_INPUT_MIC2
+I (131281) ES7210: Enable ES7210_INPUT_MIC3
+I (131284) ES7210: Enable ES7210_INPUT_MIC4
+I (131299) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (131306) ES7210: Enable ES7210_INPUT_MIC1
+I (131308) ES7210: Enable ES7210_INPUT_MIC2
+I (131311) ES7210: Enable ES7210_INPUT_MIC3
+I (131313) ES7210: Enable ES7210_INPUT_MIC4
+E (131317) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (131317) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (131325) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (131332) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (131339) ES7210: The codec is about to stop
+I (131366) ES7210: ES7210 in Slave mode
+I (131375) ES7210: Enable ES7210_INPUT_MIC1
+I (131377) ES7210: Enable ES7210_INPUT_MIC2
+I (131380) ES7210: Enable ES7210_INPUT_MIC3
+I (131382) ES7210: Enable ES7210_INPUT_MIC4
+I (131398) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (131405) ES7210: Enable ES7210_INPUT_MIC1
+I (131407) ES7210: Enable ES7210_INPUT_MIC2
+I (131409) ES7210: Enable ES7210_INPUT_MIC3
+I (131412) ES7210: Enable ES7210_INPUT_MIC4
+E (131415) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (131416) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (131423) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (131430) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (131438) ES7210: The codec is about to stop
+I (131466) ES7210: ES7210 in Slave mode
+I (131475) ES7210: Enable ES7210_INPUT_MIC1
+I (131477) ES7210: Enable ES7210_INPUT_MIC2
+I (131480) ES7210: Enable ES7210_INPUT_MIC3
+I (131482) ES7210: Enable ES7210_INPUT_MIC4
+I (131499) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (131506) ES7210: Enable ES7210_INPUT_MIC1
+I (131508) ES7210: Enable ES7210_INPUT_MIC2
+I (131511) ES7210: Enable ES7210_INPUT_MIC3
+I (131513) ES7210: Enable ES7210_INPUT_MIC4
+E (131517) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (131518) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (131525) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (131532) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (131539) ES7210: The codec is about to stop
+I (131566) ES7210: ES7210 in Slave mode
+I (131575) ES7210: Enable ES7210_INPUT_MIC1
+I (131578) ES7210: Enable ES7210_INPUT_MIC2
+I (131580) ES7210: Enable ES7210_INPUT_MIC3
+I (131582) ES7210: Enable ES7210_INPUT_MIC4
+I (131598) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (131605) ES7210: Enable ES7210_INPUT_MIC1
+I (131607) ES7210: Enable ES7210_INPUT_MIC2
+I (131610) ES7210: Enable ES7210_INPUT_MIC3
+I (131612) ES7210: Enable ES7210_INPUT_MIC4
+E (131616) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (131616) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (131623) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (131631) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (131638) ES7210: The codec is about to stop
+I (131666) ES7210: ES7210 in Slave mode
+I (131675) ES7210: Enable ES7210_INPUT_MIC1
+I (131678) ES7210: Enable ES7210_INPUT_MIC2
+I (131680) ES7210: Enable ES7210_INPUT_MIC3
+I (131682) ES7210: Enable ES7210_INPUT_MIC4
+I (131698) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (131705) ES7210: Enable ES7210_INPUT_MIC1
+I (131707) ES7210: Enable ES7210_INPUT_MIC2
+I (131710) ES7210: Enable ES7210_INPUT_MIC3
+I (131712) ES7210: Enable ES7210_INPUT_MIC4
+E (131716) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (131717) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (131724) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (131731) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (131738) ES7210: The codec is about to stop
+I (131765) ES7210: ES7210 in Slave mode
+I (131774) ES7210: Enable ES7210_INPUT_MIC1
+I (131777) ES7210: Enable ES7210_INPUT_MIC2
+I (131779) ES7210: Enable ES7210_INPUT_MIC3
+I (131781) ES7210: Enable ES7210_INPUT_MIC4
+I (131797) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (131804) ES7210: Enable ES7210_INPUT_MIC1
+I (131806) ES7210: Enable ES7210_INPUT_MIC2
+I (131809) ES7210: Enable ES7210_INPUT_MIC3
+I (131811) ES7210: Enable ES7210_INPUT_MIC4
+E (131815) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (131815) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (131822) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (131830) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (131837) ES7210: The codec is about to stop
+I (131866) ES7210: ES7210 in Slave mode
+I (131875) ES7210: Enable ES7210_INPUT_MIC1
+I (131878) ES7210: Enable ES7210_INPUT_MIC2
+I (131880) ES7210: Enable ES7210_INPUT_MIC3
+I (131883) ES7210: Enable ES7210_INPUT_MIC4
+I (131898) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (131905) ES7210: Enable ES7210_INPUT_MIC1
+I (131908) ES7210: Enable ES7210_INPUT_MIC2
+I (131910) ES7210: Enable ES7210_INPUT_MIC3
+I (131913) ES7210: Enable ES7210_INPUT_MIC4
+E (131916) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (131917) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (131924) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (131931) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (131938) ES7210: The codec is about to stop
+I (131965) ES7210: ES7210 in Slave mode
+I (131974) ES7210: Enable ES7210_INPUT_MIC1
+I (131977) ES7210: Enable ES7210_INPUT_MIC2
+I (131979) ES7210: Enable ES7210_INPUT_MIC3
+I (131981) ES7210: Enable ES7210_INPUT_MIC4
+I (131997) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (132004) ES7210: Enable ES7210_INPUT_MIC1
+I (132006) ES7210: Enable ES7210_INPUT_MIC2
+I (132009) ES7210: Enable ES7210_INPUT_MIC3
+I (132011) ES7210: Enable ES7210_INPUT_MIC4
+E (132015) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (132015) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (132022) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (132030) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (132037) ES7210: The codec is about to stop
+I (132065) ES7210: ES7210 in Slave mode
+I (132074) ES7210: Enable ES7210_INPUT_MIC1
+I (132077) ES7210: Enable ES7210_INPUT_MIC2
+I (132079) ES7210: Enable ES7210_INPUT_MIC3
+I (132082) ES7210: Enable ES7210_INPUT_MIC4
+I (132097) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (132104) ES7210: Enable ES7210_INPUT_MIC1
+I (132107) ES7210: Enable ES7210_INPUT_MIC2
+I (132109) ES7210: Enable ES7210_INPUT_MIC3
+I (132111) ES7210: Enable ES7210_INPUT_MIC4
+E (132115) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (132116) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (132123) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (132130) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (132137) ES7210: The codec is about to stop
+I (132164) ES7210: ES7210 in Slave mode
+I (132173) ES7210: Enable ES7210_INPUT_MIC1
+I (132176) ES7210: Enable ES7210_INPUT_MIC2
+I (132178) ES7210: Enable ES7210_INPUT_MIC3
+I (132180) ES7210: Enable ES7210_INPUT_MIC4
+I (132196) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (132203) ES7210: Enable ES7210_INPUT_MIC1
+I (132205) ES7210: Enable ES7210_INPUT_MIC2
+I (132208) ES7210: Enable ES7210_INPUT_MIC3
+I (132210) ES7210: Enable ES7210_INPUT_MIC4
+E (132214) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (132214) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (132222) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (132229) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (132236) ES7210: The codec is about to stop
+I (132263) ES7210: ES7210 in Slave mode
+I (132273) ES7210: Enable ES7210_INPUT_MIC1
+I (132276) ES7210: Enable ES7210_INPUT_MIC2
+I (132279) ES7210: Enable ES7210_INPUT_MIC3
+I (132281) ES7210: Enable ES7210_INPUT_MIC4
+I (132297) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (132304) ES7210: Enable ES7210_INPUT_MIC1
+I (132306) ES7210: Enable ES7210_INPUT_MIC2
+I (132309) ES7210: Enable ES7210_INPUT_MIC3
+I (132311) ES7210: Enable ES7210_INPUT_MIC4
+E (132315) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (132315) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (132322) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (132330) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (132337) ES7210: The codec is about to stop
+I (132364) ES7210: ES7210 in Slave mode
+I (132373) ES7210: Enable ES7210_INPUT_MIC1
+I (132376) ES7210: Enable ES7210_INPUT_MIC2
+I (132378) ES7210: Enable ES7210_INPUT_MIC3
+I (132380) ES7210: Enable ES7210_INPUT_MIC4
+I (132396) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (132403) ES7210: Enable ES7210_INPUT_MIC1
+I (132405) ES7210: Enable ES7210_INPUT_MIC2
+I (132408) ES7210: Enable ES7210_INPUT_MIC3
+I (132410) ES7210: Enable ES7210_INPUT_MIC4
+E (132414) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (132414) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (132421) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (132429) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (132436) ES7210: The codec is about to stop
+I (132463) ES7210: ES7210 in Slave mode
+I (132473) ES7210: Enable ES7210_INPUT_MIC1
+I (132476) ES7210: Enable ES7210_INPUT_MIC2
+I (132478) ES7210: Enable ES7210_INPUT_MIC3
+I (132481) ES7210: Enable ES7210_INPUT_MIC4
+I (132497) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (132504) ES7210: Enable ES7210_INPUT_MIC1
+I (132507) ES7210: Enable ES7210_INPUT_MIC2
+I (132509) ES7210: Enable ES7210_INPUT_MIC3
+I (132512) ES7210: Enable ES7210_INPUT_MIC4
+E (132515) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (132516) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (132523) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (132530) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (132537) ES7210: The codec is about to stop
+I (132564) ES7210: ES7210 in Slave mode
+I (132573) ES7210: Enable ES7210_INPUT_MIC1
+I (132576) ES7210: Enable ES7210_INPUT_MIC2
+I (132578) ES7210: Enable ES7210_INPUT_MIC3
+I (132580) ES7210: Enable ES7210_INPUT_MIC4
+I (132596) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (132603) ES7210: Enable ES7210_INPUT_MIC1
+I (132605) ES7210: Enable ES7210_INPUT_MIC2
+I (132608) ES7210: Enable ES7210_INPUT_MIC3
+I (132610) ES7210: Enable ES7210_INPUT_MIC4
+E (132614) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (132614) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (132622) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (132629) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (132636) ES7210: The codec is about to stop
+I (132663) ES7210: ES7210 in Slave mode
+I (132672) ES7210: Enable ES7210_INPUT_MIC1
+I (132675) ES7210: Enable ES7210_INPUT_MIC2
+I (132678) ES7210: Enable ES7210_INPUT_MIC3
+I (132680) ES7210: Enable ES7210_INPUT_MIC4
+I (132696) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (132703) ES7210: Enable ES7210_INPUT_MIC1
+I (132706) ES7210: Enable ES7210_INPUT_MIC2
+I (132709) ES7210: Enable ES7210_INPUT_MIC3
+I (132711) ES7210: Enable ES7210_INPUT_MIC4
+E (132715) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (132716) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (132722) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (132729) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (132737) ES7210: The codec is about to stop
+I (132764) ES7210: ES7210 in Slave mode
+I (132773) ES7210: Enable ES7210_INPUT_MIC1
+I (132776) ES7210: Enable ES7210_INPUT_MIC2
+I (132778) ES7210: Enable ES7210_INPUT_MIC3
+I (132781) ES7210: Enable ES7210_INPUT_MIC4
+I (132796) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (132803) ES7210: Enable ES7210_INPUT_MIC1
+I (132805) ES7210: Enable ES7210_INPUT_MIC2
+I (132808) ES7210: Enable ES7210_INPUT_MIC3
+I (132810) ES7210: Enable ES7210_INPUT_MIC4
+E (132814) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (132814) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (132822) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (132829) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (132836) ES7210: The codec is about to stop
+I (132863) ES7210: ES7210 in Slave mode
+I (132872) ES7210: Enable ES7210_INPUT_MIC1
+I (132875) ES7210: Enable ES7210_INPUT_MIC2
+I (132877) ES7210: Enable ES7210_INPUT_MIC3
+I (132879) ES7210: Enable ES7210_INPUT_MIC4
+I (132896) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (132904) ES7210: Enable ES7210_INPUT_MIC1
+I (132906) ES7210: Enable ES7210_INPUT_MIC2
+I (132909) ES7210: Enable ES7210_INPUT_MIC3
+I (132911) ES7210: Enable ES7210_INPUT_MIC4
+E (132915) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (132915) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (132922) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (132929) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (132937) ES7210: The codec is about to stop
+I (132964) ES7210: ES7210 in Slave mode
+I (132973) ES7210: Enable ES7210_INPUT_MIC1
+I (132975) ES7210: Enable ES7210_INPUT_MIC2
+I (132978) ES7210: Enable ES7210_INPUT_MIC3
+I (132981) ES7210: Enable ES7210_INPUT_MIC4
+I (132996) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (133003) ES7210: Enable ES7210_INPUT_MIC1
+I (133005) ES7210: Enable ES7210_INPUT_MIC2
+I (133008) ES7210: Enable ES7210_INPUT_MIC3
+I (133010) ES7210: Enable ES7210_INPUT_MIC4
+E (133014) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (133015) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (133022) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (133029) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (133036) ES7210: The codec is about to stop
+I (133063) ES7210: ES7210 in Slave mode
+I (133072) ES7210: Enable ES7210_INPUT_MIC1
+I (133074) ES7210: Enable ES7210_INPUT_MIC2
+I (133077) ES7210: Enable ES7210_INPUT_MIC3
+I (133079) ES7210: Enable ES7210_INPUT_MIC4
+I (133096) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (133104) ES7210: Enable ES7210_INPUT_MIC1
+I (133107) ES7210: Enable ES7210_INPUT_MIC2
+I (133109) ES7210: Enable ES7210_INPUT_MIC3
+I (133111) ES7210: Enable ES7210_INPUT_MIC4
+E (133115) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (133116) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (133123) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (133130) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (133137) ES7210: The codec is about to stop
+I (133164) ES7210: ES7210 in Slave mode
+I (133173) ES7210: Enable ES7210_INPUT_MIC1
+I (133176) ES7210: Enable ES7210_INPUT_MIC2
+I (133178) ES7210: Enable ES7210_INPUT_MIC3
+I (133180) ES7210: Enable ES7210_INPUT_MIC4
+I (133196) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (133203) ES7210: Enable ES7210_INPUT_MIC1
+I (133205) ES7210: Enable ES7210_INPUT_MIC2
+I (133208) ES7210: Enable ES7210_INPUT_MIC3
+I (133210) ES7210: Enable ES7210_INPUT_MIC4
+E (133214) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (133214) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (133222) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (133229) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (133236) ES7210: The codec is about to stop
+I (133263) ES7210: ES7210 in Slave mode
+I (133272) ES7210: Enable ES7210_INPUT_MIC1
+I (133275) ES7210: Enable ES7210_INPUT_MIC2
+I (133277) ES7210: Enable ES7210_INPUT_MIC3
+I (133279) ES7210: Enable ES7210_INPUT_MIC4
+I (133296) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (133304) ES7210: Enable ES7210_INPUT_MIC1
+I (133307) ES7210: Enable ES7210_INPUT_MIC2
+I (133309) ES7210: Enable ES7210_INPUT_MIC3
+I (133311) ES7210: Enable ES7210_INPUT_MIC4
+E (133315) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (133316) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (133323) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (133330) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (133337) ES7210: The codec is about to stop
+I (138409) ES7210: ES7210 in Slave mode
+I (138419) ES7210: Enable ES7210_INPUT_MIC1
+I (138423) ES7210: Enable ES7210_INPUT_MIC2
+I (138427) ES7210: Enable ES7210_INPUT_MIC3
+I (138429) ES7210: Enable ES7210_INPUT_MIC4
+I (138445) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (138451) ES7210: Enable ES7210_INPUT_MIC1
+I (138454) ES7210: Enable ES7210_INPUT_MIC2
+I (138456) ES7210: Enable ES7210_INPUT_MIC3
+I (138459) ES7210: Enable ES7210_INPUT_MIC4
+E (138462) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (138463) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (138470) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (138477) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (138485) ES7210: The codec is about to stop
+qa: inject swipe left @ 233,233
+I (138602) ES7210: ES7210 in Slave mode
+[gesture] face -> 22
+I (138611) ES7210: Enable ES7210_INPUT_MIC1
+I (138614) ES7210: Enable ES7210_INPUT_MIC2
+I (138616) ES7210: Enable ES7210_INPUT_MIC3
+I (138619) ES7210: Enable ES7210_INPUT_MIC4
+I (138635) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (138642) ES7210: Enable ES7210_INPUT_MIC1
+I (138645) ES7210: Enable ES7210_INPUT_MIC2
+I (138647) ES7210: Enable ES7210_INPUT_MIC3
+I (138650) ES7210: Enable ES7210_INPUT_MIC4
+E (138653) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (138654) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (138661) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (138668) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (138676) ES7210: The codec is about to stop
+I (138705) ES7210: ES7210 in Slave mode
+I (138713) ES7210: Enable ES7210_INPUT_MIC1
+I (138716) ES7210: Enable ES7210_INPUT_MIC2
+I (138718) ES7210: Enable ES7210_INPUT_MIC3
+I (138721) ES7210: Enable ES7210_INPUT_MIC4
+I (138736) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (138743) ES7210: Enable ES7210_INPUT_MIC1
+I (138745) ES7210: Enable ES7210_INPUT_MIC2
+I (138748) ES7210: Enable ES7210_INPUT_MIC3
+I (138750) ES7210: Enable ES7210_INPUT_MIC4
+E (138754) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (138755) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (138762) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (138769) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (138776) ES7210: The codec is about to stop
+I (138804) ES7210: ES7210 in Slave mode
+I (138813) ES7210: Enable ES7210_INPUT_MIC1
+I (138816) ES7210: Enable ES7210_INPUT_MIC2
+I (138818) ES7210: Enable ES7210_INPUT_MIC3
+I (138821) ES7210: Enable ES7210_INPUT_MIC4
+I (138837) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (138844) ES7210: Enable ES7210_INPUT_MIC1
+I (138847) ES7210: Enable ES7210_INPUT_MIC2
+I (138849) ES7210: Enable ES7210_INPUT_MIC3
+I (138852) ES7210: Enable ES7210_INPUT_MIC4
+E (138856) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (138856) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (138863) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (138870) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (138878) ES7210: The codec is about to stop
+I (138906) ES7210: ES7210 in Slave mode
+I (138915) ES7210: Enable ES7210_INPUT_MIC1
+I (138918) ES7210: Enable ES7210_INPUT_MIC2
+I (138920) ES7210: Enable ES7210_INPUT_MIC3
+I (138923) ES7210: Enable ES7210_INPUT_MIC4
+I (138938) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (138945) ES7210: Enable ES7210_INPUT_MIC1
+I (138947) ES7210: Enable ES7210_INPUT_MIC2
+I (138950) ES7210: Enable ES7210_INPUT_MIC3
+I (138952) ES7210: Enable ES7210_INPUT_MIC4
+E (138956) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (138956) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (138964) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (138971) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (138978) ES7210: The codec is about to stop
+I (139006) ES7210: ES7210 in Slave mode
+I (139015) ES7210: Enable ES7210_INPUT_MIC1
+I (139018) ES7210: Enable ES7210_INPUT_MIC2
+I (139020) ES7210: Enable ES7210_INPUT_MIC3
+I (139023) ES7210: Enable ES7210_INPUT_MIC4
+I (139040) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (139049) ES7210: Enable ES7210_INPUT_MIC1
+I (139052) ES7210: Enable ES7210_INPUT_MIC2
+I (139055) ES7210: Enable ES7210_INPUT_MIC3
+I (139057) ES7210: Enable ES7210_INPUT_MIC4
+E (139061) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (139062) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (139067) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (139075) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (139082) ES7210: The codec is about to stop
+I (139110) ES7210: ES7210 in Slave mode
+I (139119) ES7210: Enable ES7210_INPUT_MIC1
+I (139122) ES7210: Enable ES7210_INPUT_MIC2
+I (139124) ES7210: Enable ES7210_INPUT_MIC3
+I (139127) ES7210: Enable ES7210_INPUT_MIC4
+I (139142) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (139149) ES7210: Enable ES7210_INPUT_MIC1
+I (139152) ES7210: Enable ES7210_INPUT_MIC2
+I (139154) ES7210: Enable ES7210_INPUT_MIC3
+I (139157) ES7210: Enable ES7210_INPUT_MIC4
+E (139160) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (139161) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (139168) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (139175) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (139182) ES7210: The codec is about to stop
+qa: inject swipe right @ 233,233
+[gesture] face -> 21
+I (139275) ES7210: ES7210 in Slave mode
+I (139283) ES7210: Enable ES7210_INPUT_MIC1
+I (139286) ES7210: Enable ES7210_INPUT_MIC2
+I (139288) ES7210: Enable ES7210_INPUT_MIC3
+I (139291) ES7210: Enable ES7210_INPUT_MIC4
+I (139306) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (139313) ES7210: Enable ES7210_INPUT_MIC1
+I (139316) ES7210: Enable ES7210_INPUT_MIC2
+I (139318) ES7210: Enable ES7210_INPUT_MIC3
+I (139320) ES7210: Enable ES7210_INPUT_MIC4
+E (139324) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (139325) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (139332) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (139339) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (139346) ES7210: The codec is about to stop
+I (139373) ES7210: ES7210 in Slave mode
+I (139382) ES7210: Enable ES7210_INPUT_MIC1
+I (139385) ES7210: Enable ES7210_INPUT_MIC2
+I (139387) ES7210: Enable ES7210_INPUT_MIC3
+I (139389) ES7210: Enable ES7210_INPUT_MIC4
+I (139405) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (139412) ES7210: Enable ES7210_INPUT_MIC1
+I (139414) ES7210: Enable ES7210_INPUT_MIC2
+I (139417) ES7210: Enable ES7210_INPUT_MIC3
+I (139419) ES7210: Enable ES7210_INPUT_MIC4
+E (139423) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (139423) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (139430) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (139438) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (139445) ES7210: The codec is about to stop
+I (139472) ES7210: ES7210 in Slave mode
+I (139481) ES7210: Enable ES7210_INPUT_MIC1
+I (139484) ES7210: Enable ES7210_INPUT_MIC2
+I (139486) ES7210: Enable ES7210_INPUT_MIC3
+I (139489) ES7210: Enable ES7210_INPUT_MIC4
+I (139504) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (139511) ES7210: Enable ES7210_INPUT_MIC1
+I (139513) ES7210: Enable ES7210_INPUT_MIC2
+I (139516) ES7210: Enable ES7210_INPUT_MIC3
+I (139518) ES7210: Enable ES7210_INPUT_MIC4
+E (139522) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (139523) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (139530) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (139537) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (139544) ES7210: The codec is about to stop
+I (139571) ES7210: ES7210 in Slave mode
+I (139580) ES7210: Enable ES7210_INPUT_MIC1
+I (139582) ES7210: Enable ES7210_INPUT_MIC2
+I (139585) ES7210: Enable ES7210_INPUT_MIC3
+I (139587) ES7210: Enable ES7210_INPUT_MIC4
+I (139603) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (139610) ES7210: Enable ES7210_INPUT_MIC1
+I (139612) ES7210: Enable ES7210_INPUT_MIC2
+I (139615) ES7210: Enable ES7210_INPUT_MIC3
+I (139617) ES7210: Enable ES7210_INPUT_MIC4
+E (139621) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (139621) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (139628) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (139636) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (139643) ES7210: The codec is about to stop
+I (139670) ES7210: ES7210 in Slave mode
+I (139679) ES7210: Enable ES7210_INPUT_MIC1
+I (139682) ES7210: Enable ES7210_INPUT_MIC2
+I (139684) ES7210: Enable ES7210_INPUT_MIC3
+I (139686) ES7210: Enable ES7210_INPUT_MIC4
+I (139702) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (139709) ES7210: Enable ES7210_INPUT_MIC1
+I (139711) ES7210: Enable ES7210_INPUT_MIC2
+I (139714) ES7210: Enable ES7210_INPUT_MIC3
+I (139716) ES7210: Enable ES7210_INPUT_MIC4
+E (139720) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (139720) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (139728) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (139735) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (139742) ES7210: The codec is about to stop
+I (139769) ES7210: ES7210 in Slave mode
+I (139778) ES7210: Enable ES7210_INPUT_MIC1
+I (139781) ES7210: Enable ES7210_INPUT_MIC2
+I (139783) ES7210: Enable ES7210_INPUT_MIC3
+I (139785) ES7210: Enable ES7210_INPUT_MIC4
+I (139801) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (139808) ES7210: Enable ES7210_INPUT_MIC1
+I (139810) ES7210: Enable ES7210_INPUT_MIC2
+I (139813) ES7210: Enable ES7210_INPUT_MIC3
+I (139815) ES7210: Enable ES7210_INPUT_MIC4
+E (139819) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (139819) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (139826) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (139834) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (139841) ES7210: The codec is about to stop
+I (139869) ES7210: ES7210 in Slave mode
+I (139878) ES7210: Enable ES7210_INPUT_MIC1
+I (139881) ES7210: Enable ES7210_INPUT_MIC2
+I (139884) ES7210: Enable ES7210_INPUT_MIC3
+I (139887) ES7210: Enable ES7210_INPUT_MIC4
+I (139903) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (139910) ES7210: Enable ES7210_INPUT_MIC1
+I (139912) ES7210: Enable ES7210_INPUT_MIC2
+I (139915) ES7210: Enable ES7210_INPUT_MIC3
+I (139917) ES7210: Enable ES7210_INPUT_MIC4
+E (139921) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (139921) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (139929) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (139936) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (139943) ES7210: The codec is about to stop
+I (140061) ES7210: ES7210 in Slave mode
+qa: inject swipe up @ 233,233
+I (140070) ES7210: Enable ES7210_INPUT_MIC1
+I (140072) ES7210: Enable ES7210_INPUT_MIC2
+I (140075) ES7210: Enable ES7210_INPUT_MIC3
+I (140077) ES7210: Enable ES7210_INPUT_MIC4
+I (140093) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (140100) ES7210: Enable ES7210_INPUT_MIC1
+I (140102) ES7210: Enable ES7210_INPUT_MIC2
+I (140105) ES7210: Enable ES7210_INPUT_MIC3
+I (140107) ES7210: Enable ES7210_INPUT_MIC4
+E (140111) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (140111) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (140118) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (140125) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (140133) ES7210: The codec is about to stop
+I (140162) ES7210: ES7210 in Slave mode
+I (140170) ES7210: Enable ES7210_INPUT_MIC1
+I (140173) ES7210: Enable ES7210_INPUT_MIC2
+I (140175) ES7210: Enable ES7210_INPUT_MIC3
+I (140178) ES7210: Enable ES7210_INPUT_MIC4
+I (140193) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (140200) ES7210: Enable ES7210_INPUT_MIC1
+I (140202) ES7210: Enable ES7210_INPUT_MIC2
+I (140205) ES7210: Enable ES7210_INPUT_MIC3
+I (140207) ES7210: Enable ES7210_INPUT_MIC4
+E (140211) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (140211) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (140219) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (140226) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (140233) ES7210: The codec is about to stop
+I (140262) ES7210: ES7210 in Slave mode
+I (140270) ES7210: Enable ES7210_INPUT_MIC1
+I (140273) ES7210: Enable ES7210_INPUT_MIC2
+I (140275) ES7210: Enable ES7210_INPUT_MIC3
+I (140278) ES7210: Enable ES7210_INPUT_MIC4
+I (140293) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (140300) ES7210: Enable ES7210_INPUT_MIC1
+I (140303) ES7210: Enable ES7210_INPUT_MIC2
+I (140305) ES7210: Enable ES7210_INPUT_MIC3
+I (140307) ES7210: Enable ES7210_INPUT_MIC4
+E (140311) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (140312) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (140319) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (140326) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (140333) ES7210: The codec is about to stop
+I (140362) ES7210: ES7210 in Slave mode
+I (140370) ES7210: Enable ES7210_INPUT_MIC1
+I (140373) ES7210: Enable ES7210_INPUT_MIC2
+I (140375) ES7210: Enable ES7210_INPUT_MIC3
+I (140378) ES7210: Enable ES7210_INPUT_MIC4
+I (140393) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (140400) ES7210: Enable ES7210_INPUT_MIC1
+I (140402) ES7210: Enable ES7210_INPUT_MIC2
+I (140405) ES7210: Enable ES7210_INPUT_MIC3
+I (140407) ES7210: Enable ES7210_INPUT_MIC4
+E (140411) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (140411) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (140419) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (140426) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (140433) ES7210: The codec is about to stop
+I (140462) ES7210: ES7210 in Slave mode
+I (140471) ES7210: Enable ES7210_INPUT_MIC1
+I (140473) ES7210: Enable ES7210_INPUT_MIC2
+I (140476) ES7210: Enable ES7210_INPUT_MIC3
+I (140478) ES7210: Enable ES7210_INPUT_MIC4
+I (140493) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (140500) ES7210: Enable ES7210_INPUT_MIC1
+I (140503) ES7210: Enable ES7210_INPUT_MIC2
+I (140505) ES7210: Enable ES7210_INPUT_MIC3
+I (140508) ES7210: Enable ES7210_INPUT_MIC4
+E (140511) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (140512) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (140519) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (140526) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (140534) ES7210: The codec is about to stop
+I (140563) ES7210: ES7210 in Slave mode
+I (140571) ES7210: Enable ES7210_INPUT_MIC1
+I (140574) ES7210: Enable ES7210_INPUT_MIC2
+I (140576) ES7210: Enable ES7210_INPUT_MIC3
+I (140579) ES7210: Enable ES7210_INPUT_MIC4
+I (140594) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (140601) ES7210: Enable ES7210_INPUT_MIC1
+I (140603) ES7210: Enable ES7210_INPUT_MIC2
+I (140606) ES7210: Enable ES7210_INPUT_MIC3
+I (140608) ES7210: Enable ES7210_INPUT_MIC4
+E (140612) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (140612) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (140620) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (140627) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (140634) ES7210: The codec is about to stop
+I (140662) ES7210: ES7210 in Slave mode
+I (140672) ES7210: Enable ES7210_INPUT_MIC1
+I (140675) ES7210: Enable ES7210_INPUT_MIC2
+I (140677) ES7210: Enable ES7210_INPUT_MIC3
+I (140680) ES7210: Enable ES7210_INPUT_MIC4
+I (140695) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (140702) ES7210: Enable ES7210_INPUT_MIC1
+I (140705) ES7210: Enable ES7210_INPUT_MIC2
+I (140707) ES7210: Enable ES7210_INPUT_MIC3
+I (140710) ES7210: Enable ES7210_INPUT_MIC4
+E (140713) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (140714) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (140721) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (140728) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (140735) ES7210: The codec is about to stop
+qa: inject swipe down @ 233,233
+I (140827) ES7210: ES7210 in Slave mode
+I (140835) ES7210: Enable ES7210_INPUT_MIC1
+I (140838) ES7210: Enable ES7210_INPUT_MIC2
+I (140840) ES7210: Enable ES7210_INPUT_MIC3
+I (140843) ES7210: Enable ES7210_INPUT_MIC4
+I (140858) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (140865) ES7210: Enable ES7210_INPUT_MIC1
+I (140868) ES7210: Enable ES7210_INPUT_MIC2
+I (140871) ES7210: Enable ES7210_INPUT_MIC3
+I (140874) ES7210: Enable ES7210_INPUT_MIC4
+E (140878) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (140879) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (140884) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (140891) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (140898) ES7210: The codec is about to stop
+I (140925) ES7210: ES7210 in Slave mode
+I (140934) ES7210: Enable ES7210_INPUT_MIC1
+I (140936) ES7210: Enable ES7210_INPUT_MIC2
+I (140939) ES7210: Enable ES7210_INPUT_MIC3
+I (140941) ES7210: Enable ES7210_INPUT_MIC4
+I (140957) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (140964) ES7210: Enable ES7210_INPUT_MIC1
+I (140966) ES7210: Enable ES7210_INPUT_MIC2
+I (140969) ES7210: Enable ES7210_INPUT_MIC3
+I (140971) ES7210: Enable ES7210_INPUT_MIC4
+E (140975) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (140975) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (140982) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (140989) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (140997) ES7210: The codec is about to stop
+I (141024) ES7210: ES7210 in Slave mode
+I (141033) ES7210: Enable ES7210_INPUT_MIC1
+I (141036) ES7210: Enable ES7210_INPUT_MIC2
+I (141038) ES7210: Enable ES7210_INPUT_MIC3
+I (141040) ES7210: Enable ES7210_INPUT_MIC4
+I (141056) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (141063) ES7210: Enable ES7210_INPUT_MIC1
+I (141065) ES7210: Enable ES7210_INPUT_MIC2
+I (141068) ES7210: Enable ES7210_INPUT_MIC3
+I (141070) ES7210: Enable ES7210_INPUT_MIC4
+E (141074) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (141075) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (141081) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (141088) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (141096) ES7210: The codec is about to stop
+I (141124) ES7210: ES7210 in Slave mode
+I (141133) ES7210: Enable ES7210_INPUT_MIC1
+I (141135) ES7210: Enable ES7210_INPUT_MIC2
+I (141138) ES7210: Enable ES7210_INPUT_MIC3
+I (141140) ES7210: Enable ES7210_INPUT_MIC4
+I (141156) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (141163) ES7210: Enable ES7210_INPUT_MIC1
+I (141165) ES7210: Enable ES7210_INPUT_MIC2
+I (141167) ES7210: Enable ES7210_INPUT_MIC3
+I (141170) ES7210: Enable ES7210_INPUT_MIC4
+E (141174) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (141174) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (141181) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (141188) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (141196) ES7210: The codec is about to stop
+I (141223) ES7210: ES7210 in Slave mode
+I (141232) ES7210: Enable ES7210_INPUT_MIC1
+I (141234) ES7210: Enable ES7210_INPUT_MIC2
+I (141237) ES7210: Enable ES7210_INPUT_MIC3
+I (141239) ES7210: Enable ES7210_INPUT_MIC4
+I (141255) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (141262) ES7210: Enable ES7210_INPUT_MIC1
+I (141264) ES7210: Enable ES7210_INPUT_MIC2
+I (141267) ES7210: Enable ES7210_INPUT_MIC3
+I (141269) ES7210: Enable ES7210_INPUT_MIC4
+E (141273) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (141273) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (141281) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (141288) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (141295) ES7210: The codec is about to stop
+I (141322) ES7210: ES7210 in Slave mode
+I (141331) ES7210: Enable ES7210_INPUT_MIC1
+I (141334) ES7210: Enable ES7210_INPUT_MIC2
+I (141336) ES7210: Enable ES7210_INPUT_MIC3
+I (141338) ES7210: Enable ES7210_INPUT_MIC4
+I (141354) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (141361) ES7210: Enable ES7210_INPUT_MIC1
+I (141363) ES7210: Enable ES7210_INPUT_MIC2
+I (141366) ES7210: Enable ES7210_INPUT_MIC3
+I (141368) ES7210: Enable ES7210_INPUT_MIC4
+E (141372) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (141372) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (141379) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (141387) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (141394) ES7210: The codec is about to stop
+I (141421) ES7210: ES7210 in Slave mode
+I (141430) ES7210: Enable ES7210_INPUT_MIC1
+I (141432) ES7210: Enable ES7210_INPUT_MIC2
+I (141435) ES7210: Enable ES7210_INPUT_MIC3
+I (141437) ES7210: Enable ES7210_INPUT_MIC4
+I (141453) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (141460) ES7210: Enable ES7210_INPUT_MIC1
+I (141462) ES7210: Enable ES7210_INPUT_MIC2
+I (141464) ES7210: Enable ES7210_INPUT_MIC3
+I (141467) ES7210: Enable ES7210_INPUT_MIC4
+E (141470) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (141471) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (141478) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (141485) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (141493) ES7210: The codec is about to stop
+qa: inject tap @ 233,233
+speaker: task create failed stack=32768 internal=12571 largest=4096 psram=7740964
+I (141587) ES7210: ES7210 in Slave mode
+I (141596) ES7210: Enable ES7210_INPUT_MIC1
+I (141598) ES7210: Enable ES7210_INPUT_MIC2
+I (141601) ES7210: Enable ES7210_INPUT_MIC3
+I (141603) ES7210: Enable ES7210_INPUT_MIC4
+I (141618) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (141625) ES7210: Enable ES7210_INPUT_MIC1
+I (141628) ES7210: Enable ES7210_INPUT_MIC2
+I (141630) ES7210: Enable ES7210_INPUT_MIC3
+I (141633) ES7210: Enable ES7210_INPUT_MIC4
+E (141636) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (141637) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (141644) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (141651) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (141659) ES7210: The codec is about to stop
+I (141753) ES7210: ES7210 in Slave mode
+I (141762) ES7210: Enable ES7210_INPUT_MIC1
+I (141764) ES7210: Enable ES7210_INPUT_MIC2
+I (141767) ES7210: Enable ES7210_INPUT_MIC3
+I (141769) ES7210: Enable ES7210_INPUT_MIC4
+I (141784) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (141792) ES7210: Enable ES7210_INPUT_MIC1
+I (141794) ES7210: Enable ES7210_INPUT_MIC2
+I (141797) ES7210: Enable ES7210_INPUT_MIC3
+I (141799) ES7210: Enable ES7210_INPUT_MIC4
+E (141803) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (141803) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (141810) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (141817) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (141825) ES7210: The codec is about to stop
+I (141918) ES7210: ES7210 in Slave mode
+I (141927) ES7210: Enable ES7210_INPUT_MIC1
+I (141929) ES7210: Enable ES7210_INPUT_MIC2
+I (141932) ES7210: Enable ES7210_INPUT_MIC3
+I (141934) ES7210: Enable ES7210_INPUT_MIC4
+I (141949) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (141956) ES7210: Enable ES7210_INPUT_MIC1
+I (141959) ES7210: Enable ES7210_INPUT_MIC2
+I (141961) ES7210: Enable ES7210_INPUT_MIC3
+I (141964) ES7210: Enable ES7210_INPUT_MIC4
+E (141967) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (141968) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (141975) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (141982) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (141990) ES7210: The codec is about to stop
+I (142082) ES7210: ES7210 in Slave mode
+I (142091) ES7210: Enable ES7210_INPUT_MIC1
+I (142094) ES7210: Enable ES7210_INPUT_MIC2
+I (142096) ES7210: Enable ES7210_INPUT_MIC3
+I (142099) ES7210: Enable ES7210_INPUT_MIC4
+I (142115) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (142122) ES7210: Enable ES7210_INPUT_MIC1
+I (142125) ES7210: Enable ES7210_INPUT_MIC2
+I (142127) ES7210: Enable ES7210_INPUT_MIC3
+I (142130) ES7210: Enable ES7210_INPUT_MIC4
+E (142133) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (142134) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (142141) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (142148) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (142156) ES7210: The codec is about to stop
+I (142248) ES7210: ES7210 in Slave mode
+I (142257) ES7210: Enable ES7210_INPUT_MIC1
+I (142260) ES7210: Enable ES7210_INPUT_MIC2
+I (142262) ES7210: Enable ES7210_INPUT_MIC3
+I (142265) ES7210: Enable ES7210_INPUT_MIC4
+I (142280) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (142287) ES7210: Enable ES7210_INPUT_MIC1
+I (142290) ES7210: Enable ES7210_INPUT_MIC2
+I (142292) ES7210: Enable ES7210_INPUT_MIC3
+I (142294) ES7210: Enable ES7210_INPUT_MIC4
+E (142298) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (142299) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (142306) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (142313) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (142320) ES7210: The codec is about to stop
+qa: face=21 state=0 heap=12571 iheap=12571 largest=4096 psram=7740964 voice_stack_hw=9548 spk_stack_hw=0 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.247 name=Daniel banner="ocarina: busy"
+I (142349) ES7210: ES7210 in Slave mode
+I (142358) ES7210: Enable ES7210_INPUT_MIC1
+I (142360) ES7210: Enable ES7210_INPUT_MIC2
+I (142363) ES7210: Enable ES7210_INPUT_MIC3
+I (142365) ES7210: Enable ES7210_INPUT_MIC4
+I (142381) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (142388) ES7210: Enable ES7210_INPUT_MIC1
+I (142390) ES7210: Enable ES7210_INPUT_MIC2
+I (142392) ES7210: Enable ES7210_INPUT_MIC3
+I (142395) ES7210: Enable ES7210_INPUT_MIC4
+E (142399) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (142399) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (142406) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (142413) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (142421) ES7210: The codec is about to stop
+I (142448) ES7210: ES7210 in Slave mode
+I (142457) ES7210: Enable ES7210_INPUT_MIC1
+I (142459) ES7210: Enable ES7210_INPUT_MIC2
+I (142462) ES7210: Enable ES7210_INPUT_MIC3
+I (142464) ES7210: Enable ES7210_INPUT_MIC4
+I (142480) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (142487) ES7210: Enable ES7210_INPUT_MIC1
+I (142489) ES7210: Enable ES7210_INPUT_MIC2
+I (142492) ES7210: Enable ES7210_INPUT_MIC3
+I (142494) ES7210: Enable ES7210_INPUT_MIC4
+E (142497) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (142498) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (142505) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (142513) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (142520) ES7210: The codec is about to stop
+I (142548) ES7210: ES7210 in Slave mode
+I (142557) ES7210: Enable ES7210_INPUT_MIC1
+I (142560) ES7210: Enable ES7210_INPUT_MIC2
+I (142562) ES7210: Enable ES7210_INPUT_MIC3
+I (142565) ES7210: Enable ES7210_INPUT_MIC4
+I (142580) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (142587) ES7210: Enable ES7210_INPUT_MIC1
+I (142590) ES7210: Enable ES7210_INPUT_MIC2
+I (142592) ES7210: Enable ES7210_INPUT_MIC3
+I (142594) ES7210: Enable ES7210_INPUT_MIC4
+E (142598) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (142599) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (142606) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (142613) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (142620) ES7210: The codec is about to stop
+I (142647) ES7210: ES7210 in Slave mode
+I (142656) ES7210: Enable ES7210_INPUT_MIC1
+I (142659) ES7210: Enable ES7210_INPUT_MIC2
+I (142661) ES7210: Enable ES7210_INPUT_MIC3
+I (142663) ES7210: Enable ES7210_INPUT_MIC4
+I (142679) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (142686) ES7210: Enable ES7210_INPUT_MIC1
+I (142688) ES7210: Enable ES7210_INPUT_MIC2
+I (142691) ES7210: Enable ES7210_INPUT_MIC3
+I (142693) ES7210: Enable ES7210_INPUT_MIC4
+E (142697) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (142697) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (142704) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (142712) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (142719) ES7210: The codec is about to stop
+I (142746) ES7210: ES7210 in Slave mode
+I (142755) ES7210: Enable ES7210_INPUT_MIC1
+I (142758) ES7210: Enable ES7210_INPUT_MIC2
+I (142760) ES7210: Enable ES7210_INPUT_MIC3
+I (142763) ES7210: Enable ES7210_INPUT_MIC4
+I (142778) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (142785) ES7210: Enable ES7210_INPUT_MIC1
+I (142787) ES7210: Enable ES7210_INPUT_MIC2
+I (142790) ES7210: Enable ES7210_INPUT_MIC3
+I (142792) ES7210: Enable ES7210_INPUT_MIC4
+E (142796) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (142796) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (142804) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (142811) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (142818) ES7210: The codec is about to stop
+I (142845) ES7210: ES7210 in Slave mode
+I (142854) ES7210: Enable ES7210_INPUT_MIC1
+I (142857) ES7210: Enable ES7210_INPUT_MIC2
+I (142859) ES7210: Enable ES7210_INPUT_MIC3
+I (142861) ES7210: Enable ES7210_INPUT_MIC4
+I (142877) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (142884) ES7210: Enable ES7210_INPUT_MIC1
+I (142886) ES7210: Enable ES7210_INPUT_MIC2
+I (142889) ES7210: Enable ES7210_INPUT_MIC3
+I (142891) ES7210: Enable ES7210_INPUT_MIC4
+E (142895) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (142895) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (142902) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (142910) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (142917) ES7210: The codec is about to stop
+I (142945) ES7210: ES7210 in Slave mode
+I (142953) ES7210: Enable ES7210_INPUT_MIC1
+I (142956) ES7210: Enable ES7210_INPUT_MIC2
+I (142958) ES7210: Enable ES7210_INPUT_MIC3
+I (142961) ES7210: Enable ES7210_INPUT_MIC4
+I (142976) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (142983) ES7210: Enable ES7210_INPUT_MIC1
+I (142985) ES7210: Enable ES7210_INPUT_MIC2
+I (142988) ES7210: Enable ES7210_INPUT_MIC3
+I (142990) ES7210: Enable ES7210_INPUT_MIC4
+E (142994) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (142994) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (143002) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (143009) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (143016) ES7210: The codec is about to stop
+I (143043) ES7210: ES7210 in Slave mode
+I (143052) ES7210: Enable ES7210_INPUT_MIC1
+I (143055) ES7210: Enable ES7210_INPUT_MIC2
+I (143057) ES7210: Enable ES7210_INPUT_MIC3
+I (143059) ES7210: Enable ES7210_INPUT_MIC4
+I (143075) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (143082) ES7210: Enable ES7210_INPUT_MIC1
+I (143084) ES7210: Enable ES7210_INPUT_MIC2
+I (143087) ES7210: Enable ES7210_INPUT_MIC3
+I (143089) ES7210: Enable ES7210_INPUT_MIC4
+E (143093) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (143093) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (143100) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (143107) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (143115) ES7210: The codec is about to stop
+I (143143) ES7210: ES7210 in Slave mode
+I (143152) ES7210: Enable ES7210_INPUT_MIC1
+I (143155) ES7210: Enable ES7210_INPUT_MIC2
+I (143158) ES7210: Enable ES7210_INPUT_MIC3
+I (143160) ES7210: Enable ES7210_INPUT_MIC4
+I (143177) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (143184) ES7210: Enable ES7210_INPUT_MIC1
+I (143186) ES7210: Enable ES7210_INPUT_MIC2
+I (143189) ES7210: Enable ES7210_INPUT_MIC3
+I (143191) ES7210: Enable ES7210_INPUT_MIC4
+E (143195) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (143195) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (143203) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (143210) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (143217) ES7210: The codec is about to stop
+I (143244) ES7210: ES7210 in Slave mode
+I (143253) ES7210: Enable ES7210_INPUT_MIC1
+I (143255) ES7210: Enable ES7210_INPUT_MIC2
+I (143258) ES7210: Enable ES7210_INPUT_MIC3
+I (143260) ES7210: Enable ES7210_INPUT_MIC4
+I (143276) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (143283) ES7210: Enable ES7210_INPUT_MIC1
+I (143285) ES7210: Enable ES7210_INPUT_MIC2
+I (143288) ES7210: Enable ES7210_INPUT_MIC3
+I (143290) ES7210: Enable ES7210_INPUT_MIC4
+E (143294) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (143295) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (143302) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (143309) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (143316) ES7210: The codec is about to stop
+I (143344) ES7210: ES7210 in Slave mode
+I (143352) ES7210: Enable ES7210_INPUT_MIC1
+I (143355) ES7210: Enable ES7210_INPUT_MIC2
+I (143357) ES7210: Enable ES7210_INPUT_MIC3
+I (143360) ES7210: Enable ES7210_INPUT_MIC4
+I (143375) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (143382) ES7210: Enable ES7210_INPUT_MIC1
+I (143384) ES7210: Enable ES7210_INPUT_MIC2
+I (143387) ES7210: Enable ES7210_INPUT_MIC3
+I (143389) ES7210: Enable ES7210_INPUT_MIC4
+E (143393) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (143393) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (143401) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (143408) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (143415) ES7210: The codec is about to stop
+I (143442) ES7210: ES7210 in Slave mode
+I (143451) ES7210: Enable ES7210_INPUT_MIC1
+I (143454) ES7210: Enable ES7210_INPUT_MIC2
+I (143456) ES7210: Enable ES7210_INPUT_MIC3
+I (143458) ES7210: Enable ES7210_INPUT_MIC4
+I (143474) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (143481) ES7210: Enable ES7210_INPUT_MIC1
+I (143483) ES7210: Enable ES7210_INPUT_MIC2
+I (143486) ES7210: Enable ES7210_INPUT_MIC3
+I (143488) ES7210: Enable ES7210_INPUT_MIC4
+E (143492) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (143492) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (143499) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (143507) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (143514) ES7210: The codec is about to stop
+I (143542) ES7210: ES7210 in Slave mode
+I (143551) ES7210: Enable ES7210_INPUT_MIC1
+I (143554) ES7210: Enable ES7210_INPUT_MIC2
+I (143556) ES7210: Enable ES7210_INPUT_MIC3
+I (143559) ES7210: Enable ES7210_INPUT_MIC4
+I (143575) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (143583) ES7210: Enable ES7210_INPUT_MIC1
+I (143586) ES7210: Enable ES7210_INPUT_MIC2
+I (143588) ES7210: Enable ES7210_INPUT_MIC3
+I (143591) ES7210: Enable ES7210_INPUT_MIC4
+E (143594) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (143595) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (143602) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (143609) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (143616) ES7210: The codec is about to stop
+I (143643) ES7210: ES7210 in Slave mode
+I (143652) ES7210: Enable ES7210_INPUT_MIC1
+I (143655) ES7210: Enable ES7210_INPUT_MIC2
+I (143657) ES7210: Enable ES7210_INPUT_MIC3
+I (143659) ES7210: Enable ES7210_INPUT_MIC4
+I (143675) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (143682) ES7210: Enable ES7210_INPUT_MIC1
+I (143684) ES7210: Enable ES7210_INPUT_MIC2
+I (143687) ES7210: Enable ES7210_INPUT_MIC3
+I (143689) ES7210: Enable ES7210_INPUT_MIC4
+E (143693) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (143693) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (143700) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (143708) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (143715) ES7210: The codec is about to stop
+I (143743) ES7210: ES7210 in Slave mode
+I (143753) ES7210: Enable ES7210_INPUT_MIC1
+I (143755) ES7210: Enable ES7210_INPUT_MIC2
+I (143758) ES7210: Enable ES7210_INPUT_MIC3
+I (143761) ES7210: Enable ES7210_INPUT_MIC4
+I (143777) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (143784) ES7210: Enable ES7210_INPUT_MIC1
+I (143787) ES7210: Enable ES7210_INPUT_MIC2
+I (143789) ES7210: Enable ES7210_INPUT_MIC3
+I (143791) ES7210: Enable ES7210_INPUT_MIC4
+E (143795) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (143796) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (143803) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (143810) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (143817) ES7210: The codec is about to stop
+I (143844) ES7210: ES7210 in Slave mode
+I (143853) ES7210: Enable ES7210_INPUT_MIC1
+I (143856) ES7210: Enable ES7210_INPUT_MIC2
+I (143858) ES7210: Enable ES7210_INPUT_MIC3
+I (143860) ES7210: Enable ES7210_INPUT_MIC4
+I (143876) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (143883) ES7210: Enable ES7210_INPUT_MIC1
+I (143885) ES7210: Enable ES7210_INPUT_MIC2
+I (143888) ES7210: Enable ES7210_INPUT_MIC3
+I (143890) ES7210: Enable ES7210_INPUT_MIC4
+E (143894) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (143894) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (143901) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (143909) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (143916) ES7210: The codec is about to stop
+I (143944) ES7210: ES7210 in Slave mode
+I (143953) ES7210: Enable ES7210_INPUT_MIC1
+I (143956) ES7210: Enable ES7210_INPUT_MIC2
+I (143958) ES7210: Enable ES7210_INPUT_MIC3
+I (143960) ES7210: Enable ES7210_INPUT_MIC4
+I (143976) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (143983) ES7210: Enable ES7210_INPUT_MIC1
+I (143985) ES7210: Enable ES7210_INPUT_MIC2
+I (143988) ES7210: Enable ES7210_INPUT_MIC3
+I (143990) ES7210: Enable ES7210_INPUT_MIC4
+E (143994) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (143994) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (144001) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (144009) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (144016) ES7210: The codec is about to stop
+I (144043) ES7210: ES7210 in Slave mode
+I (144052) ES7210: Enable ES7210_INPUT_MIC1
+I (144055) ES7210: Enable ES7210_INPUT_MIC2
+I (144057) ES7210: Enable ES7210_INPUT_MIC3
+I (144059) ES7210: Enable ES7210_INPUT_MIC4
+I (144075) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (144082) ES7210: Enable ES7210_INPUT_MIC1
+I (144084) ES7210: Enable ES7210_INPUT_MIC2
+I (144087) ES7210: Enable ES7210_INPUT_MIC3
+I (144089) ES7210: Enable ES7210_INPUT_MIC4
+E (144093) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (144093) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (144100) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (144108) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (144115) ES7210: The codec is about to stop
+I (144142) ES7210: ES7210 in Slave mode
+I (144152) ES7210: Enable ES7210_INPUT_MIC1
+I (144154) ES7210: Enable ES7210_INPUT_MIC2
+I (144157) ES7210: Enable ES7210_INPUT_MIC3
+I (144160) ES7210: Enable ES7210_INPUT_MIC4
+I (144176) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (144183) ES7210: Enable ES7210_INPUT_MIC1
+I (144185) ES7210: Enable ES7210_INPUT_MIC2
+I (144188) ES7210: Enable ES7210_INPUT_MIC3
+I (144190) ES7210: Enable ES7210_INPUT_MIC4
+E (144194) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (144195) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (144202) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (144209) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (144216) ES7210: The codec is about to stop
+qa: inject boot
+voice: POST message…
+voice: DNS ok pilmscrodlitdrygabvo.supabase.co -> 172.64.149.246
+voice: HTTP POST message (610 B body)…
+E (144795) mdns_networking: Cannot allocate memory (receive(176), free heap: 7716584 bytes)
+E (144808) mdns_networking: Cannot allocate memory (receive(176), free heap: 7716584 bytes)
+E (144966) mdns_receive: Cannot allocate memory (mdns_parse_packet(637), free heap: 7716032 bytes)
+E (145002) esp-aes: Failed to allocate memory
+[143974][E][ssl_client.cpp:36] _handle_error(): [ssl_starttls_handshake():318]: (-1) ERROR - Generic error
+[143986][E][NetworkClientSecure.cpp:159] connect(): start_ssl_client: connect failed: -1
+W (145028) pm_voice: voice-pipeline HTTP -1 (message)
+voice: HTTP -1 (message)
+voice: HTTP retry after connect failure
+face: 21
+voice: HTTP POST message (610 B body, retry)…

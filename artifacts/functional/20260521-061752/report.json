@@ -1,0 +1,74 @@
+{
+  "timestamp": "20260521-061752",
+  "gate": "hardware",
+  "matrix": "tests/functional/faces_astrolabe_comprehensive.json",
+  "ip": "192.168.86.247",
+  "port": "/dev/cu.usbmodem1301",
+  "git_head": "35edcf2b9c4cb66a02b506f2962b249d0a8c3422",
+  "passed": 1,
+  "failed": 0,
+  "faces": [
+    {
+      "id": 0,
+      "name": "classic",
+      "ok": true,
+      "screenshot": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/functional/20260521-061752/00-classic.bmp",
+      "serial_log": "/Users/danielmcshan/GitHub/CastaliaInstitute/astrolabe/artifacts/functional/20260521-061752/00-classic-serial.log",
+      "source_paths": [
+        "sketches/Astrolabe/faces/classic_analog"
+      ],
+      "steps": [
+        {
+          "name": "set_face",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "screenshot",
+          "ok": true,
+          "detail": "466x466"
+        },
+        {
+          "name": "gesture:swipe_left",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_right",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_up",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:swipe_down",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "gesture:tap:233,233",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "qa_status",
+          "ok": true,
+          "detail": "qa: face=8 state=0 heap=30691 iheap=30691 largest=17408 psram=7446120 voice_stack_hw=9952 spk_stack_hw=0 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.247 name=Daniel banner=\"wifi: connected\""
+        },
+        {
+          "name": "button:boot",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "button:pwr",
+          "ok": true,
+          "detail": "ok"
+        }
+      ]
+    }
+  ]
+}

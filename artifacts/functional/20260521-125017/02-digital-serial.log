@@ -1,0 +1,26 @@
+face: 1
+face: 2
+[221745][E][vfs_api.cpp:105] open(): /littlefs/busts/marie-curie.bin does not exist, no permits for creation
+pm_faculty: embedded bust marie-curie (16382 B)
+[224738][E][vfs_api.cpp:105] open(): /littlefs/busts/hypatia.bin does not exist, no permits for creation
+pm_faculty: embedded bust hypatia (37999 B)
+[230557][E][vfs_api.cpp:105] open(): /littlefs/busts/socrates.bin does not exist, no permits for creation
+[230571][E][vfs_api.cpp:105] open(): /littlefs/busts/socrates.bin does not exist, no permits for creation
+pm_faculty: bust skipped low memory heap=24380 largest=13812
+qa: inject swipe left @ 233,233
+[gesture] face -> 3
+qa: inject swipe right @ 233,233
+[gesture] face -> 2
+qa: inject swipe up @ 233,233
+qa: inject swipe down @ 233,233
+[233737][E][Preferences.cpp:483] getString(): nvs_get_str len fail: fac4_slug NOT_FOUND
+[233745][E][Preferences.cpp:483] getString(): nvs_get_str len fail: fac5_slug NOT_FOUND
+[233758][E][vfs_api.cpp:105] open(): /littlefs/busts/a-einstein.bin does not exist, no permits for creation
+pm_faculty: embedded bust a.einstein (44163 B)
+qa: inject tap @ 233,233
+[gesture] tap @ 233,233
+qa: face=2 state=0 heap=24380 iheap=24380 largest=13812 psram=7686699 voice_stack_hw=0 spk_stack_hw=30328 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.247 name=Daniel banner="tap"
+[236745][E][vfs_api.cpp:105] open(): /littlefs/busts/marie-curie.bin does not exist, no permits for creation
+pm_faculty: embedded bust marie-curie (16382 B)
+qa: inject boot
+face: 2

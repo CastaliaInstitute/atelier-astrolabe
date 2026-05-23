@@ -1,0 +1,41 @@
+[  5629][E][NetworkClient.cpp:435] write(): fail on fd 55, errno: 104, "Connection reset by peer"
+face: 0
+qa: inject swipe left @ 233,233
+qa: inject swipe right @ 233,233
+[gesture] face -> 1
+[gesture] face -> 0
+qa: inject swipe up @ 233,233
+qa: inject swipe down @ 233,233
+I (17451) wifi:state: run -> init (0x0)
+qa: inject tap @ 233,233
+I (17455) wifi:pm stop, total sleep time: 0 us / 15040395 us
+I (17455) wifi:<ba-del>idx:1, tid:0
+I (17456) wifi:<ba-del>idx:0, tid:6
+I (17456) wifi:new:<6,0>, old:<6,0>, ap:<255,255>, sta:<6,0>, prof:1, snd_ch_cfg:0x0
+I (17768) wifi:Set ps type: 0, coexist: 0
+I (17824) wifi:new:<6,0>, old:<6,0>, ap:<255,255>, sta:<6,0>, prof:1, snd_ch_cfg:0x0
+I (17824) wifi:state: init -> auth (0xb0)
+I (17834) wifi:state: auth -> assoc (0x0)
+I (17855) wifi:state: assoc -> run (0x10)
+I (17934) wifi:connected with The Chateau, aid = 3, channel 6, BW20, bssid = 7c:2e:bd:6d:28:4f
+I (17935) wifi:security: WPA2-PSK, phy: bgn, rssi: -61
+I (17953) wifi:pm start, type: 0
+I (17953) wifi:dp: 1, bi: 102400, li: 3, scale listen interval from 307200 us to 307200 us
+I (17954) wifi:set rx beacon pti, rx_bcn_pti: 0, bcn_timeout: 25000, mt_pti: 0, mt_time: 10000
+I (17982) wifi:<ba-add>idx:0 (ifx:0, 7c:2e:bd:6d:28:4f), tid:6, ssn:2, winSize:64
+I (18075) wifi:dp: 2, bi: 102400, li: 4, scale listen interval from 307200 us to 409600 us
+I (18076) wifi:AP's beacon interval = 102400 us, DTIM period = 2
+I (19012) esp_netif_handlers: sta ip: 192.168.86.247, mask: 255.255.255.0, gw: 192.168.86.1
+speaker: task create failed stack=32768 internal=51027 largest=19456 psram=7741036
+speaker: task create failed stack=32768 internal=51027 largest=19456 psram=7741036
+I (19015) pm_wifi: connect chime
+I (19017) mdns_mem: mDNS task will be created from internal RAM
+I (19020) pm_wifi: mDNS http://astrolabe-e30644.local/
+qa: inject boot
+voice: POST message…
+I (19205) wifi:<ba-add>idx:1 (ifx:0, 7c:2e:bd:6d:28:4f), tid:0, ssn:0, winSize:64
+voice: DNS ok pilmscrodlitdrygabvo.supabase.co -> 104.18.38.10
+voice: mbedtls psram allocator on rc=0
+voice: HTTP POST message (610 B body)…
+face: 0
+qa: inject pwr

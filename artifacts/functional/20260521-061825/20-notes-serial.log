@@ -1,0 +1,76 @@
+face: 20
+[114619][E][ssl_client.cpp:36] _handle_error(): [ssl_starttls_handshake():318]: (-29312) SSL - The connection indicated an EOF
+[114631][E][NetworkClientSecure.cpp:159] connect(): start_ssl_client: connect failed: -29312
+W (115672) pm_voice: voice-pipeline HTTP -1 (message)
+voice: HTTP -1 (message)
+voice: HTTP retry after connect failure
+voice: HTTP POST message (727 B body, retry)…
+E (117129) mdns_networking: Cannot allocate memory (receive(176), free heap: 7054872 bytes)
+E (117132) mdns_networking: Cannot allocate memory (receive(176), free heap: 7054872 bytes)
+E (117136) mdns_networking: Cannot allocate memory (receive(176), free heap: 7054872 bytes)
+E (117143) mdns_networking: Cannot allocate memory (receive(176), free heap: 7053092 bytes)
+E (117152) mdns_networking: Cannot allocate memory (receive(176), free heap: 7054872 bytes)
+E (117332) mdns_networking: Cannot allocate memory (receive(176), free heap: 7053096 bytes)
+E (117336) mdns_networking: Cannot allocate memory (receive(176), free heap: 7053096 bytes)
+E (117338) mdns_networking: Cannot allocate memory (receive(176), free heap: 7053096 bytes)
+E (117474) esp-aes: Failed to allocate memory
+[116445][E][ssl_client.cpp:36] _handle_error(): [ssl_starttls_handshake():318]: (-1) ERROR - Generic error
+[116458][E][NetworkClientSecure.cpp:159] connect(): start_ssl_client: connect failed: -1
+W (117498) pm_voice: voice-pipeline HTTP -1 (message)
+voice: HTTP -1 (message)
+voice: message fail (HTTP -1)
+qa: inject swipe left @ 233,233
+qa: inject swipe right @ 233,233
+[gesture] face -> 21
+[gesture] face -> 20
+qa: inject swipe up @ 233,233
+qa: inject swipe down @ 233,233
+qa: inject tap @ 233,233
+[gesture] tap @ 233,233
+qa: face=20 state=0 heap=12595 iheap=12595 largest=4096 psram=7741000 voice_stack_hw=9548 spk_stack_hw=0 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.247 name=Daniel banner="tap"
+qa: inject pwr hold
+I (129519) ES7210: ES7210 in Slave mode
+I (129527) ES7210: Enable ES7210_INPUT_MIC1
+I (129530) ES7210: Enable ES7210_INPUT_MIC2
+I (129532) ES7210: Enable ES7210_INPUT_MIC3
+I (129535) ES7210: Enable ES7210_INPUT_MIC4
+I (129550) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (129557) ES7210: Enable ES7210_INPUT_MIC1
+I (129559) ES7210: Enable ES7210_INPUT_MIC2
+I (129562) ES7210: Enable ES7210_INPUT_MIC3
+I (129564) ES7210: Enable ES7210_INPUT_MIC4
+E (129568) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (129569) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (129576) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (129583) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (129590) ES7210: The codec is about to stop
+I (129618) ES7210: ES7210 in Slave mode
+I (129627) ES7210: Enable ES7210_INPUT_MIC1
+I (129629) ES7210: Enable ES7210_INPUT_MIC2
+I (129632) ES7210: Enable ES7210_INPUT_MIC3
+I (129634) ES7210: Enable ES7210_INPUT_MIC4
+I (129649) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (129656) ES7210: Enable ES7210_INPUT_MIC1
+I (129659) ES7210: Enable ES7210_INPUT_MIC2
+I (129661) ES7210: Enable ES7210_INPUT_MIC3
+I (129664) ES7210: Enable ES7210_INPUT_MIC4
+E (129667) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (129668) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (129675) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (129682) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (129689) ES7210: The codec is about to stop
+I (129717) ES7210: ES7210 in Slave mode
+I (129726) ES7210: Enable ES7210_INPUT_MIC1
+I (129729) ES7210: Enable ES7210_INPUT_MIC2
+I (129731) ES7210: Enable ES7210_INPUT_MIC3
+I (129733) ES7210: Enable ES7210_INPUT_MIC4
+I (129749) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (129756) ES7210: Enable ES7210_INPUT_MIC1
+I (129758) ES7210: Enable ES7210_INPUT_MIC2
+I (129761) ES7210: Enable ES7210_INPUT_MIC3
+I (129763) ES7210: Enable ES7210_INPUT_MIC4
+E (129767) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (129767) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (129774) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (129781) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (129789) ES7210: The codec is about to stop

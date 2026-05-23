@@ -1,0 +1,141 @@
+qa: face=12 state=0 heap=12051 iheap=12051 largest=7680 psram=7446084 voice_stack_hw=9952 spk_stack_hw=0 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.247 name=Daniel banner="bowl 2/7"
+face: 13
+qa: inject tap @ 233,233
+qa: inject swipe left @ 233,233
+[gesture] face -> 14
+Guru Meditation Error: Core  1 panic'ed (LoadProhibited). Exception was unhandled.
+Core  1 register dump:
+PC      : 0x40057212  PS      : 0x00060930  A0      : 0x82034af0  A1      : 0x3fce5df0  
+A2      : 0x00000000  A3      : 0x3c13f250  A4      : 0x00000008  A5      : 0x3fce5dd0  
+A6      : 0x3fcceaf8  A7      : 0x3fce5de0  A8      : 0x00000000  A9      : 0x00000000  
+A10     : 0x3fce5e20  A11     : 0x00000000  A12     : 0x00000000  A13     : 0x00000001  
+A14     : 0x3fcceb08  A15     : 0x3fcea424  SAR     : 0x0000001f  EXCCAUSE: 0x0000001c  
+EXCVADDR: 0x00000000  LBEG    : 0x40056f5c  LEND    : 0x40056f72  LCOUNT  : 0xffffffff  
+Backtrace: 0x4005720f:0x3fce5df0 0x42034aed:0x3fce5e10 0x42034c06:0x3fce5e70 0x42018f9b:0x3fce5e90 0x4200f3a4:0x3fce6b60 0x40381bf9:0x3fce6b80
+ELF file SHA256: ae7b7e6e8
+Rebooting...
+ESP-ROM:esp32s3-20210327
+Build:Mar 27 2021
+rst:0xc (RTC_SW_CPU_RST),boot:0xb (SPI_FAST_FLASH_BOOT)
+Saved PC:0x4037c6c2
+SPIWP:0xee
+mode:DIO, clock div:1
+load:0x3fce2820,len:0x158c
+load:0x403c8700,len:0xd24
+load:0x403cb700,len:0x2f34
+entry 0x403c8924
+I (24) boot: ESP-IDF v5.5.1 2nd stage bootloader
+I (24) boot: compile time May 20 2026 23:29:21
+I (24) boot: Multicore bootloader
+I (25) boot: chip revision: v0.2
+I (27) boot: efuse block revision: v1.4
+I (31) boot.esp32s3: Boot SPI Speed : 80MHz
+I (34) boot.esp32s3: SPI Mode       : DIO
+I (38) boot.esp32s3: SPI Flash Size : 16MB
+I (42) boot: Enabling RNG early entropy source...
+I (47) boot: Partition Table:
+I (49) boot: ## Label            Usage          Type ST Offset   Length
+I (55) boot:  0 nvs              WiFi data        01 02 00009000 00006000
+I (62) boot:  1 phy_init         RF data          01 01 0000f000 00001000
+I (68) boot:  2 factory          factory app      00 00 00010000 00600000
+I (75) boot:  3 spiffs           Unknown data     01 82 00610000 009f0000
+I (82) boot: End of partition table
+I (85) esp_image: segment 0: paddr=00010020 vaddr=3c130020 size=943c4h (607172) map
+I (200) esp_image: segment 1: paddr=000a43ec vaddr=3fca0d00 size=05b4ch ( 23372) load
+I (205) esp_image: segment 2: paddr=000a9f40 vaddr=40374000 size=060d8h ( 24792) load
+I (211) esp_image: segment 3: paddr=000b0020 vaddr=42000020 size=12f8dch (1243356) map
+I (431) esp_image: segment 4: paddr=001df904 vaddr=4037a0d8 size=16c10h ( 93200) load
+I (452) esp_image: segment 5: paddr=001f651c vaddr=50000000 size=00020h (    32) load
+I (463) boot: Loaded app from partition at offset 0x10000
+I (464) boot: Disabling RNG early entropy source...
+I (474) octal_psram: vendor id    : 0x0d (AP)
+I (475) octal_psram: dev id       : 0x02 (generation 3)
+I (475) octal_psram: density      : 0x03 (64 Mbit)
+I (477) octal_psram: good-die     : 0x01 (Pass)
+I (481) octal_psram: Latency      : 0x01 (Fixed)
+I (485) octal_psram: VCC          : 0x01 (3V)
+I (489) octal_psram: SRF          : 0x01 (Fast Refresh)
+I (494) octal_psram: BurstType    : 0x01 (Hybrid Wrap)
+I (499) octal_psram: BurstLen     : 0x01 (32 Byte)
+I (504) octal_psram: Readlatency  : 0x02 (10 cycles@Fixed)
+I (509) octal_psram: DriveStrength: 0x00 (1/1)
+I (514) MSPI Timing: PSRAM timing tuning index: 5
+I (518) esp_psram: Found 8MB PSRAM device
+I (521) esp_psram: Speed: 80MHz
+I (524) cpu_start: Multicore app
+I (960) esp_psram: SPI SRAM memory test OK
+I (969) cpu_start: Pro cpu start user code
+I (969) cpu_start: cpu freq: 160000000 Hz
+I (969) app_init: Application information:
+I (969) app_init: Project name:     astrolabe
+I (973) app_init: App version:      35edcf2-dirty
+I (977) app_init: Compile time:     May 21 2026 00:10:52
+I (982) app_init: ELF file SHA256:  ae7b7e6e8...
+I (987) app_init: ESP-IDF:          v5.5.1
+I (990) efuse_init: Min chip rev:     v0.0
+I (994) efuse_init: Max chip rev:     v0.99 
+I (998) efuse_init: Chip rev:         v0.2
+I (1002) heap_init: Initializing. RAM available for dynamic allocation:
+I (1009) heap_init: At 3FCD36A8 len 00016068 (88 KiB): RAM
+I (1014) heap_init: At 3FCE9710 len 00005724 (21 KiB): RAM
+I (1019) heap_init: At 3FCF0000 len 00008000 (32 KiB): DRAM
+I (1024) heap_init: At 600FE000 len 00001FE8 (7 KiB): RTCRAM
+I (1030) esp_psram: Adding pool of 8192K of PSRAM memory to heap allocator
+I (1037) spi_flash: detected chip: gd
+I (1040) spi_flash: flash io: dio
+W (1043) spi_flash: Detected size(32768k) larger than the size in the binary image header(16384k). Using the size in the binary image header.
+W (1055) i2s(legacy): legacy i2s driver is deprecated, please migrate to use driver/i2s_std.h, driver/i2s_pdm.h or driver/i2s_tdm.h
+I (1068) sleep_gpio: Configure to isolate all GPIO pins in sleep state
+I (1073) sleep_gpio: Enable automatic switching of GPIO sleep configuration
+I (1080) main_task: Started on CPU0
+I (1083) esp_psram: Reserving pool of 32K of internal memory for DMA/internal allocations
+I (1091) main_task: Calling app_main()
+I (1143) main_task: Returned from app_main()
+[314 00:22:51] log: ring 24576 bytes
+ASTROLABE_ALERT last_reset=4
+[   910][E][Wire.cpp:135] setPins(): bus already initialized. change pins only when not.
+[  1067][E][Preferences.cpp:506] getString(): nvs_get_str len fail: fac4_slug NOT_FOUND
+[  1075][E][Preferences.cpp:506] getString(): nvs_get_str len fail: fac5_slug NOT_FOUND
+[  1091][E][Preferences.cpp:506] getString(): nvs_get_str len fail: fac4_slug NOT_FOUND
+[  1099][E][Preferences.cpp:506] getString(): nvs_get_str len fail: fac5_slug NOT_FOUND
+I (2145) pp: pp rom version: e7ae62f
+I (2146) net80211: net80211 rom version: e7ae62f
+I (2147) wifi:wifi driver task: 3fceeb20, prio:23, stack:6656, core=0
+I (2161) wifi:wifi firmware version: 14da9b7
+I (2161) wifi:wifi certification version: v7.0
+I (2162) wifi:config NVS flash: enabled
+I (2162) wifi:config nano formatting: disabled
+I (2166) wifi:Init data frame dynamic rx buffer num: 32
+I (2171) wifi:Init static rx mgmt buffer num: 5
+I (2175) wifi:Init management short buffer num: 32
+I (2180) wifi:Init dynamic tx buffer num: 32
+I (2184) wifi:Init static tx FG buffer num: 2
+I (2188) wifi:Init static rx buffer size: 1600
+I (2192) wifi:Init static rx buffer num: 4
+I (2196) wifi:Init dynamic rx buffer num: 32
+I (2201) wifi_init: rx ba win: 6
+I (2203) wifi_init: accept mbox: 6
+I (2206) wifi_init: tcpip mbox: 32
+I (2209) wifi_init: udp mbox: 6
+I (2212) wifi_init: tcp mbox: 6
+I (2215) wifi_init: tcp tx win: 5760
+I (2218) wifi_init: tcp rx win: 5760
+I (2221) wifi_init: tcp mss: 1440
+I (2224) wifi_init: WiFi IRAM OP enabled
+I (2228) wifi_init: WiFi RX IRAM OP enabled
+I (2235) phy_init: phy_version 701,f4f1da3a,Mar  3 2025,15:50:10
+I (2274) wifi:mode : sta (a0:f2:62:e3:06:44)
+I (2274) wifi:enable tsf
+I (2277) wifi:Set ps type: 0, coexist: 0
+I (2293) wifi:new:<6,0>, old:<1,0>, ap:<255,255>, sta:<6,0>, prof:1, snd_ch_cfg:0x0
+I (2294) wifi:state: init -> auth (0xb0)
+I (2348) wifi:state: auth -> assoc (0x0)
+I (2361) wifi:state: assoc -> run (0x10)
+I (2402) wifi:connected with The Chateau, aid = 3, channel 6, BW20, bssid = 7c:2e:bd:6d:28:4f
+I (2402) wifi:security: WPA2-PSK, phy: bgn, rssi: -59
+I (2407) wifi:pm start, type: 0
+I (2407) wifi:dp: 1, bi: 102400, li: 3, scale listen interval from 307200 us to 307200 us
+I (2415) wifi:set rx beacon pti, rx_bcn_pti: 0, bcn_timeout: 25000, mt_pti: 0, mt_time: 10000
+I (2424) wifi:dp: 2, bi: 102400, li: 4, scale listen interval from 307200 us to 409600 us
+I (2431) wifi:AP's beacon interval = 102400 us, DTIM period = 2
+I (2466) wifi:<ba-add>idx:0 (ifx:0, 7c:2e:bd:6d:28:4f), tid:6, ssn:2, winSize:64

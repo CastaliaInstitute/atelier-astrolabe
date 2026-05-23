@@ -1,0 +1,14 @@
+face: 11
+qa: inject swipe left @ 233,233
+[gesture] face -> 12
+qa: inject swipe right @ 233,233
+[gesture] face -> 11
+qa: inject swipe up @ 233,233
+qa: inject swipe down @ 233,233
+qa: inject tap @ 233,233
+speaker: task create failed stack=32768 internal=11843 largest=7680 psram=7446084
+qa: face=11 state=0 heap=11843 iheap=11843 largest=7680 psram=7446084 voice_stack_hw=9952 spk_stack_hw=0 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.247 name=Daniel banner="tone busy"
+qa: inject boot
+speaker: task create failed stack=32768 internal=11847 largest=7680 psram=7151168
+speaker: MP3 blocked: no task internal=11847 largest=7680 psram=7151168
+face: 11

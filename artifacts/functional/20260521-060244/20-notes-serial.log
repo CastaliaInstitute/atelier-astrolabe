@@ -1,0 +1,36 @@
+face: 20
+[462179][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1
+voice: HTTP -1 (message)
+voice: HTTP retry after connect failure
+voice: HTTP POST message (727 B body, retry)…
+[468491][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1
+voice: HTTP -1 (message)
+voice: message fail (HTTP -1)
+[470107][E][vfs_api.cpp:105] open(): /littlefs/busts/a-plato.bin does not exist, no permits for creation
+[470120][E][vfs_api.cpp:105] open(): /littlefs/busts/a-plato.bin does not exist, no permits for creation
+[472971][E][vfs_api.cpp:105] open(): /littlefs/busts/a-plato.binpm_faculty: bust skipped low memory heap=19948 largest=7924
+ does not exist, no permits for creation
+[472984][E][vfs_api.cpp:105] open(): /littlefs/busts/a-plato.bin does not exist, no permits for creation
+pm_faculty: bust skipped low memory heap=19948 largest=7924
+[475979][E][vfs_api.cpp:105] open(): /littlefs/busts/a-plato.bin does not exist, no permits for creation
+[475992][E][vfs_api.cpp:105] open(): /littlefs/busts/a-plato.bin does not exist, no permits for creation
+pm_faculty: bust skipped low memory heap=19948 largest=7924
+qa: inject swipe left @ 233,233
+[gesture] face -> 21
+[478743][E][vfs_api.cpp:105] open(): /littlefs/busts/a-plato.bin does not exist, no permits for creation
+[478756][E][vfs_api.cpp:105] open(): /littlefs/busts/a-plato.bin does not exist, no permits for creation
+pm_faculty: bust skipped low memory heap=19948 largest=7924
+qa: inject swipe right @ 233,233
+[gesture] face -> 10
+qa: inject swipe up @ 233,233
+[481306][E][vfs_api.cpp:105] open(): /littlefs/busts/a-plato.bin does not exist, no permits for creation
+[481319][E][vfs_api.cpp:105] open(): /littlefs/busts/a-plato.bin does not exist, no permits for creation
+pm_faculty: bust skipped low memory heap=15196 largest=7924
+qa: inject swipe down @ 233,233
+qa: inject tap @ 233,233
+[gesture] tap @ 233,233
+qa: inject pwr hold
+[483816][E][vfs_api.cpp:105] open(): /littlefs/busts/a-plato.bin does not exist, no permits for creation
+[483829][E][vfs_api.cpp:105] open(): /littlefs/busts/a-plato.bin does not exist, no permits for creation
+pm_faculty: bust skipped low memory heap=15196 largest=7924
+qa: face=10 state=0 heap=15196 iheap=15196 largest=7924 psram=7686595 voice_stack_hw=9160 spk_stack_hw=0 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.247 name=Daniel banner="tap"

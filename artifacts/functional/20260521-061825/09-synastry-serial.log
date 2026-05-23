@@ -1,0 +1,31 @@
+face: 8
+face: 9
+qa: inject swipe left @ 233,233
+I (349741) ES7210: ES7210 in Slave mode
+I (349750) ES7210: Enable ES7210_INPUT_MIC1
+I (349753) ES7210: Enable ES7210_INPUT_MIC2
+I (349755) ES7210: Enable ES7210_INPUT_MIC3
+I (349758) ES7210: Enable ES7210_INPUT_MIC4
+I (349773) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (349780) ES7210: Enable ES7210_INPUT_MIC1
+I (349783) ES7210: Enable ES7210_INPUT_MIC2
+I (349785) ES7210: Enable ES7210_INPUT_MIC3
+I (349787) ES7210: Enable ES7210_INPUT_MIC4
+E (349791) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (349792) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (349799) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (349806) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (349813) ES7210: The codec is about to stop
+[gesture] face -> 10
+qa: inject swipe right @ 233,233
+[gesture] face -> 9
+qa: inject swipe up @ 233,233
+W (351613) pm_heap: ephemeris low heap: internal=11627 largest=7680 psram=7446084 need=140000/36000
+qa: inject swipe down @ 233,233
+qa: inject tap @ 233,233
+[gesture] tap @ 233,233
+qa: face=9 state=0 heap=11627 iheap=11627 largest=7680 psram=7446084 voice_stack_hw=9952 spk_stack_hw=0 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.247 name=Daniel banner="tap"
+qa: inject boot
+speaker: task create failed stack=32768 internal=11627 largest=7680 psram=7151168
+speaker: MP3 blocked: no task internal=11627 largest=7680 psram=7151168
+face: 9

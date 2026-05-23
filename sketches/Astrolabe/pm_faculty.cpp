@@ -1256,6 +1256,26 @@ void pm_faculty_draw_bust_for(const PmFacultyProfile *faculty) {
   pm_faculty_draw_bust_for_mode(faculty, false);
 }
 
+void pm_faculty_draw_bust_for_at(const PmFacultyProfile *faculty, int cx, int bottom_y, int max_w, int max_h,
+                                 int clip_top, int clip_bottom) {
+  if (!pm_gfx || !faculty || !faculty->valid || max_w <= 0 || max_h <= 0) {
+    return;
+  }
+  if (strcmp(s_decoded_slug, faculty->slug) != 0) {
+    bust_free_decoded();
+  }
+  (void)bust_try_decode_for_slug(faculty->slug);
+
+  int draw_w = max_w;
+  int draw_h = max_h;
+  if (s_decoded_fb && strcmp(s_decoded_slug, faculty->slug) == 0) {
+    bust_compute_draw_size(s_decoded_w, s_decoded_h, max_w, max_h, &draw_w, &draw_h);
+    bust_draw_scaled_jpeg(cx, bottom_y, draw_w, draw_h, clip_top, clip_bottom);
+    return;
+  }
+  bust_draw_placeholder(*faculty, cx, bottom_y, draw_h);
+}
+
 void pm_faculty_draw_bust_fullscreen(void) {
   PmFacultyProfile faculty = {};
   if (!pm_faculty_active(&faculty)) {

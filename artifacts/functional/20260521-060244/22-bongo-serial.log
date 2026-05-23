@@ -1,0 +1,41 @@
+qa: face=21 state=2 heap=16836 iheap=16836 largest=5620 psram=7685895 voice_stack_hw=9160 spk_stack_hw=0 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.247 name=Daniel banner="bowl 2/7"
+face: 22
+[497667][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1
+voice: HTTP -1 (message)
+voice: HTTP retry after connect failure
+voice: HTTP POST message (565 B body, retry)…
+[503981][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1
+voice: HTTP -1 (message)
+voice: message fail (HTTP -1)
+[505598][E][vfs_api.cpp:105] open(): /littlefs/busts/a-plato.bin does not exist, no permits for creation
+[505611][E][vfs_api.cpp:105] open(): /littlefs/busts/a-plato.bin does not exist, no permits for creation
+pm_faculty: bust skipped low memory heap=20784 largest=7924
+[508534][E][vfs_api.cpp:105] open(): /littlefs/busts/a-plato.bin does not exist, no permits for creation
+[508546][E][vfs_api.cpp:105] open(): /littlefs/busts/a-plato.bin does not exist, no permits for creation
+pm_faculty: bust skipped low memory heap=20784 largest=7924
+[511489][E][vfs_api.cpp:105] open(): /littlefs/busts/a-plato.bin does not exist, no permits for creation
+[511501][E][vfs_api.cpp:105] open(): /littlefs/busts/a-plato.bin does not exist, no permits for creation
+pm_faculty: bust skipped low memory heap=20784 largest=7924
+qa: inject swipe left @ 233,233
+[gesture] face -> 13
+[514195][E][vfs_api.cpp:105] open(): /littlefs/busts/a-plato.bin does not exist, no permits for creation
+[514208][E][vfs_api.cpp:105] open(): /littlefs/busts/a-plato.bin does not exist, no permits for creation
+pm_faculty: bust skipped low memory heap=20784 largest=7924
+qa: inject swipe right @ 233,233
+[gesture] face -> 12
+qa: inject swipe up @ 233,233
+qa: inject swipe down @ 233,233
+[516847][E][vfs_api.cpp:105] open(): /littlefs/busts/a-plato.bin does not exist, no permits for creation
+[516860][E][vfs_api.cpp:105] open(): /littlefs/busts/a-plato.bin does not exist, no permits for creation
+pm_faculty: bust skipped low memory heap=20784 largest=7924
+qa: inject tap @ 233,233
+qa: inject tap @ 388,233
+[519378][E][vfs_api.cpp:105] open(): /littlefs/busts/a-plato.bin does not exist, no permits for creation
+[519390][E][vfs_api.cpp:105] open(): /littlefs/busts/a-plato.bin does not exist, no permits for creation
+pm_faculty: bust skipped low memory heap=20784 largest=7924
+qa: inject boot
+voice: POST message…
+voice: DNS ok pilmscrodlitdrygabvo.supabase.co -> 104.18.38.10
+voice: HTTP POST message (565 B body)…
+face: 22
+qa: face=22 state=2 heap=16832 iheap=16832 largest=5620 psram=7685895 voice_stack_hw=9160 spk_stack_hw=0 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.247 name=Daniel banner="bowl 2/7"

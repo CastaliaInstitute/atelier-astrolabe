@@ -1,0 +1,31 @@
+[298666][E][vfs_api.cpp:105] open(): /littlefs/busts/marie-curie.bin does not exist, no permits for creation
+pm_faculty: embedded bust marie-curie (16382 B)
+[305432][E][vfs_api.cpp:105] open(): /littlefs/busts/hypatia.bin does not exist, no permits for creation
+pm_faculty: embedded bust hypatia (37999 B)
+qa: inject swipe up @ 233,233
+[305594][E][Preferences.cpp:483] getString(): nvs_get_str len fail: fac4_slug NOT_FOUND
+[305601][E][Preferences.cpp:483] getString(): nvs_get_str len fail: fac5_slug NOT_FOUND
+pm_faculty: embedded bust marie-curie (16382 B)
+qa: inject swipe down @ 233,233
+[306343][E][Preferences.cpp:483] getString(): nvs_get_str len fail: fac4_slug NOT_FOUND
+[306351][E][Preferences.cpp:483] getString(): nvs_get_str len fail: fac5_slug NOT_FOUND
+pm_faculty: embedded bust a.einstein (44163 B)
+qa: inject swipe left @ 233,233
+[gesture] face -> 16
+qa: inject swipe right @ 233,233
+[gesture] face -> 15
+[308115][E][vfs_api.cpp:105] open(): /littlefs/busts/socrates.bin does not exist, no permits for creation
+[308128][E][vfs_api.cpp:105] open(): /littlefs/busts/socrates.bin does not exist, no permits for creation
+[308154][E][vfs_api.cpp:105] open(): /littlefs/busts/socrates.bin does not exist, no permits for creation
+[308204][E][ssl_client.cpp:37] _handle_error(): [start_ssl_client():264]: (-32512) SSL - Memory allocation failed
+[308214][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -32512
+pm_faculty: bust avatar HTTP -1
+[308273][E][ssl_client.cpp:37] _handle_error(): [start_ssl_client():264]: (-32512) SSL - Memory allocation failed
+[308283][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -32512
+pm_faculty: bust castalia HTTP -1
+[308359][E][ssl_client.cpp:37] _handle_error(): [start_ssl_client():264]: (-32512) SSL - Memory allocation failed
+[308369][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -32512
+pm_faculty: bust supabase HTTP -1
+qa: inject tap @ 233,233
+[gesture] tap @ 233,233
+qa: face=15 state=0 heap=41332 iheap=41332 largest=16372 psram=7612955 voice_stack_hw=0 spk_stack_hw=0 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.247 name=Daniel banner="tap"

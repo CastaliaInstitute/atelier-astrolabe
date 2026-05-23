@@ -1,0 +1,188 @@
+{
+  "timestamp": "20260521-054641",
+  "ip": "192.168.86.247",
+  "faces": [
+    {
+      "face_id": 0,
+      "name": "classic",
+      "ack_ms": null,
+      "screenshot_ms": 12340.5,
+      "screenshot_ok": false
+    },
+    {
+      "face_id": 1,
+      "name": "apocalypso",
+      "ack_ms": 1146.4,
+      "screenshot_ms": 9663.2,
+      "screenshot_ok": false
+    },
+    {
+      "face_id": 2,
+      "name": "digital",
+      "ack_ms": null,
+      "screenshot_ms": 12348.9,
+      "screenshot_ok": false
+    },
+    {
+      "face_id": 3,
+      "name": "spotify",
+      "ack_ms": null,
+      "screenshot_ms": 12320.9,
+      "screenshot_ok": true
+    },
+    {
+      "face_id": 4,
+      "name": "astro",
+      "ack_ms": 3332.3,
+      "screenshot_ms": 8138.1,
+      "screenshot_ok": false
+    },
+    {
+      "face_id": 5,
+      "name": "moon",
+      "ack_ms": null,
+      "screenshot_ms": 3442.6,
+      "screenshot_ok": false
+    },
+    {
+      "face_id": 6,
+      "name": "calcifer",
+      "ack_ms": null,
+      "screenshot_ms": 9791.6,
+      "screenshot_ok": true
+    },
+    {
+      "face_id": 7,
+      "name": "castalia",
+      "ack_ms": null,
+      "screenshot_ms": 8879.7,
+      "screenshot_ok": false
+    },
+    {
+      "face_id": 8,
+      "name": "settings",
+      "ack_ms": null,
+      "screenshot_ms": 10023.3,
+      "screenshot_ok": false
+    },
+    {
+      "face_id": 9,
+      "name": "synastry",
+      "ack_ms": null,
+      "screenshot_ms": 5021.4,
+      "screenshot_ok": false
+    },
+    {
+      "face_id": 10,
+      "name": "spectrum",
+      "ack_ms": null,
+      "screenshot_ms": 12503.7,
+      "screenshot_ok": false
+    },
+    {
+      "face_id": 11,
+      "name": "chakra",
+      "ack_ms": null,
+      "screenshot_ms": 6298.9,
+      "screenshot_ok": false
+    },
+    {
+      "face_id": 12,
+      "name": "bowl",
+      "ack_ms": null,
+      "screenshot_ms": 8881.4,
+      "screenshot_ok": false
+    },
+    {
+      "face_id": 13,
+      "name": "rocket",
+      "ack_ms": null,
+      "screenshot_ms": 15631.6,
+      "screenshot_ok": false
+    },
+    {
+      "face_id": 14,
+      "name": "radar",
+      "ack_ms": 516.0,
+      "screenshot_ms": 15003.1,
+      "screenshot_ok": false
+    },
+    {
+      "face_id": 15,
+      "name": "faculty",
+      "ack_ms": 1465.7,
+      "screenshot_ms": 11597.7,
+      "screenshot_ok": false
+    },
+    {
+      "face_id": 16,
+      "name": "weather",
+      "ack_ms": null,
+      "screenshot_ms": 9741.4,
+      "screenshot_ok": true
+    },
+    {
+      "face_id": 17,
+      "name": "quotes",
+      "ack_ms": null,
+      "screenshot_ms": 6253.4,
+      "screenshot_ok": true
+    },
+    {
+      "face_id": 18,
+      "name": "transits",
+      "ack_ms": null,
+      "screenshot_ms": 4043.2,
+      "screenshot_ok": false
+    },
+    {
+      "face_id": 19,
+      "name": "tarot",
+      "ack_ms": null,
+      "screenshot_ms": 2302.7,
+      "screenshot_ok": false
+    },
+    {
+      "face_id": 20,
+      "name": "notes",
+      "ack_ms": 3194.3,
+      "screenshot_ms": 6030.7,
+      "screenshot_ok": false
+    },
+    {
+      "face_id": 21,
+      "name": "ocarina",
+      "ack_ms": 3021.7,
+      "screenshot_ms": 4822.1,
+      "screenshot_ok": false
+    },
+    {
+      "face_id": 22,
+      "name": "bongo",
+      "ack_ms": null,
+      "screenshot_ms": 5101.6,
+      "screenshot_ok": false
+    },
+    {
+      "face_id": 23,
+      "name": "piano",
+      "ack_ms": null,
+      "screenshot_ms": 29648.5,
+      "screenshot_ok": false
+    },
+    {
+      "face_id": 24,
+      "name": "level",
+      "ack_ms": null,
+      "screenshot_ms": 8811.1,
+      "screenshot_ok": true
+    },
+    {
+      "face_id": 25,
+      "name": "pandrum",
+      "ack_ms": null,
+      "screenshot_ms": 15586.5,
+      "screenshot_ok": false
+    }
+  ]
+}

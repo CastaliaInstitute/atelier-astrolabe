@@ -51,6 +51,8 @@
 #include "faces/runes/pm_face_runes.h"
 #include "faces/tarot/pm_face_tarot.h"
 #include "faces/notes/pm_face_notes.h"
+#include "faces/question_day/pm_face_question_day.h"
+#include "faces/focus/pm_face_focus.h"
 #include "faces/spotify/pm_face_spotify.h"
 #include "faces/calcifer/pm_face_calcifer.h"
 #include "faces/level/pm_face_level.h"
@@ -102,6 +104,7 @@ static constexpr uint8_t k_tv_moon = 2;
 static constexpr uint8_t k_tv_synastry = 3;
 static constexpr uint8_t k_tv_face = 4;
 static constexpr uint8_t k_tv_runes = 5;
+static constexpr uint8_t k_tv_question = 6;
 static uint8_t g_text_voice_route = k_tv_none;
 static bool g_calcifer_briefing = false;
 /** Home / first-run: full daily LLM+TTS briefing (schedule + sky). */
@@ -125,6 +128,8 @@ static constexpr size_t kMoonVoiceMsgCap = 2200;
 static constexpr size_t kMoonSysPromptCap = 640;
 static constexpr size_t kRunesVoiceMsgCap = 900;
 static constexpr size_t kRunesSysPromptCap = 900;
+static constexpr size_t kQuestionVoiceMsgCap = 9500;
+static constexpr size_t kQuestionSysPromptCap = 900;
 static char *s_face_tour_voice_msg = nullptr;
 static char *s_face_tour_sys_prompt = nullptr;
 static char s_face_voice_face[24] = "";
@@ -134,6 +139,8 @@ static char *g_moon_voice_msg = nullptr;
 static char *g_moon_sys_prompt = nullptr;
 static char *g_runes_voice_msg = nullptr;
 static char *g_runes_sys_prompt = nullptr;
+static char *g_question_voice_msg = nullptr;
+static char *g_question_sys_prompt = nullptr;
 static bool g_moon_voice_pcm = false;
 /** Tap fortune: stay on Moon face during think/speak. */
 static bool g_moon_fortune_active = false;
@@ -168,13 +175,15 @@ static bool voice_prompt_buffers_ensure(void) {
   if (!g_moon_sys_prompt) g_moon_sys_prompt = voice_psram_buffer(kMoonSysPromptCap);
   if (!g_runes_voice_msg) g_runes_voice_msg = voice_psram_buffer(kRunesVoiceMsgCap);
   if (!g_runes_sys_prompt) g_runes_sys_prompt = voice_psram_buffer(kRunesSysPromptCap);
+  if (!g_question_voice_msg) g_question_voice_msg = voice_psram_buffer(kQuestionVoiceMsgCap);
+  if (!g_question_sys_prompt) g_question_sys_prompt = voice_psram_buffer(kQuestionSysPromptCap);
   if (!g_astrology_voice_msg) g_astrology_voice_msg = voice_psram_buffer(kAstrologyVoiceMsgCap);
   if (!g_astrology_sys_prompt) g_astrology_sys_prompt = voice_psram_buffer(kAstrologySysPromptCap);
   if (!g_synastry_voice_msg) g_synastry_voice_msg = voice_psram_buffer(kSynastryVoiceMsgCap);
   if (!g_synastry_sys_prompt) g_synastry_sys_prompt = voice_psram_buffer(kSynastrySysPromptCap);
   return s_face_tour_voice_msg && s_face_tour_sys_prompt && g_moon_voice_msg && g_moon_sys_prompt &&
          g_runes_voice_msg && g_runes_sys_prompt && g_astrology_voice_msg && g_astrology_sys_prompt &&
-         g_synastry_voice_msg && g_synastry_sys_prompt;
+         g_synastry_voice_msg && g_synastry_sys_prompt && g_question_voice_msg && g_question_sys_prompt;
 }
 static bool s_rec_mic_on = false;
 /** Astrology voice: stay on chart during record/think/speak + highlight mentions. */
@@ -187,6 +196,9 @@ static bool g_synastry_voice_pcm = false;
 /** Alethiometer voice: stay on compass during record/think/speak. */
 static bool g_alethiometer_voice_active = false;
 static bool g_alethiometer_voice_pcm = false;
+/** Question of the Day: text fetch or recorded answer. */
+static bool g_question_voice_active = false;
+static bool g_question_answer_pcm = false;
 /** ClassicAnalog PWR hold → mynah-pocket-journal (no voice-pipeline TTS). */
 static bool g_commonplace_journal = false;
 /** Notes face PWR hold → flash queue first, then Commonplace when online. */
@@ -319,6 +331,8 @@ static void gesture_end_voice_ui(void) {
   g_synastry_voice_active = false;
   g_synastry_voice_pcm = false;
   g_moon_voice_pcm = false;
+  g_question_voice_active = false;
+  g_question_answer_pcm = false;
   g_commonplace_journal = false;
   g_commonplace_note_face = false;
   s_rec_mic_on = false;
@@ -354,6 +368,8 @@ static bool home_begin_daily_briefing(void) {
   g_alethiometer_voice_pcm = false;
   g_moon_fortune_active = false;
   g_moon_voice_pcm = false;
+  g_question_voice_active = false;
+  g_question_answer_pcm = false;
   g_commonplace_journal = false;
   g_commonplace_note_face = false;
   g_daily_briefing = true;
@@ -456,6 +472,8 @@ static bool voice_last_play_begin() {
   g_synastry_voice_active = false;
   g_synastry_voice_pcm = false;
   g_moon_voice_pcm = false;
+  g_question_voice_active = false;
+  g_question_answer_pcm = false;
   g_calcifer_briefing = false;
   g_voice_play_reset = true;
   g_state = AppState::kPlaying;
@@ -627,6 +645,58 @@ static bool runes_begin_fortune() {
   return true;
 }
 
+static bool question_day_begin_fetch() {
+  if (!voice_prompt_buffers_ensure()) {
+    snprintf(g_gesture_banner, sizeof(g_gesture_banner), "question: PSRAM OOM");
+    return false;
+  }
+  if (!pm_wifi_connected()) {
+    snprintf(g_gesture_banner, sizeof(g_gesture_banner), "question: need WiFi");
+    return false;
+  }
+  if (!pm_face_question_day_build_prompt(g_question_voice_msg, kQuestionVoiceMsgCap,
+                                         g_question_sys_prompt, kQuestionSysPromptCap)) {
+    snprintf(g_gesture_banner, sizeof(g_gesture_banner), "question: build fail");
+    return false;
+  }
+  pm_voice_result_free(&g_voice_result);
+  g_voice_use_message = true;
+  g_text_voice_route = k_tv_question;
+  s_face_voice_faculty_slug[0] = '\0';
+  s_face_voice_faculty_name[0] = '\0';
+  g_question_voice_active = true;
+  g_question_answer_pcm = false;
+  g_moon_fortune_active = false;
+  g_runes_fortune_active = false;
+  g_astro_voice_active = false;
+  g_astro_voice_pcm = false;
+  g_synastry_voice_active = false;
+  g_synastry_voice_pcm = false;
+  g_alethiometer_voice_active = false;
+  g_alethiometer_voice_pcm = false;
+  g_moon_voice_pcm = false;
+  g_calcifer_briefing = false;
+  g_daily_briefing = false;
+  g_voice_play_reset = true;
+  g_state = AppState::kThinking;
+  return true;
+}
+
+static void faculty_remember_voice_result(const PmVoiceResult &result) {
+  if (strcasecmp(result.route, "ask-faculty") != 0 || result.faculty_slug[0] == '\0') {
+    return;
+  }
+  char name[sizeof(result.faculty_name)];
+  if (result.faculty_name[0] != '\0') {
+    snprintf(name, sizeof(name), "%s", result.faculty_name);
+  } else {
+    pm_faculty_label_from_slug(result.faculty_slug, name, sizeof(name));
+  }
+  pm_faculty_note_turn(result.faculty_slug, name, result.transcript, result.reply);
+  (void)pm_faculty_request_bust(result.faculty_slug);
+  snprintf(g_gesture_banner, sizeof(g_gesture_banner), "faculty: %.25s", name);
+}
+
 static bool face_index_from_name(const char *name, int *out) {
   if (!name || !out) {
     return false;
@@ -643,7 +713,7 @@ static bool face_index_from_name(const char *name, int *out) {
            {"rocket", 13},     {"launch", 13},      {"launchclock", 13}, {"radar", 14},
            {"presence", 14},   {"peers", 14},       {"locator", 14},     {"locations", 14},
            {"faculty", 15},    {"fac", 15},         {"weather", 16},    {"quotes", 17},
-           {"quote", 17},      {"qotd", 17},        {"transits", 18},   {"live_transits", 18},
+           {"quote", 17},      {"transits", 18},   {"live_transits", 18},
            {"live-transits", 18}, {"live", 18},      {"tarot", 19},      {"cards", 19},
            {"card", 19},       {"arcana", 19},       {"notes", 20},      {"note", 20},
            {"commonplace", 20}, {"notebook", 20},    {"ocarina", 21},    {"ocarina_face", 21},
@@ -657,7 +727,9 @@ static bool face_index_from_name(const char *name, int *out) {
            {"golden_compass", 27}, {"runes", 28},     {"rune", 28},      {"futhark", 28},
            {"fortune", 28},      {"orientation", 29},  {"orient", 29},    {"heading", 29},
            {"relative_heading", 29}, {"luopan", 30},   {"fengshui", 30},  {"feng_shui", 30},
-           {"feng-shui", 30}};
+           {"feng-shui", 30},    {"qotd", 31},       {"question", 31},   {"question_day", 31},
+           {"question-of-day", 31}, {"question_of_the_day", 31},
+           {"focus", 32},        {"timer", 32},       {"pomodoro", 32},   {"productivity", 32}};
   for (const auto &e : k) {
     if (strcasecmp(name, e.n) == 0) {
       *out = e.idx;
@@ -741,6 +813,12 @@ static const FaceTourInfo k_face_tour[] = {
      "6DOF orientation is drawing", "IMU unavailable", false, false},
     {"luopan", "feng-shui luopan dial with 24 mountains", "the active relative luopan alignment",
      "relative luopan is drawing", "IMU unavailable", false, false},
+    {"question", "context-aware Question of the Day with Commonplace answers",
+     "the current Question of the Day and answer capture state",
+     "WiFi is available for fresh questions", "offline, last question only", true, false},
+    {"focus", "Pomodoro productivity timer with focus and break presets",
+     "the active focus timer and session state",
+     "local timer is available", "local timer is available", false, false},
 };
 
 static const FaceTourInfo *face_tour_info(int idx) {
@@ -1181,6 +1259,15 @@ static bool face_voice_build_prompt(const FaceTourInfo *info, int idx, char *msg
                pm_face_runes_name(0), pm_face_runes_keyword(0), pm_face_runes_name(1),
                pm_face_runes_keyword(1), pm_face_runes_name(2), pm_face_runes_keyword(2));
       break;
+    case ClockFace::QuestionOfDay:
+      snprintf(s_face_voice_face, sizeof(s_face_voice_face), "question_of_day");
+      snprintf(msg, msg_cap,
+               "Face: Question of the Day. Current question: %.180s. Castalia session: %s. Explain that "
+               "tap or BOOT fetches a fresh non-repeating question, and PWR hold records the answer to "
+               "Commonplace.",
+               pm_face_question_day_current()[0] ? pm_face_question_day_current() : "none yet",
+               pm_castalia_has_session() ? "signed in" : "not signed in");
+      break;
     default:
       snprintf(msg, msg_cap, "Face: %s. Purpose: %s. Current state: %s. Speak one concise useful note.",
                info->name, info->summary, health);
@@ -1352,6 +1439,8 @@ static bool face_voice_begin_current(void) {
   g_synastry_voice_pcm = false;
   g_moon_fortune_active = false;
   g_moon_voice_pcm = false;
+  g_question_voice_active = false;
+  g_question_answer_pcm = false;
   g_voice_play_reset = true;
   g_state = AppState::kThinking;
   return true;
@@ -1719,6 +1808,7 @@ static void poll_serial_birth_commands() {
           Serial.println("qa: 28 runes");
           Serial.println("qa: 29 orientation");
           Serial.println("qa: 30 luopan");
+          Serial.println("qa: 31 question");
         } else if (strncmp(args, "tour", 4) == 0 && (args[4] == '\0' || args[4] == ' ')) {
           handle_tour_command(args + 4);
         } else if (!pm_qa_inject_command(args)) {
@@ -2071,6 +2161,24 @@ void loop() {
       }
       g_clock_repaint_pending = true;
       continue;
+    } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::FocusTimer &&
+               ge.kind == PmGestureKind::Tap) {
+      const bool running = pm_face_focus_toggle();
+      snprintf(g_gesture_banner, sizeof(g_gesture_banner), "focus: %s", running ? "started" : "paused");
+      g_clock_repaint_pending = true;
+      continue;
+    } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::FocusTimer &&
+               ge.kind == PmGestureKind::LongPress) {
+      pm_face_focus_reset();
+      snprintf(g_gesture_banner, sizeof(g_gesture_banner), "focus: reset");
+      g_clock_repaint_pending = true;
+      continue;
+    } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::FocusTimer &&
+               (ge.kind == PmGestureKind::SwipeUp || ge.kind == PmGestureKind::SwipeDown)) {
+      (void)pm_face_focus_cycle_mode(ge.kind == PmGestureKind::SwipeUp ? 1 : -1);
+      snprintf(g_gesture_banner, sizeof(g_gesture_banner), "focus: %s", pm_face_focus_mode_label());
+      g_clock_repaint_pending = true;
+      continue;
     } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Spotify &&
                (ge.kind == PmGestureKind::SwipeUp || ge.kind == PmGestureKind::SwipeDown ||
                 ge.kind == PmGestureKind::Tap || ge.kind == PmGestureKind::DoubleTap ||
@@ -2197,6 +2305,12 @@ void loop() {
         g_gesture_banner[0] = '\0';
       }
       g_clock_repaint_pending = true;
+    } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::QuestionOfDay &&
+               ge.kind == PmGestureKind::Tap) {
+      if (question_day_begin_fetch()) {
+        g_gesture_banner[0] = '\0';
+      }
+      g_clock_repaint_pending = true;
     } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Tarot &&
                (ge.kind == PmGestureKind::SwipeUp || ge.kind == PmGestureKind::SwipeDown)) {
       pm_face_tarot_cycle(ge.kind == PmGestureKind::SwipeUp ? 1 : -1);
@@ -2263,6 +2377,14 @@ void loop() {
     }
   }
 
+  if (g_state == AppState::kClock && pm_faces_current() == ClockFace::QuestionOfDay &&
+      (side_ev & PM_SIDE_BTN_BOOT) != 0) {
+    if (question_day_begin_fetch()) {
+      g_gesture_banner[0] = '\0';
+    }
+    g_clock_repaint_pending = true;
+  }
+
   static uint32_t s_ptt_press_ms = 0;
   const bool ptt_hold = pm_ptt_button_held();
   if (g_state == AppState::kClock) {
@@ -2281,7 +2403,8 @@ void loop() {
 
   static uint32_t s_last_clock_boot_brief_ms = 0;
   if (g_state == AppState::kClock && (side_ev & PM_SIDE_BTN_BOOT) && pm_faces_voice_input_enabled() &&
-      pm_faces_current() != ClockFace::Astrology && pm_faces_current() != ClockFace::Synastry) {
+      pm_faces_current() != ClockFace::Astrology && pm_faces_current() != ClockFace::Synastry &&
+      pm_faces_current() != ClockFace::QuestionOfDay) {
     if (voice_last_play_begin()) {
       /* BOOT replay last TTS */
     } else {
@@ -2339,6 +2462,13 @@ void loop() {
           g_clock_repaint_pending = true;
         }
         if (pm_faces_current() == ClockFace::Faculty) {
+          g_clock_repaint_pending = true;
+        }
+        if (pm_faces_current() == ClockFace::QuestionOfDay) {
+          PmFacultyProfile faculty = {};
+          if (pm_face_question_day_faculty(&faculty)) {
+            (void)pm_faculty_request_bust(faculty.slug);
+          }
           g_clock_repaint_pending = true;
         }
         s_prev_dial_face = pm_faces_current();
@@ -2475,8 +2605,15 @@ void loop() {
       const bool alethiometer_anim =
           pm_faces_current() == ClockFace::Alethiometer && pm_face_alethiometer_anim_tick(now);
       const bool faculty_anim =
-          (pm_faces_current() == ClockFace::Faculty || pm_faces_current() == ClockFace::Quotes) &&
+          (pm_faces_current() == ClockFace::Faculty || pm_faces_current() == ClockFace::Quotes ||
+           pm_faces_current() == ClockFace::QuestionOfDay) &&
           pm_faculty_tick(now);
+      static uint32_t s_last_focus_paint_ms = 0;
+      bool focus_anim = false;
+      if (pm_faces_current() == ClockFace::FocusTimer && now - s_last_focus_paint_ms >= 250u) {
+        s_last_focus_paint_ms = now;
+        focus_anim = true;
+      }
       const bool home_gem_breath =
           pm_faces_current() == ClockFace::ClassicAnalog && pm_home_gem_pulse_enabled();
       const bool sec_tick_paint =
@@ -2490,7 +2627,7 @@ void loop() {
           pm_faces_current() != ClockFace::Ocarina && pm_faces_current() != ClockFace::Bongo &&
           pm_faces_current() != ClockFace::Piano && pm_faces_current() != ClockFace::Level &&
           pm_faces_current() != ClockFace::PanDrum && pm_faces_current() != ClockFace::Alethiometer &&
-          pm_faces_current() != ClockFace::Runes &&
+          pm_faces_current() != ClockFace::Runes && pm_faces_current() != ClockFace::QuestionOfDay &&
           !home_gem_breath;
       const bool calcifer_sec =
           pm_faces_current() == ClockFace::CalciferCountdown && valid && sec_tick;
@@ -2519,7 +2656,7 @@ void loop() {
                                  weather_stale || quotes_face_stale || quotes_preload_due || rocket_stale || sec_tick_paint || calcifer_sec || rocket_sec ||
                                  astro_repaint || spectrum_anim || chakra_anim || bowl_anim || ocarina_anim || bongo_anim ||
                                  piano_anim || pandrum_anim || alethiometer_anim || radar_anim || level_anim || faculty_anim ||
-                                 wifi_settings_graph;
+                                 focus_anim || wifi_settings_graph;
 #if MYNAH_HUE_HOME_ONLY
       const bool gem_only_paint = gem_pulse_paint && s_clock_paint_inited && !non_gem_paint;
       const bool full_paint = non_gem_paint || gem_pulse_paint;
@@ -2707,6 +2844,35 @@ void loop() {
           g_alethiometer_voice_active = true;
           g_alethiometer_voice_pcm = true;
           g_moon_voice_pcm = false;
+          g_question_voice_active = false;
+          g_question_answer_pcm = false;
+        } else if (pm_faces_current() == ClockFace::QuestionOfDay) {
+          if (!pm_wifi_connected()) {
+            snprintf(g_gesture_banner, sizeof(g_gesture_banner), "question: need WiFi");
+            g_clock_repaint_pending = true;
+            break;
+          }
+          if (!pm_castalia_has_session()) {
+            snprintf(g_gesture_banner, sizeof(g_gesture_banner), "question: sign in");
+            g_clock_repaint_pending = true;
+            break;
+          }
+          if (!pm_face_question_day_current()[0]) {
+            snprintf(g_gesture_banner, sizeof(g_gesture_banner), "question: tap first");
+            g_clock_repaint_pending = true;
+            break;
+          }
+          g_commonplace_journal = false;
+          g_commonplace_note_face = false;
+          g_astro_voice_active = false;
+          g_astro_voice_pcm = false;
+          g_synastry_voice_active = false;
+          g_synastry_voice_pcm = false;
+          g_alethiometer_voice_active = false;
+          g_alethiometer_voice_pcm = false;
+          g_moon_voice_pcm = false;
+          g_question_voice_active = true;
+          g_question_answer_pcm = true;
         } else if (pm_faces_is_commonplace_home()) {
           if (!pm_wifi_connected()) {
             snprintf(g_gesture_banner, sizeof(g_gesture_banner), "journal: need WiFi");
@@ -2773,6 +2939,8 @@ void loop() {
         g_synastry_voice_active = false;
         g_alethiometer_voice_active = false;
         g_alethiometer_voice_pcm = false;
+        g_question_voice_active = false;
+        g_question_answer_pcm = false;
         g_state = AppState::kClock;
         g_clock_repaint_pending = true;
         break;
@@ -2807,6 +2975,12 @@ void loop() {
         pm_gfx->flush();
       } else if (g_alethiometer_voice_active) {
         pm_face_alethiometer_draw_voice_screen("listening");
+      } else if (g_question_voice_active) {
+        const float progress =
+            static_cast<float>(g_pcm_len) / static_cast<float>(MYNAH_VOICE_MAX_PCM_BYTES);
+        const uint32_t elapsed = s_thinking_t0_ms == 0 ? 0u : (now - s_thinking_t0_ms);
+        pm_face_question_day_draw_recording(progress, elapsed);
+        pm_gfx->flush();
       } else if (g_astro_voice_active) {
         struct tm tm = {};
         if (pm_time_valid()) {
@@ -2846,6 +3020,8 @@ void loop() {
         g_astro_voice_active = false;
         g_synastry_voice_active = false;
         g_alethiometer_voice_active = false;
+        g_question_voice_active = false;
+        g_question_answer_pcm = false;
         g_commonplace_journal = false;
         g_commonplace_note_face = false;
         g_state = AppState::kClock;
@@ -2949,6 +3125,10 @@ void loop() {
           started = pm_voice_begin_message(g_moon_voice_msg, g_moon_sys_prompt, &g_voice_result);
         } else if (g_text_voice_route == k_tv_runes) {
           started = pm_voice_begin_message(g_runes_voice_msg, g_runes_sys_prompt, &g_voice_result);
+        } else if (g_text_voice_route == k_tv_question) {
+          started = pm_voice_begin_message_ex(g_question_voice_msg, g_question_sys_prompt, "question_of_day",
+                                              s_face_voice_faculty_slug, s_face_voice_faculty_name,
+                                              &g_voice_result);
         } else if (g_text_voice_route == k_tv_synastry) {
           started = pm_voice_begin_message(kSynastryBootUserMsg, g_synastry_sys_prompt, &g_voice_result);
         } else if (g_text_voice_route == k_tv_face) {
@@ -3005,8 +3185,26 @@ void loop() {
               break;
             }
             sys = s_face_tour_sys_prompt;
+          } else if (g_question_voice_active && g_question_answer_pcm) {
+            if (!pm_face_question_day_build_answer_system_prompt(g_question_sys_prompt,
+                                                                 kQuestionSysPromptCap)) {
+              pm_face_question_day_draw_voice_screen("question fail");
+              delay(1200);
+              g_question_voice_active = false;
+              g_question_answer_pcm = false;
+              g_state = AppState::kClock;
+              g_clock_repaint_pending = true;
+              break;
+            }
+            sys = g_question_sys_prompt;
           }
-          started = pm_voice_begin_pcm(g_pcm, g_pcm_len, sys, &g_voice_result);
+          if (g_question_voice_active && g_question_answer_pcm) {
+            started = pm_voice_begin_pcm_ex(g_pcm, g_pcm_len, sys, "question_of_day", &g_voice_result);
+          } else if (pm_faces_current() == ClockFace::Faculty) {
+            started = pm_voice_begin_pcm_ex(g_pcm, g_pcm_len, sys, "faculty", &g_voice_result);
+          } else {
+            started = pm_voice_begin_pcm(g_pcm, g_pcm_len, sys, &g_voice_result);
+          }
         }
         if (!started) {
           if (g_daily_briefing) {
@@ -3020,6 +3218,8 @@ void loop() {
             pm_face_alethiometer_draw_voice_screen("voice start fail");
           } else if (g_runes_fortune_active) {
             pm_face_runes_draw_voice_screen("voice start fail", -1.f);
+          } else if (g_question_voice_active) {
+            pm_face_question_day_draw_voice_screen("voice start fail");
           } else if (g_astro_voice_active) {
             pm_face_astrology_draw_voice_screen("voice start fail", -1, -1, false);
           }
@@ -3032,6 +3232,8 @@ void loop() {
           g_alethiometer_voice_active = false;
           g_alethiometer_voice_pcm = false;
           g_runes_fortune_active = false;
+          g_question_voice_active = false;
+          g_question_answer_pcm = false;
           g_moon_voice_pcm = false;
           g_state = AppState::kClock;
           g_clock_repaint_pending = true;
@@ -3039,7 +3241,8 @@ void loop() {
         }
         thinking_progress_begin(g_daily_briefing ? 680000u
                                                 : ((g_astro_voice_active || g_synastry_voice_active ||
-                                                    g_alethiometer_voice_active || g_runes_fortune_active)
+                                                    g_alethiometer_voice_active || g_runes_fortune_active ||
+                                                    g_question_voice_active)
                                                        ? 180000u
                                                        : 45000u));
         s_voice_job_armed = true;
@@ -3060,6 +3263,9 @@ void loop() {
         pm_face_moon_draw_voice_screen(nullptr, thinking_progress_now());
       } else if (g_runes_fortune_active) {
         pm_face_runes_draw_voice_screen(nullptr, thinking_progress_now());
+      } else if (g_question_voice_active) {
+        pm_face_question_day_draw_voice_screen(g_question_answer_pcm ? "saving answer" : "choosing question",
+                                               thinking_progress_now());
       } else {
         pm_faces_draw(thinking_progress_now());
       }
@@ -3068,7 +3274,8 @@ void loop() {
         const uint32_t voice_wait_ms =
             g_daily_briefing ? 680000u
                              : ((g_moon_fortune_active || g_astro_voice_active || g_synastry_voice_active ||
-                                 g_alethiometer_voice_active || g_runes_fortune_active)
+                                 g_alethiometer_voice_active || g_runes_fortune_active ||
+                                 g_question_voice_active)
                                     ? 620000u
                                     : 100000u);
         if (s_voice_wait_t0 != 0 && (now - s_voice_wait_t0) > voice_wait_ms) {
@@ -3115,6 +3322,9 @@ void loop() {
         } else if (g_runes_fortune_active) {
           pm_face_runes_draw_voice_screen(pm_voice_last_error(), -1.f);
           delay(1500);
+        } else if (g_question_voice_active) {
+          pm_face_question_day_draw_voice_screen(pm_voice_last_error());
+          delay(1500);
         } else {
           gfx->fillScreen(RGB565_BLACK);
           pm_face_draw_centered_line("voice error", 200, RGB565_RED, 2, 2);
@@ -3131,6 +3341,8 @@ void loop() {
         g_alethiometer_voice_pcm = false;
         g_moon_fortune_active = false;
         g_runes_fortune_active = false;
+        g_question_voice_active = false;
+        g_question_answer_pcm = false;
         g_daily_briefing = false;
         pm_speaker_set_max_play_seconds(180);
         g_state = AppState::kClock;
@@ -3200,6 +3412,25 @@ void loop() {
           g_clock_repaint_pending = true;
           break;
         }
+        if (g_question_voice_active && g_voice_result.reply[0] != '\0') {
+          if (!g_question_answer_pcm) {
+            (void)pm_face_question_day_set_current(g_voice_result.reply);
+            PmFacultyProfile faculty = {};
+            if (pm_face_question_day_faculty(&faculty)) {
+              (void)pm_faculty_request_bust(faculty.slug);
+              snprintf(s_face_voice_faculty_slug, sizeof(s_face_voice_faculty_slug), "%s", faculty.slug);
+              snprintf(s_face_voice_faculty_name, sizeof(s_face_voice_faculty_name), "%s", faculty.name);
+            }
+          }
+          snprintf(g_gesture_banner, sizeof(g_gesture_banner), "%s",
+                   g_question_answer_pcm ? "answer saved" : "question ready");
+          pm_voice_result_free(&g_voice_result);
+          g_question_voice_active = false;
+          g_question_answer_pcm = false;
+          g_state = AppState::kClock;
+          g_clock_repaint_pending = true;
+          break;
+        }
         if (g_voice_result.reply[0] == '\0' && g_voice_result.transcript[0] == '\0') {
           gfx->fillScreen(RGB565_BLACK);
           pm_face_draw_centered_line("no reply", 220, RGB565_RED, 2, 2);
@@ -3219,6 +3450,16 @@ void loop() {
         const char *reply = g_voice_result.reply[0] ? g_voice_result.reply : question;
         pm_face_alethiometer_seed_from_text(question, reply);
       }
+      if (g_question_voice_active && !g_question_answer_pcm && g_voice_result.reply[0] != '\0') {
+        (void)pm_face_question_day_set_current(g_voice_result.reply);
+        PmFacultyProfile faculty = {};
+        if (pm_face_question_day_faculty(&faculty)) {
+          (void)pm_faculty_request_bust(faculty.slug);
+          snprintf(s_face_voice_faculty_slug, sizeof(s_face_voice_faculty_slug), "%s", faculty.slug);
+          snprintf(s_face_voice_faculty_name, sizeof(s_face_voice_faculty_name), "%s", faculty.name);
+        }
+      }
+      faculty_remember_voice_result(g_voice_result);
       if (g_voice_result.mp3 && g_voice_result.mp3_len >= 64) {
         voice_last_play_save(g_voice_result.mp3, g_voice_result.mp3_len);
       }
@@ -3543,6 +3784,53 @@ void loop() {
         s_play_armed = false;
         s_play_wait_t0 = 0;
         g_runes_fortune_active = false;
+        g_state = AppState::kClock;
+        g_clock_repaint_pending = true;
+        break;
+      }
+      if (g_question_voice_active) {
+        if (!s_play_armed) {
+          if (!g_voice_result.mp3 || g_voice_result.mp3_len < 64) {
+            pm_voice_result_free(&g_voice_result);
+            g_question_voice_active = false;
+            g_question_answer_pcm = false;
+            g_state = AppState::kClock;
+            g_clock_repaint_pending = true;
+            break;
+          }
+          if (!pm_speaker_play_begin(g_voice_result.mp3, g_voice_result.mp3_len)) {
+            pm_face_question_day_draw_voice_screen("speaker busy");
+            delay(1200);
+            pm_voice_result_free(&g_voice_result);
+            g_question_voice_active = false;
+            g_question_answer_pcm = false;
+            g_state = AppState::kClock;
+            g_clock_repaint_pending = true;
+            break;
+          }
+          s_play_armed = true;
+          s_play_wait_t0 = now;
+        }
+        pm_face_question_day_draw_voice_screen(g_question_answer_pcm ? "answer saved" : "question ready");
+        PmSpeakerStatus spk = pm_speaker_poll();
+        if (spk == PmSpeakerStatus::Playing) {
+          const uint32_t est_ms =
+              static_cast<uint32_t>((g_voice_result.mp3_len * 8u * 1000u) / 96000u) + 30000u;
+          if (s_play_wait_t0 != 0 && (now - s_play_wait_t0) > est_ms) {
+            pm_speaker_abort();
+          } else {
+            break;
+          }
+        }
+        if (spk == PmSpeakerStatus::DoneFail) {
+          pm_face_question_day_draw_voice_screen("playback failed");
+          delay(1200);
+        }
+        pm_voice_result_free(&g_voice_result);
+        s_play_armed = false;
+        s_play_wait_t0 = 0;
+        g_question_voice_active = false;
+        g_question_answer_pcm = false;
         g_state = AppState::kClock;
         g_clock_repaint_pending = true;
         break;

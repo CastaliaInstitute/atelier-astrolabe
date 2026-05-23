@@ -1,0 +1,42 @@
+I (358568) ES7210: ES7210 in Slave mode
+I (358577) ES7210: Enable ES7210_INPUT_MIC1
+I (358580) ES7210: Enable ES7210_INPUT_MIC2
+I (358582) ES7210: Enable ES7210_INPUT_MIC3
+I (358585) ES7210: Enable ES7210_INPUT_MIC4
+I (358600) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (358607) ES7210: Enable ES7210_INPUT_MIC1
+I (358609) ES7210: Enable ES7210_INPUT_MIC2
+I (358612) ES7210: Enable ES7210_INPUT_MIC3
+I (358614) ES7210: Enable ES7210_INPUT_MIC4
+E (358618) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (358618) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (358626) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (358633) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (358640) ES7210: The codec is about to stop
+face: 10
+qa: inject swipe left @ 233,233
+[gesture] face -> 11
+qa: inject swipe right @ 233,233
+I (374296) ES7210: ES7210 in Slave mode
+I (374305) ES7210: Enable ES7210_INPUT_MIC1
+I (374308) ES7210: Enable ES7210_INPUT_MIC2
+I (374310) ES7210: Enable ES7210_INPUT_MIC3
+I (374313) ES7210: Enable ES7210_INPUT_MIC4
+I (374328) ES7210: The ES7210_CLOCK_OFF_REG01 value before stop is 0
+I (374335) ES7210: Enable ES7210_INPUT_MIC1
+I (374338) ES7210: Enable ES7210_INPUT_MIC2
+I (374340) ES7210: Enable ES7210_INPUT_MIC3
+I (374343) ES7210: Enable ES7210_INPUT_MIC4
+E (374346) i2s(legacy): i2s_alloc_dma_buffer(587): Error malloc dma buffer
+E (374347) i2s(legacy): i2s_realloc_dma_buffer(630): Failed to allocate dma buffer
+E (374354) i2s(legacy): i2s_init_legacy(1577): Allocate I2S dma rx buffer failed
+E (374361) i2s(legacy): i2s_driver_install(1699): I2S init failed
+W (374369) ES7210: The codec is about to stop
+[gesture] face -> 10
+qa: inject swipe up @ 233,233
+qa: inject swipe down @ 233,233
+qa: inject tap @ 233,233
+[gesture] tap @ 233,233
+qa: face=10 state=0 heap=11839 iheap=11839 largest=7680 psram=7446084 voice_stack_hw=9952 spk_stack_hw=0 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.247 name=Daniel banner="tap"
+qa: inject boot
+face: 10

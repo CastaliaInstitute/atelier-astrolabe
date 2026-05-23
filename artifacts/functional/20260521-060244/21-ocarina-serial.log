@@ -1,0 +1,22 @@
+face: 21
+[486652][E][vfs_api.cpp:105] open(): /littlefs/busts/a-plato.bin does not exist, no permits for creation
+[486664][E][vfs_api.cpp:105] open(): /littlefs/busts/a-plato.bin does not exist, no permits for creation
+pm_faculty: bust skipped low memory heap=20560 largest=7924
+qa: inject swipe left @ 233,233
+[gesture] face -> 13
+qa: inject swipe right @ 233,233
+[gesture] face -> 12
+[489593][E][vfs_api.cpp:105] open(): /littlefs/busts/a-plato.bin does not exist, no permits for creation
+[489606][E][vfs_api.cpp:105] open(): /littlefs/busts/a-plato.bin does not exist, no permits for creation
+pm_faculty: bust skipped low memory heap=20560 largest=7924
+qa: inject swipe up @ 233,233
+qa: inject swipe down @ 233,233
+qa: inject tap @ 233,233
+[492527][E][vfs_api.cpp:105] open(): /littlefs/busts/a-plato.bin does not exist, no permits for creation
+[492539][E][vfs_api.cpp:105] open(): /littlefs/busts/a-plato.bin does not exist, no permits for creation
+pm_faculty: bust skipped low memory heap=20560 largest=7924
+qa: inject boot
+voice: POST message…
+voice: DNS ok pilmscrodlitdrygabvo.supabase.co -> 104.18.38.10
+voice: HTTP POST message (565 B body)…
+face: 21

@@ -73,6 +73,29 @@ type AskFacultyResponse = {
   facultyBustUrl?: string | null;
 };
 
+type FacultySelection = {
+  slug: string;
+  name: string;
+};
+
+const ASK_FACULTY_SELECTIONS: Array<FacultySelection & { hints: string }> = [
+  {
+    slug: "a.einstein",
+    name: "Einstein",
+    hints: "physics, time, relativity, pattern, wonder, imagination, systems",
+  },
+  {
+    slug: "marie-curie",
+    name: "Marie Curie",
+    hints: "experiment, care, materials, persistence, evidence, patience",
+  },
+  {
+    slug: "hypatia",
+    name: "Hypatia",
+    hints: "mathematics, philosophy, civic clarity, teaching, ethics, astronomy",
+  },
+];
+
 function commonplaceRoute(face: string, fallback: string): string {
   switch (face.trim().toLowerCase()) {
     case VOICE_FACE_SYNASTRY:
@@ -84,6 +107,10 @@ function commonplaceRoute(face: string, fallback: string): string {
       return "clock_agenda";
     case VOICE_FACE_DAILY_BRIEFING:
       return "daily_briefing";
+    case "question_of_day":
+    case "question-day":
+    case "qotd":
+      return "question_of_day";
     default:
       return fallback;
   }
@@ -94,6 +121,63 @@ function wantsMp3Response(req: Request, body: ReqBody): boolean {
   if (fmt === "mp3") return true;
   const accept = (req.headers.get("Accept") ?? "").toLowerCase();
   return accept.includes("audio/mpeg") || accept.includes("audio/mp3");
+}
+
+function parseQuestionOfDayReply(reply: string): {
+  question?: string;
+  facultySlug?: string;
+  facultyName?: string;
+} {
+  const field = (name: string): string | undefined => {
+    const match = reply.match(new RegExp(`^${name}:\\s*(.+)$`, "im"));
+    const value = match?.[1]?.trim();
+    return value || undefined;
+  };
+  return {
+    facultySlug: field("FACULTY_SLUG"),
+    facultyName: field("FACULTY_NAME"),
+    question: field("QUESTION"),
+  };
+}
+
+function fallbackFacultySelection(text: string): FacultySelection {
+  const t = text.toLowerCase();
+  if (/(experiment|evidence|material|chem|lab|patient|persist|care|radi|measure)/.test(t)) {
+    return { slug: "marie-curie", name: "Marie Curie" };
+  }
+  if (/(math|philosoph|ethic|teach|civic|city|clarity|geometry|astronom)/.test(t)) {
+    return { slug: "hypatia", name: "Hypatia" };
+  }
+  return { slug: "a.einstein", name: "Einstein" };
+}
+
+async function selectFacultyForAsk(
+  apiKey: string | undefined,
+  model: string,
+  message: string,
+): Promise<FacultySelection> {
+  if (!apiKey) return fallbackFacultySelection(message);
+  const allowed = ASK_FACULTY_SELECTIONS
+    .map((f) => `- ${f.slug} / ${f.name}: ${f.hints}`)
+    .join("\n");
+  try {
+    const reply = await geminiGenerate({
+      apiKey,
+      model,
+      systemInstruction:
+        "Select the Castalia faculty member most relevant to the user's request. Return exactly two lines: " +
+        "FACULTY_SLUG: <slug> and FACULTY_NAME: <name>. Use only the allowed faculty list.",
+      userText: `Allowed faculty:\n${allowed}\n\nUser request:\n${message}`,
+    });
+    const parsed = parseQuestionOfDayReply(`${reply}\nQUESTION: placeholder`);
+    if (parsed.facultySlug && parsed.facultyName) {
+      const found = ASK_FACULTY_SELECTIONS.find((f) => f.slug === parsed.facultySlug);
+      if (found) return { slug: found.slug, name: found.name };
+    }
+  } catch (e) {
+    console.warn("voice-pipeline: faculty selection failed", e);
+  }
+  return fallbackFacultySelection(message);
 }
 
 function headerMetaValue(s: string, maxLen: number): string {
@@ -245,6 +329,7 @@ async function voicePipelineOk(
     facultyName?: string;
     extraHeaders?: Record<string, string>;
     ttsMaxChars?: number;
+    spokenReply?: string;
   },
 ): Promise<Response> {
   const { tts } = envKeys();
@@ -254,13 +339,14 @@ async function voicePipelineOk(
     });
   }
 
+  const ttsSource = payload.spokenReply ?? payload.reply;
   const spoken = capTextForWatchTts(
-    payload.reply,
+    ttsSource,
     payload.ttsMaxChars ?? watchTtsMaxChars(),
   );
-  if (spoken.length < payload.reply.trim().length) {
+  if (spoken.length < ttsSource.trim().length) {
     console.log(
-      `voice-pipeline: TTS capped ${payload.reply.length} -> ${spoken.length} chars`,
+      `voice-pipeline: TTS capped ${ttsSource.length} -> ${spoken.length} chars`,
     );
   }
 
@@ -297,7 +383,8 @@ async function voicePipelineOk(
     if (payload.face) {
       headers["X-Voice-Face"] = payload.face;
     }
-    return new Response(mp3, { status: 200, headers });
+    const mp3Body = new Uint8Array(mp3).buffer;
+    return new Response(mp3Body, { status: 200, headers });
   }
 
   const localHour = requestLocalHour(body);
@@ -335,6 +422,8 @@ async function forwardToAskFaculty(
     rawTranscript: string;
     skipLlm: boolean;
     localHour?: number;
+    facultySlug?: string;
+    facultyName?: string;
     /** Only forwarded when the client set `systemInstruction`; otherwise ask-faculty uses its faculty default. */
     overrideSystemInstruction?: string;
   },
@@ -352,6 +441,8 @@ async function forwardToAskFaculty(
   if (payload.localHour !== undefined) {
     body.localHour = payload.localHour;
   }
+  if (payload.facultySlug) body.facultySlug = payload.facultySlug;
+  if (payload.facultyName) body.facultyName = payload.facultyName;
   const sys = payload.overrideSystemInstruction?.trim();
   if (sys) body.systemInstruction = sys;
 
@@ -383,6 +474,7 @@ async function askFacultyPipelineResponse(
   body: ReqBody,
   fr: Response,
   face?: string,
+  fallbackFaculty?: FacultySelection,
 ): Promise<Response> {
   const text = await fr.text();
   const routeHeaders: Record<string, string> = {
@@ -411,6 +503,8 @@ async function askFacultyPipelineResponse(
   const transcript = (faculty.transcript ?? "").trim();
   const reply = (faculty.reply ?? "").trim();
   const audioBase64 = (faculty.audioBase64 ?? "").trim();
+  const facultySlug = (faculty.facultySlug ?? fallbackFaculty?.slug ?? "").trim();
+  const facultyName = (faculty.facultyName ?? fallbackFaculty?.name ?? "").trim();
 
   if (wantsMp3Response(req, body) && audioBase64) {
     const mp3 = decodeBase64Audio(audioBase64);
@@ -431,13 +525,14 @@ async function askFacultyPipelineResponse(
       if (transcriptHeader) headers["X-Voice-Transcript"] = transcriptHeader;
       const replyHeader = headerMetaFromUnknown(reply, 700);
       if (replyHeader) headers["X-Voice-Reply"] = replyHeader;
-      const slugHeader = headerMetaFromUnknown(faculty.facultySlug, 80);
+      const slugHeader = headerMetaFromUnknown(facultySlug, 80);
       if (slugHeader) headers["X-Faculty-Slug"] = slugHeader;
-      const nameHeader = headerMetaFromUnknown(faculty.facultyName, 120);
+      const nameHeader = headerMetaFromUnknown(facultyName, 120);
       if (nameHeader) headers["X-Faculty-Name"] = nameHeader;
       if (face) headers["X-Voice-Face"] = face;
 
-      return new Response(mp3, { status: 200, headers });
+      const mp3Body = new Uint8Array(mp3).buffer;
+      return new Response(mp3Body, { status: 200, headers });
     }
   }
 
@@ -447,14 +542,17 @@ async function askFacultyPipelineResponse(
       reply,
       route: "ask-faculty",
       face,
-      facultySlug: faculty.facultySlug,
-      facultyName: faculty.facultyName,
+      facultySlug,
+      facultyName,
       extraHeaders: {
         ...routeHeaders,
         "X-Voice-Tts-Source": "voice-pipeline-fallback",
       },
     });
   }
+
+  if (facultySlug && !faculty.facultySlug) faculty.facultySlug = facultySlug;
+  if (facultyName && !faculty.facultyName) faculty.facultyName = facultyName;
 
   return new Response(JSON.stringify(faculty), {
     status: fr.status,
@@ -512,13 +610,18 @@ Deno.serve(async (req: Request) => {
 
       const route = matchAskFacultyRoute(transcript);
       if (route.kind === "ask-faculty") {
+        const selection = route.selectFaculty
+          ? await selectFacultyForAsk(gemini, geminiModel, route.facultyMessage)
+          : undefined;
         const fr = await forwardToAskFaculty(req, {
-          message: route.facultyMessage,
+          message: selection ? `${selection.name}: ${route.facultyMessage}` : route.facultyMessage,
           languageCode,
           geminiModel,
           rawTranscript: transcript,
           skipLlm: body.skipLlm ?? false,
           localHour: requestLocalHour(body),
+          facultySlug: selection?.slug,
+          facultyName: selection?.name,
           overrideSystemInstruction: clientSystem || undefined,
         });
         return await askFacultyPipelineResponse(
@@ -526,6 +629,7 @@ Deno.serve(async (req: Request) => {
           body,
           fr,
           VOICE_FACE_CLOCK_AGENDA,
+          selection,
         );
       }
 
@@ -624,16 +728,21 @@ Deno.serve(async (req: Request) => {
 
     const route = matchAskFacultyRoute(transcript);
     if (route.kind === "ask-faculty") {
+      const selection = route.selectFaculty
+        ? await selectFacultyForAsk(gemini, geminiModel, route.facultyMessage)
+        : undefined;
       const fr = await forwardToAskFaculty(req, {
-        message: route.facultyMessage,
+        message: selection ? `${selection.name}: ${route.facultyMessage}` : route.facultyMessage,
         languageCode,
         geminiModel,
         rawTranscript: transcript,
         skipLlm: body.skipLlm ?? false,
         localHour: requestLocalHour(body),
+        facultySlug: selection?.slug,
+        facultyName: selection?.name,
         overrideSystemInstruction: clientSystem || undefined,
       });
-      return await askFacultyPipelineResponse(req, body, fr, face || undefined);
+      return await askFacultyPipelineResponse(req, body, fr, face || undefined, selection);
     }
 
     let reply: string;
@@ -654,13 +763,18 @@ Deno.serve(async (req: Request) => {
       });
     }
 
+    const qotd = commonplaceRoute(face, "voice-pipeline") === "question_of_day"
+      ? parseQuestionOfDayReply(reply)
+      : {};
+
     return await voicePipelineOk(req, body, {
       transcript,
       reply,
+      spokenReply: qotd.question,
       route: commonplaceRoute(face, "voice-pipeline"),
       face: face || undefined,
-      facultySlug: body.facultySlug,
-      facultyName: body.facultyName,
+      facultySlug: qotd.facultySlug ?? body.facultySlug,
+      facultyName: qotd.facultyName ?? body.facultyName,
       extraHeaders: {
         "x-mynah-route": commonplaceRoute(face, "voice-pipeline"),
         ...(face ? { "x-mynah-face": face } : {}),

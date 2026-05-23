@@ -7,6 +7,9 @@
 struct PmVoiceResult {
   char transcript[320];
   char reply[768];
+  char route[48];
+  char faculty_slug[64];
+  char faculty_name[96];
   uint8_t *mp3 = nullptr;
   size_t mp3_len = 0;
 };
@@ -29,6 +32,8 @@ bool pm_voice_post_pcm(const uint8_t *pcm, size_t pcm_len, const char *system_in
 bool pm_voice_post_message(const char *message, const char *system_instruction, PmVoiceResult *r);
 bool pm_voice_post_message_ex(const char *message, const char *system_instruction, const char *face,
                               const char *faculty_slug, const char *faculty_name, PmVoiceResult *r);
+bool pm_voice_post_pcm_ex(const uint8_t *pcm, size_t pcm_len, const char *system_instruction, const char *face,
+                          PmVoiceResult *r);
 
 enum class PmVoiceStatus : int8_t { Idle = 0, Working = 1, DoneOk = 2, DoneFail = -1 };
 
@@ -37,6 +42,8 @@ bool pm_voice_begin_message(const char *message, const char *system_instruction,
 bool pm_voice_begin_message_ex(const char *message, const char *system_instruction, const char *face,
                                const char *faculty_slug, const char *faculty_name, PmVoiceResult *r);
 bool pm_voice_begin_pcm(const uint8_t *pcm, size_t pcm_len, const char *system_instruction, PmVoiceResult *r);
+bool pm_voice_begin_pcm_ex(const uint8_t *pcm, size_t pcm_len, const char *system_instruction, const char *face,
+                           PmVoiceResult *r);
 /** Non-blocking `voice-pipeline` with `face=clock_agenda` (spoken CalDAV brief). */
 bool pm_voice_begin_clock_agenda(PmVoiceResult *r);
 /** Non-blocking daily briefing (`face=daily_briefing`, raw MP3 response). */

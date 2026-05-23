@@ -1,0 +1,35 @@
+qa: face=0 state=2 heap=7452 iheap=7452 largest=4084 psram=7685835 voice_stack_hw=10052 spk_stack_hw=30316 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.247 name=Daniel banner="wifi: connected"
+voice: HTTP POST message (622 B body, retry)…
+face: 1
+[ 34075][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1
+voice: HTTP -1 (message)
+voice: message fail (HTTP -1)
+[ 35683][E][vfs_api.cpp:105] open(): /littlefs/busts/marie-curie.bin does not exist, no permits for creation
+pm_faculty: embedded bust marie-curie (16382 B)
+[ 38974][E][vfs_api.cpp:105] open(): /littlefs/busts/hypatia.bin does not exist, no permits for creation
+pm_faculty: embedded bust hypatia (37999 B)
+[ 41970][E][vfs_api.cpp:105] open(): /littlefs/busts/socrates.bin does not exist, no permits for creation
+[ 41983][E][vfs_api.cpp:105] open(): /littlefs/busts/socrates.bin does not exist, no permits for creation
+pm_faculty: bust skipped low memory heap=9052 largest=4084
+[ 44970][E][Preferences.cpp:483] getString(): nvs_get_str len fail: fac4_slug NOT_FOUND
+[ 44979][E][Preferences.cpp:483] getString(): nvs_get_str len fail: fac5_slug NOT_FOUND
+[ 44992][E][vfs_api.cpp:105] open(): /littlefs/busts/a-einstein.bin does not exist, no permits for creation
+pm_faculty: embedded bust a.einstein (44163 B)
+qa: inject swipe left @ 233,233
+[gesture] face -> 2
+qa: inject swipe right @ 233,233
+[gesture] face -> 1
+[ 47960][E][vfs_api.cpp:105] open(): /littlefs/busts/marie-curie.bin does not exist, no permits for creation
+pm_faculty: embedded bust marie-curie (16382 B)
+qa: inject swipe up @ 233,233
+qa: inject swipe down @ 233,233
+qa: inject tap @ 233,233
+[gesture] tap @ 233,233
+[ 50612][E][vfs_api.cpp:105] open(): /littlefs/busts/hypatia.bin does not exist, no permits for creation
+pm_faculty: embedded bust hypatia (37999 B)
+qa: inject boot
+voice: POST message…
+voice: DNS ok pilmscrodlitdrygabvo.supabase.co -> 172.64.149.246
+voice: HTTP POST message (635 B body)…
+face: 1
+qa: face=1 state=2 heap=5056 iheap=5056 largest=2036 psram=7691987 voice_stack_hw=10052 spk_stack_hw=30316 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.247 name=Daniel banner="tap"

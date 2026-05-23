@@ -210,7 +210,7 @@ export async function appendMynahCommonplaceEntry(
 
   const DIRECTUS_URL = (
     Deno.env.get("DIRECTUS_URL") ?? "https://commonplace.castalia.institute"
-  ).trimEnd("/");
+  ).replace(/\/+$/, "");
   const DIRECTUS_TOKEN = Deno.env.get("DIRECTUS_STATIC_TOKEN")?.trim();
   if (!DIRECTUS_TOKEN) {
     console.warn("mynah commonplace: DIRECTUS_STATIC_TOKEN not set; skip log");

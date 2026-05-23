@@ -1,0 +1,42 @@
+[705 00:02:45] log: ring 24576 bytes
+[  8606][E][vfs_api.cpp:105] open(): /littlefs/busts/marie-curie.bin does not exist, no permits for creation
+pm_faculty: embedded bust marie-curie (16382 B)
+[ 20319][E][vfs_api.cpp:105] open(): /littlefs/busts/hypatia.bin does not exist, no permits for creation
+pm_faculty: embedded bust hypatia (37999 B)
+qa: inject swipe left @ 233,233
+[gesture] face -> 1
+qa: inject swipe right @ 233,233
+[gesture] face -> 0
+qa: inject swipe up @ 233,233
+qa: inject swipe down @ 233,233
+[ 23329][E][vfs_api.cpp:105] open(): /littlefs/busts/socrates.bin does not exist, no permits for creation
+[ 23342][E][vfs_api.cpp:105] open(): /littlefs/busts/socrates.bin does not exist, no permits for creation
+[ 23370][E][vfs_api.cpp:105] open(): /littlefs/busts/socrates.bin does not exist, no permits for creation
+[ 23481][E][ssl_client.cpp:37] _handle_error(): [start_ssl_client():264]: (-32512) SSL - Memory allocation failed
+[ 23491][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -32512
+pm_faculty: bust avatar HTTP -1
+[ 23563][E][ssl_client.cpp:37] _handle_error(): [start_ssl_client():264]: (-32512) SSL - Memory allocation failed
+[ 23573][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -32512
+pm_faculty: bust castalia HTTP -1
+[ 23657][E][ssl_client.cpp:37] _handle_error(): [start_ssl_client():264]: (-32512) SSL - Memory allocation failed
+[ 23667][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -32512
+pm_faculty: bust supabase HTTP -1
+qa: inject tap @ 233,233
+E (25168) I2S: i2s_driver_uninstall(2048): I2S port 0 has not installed
+E (26061) I2S: i2s_driver_uninstall(2048): I2S port 0 has not installed
+[ 27513][E][Preferences.cpp:483] getString(): nvs_get_str len fail: fac4_slug NOT_FOUND
+[ 27521][E][Preferences.cpp:483] getString(): nvs_get_str len fail: fac5_slug NOT_FOUND
+[ 27535][E][vfs_api.cpp:105] open(): /littlefs/busts/a-einstein.bin does not exist, no permits for creation
+pm_faculty: embedded bust a.einstein (44163 B)
+qa: inject boot
+face: 0
+qa: inject pwr
+voice: POST message…
+voice: DNS ok pilmscrodlitdrygabvo.supabase.co -> 172.64.149.246
+voice: mbedtls psram allocator on rc=0
+voice: HTTP POST message (622 B body)…
+E (27284) esp-sha: Failed to allocate buf memory
+[ 27749][E][ssl_client.cpp:37] _handle_error(): [start_ssl_client():273]: (-1) ERROR - Generic error
+[ 27759][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1
+voice: HTTP -1 (message)
+voice: HTTP retry after connect failure

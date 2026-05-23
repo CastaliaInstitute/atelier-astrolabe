@@ -1,0 +1,26 @@
+face: 7
+[171973][E][vfs_api.cpp:105] open(): /littlefs/busts/socrates.bin does not exist, no permits for creation
+[171986][E][vfs_api.cpp:105] open(): /littlefs/busts/socrates.bin does not exist, no permits for creation
+pm_faculty: bust skipped low memory heap=22456 largest=13812
+qa: inject swipe left @ 233,233
+qa: inject swipe right @ 233,233
+[174855][E][Preferences.cpp:483] getString(): nvs_get_str len fail: fac4_slug NOT_FOUND
+[174863][E][Preferences.cpp:483] getString(): nvs_get_str len fail: fac5_slug NOT_FOUND
+[174876][E][vfs_api.cpp:105] open(): /littlefs/busts/a-einstein.bin does not exist, no permits for creation
+pm_faculty: embedded bust a.einstein (44163 B)
+[175231][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1
+qa: inject swipe up @ 233,233
+qa: inject swipe down @ 233,233
+qa: inject tap @ 233,238
+[177509][E][ssl_client.cpp:129] start_ssl_client(): socket error on fd 49, errno: 113, "Software caused connection abort"
+[177520][E][WiFiClientSecure.cpp:144] connect(): start_ssl_client: -1
+speaker: task create failed stack=32768 internal=33880 largest=16372 psram=7675195
+speaker: task create failed stack=32768 internal=33380 largest=16372 psram=7675195
+[179304][E][vfs_api.cpp:105] open(): /littlefs/busts/marie-curie.bin does not exist, no permits for creation
+pm_faculty: embedded bust marie-curie (16382 B)
+qa: inject boot
+voice: POST message…
+voice: DNS ok pilmscrodlitdrygabvo.supabase.co -> 172.64.149.246
+voice: HTTP POST message (610 B body)…
+face: 7
+qa: face=8 state=2 heap=17288 iheap=17288 largest=6388 psram=7677859 voice_stack_hw=9160 spk_stack_hw=0 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.247 name=Daniel banner="wifi: connected"

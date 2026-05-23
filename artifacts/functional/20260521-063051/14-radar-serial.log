@@ -1,0 +1,54 @@
+presence: BLE deferred low heap internal=22884 largest=8692
+presence: BLE deferred low heap internal=51308 largest=15348
+face: 14
+[194830][E][Preferences.cpp:483] getString(): nvs_get_str len fail: fac4_slug NOT_FOUND
+[194838][E][Preferences.cpp:483] getString(): nvs_get_str len fail: fac5_slug NOT_FOUND
+[194851][E][vfs_api.cpp:105] open(): /littlefs/busts/a-einstein.bin does not exist, no permits for creation
+pm_faculty: embedded bust a.einstein (44163 B)
+[197335][E][vfs_api.cpp:105] open(): /littlefs/busts/marie-curie.bin does not exist, no permits for creation
+pm_faculty: embedded bust marie-curie (16382 B)
+[199912][E][vfs_api.cpp:105] open(): /littlefs/busts/hypatia.bin does not exist, no permits for creation
+pm_faculty: embedded bust hypatia (37999 B)
+[202490][E][vfs_api.cpp:105] open(): /littlefs/busts/socrates.bin does not exist, no permits for creation
+[202503][E][vfs_api.cpp:105] open(): /littlefs/busts/socrates.bin does not exist, no permits for creation
+[205046][E][Preferences.cpp:483] getString(): nvs_get_str len fail: fac4_slug NOT_FOUND
+[205054][E][Preferences.cpp:483] getString(): nvs_get_str len fail: fac5_slug NOT_FOUND
+[205067][E][vfs_api.cpp:105] open(): /littlefs/busts/a-einstein.bin does not exist, no permits for creation
+pm_faculty: embedded bust a.einstein (44163 B)
+[207603][E][vfs_api.cpp:105] open(): /littlefs/busts/marie-curie.bin does not exist, no permits for creation
+pm_faculty: embedded bust marie-curie (16382 B)
+[210149][E][vfs_api.cpp:105] open(): /littlefs/busts/hypatia.bin does not exist, no permits for creation
+pm_faculty: embedded bust hypatia (37999 B)
+[212697][E][vfs_api.cpp:105] open(): /littlefs/busts/socrates.bin does not exist, no permits for creation
+[212710][E][vfs_api.cpp:105] open(): /littlefs/busts/socrates.bin does not exist, no permits for creation
+[215238][E][Preferences.cpp:483] getString(): nvs_get_str len fail: fac4_slug NOT_FOUND
+[215246][E][Preferences.cpp:483] getString(): nvs_get_str len fail: fac5_slug NOT_FOUND
+[215259][E][vfs_api.cpp:105] open(): /littlefs/busts/a-einstein.bin does not exist, no permits for creation
+pm_faculty: embedded bust a.einstein (44163 B)
+[217795][E][vfs_api.cpp:105] open(): /littlefs/busts/marie-curie.bin does not exist, no permits for creation
+[220341][E][vfs_api.cpp:105] open(): /littlefs/busts/hypatia.binpm_faculty: embedded bust marie-curie (16382 B)
+ does not exist, no permits for creation
+pm_faculty: embedded bust hypatia (37999 B)
+[222889][E][vfs_api.cpp:105] open(): /littlefs/busts/socrates.bin does not exist, no permits for creation
+[222902][E][vfs_api.cpp:105] open(): /littlefs/busts/socrates.bin does not exist, no permits for creation
+[225430][E][Preferences.cpp:483] getString(): nvs_get_str len fail: fac4_slug NOT_FOUND
+[225438][E][Preferences.cpp:483] getString(): nvs_get_str len fail: fac5_slug NOT_FOUND
+[225451][E][vfs_api.cpp:105] open(): /littlefs/busts/a-einstein.bin does not exist, no permits for creation
+pm_faculty: embedded bust a.einstein (44163 B)
+qa: inject swipe left @ 233,233
+E (228222) I2S: i2s_driver_uninstall(2048): I2S port 0 has not installed
+E (229115) I2S: i2s_driver_uninstall(2048): I2S port 0 has not installed
+[gesture] face -> 15
+[230520][E][vfs_api.cpp:105] open(): /littlefs/busts/marie-curie.bin does not exist, no permits for creation
+pm_faculty: embedded bust marie-curie (16382 B)
+qa: inject swipe right @ 233,233
+qa: inject swipe up @ 233,233
+qa: inject swipe down @ 233,233
+presence: BLE deferred low heap internal=23208 largest=8692
+presence: BLE deferred low heap internal=51684 largest=15348
+[gesture] face -> 14
+E (231675) I2S: i2s_driver_uninstall(2048): I2S port 0 has not installed
+E (232568) I2S: i2s_driver_uninstall(2048): I2S port 0 has not installed
+[233974][E][Preferences.cpp:483] getString(): nvs_get_str len fa[gesture] face -> 15
+il: fac4_slug NOT_FOUND
+[233982][E][Preferences.cpp:483] getString(): nvs_get_str len fail: fac5_slug NOT_FOUND

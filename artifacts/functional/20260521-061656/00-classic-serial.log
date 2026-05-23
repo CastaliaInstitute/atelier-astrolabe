@@ -1,0 +1,40 @@
+[ 95328][E][NetworkClient.cpp:435] write(): fail on fd 55, errno: 104, "Connection reset by peer"
+face: 0
+qa: inject swipe left @ 233,233
+qa: inject swipe right @ 233,233
+[gesture] face -> 1
+[gesture] face -> 0
+qa: inject swipe up @ 233,233
+qa: inject swipe down @ 233,233
+qa: inject tap @ 233,233
+I (107506) wifi:state: run -> init (0x0)
+I (107510) wifi:pm stop, total sleep time: 0 us / 89556516 us
+I (107510) wifi:<ba-del>idx:1, tid:0
+I (107511) wifi:<ba-del>idx:0, tid:6
+I (107512) wifi:new:<6,0>, old:<6,0>, ap:<255,255>, sta:<6,0>, prof:1, snd_ch_cfg:0x0
+I (107823) wifi:Set ps type: 0, coexist: 0
+I (107987) wifi:new:<6,0>, old:<6,0>, ap:<255,255>, sta:<6,0>, prof:1, snd_ch_cfg:0x0
+I (107988) wifi:state: init -> auth (0xb0)
+I (107995) wifi:state: auth -> assoc (0x0)
+I (108012) wifi:state: assoc -> run (0x10)
+I (108056) wifi:connected with The Chateau, aid = 3, channel 6, BW20, bssid = 7c:2e:bd:6d:28:4f
+I (108057) wifi:security: WPA2-PSK, phy: bgn, rssi: -60
+I (108062) wifi:pm start, type: 0
+I (108063) wifi:dp: 1, bi: 102400, li: 3, scale listen interval from 307200 us to 307200 us
+I (108070) wifi:set rx beacon pti, rx_bcn_pti: 0, bcn_timeout: 25000, mt_pti: 0, mt_time: 10000
+I (108088) wifi:dp: 2, bi: 102400, li: 4, scale listen interval from 307200 us to 409600 us
+I (108089) wifi:AP's beacon interval = 102400 us, DTIM period = 2
+I (108098) wifi:<ba-add>idx:0 (ifx:0, 7c:2e:bd:6d:28:4f), tid:6, ssn:2, winSize:64
+I (108343) wifi:<ba-add>idx:1 (ifx:0, 7c:2e:bd:6d:28:4f), tid:0, ssn:0, winSize:64
+I (109126) esp_netif_handlers: sta ip: 192.168.86.247, mask: 255.255.255.0, gw: 192.168.86.1
+speaker: task create failed stack=32768 internal=35471 largest=16384 psram=7446120
+speaker: task create failed stack=32768 internal=35471 largest=16384 psram=7446120
+I (109138) pm_wifi: connect chime
+I (109140) mdns_mem: mDNS task will be created from internal RAM
+I (109143) pm_wifi: mDNS http://astrolabe-e30644.local/
+qa: face=8 state=0 heap=30027 iheap=30027 largest=16384 psram=7446120 voice_stack_hw=9952 spk_stack_hw=0 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.247 name=Daniel banner="wifi: connected"
+qa: inject boot
+speaker: task create failed stack=32768 internal=30027 largest=16384 psram=7151204
+speaker: MP3 blocked: no task internal=30027 largest=16384 psram=7151204
+face: 0
+qa: inject pwr

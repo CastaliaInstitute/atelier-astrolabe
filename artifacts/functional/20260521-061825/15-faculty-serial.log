@@ -1,0 +1,26 @@
+face: 15
+[ 23515][E][Preferences.cpp:506] getString(): nvs_get_str len faqa: inject swipe up @ 233,233
+il: fac4_slug NOT_FOUND
+[ 23524][E][Preferences.cpp:506] getString(): nvs_get_str len fail: fac5_slug NOT_FOUND
+[ 23665][E][ssl_client.cpp:36] _handle_error(): [start_ssl_client():303]: (-32512) SSL - Memory allocation failed
+[ 23675][E][NetworkClientSecure.cpp:159] connect(): start_ssl_client: connect failed: -32512
+W (24715) pm_faculty: faculty-bust avatar HTTP -1
+[ 23774][E][ssl_client.cpp:36] _handle_error(): [start_ssl_clienpm_faculty: bust avatar HTTP -1
+t():303]: (-32512) SSL - Memory allocation failed
+[ 23784][E][NetworkClientSecure.cpp:159] connect(): start_ssl_client: connect failed: -32512
+W (24824) pm_faculty: faculty-bust castalia HTTP -1
+[ 23911][E][ssl_client.cpp:36] _handle_error(): [start_ssl_clienpm_faculty: bust castalia HTTP -1
+t():303]: (-32512) SSL - Memory allocation failed
+[ 23921][E][NetworkClientSecure.cpp:159] connect(): start_ssl_client: connect failed: -32512
+W (24961) pm_faculty: faculty-bust supabase HTTP -1
+pm_faculty: bust supabase HTTP -1
+[ 24334][E][Preferences.cpp:506] getString(): nvs_get_str len faqa: inject swipe down @ 233,233
+il: fac4_slug NOT_FOUND
+[ 24342][E][Preferences.cpp:506] getString(): nvs_get_str len fail: fac5_slug NOT_FOUND
+qa: inject swipe left @ 233,233
+[gesture] face -> 16
+qa: inject swipe right @ 233,233
+[gesture] face -> 15
+qa: inject tap @ 233,233
+[gesture] tap @ 233,233
+qa: face=15 state=0 heap=31667 iheap=31667 largest=15872 psram=7741036 voice_stack_hw=0 spk_stack_hw=0 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.247 name=Daniel banner="tap"

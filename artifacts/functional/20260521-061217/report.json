@@ -1,0 +1,29 @@
+{
+  "timestamp": "20260521-061217",
+  "gate": "hardware",
+  "matrix": "tests/functional/faces_astrolabe_comprehensive.json",
+  "ip": "192.168.86.247",
+  "port": "/dev/cu.usbmodem1301",
+  "git_head": "35edcf2b9c4cb66a02b506f2962b249d0a8c3422",
+  "passed": 0,
+  "failed": 1,
+  "faces": [
+    {
+      "id": 0,
+      "name": "classic",
+      "ok": false,
+      "screenshot": "",
+      "serial_log": "",
+      "source_paths": [
+        "sketches/Astrolabe/faces/classic_analog"
+      ],
+      "steps": [
+        {
+          "name": "set_face",
+          "ok": false,
+          "detail": "no face: ack on serial"
+        }
+      ]
+    }
+  ]
+}

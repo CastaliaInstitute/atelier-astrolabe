@@ -1,0 +1,44 @@
+face: 7
+E (301965) esp-aes: Failed to allocate memory
+[300931][E][ssl_client.cpp:36] _handle_error(): [ssl_starttls_handshake():318]: (-1) ERROR - Generic error
+[300945][E][NetworkClientSecure.cpp:159] connect(): start_ssl_client: connect failed: -1
+W (301989) pm_castalia: POST https://pilmscrodlitdrygabvo.supabase.co/functions/v1/mynah-castalia-link/start -> -1
+qa: inject swipe left @ 233,233
+qa: inject swipe right @ 233,233
+E (316311) esp-aes: Failed to allocate memory
+[315278][E][ssl_client.cpp:36] _handle_error(): [ssl_starttls_handshake():318]: (-1) ERROR - Generic error
+[315291][E][NetworkClientSecure.cpp:159] connect(): start_ssl_client: connect failed: -1
+W (316335) pm_castalia: POST https://pilmscrodlitdrygabvo.supabase.co/functions/v1/mynah-castalia-link/start -> -1
+qa: inject swipe up @ 233,233
+qa: inject swipe down @ 233,233
+qa: inject tap @ 233,238
+I (318849) wifi:state: run -> init (0x0)
+I (318853) wifi:pm stop, total sleep time: 0 us / 118044062 us
+I (318853) wifi:<ba-del>idx:1, tid:0
+I (318854) wifi:<ba-del>idx:0, tid:6
+I (318855) wifi:new:<6,0>, old:<6,0>, ap:<255,255>, sta:<6,0>, prof:1, snd_ch_cfg:0x0
+I (319166) wifi:Set ps type: 0, coexist: 0
+I (319219) wifi:new:<6,0>, old:<6,0>, ap:<255,255>, sta:<6,0>, prof:1, snd_ch_cfg:0x0
+I (319220) wifi:state: init -> auth (0xb0)
+I (319227) wifi:state: auth -> assoc (0x0)
+I (319247) wifi:state: assoc -> run (0x10)
+I (319295) wifi:connected with The Chateau, aid = 3, channel 6, BW20, bssid = 7c:2e:bd:6d:28:4f
+I (319296) wifi:security: WPA2-PSK, phy: bgn, rssi: -59
+I (319301) wifi:pm start, type: 0
+I (319302) wifi:dp: 1, bi: 102400, li: 3, scale listen interval from 307200 us to 307200 us
+I (319309) wifi:set rx beacon pti, rx_bcn_pti: 0, bcn_timeout: 25000, mt_pti: 0, mt_time: 10000
+I (319340) wifi:<ba-add>idx:0 (ifx:0, 7c:2e:bd:6d:28:4f), tid:6, ssn:2, winSize:64
+I (319346) wifi:dp: 2, bi: 102400, li: 4, scale listen interval from 307200 us to 409600 us
+I (319347) wifi:AP's beacon interval = 102400 us, DTIM period = 2
+I (319479) wifi:<ba-add>idx:1 (ifx:0, 7c:2e:bd:6d:28:4f), tid:0, ssn:0, winSize:64
+I (320383) esp_netif_handlers: sta ip: 192.168.86.247, mask: 255.255.255.0, gw: 192.168.86.1
+speaker: task create failed stack=32768 internal=17167 largest=7680 psram=7446120
+speaker: task create failed stack=32768 internal=17167 largest=7680 psram=7446120
+I (320413) pm_wifi: connect chime
+I (320415) mdns_mem: mDNS task will be created from internal RAM
+I (320417) pm_wifi: mDNS http://astrolabe-e30644.local/
+qa: face=8 state=0 heap=11727 iheap=11727 largest=7680 psram=7446120 voice_stack_hw=9952 spk_stack_hw=0 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.247 name=Daniel banner="wifi: connected"
+qa: inject boot
+speaker: task create failed stack=32768 internal=11583 largest=7680 psram=7151204
+speaker: MP3 blocked: no task internal=11583 largest=7680 psram=7151204
+face: 7

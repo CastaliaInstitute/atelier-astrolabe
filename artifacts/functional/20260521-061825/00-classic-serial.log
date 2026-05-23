@@ -1,0 +1,41 @@
+I (184800) wifi:<ba-add>idx:1 (ifx:0, 7c:2e:bd:6d:28:4f), tid:0, ssn:0, winSize:64
+[185589][E][NetworkClient.cpp:435] write(): fail on fd 55, errno: 104, "Connection reset by peer"
+face: 0
+qa: inject swipe left @ 233,233
+qa: inject swipe right @ 233,233
+[gesture] face -> 1
+[gesture] face -> 0
+qa: inject swipe up @ 233,233
+qa: inject swipe down @ 233,233
+qa: inject tap @ 233,233
+I (200351) wifi:state: run -> init (0x0)
+I (200355) wifi:pm stop, total sleep time: 0 us / 35984079 us
+I (200355) wifi:<ba-del>idx:1, tid:0
+I (200356) wifi:<ba-del>idx:0, tid:6
+I (200357) wifi:new:<6,0>, old:<6,0>, ap:<255,255>, sta:<6,0>, prof:1, snd_ch_cfg:0x0
+I (200667) wifi:Set ps type: 0, coexist: 0
+I (200720) wifi:new:<6,0>, old:<6,0>, ap:<255,255>, sta:<6,0>, prof:1, snd_ch_cfg:0x0
+I (200721) wifi:state: init -> auth (0xb0)
+I (200728) wifi:state: auth -> assoc (0x0)
+I (200745) wifi:state: assoc -> run (0x10)
+I (200801) wifi:connected with The Chateau, aid = 3, channel 6, BW20, bssid = 7c:2e:bd:6d:28:4f
+I (200802) wifi:security: WPA2-PSK, phy: bgn, rssi: -61
+I (200808) wifi:pm start, type: 0
+I (200809) wifi:dp: 1, bi: 102400, li: 3, scale listen interval from 307200 us to 307200 us
+I (200815) wifi:set rx beacon pti, rx_bcn_pti: 0, bcn_timeout: 25000, mt_pti: 0, mt_time: 10000
+I (200843) wifi:<ba-add>idx:0 (ifx:0, 7c:2e:bd:6d:28:4f), tid:6, ssn:2, winSize:64
+I (200865) wifi:dp: 2, bi: 102400, li: 4, scale listen interval from 307200 us to 409600 us
+I (200866) wifi:AP's beacon interval = 102400 us, DTIM period = 2
+I (201066) wifi:<ba-add>idx:1 (ifx:0, 7c:2e:bd:6d:28:4f), tid:0, ssn:0, winSize:64
+I (201872) esp_netif_handlers: sta ip: 192.168.86.247, mask: 255.255.255.0, gw: 192.168.86.1
+speaker: task create failed stack=32768 internal=35679 largest=17408 psram=7446120
+speaker: task create failed stack=32768 internal=35679 largest=17408 psram=7446120
+I (201914) pm_wifi: connect chime
+I (201916) mdns_mem: mDNS task will be created from internal RAM
+I (201919) pm_wifi: mDNS http://astrolabe-e30644.local/
+qa: face=8 state=0 heap=30227 iheap=30227 largest=17408 psram=7446120 voice_stack_hw=9952 spk_stack_hw=0 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.247 name=Daniel banner="wifi: connected"
+qa: inject boot
+speaker: task create failed stack=32768 internal=30123 largest=17408 psram=7151204
+speaker: MP3 blocked: no task internal=30123 largest=17408 psram=7151204
+face: 0
+qa: inject pwr

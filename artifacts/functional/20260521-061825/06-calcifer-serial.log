@@ -1,0 +1,14 @@
+face: 6
+qa: inject swipe left @ 233,233
+[gesture] face -> 9
+qa: inject swipe right @ 233,233
+[gesture] face -> 6
+qa: inject swipe up @ 233,233
+qa: inject swipe down @ 233,233
+qa: inject tap @ 233,233
+[gesture] tap @ 233,233
+qa: face=6 state=0 heap=29235 iheap=29235 largest=16384 psram=7446120 voice_stack_hw=9952 spk_stack_hw=0 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.247 name=Daniel banner="tap"
+qa: inject boot
+speaker: task create failed stack=32768 internal=29235 largest=16384 psram=7151204
+speaker: MP3 blocked: no task internal=29235 largest=16384 psram=7151204
+face: 6

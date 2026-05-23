@@ -17,6 +17,7 @@ static bool face_is_astrolabe(ClockFace face) {
     case ClockFace::DigitalLocal:
     case ClockFace::Apocalypso:
     case ClockFace::CalciferCountdown:
+    case ClockFace::FocusTimer:
     case ClockFace::Weather:
     case ClockFace::Radar:
     case ClockFace::Level:
@@ -63,6 +64,7 @@ static bool face_is_cameo(ClockFace face) {
     case ClockFace::Faculty:
     case ClockFace::Quotes:
     case ClockFace::Notes:
+    case ClockFace::QuestionOfDay:
       return true;
     default:
       return false;

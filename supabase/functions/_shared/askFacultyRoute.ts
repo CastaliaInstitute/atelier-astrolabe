@@ -1,6 +1,6 @@
 export type AskFacultyRoute =
   | { kind: "none" }
-  | { kind: "ask-faculty"; facultyMessage: string };
+  | { kind: "ask-faculty"; facultyMessage: string; selectFaculty?: boolean };
 
 /**
  * Detects faculty-directed asks after STT / typed input so `voice-pipeline` can forward to `ask-faculty`.
@@ -21,7 +21,7 @@ export function matchAskFacultyRoute(transcript: string): AskFacultyRoute {
     /^\s*ask\s+the\s+faculty\b/i.exec(t) ?? /^\s*ask\s+faculty\b/i.exec(t);
   if (explicit) {
     const rest = t.slice(explicit[0].length).replace(/^[\s,:.-]+/, "").trim();
-    return { kind: "ask-faculty", facultyMessage: rest || t };
+    return { kind: "ask-faculty", facultyMessage: rest || t, selectFaculty: true };
   }
 
   const mAsk = /^\s*ask\s+(.+)$/i.exec(t);

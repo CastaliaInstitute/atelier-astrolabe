@@ -1,0 +1,24 @@
+face: 16
+qa: inject swipe left @ 233,233
+[gesture] face -> 17
+pm_faculty: bust skipped low memory heap=31439 largest=15872
+pm_faculty: bust skipped low memory heap=31439 largest=15872
+qa: inject swipe right @ 233,233
+[gesture] face -> 16
+qa: inject swipe up @ 233,233
+qa: inject swipe down @ 233,233
+qa: inject tap @ 233,233
+[gesture] tap @ 233,233
+qa: face=16 state=0 heap=31439 iheap=31439 largest=15872 psram=7741036 voice_stack_hw=0 spk_stack_hw=0 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.247 name=Daniel banner="tap"
+qa: inject boot
+voice: POST message…
+voice: DNS ok pilmscrodlitdrygabvo.supabase.co -> 172.64.149.246
+voice: mbedtls psram allocator on rc=0
+voice: HTTP POST message (602 B body)…
+E (47506) esp-aes: Failed to allocate memory
+[ 46477][E][ssl_client.cpp:36] _handle_error(): [ssl_starttls_handshake():318]: (-1) ERROR - Generic error
+[ 46490][E][NetworkClientSecure.cpp:159] connect(): start_ssl_client: connect failed: -1
+voice: HTTP -1 (message)
+W (47532) pm_voice: voice-pipeline HTTP -1 (message)
+voice: HTTP retry after connect failure
+face: 16

@@ -1,0 +1,28 @@
+face: 17
+voice: HTTP POST message (638 B body, retry)…
+face: 18
+E (68575) esp-aes: Failed to allocate memory
+[ 67546][E][ssl_client.cpp:36] _handle_error(): [ssl_starttls_handshake():318]: (-1) ERROR - Generic error
+[ 67559][E][NetworkClientSecure.cpp:159] connect(): start_ssl_client: connect failed: -1
+voice: HTTP -1 (message)
+W (68601) pm_voice: voice-pipeline HTTP -1 (message)
+voice: message fail (HTTP -1)
+qa: inject swipe left @ 233,233
+[gesture] face -> 19
+qa: inject swipe right @ 233,233
+[gesture] face -> 18
+qa: inject swipe up @ 233,233
+qa: inject swipe down @ 233,233
+qa: inject tap @ 233,233
+[gesture] tap @ 233,233
+qa: face=18 state=0 heap=15003 iheap=15003 largest=6656 psram=7741036 voice_stack_hw=9548 spk_stack_hw=0 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.247 name=Daniel banner="tap"
+qa: inject boot
+voice: POST message…
+voice: DNS ok pilmscrodlitdrygabvo.supabase.co -> 172.64.149.246
+voice: HTTP POST message (634 B body)…
+E (83862) esp-aes: Failed to allocate memory
+[ 82834][E][ssl_client.cpp:36] _handle_error(): [ssl_starttls_handshake():318]: (-1) ERROR - Generic error
+[ 82846][E][NetworkClientSecure.cpp:159] connect(): start_ssl_client: connect failed: -1
+W (83889) pm_voice: voice-pipeline HTTP -1 (message)
+voice: HTTP -1 (message)
+voice: HTTP retry after connect failure

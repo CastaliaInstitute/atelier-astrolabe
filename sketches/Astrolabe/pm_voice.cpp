@@ -58,6 +58,8 @@ static const char *kVoiceMp3Headers[] = {
     "X-Voice-Reply",
     "X-Voice-Transcript",
     "X-Voice-Route",
+    "X-Faculty-Slug",
+    "X-Faculty-Name",
     "X-Voice-Tts-Chars",
 };
 
@@ -253,6 +255,18 @@ static void voice_copy_mp3_headers(HTTPClient *http, PmVoiceResult *r) {
   if (reply_raw.length() > 0) {
     copy_percent_decoded(reply_raw, r->reply, sizeof(r->reply));
   }
+  const String route_raw = http->header("X-Voice-Route");
+  if (route_raw.length() > 0) {
+    copy_percent_decoded(route_raw, r->route, sizeof(r->route));
+  }
+  const String faculty_slug_raw = http->header("X-Faculty-Slug");
+  if (faculty_slug_raw.length() > 0) {
+    copy_percent_decoded(faculty_slug_raw, r->faculty_slug, sizeof(r->faculty_slug));
+  }
+  const String faculty_name_raw = http->header("X-Faculty-Name");
+  if (faculty_name_raw.length() > 0) {
+    copy_percent_decoded(faculty_name_raw, r->faculty_name, sizeof(r->faculty_name));
+  }
 }
 
 static void voice_print_reply_preview(const char *prefix, const char *reply) {
@@ -303,6 +317,19 @@ void pm_voice_result_free(PmVoiceResult *r) {
     return;
   }
   free(r->mp3);
+  r->mp3 = nullptr;
+  r->mp3_len = 0;
+}
+
+static void voice_result_reset(PmVoiceResult *r) {
+  if (!r) {
+    return;
+  }
+  memset(r->transcript, 0, sizeof(r->transcript));
+  memset(r->reply, 0, sizeof(r->reply));
+  memset(r->route, 0, sizeof(r->route));
+  memset(r->faculty_slug, 0, sizeof(r->faculty_slug));
+  memset(r->faculty_name, 0, sizeof(r->faculty_name));
   r->mp3 = nullptr;
   r->mp3_len = 0;
 }
@@ -778,10 +805,7 @@ static bool voice_post_message_inner(const char *message, const char *system_ins
     voice_set_error("empty message");
     return false;
   }
-  memset(r->transcript, 0, sizeof(r->transcript));
-  memset(r->reply, 0, sizeof(r->reply));
-  r->mp3 = nullptr;
-  r->mp3_len = 0;
+  voice_result_reset(r);
 
   if (strlen(MYNAH_SUPABASE_URL) == 0 || strlen(MYNAH_SUPABASE_ANON_KEY) == 0) {
     voice_set_error("no supabase config");
@@ -985,15 +1009,12 @@ static bool voice_post_message_inner(const char *message, const char *system_ins
 }
 
 static bool voice_post_pcm_inner(const uint8_t *pcm, size_t pcm_len, const char *system_instruction,
-                                 PmVoiceResult *r) {
+                                 const char *face, PmVoiceResult *r) {
   if (!r || !pcm || pcm_len == 0) {
     voice_set_error("empty pcm");
     return false;
   }
-  memset(r->transcript, 0, sizeof(r->transcript));
-  memset(r->reply, 0, sizeof(r->reply));
-  r->mp3 = nullptr;
-  r->mp3_len = 0;
+  voice_result_reset(r);
 
   if (strlen(MYNAH_SUPABASE_URL) == 0 || strlen(MYNAH_SUPABASE_ANON_KEY) == 0) {
     voice_set_error("no supabase config");
@@ -1014,7 +1035,9 @@ static bool voice_post_pcm_inner(const uint8_t *pcm, size_t pcm_len, const char 
   static const char kPrefix[] =
       "{\"languageCode\":\"en-US\",\"sampleRateHertz\":16000,\"audioBase64\":\"";
   const bool have_sys = system_instruction && system_instruction[0] != '\0';
+  const bool have_face_raw = face && face[0] != '\0';
   char *esc_sys_pcm = nullptr;
+  char *esc_face_pcm = nullptr;
   if (have_sys) {
     const size_t esc_sys_cap = strlen(system_instruction) * 2 + 16;
     esc_sys_pcm = voice_psram_char_alloc(esc_sys_cap, "oom esc sys");
@@ -1024,14 +1047,26 @@ static bool voice_post_pcm_inner(const uint8_t *pcm, size_t pcm_len, const char 
       return false;
     }
   }
+  if (have_face_raw) {
+    const size_t esc_face_cap = strlen(face) * 2 + 16;
+    esc_face_pcm = voice_psram_char_alloc(esc_face_cap, "oom esc face");
+    if (!esc_face_pcm || !json_escape_string(face, esc_face_pcm, esc_face_cap)) {
+      free(esc_sys_pcm);
+      free(esc_face_pcm);
+      voice_set_error("face too long");
+      return false;
+    }
+  }
 
   const size_t b64max = ((pcm_len + 2) / 3) * 4 + 4;
   const size_t sys_extra = have_sys ? (24 + strlen(esc_sys_pcm)) : 0;
-  const size_t body_cap = sizeof(kPrefix) - 1 + b64max + sys_extra + 4;
+  const size_t face_extra = esc_face_pcm ? (12 + strlen(esc_face_pcm)) : 0;
+  const size_t body_cap = sizeof(kPrefix) - 1 + b64max + sys_extra + face_extra + 4;
   uint8_t *body = static_cast<uint8_t *>(
       heap_caps_malloc(body_cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
   if (!body) {
     free(esc_sys_pcm);
+    free(esc_face_pcm);
     voice_set_error("oom body");
     return false;
   }
@@ -1044,6 +1079,7 @@ static bool voice_post_pcm_inner(const uint8_t *pcm, size_t pcm_len, const char 
           pcm,
           pcm_len) != 0) {
     free(esc_sys_pcm);
+    free(esc_face_pcm);
     free(body);
     voice_set_error("b64 encode");
     return false;
@@ -1051,6 +1087,7 @@ static bool voice_post_pcm_inner(const uint8_t *pcm, size_t pcm_len, const char 
   size_t body_len = (sizeof(kPrefix) - 1) + nout;
   if (body_len + 2 > body_cap) {
     free(esc_sys_pcm);
+    free(esc_face_pcm);
     free(body);
     voice_set_error("body too large");
     return false;
@@ -1061,6 +1098,19 @@ static bool voice_post_pcm_inner(const uint8_t *pcm, size_t pcm_len, const char 
                            ",\"systemInstruction\":\"%s\"", esc_sys_pcm);
     if (n <= 0 || static_cast<size_t>(n) >= body_cap - body_len) {
       free(esc_sys_pcm);
+      free(esc_face_pcm);
+      free(body);
+      voice_set_error("body too large");
+      return false;
+    }
+    body_len += static_cast<size_t>(n);
+  }
+  if (esc_face_pcm) {
+    const int n = snprintf(reinterpret_cast<char *>(body + body_len), body_cap - body_len,
+                           ",\"face\":\"%s\"", esc_face_pcm);
+    if (n <= 0 || static_cast<size_t>(n) >= body_cap - body_len) {
+      free(esc_sys_pcm);
+      free(esc_face_pcm);
       free(body);
       voice_set_error("body too large");
       return false;
@@ -1069,6 +1119,7 @@ static bool voice_post_pcm_inner(const uint8_t *pcm, size_t pcm_len, const char 
   }
   if (body_len + 1 > body_cap) {
     free(esc_sys_pcm);
+    free(esc_face_pcm);
     free(body);
     voice_set_error("body too large");
     return false;
@@ -1091,6 +1142,7 @@ static bool voice_post_pcm_inner(const uint8_t *pcm, size_t pcm_len, const char 
                 static_cast<unsigned>(have_sys ? strlen(esc_sys_pcm) : 0));
   const int code = http.POST(body, body_len);
   free(esc_sys_pcm);
+  free(esc_face_pcm);
   free(body);
 
   if (code != 200) {
@@ -1114,6 +1166,9 @@ static bool voice_post_pcm_inner(const uint8_t *pcm, size_t pcm_len, const char 
 
   extract_json_string_field(resp, "transcript", r->transcript, sizeof(r->transcript));
   extract_json_string_field(resp, "reply", r->reply, sizeof(r->reply));
+  extract_json_string_field(resp, "route", r->route, sizeof(r->route));
+  extract_json_string_field(resp, "facultySlug", r->faculty_slug, sizeof(r->faculty_slug));
+  extract_json_string_field(resp, "facultyName", r->faculty_name, sizeof(r->faculty_name));
   if (r->transcript[0] != '\0') {
     Serial.printf("pm_voice: STT transcript: %.120s%s\n", r->transcript,
                   strlen(r->transcript) > 120 ? "…" : "");
@@ -1137,10 +1192,7 @@ static bool voice_post_daily_briefing_inner(PmVoiceResult *r) {
     voice_set_error("no result");
     return false;
   }
-  memset(r->transcript, 0, sizeof(r->transcript));
-  memset(r->reply, 0, sizeof(r->reply));
-  r->mp3 = nullptr;
-  r->mp3_len = 0;
+  voice_result_reset(r);
 
   if (strlen(MYNAH_SUPABASE_URL) == 0 || strlen(MYNAH_SUPABASE_ANON_KEY) == 0) {
     voice_set_error("no supabase config");
@@ -1282,10 +1334,7 @@ static bool voice_post_clock_agenda_inner(PmVoiceResult *r) {
     voice_set_error("no result");
     return false;
   }
-  memset(r->transcript, 0, sizeof(r->transcript));
-  memset(r->reply, 0, sizeof(r->reply));
-  r->mp3 = nullptr;
-  r->mp3_len = 0;
+  voice_result_reset(r);
 
   if (strlen(MYNAH_SUPABASE_URL) == 0 || strlen(MYNAH_SUPABASE_ANON_KEY) == 0) {
     voice_set_error("no supabase config");
@@ -1337,6 +1386,9 @@ static bool voice_post_clock_agenda_inner(PmVoiceResult *r) {
 
   extract_json_string_field(resp, "transcript", r->transcript, sizeof(r->transcript));
   extract_json_string_field(resp, "reply", r->reply, sizeof(r->reply));
+  extract_json_string_field(resp, "route", r->route, sizeof(r->route));
+  extract_json_string_field(resp, "facultySlug", r->faculty_slug, sizeof(r->faculty_slug));
+  extract_json_string_field(resp, "facultyName", r->faculty_name, sizeof(r->faculty_name));
   if (!extract_audio_base64(resp, &r->mp3, &r->mp3_len)) {
     ESP_LOGI(TAG, "voice (clock_agenda) text-only");
   } else {
@@ -1368,7 +1420,7 @@ static void voice_net_task(void *arg) {
                       s_last_error[0] ? s_last_error : "-");
       }
     } else if (op == 2) {
-      s_voice_ok = voice_post_pcm_inner(s_req_pcm, s_req_pcm_len, s_req_system, s_req_result);
+      s_voice_ok = voice_post_pcm_inner(s_req_pcm, s_req_pcm_len, s_req_system, s_req_face, s_req_result);
     } else if (op == 3) {
       s_voice_ok = voice_post_clock_agenda_inner(s_req_result);
     } else if (op == 4) {
@@ -1460,10 +1512,15 @@ bool pm_voice_begin_message_ex(const char *message, const char *system_instructi
 }
 
 bool pm_voice_begin_pcm(const uint8_t *pcm, size_t pcm_len, const char *system_instruction, PmVoiceResult *r) {
+  return pm_voice_begin_pcm_ex(pcm, pcm_len, system_instruction, nullptr, r);
+}
+
+bool pm_voice_begin_pcm_ex(const uint8_t *pcm, size_t pcm_len, const char *system_instruction, const char *face,
+                           PmVoiceResult *r) {
   s_req_pcm = pcm;
   s_req_pcm_len = pcm_len;
   s_req_system = system_instruction;
-  s_req_face = nullptr;
+  s_req_face = face;
   s_req_faculty_slug = nullptr;
   s_req_faculty_name = nullptr;
   s_req_result = r;
@@ -1527,10 +1584,15 @@ uint32_t pm_voice_stack_high_water(void) {
 }
 
 bool pm_voice_post_pcm(const uint8_t *pcm, size_t pcm_len, const char *system_instruction, PmVoiceResult *r) {
+  return pm_voice_post_pcm_ex(pcm, pcm_len, system_instruction, nullptr, r);
+}
+
+bool pm_voice_post_pcm_ex(const uint8_t *pcm, size_t pcm_len, const char *system_instruction, const char *face,
+                          PmVoiceResult *r) {
   s_req_pcm = pcm;
   s_req_pcm_len = pcm_len;
   s_req_system = system_instruction;
-  s_req_face = nullptr;
+  s_req_face = face;
   s_req_faculty_slug = nullptr;
   s_req_faculty_name = nullptr;
   s_req_result = r;

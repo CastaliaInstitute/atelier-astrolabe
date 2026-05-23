@@ -1,0 +1,47 @@
+[123246][E][WiFiClient.cpp:429] write(): fail on fd 49, errno: 104, "Connection reset by peer"
+face: 13
+[125661][E][Preferences.cpp:483] getString(): nvs_get_str len fail: fac4_slug NOT_FOUND
+[125669][E][Preferences.cpp:483] getString(): nvs_get_str len fail: fac5_slug NOT_FOUND
+[125683][E][vfs_api.cpp:105] open(): /littlefs/busts/a-einstein.bin does not exist, no permits for creation
+pm_faculty: embedded bust a.einstein (44163 B)
+[137159][E][vfs_api.cpp:105] open(): /littlefs/busts/marie-curie.bin does not exist, no permits for creation
+pm_faculty: embedded bust marie-curie (16382 B)
+[148375][E][vfs_api.cpp:105] open(): /littlefs/busts/hypatia.bin does not exist, no permits for creation
+pm_faculty: embedded bust hypatia (37999 B)
+[167549][E][vfs_api.cpp:105] open(): /littlefs/busts/socrates.bin does not exist, no permits for creation
+[167562][E][vfs_api.cpp:105] open(): /littlefs/busts/socrates.bin does not exist, no permits for creation
+pm_faculty: bust skipped low memory heap=16540 largest=7668
+[170651][E][Preferences.cpp:483] getString(): nvs_get_str len fail: fac4_slug NOT_FOUND
+[170659][E][Preferences.cpp:483] getString(): nvs_get_str len fail: fac5_slug NOT_FOUND
+[170672][E][vfs_api.cpp:105] open(): /littlefs/busts/a-einstein.bin does not exist, no permits for creation
+[173664][E][vfs_api.cpp:105] open(): /littlefs/busts/marie-curiepm_faculty: embedded bust a.einstein (44163 B)
+.bin does not exist, no permits for creation
+pm_faculty: embedded bust marie-curie (16382 B)
+[176671][E][vfs_api.cpp:105] open(): /littlefs/busts/hypatia.bin does not exist, no permits for creation
+pm_faculty: embedded bust hypatia (37999 B)
+[179659][E][vfs_api.cpp:105] open(): /littlefs/busts/socrates.bin does not exist, no permits for creation
+[179672][E][vfs_api.cpp:105] open(): /littlefs/busts/socrates.bin does not exist, no permits for creation
+pm_faculty: bust skipped low memory heap=16540 largest=7668
+[182656][E][Preferences.cpp:483] getString(): nvs_get_str len fail: fac4_slug NOT_FOUND
+[182664][E][Preferences.cpp:483] getString(): nvs_get_str len fail: fac5_slug NOT_FOUND
+[182677][E][vfs_api.cpp:105] open(): /littlefs/busts/a-einstein.bin does not exist, no permits for creation
+pm_faculty: embedded bust a.einstein (44163 B)
+[185670][E][vfs_api.cpp:105] open(): /littlefs/busts/marie-curie.bin does not exist, no permits for creation
+pm_faculty: embedded bust marie-curie (16382 B)
+qa: inject tap @ 233,233
+qa: inject swipe left @ 233,233
+presence: BLE deferred low heap internal=16540 largest=7668
+presence: BLE deferred low heap internal=51452 largest=15348
+[gesture] face -> 14
+[188662][E][vfs_api.cpp:105] open(): /littlefs/busts/hypatia.bin does not exist, no permits for creation
+pm_faculty: embedded bust hypatia (37999 B)
+qa: inject swipe right @ 233,233
+E (190000) I2S: i2s_driver_uninstall(2048): I2S port 0 has not installed
+E (190893) I2S: i2s_driver_uninstall(2048): I2S port 0 has not installed
+[gesture] face -> 13
+[192298][E][vfs_api.cpp:105] open(): /littlefs/busts/socrates.bin does not exist, no permits for creation
+[192311][E][vfs_api.cpp:105] open(): /littlefs/busts/socrates.bin does not exist, no permits for creation
+pm_faculty: bust skipped low memory heap=23004 largest=8692
+qa: inject swipe up @ 233,233
+qa: inject swipe down @ 233,233
+qa: face=13 state=0 heap=23004 iheap=23004 largest=8692 psram=7692855 voice_stack_hw=3800 spk_stack_hw=30328 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.247 name=Daniel banner=""

@@ -1,0 +1,23 @@
+>>> qa status
+>>> faculty use a.einstein
+qa: face=0 state=0 heap=30347 iheap=30347 largest=21504 psram=7741000 voice_stack_hw=0 spk_stack_hw=0 rocket_stack_hw=0 wifi=1 time=1 ip=192.168.86.247 name=Daniel banner=""
+faculty: active Einstein (a.einstein)
+pm_faculty: embedded bust a.einstein (44163 B)
+>>> face faculty
+face: 15
+>>> qa inject boot
+qa: inject boot
+voice: POST message…
+voice: DNS ok pilmscrodlitdrygabvo.supabase.co -> 172.64.149.246
+voice: mbedtls psram allocator on rc=0
+voice: HTTP POST message (845 B body)…
+voice: HTTP 200 (message)
+voice: MP3 Content-Length 107136
+voice: MP3 recv 3597 B...
+voice: MP3 recv 66804 B...
+voice: MP3 complete 107136 B
+I (80736) pm_voice: voice (message) mp3 107136 bytes
+voice: message ok mp3=107136 B
+voice: message reply="Here, the Mynah reveals its faculty. With Einstein active, it nudges you to question assumptions, to see your present moment through a different lens. What hidden connections might…"
+E (80863) i2s(legacy): i2s_driver_uninstall(1586): I2S port 0 has not installed
+I (95002) pm_speaker: played ~13512 ms (321408 PCM frames @ 24000 Hz)

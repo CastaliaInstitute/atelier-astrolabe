@@ -1,0 +1,8 @@
+face: 12
+qa: inject tap @ 448,233
+qa: inject swipe left @ 233,233
+[gesture] face -> 13
+qa: inject swipe right @ 233,233
+[gesture] face -> 12
+qa: inject swipe up @ 233,233
+qa: inject swipe down @ 233,233

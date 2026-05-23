@@ -14,6 +14,7 @@ Each face is a self-contained module under `faces/<name>/`. The app shell (`Astr
 | `astrology/` | Transit wheel, zodiac glyphs, voice chart |
 | `moon/` | Phase disk, texture, daily fortune |
 | `calcifer/` | Hue Daywheel (rolling 12h hue ring + event wedges + CalDAV) |
+| `focus/` | Pomodoro productivity timer with work, short break, and long break presets |
 | `castalia/` | Sign-in QR (Settings hub page) |
 | `settings/` | WiFi status + settings chrome |
 | `synastry/` | Partner/family dual natal wheel + aspect highlights |
