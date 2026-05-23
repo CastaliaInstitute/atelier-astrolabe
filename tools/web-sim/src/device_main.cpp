@@ -1,10 +1,12 @@
 #include <emscripten.h>
 
+#include <cstdio>
 #include <cstdint>
 #include <cstring>
 #include <ctime>
 
 #include "faces/pm_faces.h"
+#include "faces/quotes/pm_face_quotes.h"
 #include "pin_config.h"
 #include "pm_display.h"
 
@@ -48,8 +50,14 @@ int main() {
   s_canvas = new PmDisplayCanvas(LCD_WIDTH, LCD_HEIGHT, nullptr);
   s_canvas->begin(GFX_SKIP_OUTPUT_BEGIN);
   pm_display_bind(s_canvas);
+  g_quotes_ui.ok = true;
+  g_quotes_ui.demo = true;
+  std::snprintf(g_quotes_ui.faculty_slug, sizeof(g_quotes_ui.faculty_slug), "a.plato");
+  std::snprintf(g_quotes_ui.faculty_name, sizeof(g_quotes_ui.faculty_name), "Plato");
+  std::snprintf(g_quotes_ui.quote, sizeof(g_quotes_ui.quote),
+                "The beginning is the most important part of the work.");
+  std::snprintf(g_quotes_ui.book_title, sizeof(g_quotes_ui.book_title), "The Republic");
   pm_faces_set(ClockFace::ClassicAnalog);
   emscripten_set_main_loop(frame, 0, true);
   return 0;
 }
-

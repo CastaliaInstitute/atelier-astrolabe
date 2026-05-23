@@ -2,6 +2,9 @@
 
 #include <emscripten.h>
 
+#include <cctype>
+#include <cstring>
+
 SerialClass Serial;
 
 uint32_t millis(void) { return static_cast<uint32_t>(emscripten_get_now()); }
@@ -133,15 +136,96 @@ void Arduino_GFX::fillRoundRect(int16_t x, int16_t y, int16_t w, int16_t h, int1
   fillRect(x, y, w, h, color);
 }
 
+namespace {
+
+const uint8_t *default_glyph(char c) {
+  static constexpr uint8_t kBlank[5] = {0, 0, 0, 0, 0};
+  static constexpr uint8_t kDigits[10][5] = {
+      {0x3e, 0x51, 0x49, 0x45, 0x3e}, {0x00, 0x42, 0x7f, 0x40, 0x00}, {0x42, 0x61, 0x51, 0x49, 0x46},
+      {0x21, 0x41, 0x45, 0x4b, 0x31}, {0x18, 0x14, 0x12, 0x7f, 0x10}, {0x27, 0x45, 0x45, 0x45, 0x39},
+      {0x3c, 0x4a, 0x49, 0x49, 0x30}, {0x01, 0x71, 0x09, 0x05, 0x03}, {0x36, 0x49, 0x49, 0x49, 0x36},
+      {0x06, 0x49, 0x49, 0x29, 0x1e},
+  };
+  static constexpr uint8_t kLetters[26][5] = {
+      {0x7e, 0x11, 0x11, 0x11, 0x7e}, {0x7f, 0x49, 0x49, 0x49, 0x36}, {0x3e, 0x41, 0x41, 0x41, 0x22},
+      {0x7f, 0x41, 0x41, 0x22, 0x1c}, {0x7f, 0x49, 0x49, 0x49, 0x41}, {0x7f, 0x09, 0x09, 0x09, 0x01},
+      {0x3e, 0x41, 0x49, 0x49, 0x7a}, {0x7f, 0x08, 0x08, 0x08, 0x7f}, {0x00, 0x41, 0x7f, 0x41, 0x00},
+      {0x20, 0x40, 0x41, 0x3f, 0x01}, {0x7f, 0x08, 0x14, 0x22, 0x41}, {0x7f, 0x40, 0x40, 0x40, 0x40},
+      {0x7f, 0x02, 0x0c, 0x02, 0x7f}, {0x7f, 0x04, 0x08, 0x10, 0x7f}, {0x3e, 0x41, 0x41, 0x41, 0x3e},
+      {0x7f, 0x09, 0x09, 0x09, 0x06}, {0x3e, 0x41, 0x51, 0x21, 0x5e}, {0x7f, 0x09, 0x19, 0x29, 0x46},
+      {0x46, 0x49, 0x49, 0x49, 0x31}, {0x01, 0x01, 0x7f, 0x01, 0x01}, {0x3f, 0x40, 0x40, 0x40, 0x3f},
+      {0x1f, 0x20, 0x40, 0x20, 0x1f}, {0x3f, 0x40, 0x38, 0x40, 0x3f}, {0x63, 0x14, 0x08, 0x14, 0x63},
+      {0x07, 0x08, 0x70, 0x08, 0x07}, {0x61, 0x51, 0x49, 0x45, 0x43},
+  };
+  static constexpr uint8_t kColon[5] = {0x00, 0x36, 0x36, 0x00, 0x00};
+  static constexpr uint8_t kDash[5] = {0x08, 0x08, 0x08, 0x08, 0x08};
+  static constexpr uint8_t kDot[5] = {0x00, 0x60, 0x60, 0x00, 0x00};
+  static constexpr uint8_t kSlash[5] = {0x20, 0x10, 0x08, 0x04, 0x02};
+  static constexpr uint8_t kPercent[5] = {0x23, 0x13, 0x08, 0x64, 0x62};
+  static constexpr uint8_t kPlus[5] = {0x08, 0x08, 0x3e, 0x08, 0x08};
+  static constexpr uint8_t kAmp[5] = {0x36, 0x49, 0x55, 0x22, 0x50};
+  static constexpr uint8_t kHash[5] = {0x14, 0x7f, 0x14, 0x7f, 0x14};
+  static constexpr uint8_t kQuestion[5] = {0x02, 0x01, 0x51, 0x09, 0x06};
+  static constexpr uint8_t kBang[5] = {0x00, 0x00, 0x5f, 0x00, 0x00};
+
+  if (c >= '0' && c <= '9') return kDigits[c - '0'];
+  if (c >= 'a' && c <= 'z') c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+  if (c >= 'A' && c <= 'Z') return kLetters[c - 'A'];
+  switch (c) {
+    case ':': return kColon;
+    case '-':
+    case '_': return kDash;
+    case '.':
+    case ',': return kDot;
+    case '/': return kSlash;
+    case '%': return kPercent;
+    case '+': return kPlus;
+    case '&': return kAmp;
+    case '#': return kHash;
+    case '?': return kQuestion;
+    case '!': return kBang;
+    default: return kBlank;
+  }
+}
+
+}  // namespace
+
 void Arduino_GFX::print(char c) {
   if (c == '\n') {
     cursor_x = 0;
-    cursor_y += 8 * text_size_y;
+    cursor_y += gfx_font ? gfx_font->yAdvance * text_size_y : 8 * text_size_y;
     return;
   }
-  const int16_t w = 5 * text_size_x;
-  const int16_t h = 7 * text_size_y;
-  if (c != ' ') fillRect(cursor_x, cursor_y - h, w, h, text_color);
+  if (gfx_font) {
+    if (static_cast<uint8_t>(c) < gfx_font->first || static_cast<uint8_t>(c) > gfx_font->last) return;
+    const GFXglyph &glyph = gfx_font->glyph[static_cast<uint8_t>(c) - gfx_font->first];
+    uint16_t bit = 0;
+    uint8_t bits = 0;
+    for (uint8_t yy = 0; yy < glyph.height; ++yy) {
+      for (uint8_t xx = 0; xx < glyph.width; ++xx) {
+        if (!(bit++ & 7)) bits = gfx_font->bitmap[glyph.bitmapOffset + bit / 8];
+        if (bits & 0x80) {
+          const int16_t px = cursor_x + glyph.xOffset + xx * text_size_x;
+          const int16_t py = cursor_y + glyph.yOffset + yy * text_size_y;
+          fillRect(px, py, text_size_x, text_size_y, text_color);
+        }
+        bits <<= 1;
+      }
+    }
+    cursor_x += glyph.xAdvance * text_size_x;
+    return;
+  }
+
+  const uint8_t *glyph = default_glyph(c);
+  if (c != ' ') {
+    for (int16_t xx = 0; xx < 5; ++xx) {
+      for (int16_t yy = 0; yy < 7; ++yy) {
+        if (glyph[xx] & (1u << yy)) {
+          fillRect(cursor_x + xx * text_size_x, cursor_y + yy * text_size_y, text_size_x, text_size_y, text_color);
+        }
+      }
+    }
+  }
   cursor_x += 6 * text_size_x;
 }
 
@@ -152,11 +236,59 @@ void Arduino_GFX::print(const char *s) {
 
 void Arduino_GFX::getTextBounds(const char *s, int16_t x, int16_t y, int16_t *x1, int16_t *y1, uint16_t *w,
                                 uint16_t *h) {
-  const size_t len = s ? std::strlen(s) : 0;
-  *x1 = x;
-  *y1 = y - 7 * text_size_y;
-  *w = static_cast<uint16_t>(len * 6 * text_size_x);
-  *h = static_cast<uint16_t>(8 * text_size_y);
+  if (!s || !*s) {
+    *x1 = x;
+    *y1 = y;
+    *w = 0;
+    *h = 0;
+    return;
+  }
+
+  if (!gfx_font) {
+    const size_t len = std::strlen(s);
+    *x1 = x;
+    *y1 = y;
+    *w = static_cast<uint16_t>(len * 6 * text_size_x);
+    *h = static_cast<uint16_t>(8 * text_size_y);
+    return;
+  }
+
+  int16_t min_x = 32767, min_y = 32767, max_x = -32768, max_y = -32768;
+  int16_t cx = x;
+  int16_t cy = y;
+  for (const char *p = s; *p; ++p) {
+    const char c = *p;
+    if (c == '\n') {
+      cx = x;
+      cy += gfx_font->yAdvance * text_size_y;
+      continue;
+    }
+    if (static_cast<uint8_t>(c) < gfx_font->first || static_cast<uint8_t>(c) > gfx_font->last) continue;
+    const GFXglyph &glyph = gfx_font->glyph[static_cast<uint8_t>(c) - gfx_font->first];
+    if (glyph.width && glyph.height) {
+      const int16_t gx1 = cx + glyph.xOffset * text_size_x;
+      const int16_t gy1 = cy + glyph.yOffset * text_size_y;
+      const int16_t gx2 = gx1 + glyph.width * text_size_x - 1;
+      const int16_t gy2 = gy1 + glyph.height * text_size_y - 1;
+      min_x = std::min(min_x, gx1);
+      min_y = std::min(min_y, gy1);
+      max_x = std::max(max_x, gx2);
+      max_y = std::max(max_y, gy2);
+    }
+    cx += glyph.xAdvance * text_size_x;
+  }
+
+  if (max_x < min_x || max_y < min_y) {
+    *x1 = x;
+    *y1 = y;
+    *w = 0;
+    *h = 0;
+    return;
+  }
+  *x1 = min_x;
+  *y1 = min_y;
+  *w = static_cast<uint16_t>(max_x - min_x + 1);
+  *h = static_cast<uint16_t>(max_y - min_y + 1);
 }
 
 void gfx_draw_bitmap_to_framebuffer(uint16_t *bitmap, int16_t w, int16_t h, uint16_t *fb, int16_t x, int16_t y,
@@ -181,4 +313,3 @@ void gfx_draw_bitmap_to_framebuffer_rotate_3(uint16_t *b, int16_t w, int16_t h, 
                                              int16_t fw, int16_t fh) {
   gfx_draw_bitmap_to_framebuffer(b, w, h, fb, x, y, fw, fh);
 }
-
