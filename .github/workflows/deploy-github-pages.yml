@@ -7,8 +7,6 @@ on:
     branches: [main]
     paths:
       - "docs/**"
-      - "tools/web-sim/**"
-      - "ui/**"
       - ".github/workflows/deploy-github-pages.yml"
   workflow_dispatch:
 
@@ -29,17 +27,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/cache@v4
-        with:
-          path: build/web-sim/_deps
-          key: web-sim-lvgl-${{ hashFiles('tools/web-sim/CMakeLists.txt') }}
-      - name: Build LVGL web simulator
-        run: |
-          docker run --rm \
-            -v "$GITHUB_WORKSPACE:/src" \
-            -w /src \
-            emscripten/emsdk:3.1.74 \
-            ./tools/web-sim/export-pages.sh
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
