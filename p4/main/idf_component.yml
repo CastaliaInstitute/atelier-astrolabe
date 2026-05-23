@@ -1,0 +1,6 @@
+dependencies:
+  espressif/esp_wifi_remote: "*"
+  waveshare/esp32_p4_wifi6_touch_lcd_xc: "*"
+  lvgl/lvgl:
+    version: "^9.*"
+    public: true

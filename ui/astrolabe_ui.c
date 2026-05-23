@@ -65,6 +65,16 @@ static const face_meta_t k_faces[ASTROLABE_UI_FACE_COUNT] = {
 
 static int32_t ui_cx(void) { return ASTROLABE_UI_WIDTH / 2; }
 static int32_t ui_cy(void) { return ASTROLABE_UI_HEIGHT / 2; }
+static int32_t root_w(void) { return s_root ? lv_obj_get_width(s_root) : ASTROLABE_UI_WIDTH; }
+static int32_t root_h(void) { return s_root ? lv_obj_get_height(s_root) : ASTROLABE_UI_HEIGHT; }
+static int32_t ui_scale_x(int32_t value) { return (value * root_w()) / ASTROLABE_UI_WIDTH; }
+static int32_t ui_scale_y(int32_t value) { return (value * root_h()) / ASTROLABE_UI_HEIGHT; }
+static int32_t ui_scale(int32_t value) {
+  const int32_t scale_w = (root_w() * 256) / ASTROLABE_UI_WIDTH;
+  const int32_t scale_h = (root_h() * 256) / ASTROLABE_UI_HEIGHT;
+  const int32_t scale = scale_w < scale_h ? scale_w : scale_h;
+  return (value * scale) / 256;
+}
 
 static void clear_face(void) {
   lv_obj_clean(s_root);
@@ -82,18 +92,19 @@ static void style_screen(void) {
 static lv_obj_t *make_label(const char *text, int32_t y, const lv_font_t *font, uint32_t color) {
   lv_obj_t *label = lv_label_create(s_root);
   lv_label_set_text(label, text);
-  lv_obj_set_width(label, ASTROLABE_UI_WIDTH - 48);
+  lv_obj_set_width(label, root_w() - ui_scale(48));
   lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_set_style_text_color(label, lv_color_hex(color), 0);
   lv_obj_set_style_text_font(label, font, 0);
-  lv_obj_align(label, LV_ALIGN_TOP_MID, 0, y);
+  lv_obj_align(label, LV_ALIGN_TOP_MID, 0, ui_scale(y));
   return label;
 }
 
 static void draw_round_mask(void) {
   lv_obj_t *mask = lv_obj_create(s_root);
   lv_obj_remove_style_all(mask);
-  lv_obj_set_size(mask, ASTROLABE_UI_WIDTH - 8, ASTROLABE_UI_HEIGHT - 8);
+  const int32_t size = root_w() < root_h() ? root_w() : root_h();
+  lv_obj_set_size(mask, size - ui_scale(8), size - ui_scale(8));
   lv_obj_center(mask);
   lv_obj_set_style_radius(mask, LV_RADIUS_CIRCLE, 0);
   lv_obj_set_style_border_width(mask, 2, 0);
@@ -103,20 +114,20 @@ static void draw_round_mask(void) {
 
 static void draw_line(lv_layer_t *layer, int32_t x0, int32_t y0, int32_t x1, int32_t y1, uint32_t color,
                       int32_t width) {
-  lv_point_t points[2] = {{x0, y0}, {x1, y1}};
+  lv_point_t points[2] = {{ui_scale_x(x0), ui_scale_y(y0)}, {ui_scale_x(x1), ui_scale_y(y1)}};
   lv_draw_line_dsc_t dsc;
   lv_draw_line_dsc_init(&dsc);
   dsc.p1 = lv_point_to_precise(&points[0]);
   dsc.p2 = lv_point_to_precise(&points[1]);
   dsc.color = lv_color_hex(color);
-  dsc.width = width;
+  dsc.width = ui_scale(width);
   dsc.round_end = 1;
   lv_draw_line(layer, &dsc);
 }
 
 static void draw_circle(lv_layer_t *layer, int32_t x, int32_t y, int32_t r, uint32_t color, bool fill,
                         int32_t width) {
-  lv_area_t area = {x - r, y - r, x + r, y + r};
+  lv_area_t area = {ui_scale_x(x - r), ui_scale_y(y - r), ui_scale_x(x + r), ui_scale_y(y + r)};
   lv_draw_rect_dsc_t dsc;
   lv_draw_rect_dsc_init(&dsc);
   dsc.radius = LV_RADIUS_CIRCLE;
@@ -124,12 +135,12 @@ static void draw_circle(lv_layer_t *layer, int32_t x, int32_t y, int32_t r, uint
   dsc.bg_color = lv_color_hex(color);
   dsc.border_opa = LV_OPA_COVER;
   dsc.border_color = lv_color_hex(color);
-  dsc.border_width = fill ? 0 : width;
+  dsc.border_width = fill ? 0 : ui_scale(width);
   lv_draw_rect(layer, &dsc, &area);
 }
 
 static void draw_rect(lv_layer_t *layer, int32_t x0, int32_t y0, int32_t x1, int32_t y1, uint32_t color) {
-  lv_area_t area = {x0, y0, x1, y1};
+  lv_area_t area = {ui_scale_x(x0), ui_scale_y(y0), ui_scale_x(x1), ui_scale_y(y1)};
   lv_draw_rect_dsc_t dsc;
   lv_draw_rect_dsc_init(&dsc);
   dsc.bg_opa = LV_OPA_COVER;
@@ -139,10 +150,10 @@ static void draw_rect(lv_layer_t *layer, int32_t x0, int32_t y0, int32_t x1, int
 
 static void draw_round_rect(lv_layer_t *layer, int32_t x0, int32_t y0, int32_t x1, int32_t y1, int32_t radius,
                             uint32_t color) {
-  lv_area_t area = {x0, y0, x1, y1};
+  lv_area_t area = {ui_scale_x(x0), ui_scale_y(y0), ui_scale_x(x1), ui_scale_y(y1)};
   lv_draw_rect_dsc_t dsc;
   lv_draw_rect_dsc_init(&dsc);
-  dsc.radius = radius;
+  dsc.radius = ui_scale(radius);
   dsc.bg_opa = LV_OPA_COVER;
   dsc.bg_color = lv_color_hex(color);
   lv_draw_rect(layer, &dsc, &area);
@@ -163,10 +174,10 @@ static void draw_arc(lv_layer_t *layer, int32_t radius, int32_t start_angle, int
   lv_draw_arc_dsc_t dsc;
   lv_draw_arc_dsc_init(&dsc);
   dsc.color = lv_color_hex(color);
-  dsc.width = width;
-  dsc.center.x = ui_cx();
-  dsc.center.y = ui_cy();
-  dsc.radius = radius;
+  dsc.width = ui_scale(width);
+  dsc.center.x = ui_scale_x(ui_cx());
+  dsc.center.y = ui_scale_y(ui_cy());
+  dsc.radius = ui_scale(radius);
   dsc.start_angle = start_angle;
   dsc.end_angle = end_angle;
   lv_draw_arc(layer, &dsc);
@@ -560,13 +571,13 @@ static void create_digital_face(void) {
   s_time_label = make_label("--:--:--", 190, &lv_font_montserrat_48, 0xf8fbff);
 
   lv_obj_t *arc = lv_arc_create(s_root);
-  lv_obj_set_size(arc, 382, 382);
+  lv_obj_set_size(arc, ui_scale(382), ui_scale(382));
   lv_obj_center(arc);
   lv_arc_set_range(arc, 0, 1000);
   lv_arc_set_value(arc, 0);
   lv_obj_remove_style(arc, NULL, LV_PART_KNOB);
-  lv_obj_set_style_arc_width(arc, 8, LV_PART_MAIN);
-  lv_obj_set_style_arc_width(arc, 8, LV_PART_INDICATOR);
+  lv_obj_set_style_arc_width(arc, ui_scale(8), LV_PART_MAIN);
+  lv_obj_set_style_arc_width(arc, ui_scale(8), LV_PART_INDICATOR);
   lv_obj_set_style_arc_color(arc, lv_color_hex(0x1c2630), LV_PART_MAIN);
   lv_obj_set_style_arc_color(arc, lv_color_hex(0xffcf66), LV_PART_INDICATOR);
   s_dial = arc;
@@ -580,7 +591,7 @@ static void create_device_face(astrolabe_ui_face_t face) {
 
   s_dial = lv_obj_create(s_root);
   lv_obj_remove_style_all(s_dial);
-  lv_obj_set_size(s_dial, ASTROLABE_UI_WIDTH, ASTROLABE_UI_HEIGHT);
+  lv_obj_set_size(s_dial, root_w(), root_h());
   lv_obj_add_event_cb(s_dial, draw_device_face_event, LV_EVENT_DRAW_MAIN, NULL);
 
   switch (face) {
@@ -658,36 +669,15 @@ static void draw_tick(lv_layer_t *layer, int32_t index) {
   const float a = ((float)index / 60.0f) * 6.28318530718f - 1.57079632679f;
   const int32_t outer = 203;
   const int32_t inner = (index % 5 == 0) ? 178 : 190;
-  lv_point_t points[2] = {
-      {ui_cx() + (int32_t)(cosf(a) * outer), ui_cy() + (int32_t)(sinf(a) * outer)},
-      {ui_cx() + (int32_t)(cosf(a) * inner), ui_cy() + (int32_t)(sinf(a) * inner)},
-  };
-
-  lv_draw_line_dsc_t dsc;
-  lv_draw_line_dsc_init(&dsc);
-  dsc.p1 = lv_point_to_precise(&points[0]);
-  dsc.p2 = lv_point_to_precise(&points[1]);
-  dsc.color = lv_color_hex(index % 5 == 0 ? 0xd7e8ee : 0x52636f);
-  dsc.width = index % 5 == 0 ? 4 : 2;
-  dsc.round_end = 1;
-  lv_draw_line(layer, &dsc);
+  draw_line(layer, ui_cx() + (int32_t)(cosf(a) * outer), ui_cy() + (int32_t)(sinf(a) * outer),
+            ui_cx() + (int32_t)(cosf(a) * inner), ui_cy() + (int32_t)(sinf(a) * inner),
+            index % 5 == 0 ? 0xd7e8ee : 0x52636f, index % 5 == 0 ? 4 : 2);
 }
 
 static void draw_hand(lv_layer_t *layer, float unit, int32_t length, uint32_t color, int32_t width) {
   const float a = unit * 6.28318530718f - 1.57079632679f;
-  lv_point_t points[2] = {
-      {ui_cx(), ui_cy()},
-      {ui_cx() + (int32_t)(cosf(a) * length), ui_cy() + (int32_t)(sinf(a) * length)},
-  };
-
-  lv_draw_line_dsc_t dsc;
-  lv_draw_line_dsc_init(&dsc);
-  dsc.p1 = lv_point_to_precise(&points[0]);
-  dsc.p2 = lv_point_to_precise(&points[1]);
-  dsc.color = lv_color_hex(color);
-  dsc.width = width;
-  dsc.round_end = 1;
-  lv_draw_line(layer, &dsc);
+  draw_line(layer, ui_cx(), ui_cy(), ui_cx() + (int32_t)(cosf(a) * length),
+            ui_cy() + (int32_t)(sinf(a) * length), color, width);
 }
 
 static void classic_draw_event(lv_event_t *event) {
@@ -707,10 +697,10 @@ static void classic_draw_event(lv_event_t *event) {
   lv_draw_arc_dsc_t arc_dsc;
   lv_draw_arc_dsc_init(&arc_dsc);
   arc_dsc.color = lv_color_hex(0x2e6f85);
-  arc_dsc.width = 3;
-  arc_dsc.center.x = ui_cx();
-  arc_dsc.center.y = ui_cy();
-  arc_dsc.radius = 213;
+  arc_dsc.width = ui_scale(3);
+  arc_dsc.center.x = ui_scale_x(ui_cx());
+  arc_dsc.center.y = ui_scale_y(ui_cy());
+  arc_dsc.radius = ui_scale(213);
   arc_dsc.start_angle = 0;
   arc_dsc.end_angle = 360;
   lv_draw_arc(layer, &arc_dsc);
@@ -722,7 +712,7 @@ static void create_classic_face(void) {
 
   s_dial = lv_obj_create(s_root);
   lv_obj_remove_style_all(s_dial);
-  lv_obj_set_size(s_dial, ASTROLABE_UI_WIDTH, ASTROLABE_UI_HEIGHT);
+  lv_obj_set_size(s_dial, root_w(), root_h());
   lv_obj_add_event_cb(s_dial, classic_draw_event, LV_EVENT_DRAW_MAIN, NULL);
 
   s_face_label = make_label("CLASSIC", 102, &lv_font_montserrat_18, 0x8e9ba8);
@@ -745,9 +735,13 @@ static void refresh_time_labels(void) {
 }
 
 void astrolabe_ui_init(void) {
-  s_root = lv_screen_active();
+  astrolabe_ui_init_in(lv_screen_active());
+}
+
+void astrolabe_ui_init_in(void *parent) {
+  s_root = (lv_obj_t *)parent;
   s_elapsed_ms = 12u * 3600u * 1000u;
-  astrolabe_ui_set_face(ASTROLABE_UI_FACE_CLASSIC_ANALOG);
+  astrolabe_ui_set_face(ASTROLABE_UI_FACE_DIGITAL_LOCAL);
 }
 
 void astrolabe_ui_set_face(astrolabe_ui_face_t face) {
@@ -773,6 +767,14 @@ void astrolabe_ui_set_face(astrolabe_ui_face_t face) {
 }
 
 astrolabe_ui_face_t astrolabe_ui_current_face(void) { return s_face; }
+
+void astrolabe_ui_next_face(void) {
+  astrolabe_ui_set_face((astrolabe_ui_face_t)((s_face + 1) % ASTROLABE_UI_FACE_COUNT));
+}
+
+void astrolabe_ui_previous_face(void) {
+  astrolabe_ui_set_face((astrolabe_ui_face_t)((s_face + ASTROLABE_UI_FACE_COUNT - 1) % ASTROLABE_UI_FACE_COUNT));
+}
 
 const char *astrolabe_ui_face_name(astrolabe_ui_face_t face) {
   if (face < 0 || face >= ASTROLABE_UI_FACE_COUNT) {

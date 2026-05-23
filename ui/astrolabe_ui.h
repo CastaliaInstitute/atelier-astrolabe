@@ -56,7 +56,10 @@ typedef enum {
 } astrolabe_ui_face_t;
 
 void astrolabe_ui_init(void);
+void astrolabe_ui_init_in(void *parent);
 void astrolabe_ui_set_face(astrolabe_ui_face_t face);
+void astrolabe_ui_next_face(void);
+void astrolabe_ui_previous_face(void);
 astrolabe_ui_face_t astrolabe_ui_current_face(void);
 const char *astrolabe_ui_face_name(astrolabe_ui_face_t face);
 const char *astrolabe_ui_face_summary(astrolabe_ui_face_t face);
