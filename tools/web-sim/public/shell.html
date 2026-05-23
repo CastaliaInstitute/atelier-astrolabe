@@ -276,18 +276,24 @@
           <option value="14">14 Radar</option>
           <option value="15">15 Faculty</option>
           <option value="16">16 Weather</option>
-          <option value="17">17 Quotes</option>
-          <option value="18">18 Live Transits</option>
-          <option value="19">19 Tarot</option>
-          <option value="20">20 Notes</option>
-          <option value="21">21 Ocarina</option>
-          <option value="22">22 Bongo</option>
-          <option value="23">23 Piano</option>
-          <option value="24">24 Level</option>
-          <option value="25">25 Tuning</option>
-          <option value="26">26 Pan Drum</option>
-          <option value="27">27 Alethiometer</option>
-          <option value="28">28 Runes</option>
+          <option value="17">17 Globe</option>
+          <option value="18">18 Sky</option>
+          <option value="19">19 Quotes</option>
+          <option value="20">20 Live Transits</option>
+          <option value="21">21 Tarot</option>
+          <option value="22">22 Notes</option>
+          <option value="23">23 Ocarina</option>
+          <option value="24">24 Bongo</option>
+          <option value="25">25 Piano</option>
+          <option value="26">26 Level</option>
+          <option value="27">27 Tuning</option>
+          <option value="28">28 Pan Drum</option>
+          <option value="29">29 Alethiometer</option>
+          <option value="30">30 Runes</option>
+          <option value="31">31 Orientation</option>
+          <option value="32">32 Luopan</option>
+          <option value="33">33 Question of Day</option>
+          <option value="34">34 Focus Timer</option>
         </select>
         <button type="button" id="next-face" aria-label="Next face" disabled>›</button>
       </div>
@@ -359,9 +365,9 @@
 
       function updateAssetOverlays(face) {
         overlays.faculty.classList.toggle("is-visible", face === 15);
-        overlays.quote.classList.toggle("is-visible", face === 17);
-        overlays.tarot.classList.toggle("is-visible", face === 19);
-        if (face === 19) {
+        overlays.quote.classList.toggle("is-visible", face === 19);
+        overlays.tarot.classList.toggle("is-visible", face === 21);
+        if (face === 21) {
           const card = tarotCards[tarotIndexForToday()];
           overlays.tarotCard.src = `assets/tarot/${card}.png`;
         }

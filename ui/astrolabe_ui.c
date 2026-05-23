@@ -38,6 +38,8 @@ static const face_meta_t k_faces[ASTROLABE_UI_FACE_COUNT] = {
     {"Radar", "NEARBY", "BLE peer radar", 0x6dff91},
     {"Faculty", "ASK FACULTY", "recent conversations", 0xffe08a},
     {"Weather", "72 deg", "temp + humidity rings", 0x63b3ff},
+    {"Globe", "day / night", "spinning Earth", 0x78d6ff},
+    {"Sky", "constellations", "drag bezel time", 0x9fb6ff},
     {"Quotes", "quote of the day", "tiny faculty bust", 0xd9c7ff},
     {"Transits", "LIVE TRANSITS", "4-day motion + countdown", 0xa4e3ff},
     {"Tarot", "0  THE FOOL", "daily major", 0xd99a5f},
@@ -50,6 +52,11 @@ static const face_meta_t k_faces[ASTROLABE_UI_FACE_COUNT] = {
     {"PanDrum", "PanDrum", "14-note handpan", 0xb8e0ff},
     {"Alethiometer", "ALETHIOMETER", "36 symbols / 4 needles", 0xf0c36a},
     {"Runes", "RUNES", "past  present  future", 0xc1d6a4},
+    {"Orientation", "ORIENTATION", "relative heading", 0x9bd4ff},
+    {"Luopan", "LUOPAN", "feng-shui dial", 0xf0c36a},
+    {"Question", "QUESTION", "daily prompt", 0xe3b6ff},
+    {"Focus", "FOCUS", "pomodoro timer", 0x8ff0b8},
+    {"Biometrics", "sensor inference", "WiFi BLE IMU audio", 0x5ee0ca},
 };
 
 static int32_t ui_cx(void) { return ASTROLABE_UI_WIDTH / 2; }
@@ -359,6 +366,25 @@ static void draw_device_face_event(lv_event_t *event) {
   case ASTROLABE_UI_FACE_WEATHER:
     draw_weather_demo(layer);
     break;
+  case ASTROLABE_UI_FACE_GLOBE:
+    draw_circle(layer, cx, cy, 168, 0x0c3a70, true, 0);
+    draw_circle(layer, cx, cy, 168, 0x78d6ff, false, 3);
+    draw_arc(layer, 168, 96 + (int32_t)(spin * 360.0f), 264 + (int32_t)(spin * 360.0f), 0x071426, 84);
+    for (int32_t i = 0; i < 7; ++i) draw_arc(layer, 110 + i * 9, 210 + i * 19, 272 + i * 17, 0x3cb371, 8);
+    draw_arc(layer, 206, 0, (int32_t)(spin * 360.0f), 0x78d6ff, 4);
+    break;
+  case ASTROLABE_UI_FACE_SKY:
+    draw_circle(layer, cx, cy, 178, 0x10182e, true, 0);
+    draw_circle(layer, cx, cy, 178, 0x405078, false, 2);
+    draw_circle(layer, cx, cy, 118, 0x223052, false, 1);
+    for (int32_t i = 0; i < 24; ++i) {
+      const float a = (float)i * 15.0f + spin * 360.0f;
+      draw_radial_line(layer, a, 80 + (i % 5) * 16, 82 + (i % 5) * 16, 0xdce8ff, i % 6 == 0 ? 4 : 2);
+    }
+    draw_line(layer, cx - 96, cy - 28, cx - 42, cy - 66, 0x9fb6ff, 2);
+    draw_line(layer, cx - 42, cy - 66, cx + 24, cy - 24, 0x9fb6ff, 2);
+    draw_line(layer, cx + 24, cy - 24, cx + 82, cy - 58, 0x9fb6ff, 2);
+    break;
   case ASTROLABE_UI_FACE_QUOTES:
     draw_rect(layer, 0, 316, ASTROLABE_UI_WIDTH, ASTROLABE_UI_HEIGHT, 0x16132a);
     draw_circle(layer, cx, 170, 72, 0xd9c7ff, false, 3);
@@ -443,6 +469,37 @@ static void draw_device_face_event(lv_event_t *event) {
       draw_line(layer, x - 14, cy - 28, x + 14, cy + 28, 0xc1d6a4, 4);
       draw_line(layer, x - 2, cy - 2, x + 24, cy - 26, 0xc1d6a4, 4);
     }
+    break;
+  case ASTROLABE_UI_FACE_ORIENTATION:
+  case ASTROLABE_UI_FACE_LUOPAN:
+    draw_circle(layer, cx, cy, 190, s_face == ASTROLABE_UI_FACE_LUOPAN ? 0xf0c36a : 0x9bd4ff, false, 3);
+    for (int32_t i = 0; i < 24; ++i) draw_radial_line(layer, i * 15.0f, i % 3 == 0 ? 158 : 174, 190,
+                                                       s_face == ASTROLABE_UI_FACE_LUOPAN ? 0xf0c36a : 0x9bd4ff, 1);
+    draw_radial_line(layer, spin * 360.0f, 0, 150, 0xf8fbff, 4);
+    draw_circle(layer, cx, cy, 22, 0xf8fbff, true, 0);
+    break;
+  case ASTROLABE_UI_FACE_QUESTION_OF_DAY:
+    draw_circle(layer, cx, cy, 148, 0x241a34, true, 0);
+    draw_circle(layer, cx, cy, 102, 0xe3b6ff, false, 4);
+    draw_arc(layer, 48, 205, 338, 0xf8e8ff, 7);
+    draw_line(layer, cx + 18, cy - 34, cx - 4, cy + 12, 0xf8e8ff, 7);
+    draw_circle(layer, cx, cy + 54, 6, 0xf8e8ff, true, 0);
+    break;
+  case ASTROLABE_UI_FACE_FOCUS_TIMER:
+    draw_arc(layer, 182, -90, -90 + (int32_t)(spin * 360.0f), 0x8ff0b8, 18);
+    draw_circle(layer, cx, cy, 118, 0x102018, true, 0);
+    draw_circle(layer, cx, cy, 74, 0x8ff0b8, false, 4);
+    break;
+  case ASTROLABE_UI_FACE_BIOMETRICS:
+    draw_circle(layer, cx, cy, 172, 0x202832, false, 2);
+    draw_circle(layer, cx, cy, 126, 0x18202a, false, 2);
+    draw_circle(layer, cx, cy, 64 + (int32_t)(spin * 12.0f), 0x5ee0ca, true, 0);
+    draw_circle(layer, cx, cy, 78, 0xeefcf6, false, 2);
+    draw_radial_line(layer, 0, 76, 150, 0x5ee0ca, 3);
+    draw_radial_line(layer, 90, 76, 150, 0x72aeff, 3);
+    draw_radial_line(layer, 180, 76, 150, 0xeec66c, 3);
+    draw_radial_line(layer, 270, 76, 150, 0xff7692, 3);
+    draw_orbit_points(layer, 4, 150, 0xf8fbff, 10);
     break;
   default:
     draw_arc(layer, 188, 0, (int32_t)(spin * 360.0f), k_faces[s_face].accent, 8);
@@ -537,6 +594,10 @@ static void create_device_face(astrolabe_ui_face_t face) {
   case ASTROLABE_UI_FACE_LIVE_TRANSITS:
     s_face_label = make_label("Moon trine Venus", 30, &lv_font_montserrat_22, meta->accent);
     s_hint_label = make_label("exact in 2h 18m  -  4-day motion", 56, &lv_font_montserrat_16, 0x8e9ba8);
+    break;
+  case ASTROLABE_UI_FACE_BIOMETRICS:
+    s_face_label = make_label("BIOMETRICS", 36, &lv_font_montserrat_22, meta->accent);
+    s_hint_label = make_label("coh 72%  quality 88%", 418, &lv_font_montserrat_16, 0x8e9ba8);
     break;
   default:
     s_face_label = make_label(meta->line1[0] ? meta->line1 : meta->name, 42, &lv_font_montserrat_22, meta->accent);
