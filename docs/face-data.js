@@ -492,6 +492,25 @@
       interactions: "Tap the center to draw or focus. Swipe up and down browses cards.",
     },
     {
+      slug: "lenormand",
+      title: "Lenormand",
+      kicker: "Thirty-six practical symbols",
+      summary:
+        "A daily Petit Lenormand card face using the bundled monochrome Noto Emoji symbol set.",
+      inquiry: "What small practical signal is the day placing in front of me?",
+      questions: [
+        "Which card is active today?",
+        "What plain-world cue does this symbol point toward?",
+        "What changes if I read it as advice rather than fate?",
+      ],
+      use: [
+        "Read the daily card and keyword as a compact prompt.",
+        "Swipe through the 36-card deck when browsing is useful.",
+        "Tap to return from deck browsing to the daily card.",
+      ],
+      interactions: "Swipe up and down browses cards. Tap returns to the daily card.",
+    },
+    {
       slug: "notes",
       title: "Notes",
       kicker: "Commonplace capture without a phone",
@@ -684,6 +703,7 @@
     synastry: "lunasay",
     cycle: "lunasay",
     tarot: "lunasay",
+    lenormand: "lunasay",
 
     spotify: "ocarina",
     spectrum: "ocarina",

@@ -20,6 +20,7 @@
 #include "faces/focus/pm_face_focus.h"
 #include "faces/globe/pm_face_globe.h"
 #include "faces/level/pm_face_level.h"
+#include "faces/lenormand/pm_face_lenormand.h"
 #include "faces/live_transits/pm_face_live_transits.h"
 #include "faces/luopan/pm_face_luopan.h"
 #include "faces/moon/pm_face_moon.h"
@@ -77,6 +78,7 @@ static const ClockFace k_face_dial_order[] = {
     ClockFace::LiveTransits,
     ClockFace::Synastry,
     ClockFace::Tarot,
+    ClockFace::Lenormand,
     ClockFace::Runes,
     ClockFace::Alethiometer,
 
@@ -341,6 +343,7 @@ void pm_faces_draw(float thinking_progress) {
       s_clock_face != ClockFace::Piano && s_clock_face != ClockFace::Tuning &&
       s_clock_face != ClockFace::Level && s_clock_face != ClockFace::Orientation &&
       s_clock_face != ClockFace::Luopan && s_clock_face != ClockFace::Alethiometer &&
+      s_clock_face != ClockFace::Lenormand &&
       s_clock_face != ClockFace::Runes && s_clock_face != ClockFace::QuestionOfDay &&
       s_clock_face != ClockFace::FocusTimer) {
 #if MYNAH_HUE_HOME_ONLY
@@ -432,6 +435,9 @@ void pm_faces_draw(float thinking_progress) {
     case ClockFace::Tarot:
       pm_face_tarot_draw(&tm, pm_time_valid());
       break;
+    case ClockFace::Lenormand:
+      pm_face_lenormand_draw(&tm, pm_time_valid());
+      break;
     case ClockFace::Notes:
       pm_face_notes_draw();
       break;
@@ -491,7 +497,8 @@ void pm_faces_draw(float thinking_progress) {
                         s_clock_face == ClockFace::PanDrum || s_clock_face == ClockFace::Piano ||
                         s_clock_face == ClockFace::Level || s_clock_face == ClockFace::Orientation ||
                         s_clock_face == ClockFace::Luopan || s_clock_face == ClockFace::Tuning ||
-                        s_clock_face == ClockFace::Alethiometer || s_clock_face == ClockFace::Runes ||
+                        s_clock_face == ClockFace::Alethiometer || s_clock_face == ClockFace::Lenormand ||
+                        s_clock_face == ClockFace::Runes ||
                         s_clock_face == ClockFace::QuestionOfDay || s_clock_face == ClockFace::FocusTimer)
                            ? 352
                            : 320;
@@ -508,7 +515,7 @@ void pm_faces_draw(float thinking_progress) {
       s_clock_face != ClockFace::Radar && s_clock_face != ClockFace::Biometrics && s_clock_face != ClockFace::Faculty &&
       s_clock_face != ClockFace::Weather && s_clock_face != ClockFace::Quotes &&
       s_clock_face != ClockFace::Globe && s_clock_face != ClockFace::Sky &&
-      s_clock_face != ClockFace::Tarot && s_clock_face != ClockFace::Notes &&
+      s_clock_face != ClockFace::Tarot && s_clock_face != ClockFace::Lenormand && s_clock_face != ClockFace::Notes &&
       s_clock_face != ClockFace::Ocarina && s_clock_face != ClockFace::Bongo &&
       s_clock_face != ClockFace::PanDrum && s_clock_face != ClockFace::Piano &&
       s_clock_face != ClockFace::Level && s_clock_face != ClockFace::Orientation &&
@@ -556,6 +563,7 @@ bool pm_faces_banner_low(void) {
          f == ClockFace::Ocarina || f == ClockFace::Bongo || f == ClockFace::PanDrum ||
          f == ClockFace::Piano || f == ClockFace::Level || f == ClockFace::Orientation ||
          f == ClockFace::Luopan || f == ClockFace::Tuning || f == ClockFace::Alethiometer ||
+         f == ClockFace::Lenormand ||
          f == ClockFace::Runes || f == ClockFace::QuestionOfDay || f == ClockFace::FocusTimer;
 }
 
@@ -569,6 +577,7 @@ bool pm_faces_local_hm_changed(int hour, int min) {
       s_clock_face == ClockFace::Faculty || s_clock_face == ClockFace::Weather ||
       s_clock_face == ClockFace::Globe || s_clock_face == ClockFace::Sky ||
       s_clock_face == ClockFace::Quotes || s_clock_face == ClockFace::Tarot ||
+      s_clock_face == ClockFace::Lenormand ||
       s_clock_face == ClockFace::Notes || s_clock_face == ClockFace::Ocarina ||
       s_clock_face == ClockFace::Bongo || s_clock_face == ClockFace::PanDrum ||
       s_clock_face == ClockFace::Piano || s_clock_face == ClockFace::Level ||

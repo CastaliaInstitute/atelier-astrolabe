@@ -72,6 +72,8 @@ enum class ClockFace : uint8_t {
   FocusTimer,
   /** WiFi + BLE + IMU + audio signal model for wellness-style biometric inference. */
   Biometrics,
+  /** Daily Lenormand card; swipe up/down browses the 36-card deck. */
+  Lenormand,
   kNumFaces,
 };
 

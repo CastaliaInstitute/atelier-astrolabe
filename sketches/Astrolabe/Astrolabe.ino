@@ -58,6 +58,7 @@
 #include "faces/spotify/pm_face_spotify.h"
 #include "faces/calcifer/pm_face_calcifer.h"
 #include "faces/level/pm_face_level.h"
+#include "faces/lenormand/pm_face_lenormand.h"
 #include "faces/luopan/pm_face_luopan.h"
 #include "faces/weather/pm_face_weather.h"
 #include "faces/settings/pm_face_settings_wifi.h"
@@ -726,24 +727,27 @@ static bool face_index_from_name(const char *name, int *out) {
            {"chakra", 11},     {"bowl", 12},        {"tibetan", 12},     {"tibetan_bowl", 12},
            {"rocket", 13},     {"launch", 13},      {"launchclock", 13}, {"radar", 14},
            {"presence", 14},   {"peers", 14},       {"locator", 14},     {"locations", 14},
-           {"faculty", 15},    {"fac", 15},         {"weather", 16},    {"quotes", 17},
-           {"quote", 17},      {"transits", 18},   {"live_transits", 18},
-           {"live-transits", 18}, {"live", 18},      {"tarot", 19},      {"cards", 19},
-           {"card", 19},       {"arcana", 19},       {"notes", 20},      {"note", 20},
-           {"commonplace", 20}, {"notebook", 20},    {"ocarina", 21},    {"ocarina_face", 21},
-           {"flute", 21},      {"bongo", 22},
-           {"drum", 22},       {"drums", 22},        {"conga", 22},      {"piano", 23},
-           {"keys", 23},       {"keyboard", 23},    {"level", 24},      {"bubble", 24},
-           {"bubble_level", 24}, {"imu", 24},        {"tuning", 25},     {"tuner", 25},
-           {"staff", 25},      {"pitch", 25},       {"pandrum", 26},    {"pan_drum", 26},
-           {"pan-drum", 26},    {"pandrom", 26},     {"pandrom_face", 26}, {"handpan", 26},
-           {"hang", 26},        {"alethiometer", 27}, {"aleth", 27},     {"compass", 27},
-           {"golden_compass", 27}, {"runes", 28},     {"rune", 28},      {"futhark", 28},
-           {"fortune", 28},      {"orientation", 29},  {"orient", 29},    {"heading", 29},
-           {"relative_heading", 29}, {"luopan", 30},   {"fengshui", 30},  {"feng_shui", 30},
-           {"feng-shui", 30},    {"qotd", 31},       {"question", 31},   {"question_day", 31},
-           {"question-of-day", 31}, {"question_of_the_day", 31},
-           {"focus", 32},        {"timer", 32},       {"pomodoro", 32},   {"productivity", 32}};
+           {"faculty", 15},    {"fac", 15},         {"weather", 16},    {"globe", 17},
+           {"earth", 17},      {"sky", 18},         {"stars", 18},      {"quotes", 19},
+           {"quote", 19},      {"transits", 20},    {"live_transits", 20},
+           {"live-transits", 20}, {"live", 20},      {"tarot", 21},      {"cards", 21},
+           {"card", 21},       {"arcana", 21},      {"notes", 22},      {"note", 22},
+           {"commonplace", 22}, {"notebook", 22},   {"ocarina", 23},    {"ocarina_face", 23},
+           {"flute", 23},      {"bongo", 24},
+           {"drum", 24},       {"drums", 24},       {"conga", 24},      {"piano", 25},
+           {"keys", 25},       {"keyboard", 25},    {"level", 26},      {"bubble", 26},
+           {"bubble_level", 26}, {"imu", 26},       {"tuning", 27},     {"tuner", 27},
+           {"staff", 27},      {"pitch", 27},      {"pandrum", 28},    {"pan_drum", 28},
+           {"pan-drum", 28},   {"pandrom", 28},    {"pandrom_face", 28}, {"handpan", 28},
+           {"hang", 28},       {"alethiometer", 29}, {"aleth", 29},     {"compass", 29},
+           {"golden_compass", 29}, {"runes", 30},  {"rune", 30},       {"futhark", 30},
+           {"fortune", 30},    {"orientation", 31}, {"orient", 31},    {"heading", 31},
+           {"relative_heading", 31}, {"luopan", 32}, {"fengshui", 32}, {"feng_shui", 32},
+           {"feng-shui", 32},  {"qotd", 33},       {"question", 33},   {"question_day", 33},
+           {"question-of-day", 33}, {"question_of_the_day", 33},
+           {"focus", 34},      {"timer", 34},      {"pomodoro", 34},   {"productivity", 34},
+           {"biometrics", 35}, {"bio", 35},        {"signals", 35},    {"lenormand", 36},
+           {"len", 36},        {"oracle", 36},     {"petit_lenormand", 36}};
   for (const auto &e : k) {
     if (strcasecmp(name, e.n) == 0) {
       *out = e.idx;
@@ -842,6 +846,9 @@ static const FaceTourInfo k_face_tour[] = {
     {"biometrics", "WiFi, BLE, IMU, and audio inference face",
      "the inferred presence, breath, motion, arousal, grounding, and coherence parameters",
      "sensor model is sampling", "some sensor inputs are unavailable", false, false},
+    {"lenormand", "daily 36-card Lenormand oracle using Noto Emoji symbols",
+     "the active Lenormand card and its practical keyword",
+     "drawing local Lenormand deck", "drawing local Lenormand deck", false, false},
 };
 static_assert(sizeof(k_face_tour) / sizeof(k_face_tour[0]) == static_cast<size_t>(ClockFace::kNumFaces),
               "k_face_tour must match ClockFace order");
@@ -1227,6 +1234,21 @@ static bool face_voice_build_prompt(const FaceTourInfo *info, int idx, char *msg
                "reading for the watch face: one omen, one counsel, and one image. Make it reflective, not "
                "deterministic.",
                tarot_idx, pm_face_tarot_title(tarot_idx), pm_face_tarot_manifest_url());
+      break;
+    }
+    case ClockFace::Lenormand: {
+      struct tm local = {};
+      const bool valid = pm_time_valid();
+      if (valid) {
+        pm_time_local(&local);
+      }
+      const int lenormand_idx = pm_face_lenormand_index(&local, valid);
+      snprintf(msg, msg_cap,
+               "Face: lenormand. Active card: %02d %s. Keyword: %s. Give a concise Lenormand reading "
+               "for the watch face: practical signal, near-term counsel, and one plain image. Keep it "
+               "reflective, not deterministic.",
+               lenormand_idx + 1, pm_face_lenormand_title(lenormand_idx),
+               pm_face_lenormand_keyword(lenormand_idx));
       break;
     }
     case ClockFace::Notes:
@@ -1834,21 +1856,26 @@ static void poll_serial_birth_commands() {
           Serial.println("qa: 14 radar");
           Serial.println("qa: 15 faculty");
           Serial.println("qa: 16 weather");
-          Serial.println("qa: 17 quotes");
-          Serial.println("qa: 18 transits");
-          Serial.println("qa: 19 tarot");
-          Serial.println("qa: 20 notes");
-          Serial.println("qa: 21 ocarina");
-          Serial.println("qa: 22 bongo");
-          Serial.println("qa: 23 piano");
-          Serial.println("qa: 24 level");
-          Serial.println("qa: 25 tuning");
-          Serial.println("qa: 26 pandrum");
-          Serial.println("qa: 27 alethiometer");
-          Serial.println("qa: 28 runes");
-          Serial.println("qa: 29 orientation");
-          Serial.println("qa: 30 luopan");
-          Serial.println("qa: 31 question");
+          Serial.println("qa: 17 globe");
+          Serial.println("qa: 18 sky");
+          Serial.println("qa: 19 quotes");
+          Serial.println("qa: 20 transits");
+          Serial.println("qa: 21 tarot");
+          Serial.println("qa: 22 notes");
+          Serial.println("qa: 23 ocarina");
+          Serial.println("qa: 24 bongo");
+          Serial.println("qa: 25 piano");
+          Serial.println("qa: 26 level");
+          Serial.println("qa: 27 tuning");
+          Serial.println("qa: 28 pandrum");
+          Serial.println("qa: 29 alethiometer");
+          Serial.println("qa: 30 runes");
+          Serial.println("qa: 31 orientation");
+          Serial.println("qa: 32 luopan");
+          Serial.println("qa: 33 question");
+          Serial.println("qa: 34 focus");
+          Serial.println("qa: 35 biometrics");
+          Serial.println("qa: 36 lenormand");
         } else if (strncmp(args, "tour", 4) == 0 && (args[4] == '\0' || args[4] == ' ')) {
           handle_tour_command(args + 4);
         } else if (!pm_qa_inject_command(args)) {
@@ -2414,6 +2441,25 @@ void loop() {
       snprintf(g_gesture_banner, sizeof(g_gesture_banner), "tarot: daily");
       g_clock_repaint_pending = true;
       continue;
+    } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Lenormand &&
+               (ge.kind == PmGestureKind::SwipeUp || ge.kind == PmGestureKind::SwipeDown)) {
+      pm_face_lenormand_cycle(ge.kind == PmGestureKind::SwipeUp ? 1 : -1);
+      struct tm local = {};
+      const bool valid = pm_time_valid();
+      if (valid) {
+        pm_time_local(&local);
+      }
+      const int lenormand_idx = pm_face_lenormand_index(&local, valid);
+      snprintf(g_gesture_banner, sizeof(g_gesture_banner), "len %02d %.24s", lenormand_idx + 1,
+               pm_face_lenormand_title(lenormand_idx));
+      g_clock_repaint_pending = true;
+      continue;
+    } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Lenormand &&
+               ge.kind == PmGestureKind::Tap) {
+      pm_face_lenormand_reset_daily();
+      snprintf(g_gesture_banner, sizeof(g_gesture_banner), "lenormand: daily");
+      g_clock_repaint_pending = true;
+      continue;
     } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Rocket &&
                (ge.kind == PmGestureKind::SwipeUp || ge.kind == PmGestureKind::SwipeDown)) {
       if (pm_face_rocket_cycle_launch(ge.kind == PmGestureKind::SwipeUp ? 1 : -1)) {
@@ -2723,6 +2769,7 @@ void loop() {
           pm_faces_current() != ClockFace::Faculty && pm_faces_current() != ClockFace::Quotes &&
           pm_faces_current() != ClockFace::Globe && pm_faces_current() != ClockFace::Sky &&
           pm_faces_current() != ClockFace::LiveTransits && pm_faces_current() != ClockFace::Tarot &&
+          pm_faces_current() != ClockFace::Lenormand &&
           pm_faces_current() != ClockFace::Ocarina && pm_faces_current() != ClockFace::Bongo &&
           pm_faces_current() != ClockFace::Piano && pm_faces_current() != ClockFace::Level &&
           pm_faces_current() != ClockFace::PanDrum && pm_faces_current() != ClockFace::Alethiometer &&

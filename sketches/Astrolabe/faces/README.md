@@ -33,6 +33,7 @@ Each face is a self-contained module under `faces/<name>/`. The app shell (`Astr
 | `piano/` | One-octave circular piano with white keys outside and black keys inside |
 | `level/` | IMU rolling-sphere level; top of the display is forward |
 | `alethiometer/` | Golden compass face: 36 Noto Emoji symbols, three question needles, one answer needle |
+| `lenormand/` | Daily 36-card Lenormand face using the shared monochrome Noto Emoji glyphs |
 
 ## Public API per face
 

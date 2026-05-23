@@ -13,6 +13,7 @@
 #include "faces/faculty/pm_face_faculty.h"
 #include "faces/focus/pm_face_focus.h"
 #include "faces/level/pm_face_level.h"
+#include "faces/lenormand/pm_face_lenormand.h"
 #include "faces/live_transits/pm_face_live_transits.h"
 #include "faces/moon/pm_face_moon.h"
 #include "faces/notes/pm_face_notes.h"
