@@ -39,8 +39,10 @@ void pm_face_luopan_draw(void) {
   const uint16_t red = pm_gfx->color565(178, 44, 38);
   const uint16_t red2 = pm_gfx->color565(96, 28, 24);
   const uint16_t gold = pm_gfx->color565(214, 159, 82);
+  const uint16_t jade = pm_gfx->color565(80, 154, 116);
   const uint16_t ink = pm_gfx->color565(238, 219, 176);
   const uint16_t dim = pm_gfx->color565(138, 112, 82);
+  const bool have_gyro = pm_motion_has_6dof();
   pm_gfx->fillScreen(bg);
 
   for (int r = 180; r >= 55; r -= 25) {
@@ -79,12 +81,14 @@ void pm_face_luopan_draw(void) {
   const int hx = cx + static_cast<int>(lrintf(cosf(a) * 172.f));
   const int hy = cy + static_cast<int>(lrintf(sinf(a) * 172.f));
   pm_gfx->drawLine(cx, cy, hx, hy, red);
+  pm_gfx->fillCircle(hx, hy, 5, have_gyro ? red : dim);
   pm_gfx->fillCircle(cx, cy, 30, bg);
   pm_gfx->drawCircle(cx, cy, 31, gold);
   pm_face_draw_centered_line("LUOPAN", cy - 8, gold, 1, 1);
   char buf[32];
   snprintf(buf, sizeof(buf), "%03d rel", static_cast<int>(lrintf(yaw)) % 360);
-  pm_face_draw_centered_line(pm_motion_has_6dof() ? buf : "no IMU", cy + 12, ink, 1, 1);
+  pm_face_draw_centered_line(have_gyro ? buf : "relative dial", cy + 12, ink, 1, 1);
   pm_face_draw_centered_line("FENG SHUI DIAL", 34, gold, 1, 1);
-  pm_face_draw_centered_line("relative - set front by hand", 386, dim, 1, 1);
+  pm_face_draw_centered_line(have_gyro ? "face north + tap to set" : "no magnetometer - face north", 386,
+                             have_gyro ? jade : dim, 1, 1);
 }

@@ -1,6 +1,6 @@
 {
   "sketch": "Astrolabe",
-  "face_count": 26,
+  "face_count": 40,
   "center": [233, 233],
   "faces": [
     {
@@ -211,6 +211,13 @@
       "source_paths": ["sketches/Astrolabe/faces/level", "sketches/Astrolabe/pm_motion.cpp", "sketches/Astrolabe/pm_motion.h"],
       "gestures": ["swipe_left", "swipe_right", "tap:233,233"],
       "buttons": ["boot"]
+    },
+    {
+      "id": 32,
+      "name": "luopan",
+      "source_paths": ["sketches/Astrolabe/faces/luopan", "sketches/Astrolabe/pm_motion.cpp", "sketches/Astrolabe/pm_motion.h"],
+      "gestures": ["tap:233,233", "swipe_left", "swipe_right"],
+      "buttons": []
     },
     {
       "id": 25,

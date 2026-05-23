@@ -649,6 +649,25 @@
       interactions: "Tilt the device. BOOT speaks the correction. Swipe left or right navigates.",
     },
     {
+      slug: "luopan",
+      title: "Luopan",
+      kicker: "Relative alignment without magnetic north",
+      summary:
+        "A feng-shui luopan dial with bagua markers, 24 mountains, and a simple face-north calibration step.",
+      inquiry: "What changes when I choose north before I read the room?",
+      questions: [
+        "Which way is north from this room?",
+        "What changes when the dial is read as calibrated relative alignment?",
+        "Which mountain or trigram frames this placement?",
+      ],
+      use: [
+        "Face the top of the display north.",
+        "Tap to set that direction as relative north when the 6DOF IMU is available.",
+        "Read the dial as a spatial ritual; the hardware has no magnetometer.",
+      ],
+      interactions: "Face north, then tap to calibrate relative north. Swipe left or right navigates.",
+    },
+    {
       slug: "tuning",
       title: "Tuning",
       kicker: "Pitch as a moving staff",
@@ -783,6 +802,7 @@
 
     radar: "luopan",
     level: "luopan",
+    luopan: "luopan",
     rocket: "luopan",
     alethiometer: "luopan",
 

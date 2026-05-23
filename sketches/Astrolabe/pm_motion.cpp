@@ -112,6 +112,11 @@ void pm_motion_tick(uint32_t now_ms) {
 
 float pm_motion_yaw_deg(void) { return s_yaw_deg; }
 
+void pm_motion_zero_yaw(void) {
+  s_yaw_deg = 0.f;
+  s_last_ms = millis();
+}
+
 bool pm_motion_accel_norm(float *x, float *y, float *z) {
   if (!s_has_gyro || !x || !y || !z) {
     return false;

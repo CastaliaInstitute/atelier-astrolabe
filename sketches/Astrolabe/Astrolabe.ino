@@ -2358,6 +2358,12 @@ void loop() {
       snprintf(g_gesture_banner, sizeof(g_gesture_banner), "focus: %s", pm_face_focus_mode_label());
       g_clock_repaint_pending = true;
       continue;
+    } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Luopan &&
+               ge.kind == PmGestureKind::Tap) {
+      pm_motion_zero_yaw();
+      snprintf(g_gesture_banner, sizeof(g_gesture_banner), "luopan: north set");
+      g_clock_repaint_pending = true;
+      continue;
     } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Spotify &&
                (ge.kind == PmGestureKind::SwipeUp || ge.kind == PmGestureKind::SwipeDown ||
                 ge.kind == PmGestureKind::Tap || ge.kind == PmGestureKind::DoubleTap ||
