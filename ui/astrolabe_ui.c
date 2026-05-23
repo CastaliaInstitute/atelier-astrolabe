@@ -50,6 +50,7 @@ static const face_meta_t k_faces[ASTROLABE_UI_FACE_COUNT] = {
     {"PanDrum", "PanDrum", "14-note handpan", 0xb8e0ff},
     {"Alethiometer", "ALETHIOMETER", "36 symbols / 4 needles", 0xf0c36a},
     {"Runes", "RUNES", "past  present  future", 0xc1d6a4},
+    {"Biometrics", "sensor inference", "WiFi BLE IMU audio", 0x5ee0ca},
 };
 
 static int32_t ui_cx(void) { return ASTROLABE_UI_WIDTH / 2; }
@@ -443,6 +444,17 @@ static void draw_device_face_event(lv_event_t *event) {
       draw_line(layer, x - 14, cy - 28, x + 14, cy + 28, 0xc1d6a4, 4);
       draw_line(layer, x - 2, cy - 2, x + 24, cy - 26, 0xc1d6a4, 4);
     }
+    break;
+  case ASTROLABE_UI_FACE_BIOMETRICS:
+    draw_circle(layer, cx, cy, 172, 0x202832, false, 2);
+    draw_circle(layer, cx, cy, 126, 0x18202a, false, 2);
+    draw_circle(layer, cx, cy, 70, 0x5ee0ca, true, 0);
+    draw_circle(layer, cx, cy, 82, 0xeefcf6, false, 2);
+    draw_radial_line(layer, 0, 76, 150, 0x5ee0ca, 3);
+    draw_radial_line(layer, 90, 76, 150, 0x72aeff, 3);
+    draw_radial_line(layer, 180, 76, 150, 0xeec66c, 3);
+    draw_radial_line(layer, 270, 76, 150, 0xff7692, 3);
+    draw_orbit_points(layer, 4, 150, 0xf8fbff, 10);
     break;
   default:
     draw_arc(layer, 188, 0, (int32_t)(spin * 360.0f), k_faces[s_face].accent, 8);

@@ -20,6 +20,7 @@ static bool face_is_astrolabe(ClockFace face) {
     case ClockFace::FocusTimer:
     case ClockFace::Weather:
     case ClockFace::Radar:
+    case ClockFace::Biometrics:
     case ClockFace::Level:
     case ClockFace::Rocket:
       return true;

@@ -41,6 +41,7 @@
 #include "faces/shared/pm_face_draw.h"
 #include "faces/alethiometer/pm_face_alethiometer.h"
 #include "faces/astrology/pm_face_astrology.h"
+#include "faces/biometrics/pm_face_biometrics.h"
 #include "faces/bongo/pm_face_bongo.h"
 #include "faces/chakra/pm_face_chakra.h"
 #include "faces/ocarina/pm_face_ocarina.h"
@@ -729,7 +730,8 @@ static bool face_index_from_name(const char *name, int *out) {
            {"relative_heading", 29}, {"luopan", 30},   {"fengshui", 30},  {"feng_shui", 30},
            {"feng-shui", 30},    {"qotd", 31},       {"question", 31},   {"question_day", 31},
            {"question-of-day", 31}, {"question_of_the_day", 31},
-           {"focus", 32},        {"timer", 32},       {"pomodoro", 32},   {"productivity", 32}};
+           {"focus", 32},        {"timer", 32},       {"pomodoro", 32},   {"productivity", 32},
+           {"biometrics", 33},   {"bio", 33},         {"sensors", 33},    {"wellness", 33}};
   for (const auto &e : k) {
     if (strcasecmp(name, e.n) == 0) {
       *out = e.idx;
@@ -819,7 +821,12 @@ static const FaceTourInfo k_face_tour[] = {
     {"focus", "Pomodoro productivity timer with focus and break presets",
      "the active focus timer and session state",
      "local timer is available", "local timer is available", false, false},
+    {"biometrics", "WiFi, BLE, IMU, and audio inference face",
+     "the inferred presence, breath, motion, arousal, grounding, and coherence parameters",
+     "sensor model is sampling", "some sensor inputs are unavailable", false, false},
 };
+static_assert(sizeof(k_face_tour) / sizeof(k_face_tour[0]) == static_cast<size_t>(ClockFace::kNumFaces),
+              "k_face_tour must match ClockFace order");
 
 static const FaceTourInfo *face_tour_info(int idx) {
   if (idx < 0 || idx >= static_cast<int>(sizeof(k_face_tour) / sizeof(k_face_tour[0]))) {
@@ -1118,6 +1125,21 @@ static bool face_voice_build_prompt(const FaceTourInfo *info, int idx, char *msg
                "readout.",
                static_cast<unsigned>(pm_presence_peer_count()), static_cast<unsigned>(pm_heap_internal_largest()));
       break;
+    case ClockFace::Biometrics: {
+      char state[360];
+      pm_face_biometrics_format_prompt_state(state, sizeof(state));
+      pm_face_biometrics_pause_ble_for_voice();
+      snprintf(sys, sys_cap,
+               "You are the Mynah Astrolabe biometrics fortune teller. The watch supplies inferred wellness "
+               "parameters from WiFi RSSI, BLE presence, IMU motion, and microphone audio features. Treat them "
+               "as playful, non-medical signals: never diagnose, identify a person, or claim clinical accuracy. "
+               "Offer one omen, one counsel, and one vivid image under 30 seconds.");
+      snprintf(msg, msg_cap,
+               "Face: biometrics. Inferred sensor state: %s. Give a concise fortune-teller reading from these "
+               "parameters.",
+               state);
+      break;
+    }
     case ClockFace::Faculty: {
       PmFacultyProfile faculty = {};
       if (pm_faculty_active(&faculty)) {
@@ -2455,6 +2477,9 @@ void loop() {
         if (pm_faces_current() == ClockFace::Radar) {
           g_clock_repaint_pending = true;
         }
+        if (pm_faces_current() == ClockFace::Biometrics) {
+          g_clock_repaint_pending = true;
+        }
         if (pm_faces_current() == ClockFace::Level) {
           g_clock_repaint_pending = true;
         }
@@ -2490,6 +2515,15 @@ void loop() {
       if (radar_anim) {
         s_last_radar_ms = now;
         pm_face_radar_tick(now);
+      }
+
+      static uint32_t s_last_biometrics_ms = 0;
+      const bool biometrics_anim =
+          pm_faces_current() == ClockFace::Biometrics && g_state == AppState::kClock &&
+          (now - s_last_biometrics_ms >= 80u);
+      if (biometrics_anim) {
+        s_last_biometrics_ms = now;
+        pm_face_biometrics_anim_tick(now);
       }
 
       static uint32_t s_last_level_ms = 0;
@@ -2573,7 +2607,8 @@ void loop() {
       const bool quotes_face_stale = pm_faces_current() == ClockFace::Quotes && quotes_stale;
       const bool quotes_preload_due =
           pm_wifi_connected() && quotes_stale && sec_tick && pm_faces_current() != ClockFace::Quotes &&
-          pm_faces_current() != ClockFace::Rocket && pm_faces_current() != ClockFace::Radar;
+          pm_faces_current() != ClockFace::Rocket && pm_faces_current() != ClockFace::Radar &&
+          pm_faces_current() != ClockFace::Biometrics;
       const bool rocket_stale =
           pm_faces_current() == ClockFace::Rocket && pm_wifi_connected() && valid &&
           (!s_rocket_have_data || (now - s_last_rocket_poll_ms >= MYNAH_ROCKET_POLL_MS));
@@ -2622,6 +2657,7 @@ void loop() {
           pm_faces_current() != ClockFace::Synastry && pm_faces_current() != ClockFace::Spectrum &&
           pm_faces_current() != ClockFace::Chakra && pm_faces_current() != ClockFace::TibetanBowl &&
           pm_faces_current() != ClockFace::Rocket && pm_faces_current() != ClockFace::Radar &&
+          pm_faces_current() != ClockFace::Biometrics &&
           pm_faces_current() != ClockFace::Faculty && pm_faces_current() != ClockFace::Quotes &&
           pm_faces_current() != ClockFace::LiveTransits && pm_faces_current() != ClockFace::Tarot &&
           pm_faces_current() != ClockFace::Ocarina && pm_faces_current() != ClockFace::Bongo &&
@@ -2655,8 +2691,8 @@ void loop() {
                                  g_clock_repaint_pending || local_hm_chg || spotify_stale || calcifer_stale ||
                                  weather_stale || quotes_face_stale || quotes_preload_due || rocket_stale || sec_tick_paint || calcifer_sec || rocket_sec ||
                                  astro_repaint || spectrum_anim || chakra_anim || bowl_anim || ocarina_anim || bongo_anim ||
-                                 piano_anim || pandrum_anim || alethiometer_anim || radar_anim || level_anim || faculty_anim ||
-                                 focus_anim || wifi_settings_graph;
+                                 piano_anim || pandrum_anim || alethiometer_anim || radar_anim || biometrics_anim ||
+                                 level_anim || faculty_anim || focus_anim || wifi_settings_graph;
 #if MYNAH_HUE_HOME_ONLY
       const bool gem_only_paint = gem_pulse_paint && s_clock_paint_inited && !non_gem_paint;
       const bool full_paint = non_gem_paint || gem_pulse_paint;
@@ -2708,7 +2744,8 @@ void loop() {
           }
         }
         if (quotes_preload_due &&
-            pm_faces_current() != ClockFace::Radar && ESP.getFreeHeap() >= MYNAH_FACE_FETCH_MIN_HEAP) {
+            pm_faces_current() != ClockFace::Radar && pm_faces_current() != ClockFace::Biometrics &&
+            ESP.getFreeHeap() >= MYNAH_FACE_FETCH_MIN_HEAP) {
           (void)pm_quotes_fetch(&g_quotes_ui);
           s_last_quotes_poll_ms = now;
           s_quotes_have_data = true;

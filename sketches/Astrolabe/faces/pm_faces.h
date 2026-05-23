@@ -66,6 +66,8 @@ enum class ClockFace : uint8_t {
   QuestionOfDay,
   /** Pomodoro-style productivity timer; tap starts/pauses, swipe up/down changes preset. */
   FocusTimer,
+  /** WiFi + BLE + IMU + audio signal model for wellness-style biometric inference. */
+  Biometrics,
   kNumFaces,
 };
 
