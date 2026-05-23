@@ -1541,7 +1541,7 @@ static bool face_voice_begin_current(void) {
     return false;
   }
   const int idx = static_cast<int>(pm_faces_current());
-  const FaceTourInfo *info = face_tour_info(idx);
+  const FaceTourInfo *info = face_tour_info_for_face(pm_faces_current());
   if (!info) {
     snprintf(g_gesture_banner, sizeof(g_gesture_banner), "voice: no face prompt");
     return false;
