@@ -17,6 +17,22 @@ html = Path(sys.argv[1]).read_text()
 print(len(re.findall(r"<option\s+value=", html)))
 PY
 )"
+shell_metadata_count="$(
+  python3 - "$ROOT/tools/web-sim/public/shell.html" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+shell = Path(sys.argv[1]).read_text()
+counts = []
+for name in ("faceSlugs", "faceDescriptions"):
+    match = re.search(rf"const {name}\s*=\s*\[(?P<body>.*?)\];", shell, re.S)
+    if not match:
+        raise SystemExit(f"could not find {name}")
+    counts.append(str(len(re.findall(r'"(?:[^"\\]|\\.)*"', match.group("body")))))
+print(" ".join(counts))
+PY
+)"
 enum_face_count="$(
   python3 - "$ROOT/src/faces/pm_faces.h" <<'PY'
 import re
@@ -36,6 +52,12 @@ PY
 
 if [[ "${html_face_count}" != "${enum_face_count}" ]]; then
   echo "error: simulator exposes ${html_face_count} faces but ClockFace has ${enum_face_count}" >&2
+  exit 1
+fi
+
+read -r slug_count description_count <<<"${shell_metadata_count}"
+if [[ "${slug_count}" != "${enum_face_count}" || "${description_count}" != "${enum_face_count}" ]]; then
+  echo "error: simulator metadata has ${slug_count} slugs and ${description_count} descriptions but ClockFace has ${enum_face_count}" >&2
   exit 1
 fi
 
