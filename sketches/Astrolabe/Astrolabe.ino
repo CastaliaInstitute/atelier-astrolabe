@@ -775,6 +775,7 @@ static bool face_index_from_name(const char *name, int *out) {
 }
 
 struct FaceTourInfo {
+  ClockFace face;
   const char *name;
   const char *summary;
   const char *tts_focus;
@@ -785,102 +786,113 @@ struct FaceTourInfo {
 };
 
 static const FaceTourInfo k_face_tour[] = {
-    {"classic", "hue home clock with breathing gem pulse", "a short daily orientation from the home clock",
+    {ClockFace::ClassicAnalog, "classic", "hue home clock with breathing gem pulse", "a short daily orientation from the home clock",
      "drawing locally", "heap is low", false, false},
-    {"apocalypso", "watch-style day wheel and local time", "a brief reading of the day wheel and risk-radar mood",
+    {ClockFace::Apocalypso, "apocalypso", "watch-style day wheel and local time", "a brief reading of the day wheel and risk-radar mood",
      "drawing local time", "time is not synced", false, true},
-    {"digital", "large local digital clock", "a concise spoken local-time check-in", "drawing local time",
+    {ClockFace::DigitalLocal, "digital", "large local digital clock", "a concise spoken local-time check-in", "drawing local time",
      "time is not synced", false, true},
-    {"spotify", "Spotify transport and now-playing surface", "a musical listening prompt for the current moment",
+    {ClockFace::Spotify, "spotify", "Spotify transport and now-playing surface", "a musical listening prompt for the current moment",
      "WiFi is available for refresh", "offline, transport is display-only", true, false},
-    {"astro", "live sky wheel and astrology voice hooks", "the current astrology transits and sky wheel",
+    {ClockFace::Astrology, "astro", "live sky wheel and astrology voice hooks", "the current astrology transits and sky wheel",
      "time and WiFi are ready", "needs WiFi and time for live reading", true, true},
-    {"moon", "lunar phase, fortune tap, and Moon voice", "today's lunar phase and fortune",
+    {ClockFace::Moon, "moon", "lunar phase, fortune tap, and Moon voice", "today's lunar phase and fortune",
      "time and WiFi are ready", "needs WiFi and time for fortune voice", true, true},
-    {"calcifer", "rolling agenda daywheel from calendar", "the next calendar moment and schedule rhythm",
+    {ClockFace::CalciferCountdown, "calcifer", "rolling agenda daywheel from calendar", "the next calendar moment and schedule rhythm",
      "calendar refresh can run", "needs WiFi and time for calendar", true, true},
-    {"castalia", "Castalia pairing QR and auth status", "Castalia sign-in status and what pairing unlocks",
+    {ClockFace::Castalia, "castalia", "Castalia pairing QR and auth status", "Castalia sign-in status and what pairing unlocks",
      "WiFi is available for pairing", "offline, pairing QR only", true, false},
-    {"settings", "WiFi and Castalia settings hub", "a settings health check for WiFi, auth, heap, and time",
+    {ClockFace::Settings, "settings", "WiFi and Castalia settings hub", "a settings health check for WiFi, auth, heap, and time",
      "settings UI is drawing", "settings UI is drawing", false, false},
-    {"synastry", "dual natal chart and relationship aspects", "the active synastry relationship highlight",
+    {ClockFace::Synastry, "synastry", "dual natal chart and relationship aspects", "the active synastry relationship highlight",
      "time and WiFi are ready", "needs WiFi and time for voice", true, true},
-    {"spectrum", "microphone spectrum visualizer modes", "a sound-check prompt for the audio spectrum face",
+    {ClockFace::Spectrum, "spectrum", "microphone spectrum visualizer modes", "a sound-check prompt for the audio spectrum face",
      "local audio analyzer is drawing", "audio analyzer is local only", false, false},
-    {"chakra", "chakra symbols with solfeggio tones", "the current chakra tone and embodied attention",
+    {ClockFace::Chakra, "chakra", "chakra symbols with solfeggio tones", "the current chakra tone and embodied attention",
      "local tone controls are available", "local tone controls are available", false, false},
-    {"bowl", "Tibetan bowl rim instrument", "a short singing-bowl meditation prompt",
+    {ClockFace::TibetanBowl, "bowl", "Tibetan bowl rim instrument", "a short singing-bowl meditation prompt",
      "local rim instrument is available", "local rim instrument is available", false, false},
-    {"rocket", "upcoming orbital launch clock", "the next launch window and mission context",
+    {ClockFace::Rocket, "rocket", "upcoming orbital launch clock", "the next launch window and mission context",
      "launch refresh can run", "needs WiFi and time for launches", true, true},
-    {"radar", "BLE locator and nearby peer radar", "nearby BLE peers and spatial presence",
+    {ClockFace::Radar, "radar", "BLE locator and nearby peer radar", "nearby BLE peers and spatial presence",
      "BLE radar can start", "heap is tight after BLE", false, false},
-    {"faculty", "recent ask-faculty conversation portraits", "the active faculty persona and recent conversation",
+    {ClockFace::Faculty, "faculty", "recent ask-faculty conversation portraits", "the active faculty persona and recent conversation",
      "WiFi is available for portraits", "offline, cached portraits only", true, false},
-    {"weather", "24-hour radial forecast rings", "the local 24-hour weather ring",
+    {ClockFace::Weather, "weather", "24-hour radial forecast rings", "the local 24-hour weather ring",
      "weather refresh can run", "needs WiFi and time for forecast", true, true},
-    {"globe", "spinning Earth disk with live day-night terminator",
+    {ClockFace::Globe, "globe", "spinning Earth disk with live day-night terminator",
      "the current Earth daylight pattern and local time context",
      "time is available for the terminator", "needs time for daylight line", false, true},
-    {"sky", "draggable night-sky planisphere with stars and constellation lines",
+    {ClockFace::Sky, "sky", "draggable night-sky planisphere with stars and constellation lines",
      "the visible sky orientation and constellation field",
      "time is available for sky motion", "needs time for sky motion", false, true},
-    {"quotes", "Castalia quote of the day with faculty bust", "the quote of the day and its faculty context",
+    {ClockFace::Quotes, "quotes", "Castalia quote of the day with faculty bust", "the quote of the day and its faculty context",
      "quote refresh can run", "offline demo quote only", true, false},
-    {"transits", "live planetary spheres and next Moon ingress", "live transits and the next Moon ingress",
+    {ClockFace::LiveTransits, "transits", "live planetary spheres and next Moon ingress", "live transits and the next Moon ingress",
      "time and ephemeris are ready", "needs time for live transits", false, true},
-    {"tarot", "daily Major Arcana card and deck browser", "the active Major Arcana card",
+    {ClockFace::Tarot, "tarot", "daily Major Arcana card and deck browser", "the active Major Arcana card",
      "drawing local Major Arcana", "drawing local Major Arcana", false, false},
-    {"notes", "offline voice notes queued for Commonplace", "the offline note capture queue",
+    {ClockFace::Notes, "notes", "offline voice notes queued for Commonplace", "the offline note capture queue",
      "flash note queue is available", "flash note queue is available", false, false},
-    {"ocarina", "touch-playable clay ocarina", "the active ocarina key and breath note",
+    {ClockFace::Ocarina, "ocarina", "touch-playable clay ocarina", "the active ocarina key and breath note",
      "local ocarina tones are available", "local ocarina tones are available", false, false},
-    {"bongo", "touch-playable bongo with center-to-rim pitch", "the last bongo tap pitch and drum feel",
+    {ClockFace::Bongo, "bongo", "touch-playable bongo with center-to-rim pitch", "the last bongo tap pitch and drum feel",
      "local bongo hits are available", "local bongo hits are available", false, false},
-    {"piano", "one-octave circular piano", "the active piano key and note",
+    {ClockFace::Piano, "piano", "one-octave circular piano", "the active piano key and note",
      "local piano tones are available", "local piano tones are available", false, false},
-    {"level", "IMU rolling-sphere level with the top of the display as forward",
+    {ClockFace::Level, "level", "IMU rolling-sphere level with the top of the display as forward",
      "the current level nudge", "IMU level is drawing", "IMU unavailable", false, false},
-    {"tuning", "live microphone tuning staff with detected notes", "the currently detected pitch and cents",
+    {ClockFace::Tuning, "tuning", "live microphone tuning staff with detected notes", "the currently detected pitch and cents",
      "local pitch detector is listening", "local pitch detector is listening", false, false},
-    {"pandrum", "14-note touch-playable handpan", "the active pan drum note and resonance",
+    {ClockFace::PanDrum, "pandrum", "14-note touch-playable handpan", "the active pan drum note and resonance",
      "local pan drum tones are available", "local pan drum tones are available", false, false},
-    {"alethiometer", "36-symbol compass with three question needles and one answer needle",
+    {ClockFace::Alethiometer, "alethiometer", "36-symbol compass with three question needles and one answer needle",
      "the active alethiometer symbols and narrative interpretation",
      "WiFi is available for LLM interpretation", "offline, compass animation only", true, false},
-    {"runes", "three-rune past, present, future fortune spread", "the selected rune spread and spoken fortune",
+    {ClockFace::Runes, "runes", "three-rune past, present, future fortune spread", "the selected rune spread and spoken fortune",
      "WiFi is available for TTS fortune", "offline, visual spread only", true, false},
-    {"orientation", "relative heading and pitch/roll orientation dial", "the current relative orientation",
+    {ClockFace::Orientation, "orientation", "relative heading and pitch/roll orientation dial", "the current relative orientation",
      "6DOF orientation is drawing", "IMU unavailable", false, false},
-    {"luopan", "feng-shui luopan dial with 24 mountains", "the active relative luopan alignment",
+    {ClockFace::Luopan, "luopan", "feng-shui luopan dial with 24 mountains", "the active relative luopan alignment",
      "relative luopan is drawing", "IMU unavailable", false, false},
-    {"question", "context-aware Question of the Day with Commonplace answers",
+    {ClockFace::QuestionOfDay, "question", "context-aware Question of the Day with Commonplace answers",
      "the current Question of the Day and answer capture state",
      "WiFi is available for fresh questions", "offline, last question only", true, false},
-    {"focus", "Pomodoro productivity timer with focus and break presets",
+    {ClockFace::FocusTimer, "focus", "Pomodoro productivity timer with focus and break presets",
      "the active focus timer and session state",
      "local timer is available", "local timer is available", false, false},
-    {"biometrics", "WiFi, BLE, IMU, and audio inference face",
+    {ClockFace::Biometrics, "biometrics", "WiFi, BLE, IMU, and audio inference face",
      "the inferred presence, breath, motion, arousal, grounding, and coherence parameters",
      "sensor model is sampling", "some sensor inputs are unavailable", false, false},
-    {"lenormand", "daily 36-card Lenormand oracle using Noto Emoji symbols",
+    {ClockFace::Lenormand, "lenormand", "daily 36-card Lenormand oracle using Noto Emoji symbols",
      "the active Lenormand card and its practical keyword",
      "drawing local Lenormand deck", "drawing local Lenormand deck", false, false},
-    {"pythia", "Delphi oracle bust for obtuse spoken answers",
+    {ClockFace::Pythia, "pythia", "Delphi oracle bust for obtuse spoken answers",
      "a question for Pythia, answered as an ambiguous oracle",
      "WiFi is available for oracle voice", "offline, Pythia bust only", true, false},
-    {"geomancy", "daily geomantic figure from the 16 traditional figures",
+    {ClockFace::Geomancy, "geomancy", "daily geomantic figure from the 16 traditional figures",
      "the active geomantic figure and its practical keyword",
      "drawing local geomancy figures", "drawing local geomancy figures", false, false},
 };
-static_assert(sizeof(k_face_tour) / sizeof(k_face_tour[0]) == static_cast<size_t>(ClockFace::kNumFaces),
-              "k_face_tour must match ClockFace order");
+
+static constexpr int face_tour_count(void) {
+  return static_cast<int>(sizeof(k_face_tour) / sizeof(k_face_tour[0]));
+}
 
 static const FaceTourInfo *face_tour_info(int idx) {
-  if (idx < 0 || idx >= static_cast<int>(sizeof(k_face_tour) / sizeof(k_face_tour[0]))) {
+  if (idx < 0 || idx >= face_tour_count()) {
     return nullptr;
   }
   return &k_face_tour[idx];
+}
+
+static const FaceTourInfo *face_tour_info_for_face(ClockFace face) {
+  for (int i = 0; i < face_tour_count(); ++i) {
+    if (k_face_tour[i].face == face) {
+      return &k_face_tour[i];
+    }
+  }
+  return nullptr;
 }
 
 static bool face_tour_face_healthy(const FaceTourInfo *info) {
@@ -1025,7 +1037,7 @@ static bool face_voice_build_prompt(const FaceTourInfo *info, int idx, char *msg
   s_face_voice_face[0] = '\0';
   s_face_voice_faculty_slug[0] = '\0';
   s_face_voice_faculty_name[0] = '\0';
-  const ClockFace face = static_cast<ClockFace>(idx);
+  const ClockFace face = info->face;
   const char *health = face_tour_health_text(info);
   char when[40];
   face_tour_format_clock(when, sizeof(when));
@@ -1410,7 +1422,7 @@ static void face_tour_voice_start(const FaceTourInfo *info, int idx) {
     ++s_face_tour_tts_skip;
     return;
   }
-  if (idx == static_cast<int>(ClockFace::Radar)) {
+  if (info->face == ClockFace::Radar) {
     pm_presence_ble_set_suppressed(true);
     for (uint8_t i = 0; i < 8; ++i) {
       pm_presence_tick(millis());
@@ -1440,7 +1452,7 @@ static void face_tour_voice_start(const FaceTourInfo *info, int idx) {
     const char *health = face_tour_health_text(info);
     snprintf(s_face_tour_voice_msg, kFaceTourVoiceMsgCap,
              "Astrolabe tour face %d of %d: %s. It is %s. Say this aloud in one concise sentence, no preamble.",
-             idx + 1, static_cast<int>(ClockFace::kNumFaces), info->summary, health);
+             idx + 1, face_tour_count(), info->summary, health);
     started = pm_voice_begin_message(s_face_tour_voice_msg,
                                      "You narrate a tiny smartwatch face tour. Be warm, concrete, and brief. "
                                      "Do not mention implementation details unless the face has a warning.",
@@ -1461,12 +1473,12 @@ static void face_tour_select(int idx) {
   if (!info) {
     return;
   }
-  if (idx == static_cast<int>(ClockFace::Settings)) {
+  if (info->face == ClockFace::Settings) {
     pm_settings_set_page(SettingsPage::WiFi);
   }
   pm_presence_ble_set_suppressed((s_face_tour_narrate || s_face_tour_button_test) &&
-                                 idx == static_cast<int>(ClockFace::Radar));
-  pm_faces_set(static_cast<ClockFace>(idx));
+                                 info->face == ClockFace::Radar);
+  pm_faces_set(info->face);
   snprintf(g_gesture_banner, sizeof(g_gesture_banner), "tour: %.28s", info->name);
   g_clock_repaint_pending = true;
   const char *health = face_tour_health_text(info);
@@ -1496,7 +1508,7 @@ static void face_tour_start(uint32_t dwell_ms, bool narrate = false, bool button
   s_face_tour_dwell_ms = dwell_ms;
   s_face_tour_last_ms = 0;
   Serial.printf("tour: start faces=%d dwell_ms=%u narrate=%d tts=%d wifi=%d time=%d\n",
-                static_cast<int>(ClockFace::kNumFaces), static_cast<unsigned>(s_face_tour_dwell_ms),
+                face_tour_count(), static_cast<unsigned>(s_face_tour_dwell_ms),
                 s_face_tour_narrate ? 1 : 0, s_face_tour_button_test ? 1 : 0, pm_wifi_connected() ? 1 : 0,
                 pm_time_valid() ? 1 : 0);
   face_tour_select(s_face_tour_idx);
@@ -1615,7 +1627,7 @@ static void face_tour_tick(uint32_t now) {
   }
   s_face_tour_last_ms = now;
   ++s_face_tour_idx;
-  if (s_face_tour_idx >= static_cast<int>(ClockFace::kNumFaces)) {
+  if (s_face_tour_idx >= face_tour_count()) {
     const bool report_tts_tour = s_face_tour_narrate || s_face_tour_button_test;
     s_face_tour_active = false;
     s_face_tour_narrate = false;
@@ -1629,7 +1641,7 @@ static void face_tour_tick(uint32_t now) {
       Serial.printf("tour: summary tts_ok=%u tts_fail=%u tts_skip=%u\n",
                     static_cast<unsigned>(s_face_tour_tts_ok), static_cast<unsigned>(s_face_tour_tts_fail),
                     static_cast<unsigned>(s_face_tour_tts_skip));
-      if (s_face_tour_tts_ok == static_cast<uint8_t>(ClockFace::kNumFaces) && s_face_tour_tts_fail == 0 &&
+      if (s_face_tour_tts_ok == static_cast<uint8_t>(face_tour_count()) && s_face_tour_tts_fail == 0 &&
           s_face_tour_tts_skip == 0) {
         Serial.println("TTS_TOUR PASS");
       } else {
