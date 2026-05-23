@@ -87,6 +87,73 @@ a {
   color: var(--text-muted);
 }
 
+/* Articles */
+.article-page {
+  padding: 1.5rem 0 5rem;
+}
+
+.article-prose {
+  width: min(760px, 100%);
+  margin-inline: auto;
+}
+
+.article-header {
+  padding: 2.75rem 0 1.5rem;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 2rem;
+}
+
+.article-header h1 {
+  max-width: 10ch;
+}
+
+.article-subtitle {
+  font-family: "Instrument Serif", Georgia, serif;
+  color: var(--gold-soft);
+  font-size: 1.45rem;
+  margin: -0.25rem 0 0;
+}
+
+.article-prose p {
+  font-size: 1.03rem;
+  color: rgba(236, 232, 223, 0.88);
+  margin-bottom: 1.15rem;
+}
+
+.article-prose .eyebrow {
+  margin-bottom: 0.85rem;
+}
+
+.article-index {
+  padding: 2rem 0 5rem;
+}
+
+.article-list {
+  display: grid;
+  gap: 1rem;
+  margin-top: 2rem;
+}
+
+.article-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 1.25rem;
+  background: rgba(20, 28, 42, 0.62);
+}
+
+.article-card h2 {
+  font-size: clamp(1.55rem, 3vw, 2.15rem);
+}
+
+.article-card h2 a {
+  color: var(--text);
+  text-decoration: none;
+}
+
+.article-card h2 a:hover {
+  color: var(--gold-soft);
+}
+
 /* Nav */
 .nav {
   display: flex;
