@@ -326,9 +326,11 @@
         },
         onRuntimeInitialized() {
           runtimeReady = true;
-          enableControls();
-          setInitialFaceFromHash();
-          updateFaceStatus();
+          window.setTimeout(() => {
+            enableControls();
+            setInitialFaceFromHash();
+            updateFaceStatus();
+          }, 0);
         },
         onAbort() {
           showLoadFailure("Simulator failed to start. Refresh the page, or try again after the latest deploy finishes propagating.");
