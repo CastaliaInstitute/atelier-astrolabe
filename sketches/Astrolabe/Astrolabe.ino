@@ -1027,7 +1027,7 @@ static void face_tour_format_clock(char *out, size_t cap) {
   strftime(out, cap, "%A %H:%M local time", &tm);
 }
 
-static bool face_voice_build_prompt(const FaceTourInfo *info, int idx, char *msg, size_t msg_cap,
+static bool face_voice_build_prompt(const FaceTourInfo *info, char *msg, size_t msg_cap,
                                     char *sys, size_t sys_cap, bool tour_test) {
   if (!info || !msg || msg_cap == 0 || !sys || sys_cap == 0) {
     return false;
@@ -1439,7 +1439,7 @@ static void face_tour_voice_start(const FaceTourInfo *info, int idx) {
   face_tour_voice_reset();
   bool started = false;
   if (s_face_tour_button_test) {
-    if (!face_voice_build_prompt(info, idx, s_face_tour_voice_msg, kFaceTourVoiceMsgCap,
+    if (!face_voice_build_prompt(info, s_face_tour_voice_msg, kFaceTourVoiceMsgCap,
                                  s_face_tour_sys_prompt, kFaceTourSysPromptCap, true)) {
       Serial.printf("tour: tts skipped %d %s reason=%s\n", idx, info->name, g_gesture_banner);
       ++s_face_tour_tts_skip;
@@ -1540,13 +1540,12 @@ static bool face_voice_begin_current(void) {
     snprintf(g_gesture_banner, sizeof(g_gesture_banner), "voice: need WiFi");
     return false;
   }
-  const int idx = static_cast<int>(pm_faces_current());
   const FaceTourInfo *info = face_tour_info_for_face(pm_faces_current());
   if (!info) {
     snprintf(g_gesture_banner, sizeof(g_gesture_banner), "voice: no face prompt");
     return false;
   }
-  if (!face_voice_build_prompt(info, idx, s_face_tour_voice_msg, kFaceTourVoiceMsgCap,
+  if (!face_voice_build_prompt(info, s_face_tour_voice_msg, kFaceTourVoiceMsgCap,
                                s_face_tour_sys_prompt, kFaceTourSysPromptCap, false)) {
     return false;
   }
