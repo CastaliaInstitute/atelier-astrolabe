@@ -34,6 +34,10 @@ enum class ClockFace : uint8_t {
   Faculty,
   /** 24h radial temp + humidity rings; current conditions center. */
   Weather,
+  /** Spinning Earth disk with live day/night terminator. */
+  Globe,
+  /** Draggable night-sky planisphere with bright stars + constellation lines. */
+  Sky,
   /** Castalia quote of the day + tiny faculty bust. */
   Quotes,
   /** Live transits: now + next Moon sign ingress as paired celestial spheres. */

@@ -86,41 +86,90 @@ static uint16_t aspect_color(int deg) {
   }
 }
 
-static int synastry_symbol_index(void) {
+enum SynastrySymbolFeature {
+  kSynFeatBias = 0,
+  kSynFeatOrbExact,
+  kSynFeatHasMoon,
+  kSynFeatHasVenus,
+  kSynFeatHasMercury,
+  kSynFeatHasMars,
+  kSynFeatConj,
+  kSynFeatSextile,
+  kSynFeatSquare,
+  kSynFeatTrine,
+  kSynFeatOpp,
+  kSynFeatAspectDensity,
+  kSynFeatCount,
+};
+
+struct SynastrySymbolClass {
+  int symbol;
+  int8_t weight[kSynFeatCount];
+};
+
+static float clamp01(float v) {
+  if (v < 0.f) {
+    return 0.f;
+  }
+  if (v > 1.f) {
+    return 1.f;
+  }
+  return v;
+}
+
+static void synastry_symbol_features(float out[kSynFeatCount]) {
+  for (int i = 0; i < kSynFeatCount; ++i) {
+    out[i] = 0.f;
+  }
+  out[kSynFeatBias] = 1.f;
+  out[kSynFeatAspectDensity] = clamp01(static_cast<float>(s_aspect_count) / 8.f);
   if (s_aspect_count <= 0) {
-    return 12;  // bridge
+    return;
   }
   const SynastryAspect &a = s_aspects[0];
-  const bool has_moon = a.user_body == kPmBodyMoon || a.target_body == kPmBodyMoon;
-  const bool has_venus = a.user_body == kPmBodyVenus || a.target_body == kPmBodyVenus;
-  const bool has_mercury = a.user_body == kPmBodyMercury || a.target_body == kPmBodyMercury;
-  const bool has_mars = a.user_body == kPmBodyMars || a.target_body == kPmBodyMars;
-  if (has_venus && (a.aspect_deg == 0 || a.aspect_deg == 120 || a.aspect_deg == 60)) {
-    return 7;  // heart
+  out[kSynFeatOrbExact] = clamp01(static_cast<float>((4.5 - a.orb) / 4.5));
+  out[kSynFeatHasMoon] = (a.user_body == kPmBodyMoon || a.target_body == kPmBodyMoon) ? 1.f : 0.f;
+  out[kSynFeatHasVenus] = (a.user_body == kPmBodyVenus || a.target_body == kPmBodyVenus) ? 1.f : 0.f;
+  out[kSynFeatHasMercury] =
+      (a.user_body == kPmBodyMercury || a.target_body == kPmBodyMercury) ? 1.f : 0.f;
+  out[kSynFeatHasMars] = (a.user_body == kPmBodyMars || a.target_body == kPmBodyMars) ? 1.f : 0.f;
+  out[kSynFeatConj] = a.aspect_deg == 0 ? 1.f : 0.f;
+  out[kSynFeatSextile] = a.aspect_deg == 60 ? 1.f : 0.f;
+  out[kSynFeatSquare] = a.aspect_deg == 90 ? 1.f : 0.f;
+  out[kSynFeatTrine] = a.aspect_deg == 120 ? 1.f : 0.f;
+  out[kSynFeatOpp] = a.aspect_deg == 180 ? 1.f : 0.f;
+}
+
+static int synastry_symbol_index(void) {
+  static const SynastrySymbolClass kModel[] = {
+      /* symbol, bias, exact, moon, venus, mercury, mars, conj, sextile, square, trine, opp, density */
+      {7, {0, 2, 0, 9, 0, -2, 2, 3, -4, 3, -2, 0}},     // heart
+      {3, {0, 2, 8, 0, 0, -1, 2, 3, -3, 3, -2, 0}},     // moon
+      {14, {0, 2, 0, 0, 8, -1, 3, 3, -2, 0, -2, 0}},    // book
+      {17, {-1, 2, 0, -1, 0, 8, -2, -2, 5, -2, 5, 0}},  // thunder
+      {25, {-1, 2, 0, 0, 0, 0, 7, -2, -2, -2, -2, 0}},  // mirror
+      {12, {0, 1, 0, 0, 0, 0, -2, 6, -2, 1, -1, 2}},    // bridge
+      {9, {-1, 2, 0, -1, 0, 2, -2, -2, 7, -2, 1, 0}},   // crossed swords
+      {30, {0, 1, 0, 1, 0, 0, -2, 1, -2, 7, -2, 1}},    // star
+      {26, {-1, 2, 0, 0, 0, 1, -2, -1, 1, -2, 7, 0}},   // scales
+      {31, {-2, 0, 0, 0, 0, 0, -1, -1, -1, -1, -1, 4}}, // wheel
+  };
+
+  float feat[kSynFeatCount];
+  synastry_symbol_features(feat);
+  int best_symbol = 12;  // bridge
+  float best_score = -100000.f;
+  for (const SynastrySymbolClass &cls : kModel) {
+    float score = 0.f;
+    for (int i = 0; i < kSynFeatCount; ++i) {
+      score += feat[i] * static_cast<float>(cls.weight[i]);
+    }
+    if (score > best_score) {
+      best_score = score;
+      best_symbol = cls.symbol;
+    }
   }
-  if (has_moon && (a.aspect_deg == 0 || a.aspect_deg == 120 || a.aspect_deg == 60)) {
-    return 3;  // moon
-  }
-  if (has_mercury && (a.aspect_deg == 0 || a.aspect_deg == 60)) {
-    return 14;  // book
-  }
-  if (has_mars && (a.aspect_deg == 90 || a.aspect_deg == 180)) {
-    return 17;  // thunder
-  }
-  switch (a.aspect_deg) {
-    case 0:
-      return 25;  // mirror
-    case 60:
-      return 12;  // bridge
-    case 90:
-      return 9;  // crossed swords
-    case 120:
-      return 30;  // star
-    case 180:
-      return 26;  // scales
-    default:
-      return 31;  // wheel
-  }
+  return best_symbol;
 }
 
 static const char *synastry_symbol_label(void) {

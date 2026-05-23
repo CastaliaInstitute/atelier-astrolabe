@@ -9,10 +9,11 @@
 #include "esp_heap_caps.h"
 
 #include "pm_log.h"
+#include "pm_display.h"
 #include "pm_wifi_ntp.h"
 
 static WebServer s_server(80);
-static Arduino_Canvas *s_canvas = nullptr;
+static PmDisplayCanvas *s_canvas = nullptr;
 static bool s_http_started = false;
 
 static void put_le32(uint8_t *p, uint32_t v) {
@@ -172,7 +173,7 @@ static void handle_screen_bmp() {
   free(buf);
 }
 
-void pm_screen_http_begin(Arduino_Canvas *canvas) {
+void pm_screen_http_begin(PmDisplayCanvas *canvas) {
   s_canvas = canvas;
   if (s_http_started || !canvas || !pm_wifi_connected()) {
     return;

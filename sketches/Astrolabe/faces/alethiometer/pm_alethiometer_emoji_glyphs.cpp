@@ -2,6 +2,8 @@
 
 #include <pgmspace.h>
 
+#include "pm_display.h"
+
 namespace {
 
 const char *const kEmojiCodepoints[ALETHIOMETER_EMOJI_GLYPH_COUNT] = {
@@ -856,11 +858,11 @@ uint16_t blend565(uint16_t fg, uint16_t bg, uint8_t alpha) {
 
 }  // namespace
 
-void pm_alethiometer_draw_emoji_glyph(Arduino_Canvas *gfx, int cx, int cy, int symbol_idx, uint16_t color) {
+void pm_alethiometer_draw_emoji_glyph(PmDisplayCanvas *gfx, int cx, int cy, int symbol_idx, uint16_t color) {
   pm_alethiometer_draw_emoji_glyph_scaled(gfx, cx, cy, symbol_idx, color, 1);
 }
 
-void pm_alethiometer_draw_emoji_glyph_scaled(Arduino_Canvas *gfx, int cx, int cy, int symbol_idx, uint16_t color,
+void pm_alethiometer_draw_emoji_glyph_scaled(PmDisplayCanvas *gfx, int cx, int cy, int symbol_idx, uint16_t color,
                                              uint8_t scale) {
   if (!gfx) return;
   if (symbol_idx < 0) symbol_idx = 0;

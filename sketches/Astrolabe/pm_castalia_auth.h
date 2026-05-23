@@ -2,7 +2,7 @@
 
 #include <Arduino.h>
 
-class Arduino_Canvas;
+class PmDisplayCanvas;
 class HTTPClient;
 
 /** NVS + pairing poll; same Supabase project as castalia.institute / Android Mynah. */
@@ -63,7 +63,7 @@ void pm_castalia_repo_full_name(char *out, size_t out_cap);
 bool pm_castalia_serial_command(const char *line);
 
 /** Draw QR for [pm_castalia_signin_url_for_qr] at center (cx,cy), max pixel width `max_px`. */
-bool pm_castalia_draw_qr(Arduino_Canvas *gfx, int cx, int cy, int max_px);
+bool pm_castalia_draw_qr(PmDisplayCanvas *gfx, int cx, int cy, int max_px);
 
 /** Call after QR blit so pairing poll is deferred (avoids TLS stack spike while display is hot). */
 void pm_castalia_note_qr_drawn(void);

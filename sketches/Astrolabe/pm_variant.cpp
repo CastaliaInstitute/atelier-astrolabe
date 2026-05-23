@@ -19,6 +19,7 @@ static bool face_is_astrolabe(ClockFace face) {
     case ClockFace::CalciferCountdown:
     case ClockFace::FocusTimer:
     case ClockFace::Weather:
+    case ClockFace::Globe:
     case ClockFace::Radar:
     case ClockFace::Biometrics:
     case ClockFace::Level:
@@ -34,6 +35,7 @@ static bool face_is_lunasay(ClockFace face) {
     case ClockFace::Moon:
     case ClockFace::Astrology:
     case ClockFace::LiveTransits:
+    case ClockFace::Sky:
     case ClockFace::Synastry:
     case ClockFace::Tarot:
     case ClockFace::Runes:

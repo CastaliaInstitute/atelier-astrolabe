@@ -5,6 +5,7 @@
 #include <pgmspace.h>
 
 #include "moon_texture.h"
+#include "pm_display.h"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -91,7 +92,7 @@ static uint8_t sample_moon_tex_grey(int tx, int ty) {
   return pgm_read_byte(&kMoonTextureGray[ty * MOON_TEX_SIZE + tx]);
 }
 
-void pm_moon_draw_disk(Arduino_Canvas *gfx, int cx, int cy, int screen_r, float illum, bool waxing,
+void pm_moon_draw_disk(PmDisplayCanvas *gfx, int cx, int cy, int screen_r, float illum, bool waxing,
                        bool show_rim) {
   if (!gfx || screen_r <= 0) {
     return;

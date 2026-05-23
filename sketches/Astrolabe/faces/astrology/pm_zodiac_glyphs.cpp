@@ -5,6 +5,7 @@
 #include <pgmspace.h>
 
 #include "planet_glyphs.h"
+#include "pm_display.h"
 #include "zodiac_glyphs.h"
 
 static uint16_t blend565(uint16_t fg, uint16_t bg, float a) {
@@ -27,7 +28,7 @@ static uint16_t blend565(uint16_t fg, uint16_t bg, float a) {
   return static_cast<uint16_t>(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3));
 }
 
-static uint16_t sample_bg(Arduino_Canvas *gfx, int x, int y) {
+static uint16_t sample_bg(PmDisplayCanvas *gfx, int x, int y) {
   uint16_t *fb = gfx->getFramebuffer();
   if (!fb) {
     return 0;
@@ -40,7 +41,7 @@ static uint16_t sample_bg(Arduino_Canvas *gfx, int x, int y) {
   return fb[y * w + x];
 }
 
-static void pm_glyph_draw_alpha(Arduino_Canvas *gfx, int cx, int cy, const uint8_t *alpha_prog, int S,
+static void pm_glyph_draw_alpha(PmDisplayCanvas *gfx, int cx, int cy, const uint8_t *alpha_prog, int S,
                                 uint16_t color, bool highlight) {
   if (!gfx || !alpha_prog || S <= 0) {
     return;
@@ -87,35 +88,35 @@ static void pm_glyph_draw_alpha(Arduino_Canvas *gfx, int cx, int cy, const uint8
   }
 }
 
-void pm_zodiac_draw_glyph(Arduino_Canvas *gfx, int cx, int cy, int sign_idx, uint16_t color, bool highlight) {
+void pm_zodiac_draw_glyph(PmDisplayCanvas *gfx, int cx, int cy, int sign_idx, uint16_t color, bool highlight) {
   if (sign_idx < 0 || sign_idx >= ZODIAC_GLYPH_COUNT) {
     return;
   }
   pm_glyph_draw_alpha(gfx, cx, cy, kZodiacGlyphAlpha[sign_idx], ZODIAC_GLYPH_SIZE, color, highlight);
 }
 
-void pm_planet_draw_glyph(Arduino_Canvas *gfx, int cx, int cy, int body_idx, uint16_t color, bool highlight) {
+void pm_planet_draw_glyph(PmDisplayCanvas *gfx, int cx, int cy, int body_idx, uint16_t color, bool highlight) {
   if (body_idx < 0 || body_idx >= PLANET_GLYPH_COUNT) {
     return;
   }
   pm_glyph_draw_alpha(gfx, cx, cy, kPlanetGlyphAlpha[body_idx], PLANET_GLYPH_SIZE, color, highlight);
 }
 
-void pm_planet_draw_at_polar(Arduino_Canvas *gfx, int rcx, int rcy, int r, float ang, int body_idx,
+void pm_planet_draw_at_polar(PmDisplayCanvas *gfx, int rcx, int rcy, int r, float ang, int body_idx,
                              uint16_t color, bool highlight) {
   const int tx = rcx + static_cast<int>(lrintf(cosf(ang) * static_cast<float>(r)));
   const int ty = rcy + static_cast<int>(lrintf(sinf(ang) * static_cast<float>(r)));
   pm_planet_draw_glyph(gfx, tx, ty, body_idx, color, highlight);
 }
 
-void pm_zodiac_draw_at_polar(Arduino_Canvas *gfx, int rcx, int rcy, int r, float ang, int sign_idx,
+void pm_zodiac_draw_at_polar(PmDisplayCanvas *gfx, int rcx, int rcy, int r, float ang, int sign_idx,
                              uint16_t color, bool highlight) {
   const int tx = rcx + static_cast<int>(lrintf(cosf(ang) * static_cast<float>(r)));
   const int ty = rcy + static_cast<int>(lrintf(sinf(ang) * static_cast<float>(r)));
   pm_zodiac_draw_glyph(gfx, tx, ty, sign_idx, color, highlight);
 }
 
-void pm_zodiac_draw_sign_ring(Arduino_Canvas *gfx, int cx, int cy, int r_lab, int highlight_sign,
+void pm_zodiac_draw_sign_ring(PmDisplayCanvas *gfx, int cx, int cy, int r_lab, int highlight_sign,
                               uint16_t normal_color) {
   if (!gfx) {
     return;

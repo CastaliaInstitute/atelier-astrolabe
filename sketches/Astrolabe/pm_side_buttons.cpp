@@ -18,6 +18,10 @@ bool pm_side_buttons_begin() {
 
   s_pmu_ok = s_pmu.begin(Wire, AXP2101_SLAVE_ADDRESS, IIC_SDA, IIC_SCL);
   if (s_pmu_ok) {
+    s_pmu.enableBattDetection();
+    s_pmu.enableVbusVoltageMeasure();
+    s_pmu.enableBattVoltageMeasure();
+    s_pmu.enableSystemVoltageMeasure();
     s_pmu.disableIRQ(XPOWERS_AXP2101_ALL_IRQ);
     s_pmu.clearIrqStatus();
     s_pmu.enableIRQ(XPOWERS_AXP2101_PKEY_SHORT_IRQ | XPOWERS_AXP2101_PKEY_NEGATIVE_IRQ |
@@ -85,4 +89,25 @@ bool pm_ptt_button_held(void) {
     return false;
   }
   return s_pek_pressed;
+}
+
+bool pm_pmu_status(PmPmuStatus *out) {
+  if (!out) {
+    return false;
+  }
+  *out = {};
+  out->present = s_pmu_ok;
+  if (!s_pmu_ok) {
+    out->battery_percent = -1;
+    return false;
+  }
+  out->battery_present = s_pmu.isBatteryConnect();
+  out->vbus_in = s_pmu.isVbusIn();
+  out->charging = s_pmu.isCharging();
+  out->discharging = s_pmu.isDischarge();
+  out->battery_percent = s_pmu.getBatteryPercent();
+  out->battery_mv = s_pmu.getBattVoltage();
+  out->vbus_mv = s_pmu.getVbusVoltage();
+  out->system_mv = s_pmu.getSystemVoltage();
+  return true;
 }

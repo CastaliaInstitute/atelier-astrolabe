@@ -4,6 +4,7 @@
 #include <pgmspace.h>
 
 #include "chakra_glyphs.h"
+#include "pm_display.h"
 
 static uint16_t blend565(uint16_t fg, uint16_t bg, float a) {
   if (a <= 0.f) {
@@ -25,7 +26,7 @@ static uint16_t blend565(uint16_t fg, uint16_t bg, float a) {
   return static_cast<uint16_t>(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3));
 }
 
-void pm_chakra_draw_glyph(Arduino_Canvas *gfx, int cx, int cy, int chakra_idx, uint16_t color, bool highlight) {
+void pm_chakra_draw_glyph(PmDisplayCanvas *gfx, int cx, int cy, int chakra_idx, uint16_t color, bool highlight) {
   if (!gfx || chakra_idx < 0 || chakra_idx >= CHAKRA_GLYPH_COUNT) {
     return;
   }

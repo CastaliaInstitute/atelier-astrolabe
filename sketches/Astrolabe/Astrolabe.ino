@@ -54,6 +54,7 @@
 #include "faces/notes/pm_face_notes.h"
 #include "faces/question_day/pm_face_question_day.h"
 #include "faces/focus/pm_face_focus.h"
+#include "faces/globe/pm_face_globe.h"
 #include "faces/spotify/pm_face_spotify.h"
 #include "faces/calcifer/pm_face_calcifer.h"
 #include "faces/level/pm_face_level.h"
@@ -64,6 +65,7 @@
 #include "faces/quotes/pm_face_quotes.h"
 #include "pm_quotes.h"
 #include "faces/spectrum/pm_face_spectrum.h"
+#include "faces/sky/pm_face_sky.h"
 #include "faces/synastry/pm_face_synastry.h"
 #include "faces/radar/pm_face_radar.h"
 #include "faces/orientation/pm_face_orientation.h"
@@ -78,6 +80,7 @@
 #include "pm_home_gem_pulse.h"
 #include "pm_heap.h"
 #include "pm_log.h"
+#include "pm_power.h"
 #include "pm_settings.h"
 #include "pm_daily_briefing.h"
 #include "pm_daily_briefing_nvs.h"
@@ -91,8 +94,18 @@ Arduino_DataBus *bus = new Arduino_ESP32QSPI(
 
 Arduino_CO5300 *tft = new Arduino_CO5300(
     bus, LCD_RESET, 0, false, LCD_WIDTH, LCD_HEIGHT, 6, 0, 0, 0);
-/** Full-framebuffer canvas; flush() pushes pixels to the CO5300 (enables WiFi BMP grab). */
-Arduino_Canvas *gfx = new Arduino_Canvas(LCD_WIDTH, LCD_HEIGHT, tft);
+/** Portable framebuffer facade; flush() pushes pixels to the CO5300 (enables WiFi BMP grab). */
+PmDisplayCanvas *gfx = new PmDisplayCanvas(LCD_WIDTH, LCD_HEIGHT, tft);
+
+static void astrolabe_set_brightness(uint8_t brightness) {
+#ifndef ASTROLABE_QEMU
+  if (tft) {
+    tft->setBrightness(brightness);
+  }
+#else
+  (void)brightness;
+#endif
+}
 
 enum class AppState { kClock, kRecording, kThinking, kPlaying };
 
@@ -730,8 +743,7 @@ static bool face_index_from_name(const char *name, int *out) {
            {"relative_heading", 29}, {"luopan", 30},   {"fengshui", 30},  {"feng_shui", 30},
            {"feng-shui", 30},    {"qotd", 31},       {"question", 31},   {"question_day", 31},
            {"question-of-day", 31}, {"question_of_the_day", 31},
-           {"focus", 32},        {"timer", 32},       {"pomodoro", 32},   {"productivity", 32},
-           {"biometrics", 33},   {"bio", 33},         {"sensors", 33},    {"wellness", 33}};
+           {"focus", 32},        {"timer", 32},       {"pomodoro", 32},   {"productivity", 32}};
   for (const auto &e : k) {
     if (strcasecmp(name, e.n) == 0) {
       *out = e.idx;
@@ -786,6 +798,12 @@ static const FaceTourInfo k_face_tour[] = {
      "WiFi is available for portraits", "offline, cached portraits only", true, false},
     {"weather", "24-hour radial forecast rings", "the local 24-hour weather ring",
      "weather refresh can run", "needs WiFi and time for forecast", true, true},
+    {"globe", "spinning Earth disk with live day-night terminator",
+     "the current Earth daylight pattern and local time context",
+     "time is available for the terminator", "needs time for daylight line", false, true},
+    {"sky", "draggable night-sky planisphere with stars and constellation lines",
+     "the visible sky orientation and constellation field",
+     "time is available for sky motion", "needs time for sky motion", false, true},
     {"quotes", "Castalia quote of the day with faculty bust", "the quote of the day and its faculty context",
      "quote refresh can run", "offline demo quote only", true, false},
     {"transits", "live planetary spheres and next Moon ingress", "live transits and the next Moon ingress",
@@ -2009,6 +2027,7 @@ void setup() {
 #ifdef ASTROLABE_QEMU
   pm_gesture_reset();
   pm_display_bind(nullptr);
+  pm_power_begin(astrolabe_set_brightness);
   ensure_pcm_buffer();
   pm_log_printf(false, "boot: Mynah Astrolabe ready qemu");
   Serial.println("Mynah Astrolabe ready");
@@ -2020,6 +2039,7 @@ void setup() {
     }
   }
   tft->setBrightness(200);
+  pm_power_begin(astrolabe_set_brightness);
   gfx->fillScreen(RGB565_BLACK);
   gfx->flush();
 
@@ -2067,10 +2087,22 @@ void loop() {
   face_tour_tick(now);
   handle_usb_audio_stream_event();
   const uint8_t side_ev = pm_side_buttons_poll(now);
+  if (side_ev != 0 || pm_gesture_touch_down()) {
+    pm_power_note_activity(now);
+  }
+  if (pm_power_tick(now)) {
+    g_clock_repaint_pending = true;
+  }
   release_noninstrument_speaker_task(now);
 
   if (g_state == AppState::kClock && pm_faces_current() == ClockFace::TibetanBowl) {
     if (pm_face_tibetan_bowl_touch_tick(now)) {
+      g_clock_repaint_pending = true;
+    }
+  }
+  if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Sky) {
+    if (pm_face_sky_touch_tick(now)) {
+      pm_power_note_activity(now);
       g_clock_repaint_pending = true;
     }
   }
@@ -2088,6 +2120,9 @@ void loop() {
         g_clock_repaint_pending = true;
         continue;
       }
+    }
+    if (g_state == AppState::kClock) {
+      pm_power_note_activity(now);
     }
     if (g_state == AppState::kClock && pm_faces_navigation_mode() &&
         gesture_is_navigation_swipe(ge.kind)) {
@@ -2143,6 +2178,33 @@ void loop() {
       if (ge.kind == PmGestureKind::Tap && pm_settings_page() == SettingsPage::Variant) {
         const PmDeviceVariant variant = pm_variant_cycle(1);
         snprintf(g_gesture_banner, sizeof(g_gesture_banner), "variant: %s", pm_variant_label(variant));
+        g_clock_repaint_pending = false;
+        if (pm_gfx) {
+          pm_faces_draw();
+        }
+        continue;
+      }
+      if (ge.kind == PmGestureKind::Tap && pm_settings_page() == SettingsPage::Sleep) {
+        pm_power_cycle_sleep_timeout(1);
+        snprintf(g_gesture_banner, sizeof(g_gesture_banner), "sleep: timeout");
+        g_clock_repaint_pending = false;
+        if (pm_gfx) {
+          pm_faces_draw();
+        }
+        continue;
+      }
+      if (ge.kind == PmGestureKind::LongPress && pm_settings_page() == SettingsPage::Sleep) {
+        pm_power_toggle_enabled();
+        snprintf(g_gesture_banner, sizeof(g_gesture_banner), "sleep: toggled");
+        g_clock_repaint_pending = false;
+        if (pm_gfx) {
+          pm_faces_draw();
+        }
+        continue;
+      }
+      if (ge.kind == PmGestureKind::MultiFingerTap2 && pm_settings_page() == SettingsPage::Sleep) {
+        pm_power_cycle_dim_timeout(1);
+        snprintf(g_gesture_banner, sizeof(g_gesture_banner), "sleep: dim timeout");
         g_clock_repaint_pending = false;
         if (pm_gfx) {
           pm_faces_draw();
@@ -2659,6 +2721,7 @@ void loop() {
           pm_faces_current() != ClockFace::Rocket && pm_faces_current() != ClockFace::Radar &&
           pm_faces_current() != ClockFace::Biometrics &&
           pm_faces_current() != ClockFace::Faculty && pm_faces_current() != ClockFace::Quotes &&
+          pm_faces_current() != ClockFace::Globe && pm_faces_current() != ClockFace::Sky &&
           pm_faces_current() != ClockFace::LiveTransits && pm_faces_current() != ClockFace::Tarot &&
           pm_faces_current() != ClockFace::Ocarina && pm_faces_current() != ClockFace::Bongo &&
           pm_faces_current() != ClockFace::Piano && pm_faces_current() != ClockFace::Level &&
@@ -2668,12 +2731,16 @@ void loop() {
       const bool calcifer_sec =
           pm_faces_current() == ClockFace::CalciferCountdown && valid && sec_tick;
       const bool rocket_sec = pm_faces_current() == ClockFace::Rocket && valid && sec_tick;
-      static uint32_t s_last_wifi_settings_graph_ms = 0;
-      bool wifi_settings_graph = false;
-      if (pm_faces_current() == ClockFace::Settings && pm_settings_page() == SettingsPage::WiFi &&
-          now - s_last_wifi_settings_graph_ms >= 1000u) {
-        s_last_wifi_settings_graph_ms = now;
-        wifi_settings_graph = true;
+      const bool globe_anim = pm_faces_current() == ClockFace::Globe && pm_face_globe_anim_tick(now);
+      const bool sky_anim = pm_faces_current() == ClockFace::Sky && pm_face_sky_anim_tick(now);
+      static uint32_t s_last_settings_status_ms = 0;
+      bool settings_status_paint = false;
+      if (pm_faces_current() == ClockFace::Settings &&
+          (pm_settings_page() == SettingsPage::WiFi || pm_settings_page() == SettingsPage::Battery ||
+           pm_settings_page() == SettingsPage::Sleep) &&
+          now - s_last_settings_status_ms >= 1000u) {
+        s_last_settings_status_ms = now;
+        settings_status_paint = true;
       }
 #if MYNAH_HUE_HOME_ONLY
       bool gem_pulse_paint = false;
@@ -2692,7 +2759,7 @@ void loop() {
                                  weather_stale || quotes_face_stale || quotes_preload_due || rocket_stale || sec_tick_paint || calcifer_sec || rocket_sec ||
                                  astro_repaint || spectrum_anim || chakra_anim || bowl_anim || ocarina_anim || bongo_anim ||
                                  piano_anim || pandrum_anim || alethiometer_anim || radar_anim || biometrics_anim ||
-                                 level_anim || faculty_anim || focus_anim || wifi_settings_graph;
+                                 level_anim || faculty_anim || focus_anim || globe_anim || sky_anim || settings_status_paint;
 #if MYNAH_HUE_HOME_ONLY
       const bool gem_only_paint = gem_pulse_paint && s_clock_paint_inited && !non_gem_paint;
       const bool full_paint = non_gem_paint || gem_pulse_paint;

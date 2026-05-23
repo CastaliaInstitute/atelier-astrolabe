@@ -13,6 +13,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "pm_config.h"
+#include "pm_display.h"
 #include "pm_speaker.h"
 #include "pm_wifi_ntp.h"
 
@@ -928,7 +929,7 @@ bool pm_castalia_serial_command(const char *line) {
   return true;
 }
 
-bool pm_castalia_draw_qr(Arduino_Canvas *gfx, int cx, int cy, int max_px) {
+bool pm_castalia_draw_qr(PmDisplayCanvas *gfx, int cx, int cy, int max_px) {
   if (!gfx || s_signin_url[0] == '\0') {
     return false;
   }

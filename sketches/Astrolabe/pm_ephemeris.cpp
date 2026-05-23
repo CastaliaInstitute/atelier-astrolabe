@@ -1,6 +1,7 @@
 #include "pm_ephemeris.h"
 
 #include <HTTPClient.h>
+#include <LittleFS.h>
 #include <WiFi.h>
 #include <WiFiClient.h>
 #include <WiFiClientSecure.h>
@@ -26,6 +27,8 @@ static uint32_t s_fail_backoff_until_ms = 0;
 static char s_month_key[8] = "";
 static char *s_month_json = nullptr;
 static size_t s_month_json_cap = 0;
+static bool s_fs_tried = false;
+static bool s_fs_ready = false;
 
 bool pm_ephemeris_last_from_network(void) {
   const bool v = s_last_from_network;
@@ -150,8 +153,95 @@ static bool lookup_month_json(const char *json, time_t epoch, PmTransitPositions
   return true;
 }
 
+static bool ephemeris_fs_ready(void) {
+  if (!s_fs_tried) {
+    s_fs_tried = true;
+    s_fs_ready = LittleFS.begin(true);
+    if (s_fs_ready && !LittleFS.exists("/ephem")) {
+      (void)LittleFS.mkdir("/ephem");
+    }
+  }
+  return s_fs_ready;
+}
+
+static void month_cache_path(const char *month_key, char *out, size_t cap) {
+  snprintf(out, cap, "/ephem/%s.json", month_key);
+}
+
+static bool load_month_from_fs(const char *month_key) {
+  if (!ephemeris_fs_ready()) {
+    return false;
+  }
+  char path[32];
+  month_cache_path(month_key, path, sizeof(path));
+  if (!LittleFS.exists(path)) {
+    return false;
+  }
+  File f = LittleFS.open(path, FILE_READ);
+  if (!f) {
+    return false;
+  }
+  const size_t len = f.size();
+  if (len == 0 || len > static_cast<size_t>(MYNAH_EPHEMERIS_MONTH_MAX_BYTES)) {
+    f.close();
+    (void)LittleFS.remove(path);
+    return false;
+  }
+  if (!s_month_json || s_month_json_cap < len + 1u) {
+    if (s_month_json) {
+      free(s_month_json);
+      s_month_json = nullptr;
+    }
+    s_month_json_cap = len + 1u;
+    s_month_json = static_cast<char *>(pm_heap_alloc_response(s_month_json_cap));
+  }
+  if (!s_month_json) {
+    f.close();
+    return false;
+  }
+  const size_t rd = f.readBytes(s_month_json, len);
+  f.close();
+  if (rd != len) {
+    return false;
+  }
+  s_month_json[len] = '\0';
+  strncpy(s_month_key, month_key, sizeof(s_month_key) - 1);
+  s_month_key[sizeof(s_month_key) - 1] = '\0';
+  ESP_LOGI(TAG, "loaded cached %s (%u bytes)", month_key, static_cast<unsigned>(len));
+  return true;
+}
+
+static void save_month_to_fs(const char *month_key, const char *json, size_t len) {
+  if (!month_key || !json || len == 0 || !ephemeris_fs_ready()) {
+    return;
+  }
+  char path[32];
+  char tmp[40];
+  month_cache_path(month_key, path, sizeof(path));
+  snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+  File f = LittleFS.open(tmp, FILE_WRITE);
+  if (!f) {
+    return;
+  }
+  const size_t wr = f.write(reinterpret_cast<const uint8_t *>(json), len);
+  f.close();
+  if (wr != len) {
+    (void)LittleFS.remove(tmp);
+    return;
+  }
+  (void)LittleFS.remove(path);
+  if (!LittleFS.rename(tmp, path)) {
+    (void)LittleFS.remove(tmp);
+    return;
+  }
+  ESP_LOGI(TAG, "cached %s (%u bytes)", month_key, static_cast<unsigned>(len));
+}
+
 static bool ensure_month_loaded(const char *month_key) {
   if (s_month_json && strcmp(s_month_key, month_key) == 0) {
+    return true;
+  }
+  if (load_month_from_fs(month_key)) {
     return true;
   }
   if (WiFi.status() != WL_CONNECTED) {
@@ -212,6 +302,7 @@ static bool ensure_month_loaded(const char *month_key) {
   s_month_json[rd] = '\0';
   strncpy(s_month_key, month_key, sizeof(s_month_key) - 1);
   s_month_key[sizeof(s_month_key) - 1] = '\0';
+  save_month_to_fs(month_key, s_month_json, static_cast<size_t>(rd));
   ESP_LOGI(TAG, "loaded %s (%d bytes)", month_key, rd);
   return true;
 }

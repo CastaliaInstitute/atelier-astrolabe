@@ -18,6 +18,7 @@
 #include "faces/digital/pm_face_digital.h"
 #include "faces/faculty/pm_face_faculty.h"
 #include "faces/focus/pm_face_focus.h"
+#include "faces/globe/pm_face_globe.h"
 #include "faces/level/pm_face_level.h"
 #include "faces/live_transits/pm_face_live_transits.h"
 #include "faces/luopan/pm_face_luopan.h"
@@ -30,6 +31,7 @@
 #include "faces/question_day/pm_face_question_day.h"
 #include "faces/quotes/pm_face_quotes.h"
 #include "faces/shared/pm_face_draw.h"
+#include "faces/sky/pm_face_sky.h"
 #include "faces/rocket/pm_face_rocket.h"
 #include "faces/runes/pm_face_runes.h"
 #include "faces/spotify/pm_face_spotify.h"
@@ -62,6 +64,8 @@ static const ClockFace k_face_dial_order[] = {
     ClockFace::CalciferCountdown,
     ClockFace::FocusTimer,
     ClockFace::Weather,
+    ClockFace::Globe,
+    ClockFace::Sky,
     ClockFace::Radar,
     ClockFace::Biometrics,
     ClockFace::Level,
@@ -219,6 +223,9 @@ static void pm_faces_on_leave(ClockFace from, ClockFace to) {
     case ClockFace::Weather:
       memset(&g_weather_ui, 0, sizeof(g_weather_ui));
       break;
+    case ClockFace::Sky:
+      pm_face_sky_on_leave();
+      break;
     default:
       break;
   }
@@ -328,6 +335,7 @@ void pm_faces_draw(float thinking_progress) {
       s_clock_face != ClockFace::TibetanBowl && s_clock_face != ClockFace::Rocket &&
       s_clock_face != ClockFace::Radar && s_clock_face != ClockFace::Biometrics && s_clock_face != ClockFace::Faculty &&
       s_clock_face != ClockFace::Weather && s_clock_face != ClockFace::Quotes &&
+      s_clock_face != ClockFace::Globe && s_clock_face != ClockFace::Sky &&
       s_clock_face != ClockFace::Notes && s_clock_face != ClockFace::Ocarina &&
       s_clock_face != ClockFace::Bongo && s_clock_face != ClockFace::PanDrum &&
       s_clock_face != ClockFace::Piano && s_clock_face != ClockFace::Tuning &&
@@ -412,6 +420,12 @@ void pm_faces_draw(float thinking_progress) {
       pm_face_weather_draw(pm_time_valid(), lh, lm);
       break;
     }
+    case ClockFace::Globe:
+      pm_face_globe_draw(&tm, pm_time_valid());
+      break;
+    case ClockFace::Sky:
+      pm_face_sky_draw(&tm, pm_time_valid());
+      break;
     case ClockFace::Quotes:
       pm_face_quotes_draw();
       break;
@@ -471,6 +485,7 @@ void pm_faces_draw(float thinking_progress) {
                         s_clock_face == ClockFace::Radar || s_clock_face == ClockFace::Biometrics ||
                         s_clock_face == ClockFace::Faculty ||
                         s_clock_face == ClockFace::Weather || s_clock_face == ClockFace::Quotes ||
+                        s_clock_face == ClockFace::Globe || s_clock_face == ClockFace::Sky ||
                         s_clock_face == ClockFace::Tarot || s_clock_face == ClockFace::Notes ||
                         s_clock_face == ClockFace::Ocarina || s_clock_face == ClockFace::Bongo ||
                         s_clock_face == ClockFace::PanDrum || s_clock_face == ClockFace::Piano ||
@@ -492,6 +507,7 @@ void pm_faces_draw(float thinking_progress) {
       s_clock_face != ClockFace::TibetanBowl && s_clock_face != ClockFace::Rocket &&
       s_clock_face != ClockFace::Radar && s_clock_face != ClockFace::Biometrics && s_clock_face != ClockFace::Faculty &&
       s_clock_face != ClockFace::Weather && s_clock_face != ClockFace::Quotes &&
+      s_clock_face != ClockFace::Globe && s_clock_face != ClockFace::Sky &&
       s_clock_face != ClockFace::Tarot && s_clock_face != ClockFace::Notes &&
       s_clock_face != ClockFace::Ocarina && s_clock_face != ClockFace::Bongo &&
       s_clock_face != ClockFace::PanDrum && s_clock_face != ClockFace::Piano &&
@@ -535,6 +551,7 @@ bool pm_faces_banner_low(void) {
          f == ClockFace::Settings || f == ClockFace::Synastry || f == ClockFace::Spectrum ||
          f == ClockFace::Chakra || f == ClockFace::TibetanBowl || f == ClockFace::Rocket ||
          f == ClockFace::Radar || f == ClockFace::Biometrics || f == ClockFace::Faculty || f == ClockFace::Weather ||
+         f == ClockFace::Globe || f == ClockFace::Sky ||
          f == ClockFace::Quotes || f == ClockFace::Tarot || f == ClockFace::Notes ||
          f == ClockFace::Ocarina || f == ClockFace::Bongo || f == ClockFace::PanDrum ||
          f == ClockFace::Piano || f == ClockFace::Level || f == ClockFace::Orientation ||
@@ -550,6 +567,7 @@ bool pm_faces_local_hm_changed(int hour, int min) {
       s_clock_face == ClockFace::Chakra || s_clock_face == ClockFace::TibetanBowl ||
       s_clock_face == ClockFace::Rocket || s_clock_face == ClockFace::Radar || s_clock_face == ClockFace::Biometrics ||
       s_clock_face == ClockFace::Faculty || s_clock_face == ClockFace::Weather ||
+      s_clock_face == ClockFace::Globe || s_clock_face == ClockFace::Sky ||
       s_clock_face == ClockFace::Quotes || s_clock_face == ClockFace::Tarot ||
       s_clock_face == ClockFace::Notes || s_clock_face == ClockFace::Ocarina ||
       s_clock_face == ClockFace::Bongo || s_clock_face == ClockFace::PanDrum ||

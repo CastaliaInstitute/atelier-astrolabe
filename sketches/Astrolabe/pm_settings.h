@@ -5,6 +5,8 @@
 /** Sub-pages on [ClockFace::Settings] (swipe left/right). */
 enum class SettingsPage : uint8_t {
   WiFi = 0,
+  Battery,
+  Sleep,
   Variant,
   Castalia,
   kCount,

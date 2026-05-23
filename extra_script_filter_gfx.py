@@ -1,11 +1,10 @@
-"""Compile only GFX sources used by Astrolabe (QSPI + CO5300 + Canvas)."""
+"""Compile only GFX sources used by Astrolabe (QSPI + CO5300 + core drawing)."""
 Import("env")
 
 
 _KEEP = (
     "Arduino_ESP32QSPI.cpp",
     "Arduino_CO5300.cpp",
-    "Arduino_Canvas.cpp",
     "Arduino_DataBus.cpp",
     "Arduino_G.cpp",
     "Arduino_GFX.cpp",

@@ -1,6 +1,8 @@
 #include "pm_settings.h"
 
 #include "faces/castalia/pm_face_castalia.h"
+#include "faces/settings/pm_face_settings_battery.h"
+#include "faces/settings/pm_face_settings_sleep.h"
 #include "faces/settings/pm_face_settings_variant.h"
 #include "faces/settings/pm_face_settings_wifi.h"
 #include "faces/shared/pm_face_draw.h"
@@ -29,6 +31,10 @@ const char *pm_settings_page_label(SettingsPage page) {
   switch (page) {
     case SettingsPage::WiFi:
       return "wifi";
+    case SettingsPage::Battery:
+      return "battery";
+    case SettingsPage::Sleep:
+      return "sleep";
     case SettingsPage::Variant:
       return "variant";
     case SettingsPage::Castalia:
@@ -60,6 +66,12 @@ void pm_settings_draw(void) {
   switch (s_page) {
     case SettingsPage::WiFi:
       pm_face_settings_wifi_draw();
+      break;
+    case SettingsPage::Battery:
+      pm_face_settings_battery_draw();
+      break;
+    case SettingsPage::Sleep:
+      pm_face_settings_sleep_draw();
       break;
     case SettingsPage::Variant:
       pm_face_settings_variant_draw();
