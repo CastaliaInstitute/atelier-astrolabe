@@ -30,7 +30,29 @@
         padding: 24px;
         display: grid;
         justify-items: center;
-        gap: 18px;
+        gap: 16px;
+      }
+
+      .intro {
+        width: min(466px, calc(100vw - 32px));
+        display: grid;
+        gap: 6px;
+      }
+
+      h1,
+      p {
+        margin: 0;
+      }
+
+      h1 {
+        font-size: clamp(1.15rem, 4vw, 1.55rem);
+        line-height: 1.1;
+      }
+
+      p {
+        color: #aebbc7;
+        font-size: 0.92rem;
+        line-height: 1.45;
       }
 
       .watch {
@@ -90,12 +112,38 @@
         cursor: wait;
         opacity: 0.55;
       }
+
+      .status {
+        width: min(466px, calc(100vw - 32px));
+        min-height: 1.35em;
+        color: #aebbc7;
+        font-size: 0.82rem;
+        text-align: center;
+      }
+
+      .status[data-state="error"] {
+        color: #ffb4a8;
+      }
+
+      a {
+        color: #d5e8ff;
+      }
     </style>
   </head>
   <body>
     <main>
+      <div class="intro">
+        <h1>Astrolabe Device Face Simulator</h1>
+        <p>Preview firmware face sketches in the browser. Use the selector, arrow buttons, or horizontal swipes on the round display.</p>
+      </div>
       <div class="watch">
-        <canvas id="astrolabe-canvas" width="466" height="466"></canvas>
+        <canvas
+          id="astrolabe-canvas"
+          width="466"
+          height="466"
+          role="img"
+          aria-label="Astrolabe watch face preview. Current face: Classic."
+        ></canvas>
       </div>
       <div class="controls" aria-label="Watch face controls">
         <button type="button" id="prev-face" aria-label="Previous face" disabled>‹</button>
@@ -143,6 +191,8 @@
         </select>
         <button type="button" id="next-face" aria-label="Next face" disabled>›</button>
       </div>
+      <p class="status" id="sim-status" role="status" aria-live="polite">Loading simulator...</p>
+      <noscript><p class="status" data-state="error">Enable JavaScript to run the simulator.</p></noscript>
     </main>
 
     <script>
@@ -151,17 +201,97 @@
         next: document.querySelector("#next-face"),
         select: document.querySelector("#face-select"),
       };
+      const statusEl = document.querySelector("#sim-status");
+      const canvasEl = document.querySelector("#astrolabe-canvas");
+      const faceSlugs = [
+        "classic",
+        "apocalypso",
+        "digital",
+        "spotify",
+        "astrology",
+        "moon",
+        "calcifer",
+        "castalia",
+        "settings",
+        "synastry",
+        "spectrum",
+        "chakra",
+        "tibetan-bowl",
+        "rocket",
+        "radar",
+        "faculty",
+        "weather",
+        "globe",
+        "sky",
+        "quotes",
+        "live-transits",
+        "tarot",
+        "notes",
+        "ocarina",
+        "bongo",
+        "piano",
+        "level",
+        "tuning",
+        "pan-drum",
+        "alethiometer",
+        "runes",
+        "orientation",
+        "luopan",
+        "question-of-day",
+        "focus-timer",
+        "biometrics",
+        "lenormand",
+        "pythia",
+        "geomancy",
+        "enochian-angel",
+      ];
+      let runtimeReady = false;
+
+      function setStatus(message, state = "ready") {
+        statusEl.textContent = message;
+        statusEl.dataset.state = state;
+      }
+
+      function selectedFaceLabel() {
+        return controls.select.options[controls.select.selectedIndex]?.textContent || "Classic";
+      }
+
+      function enableControls() {
+        controls.prev.disabled = false;
+        controls.next.disabled = false;
+        controls.select.disabled = false;
+      }
+
+      function showLoadFailure(message) {
+        setStatus(message, "error");
+      }
 
       var Module = {
         locateFile(path) {
           return new URL(path, document.baseURI).href;
         },
         onRuntimeInitialized() {
-          controls.prev.disabled = false;
-          controls.next.disabled = false;
-          controls.select.disabled = false;
+          runtimeReady = true;
+          enableControls();
+          setInitialFaceFromHash();
+          updateFaceStatus();
+        },
+        onAbort() {
+          showLoadFailure("Simulator failed to start. Refresh the page, or try again after the latest deploy finishes propagating.");
         },
       };
+
+      window.addEventListener("error", (event) => {
+        if (event.target?.tagName === "SCRIPT") {
+          showLoadFailure("Simulator script failed to load.");
+        }
+      }, true);
+
+      window.setTimeout(() => {
+        if (!runtimeReady) {
+          showLoadFailure("Simulator is still loading. If this does not resolve, refresh the page.");
+        }
+      }, 10000);
     </script>
 
     {{{ SCRIPT }}}
@@ -170,20 +300,68 @@
       const faceSelect = controls.select;
       const faceCount = faceSelect.options.length;
 
-      function setFace(face) {
+      function setFace(face, urlMode = "push") {
         if (!Module.ccall) {
           return;
         }
         const normalized = ((face % faceCount) + faceCount) % faceCount;
         faceSelect.value = String(normalized);
         Module.ccall("astrolabe_web_set_face", null, ["number"], [normalized]);
+        updateFaceStatus();
+        const slug = faceSlugs[normalized] || String(normalized);
+        if (urlMode === "push" && location.hash !== `#${slug}`) {
+          history.pushState(null, "", `#${slug}`);
+        } else if (urlMode === "replace" && location.hash !== `#${slug}`) {
+          history.replaceState(null, "", `#${slug}`);
+        }
       }
 
       faceSelect.addEventListener("change", () => setFace(Number(faceSelect.value)));
       controls.prev.addEventListener("click", () => setFace(Number(faceSelect.value) - 1));
       controls.next.addEventListener("click", () => setFace(Number(faceSelect.value) + 1));
 
-      const canvas = document.querySelector("#astrolabe-canvas");
+      function updateFaceStatus() {
+        const label = selectedFaceLabel();
+        canvasEl.setAttribute("aria-label", `Astrolabe watch face preview. Current face: ${label}.`);
+        setStatus(`${label}. Swipe horizontally on the display or use the controls.`);
+      }
+
+      function faceFromHash() {
+        const hash = decodeURIComponent(location.hash.replace(/^#/, "")).trim().toLowerCase();
+        if (!hash) {
+          return null;
+        }
+        if (/^\d+$/.test(hash)) {
+          const face = Number(hash);
+          return Number.isInteger(face) && face >= 0 && face < faceCount ? face : null;
+        }
+        const slugIndex = faceSlugs.indexOf(hash);
+        if (slugIndex >= 0 && slugIndex < faceCount) {
+          return slugIndex;
+        }
+        return null;
+      }
+
+      function setInitialFaceFromHash() {
+        const face = faceFromHash();
+        if (face !== null) {
+          setFace(face, "none");
+        } else {
+          updateFaceStatus();
+        }
+      }
+
+      window.addEventListener("hashchange", () => {
+        if (!runtimeReady) {
+          return;
+        }
+        const face = faceFromHash();
+        if (face !== null && Number(faceSelect.value) !== face) {
+          setFace(face, "none");
+        }
+      });
+
+      const canvas = canvasEl;
       let swipeStart = null;
 
       canvas.addEventListener("pointerdown", (event) => {
