@@ -511,6 +511,25 @@
       interactions: "Swipe up and down browses cards. Tap returns to the daily card.",
     },
     {
+      slug: "pythia",
+      title: "Pythia",
+      kicker: "The Delphic oracle face",
+      summary:
+        "A Pythia bust for asking a question aloud and receiving an intentionally oblique oracle response.",
+      inquiry: "What question deserves an answer that refuses to stand still?",
+      questions: [
+        "What is the smoke answering before the words do?",
+        "Which image in the reply is meant for me to carry?",
+        "What changes if I treat the oracle as a mirror, not an instruction?",
+      ],
+      use: [
+        "Hold PWR to ask a question aloud when WiFi voice is available.",
+        "Listen for symbols, reversals, and omissions rather than plain advice.",
+        "Use BOOT to replay the last spoken oracle response.",
+      ],
+      interactions: "PWR hold asks Pythia. BOOT replays the last TTS response.",
+    },
+    {
       slug: "notes",
       title: "Notes",
       kicker: "Commonplace capture without a phone",
@@ -687,6 +706,25 @@
       ],
       interactions: "Tap casts the spread and can trigger a spoken fortune. Swipe left or right navigates.",
     },
+    {
+      slug: "geomancy",
+      title: "Geomancy",
+      kicker: "Sixteen figures from live noise",
+      summary:
+        "A geomantic figure face that can cast from hardware randomness, touch timing, motion, radio variation, BLE peer timing, and lunar phase.",
+      inquiry: "What figure forms when the instrument listens to the moment?",
+      questions: [
+        "Which figure appears from the current field?",
+        "What practical signal does its pattern suggest?",
+        "What changes if I read the cast as context rather than fate?",
+      ],
+      use: [
+        "Tap to cast a figure from live device entropy.",
+        "Swipe through the 16 traditional figures when browsing is useful.",
+        "Read the keyword as a prompt before asking for interpretation.",
+      ],
+      interactions: "Tap casts from entropy. Swipe up and down browses figures.",
+    },
   ];
 
   const variantBySlug = {
@@ -704,6 +742,8 @@
     cycle: "lunasay",
     tarot: "lunasay",
     lenormand: "lunasay",
+    geomancy: "lunasay",
+    pythia: "lunasay",
 
     spotify: "ocarina",
     spectrum: "ocarina",

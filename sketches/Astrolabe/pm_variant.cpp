@@ -39,6 +39,8 @@ static bool face_is_lunasay(ClockFace face) {
     case ClockFace::Synastry:
     case ClockFace::Tarot:
     case ClockFace::Lenormand:
+    case ClockFace::Geomancy:
+    case ClockFace::Pythia:
     case ClockFace::Runes:
     case ClockFace::Alethiometer:
       return true;

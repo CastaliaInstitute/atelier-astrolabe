@@ -74,6 +74,10 @@ enum class ClockFace : uint8_t {
   Biometrics,
   /** Daily Lenormand card; swipe up/down browses the 36-card deck. */
   Lenormand,
+  /** Pythia oracle bust; PWR asks Delphi and receives an obtuse response. */
+  Pythia,
+  /** Daily geomantic figure; swipe up/down browses the 16 figures. */
+  Geomancy,
   kNumFaces,
 };
 

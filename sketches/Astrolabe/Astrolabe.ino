@@ -54,12 +54,14 @@
 #include "faces/notes/pm_face_notes.h"
 #include "faces/question_day/pm_face_question_day.h"
 #include "faces/focus/pm_face_focus.h"
+#include "faces/geomancy/pm_face_geomancy.h"
 #include "faces/globe/pm_face_globe.h"
 #include "faces/spotify/pm_face_spotify.h"
 #include "faces/calcifer/pm_face_calcifer.h"
 #include "faces/level/pm_face_level.h"
 #include "faces/lenormand/pm_face_lenormand.h"
 #include "faces/luopan/pm_face_luopan.h"
+#include "faces/pythia/pm_face_pythia.h"
 #include "faces/weather/pm_face_weather.h"
 #include "faces/settings/pm_face_settings_wifi.h"
 #include "pm_weather.h"
@@ -211,6 +213,9 @@ static bool g_synastry_voice_pcm = false;
 /** Alethiometer voice: stay on compass during record/think/speak. */
 static bool g_alethiometer_voice_active = false;
 static bool g_alethiometer_voice_pcm = false;
+/** Pythia voice: stay on the Delphi bust during record/think/speak. */
+static bool g_pythia_voice_active = false;
+static bool g_pythia_voice_pcm = false;
 /** Question of the Day: text fetch or recorded answer. */
 static bool g_question_voice_active = false;
 static bool g_question_answer_pcm = false;
@@ -345,6 +350,10 @@ static void gesture_end_voice_ui(void) {
   g_astro_voice_pcm = false;
   g_synastry_voice_active = false;
   g_synastry_voice_pcm = false;
+  g_alethiometer_voice_active = false;
+  g_alethiometer_voice_pcm = false;
+  g_pythia_voice_active = false;
+  g_pythia_voice_pcm = false;
   g_moon_voice_pcm = false;
   g_question_voice_active = false;
   g_question_answer_pcm = false;
@@ -381,6 +390,8 @@ static bool home_begin_daily_briefing(void) {
   g_synastry_voice_pcm = false;
   g_alethiometer_voice_active = false;
   g_alethiometer_voice_pcm = false;
+  g_pythia_voice_active = false;
+  g_pythia_voice_pcm = false;
   g_moon_fortune_active = false;
   g_moon_voice_pcm = false;
   g_question_voice_active = false;
@@ -486,6 +497,10 @@ static bool voice_last_play_begin() {
   g_astro_voice_active = false;
   g_synastry_voice_active = false;
   g_synastry_voice_pcm = false;
+  g_alethiometer_voice_active = false;
+  g_alethiometer_voice_pcm = false;
+  g_pythia_voice_active = false;
+  g_pythia_voice_pcm = false;
   g_moon_voice_pcm = false;
   g_question_voice_active = false;
   g_question_answer_pcm = false;
@@ -747,7 +762,9 @@ static bool face_index_from_name(const char *name, int *out) {
            {"question-of-day", 33}, {"question_of_the_day", 33},
            {"focus", 34},      {"timer", 34},      {"pomodoro", 34},   {"productivity", 34},
            {"biometrics", 35}, {"bio", 35},        {"signals", 35},    {"lenormand", 36},
-           {"len", 36},        {"oracle", 36},     {"petit_lenormand", 36}};
+           {"len", 36},        {"oracle", 36},     {"petit_lenormand", 36},
+           {"pythia", 37},     {"delphi", 37},     {"geomancy", 38},   {"geomantic", 38},
+           {"geo", 38},        {"figures", 38}};
   for (const auto &e : k) {
     if (strcasecmp(name, e.n) == 0) {
       *out = e.idx;
@@ -849,6 +866,12 @@ static const FaceTourInfo k_face_tour[] = {
     {"lenormand", "daily 36-card Lenormand oracle using Noto Emoji symbols",
      "the active Lenormand card and its practical keyword",
      "drawing local Lenormand deck", "drawing local Lenormand deck", false, false},
+    {"pythia", "Delphi oracle bust for obtuse spoken answers",
+     "a question for Pythia, answered as an ambiguous oracle",
+     "WiFi is available for oracle voice", "offline, Pythia bust only", true, false},
+    {"geomancy", "daily geomantic figure from the 16 traditional figures",
+     "the active geomantic figure and its practical keyword",
+     "drawing local geomancy figures", "drawing local geomancy figures", false, false},
 };
 static_assert(sizeof(k_face_tour) / sizeof(k_face_tour[0]) == static_cast<size_t>(ClockFace::kNumFaces),
               "k_face_tour must match ClockFace order");
@@ -1251,6 +1274,31 @@ static bool face_voice_build_prompt(const FaceTourInfo *info, int idx, char *msg
                pm_face_lenormand_keyword(lenormand_idx));
       break;
     }
+    case ClockFace::Geomancy: {
+      struct tm local = {};
+      const bool valid = pm_time_valid();
+      if (valid) {
+        pm_time_local(&local);
+      }
+      const int geomancy_idx = pm_face_geomancy_index(&local, valid);
+      snprintf(msg, msg_cap,
+               "Face: geomancy. Active figure: %s. Keyword: %s. Give a concise geomantic reading for the "
+               "watch face: practical signal, present tension, and one grounded image. Keep it reflective, "
+               "not deterministic.",
+               pm_face_geomancy_title(geomancy_idx), pm_face_geomancy_keyword(geomancy_idx));
+      break;
+    }
+    case ClockFace::Pythia:
+      snprintf(s_face_voice_face, sizeof(s_face_voice_face), "pythia");
+      if (!pm_face_pythia_build_system_prompt(sys, sys_cap)) {
+        snprintf(g_gesture_banner, sizeof(g_gesture_banner), "pythia: prompt fail");
+        return false;
+      }
+      snprintf(msg, msg_cap,
+               "%sThe asker stands before the Pythia face but has not spoken a specific question. Give a "
+               "brief Delphic omen inviting a better question.",
+               tour_test ? "Tour-test the Pythia TTS button. " : "");
+      break;
     case ClockFace::Notes:
       snprintf(msg, msg_cap,
                "Face: notes. Offline queued notes: %u. Status: WiFi %s, Castalia session %s. Explain that "
@@ -1876,6 +1924,8 @@ static void poll_serial_birth_commands() {
           Serial.println("qa: 34 focus");
           Serial.println("qa: 35 biometrics");
           Serial.println("qa: 36 lenormand");
+          Serial.println("qa: 37 pythia");
+          Serial.println("qa: 38 geomancy");
         } else if (strncmp(args, "tour", 4) == 0 && (args[4] == '\0' || args[4] == ' ')) {
           handle_tour_command(args + 4);
         } else if (!pm_qa_inject_command(args)) {
@@ -2460,6 +2510,32 @@ void loop() {
       snprintf(g_gesture_banner, sizeof(g_gesture_banner), "lenormand: daily");
       g_clock_repaint_pending = true;
       continue;
+    } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Geomancy &&
+               (ge.kind == PmGestureKind::SwipeUp || ge.kind == PmGestureKind::SwipeDown)) {
+      pm_face_geomancy_cycle(ge.kind == PmGestureKind::SwipeUp ? 1 : -1);
+      struct tm local = {};
+      const bool valid = pm_time_valid();
+      if (valid) {
+        pm_time_local(&local);
+      }
+      const int geomancy_idx = pm_face_geomancy_index(&local, valid);
+      snprintf(g_gesture_banner, sizeof(g_gesture_banner), "geo %.24s",
+               pm_face_geomancy_title(geomancy_idx));
+      g_clock_repaint_pending = true;
+      continue;
+    } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Geomancy &&
+               ge.kind == PmGestureKind::Tap) {
+      pm_face_geomancy_cast_entropy(ge.x, ge.y);
+      struct tm local = {};
+      const bool valid = pm_time_valid();
+      if (valid) {
+        pm_time_local(&local);
+      }
+      const int geomancy_idx = pm_face_geomancy_index(&local, valid);
+      snprintf(g_gesture_banner, sizeof(g_gesture_banner), "cast %.22s",
+               pm_face_geomancy_title(geomancy_idx));
+      g_clock_repaint_pending = true;
+      continue;
     } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Rocket &&
                (ge.kind == PmGestureKind::SwipeUp || ge.kind == PmGestureKind::SwipeDown)) {
       if (pm_face_rocket_cycle_launch(ge.kind == PmGestureKind::SwipeUp ? 1 : -1)) {
@@ -2997,6 +3073,25 @@ void loop() {
           g_moon_voice_pcm = false;
           g_question_voice_active = false;
           g_question_answer_pcm = false;
+        } else if (pm_faces_current() == ClockFace::Pythia) {
+          if (!pm_wifi_connected()) {
+            snprintf(g_gesture_banner, sizeof(g_gesture_banner), "pythia: need WiFi");
+            g_clock_repaint_pending = true;
+            break;
+          }
+          g_commonplace_journal = false;
+          g_commonplace_note_face = false;
+          g_astro_voice_active = false;
+          g_astro_voice_pcm = false;
+          g_synastry_voice_active = false;
+          g_synastry_voice_pcm = false;
+          g_alethiometer_voice_active = false;
+          g_alethiometer_voice_pcm = false;
+          g_pythia_voice_active = true;
+          g_pythia_voice_pcm = true;
+          g_moon_voice_pcm = false;
+          g_question_voice_active = false;
+          g_question_answer_pcm = false;
         } else if (pm_faces_current() == ClockFace::QuestionOfDay) {
           if (!pm_wifi_connected()) {
             snprintf(g_gesture_banner, sizeof(g_gesture_banner), "question: need WiFi");
@@ -3043,6 +3138,8 @@ void loop() {
           g_synastry_voice_pcm = false;
           g_alethiometer_voice_active = false;
           g_alethiometer_voice_pcm = false;
+          g_pythia_voice_active = false;
+          g_pythia_voice_pcm = false;
           g_moon_voice_pcm = false;
         } else if (pm_faces_current() == ClockFace::Notes) {
           g_commonplace_journal = true;
@@ -3053,6 +3150,8 @@ void loop() {
           g_synastry_voice_pcm = false;
           g_alethiometer_voice_active = false;
           g_alethiometer_voice_pcm = false;
+          g_pythia_voice_active = false;
+          g_pythia_voice_pcm = false;
           g_moon_voice_pcm = false;
         } else {
           g_commonplace_journal = false;
@@ -3063,6 +3162,8 @@ void loop() {
           g_synastry_voice_pcm = false;
           g_alethiometer_voice_active = false;
           g_alethiometer_voice_pcm = false;
+          g_pythia_voice_active = false;
+          g_pythia_voice_pcm = false;
           g_moon_voice_pcm = false;
         }
         reset_recording_buffer();
@@ -3126,6 +3227,8 @@ void loop() {
         pm_gfx->flush();
       } else if (g_alethiometer_voice_active) {
         pm_face_alethiometer_draw_voice_screen("listening");
+      } else if (g_pythia_voice_active) {
+        pm_face_pythia_draw_voice_screen("listening");
       } else if (g_question_voice_active) {
         const float progress =
             static_cast<float>(g_pcm_len) / static_cast<float>(MYNAH_VOICE_MAX_PCM_BYTES);
@@ -3336,6 +3439,17 @@ void loop() {
               break;
             }
             sys = s_face_tour_sys_prompt;
+          } else if (g_pythia_voice_active) {
+            if (!pm_face_pythia_build_system_prompt(s_face_tour_sys_prompt, kFaceTourSysPromptCap)) {
+              pm_face_pythia_draw_voice_screen("prompt fail");
+              delay(1200);
+              g_pythia_voice_active = false;
+              g_pythia_voice_pcm = false;
+              g_state = AppState::kClock;
+              g_clock_repaint_pending = true;
+              break;
+            }
+            sys = s_face_tour_sys_prompt;
           } else if (g_question_voice_active && g_question_answer_pcm) {
             if (!pm_face_question_day_build_answer_system_prompt(g_question_sys_prompt,
                                                                  kQuestionSysPromptCap)) {
@@ -3351,6 +3465,8 @@ void loop() {
           }
           if (g_question_voice_active && g_question_answer_pcm) {
             started = pm_voice_begin_pcm_ex(g_pcm, g_pcm_len, sys, "question_of_day", &g_voice_result);
+          } else if (g_pythia_voice_active) {
+            started = pm_voice_begin_pcm_ex(g_pcm, g_pcm_len, sys, "pythia", &g_voice_result);
           } else if (pm_faces_current() == ClockFace::Faculty) {
             started = pm_voice_begin_pcm_ex(g_pcm, g_pcm_len, sys, "faculty", &g_voice_result);
           } else {
@@ -3367,6 +3483,8 @@ void loop() {
             pm_face_synastry_draw_voice_screen("voice start fail");
           } else if (g_alethiometer_voice_active) {
             pm_face_alethiometer_draw_voice_screen("voice start fail");
+          } else if (g_pythia_voice_active) {
+            pm_face_pythia_draw_voice_screen("voice start fail");
           } else if (g_runes_fortune_active) {
             pm_face_runes_draw_voice_screen("voice start fail", -1.f);
           } else if (g_question_voice_active) {
@@ -3382,6 +3500,8 @@ void loop() {
           g_synastry_voice_pcm = false;
           g_alethiometer_voice_active = false;
           g_alethiometer_voice_pcm = false;
+          g_pythia_voice_active = false;
+          g_pythia_voice_pcm = false;
           g_runes_fortune_active = false;
           g_question_voice_active = false;
           g_question_answer_pcm = false;
@@ -3393,7 +3513,7 @@ void loop() {
         thinking_progress_begin(g_daily_briefing ? 680000u
                                                 : ((g_astro_voice_active || g_synastry_voice_active ||
                                                     g_alethiometer_voice_active || g_runes_fortune_active ||
-                                                    g_question_voice_active)
+                                                    g_pythia_voice_active || g_question_voice_active)
                                                        ? 180000u
                                                        : 45000u));
         s_voice_job_armed = true;
@@ -3408,6 +3528,8 @@ void loop() {
         pm_face_synastry_draw_voice_screen(nullptr, thinking_progress_now());
       } else if (g_alethiometer_voice_active) {
         pm_face_alethiometer_draw_voice_screen(nullptr, thinking_progress_now());
+      } else if (g_pythia_voice_active) {
+        pm_face_pythia_draw_voice_screen(nullptr, thinking_progress_now());
       } else if (g_astro_voice_active) {
         pm_face_astrology_draw_voice_screen(nullptr, -1, -1, false, thinking_progress_now());
       } else if (g_moon_fortune_active) {
@@ -3426,7 +3548,7 @@ void loop() {
             g_daily_briefing ? 680000u
                              : ((g_moon_fortune_active || g_astro_voice_active || g_synastry_voice_active ||
                                  g_alethiometer_voice_active || g_runes_fortune_active ||
-                                 g_question_voice_active)
+                                 g_pythia_voice_active || g_question_voice_active)
                                     ? 620000u
                                     : 100000u);
         if (s_voice_wait_t0 != 0 && (now - s_voice_wait_t0) > voice_wait_ms) {
@@ -3448,6 +3570,10 @@ void loop() {
         Serial.printf("alethiometer: voice done status=%d mp3=%u err=%s\n", static_cast<int>(vs),
                       static_cast<unsigned>(g_voice_result.mp3_len),
                       vs == PmVoiceStatus::DoneOk ? "-" : pm_voice_last_error());
+      } else if (g_pythia_voice_active) {
+        Serial.printf("pythia: voice done status=%d mp3=%u err=%s\n", static_cast<int>(vs),
+                      static_cast<unsigned>(g_voice_result.mp3_len),
+                      vs == PmVoiceStatus::DoneOk ? "-" : pm_voice_last_error());
       }
       s_voice_job_armed = false;
       thinking_progress_end();
@@ -3465,6 +3591,8 @@ void loop() {
           pm_face_synastry_draw_voice_screen(pm_voice_last_error());
         } else if (g_alethiometer_voice_active) {
           pm_face_alethiometer_draw_voice_screen(pm_voice_last_error());
+        } else if (g_pythia_voice_active) {
+          pm_face_pythia_draw_voice_screen(pm_voice_last_error());
         } else if (g_astro_voice_active) {
           pm_face_astrology_draw_voice_screen(pm_voice_last_error(), -1, -1, false);
         } else if (g_moon_fortune_active) {
@@ -3490,6 +3618,8 @@ void loop() {
         g_synastry_voice_pcm = false;
         g_alethiometer_voice_active = false;
         g_alethiometer_voice_pcm = false;
+        g_pythia_voice_active = false;
+        g_pythia_voice_pcm = false;
         g_moon_fortune_active = false;
         g_runes_fortune_active = false;
         g_question_voice_active = false;
@@ -3531,6 +3661,16 @@ void loop() {
           pm_voice_result_free(&g_voice_result);
           g_alethiometer_voice_active = false;
           g_alethiometer_voice_pcm = false;
+          g_state = AppState::kClock;
+          g_clock_repaint_pending = true;
+          break;
+        }
+        if (g_pythia_voice_active) {
+          pm_face_pythia_draw_voice_screen("no audio reply");
+          delay(1500);
+          pm_voice_result_free(&g_voice_result);
+          g_pythia_voice_active = false;
+          g_pythia_voice_pcm = false;
           g_state = AppState::kClock;
           g_clock_repaint_pending = true;
           break;
@@ -3786,6 +3926,55 @@ void loop() {
         s_play_armed = false;
         s_play_wait_t0 = 0;
         g_alethiometer_voice_active = false;
+        g_state = AppState::kClock;
+        g_clock_repaint_pending = true;
+        break;
+      }
+      if (g_pythia_voice_active) {
+        if (!s_play_armed) {
+          if (!g_voice_result.mp3 || g_voice_result.mp3_len < 64) {
+            pm_face_pythia_draw_voice_screen("no audio");
+            delay(1200);
+            pm_voice_result_free(&g_voice_result);
+            g_pythia_voice_active = false;
+            g_pythia_voice_pcm = false;
+            g_state = AppState::kClock;
+            g_clock_repaint_pending = true;
+            break;
+          }
+          if (!pm_speaker_play_begin(g_voice_result.mp3, g_voice_result.mp3_len)) {
+            pm_face_pythia_draw_voice_screen("speaker busy");
+            delay(1200);
+            pm_voice_result_free(&g_voice_result);
+            g_pythia_voice_active = false;
+            g_pythia_voice_pcm = false;
+            g_state = AppState::kClock;
+            g_clock_repaint_pending = true;
+            break;
+          }
+          s_play_armed = true;
+          s_play_wait_t0 = now;
+        }
+        pm_face_pythia_draw_voice_screen("speaking", -1.f, true);
+        PmSpeakerStatus spk = pm_speaker_poll();
+        if (spk == PmSpeakerStatus::Playing) {
+          const uint32_t est_ms =
+              static_cast<uint32_t>((g_voice_result.mp3_len * 8u * 1000u) / 96000u) + 45000u;
+          if (s_play_wait_t0 != 0 && (now - s_play_wait_t0) > est_ms) {
+            pm_speaker_abort();
+          } else {
+            break;
+          }
+        }
+        if (spk == PmSpeakerStatus::DoneFail) {
+          pm_face_pythia_draw_voice_screen("playback failed");
+          delay(1200);
+        }
+        pm_voice_result_free(&g_voice_result);
+        s_play_armed = false;
+        s_play_wait_t0 = 0;
+        g_pythia_voice_active = false;
+        g_pythia_voice_pcm = false;
         g_state = AppState::kClock;
         g_clock_repaint_pending = true;
         break;
