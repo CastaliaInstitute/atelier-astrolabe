@@ -28,6 +28,8 @@
 #include "pm_weather.h"
 #include "pm_wifi_ntp.h"
 
+#include "faculty_bust_assets.h"
+
 char g_gesture_banner[44] = {};
 
 bool pm_time_valid(void) { return true; }
@@ -174,7 +176,45 @@ bool pm_faculty_active(PmFacultyProfile *out) {
 }
 bool pm_faculty_get_slot(int, PmFacultyProfile *out) { return pm_faculty_active(out); }
 void pm_faculty_release_bust_cache(void) {}
-static void websim_draw_faculty_bust(int cx, int bottom_y, int max_w, int max_h, const char *name) {
+
+static const WebsimFacultyBustAsset *websim_faculty_bust_asset(const char *slug) {
+  if (!slug || !slug[0]) return nullptr;
+  for (size_t i = 0; i < kWebsimFacultyBustAssetCount; ++i) {
+    if (std::strcmp(slug, kWebsimFacultyBustAssets[i].slug) == 0) return &kWebsimFacultyBustAssets[i];
+  }
+  return nullptr;
+}
+
+static void websim_draw_faculty_bust_asset(const WebsimFacultyBustAsset &asset, int cx, int bottom_y, int max_w,
+                                           int max_h, int clip_top, int clip_bottom) {
+  if (!pm_gfx || !asset.pixels || asset.width <= 0 || asset.height <= 0 || max_w <= 0 || max_h <= 0) return;
+
+  int draw_w = max_w;
+  int draw_h = static_cast<int>(static_cast<int64_t>(asset.height) * draw_w / asset.width);
+  if (draw_h > max_h) {
+    draw_h = max_h;
+    draw_w = static_cast<int>(static_cast<int64_t>(asset.width) * draw_h / asset.height);
+  }
+  if (draw_w <= 0 || draw_h <= 0) return;
+
+  const int left = cx - draw_w / 2;
+  const int top = bottom_y - draw_h;
+  const int clip0 = max(0, clip_top);
+  const int clip1 = min(LCD_HEIGHT, clip_bottom > 0 ? clip_bottom : LCD_HEIGHT);
+  for (int dy = 0; dy < draw_h; ++dy) {
+    const int y = top + dy;
+    if (y < clip0 || y >= clip1) continue;
+    const int sy = min(asset.height - 1, static_cast<int>(static_cast<int64_t>(dy) * asset.height / draw_h));
+    for (int dx = 0; dx < draw_w; ++dx) {
+      const int x = left + dx;
+      if (x < 0 || x >= LCD_WIDTH) continue;
+      const int sx = min(asset.width - 1, static_cast<int>(static_cast<int64_t>(dx) * asset.width / draw_w));
+      pm_gfx->drawPixel(x, y, asset.pixels[sy * asset.width + sx]);
+    }
+  }
+}
+
+static void websim_draw_faculty_placeholder(int cx, int bottom_y, int max_w, int max_h, const char *name) {
   if (!pm_gfx) return;
 
   const int head_r = max(14, min(max_w, max_h) / 7);
@@ -219,18 +259,37 @@ static void websim_draw_faculty_bust(int cx, int bottom_y, int max_w, int max_h,
     pm_gfx->print(name);
   }
 }
-void pm_faculty_draw_bust(void) { websim_draw_faculty_bust(LCD_WIDTH / 2, LCD_HEIGHT - 34, LCD_WIDTH - 96, LCD_HEIGHT - 90, "Hypatia"); }
+
+static void websim_draw_faculty_bust_for_slug(const char *slug, const char *name, int cx, int bottom_y, int max_w,
+                                              int max_h, int clip_top, int clip_bottom) {
+  const WebsimFacultyBustAsset *asset = websim_faculty_bust_asset(slug);
+  if (asset) {
+    websim_draw_faculty_bust_asset(*asset, cx, bottom_y, max_w, max_h, clip_top, clip_bottom);
+    return;
+  }
+  websim_draw_faculty_placeholder(cx, bottom_y, max_w, max_h, name);
+}
+
+void pm_faculty_draw_bust(void) {
+  websim_draw_faculty_bust_for_slug("hypatia", "Hypatia", LCD_WIDTH / 2, LCD_HEIGHT - 34, LCD_WIDTH - 96,
+                                    LCD_HEIGHT - 90, 0, LCD_HEIGHT);
+}
 void pm_faculty_draw_bust_fullscreen(void) {
   pm_gfx->fillCircle(LCD_WIDTH / 2, LCD_HEIGHT / 2, 210, pm_gfx->color565(10, 16, 30));
   pm_gfx->drawCircle(LCD_WIDTH / 2, LCD_HEIGHT / 2, 214, pm_gfx->color565(74, 92, 126));
-  websim_draw_faculty_bust(LCD_WIDTH / 2, LCD_HEIGHT - 44, LCD_WIDTH - 78, LCD_HEIGHT - 88, "Hypatia");
+  websim_draw_faculty_bust_for_slug("hypatia", "Hypatia", LCD_WIDTH / 2, LCD_HEIGHT - 44, LCD_WIDTH - 78,
+                                    LCD_HEIGHT - 88, 0, LCD_HEIGHT);
 }
 void pm_faculty_draw_bust_for(const PmFacultyProfile *profile) {
-  websim_draw_faculty_bust(LCD_WIDTH / 2, LCD_HEIGHT - 34, LCD_WIDTH - 96, LCD_HEIGHT - 90,
-                           profile && profile->name[0] ? profile->name : "Faculty");
+  websim_draw_faculty_bust_for_slug(profile ? profile->slug : nullptr,
+                                    profile && profile->name[0] ? profile->name : "Faculty", LCD_WIDTH / 2,
+                                    LCD_HEIGHT - 34, LCD_WIDTH - 96, LCD_HEIGHT - 90, 0, LCD_HEIGHT);
 }
-void pm_faculty_draw_bust_for_at(const PmFacultyProfile *profile, int cx, int bottom_y, int max_w, int max_h, int, int) {
-  websim_draw_faculty_bust(cx, bottom_y, max_w, max_h, profile && profile->name[0] ? profile->name : nullptr);
+void pm_faculty_draw_bust_for_at(const PmFacultyProfile *profile, int cx, int bottom_y, int max_w, int max_h,
+                                 int clip_top, int clip_bottom) {
+  websim_draw_faculty_bust_for_slug(profile ? profile->slug : nullptr,
+                                    profile && profile->name[0] ? profile->name : nullptr, cx, bottom_y, max_w,
+                                    max_h, clip_top, clip_bottom);
 }
 const char *pm_faculty_bust_slug(void) { return "hypatia"; }
 bool pm_faculty_bust_ready_for(const char *) { return true; }

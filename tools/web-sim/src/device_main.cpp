@@ -52,8 +52,8 @@ int main() {
   pm_display_bind(s_canvas);
   g_quotes_ui.ok = true;
   g_quotes_ui.demo = true;
-  std::snprintf(g_quotes_ui.faculty_slug, sizeof(g_quotes_ui.faculty_slug), "a.plato");
-  std::snprintf(g_quotes_ui.faculty_name, sizeof(g_quotes_ui.faculty_name), "Plato");
+  std::snprintf(g_quotes_ui.faculty_slug, sizeof(g_quotes_ui.faculty_slug), "a.einstein");
+  std::snprintf(g_quotes_ui.faculty_name, sizeof(g_quotes_ui.faculty_name), "Einstein");
   std::snprintf(g_quotes_ui.quote, sizeof(g_quotes_ui.quote),
                 "The beginning is the most important part of the work.");
   std::snprintf(g_quotes_ui.book_title, sizeof(g_quotes_ui.book_title), "The Republic");
