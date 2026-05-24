@@ -1,0 +1,72 @@
+# Self-hosted: flash one attached display target, capture every face over USB serial,
+# and upload BMP/contact-sheet artifacts. This path does not require watch/Mac Wi-Fi
+# subnet alignment because screenshots travel over `qa screen64`.
+#
+name: Firmware serial screenshot regression
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref to test
+        required: false
+        default: integration
+      target:
+        description: Display target
+        required: true
+        type: choice
+        default: s3_145
+        options:
+          - s3_145
+          - s3_175
+          - 4c
+          - all
+
+concurrency:
+  group: astrolabe-watch-device
+  cancel-in-progress: false
+
+jobs:
+  serial-screenshot-regression:
+    name: Serial screenshot tour (${{ inputs.target }})
+    runs-on: [self-hosted, astrolabe-watch]
+    environment: astrolabe-watch
+    env:
+      PLATFORMIO_BUILD_DIR: /tmp/astrolabe-pio-build-${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-serial-tour-${{ runner.os }}-${{ hashFiles('platformio.ini', 'scripts/build.sh') }}
+          restore-keys: |
+            pio-serial-tour-${{ runner.os }}-
+
+      - name: Install tools
+        run: bash ./scripts/ci-install-tools.sh
+
+      - name: Device secrets
+        env:
+          MYNAH_WIFI_SSID: ${{ secrets.MYNAH_WIFI_SSID }}
+          MYNAH_WIFI_PASSWORD: ${{ secrets.MYNAH_WIFI_PASSWORD }}
+          MYNAH_SUPABASE_URL: ${{ secrets.MYNAH_SUPABASE_URL }}
+          MYNAH_SUPABASE_ANON_KEY: ${{ secrets.MYNAH_SUPABASE_ANON_KEY }}
+        run: ./scripts/ensure-device-secrets.sh
+
+      - name: Serial screenshot regression
+        env:
+          ASTROLABE_REGRESSION_TARGET: ${{ inputs.target }}
+        run: ./scripts/ci-serial-screenshot-regression.sh "$ASTROLABE_REGRESSION_TARGET"
+
+      - name: Upload serial screenshot artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: serial-screenshot-regression-${{ inputs.target }}-${{ github.run_id }}
+          path: artifacts/qa/serial-regression/
+          retention-days: 14
+          if-no-files-found: ignore

@@ -204,6 +204,19 @@ Flashes firmware, walks each clock face via serial `face N`, captures `screen.bm
 Matrix: [`tests/functional/faces_astrolabe.json`](../tests/functional/faces_astrolabe.json).  
 Comprehensive (L/R/U/D swipes + buttons on every face): [`faces_astrolabe_comprehensive.json`](../tests/functional/faces_astrolabe_comprehensive.json).
 
+### Serial screenshot regression (1.45, 1.75, 4C)
+
+For display bring-up where the watch and runner are not on the same Wi-Fi subnet, run the USB screenshot tour. It flashes the selected PlatformIO env, uploads LittleFS assets, walks every face with `qa faces` / `face N`, and captures BMPs via `qa screen64`.
+
+```bash
+./scripts/ci-serial-screenshot-regression.sh 1.45
+./scripts/ci-serial-screenshot-regression.sh 1.75
+./scripts/ci-serial-screenshot-regression.sh 4c
+ASTROLABE_REGRESSION_SKIP_UPLOAD=1 ASTROLABE_REGRESSION_ONLY=0,1 ./scripts/ci-serial-screenshot-regression.sh 1.45
+```
+
+Artifacts: `artifacts/qa/serial-regression/<target>-<timestamp>/contact-sheet.png`. Manual Actions dispatch: **Firmware serial screenshot regression** with `target` set to `s3_145`, `s3_175`, `4c`, or `all`.
+
 **m1 bench automation** (pull `integration` → flash → comprehensive test):
 
 ```bash

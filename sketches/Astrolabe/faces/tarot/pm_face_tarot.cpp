@@ -2,6 +2,8 @@
 
 #include <Arduino_GFX_Library.h>
 #include <HTTPClient.h>
+#include <JPEGDEC.h>
+#include <LittleFS.h>
 #include <PNGdec.h>
 #include <WiFiClient.h>
 #include <cmath>
@@ -21,11 +23,13 @@ constexpr int kCardCount = 22;
 constexpr int kCx = LCD_WIDTH / 2;
 constexpr int kCy = LCD_HEIGHT / 2;
 constexpr const char *kManifestUrl = "http://tarot.castalia.institute/assets/major/manifest.json";
-constexpr const char *kAssetBaseUrl = "http://tarot.castalia.institute/assets/major/full";
+constexpr const char *kAssetBaseUrl = "http://tarot.castalia.institute/assets/major/half";
 constexpr uint32_t kTarotFetchTimeoutMs = 30000u;
 constexpr uint32_t kTarotMinFetchHeap = 18000u;
 constexpr int kTarotMaxImageBytes = 390000;
+constexpr int kTarotMaxFlashImageBytes = 96 * 1024;
 constexpr int kTarotMaxImageDim = LCD_WIDTH;
+constexpr int kTarotMaxDecodeLine = 512;
 constexpr uint32_t kTarotTaskStack = 12288u;
 
 struct TarotCard {
@@ -80,7 +84,11 @@ int s_image_h = 0;
 uint16_t *s_image_fb = nullptr;
 uint8_t *s_image_mask = nullptr;
 char s_last_error[40] = "";
+uint16_t s_decode_line[kTarotMaxDecodeLine];
 PNG s_png;
+JPEGDEC s_jpg;
+bool s_fs_checked = false;
+bool s_fs_ready = false;
 
 uint16_t blend565(uint16_t bg, uint16_t fg, float alpha) {
   if (alpha <= 0.f) {
@@ -184,6 +192,22 @@ bool build_card_url(int idx, char *url, size_t cap) {
   return n > 0 && static_cast<size_t>(n) < cap;
 }
 
+bool build_flash_card_path(int idx, char *path, size_t cap) {
+  if (idx < 0 || idx >= kCardCount || !path || cap == 0) {
+    return false;
+  }
+  const int n = snprintf(path, cap, "/tarot/%02d-%s.jpg", idx, kCards[idx].slug);
+  return n > 0 && static_cast<size_t>(n) < cap;
+}
+
+bool tarot_fs_ready() {
+  if (!s_fs_checked) {
+    s_fs_ready = LittleFS.begin(false);
+    s_fs_checked = true;
+  }
+  return s_fs_ready;
+}
+
 bool download_card_png(const char *url, uint8_t **out_buf, size_t *out_len) {
   if (!url || !out_buf || !out_len) {
     return false;
@@ -260,8 +284,13 @@ int tarot_png_draw(PNGDRAW *pDraw) {
   if (!pDraw || !s_decoding_fb || s_decoding_w <= 0 || s_decoding_h <= 0 || pDraw->y < 0 || pDraw->y >= s_decoding_h) {
     return 0;
   }
+  if (pDraw->iWidth <= 0 || pDraw->iWidth > kTarotMaxDecodeLine) {
+    return 0;
+  }
+  s_png.getLineAsRGB565(pDraw, s_decode_line, PNG_RGB565_BIG_ENDIAN, 0xffffffff);
+  const int copy_w = min(pDraw->iWidth, s_decoding_w);
   uint16_t *dst = s_decoding_fb + pDraw->y * s_decoding_w;
-  s_png.getLineAsRGB565(pDraw, dst, PNG_RGB565_BIG_ENDIAN, 0xffffffff);
+  memcpy(dst, s_decode_line, static_cast<size_t>(copy_w) * sizeof(uint16_t));
   if (s_decoding_mask && pDraw->iWidth > 0) {
     uint8_t alpha_mask[(kTarotMaxImageDim + 7) / 8] = {};
     if (s_png.getAlphaMask(pDraw, alpha_mask, 8)) {
@@ -295,17 +324,9 @@ bool decode_card_png(uint8_t *data, size_t len, int idx) {
     set_error("alloc fb");
     return false;
   }
-  s_decoding_mask = static_cast<uint8_t *>(pm_heap_alloc_response(mask_bytes_for(w, h)));
-  if (!s_decoding_mask) {
-    s_png.close();
-    free_decode_image();
-    set_error("alloc mask");
-    return false;
-  }
   s_decoding_w = w;
   s_decoding_h = h;
   memset(s_decoding_fb, 0, px * sizeof(uint16_t));
-  memset(s_decoding_mask, 0, mask_bytes_for(w, h));
   const int rc = s_png.decode(nullptr, 0);
   s_png.close();
   if (rc != PNG_SUCCESS) {
@@ -331,6 +352,118 @@ bool decode_card_png(uint8_t *data, size_t len, int idx) {
   image_mux_give();
   set_error(nullptr);
   return true;
+}
+
+int tarot_jpeg_draw(JPEGDRAW *pDraw) {
+  if (!pDraw || !s_decoding_fb || s_decoding_w <= 0 || s_decoding_h <= 0) {
+    return 0;
+  }
+  if (pDraw->x < 0 || pDraw->y < 0 || pDraw->x + pDraw->iWidth > s_decoding_w ||
+      pDraw->y + pDraw->iHeight > s_decoding_h) {
+    return 0;
+  }
+  for (int row = 0; row < pDraw->iHeight; ++row) {
+    uint16_t *dst = s_decoding_fb + (pDraw->y + row) * s_decoding_w + pDraw->x;
+    const uint16_t *src = pDraw->pPixels + row * pDraw->iWidth;
+    memcpy(dst, src, static_cast<size_t>(pDraw->iWidth) * sizeof(uint16_t));
+  }
+  return 1;
+}
+
+bool decode_card_jpeg(uint8_t *data, size_t len, int idx) {
+  free_decode_image();
+  s_jpg.close();
+  if (!data || len == 0 || s_jpg.openRAM(data, static_cast<int>(len), tarot_jpeg_draw) != 1) {
+    set_error("jpg open");
+    return false;
+  }
+  const int w = s_jpg.getWidth();
+  const int h = s_jpg.getHeight();
+  if (w <= 0 || h <= 0 || w > kTarotMaxImageDim || h > kTarotMaxImageDim) {
+    s_jpg.close();
+    set_error("jpg size");
+    return false;
+  }
+  const size_t px = static_cast<size_t>(w) * static_cast<size_t>(h);
+  s_decoding_fb = static_cast<uint16_t *>(pm_heap_alloc_response(px * sizeof(uint16_t)));
+  if (!s_decoding_fb) {
+    s_jpg.close();
+    set_error("alloc jpg");
+    return false;
+  }
+  s_decoding_w = w;
+  s_decoding_h = h;
+  memset(s_decoding_fb, 0, px * sizeof(uint16_t));
+  s_jpg.setPixelType(RGB565_BIG_ENDIAN);
+  if (s_jpg.decode(0, 0, 0) != 1) {
+    s_jpg.close();
+    free_decode_image();
+    set_error("jpg decode");
+    return false;
+  }
+  s_jpg.close();
+  if (!image_mux_take(3000)) {
+    free_decode_image();
+    set_error("image lock");
+    return false;
+  }
+  free_active_image_locked();
+  s_image_fb = s_decoding_fb;
+  s_image_mask = nullptr;
+  s_image_w = s_decoding_w;
+  s_image_h = s_decoding_h;
+  s_cached_idx = idx;
+  s_decoding_fb = nullptr;
+  s_decoding_w = 0;
+  s_decoding_h = 0;
+  image_mux_give();
+  set_error(nullptr);
+  return true;
+}
+
+bool load_flash_card_image(int idx) {
+  if (idx < 0 || idx >= kCardCount || s_cached_idx == idx) {
+    return s_cached_idx == idx;
+  }
+  if (!tarot_fs_ready()) {
+    set_error("no flash fs");
+    return false;
+  }
+  char path[48];
+  if (!build_flash_card_path(idx, path, sizeof(path))) {
+    set_error("bad path");
+    return false;
+  }
+  File f = LittleFS.open(path, FILE_READ);
+  if (!f) {
+    set_error("no flash card");
+    return false;
+  }
+  const size_t len = f.size();
+  if (len < 8 || len > kTarotMaxFlashImageBytes) {
+    f.close();
+    set_error("card size");
+    return false;
+  }
+  uint8_t *jpg = static_cast<uint8_t *>(pm_heap_alloc_response(len));
+  if (!jpg) {
+    f.close();
+    set_error("alloc card");
+    return false;
+  }
+  const size_t rd = f.readBytes(reinterpret_cast<char *>(jpg), len);
+  f.close();
+  if (rd != len) {
+    free(jpg);
+    set_error("read card");
+    return false;
+  }
+  const bool ok = decode_card_jpeg(jpg, len, idx);
+  free(jpg);
+  if (ok) {
+    Serial.printf("tarot: flash cached %02d %s (%u B)\n", idx, kCards[idx].slug, static_cast<unsigned>(len));
+  }
+  return ok;
 }
 
 bool fetch_card_inner(int idx) {
@@ -393,30 +526,68 @@ bool draw_cached_card_image(int idx, int cx, int cy) {
   if (idx < 0 || !image_mux_take(25)) {
     return false;
   }
-  if (s_cached_idx != idx || !s_image_fb || !s_image_mask || s_image_w <= 0 || s_image_h <= 0) {
+  if (s_cached_idx != idx || !s_image_fb || s_image_w <= 0 || s_image_h <= 0) {
     image_mux_give();
     return false;
   }
-  const int x0 = cx - s_image_w / 2;
-  const int y0 = cy - s_image_h / 2;
+  const int scale = (s_image_w == LCD_WIDTH && s_image_h == LCD_HEIGHT) ? 1
+                    : (s_image_w * 2 == LCD_WIDTH && s_image_h * 2 == LCD_HEIGHT) ? 2
+                                                                                   : 1;
+  const int draw_w = s_image_w * scale;
+  const int draw_h = s_image_h * scale;
+  const int x0 = cx - draw_w / 2;
+  const int y0 = cy - draw_h / 2;
   for (int y = 0; y < s_image_h; ++y) {
-    const int yy = y0 + y;
-    if (yy < 0 || yy >= LCD_HEIGHT) {
-      continue;
-    }
     for (int x = 0; x < s_image_w; ++x) {
-      const int xx = x0 + x;
-      if (xx < 0 || xx >= LCD_WIDTH) {
+      if (s_image_mask && !mask_get(s_image_mask, y * s_image_w + x)) {
         continue;
       }
-      if (!mask_get(s_image_mask, y * s_image_w + x)) {
-        continue;
+      const uint16_t px = s_image_fb[y * s_image_w + x];
+      const int xx0 = x0 + x * scale;
+      const int yy0 = y0 + y * scale;
+      for (int sy = 0; sy < scale; ++sy) {
+        const int yy = yy0 + sy;
+        if (yy < 0 || yy >= LCD_HEIGHT) {
+          continue;
+        }
+        for (int sx = 0; sx < scale; ++sx) {
+          const int xx = xx0 + sx;
+          if (xx >= 0 && xx < LCD_WIDTH) {
+            pm_gfx->writePixel(xx, yy, px);
+          }
+        }
       }
-      pm_gfx->writePixel(xx, yy, s_image_fb[y * s_image_w + x]);
     }
   }
   image_mux_give();
   return true;
+}
+
+void draw_round_tarot_chrome(uint16_t bg, uint16_t ink, uint16_t accent, bool image_drawn) {
+  const int r = min(LCD_WIDTH, LCD_HEIGHT) / 2;
+  const uint16_t fine = blend565(bg, ink, image_drawn ? 0.38f : 0.18f);
+  const uint16_t glow = blend565(bg, accent, image_drawn ? 0.28f : 0.22f);
+  pm_gfx->drawCircle(kCx, kCy, r - 5, blend565(bg, accent, image_drawn ? 0.7f : 0.48f));
+  pm_gfx->drawCircle(kCx, kCy, r - 9, glow);
+  for (int i = 0; i < kCardCount; ++i) {
+    const float deg = static_cast<float>(i) * 360.f / static_cast<float>(kCardCount);
+    const float ang = pm_face_deg_to_rad(deg);
+    const int r0 = r - 22;
+    const int r1 = r - ((i % 2) ? 15 : 11);
+    pm_gfx->drawLine(kCx + static_cast<int>(lrintf(cosf(ang) * r0)),
+                     kCy + static_cast<int>(lrintf(sinf(ang) * r0)),
+                     kCx + static_cast<int>(lrintf(cosf(ang) * r1)),
+                     kCy + static_cast<int>(lrintf(sinf(ang) * r1)), fine);
+  }
+}
+
+void draw_shadowed_centered_line(const char *text, int y, uint16_t fg, uint8_t sx, uint8_t sy) {
+  if (!text || !text[0]) {
+    return;
+  }
+  const uint16_t shade = pm_gfx->color565(0, 0, 0);
+  pm_face_draw_centered_line(text, y + 2, shade, sx, sy);
+  pm_face_draw_centered_line(text, y, fg, sx, sy);
 }
 
 void draw_star(int cx, int cy, int r_outer, int r_inner, int points, uint16_t col) {
@@ -614,7 +785,6 @@ bool pm_face_tarot_cycle(int delta) {
 void pm_face_tarot_draw(const struct tm *tm_local, bool valid_local) {
   const int idx = pm_face_tarot_index(tm_local, valid_local);
   const TarotCard &card = kCards[idx];
-  request_card_image(idx);
   const uint16_t c_bg = pm_gfx->color565(7, 8, 14);
   const uint16_t c_panel = pm_gfx->color565(18, 16, 22);
   const uint16_t c_ink = pm_gfx->color565(238, 226, 196);
@@ -623,59 +793,35 @@ void pm_face_tarot_draw(const struct tm *tm_local, bool valid_local) {
   const uint16_t c_glow = blend565(c_bg, c_accent, 0.22f);
   pm_gfx->fillScreen(c_bg);
 
+  (void)load_flash_card_image(idx);
   const bool image_drawn = draw_cached_card_image(idx, kCx, kCy);
 
   if (!image_drawn) {
     const int R = min(LCD_WIDTH, LCD_HEIGHT) / 2;
-    for (int r = R - 6; r > 28; r -= 7) {
+    for (int r = R - 6; r > 20; r -= 7) {
       const float a = static_cast<float>(r - 28) / static_cast<float>(R - 34);
       pm_gfx->drawCircle(kCx, kCy, r, blend565(c_bg, c_glow, a * 0.32f));
     }
 
-    pm_gfx->fillCircle(kCx, kCy, 160, c_panel);
-    pm_gfx->drawCircle(kCx, kCy, 160, c_accent);
-    pm_gfx->drawCircle(kCx, kCy, 154, blend565(c_panel, c_accent, 0.38f));
-    draw_card_symbol(idx, kCx, kCy - 6, c_ink, c_accent);
+    pm_gfx->fillCircle(kCx, kCy, 204, blend565(c_bg, c_panel, 0.88f));
+    pm_gfx->drawCircle(kCx, kCy, 204, blend565(c_bg, c_accent, 0.62f));
+    pm_gfx->drawCircle(kCx, kCy, 188, blend565(c_panel, c_accent, 0.38f));
+    draw_card_symbol(idx, kCx, kCy - 2, c_ink, c_accent);
   }
 
-  const int R = min(LCD_WIDTH, LCD_HEIGHT) / 2;
-  for (int r = R - 6; r > 28; r -= 7) {
-    const float a = static_cast<float>(r - 28) / static_cast<float>(R - 34);
-    if ((r % 28) == 0) {
-      pm_gfx->drawCircle(kCx, kCy, r, blend565(c_bg, c_glow, image_drawn ? 0.18f : a * 0.22f));
-    }
-  }
-
-  for (int i = 0; i < kCardCount; ++i) {
-    const float deg = static_cast<float>(i) * 360.f / static_cast<float>(kCardCount);
-    const float ang = pm_face_deg_to_rad(deg);
-    const int r0 = (i == idx) ? 206 : 214;
-    const int r1 = (i == idx) ? 230 : 224;
-    const uint16_t col = (i == idx) ? c_accent : blend565(c_bg, c_ink, image_drawn ? 0.32f : 0.18f);
-    pm_gfx->drawLine(kCx + static_cast<int>(lrintf(cosf(ang) * r0)),
-                     kCy + static_cast<int>(lrintf(sinf(ang) * r0)),
-                     kCx + static_cast<int>(lrintf(cosf(ang) * r1)),
-                     kCy + static_cast<int>(lrintf(sinf(ang) * r1)), col);
-  }
-
-  pm_gfx->fillRect(0, 0, LCD_WIDTH, 64, image_drawn ? pm_gfx->color565(6, 7, 11) : c_bg);
-  pm_gfx->fillRect(0, 330, LCD_WIDTH, 136, image_drawn ? pm_gfx->color565(6, 7, 11) : c_bg);
-  pm_gfx->drawFastHLine(0, 64, LCD_WIDTH, blend565(c_bg, c_accent, 0.45f));
-  pm_gfx->drawFastHLine(0, 330, LCD_WIDTH, blend565(c_bg, c_accent, 0.45f));
+  draw_round_tarot_chrome(c_bg, c_ink, c_accent, image_drawn);
 
   char num[8];
   snprintf(num, sizeof(num), "%02d", idx);
-  pm_face_draw_centered_line(num, 38, c_accent, 2, 2);
-  pm_face_draw_centered_line(card.title, 340, c_ink, 2, 2);
-  pm_face_draw_centered_line(card.theme, 374, c_dim, 1, 1);
+  draw_shadowed_centered_line(num, 28, c_accent, 2, 2);
+  draw_shadowed_centered_line(card.title, 388, c_ink, 2, 2);
+  draw_shadowed_centered_line(card.theme, 420, c_dim, 1, 1);
 
-  const char *fallback = s_last_error[0] ? s_last_error : "daily major";
-  const char *deck_hint = s_last_error[0] ? s_last_error : "swipe deck  tap daily";
+  const char *fallback = s_last_error[0] ? s_last_error : "flash deck";
+  const char *deck_hint = s_last_error[0] ? s_last_error : "flash deck";
   if (s_selected < 0) {
-    pm_face_draw_centered_line(image_drawn ? "daily major" : (s_fetch_busy ? "fetching card" : fallback), 408,
-                               c_dim, 1, 1);
+    draw_shadowed_centered_line(image_drawn ? "daily major" : fallback, 446, c_dim, 1, 1);
   } else {
-    pm_face_draw_centered_line(image_drawn ? "swipe deck  tap daily" : (s_fetch_busy ? "fetching card" : deck_hint),
-                               408, c_dim, 1, 1);
+    draw_shadowed_centered_line(image_drawn ? "swipe deck  tap daily" : deck_hint, 446, c_dim, 1, 1);
   }
 }

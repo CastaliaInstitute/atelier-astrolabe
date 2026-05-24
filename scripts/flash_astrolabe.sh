@@ -37,10 +37,12 @@ if [[ -n "$(git -C "$ROOT" status --porcelain)" ]]; then
 fi
 
 echo "→ HEAD: $(git -C "$ROOT" log -1 --oneline)"
-echo "→ build (generates sketches/Astrolabe/pm_build_info.h with commit message)"
-env -u PLATFORMIO_BUILD_DIR "$ROOT/scripts/build.sh"
+ENV="${PIO_ENV:-waveshare_s3_145}"
 
-UPLOAD_ARGS=(-e waveshare_s3_175 -t upload)
+echo "→ build ${ENV} (generates sketches/Astrolabe/pm_build_info.h with commit message)"
+env -u PLATFORMIO_BUILD_DIR PIO_ENV="$ENV" "$ROOT/scripts/build.sh"
+
+UPLOAD_ARGS=(-e "$ENV" -t upload)
 if [[ -n "$PORT" ]]; then
   UPLOAD_ARGS+=(--upload-port "$PORT")
 fi

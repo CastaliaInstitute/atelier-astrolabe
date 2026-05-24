@@ -7,6 +7,7 @@
 #include "Arduino_GFX_Library.h"
 #include "esp32-hal-tinyusb.h"
 #include "esp_heap_caps.h"
+#include "mbedtls/base64.h"
 
 #include "pm_log.h"
 #include "pm_display.h"
@@ -15,6 +16,11 @@
 static WebServer s_server(80);
 static PmDisplayCanvas *s_canvas = nullptr;
 static bool s_http_started = false;
+
+struct ScreenBmp {
+  uint8_t *data = nullptr;
+  uint32_t len = 0;
+};
 
 static void put_le32(uint8_t *p, uint32_t v) {
   p[0] = static_cast<uint8_t>(v & 0xffu);
@@ -88,22 +94,27 @@ static void handle_bootloader() {
   usb_persist_restart(RESTART_BOOTLOADER);
 }
 
-static void handle_screen_bmp() {
-  if (!s_canvas || !pm_wifi_connected()) {
-    s_server.send(503, "text/plain", "screen unavailable");
-    return;
+static bool build_screen_bmp(ScreenBmp *out, char *err, size_t err_cap) {
+  if (!out) {
+    return false;
+  }
+  out->data = nullptr;
+  out->len = 0;
+  if (!s_canvas) {
+    snprintf(err, err_cap, "screen unavailable");
+    return false;
   }
   uint16_t *fb = s_canvas->getFramebuffer();
   if (!fb) {
-    s_server.send(503, "text/plain", "no framebuffer");
-    return;
+    snprintf(err, err_cap, "no framebuffer");
+    return false;
   }
 
   const int32_t w = s_canvas->width();
   const int32_t h = s_canvas->height();
   if (w <= 0 || h <= 0 || w > 1024 || h > 1024) {
-    s_server.send(500, "text/plain", "bad size");
-    return;
+    snprintf(err, err_cap, "bad size");
+    return false;
   }
 
   const uint32_t row_stride = ((static_cast<uint32_t>(w) * 24u + 31u) / 32u) * 4u;
@@ -116,8 +127,8 @@ static void handle_screen_bmp() {
     buf = static_cast<uint8_t *>(malloc(file_size));
   }
   if (!buf) {
-    s_server.send(500, "text/plain", "alloc failed");
-    return;
+    snprintf(err, err_cap, "alloc failed");
+    return false;
   }
 
   std::memset(buf, 0, file_size);
@@ -167,10 +178,27 @@ static void handle_screen_bmp() {
     free(snap);
   }
 
-  s_server.setContentLength(file_size);
+  out->data = buf;
+  out->len = file_size;
+  return true;
+}
+
+static void handle_screen_bmp() {
+  if (!pm_wifi_connected()) {
+    s_server.send(503, "text/plain", "screen unavailable");
+    return;
+  }
+  ScreenBmp bmp;
+  char err[48] = "";
+  if (!build_screen_bmp(&bmp, err, sizeof(err))) {
+    const int status = (strcmp(err, "screen unavailable") == 0 || strcmp(err, "no framebuffer") == 0) ? 503 : 500;
+    s_server.send(status, "text/plain", err[0] ? err : "capture failed");
+    return;
+  }
+  s_server.setContentLength(bmp.len);
   s_server.send(200, "image/bmp", "");
-  s_server.sendContent(reinterpret_cast<const char *>(buf), file_size);
-  free(buf);
+  s_server.sendContent(reinterpret_cast<const char *>(bmp.data), bmp.len);
+  free(bmp.data);
 }
 
 void pm_screen_http_begin(PmDisplayCanvas *canvas) {
@@ -202,4 +230,43 @@ void pm_screen_http_loop() {
     return;
   }
   s_server.handleClient();
+}
+
+bool pm_screen_http_serial_screen64() {
+  ScreenBmp bmp;
+  char err[48] = "";
+  if (!build_screen_bmp(&bmp, err, sizeof(err))) {
+    Serial.printf("qa: screen64 error %s\n", err[0] ? err : "capture failed");
+    return false;
+  }
+
+  static constexpr size_t kRawChunk = 768;
+  static constexpr size_t kB64Cap = ((kRawChunk + 2) / 3) * 4 + 8;
+  uint8_t *encoded = static_cast<uint8_t *>(malloc(kB64Cap));
+  if (!encoded) {
+    Serial.println("qa: screen64 error b64 alloc failed");
+    free(bmp.data);
+    return false;
+  }
+
+  Serial.printf("qa: screen64 begin len=%u\n", static_cast<unsigned>(bmp.len));
+  for (uint32_t off = 0; off < bmp.len; off += kRawChunk) {
+    const size_t n = min(static_cast<uint32_t>(kRawChunk), bmp.len - off);
+    size_t out_len = 0;
+    const int rc = mbedtls_base64_encode(encoded, kB64Cap, &out_len, bmp.data + off, n);
+    if (rc != 0) {
+      Serial.printf("qa: screen64 error base64 rc=%d\n", rc);
+      free(encoded);
+      free(bmp.data);
+      return false;
+    }
+    Serial.write(encoded, out_len);
+    Serial.write('\n');
+    delay(1);
+  }
+  Serial.println("qa: screen64 end");
+  Serial.flush();
+  free(encoded);
+  free(bmp.data);
+  return true;
 }

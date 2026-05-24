@@ -2,7 +2,9 @@
 
 #include <ESPmDNS.h>
 #include <WiFi.h>
+#if !defined(ASTROLABE_PLATFORM_143) && __has_include(<esp_bt.h>)
 #include <esp_bt.h>
+#endif
 #include <esp_log.h>
 #include <esp_mac.h>
 #include <esp_wifi.h>
@@ -197,7 +199,11 @@ bool pm_wifi_begin() {
   }
   WiFi.mode(WIFI_STA);
   WiFi.setHostname(pm_wifi_hostname());
+#if !defined(ASTROLABE_PLATFORM_143) && __has_include(<esp_bt.h>)
   const bool bt_enabled = esp_bt_controller_get_status() == ESP_BT_CONTROLLER_STATUS_ENABLED;
+#else
+  const bool bt_enabled = false;
+#endif
   WiFi.setSleep(bt_enabled);
   if (bt_enabled) {
     (void)esp_wifi_set_ps(WIFI_PS_MIN_MODEM);

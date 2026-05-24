@@ -40,3 +40,9 @@ build/
 docs/sim/
 .dummy/
 dependencies.lock
+
+artifacts/qa/review/
+artifacts/qa/serial-screen-*.bmp
+artifacts/qa/serial-screens-*/
+artifacts/qa/serial-regression/
+artifacts/qa/tts-tour-*/

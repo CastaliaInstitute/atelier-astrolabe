@@ -386,6 +386,12 @@ void pm_face_live_transits_draw(const struct tm *tm_local, bool valid_local) {
   pm_gfx->fillScreen(pm_gfx->color565(5, 9, 18));
   draw_starfield(millis() / 900u + 17u);
 
+#if defined(ASTROLABE_PLATFORM_145)
+  pm_face_draw_centered_line("live transits", 188, pm_gfx->color565(170, 220, 255), 2, 2);
+  pm_face_draw_centered_line("ephemeris unavailable", 226, pm_gfx->color565(120, 132, 154), 2, 2);
+  return;
+#endif
+
   if (!valid_local) {
     pm_face_draw_centered_line("live transits", 188, pm_gfx->color565(170, 220, 255), 2, 2);
     pm_face_draw_centered_line("need UTC time", 226, pm_gfx->color565(120, 132, 154), 2, 2);

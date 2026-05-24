@@ -14,7 +14,8 @@
 
 #include <esp_mac.h>
 
-#if !defined(ASTROLABE_QEMU) && __has_include(<BLEDevice.h>)
+#if !defined(ASTROLABE_QEMU) && !defined(ASTROLABE_PLATFORM_143) && __has_include(<BLEDevice.h>) && \
+    __has_include("esp_bt.h")
 #include <BLEAdvertisedDevice.h>
 #include <BLEDevice.h>
 #include <BLEScan.h>
@@ -153,8 +154,12 @@ void scan_mdns_peers(uint32_t now_ms) {
     const bool is_new = find_peer(id) < 0;
     upsert_peer(id, -76, now_ms, PmPresenceGraphNodeKind::MobilePeer);
     if (is_new) {
+#if defined(ASTROLABE_PLATFORM_143)
+      Serial.printf("presence: mdns peer host=%s id=%08x\n", host, static_cast<unsigned>(id));
+#else
       Serial.printf("presence: mdns peer host=%s id=%08x ip=%s\n", host, static_cast<unsigned>(id),
                     MDNS.IP(i).toString().c_str());
+#endif
     }
   }
 }
@@ -331,7 +336,11 @@ uint32_t pm_presence_self_id(void) { return s_self_id; }
 
 bool pm_presence_begin(void) {
   uint8_t mac[6] = {};
+#if defined(ASTROLABE_PLATFORM_143)
+  esp_read_mac(mac, ESP_MAC_BASE);
+#else
   esp_read_mac(mac, ESP_MAC_BT);
+#endif
   s_self_id = device_id_from_mac(mac);
   if (s_self_id == 0) {
     s_self_id = static_cast<uint32_t>(esp_random()) | 1u;

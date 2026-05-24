@@ -450,7 +450,7 @@ def main() -> int:
     )
     parser.add_argument("--faces", default="", help="comma names or ids; default all")
     parser.add_argument("--flash", action="store_true", help="build + upload before tests")
-    parser.add_argument("--env", default="waveshare_s3_175")
+    parser.add_argument("--env", default="waveshare_s3_145")
     parser.add_argument("--port", default="")
     parser.add_argument("--ip", default="", help="skip Wi‑Fi wait; use known watch IP")
     parser.add_argument("--paint-sec", type=float, default=2.5)

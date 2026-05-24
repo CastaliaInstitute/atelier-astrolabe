@@ -1938,6 +1938,8 @@ static void poll_serial_birth_commands() {
           Serial.printf("qa: tone %s\n", pm_speaker_play_tone_begin(528.f, 1200u) ? "started" : "failed");
         } else if (strcmp(args, "bowl") == 0) {
           Serial.printf("qa: bowl %s\n", pm_speaker_bowl_voice_test(320.f, 1800u) ? "done" : "failed");
+        } else if (strcmp(args, "screen64") == 0) {
+          pm_screen_http_serial_screen64();
         } else if (strcmp(args, "faces") == 0) {
           Serial.printf("qa: faces=%d tour=%d\n", static_cast<int>(ClockFace::kNumFaces), face_tour_count());
           for (int i = 0; i < face_tour_count(); ++i) {
@@ -1947,7 +1949,7 @@ static void poll_serial_birth_commands() {
         } else if (strncmp(args, "tour", 4) == 0 && (args[4] == '\0' || args[4] == ' ')) {
           handle_tour_command(args + 4);
         } else if (!pm_qa_inject_command(args)) {
-          Serial.println("qa: usage: status | heap | audio | time | briefing | tone | bowl | faces | tour [narrate|tts] [dwell_ms] | tour stop | inject …");
+          Serial.println("qa: usage: status | heap | audio | time | briefing | tone | bowl | screen64 | faces | tour [narrate|tts] [dwell_ms] | tour stop | inject …");
         }
       } else if (strncmp(line, "face ", 5) == 0) {
         s_face_tour_active = false;
