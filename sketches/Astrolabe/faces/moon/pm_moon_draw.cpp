@@ -102,6 +102,9 @@ void pm_moon_draw_disk(PmDisplayCanvas *gfx, int cx, int cy, int screen_r, float
   const int r2 = screen_r * screen_r;
 
   for (int dy = -screen_r; dy <= screen_r; ++dy) {
+    if ((dy & 0x0f) == 0) {
+      yield();
+    }
     for (int dx = -screen_r; dx <= screen_r; ++dx) {
       if (dx * dx + dy * dy > r2) {
         continue;
