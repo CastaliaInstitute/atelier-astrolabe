@@ -14,10 +14,10 @@ static constexpr int kCy = pm_face_lcd_cy;
 static constexpr int kWhiteCount = 7;
 static constexpr int kBlackCount = 5;
 static constexpr int kNoteCount = 12;
-static constexpr int kOuterR = 214;
-static constexpr int kWhiteInnerR = 104;
-static constexpr int kBlackOuterR = 132;
-static constexpr int kBlackInnerR = 46;
+static constexpr int kOuterR = pm_face_scale_i(214);
+static constexpr int kWhiteInnerR = pm_face_scale_i(104);
+static constexpr int kBlackOuterR = pm_face_scale_i(132);
+static constexpr int kBlackInnerR = pm_face_scale_i(46);
 static constexpr float kWhiteSpan = 360.f / static_cast<float>(kWhiteCount);
 
 struct PianoNote {
@@ -144,8 +144,8 @@ static void draw_white_keys(float energy) {
     pm_face_draw_annular_wedge(kCx, kCy, kWhiteInnerR - (active ? 4 : 0), kOuterR, start, end,
                                key_white(active, energy));
     pm_face_draw_radial_annulus_slice(kCx, kCy, pm_face_deg_to_rad(start), kWhiteInnerR, kOuterR, edge, 1);
-    draw_label_at_deg(kNotes[note].name, center, 176, active ? pm_gfx->color565(56, 35, 12)
-                                                             : pm_gfx->color565(60, 62, 68));
+    draw_label_at_deg(kNotes[note].name, center, pm_face_scale_i(176),
+                      active ? pm_gfx->color565(56, 35, 12) : pm_gfx->color565(60, 62, 68));
   }
   pm_gfx->drawCircle(kCx, kCy, kOuterR, edge);
   pm_gfx->drawCircle(kCx, kCy, kWhiteInnerR, edge);
@@ -163,7 +163,7 @@ static void draw_black_keys(float energy) {
                                       kBlackInnerR, kBlackOuterR, edge, 1);
     pm_face_draw_radial_annulus_slice(kCx, kCy, pm_face_deg_to_rad(bk.center_deg + half_span),
                                       kBlackInnerR, kBlackOuterR, edge, 1);
-    draw_label_at_deg(kNotes[bk.note_idx].name, bk.center_deg, 92,
+    draw_label_at_deg(kNotes[bk.note_idx].name, bk.center_deg, pm_face_scale_i(92),
                       active ? pm_gfx->color565(4, 18, 22) : pm_gfx->color565(220, 232, 238));
   }
 }
@@ -172,8 +172,8 @@ static void draw_center(float energy) {
   const uint16_t center = pm_gfx->color565(14, 18, 28);
   const uint16_t glow = pm_gfx->color565(42, 190, 210);
   const int breath = static_cast<int>(energy * (10.f + 4.f * sinf(s_phase)));
-  pm_gfx->fillCircle(kCx, kCy, 38 + static_cast<int>(energy * 6.f), center);
-  pm_gfx->drawCircle(kCx, kCy, 42 + breath, glow);
+  pm_gfx->fillCircle(kCx, kCy, pm_face_scale_i(38) + static_cast<int>(energy * pm_face_scale_i(6)), center);
+  pm_gfx->drawCircle(kCx, kCy, pm_face_scale_i(42) + breath, glow);
   if (s_note_idx >= 0 && energy > 0.02f) {
     pm_face_draw_centered_line(kNotes[s_note_idx].name, kCy - 10, glow, 2, 2);
     char hz[16];
@@ -192,8 +192,9 @@ void pm_face_piano_draw(void) {
   draw_black_keys(energy);
   draw_center(energy);
 
-  pm_face_draw_centered_line("Circular Piano", 34, pm_gfx->color565(232, 238, 232), 2, 2);
-  pm_face_draw_centered_line("white outer  black inner", 418, pm_gfx->color565(110, 126, 136), 1, 1);
+  pm_face_draw_centered_line("Circular Piano", pm_face_scale_y(34), pm_gfx->color565(232, 238, 232), 2, 2);
+  pm_face_draw_centered_line("white outer  black inner", pm_face_scale_y(418), pm_gfx->color565(110, 126, 136),
+                             1, 1);
 }
 
 bool pm_face_piano_play_at(int16_t x, int16_t y) {

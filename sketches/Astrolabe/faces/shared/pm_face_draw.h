@@ -5,9 +5,27 @@
 
 #include "pin_config.h"
 
-/** Shared panel center (466×466 round). */
+/** Shared panel geometry. Layout helpers scale legacy 466px face coordinates to the active canvas. */
 constexpr int pm_face_lcd_cx = LCD_WIDTH / 2;
 constexpr int pm_face_lcd_cy = LCD_HEIGHT / 2;
+constexpr int pm_face_base_px = 466;
+constexpr int pm_face_short_px = LCD_WIDTH < LCD_HEIGHT ? LCD_WIDTH : LCD_HEIGHT;
+constexpr float pm_face_scale = static_cast<float>(pm_face_short_px) / static_cast<float>(pm_face_base_px);
+
+constexpr int pm_face_scale_i(int px) {
+  return (px * pm_face_short_px + pm_face_base_px / 2) / pm_face_base_px;
+}
+
+constexpr int pm_face_scale_x(int x) {
+  return (x * LCD_WIDTH + pm_face_base_px / 2) / pm_face_base_px;
+}
+
+constexpr int pm_face_scale_y(int y) {
+  return (y * LCD_HEIGHT + pm_face_base_px / 2) / pm_face_base_px;
+}
+
+constexpr int pm_face_from_center_x(int dx) { return pm_face_lcd_cx + pm_face_scale_i(dx); }
+constexpr int pm_face_from_center_y(int dy) { return pm_face_lcd_cy + pm_face_scale_i(dy); }
 
 constexpr float pm_face_k_pi = 3.14159265f;
 constexpr float pm_face_k_two_pi = pm_face_k_pi * 2.f;

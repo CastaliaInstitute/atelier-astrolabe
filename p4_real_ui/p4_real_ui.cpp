@@ -34,7 +34,7 @@ void astrolabe_real_ui_init_in(lv_obj_t *parent) {
     return;
   }
 
-  s_canvas = new PmDisplayCanvas(LCD_WIDTH, LCD_HEIGHT, nullptr);
+  s_canvas = new PmDisplayCanvas(ASTROLABE_REAL_UI_WIDTH, ASTROLABE_REAL_UI_HEIGHT, nullptr);
   s_canvas->begin(GFX_SKIP_OUTPUT_BEGIN);
   pm_display_bind(s_canvas);
 
@@ -49,18 +49,18 @@ void astrolabe_real_ui_init_in(lv_obj_t *parent) {
   s_img_dsc.header.magic = LV_IMAGE_HEADER_MAGIC;
   s_img_dsc.header.cf = LV_COLOR_FORMAT_RGB565;
   s_img_dsc.header.flags = 0;
-  s_img_dsc.header.w = LCD_WIDTH;
-  s_img_dsc.header.h = LCD_HEIGHT;
-  s_img_dsc.header.stride = LCD_WIDTH * sizeof(uint16_t);
+  s_img_dsc.header.w = ASTROLABE_REAL_UI_WIDTH;
+  s_img_dsc.header.h = ASTROLABE_REAL_UI_HEIGHT;
+  s_img_dsc.header.stride = ASTROLABE_REAL_UI_WIDTH * sizeof(uint16_t);
   s_img_dsc.header.reserved_2 = 0;
-  s_img_dsc.data_size = LCD_WIDTH * LCD_HEIGHT * sizeof(uint16_t);
+  s_img_dsc.data_size = ASTROLABE_REAL_UI_WIDTH * ASTROLABE_REAL_UI_HEIGHT * sizeof(uint16_t);
   s_img_dsc.data = reinterpret_cast<const uint8_t *>(s_canvas->getFramebuffer());
   s_img_dsc.reserved = nullptr;
   s_img_dsc.reserved_2 = nullptr;
 
   s_image = lv_image_create(parent);
   lv_obj_remove_style_all(s_image);
-  lv_obj_set_size(s_image, LCD_WIDTH, LCD_HEIGHT);
+  lv_obj_set_size(s_image, ASTROLABE_REAL_UI_WIDTH, ASTROLABE_REAL_UI_HEIGHT);
   lv_obj_set_pos(s_image, 0, 0);
   lv_image_set_src(s_image, &s_img_dsc);
   astrolabe_real_ui_set_face(ASTROLABE_REAL_UI_FACE_MOON);
@@ -127,9 +127,9 @@ int astrolabe_real_ui_parse_face_name(const char *name) {
   return -1;
 }
 
-int astrolabe_real_ui_width(void) { return LCD_WIDTH; }
+int astrolabe_real_ui_width(void) { return ASTROLABE_REAL_UI_WIDTH; }
 
-int astrolabe_real_ui_height(void) { return LCD_HEIGHT; }
+int astrolabe_real_ui_height(void) { return ASTROLABE_REAL_UI_HEIGHT; }
 
 const uint16_t *astrolabe_real_ui_framebuffer(void) {
   return s_canvas ? s_canvas->getFramebuffer() : nullptr;

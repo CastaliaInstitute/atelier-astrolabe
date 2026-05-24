@@ -3,13 +3,18 @@
 #include <stdint.h>
 
 #include "lvgl.h"
+#include "pin_config.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#define ASTROLABE_REAL_UI_WIDTH 720
-#define ASTROLABE_REAL_UI_HEIGHT 720
+#ifndef ASTROLABE_REAL_UI_WIDTH
+#define ASTROLABE_REAL_UI_WIDTH LCD_WIDTH
+#endif
+#ifndef ASTROLABE_REAL_UI_HEIGHT
+#define ASTROLABE_REAL_UI_HEIGHT LCD_HEIGHT
+#endif
 #define ASTROLABE_REAL_UI_FACE_MOON 5
 
 void astrolabe_real_ui_init_in(lv_obj_t *parent);

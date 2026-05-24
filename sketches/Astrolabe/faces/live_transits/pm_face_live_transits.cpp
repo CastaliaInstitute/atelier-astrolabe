@@ -151,7 +151,8 @@ void draw_starfield(uint32_t seed) {
     const int y = static_cast<int>((seed >> 8) % LCD_HEIGHT);
     const int dx = x - kCx;
     const int dy = y - kCy;
-    if (dx * dx + dy * dy < 214 * 214) {
+    const int star_r = pm_face_scale_i(214);
+    if (dx * dx + dy * dy < star_r * star_r) {
       pm_gfx->drawPixel(x, y, c);
     }
   }
@@ -168,15 +169,15 @@ void draw_sphere_frame(int cx, int cy, int r, uint16_t rim, uint16_t grid) {
 
 void draw_bodies_on_sphere(const PmTransitPositions *tp, int cx, int cy, int r, int highlight_body,
                            bool next_style) {
-  const int body_r = r - 15;
+  const int body_r = r - pm_face_scale_i(15);
   for (int i = 0; i < kPmBodyCount; ++i) {
     const float a = lon_to_ang(tp->lon[i]);
     const int bx = cx + static_cast<int>(lrintf(cosf(a) * static_cast<float>(body_r)));
     const int by = cy + static_cast<int>(lrintf(sinf(a) * static_cast<float>(body_r) * 0.74f));
     const bool hi = i == highlight_body;
     if (hi) {
-      pm_gfx->fillCircle(bx, by, next_style ? 13 : 12, pm_gfx->color565(24, 54, 72));
-      pm_gfx->drawCircle(bx, by, next_style ? 15 : 14, pm_gfx->color565(150, 230, 255));
+      pm_gfx->fillCircle(bx, by, pm_face_scale_i(next_style ? 13 : 12), pm_gfx->color565(24, 54, 72));
+      pm_gfx->drawCircle(bx, by, pm_face_scale_i(next_style ? 15 : 14), pm_gfx->color565(150, 230, 255));
     }
     pm_planet_draw_at_polar(pm_gfx, cx, cy, body_r, a, i, body_color(static_cast<PmEphemBody>(i), next_style),
                             hi);
@@ -248,7 +249,7 @@ void draw_recent_motion_trails(const PmTransitPositions *now_tp, const PmTransit
   if (!now_tp || !now_tp->ok || !trail_tp || trail_count <= 0) {
     return;
   }
-  const int r_base = 139;
+  const int r_base = pm_face_scale_i(139);
   for (int body = 0; body < kPmBodyCount; ++body) {
     const bool rx = body_is_retrograde(body, now_tp, motion_tp);
     int prev_x = 0;
@@ -260,37 +261,37 @@ void draw_recent_motion_trails(const PmTransitPositions *now_tp, const PmTransit
         continue;
       }
       const float a = lon_to_ang(sample.lon[body]);
-      const int r = r_base + (body % 3) * 6;
+      const int r = r_base + (body % 3) * pm_face_scale_i(6);
       const int x = kCx + static_cast<int>(lrintf(cosf(a) * static_cast<float>(r)));
       const int y = kCy + static_cast<int>(lrintf(sinf(a) * static_cast<float>(r)));
       const uint16_t col = trail_color(rx, age);
       if (have_prev) {
         pm_gfx->drawLine(prev_x, prev_y, x, y, col);
       }
-      pm_gfx->fillCircle(x, y, age == 1 ? 3 : 2, col);
+      pm_gfx->fillCircle(x, y, pm_face_scale_i(age == 1 ? 3 : 2), col);
       prev_x = x;
       prev_y = y;
       have_prev = true;
     }
     const float now_a = lon_to_ang(now_tp->lon[body]);
-    const int r = r_base + (body % 3) * 6;
+    const int r = r_base + (body % 3) * pm_face_scale_i(6);
     const int now_x = kCx + static_cast<int>(lrintf(cosf(now_a) * static_cast<float>(r)));
     const int now_y = kCy + static_cast<int>(lrintf(sinf(now_a) * static_cast<float>(r)));
     const uint16_t col = rx ? pm_gfx->color565(210, 78, 104) : pm_gfx->color565(74, 132, 164);
     if (have_prev) {
       pm_gfx->drawLine(prev_x, prev_y, now_x, now_y, col);
     }
-    pm_gfx->fillCircle(now_x, now_y, 3, col);
+    pm_gfx->fillCircle(now_x, now_y, pm_face_scale_i(3), col);
   }
 }
 
 void draw_radial_transit_ring(const PmTransitPositions *tp, const PmTransitPositions *event_tp,
                               const PmTransitPositions *motion_tp, const PmTransitPositions trail_tp[],
                               int trail_count, time_t now_epoch, time_t event_epoch) {
-  const int r_outer = 214;
-  const int r_inner = 192;
-  const int r_body = 174;
-  const int r_motion = 158;
+  const int r_outer = pm_face_scale_i(214);
+  const int r_inner = pm_face_scale_i(192);
+  const int r_body = pm_face_scale_i(174);
+  const int r_motion = pm_face_scale_i(158);
   const uint16_t c_track = pm_gfx->color565(18, 28, 46);
   const uint16_t c_tick = pm_gfx->color565(54, 68, 94);
   const uint16_t c_arc = pm_gfx->color565(78, 210, 242);
@@ -299,10 +300,10 @@ void draw_radial_transit_ring(const PmTransitPositions *tp, const PmTransitPosit
   pm_face_draw_annular_wedge(kCx, kCy, r_inner, r_outer, 0.f, 360.f, c_track);
   for (int s = 0; s < 12; ++s) {
     const float a = pm_face_deg_to_rad(static_cast<float>(s) * 30.f);
-    const int x0 = kCx + static_cast<int>(lrintf(cosf(a) * static_cast<float>(r_inner - 2)));
-    const int y0 = kCy + static_cast<int>(lrintf(sinf(a) * static_cast<float>(r_inner - 2)));
-    const int x1 = kCx + static_cast<int>(lrintf(cosf(a) * static_cast<float>(r_outer + 1)));
-    const int y1 = kCy + static_cast<int>(lrintf(sinf(a) * static_cast<float>(r_outer + 1)));
+    const int x0 = kCx + static_cast<int>(lrintf(cosf(a) * static_cast<float>(r_inner - pm_face_scale_i(2))));
+    const int y0 = kCy + static_cast<int>(lrintf(sinf(a) * static_cast<float>(r_inner - pm_face_scale_i(2))));
+    const int x1 = kCx + static_cast<int>(lrintf(cosf(a) * static_cast<float>(r_outer + pm_face_scale_i(1))));
+    const int y1 = kCy + static_cast<int>(lrintf(sinf(a) * static_cast<float>(r_outer + pm_face_scale_i(1))));
     pm_gfx->drawLine(x0, y0, x1, y1, c_tick);
   }
 
@@ -310,9 +311,11 @@ void draw_radial_transit_ring(const PmTransitPositions *tp, const PmTransitPosit
   const int current_sign = sign_index(moon_lon);
   const float sign_progress = static_cast<float>((moon_lon - static_cast<double>(current_sign) * 30.0) / 30.0);
   const float progress_deg = sign_progress * 360.f;
-  pm_face_draw_annular_wedge(kCx, kCy, r_inner + 3, r_outer - 3, 0.f, progress_deg, c_elapsed);
+  pm_face_draw_annular_wedge(kCx, kCy, r_inner + pm_face_scale_i(3), r_outer - pm_face_scale_i(3), 0.f,
+                             progress_deg, c_elapsed);
   if (event_tp && event_tp->ok && event_epoch > now_epoch) {
-    pm_face_draw_annular_wedge(kCx, kCy, r_inner + 7, r_outer - 7, progress_deg, 360.f, c_arc);
+    pm_face_draw_annular_wedge(kCx, kCy, r_inner + pm_face_scale_i(7), r_outer - pm_face_scale_i(7), progress_deg,
+                               360.f, c_arc);
   }
 
   draw_recent_motion_trails(tp, motion_tp, trail_tp, trail_count);
@@ -324,11 +327,11 @@ void draw_radial_transit_ring(const PmTransitPositions *tp, const PmTransitPosit
     const bool hi = i == kPmBodyMoon;
     const bool rx = body_is_retrograde(i, tp, motion_tp);
     draw_motion_tick(a, r_motion, rx);
-    pm_gfx->fillCircle(bx, by, hi ? 7 : 4, body_color(static_cast<PmEphemBody>(i), false));
+    pm_gfx->fillCircle(bx, by, pm_face_scale_i(hi ? 7 : 4), body_color(static_cast<PmEphemBody>(i), false));
     if (hi) {
-      pm_gfx->drawCircle(bx, by, 10, c_arc);
+      pm_gfx->drawCircle(bx, by, pm_face_scale_i(10), c_arc);
     } else if (rx) {
-      pm_gfx->drawCircle(bx, by, 7, pm_gfx->color565(255, 112, 138));
+      pm_gfx->drawCircle(bx, by, pm_face_scale_i(7), pm_gfx->color565(255, 112, 138));
     }
   }
 }
@@ -356,8 +359,8 @@ void draw_footer(const PmTransitPositions *now_tp, time_t now_epoch, time_t even
   snprintf(now_line, sizeof(now_line), "NOW  Mo %s", pm_face_zodiac_abbr(now_tp->lon[kPmBodyMoon]));
   snprintf(next_line, sizeof(next_line), "NEXT Mo %s in %s", pm_face_zodiac_abbr(event_tp->lon[kPmBodyMoon]),
            until);
-  pm_face_draw_centered_line(now_line, 362, pm_gfx->color565(224, 230, 245), 2, 2);
-  pm_face_draw_centered_line(next_line, 392, pm_gfx->color565(135, 220, 255), 1, 1);
+  pm_face_draw_centered_line(now_line, pm_face_scale_y(362), pm_gfx->color565(224, 230, 245), 2, 2);
+  pm_face_draw_centered_line(next_line, pm_face_scale_y(392), pm_gfx->color565(135, 220, 255), 1, 1);
 }
 
 void draw_countdown_core(const PmTransitPositions *now_tp, time_t now_epoch, time_t event_epoch,
@@ -369,8 +372,8 @@ void draw_countdown_core(const PmTransitPositions *now_tp, time_t now_epoch, tim
   const int rx_count = retrograde_count(now_tp, motion_tp);
   snprintf(next_line, sizeof(next_line), "Mo -> %s", pm_face_zodiac_abbr(event_tp->lon[kPmBodyMoon]));
   snprintf(rx_line, sizeof(rx_line), "Rx %d", rx_count);
-  pm_gfx->fillCircle(kCx, kCy, 66, pm_gfx->color565(6, 11, 22));
-  pm_gfx->drawCircle(kCx, kCy, 66, pm_gfx->color565(38, 62, 86));
+  pm_gfx->fillCircle(kCx, kCy, pm_face_scale_i(66), pm_gfx->color565(6, 11, 22));
+  pm_gfx->drawCircle(kCx, kCy, pm_face_scale_i(66), pm_gfx->color565(38, 62, 86));
   pm_face_draw_centered_line(until, kCy - 17, pm_gfx->color565(230, 244, 255), 3, 3);
   pm_face_draw_centered_line("to next transit", kCy + 17, pm_gfx->color565(118, 138, 166), 1, 1);
   pm_face_draw_centered_line(next_line, kCy + 36, pm_gfx->color565(135, 220, 255), 1, 1);
@@ -416,23 +419,28 @@ void pm_face_live_transits_draw(const struct tm *tm_local, bool valid_local) {
     }
   }
 
-  pm_face_draw_centered_line("LIVE TRANSITS", 26, pm_gfx->color565(176, 224, 255), 2, 2);
-  pm_face_draw_centered_line("4-day motion + countdown", 50, pm_gfx->color565(86, 100, 126), 1, 1);
+  pm_face_draw_centered_line("LIVE TRANSITS", pm_face_scale_y(26), pm_gfx->color565(176, 224, 255), 2, 2);
+  pm_face_draw_centered_line("4-day motion + countdown", pm_face_scale_y(50), pm_gfx->color565(86, 100, 126), 1,
+                             1);
 
   draw_radial_transit_ring(&now_tp, have_next ? &next_tp : nullptr, have_motion ? &motion_tp : nullptr,
                            trail_count > 0 ? trail_tp : nullptr, trail_count, now_epoch, next_epoch);
 
-  draw_sphere_frame(122, 172, 58, pm_gfx->color565(78, 100, 132), pm_gfx->color565(32, 48, 72));
-  draw_sphere_frame(344, 172, 58, pm_gfx->color565(54, 122, 150), pm_gfx->color565(24, 68, 88));
-  draw_bodies_on_sphere(&now_tp, 122, 172, 58, kPmBodyMoon, false);
-  draw_bodies_on_sphere(have_next ? &next_tp : &now_tp, 344, 172, 58, kPmBodyMoon, true);
+  draw_sphere_frame(pm_face_scale_x(122), pm_face_scale_y(172), pm_face_scale_i(58), pm_gfx->color565(78, 100, 132),
+                    pm_gfx->color565(32, 48, 72));
+  draw_sphere_frame(pm_face_scale_x(344), pm_face_scale_y(172), pm_face_scale_i(58), pm_gfx->color565(54, 122, 150),
+                    pm_gfx->color565(24, 68, 88));
+  draw_bodies_on_sphere(&now_tp, pm_face_scale_x(122), pm_face_scale_y(172), pm_face_scale_i(58), kPmBodyMoon,
+                        false);
+  draw_bodies_on_sphere(have_next ? &next_tp : &now_tp, pm_face_scale_x(344), pm_face_scale_y(172),
+                        pm_face_scale_i(58), kPmBodyMoon, true);
 
   if (have_next) {
     draw_countdown_core(&now_tp, now_epoch, next_epoch, &next_tp, have_motion ? &motion_tp : nullptr);
     draw_footer(&now_tp, now_epoch, next_epoch, &next_tp);
   } else {
-    pm_face_draw_centered_line("NOW  Mo", 362, pm_gfx->color565(224, 230, 245), 2, 2);
-    pm_face_draw_centered_line("next transit pending", 392, pm_gfx->color565(135, 220, 255), 1, 1);
+    pm_face_draw_centered_line("NOW  Mo", pm_face_scale_y(362), pm_gfx->color565(224, 230, 245), 2, 2);
+    pm_face_draw_centered_line("next transit pending", pm_face_scale_y(392), pm_gfx->color565(135, 220, 255), 1, 1);
   }
   pm_face_draw_circumference_rainbow_24h(true);
 }

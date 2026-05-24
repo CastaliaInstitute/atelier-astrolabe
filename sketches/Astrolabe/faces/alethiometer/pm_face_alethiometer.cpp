@@ -121,8 +121,8 @@ void draw_needle(float angle, int len, uint16_t col, int half_w, bool long_answe
   const int tip_x = kCx + static_cast<int>(lrintf(cosf(angle) * static_cast<float>(len)));
   const int tip_y = kCy + static_cast<int>(lrintf(sinf(angle) * static_cast<float>(len)));
   pm_gfx->fillCircle(tip_x, tip_y, long_answer ? 5 : 4, col);
-  pm_gfx->drawLine(kCx, kCy, kCx - static_cast<int>(lrintf(cosf(angle) * 24.f)),
-                   kCy - static_cast<int>(lrintf(sinf(angle) * 24.f)),
+  pm_gfx->drawLine(kCx, kCy, kCx - static_cast<int>(lrintf(cosf(angle) * static_cast<float>(pm_face_scale_i(24)))),
+                   kCy - static_cast<int>(lrintf(sinf(angle) * static_cast<float>(pm_face_scale_i(24)))),
                    blend565(pm_gfx->color565(12, 9, 16), col, 0.65f));
 }
 
@@ -131,28 +131,28 @@ void draw_symbol_ring(void) {
   const uint16_t dim = pm_gfx->color565(96, 76, 54);
   const uint16_t ink = pm_gfx->color565(235, 220, 164);
   const uint16_t answer = pm_gfx->color565(132, 198, 238);
-  pm_gfx->drawCircle(kCx, kCy, 213, gold);
-  pm_gfx->drawCircle(kCx, kCy, 198, dim);
-  pm_gfx->drawCircle(kCx, kCy, 150, dim);
+  pm_gfx->drawCircle(kCx, kCy, pm_face_scale_i(213), gold);
+  pm_gfx->drawCircle(kCx, kCy, pm_face_scale_i(198), dim);
+  pm_gfx->drawCircle(kCx, kCy, pm_face_scale_i(150), dim);
   const int q0 = target_symbol(0);
   const int q1 = target_symbol(1);
   const int q2 = target_symbol(2);
   const int ans = target_symbol(3);
   for (int i = 0; i < kSymbolCount; ++i) {
     const float a = symbol_angle(i);
-    const int r0 = (i % 3 == 0) ? 188 : 194;
+    const int r0 = pm_face_scale_i((i % 3 == 0) ? 188 : 194);
     const int x0 = kCx + static_cast<int>(lrintf(cosf(a) * static_cast<float>(r0)));
     const int y0 = kCy + static_cast<int>(lrintf(sinf(a) * static_cast<float>(r0)));
-    const int x1 = kCx + static_cast<int>(lrintf(cosf(a) * 210.f));
-    const int y1 = kCy + static_cast<int>(lrintf(sinf(a) * 210.f));
+    const int x1 = kCx + static_cast<int>(lrintf(cosf(a) * static_cast<float>(pm_face_scale_i(210))));
+    const int y1 = kCy + static_cast<int>(lrintf(sinf(a) * static_cast<float>(pm_face_scale_i(210))));
     pm_gfx->drawLine(x0, y0, x1, y1, (i % 3 == 0) ? gold : dim);
-    const int tx = kCx + static_cast<int>(lrintf(cosf(a) * 174.f));
-    const int ty = kCy + static_cast<int>(lrintf(sinf(a) * 174.f));
+    const int tx = kCx + static_cast<int>(lrintf(cosf(a) * static_cast<float>(pm_face_scale_i(174))));
+    const int ty = kCy + static_cast<int>(lrintf(sinf(a) * static_cast<float>(pm_face_scale_i(174))));
     const bool question_hit = i == q0 || i == q1 || i == q2;
     const uint16_t icon = i == ans ? answer : (question_hit ? pm_gfx->color565(255, 232, 170) : ink);
     if (question_hit || i == ans) {
-      pm_gfx->fillCircle(tx, ty, 14, blend565(pm_gfx->color565(8, 7, 12), icon, 0.20f));
-      pm_gfx->drawCircle(tx, ty, 14, icon);
+      pm_gfx->fillCircle(tx, ty, pm_face_scale_i(14), blend565(pm_gfx->color565(8, 7, 12), icon, 0.20f));
+      pm_gfx->drawCircle(tx, ty, pm_face_scale_i(14), icon);
     }
     pm_alethiometer_draw_emoji_glyph(pm_gfx, tx, ty, i, icon);
   }
@@ -162,19 +162,19 @@ void draw_center_orrery(void) {
   const uint16_t base = pm_gfx->color565(26, 18, 28);
   const uint16_t gold = pm_gfx->color565(230, 184, 88);
   const uint16_t blue = pm_gfx->color565(88, 142, 188);
-  pm_gfx->fillCircle(kCx, kCy, 92, base);
-  pm_gfx->drawCircle(kCx, kCy, 92, pm_gfx->color565(128, 92, 50));
-  pm_gfx->drawCircle(kCx, kCy, 70, pm_gfx->color565(70, 54, 62));
-  pm_gfx->drawCircle(kCx, kCy, 48, pm_gfx->color565(78, 86, 98));
+  pm_gfx->fillCircle(kCx, kCy, pm_face_scale_i(92), base);
+  pm_gfx->drawCircle(kCx, kCy, pm_face_scale_i(92), pm_gfx->color565(128, 92, 50));
+  pm_gfx->drawCircle(kCx, kCy, pm_face_scale_i(70), pm_gfx->color565(70, 54, 62));
+  pm_gfx->drawCircle(kCx, kCy, pm_face_scale_i(48), pm_gfx->color565(78, 86, 98));
   for (int i = 0; i < 12; ++i) {
     const float a = -pm_face_k_pi * 0.5f + static_cast<float>(i) * pm_face_k_two_pi / 12.f;
-    pm_gfx->drawLine(kCx, kCy, kCx + static_cast<int>(lrintf(cosf(a) * 86.f)),
-                     kCy + static_cast<int>(lrintf(sinf(a) * 86.f)),
+    pm_gfx->drawLine(kCx, kCy, kCx + static_cast<int>(lrintf(cosf(a) * static_cast<float>(pm_face_scale_i(86)))),
+                     kCy + static_cast<int>(lrintf(sinf(a) * static_cast<float>(pm_face_scale_i(86)))),
                      blend565(base, (i % 3 == 0) ? gold : blue, 0.45f));
   }
-  pm_gfx->fillCircle(kCx, kCy, 17, pm_gfx->color565(20, 14, 20));
-  pm_gfx->drawCircle(kCx, kCy, 17, gold);
-  pm_gfx->fillCircle(kCx, kCy, 5, gold);
+  pm_gfx->fillCircle(kCx, kCy, pm_face_scale_i(17), pm_gfx->color565(20, 14, 20));
+  pm_gfx->drawCircle(kCx, kCy, pm_face_scale_i(17), gold);
+  pm_gfx->fillCircle(kCx, kCy, pm_face_scale_i(5), gold);
 }
 
 void draw_readout(void) {
@@ -184,29 +184,29 @@ void draw_readout(void) {
            pm_face_alethiometer_symbol_name(target_symbol(0)),
            pm_face_alethiometer_symbol_name(target_symbol(1)),
            pm_face_alethiometer_symbol_name(target_symbol(2)));
-  pm_face_draw_centered_line(line, 382, txt, 1, 1);
+  pm_face_draw_centered_line(line, pm_face_scale_y(382), txt, 1, 1);
   snprintf(line, sizeof(line), "answer: %s", pm_face_alethiometer_symbol_name(target_symbol(3)));
-  pm_face_draw_centered_line(line, 402, pm_gfx->color565(150, 194, 226), 1, 1);
+  pm_face_draw_centered_line(line, pm_face_scale_y(402), pm_gfx->color565(150, 194, 226), 1, 1);
 }
 
 }  // namespace
 
 void pm_face_alethiometer_draw(void) {
   pm_gfx->fillScreen(pm_gfx->color565(8, 7, 12));
-  for (int r = 228; r > 184; r -= 4) {
-    const float t = static_cast<float>(228 - r) / 44.f;
+  for (int r = pm_face_scale_i(228); r > pm_face_scale_i(184); r -= pm_face_scale_i(4)) {
+    const float t = static_cast<float>(pm_face_scale_i(228) - r) / static_cast<float>(pm_face_scale_i(44));
     const uint16_t col = blend565(pm_gfx->color565(10, 8, 14), pm_gfx->color565(112, 76, 34), 0.16f + t * 0.10f);
     pm_gfx->drawCircle(kCx, kCy, r, col);
   }
   draw_symbol_ring();
   draw_center_orrery();
-  draw_needle(s_angle[0], 132, pm_gfx->color565(225, 182, 92), 2, false);
-  draw_needle(s_angle[1], 122, pm_gfx->color565(196, 146, 80), 2, false);
-  draw_needle(s_angle[2], 112, pm_gfx->color565(178, 128, 70), 2, false);
-  draw_needle(s_angle[3], 184, pm_gfx->color565(102, 178, 230), 2, true);
-  pm_gfx->fillCircle(kCx, kCy, 9, pm_gfx->color565(238, 198, 96));
-  pm_gfx->drawCircle(kCx, kCy, 13, pm_gfx->color565(70, 48, 34));
-  pm_face_draw_centered_line("ALETHIOMETER", 44, pm_gfx->color565(228, 198, 128), 1, 1);
+  draw_needle(s_angle[0], pm_face_scale_i(132), pm_gfx->color565(225, 182, 92), 2, false);
+  draw_needle(s_angle[1], pm_face_scale_i(122), pm_gfx->color565(196, 146, 80), 2, false);
+  draw_needle(s_angle[2], pm_face_scale_i(112), pm_gfx->color565(178, 128, 70), 2, false);
+  draw_needle(s_angle[3], pm_face_scale_i(184), pm_gfx->color565(102, 178, 230), 2, true);
+  pm_gfx->fillCircle(kCx, kCy, pm_face_scale_i(9), pm_gfx->color565(238, 198, 96));
+  pm_gfx->drawCircle(kCx, kCy, pm_face_scale_i(13), pm_gfx->color565(70, 48, 34));
+  pm_face_draw_centered_line("ALETHIOMETER", pm_face_scale_y(44), pm_gfx->color565(228, 198, 128), 1, 1);
   draw_readout();
 }
 
