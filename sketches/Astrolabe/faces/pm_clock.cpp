@@ -617,5 +617,8 @@ bool pm_faces_is_commonplace_home(void) {
 }
 
 bool pm_faces_voice_input_enabled(void) {
+#if defined(ASTROLABE_NO_ONBOARD_AUDIO) && ASTROLABE_NO_ONBOARD_AUDIO
+  return false;
+#endif
   return s_clock_face != ClockFace::Spectrum && s_clock_face != ClockFace::Tuning;
 }

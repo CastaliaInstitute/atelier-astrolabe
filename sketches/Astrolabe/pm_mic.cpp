@@ -26,6 +26,9 @@ static esp_err_t es7210_write_reg_direct(uint8_t reg, uint8_t value) {
 }
 
 bool pm_mic_begin() {
+#if defined(ASTROLABE_NO_ONBOARD_AUDIO) && ASTROLABE_NO_ONBOARD_AUDIO
+  return false;
+#endif
   if (g_mic) {
     return true;
   }
@@ -92,6 +95,10 @@ bool pm_mic_begin() {
 }
 
 void pm_mic_stop() {
+#if defined(ASTROLABE_NO_ONBOARD_AUDIO) && ASTROLABE_NO_ONBOARD_AUDIO
+  g_mic = false;
+  return;
+#endif
   if (!g_mic) {
     return;
   }
@@ -101,6 +108,14 @@ void pm_mic_stop() {
 }
 
 bool pm_mic_read_frame(int16_t *out, size_t frame_samples, size_t *bytes_read) {
+#if defined(ASTROLABE_NO_ONBOARD_AUDIO) && ASTROLABE_NO_ONBOARD_AUDIO
+  (void)out;
+  (void)frame_samples;
+  if (bytes_read) {
+    *bytes_read = 0;
+  }
+  return false;
+#endif
   if (!g_mic || !out || !bytes_read) {
     return false;
   }

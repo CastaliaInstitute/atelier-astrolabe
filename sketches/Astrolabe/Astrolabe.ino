@@ -366,6 +366,10 @@ static void gesture_end_voice_ui(void) {
 }
 
 static bool home_begin_daily_briefing(void) {
+#if defined(ASTROLABE_NO_ONBOARD_AUDIO) && ASTROLABE_NO_ONBOARD_AUDIO
+  snprintf(g_gesture_banner, sizeof(g_gesture_banner), "brief: no speaker");
+  return false;
+#endif
   if (s_face_tour_active) {
     snprintf(g_gesture_banner, sizeof(g_gesture_banner), "brief: tour active");
     return false;
