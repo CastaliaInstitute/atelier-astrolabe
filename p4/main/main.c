@@ -298,7 +298,10 @@ static void serial_console_task(void *arg) {
       }
       if (strcasecmp(value, "current") == 0 || parse_face_token(value, &home_face)) {
         if (astrolabe_p4_settings_set_home_face(home_face)) {
-          set_face(home_face);
+          if (bsp_display_lock(100) == ESP_OK) {
+            set_face(home_face);
+            bsp_display_unlock();
+          }
           log_service_status();
         }
       } else {
@@ -343,7 +346,10 @@ static void serial_console_task(void *arg) {
     } else if (strstr(line, "settings status") != NULL) {
       astrolabe_p4_settings_log_status();
     } else if (strstr(line, "home") != NULL) {
-      set_face(astrolabe_p4_settings_home_face());
+      if (bsp_display_lock(100) == ESP_OK) {
+        set_face(astrolabe_p4_settings_home_face());
+        bsp_display_unlock();
+      }
     } else if (strstr(line, "next") != NULL) {
       s_requested_face = astrolabe_real_ui_current_face() + 1;
     } else if (strstr(line, "prev") != NULL) {
@@ -487,6 +493,7 @@ void app_main(void) {
   ESP_LOGI(TAG, "starting Astrolabe render loop");
   ESP_LOGI(TAG, "registering Astrolabe touch layer");
   register_touch_layer(display);
+  bsp_display_unlock();
   ESP_ERROR_CHECK_WITHOUT_ABORT(astrolabe_p4_audio_init());
   xTaskCreate(serial_console_task, "astrolabe_console", 4096, NULL, 5, NULL);
   ESP_LOGI(TAG, "Astrolabe P4 is running");
@@ -495,10 +502,12 @@ void app_main(void) {
 
   int64_t last_tick_us = esp_timer_get_time();
   while (true) {
-    lv_timer_handler();
     int64_t now_us = esp_timer_get_time();
     if (now_us - last_tick_us >= 1000000) {
-      astrolabe_real_ui_tick((uint32_t)((now_us - last_tick_us) / 1000));
+      if (bsp_display_lock(100) == ESP_OK) {
+        astrolabe_real_ui_tick((uint32_t)((now_us - last_tick_us) / 1000));
+        bsp_display_unlock();
+      }
       last_tick_us = now_us;
       maybe_start_screen_http();
     }
@@ -508,16 +517,26 @@ void app_main(void) {
       while (requested < 0) {
         requested += astrolabe_real_ui_face_count();
       }
-      set_face(requested % astrolabe_real_ui_face_count());
+      if (bsp_display_lock(100) == ESP_OK) {
+        set_face(requested % astrolabe_real_ui_face_count());
+        bsp_display_unlock();
+      } else {
+        ESP_LOGW(TAG, "skipped face request because LVGL lock was busy");
+      }
     }
     if (s_tour_requested) {
       s_tour_requested = false;
       ESP_LOGI(TAG, "tour: start faces=%d", astrolabe_real_ui_face_count());
       for (int face = 0; face < astrolabe_real_ui_face_count(); ++face) {
-        set_face(face);
+        if (bsp_display_lock(100) == ESP_OK) {
+          set_face(face);
+          bsp_display_unlock();
+        }
         for (int step = 0; step < 75; ++step) {
-          lv_timer_handler();
-          astrolabe_real_ui_tick(16);
+          if (bsp_display_lock(100) == ESP_OK) {
+            astrolabe_real_ui_tick(16);
+            bsp_display_unlock();
+          }
           vTaskDelay(pdMS_TO_TICKS(16));
         }
       }
@@ -527,11 +546,16 @@ void app_main(void) {
       s_tour_tts_requested = false;
       ESP_LOGI(TAG, "tour tts: start faces=%d", astrolabe_real_ui_face_count());
       for (int face = 0; face < astrolabe_real_ui_face_count(); ++face) {
-        set_face(face);
+        if (bsp_display_lock(100) == ESP_OK) {
+          set_face(face);
+          bsp_display_unlock();
+        }
         ESP_LOGI(TAG, "tour tts: face=%d name=%s", face, astrolabe_real_ui_face_name(face));
         for (int step = 0; step < TOUR_TTS_FRAME_STEPS; ++step) {
-          lv_timer_handler();
-          astrolabe_real_ui_tick(16);
+          if (bsp_display_lock(100) == ESP_OK) {
+            astrolabe_real_ui_tick(16);
+            bsp_display_unlock();
+          }
           vTaskDelay(pdMS_TO_TICKS(16));
         }
       }
