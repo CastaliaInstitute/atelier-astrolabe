@@ -22,24 +22,28 @@
 
 static const char *TAG = "astrolabe_p4";
 enum {
-  WAVESHARE_ROUND_VISIBLE_SIZE = 720,
   GESTURE_MIN_PX = 80,
 };
 
 static lv_obj_t *s_scale_root;
+static int32_t s_panel_zoom = 256;
 static lv_point_t s_press_point;
 static bool s_press_valid;
 static volatile int s_requested_face = -1;
 static volatile bool s_tour_requested;
 
+static void set_face(astrolabe_ui_face_t face);
+
 static void log_service_status(void) {
   astrolabe_ui_face_t face = astrolabe_ui_current_face();
   astrolabe_p4_network_status_t net = astrolabe_p4_network_status();
   astrolabe_p4_audio_status_t audio = astrolabe_p4_audio_status();
+  const lv_coord_t panel_w = lv_display_get_horizontal_resolution(NULL);
+  const lv_coord_t panel_h = lv_display_get_vertical_resolution(NULL);
   ESP_LOGI(TAG,
-           "qa: face=%d name=%s faces=%d panel=720x720 wifi=%d ip=%s rssi=%d audio_spk=%d audio_mic=%d",
-           (int)face, astrolabe_ui_face_name(face), ASTROLABE_UI_FACE_COUNT, net.connected, net.ip, net.rssi,
-           audio.speaker_ready, audio.mic_ready);
+           "qa: face=%d name=%s faces=%d panel=%dx%d wifi=%d ip=%s rssi=%d audio_spk=%d audio_mic=%d",
+           (int)face, astrolabe_ui_face_name(face), ASTROLABE_UI_FACE_COUNT, (int)panel_w, (int)panel_h,
+           net.connected, net.ip, net.rssi, audio.speaker_ready, audio.mic_ready);
 }
 
 static void force_waveshare_4c_backlight_on(void) {
@@ -50,42 +54,56 @@ static void force_waveshare_4c_backlight_on(void) {
   ESP_LOGI(TAG, "forced Waveshare 4C backlight GPIO%d active-low on", (int)backlight);
 }
 
-static void apply_round_panel_scale(void) {
+static void apply_display_fit(void) {
   lv_obj_t *screen = lv_screen_active();
   lv_obj_set_style_bg_color(screen, lv_color_hex(0x000000), 0);
   lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
 
   s_scale_root = lv_obj_create(screen);
   lv_obj_remove_style_all(s_scale_root);
-  const lv_coord_t display_w = lv_display_get_horizontal_resolution(NULL);
-  const lv_coord_t display_h = lv_display_get_vertical_resolution(NULL);
-  const lv_coord_t visible_w = display_w < WAVESHARE_ROUND_VISIBLE_SIZE ? display_w : WAVESHARE_ROUND_VISIBLE_SIZE;
-  const lv_coord_t visible_h = display_h < WAVESHARE_ROUND_VISIBLE_SIZE ? display_h : WAVESHARE_ROUND_VISIBLE_SIZE;
-  lv_obj_set_size(s_scale_root, visible_w, visible_h);
-  lv_obj_center(s_scale_root);
+  lv_coord_t display_w = lv_display_get_horizontal_resolution(NULL);
+  lv_coord_t display_h = lv_display_get_vertical_resolution(NULL);
+  if (display_w <= 0) {
+    display_w = ASTROLABE_UI_WIDTH;
+  }
+  if (display_h <= 0) {
+    display_h = ASTROLABE_UI_HEIGHT;
+  }
+  lv_obj_set_size(s_scale_root, ASTROLABE_UI_WIDTH, ASTROLABE_UI_HEIGHT);
+  s_panel_zoom = ((int32_t)display_w * 256) / ASTROLABE_UI_WIDTH;
+  const int32_t zoom_y = ((int32_t)display_h * 256) / ASTROLABE_UI_HEIGHT;
+  if (zoom_y < s_panel_zoom) {
+    s_panel_zoom = zoom_y;
+  }
+  if (s_panel_zoom <= 0) {
+    s_panel_zoom = 256;
+  }
+  const int32_t scaled_w = (ASTROLABE_UI_WIDTH * s_panel_zoom) / 256;
+  const int32_t scaled_h = (ASTROLABE_UI_HEIGHT * s_panel_zoom) / 256;
+  const int32_t extra_w = scaled_w > ASTROLABE_UI_WIDTH ? scaled_w - ASTROLABE_UI_WIDTH : 0;
+  const int32_t extra_h = scaled_h > ASTROLABE_UI_HEIGHT ? scaled_h - ASTROLABE_UI_HEIGHT : 0;
+  lv_obj_set_pos(s_scale_root, ((int32_t)display_w - scaled_w) / 2, ((int32_t)display_h - scaled_h) / 2);
   lv_obj_set_style_bg_opa(s_scale_root, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_transform_pivot_x(s_scale_root, 0, 0);
+  lv_obj_set_style_transform_pivot_y(s_scale_root, 0, 0);
+  lv_obj_set_style_transform_scale(s_scale_root, s_panel_zoom, 0);
+  lv_obj_set_style_transform_width(s_scale_root, extra_w, 0);
+  lv_obj_set_style_transform_height(s_scale_root, extra_h, 0);
   lv_obj_set_scrollbar_mode(s_scale_root, LV_SCROLLBAR_MODE_OFF);
   lv_obj_add_flag(s_scale_root, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_clear_flag(s_scale_root, LV_OBJ_FLAG_SCROLLABLE);
 
-  const int32_t zoom_x = ((int32_t)visible_w * 256) / ASTROLABE_UI_WIDTH;
-  const int32_t zoom_y = ((int32_t)visible_h * 256) / ASTROLABE_UI_HEIGHT;
-  const int32_t zoom = zoom_x < zoom_y ? zoom_x : zoom_y;
-  ESP_LOGI(TAG, "Astrolabe logical %dx%d scaled to visible %dx%d on %dx%d panel at zoom %ld/256",
-           ASTROLABE_UI_WIDTH, ASTROLABE_UI_HEIGHT, (int)visible_w, (int)visible_h, (int)display_w, (int)display_h,
-           (long)zoom);
+  ESP_LOGI(TAG, "Astrolabe logical %dx%d fit to %dx%d panel at zoom %ld/256", ASTROLABE_UI_WIDTH,
+           ASTROLABE_UI_HEIGHT, (int)display_w, (int)display_h, (long)s_panel_zoom);
 }
 
 static void next_face(void) {
-  astrolabe_ui_next_face();
-  astrolabe_ui_face_t face = astrolabe_ui_current_face();
-  ESP_LOGI(TAG, "face=%d %s", (int)face, astrolabe_ui_face_name(face));
+  set_face((astrolabe_ui_face_t)((astrolabe_ui_current_face() + 1) % ASTROLABE_UI_FACE_COUNT));
 }
 
 static void previous_face(void) {
-  astrolabe_ui_previous_face();
-  astrolabe_ui_face_t face = astrolabe_ui_current_face();
-  ESP_LOGI(TAG, "face=%d %s", (int)face, astrolabe_ui_face_name(face));
+  set_face((astrolabe_ui_face_t)((astrolabe_ui_current_face() + ASTROLABE_UI_FACE_COUNT - 1) %
+                                 ASTROLABE_UI_FACE_COUNT));
 }
 
 static void set_face(astrolabe_ui_face_t face) {
@@ -245,7 +263,7 @@ void app_main(void) {
     ESP_LOGE(TAG, "failed to acquire LVGL lock for startup");
     abort();
   }
-  apply_round_panel_scale();
+  apply_display_fit();
   ESP_LOGI(TAG, "initializing Astrolabe UI");
   astrolabe_ui_init_in(s_scale_root);
   ESP_LOGI(TAG, "starting Astrolabe render loop");
