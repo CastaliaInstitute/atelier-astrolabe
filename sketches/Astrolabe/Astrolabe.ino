@@ -2149,6 +2149,7 @@ void setup() {
   pm_home_gem_pulse_begin();
   pm_user_begin();
   pm_variant_begin();
+  pm_faces_set(pm_variant_home_face());
 
   if (pm_wifi_begin()) {
     pm_ntp_sync_blocking();
