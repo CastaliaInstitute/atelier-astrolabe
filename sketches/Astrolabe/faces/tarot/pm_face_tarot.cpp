@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <cstring>
 #include <ctime>
+#include <sys/stat.h>
 
 #include "faces/shared/pm_face_draw.h"
 #include "faces/tarot/pm_face_tarot_assets.h"
@@ -21,8 +22,13 @@ namespace {
 constexpr int kCardCount = 22;
 constexpr int kCx = LCD_WIDTH / 2;
 constexpr int kCy = LCD_HEIGHT / 2;
+#if defined(ASTROLABE_P4_TARGET)
+constexpr const char *kManifestUrl = "http://tarot.castalia.institute/assets/deck/manifest.json";
+constexpr const char *kAssetBaseUrl = "http://tarot.castalia.institute/assets/deck/720";
+#else
 constexpr const char *kManifestUrl = "http://tarot.castalia.institute/assets/major/manifest.json";
 constexpr const char *kAssetBaseUrl = "http://tarot.castalia.institute/assets/major/full";
+#endif
 constexpr const char *kSdAssetBasePath = "/sdcard/astrolabe/tarot/720";
 constexpr uint32_t kTarotFetchTimeoutMs = 30000u;
 constexpr uint32_t kTarotMinFetchHeap = 18000u;
@@ -180,17 +186,31 @@ bool mask_get(const uint8_t *mask, int idx) {
   return (mask[idx >> 3] & (1u << (idx & 7))) != 0;
 }
 
-#if !defined(ASTROLABE_P4_TARGET)
 bool build_card_url(int idx, char *url, size_t cap) {
   if (idx < 0 || idx >= kCardCount || !url || cap == 0) {
     return false;
   }
+#if defined(ASTROLABE_P4_TARGET)
+  const int n = snprintf(url, cap, "%s/major-%02d-%s.png", kAssetBaseUrl, idx, kCards[idx].slug);
+#else
   const int n = snprintf(url, cap, "%s/%02d-%s.png", kAssetBaseUrl, idx, kCards[idx].slug);
+#endif
   return n > 0 && static_cast<size_t>(n) < cap;
 }
-#endif
 
 bool build_sd_card_path(int idx, char *path, size_t cap) {
+  if (idx < 0 || idx >= kCardCount || !path || cap == 0) {
+    return false;
+  }
+#if defined(ASTROLABE_P4_TARGET)
+  const int n = snprintf(path, cap, "%s/major-%02d-%s.png", kSdAssetBasePath, idx, kCards[idx].slug);
+#else
+  const int n = snprintf(path, cap, "%s/%02d-%s.png", kSdAssetBasePath, idx, kCards[idx].slug);
+#endif
+  return n > 0 && static_cast<size_t>(n) < cap;
+}
+
+bool build_sd_legacy_card_path(int idx, char *path, size_t cap) {
   if (idx < 0 || idx >= kCardCount || !path || cap == 0) {
     return false;
   }
@@ -198,14 +218,13 @@ bool build_sd_card_path(int idx, char *path, size_t cap) {
   return n > 0 && static_cast<size_t>(n) < cap;
 }
 
-bool load_card_png_from_sd(int idx, uint8_t **out_buf, size_t *out_len) {
+bool load_card_png_file(const char *path, uint8_t **out_buf, size_t *out_len) {
   if (!out_buf || !out_len) {
     return false;
   }
   *out_buf = nullptr;
   *out_len = 0;
-  char path[96];
-  if (!build_sd_card_path(idx, path, sizeof(path))) {
+  if (!path || !path[0]) {
     return false;
   }
   FILE *fp = fopen(path, "rb");
@@ -242,7 +261,43 @@ bool load_card_png_from_sd(int idx, uint8_t **out_buf, size_t *out_len) {
   return true;
 }
 
-#if !defined(ASTROLABE_P4_TARGET)
+bool load_card_png_from_sd(int idx, uint8_t **out_buf, size_t *out_len) {
+  char path[112];
+  if (build_sd_card_path(idx, path, sizeof(path)) && load_card_png_file(path, out_buf, out_len)) {
+    return true;
+  }
+  if (build_sd_legacy_card_path(idx, path, sizeof(path)) && load_card_png_file(path, out_buf, out_len)) {
+    return true;
+  }
+  return false;
+}
+
+void ensure_sd_asset_dirs() {
+  (void)mkdir("/sdcard/astrolabe", 0775);
+  (void)mkdir("/sdcard/astrolabe/tarot", 0775);
+  (void)mkdir(kSdAssetBasePath, 0775);
+}
+
+void save_card_png_to_sd(int idx, const uint8_t *data, size_t len) {
+  if (!data || len == 0) {
+    return;
+  }
+  char path[112];
+  if (!build_sd_card_path(idx, path, sizeof(path))) {
+    return;
+  }
+  ensure_sd_asset_dirs();
+  FILE *fp = fopen(path, "wb");
+  if (!fp) {
+    return;
+  }
+  const size_t wr = fwrite(data, 1, len, fp);
+  fclose(fp);
+  if (wr == len) {
+    Serial.printf("tarot: cached sd %02d %s (%u B)\n", idx, kCards[idx].slug, static_cast<unsigned>(len));
+  }
+}
+
 bool download_card_png(const char *url, uint8_t **out_buf, size_t *out_len) {
   if (!url || !out_buf || !out_len) {
     return false;
@@ -314,7 +369,6 @@ bool download_card_png(const char *url, uint8_t **out_buf, size_t *out_len) {
   *out_len = rd;
   return true;
 }
-#endif
 
 int tarot_png_draw(PNGDRAW *pDraw) {
   if (!pDraw || !s_decoding_fb || s_decoding_w <= 0 || s_decoding_h <= 0 || pDraw->y < 0 || pDraw->y >= s_decoding_h) {
@@ -394,18 +448,18 @@ bool decode_card_png(uint8_t *data, size_t len, int idx) {
 }
 
 bool fetch_card_inner(int idx) {
-#if defined(ASTROLABE_P4_TARGET)
   uint8_t *sd_png = nullptr;
   size_t sd_png_len = 0;
-  if (!load_card_png_from_sd(idx, &sd_png, &sd_png_len)) {
-    return false;
+  if (load_card_png_from_sd(idx, &sd_png, &sd_png_len)) {
+    const bool sd_ok = decode_card_png(sd_png, sd_png_len, idx);
+    free(sd_png);
+    Serial.printf("tarot: %s sd %02d %s (%u B)\n", sd_ok ? "cached" : "decode failed", idx, kCards[idx].slug,
+                  static_cast<unsigned>(sd_png_len));
+    if (sd_ok) {
+      return true;
+    }
   }
-  const bool sd_ok = decode_card_png(sd_png, sd_png_len, idx);
-  free(sd_png);
-  Serial.printf("tarot: %s sd %02d %s (%u B)\n", sd_ok ? "cached" : "decode failed", idx, kCards[idx].slug,
-                static_cast<unsigned>(sd_png_len));
-  return sd_ok;
-#else
+
   char url[160];
   if (!build_card_url(idx, url, sizeof(url))) {
     set_error("bad url");
@@ -417,11 +471,13 @@ bool fetch_card_inner(int idx) {
     return false;
   }
   const bool ok = decode_card_png(png, png_len, idx);
+  if (ok) {
+    save_card_png_to_sd(idx, png, png_len);
+  }
   free(png);
   Serial.printf("tarot: %s %02d %s (%u B)\n", ok ? "cached" : "decode failed", idx, kCards[idx].slug,
                 static_cast<unsigned>(png_len));
   return ok;
-#endif
 }
 
 void tarot_fetch_task(void *arg) {
@@ -478,7 +534,10 @@ void request_card_image(int idx) {
   xTaskNotify(s_fetch_task, 1, eSetBits);
 }
 
-bool draw_cached_card_image(int idx, int cx, int cy) {
+bool draw_cached_card_image(int idx, int cx, int cy, bool *full_bleed) {
+  if (full_bleed) {
+    *full_bleed = false;
+  }
   if (idx < 0 || !image_mux_take(25)) {
     return false;
   }
@@ -503,6 +562,9 @@ bool draw_cached_card_image(int idx, int cx, int cy) {
       }
       pm_gfx->writePixel(xx, yy, s_image_fb[y * s_image_w + x]);
     }
+  }
+  if (full_bleed) {
+    *full_bleed = s_image_w >= LCD_WIDTH && s_image_h >= LCD_HEIGHT;
   }
   image_mux_give();
   return true;
@@ -778,7 +840,11 @@ void pm_face_tarot_draw(const struct tm *tm_local, bool valid_local) {
   const uint16_t c_glow = blend565(c_bg, c_accent, 0.22f);
   pm_gfx->fillScreen(c_bg);
 
-  bool image_drawn = draw_cached_card_image(idx, kCx, kCy);
+  bool image_full_bleed = false;
+  bool image_drawn = draw_cached_card_image(idx, kCx, kCy, &image_full_bleed);
+  if (image_full_bleed) {
+    return;
+  }
   if (!image_drawn) {
     image_drawn = draw_embedded_card_image(idx, kCx, kCy);
   }
