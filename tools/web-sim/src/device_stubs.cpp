@@ -43,12 +43,21 @@ void pm_wifi_resume_after_ble(void) {}
 int32_t pm_geo_tz_offset_sec(void) { return 0; }
 
 bool pm_variant_face_allowed(ClockFace) { return true; }
+#if defined(ASTROLABE_P4_TARGET)
+PmDeviceVariant pm_variant_get(void) { return PmDeviceVariant::Lunasay; }
+void pm_variant_set(PmDeviceVariant) {}
+PmDeviceVariant pm_variant_cycle(int) { return PmDeviceVariant::Lunasay; }
+const char *pm_variant_label(PmDeviceVariant) { return "Lunasay"; }
+const char *pm_variant_summary(PmDeviceVariant) { return "P4"; }
+ClockFace pm_variant_home_face(void) { return ClockFace::Moon; }
+#else
 PmDeviceVariant pm_variant_get(void) { return PmDeviceVariant::Astrolabe; }
 void pm_variant_set(PmDeviceVariant) {}
 PmDeviceVariant pm_variant_cycle(int) { return PmDeviceVariant::Astrolabe; }
 const char *pm_variant_label(PmDeviceVariant) { return "Astrolabe"; }
 const char *pm_variant_summary(PmDeviceVariant) { return "web sim"; }
 ClockFace pm_variant_home_face(void) { return ClockFace::ClassicAnalog; }
+#endif
 
 static SettingsPage s_settings_page = SettingsPage::WiFi;
 void pm_settings_set_page(SettingsPage page) { s_settings_page = page; }

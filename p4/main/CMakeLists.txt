@@ -6,7 +6,7 @@ idf_component_register(
         "p4_settings.c"
     INCLUDE_DIRS "." "../../include"
     REQUIRES
-        ui
+        p4_real_ui
         esp_timer
         nvs_flash
         esp_wifi

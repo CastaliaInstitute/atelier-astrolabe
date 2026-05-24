@@ -5,7 +5,6 @@
 #include <string.h>
 #include <strings.h>
 
-#include "astrolabe_ui.h"
 #include "bsp/esp-bsp.h"
 #include "bsp/display.h"
 #include "driver/gpio.h"
@@ -20,6 +19,7 @@
 #include "nvs_flash.h"
 #include "p4_audio.h"
 #include "p4_network.h"
+#include "p4_real_ui.h"
 #include "p4_settings.h"
 #include "sdkconfig.h"
 
@@ -40,14 +40,9 @@ static uint32_t s_touch_events;
 static volatile int s_requested_face = -1;
 static volatile bool s_tour_requested;
 
-static void set_face(astrolabe_ui_face_t face);
+static void set_face(int face);
 
-static void refresh_settings_summary(void) {
-  astrolabe_ui_face_t home = astrolabe_p4_settings_home_face();
-  astrolabe_ui_set_settings_summary(astrolabe_p4_settings_profile(), astrolabe_ui_face_name(home));
-}
-
-static bool parse_face_token(const char *token, astrolabe_ui_face_t *face) {
+static bool parse_face_token(const char *token, int *face) {
   if (token == NULL || face == NULL) {
     return false;
   }
@@ -62,32 +57,23 @@ static bool parse_face_token(const char *token, astrolabe_ui_face_t *face) {
   }
   if (*token >= '0' && *token <= '9') {
     int parsed = atoi(token);
-    if (parsed >= 0 && parsed < ASTROLABE_UI_FACE_COUNT) {
-      *face = (astrolabe_ui_face_t)parsed;
+    if (parsed >= 0 && parsed < astrolabe_real_ui_face_count()) {
+      *face = parsed;
       return true;
     }
     return false;
   }
-  for (int i = 0; i < ASTROLABE_UI_FACE_COUNT; ++i) {
-    if (strcasecmp(token, astrolabe_ui_face_name((astrolabe_ui_face_t)i)) == 0) {
-      *face = (astrolabe_ui_face_t)i;
-      return true;
-    }
-  }
-  if (strcasecmp(token, "moon") == 0 || strcasecmp(token, "lunasay") == 0) {
-    *face = ASTROLABE_UI_FACE_MOON;
-    return true;
-  }
-  if (strcasecmp(token, "classic") == 0 || strcasecmp(token, "astrolabe") == 0) {
-    *face = ASTROLABE_UI_FACE_CLASSIC_ANALOG;
+  int parsed = astrolabe_real_ui_parse_face_name(token);
+  if (parsed >= 0) {
+    *face = parsed;
     return true;
   }
   return false;
 }
 
 static void log_service_status(void) {
-  astrolabe_ui_face_t face = astrolabe_ui_current_face();
-  astrolabe_ui_face_t home = astrolabe_p4_settings_home_face();
+  int face = astrolabe_real_ui_current_face();
+  int home = astrolabe_p4_settings_home_face();
   astrolabe_p4_network_status_t net = astrolabe_p4_network_status();
   astrolabe_p4_audio_status_t audio = astrolabe_p4_audio_status();
   const lv_coord_t panel_w = lv_display_get_horizontal_resolution(NULL);
@@ -95,8 +81,8 @@ static void log_service_status(void) {
   ESP_LOGI(TAG,
            "qa: profile=%s face=%d name=%s home=%d home_name=%s faces=%d panel=%dx%d touch=%d touch_max=%d "
            "touch_events=%lu touch_last=%d,%d wifi=%d ip=%s rssi=%d audio_spk=%d audio_mic=%d",
-           astrolabe_p4_settings_profile(), (int)face, astrolabe_ui_face_name(face), (int)home,
-           astrolabe_ui_face_name(home), ASTROLABE_UI_FACE_COUNT, (int)panel_w, (int)panel_h,
+           astrolabe_p4_settings_profile(), face, astrolabe_real_ui_face_name(face), home,
+           astrolabe_real_ui_face_name(home), astrolabe_real_ui_face_count(), (int)panel_w, (int)panel_h,
            s_touch_indev != NULL, CONFIG_ESP_LCD_TOUCH_MAX_POINTS, (unsigned long)s_touch_events,
            s_touch_seen ? (int)s_last_touch_point.x : -1, s_touch_seen ? (int)s_last_touch_point.y : -1,
            net.connected, net.ip, net.rssi, audio.speaker_ready, audio.mic_ready);
@@ -120,24 +106,24 @@ static void apply_display_fit(void) {
   lv_coord_t display_w = lv_display_get_horizontal_resolution(NULL);
   lv_coord_t display_h = lv_display_get_vertical_resolution(NULL);
   if (display_w <= 0) {
-    display_w = ASTROLABE_UI_WIDTH;
+    display_w = ASTROLABE_REAL_UI_WIDTH;
   }
   if (display_h <= 0) {
-    display_h = ASTROLABE_UI_HEIGHT;
+    display_h = ASTROLABE_REAL_UI_HEIGHT;
   }
-  lv_obj_set_size(s_scale_root, ASTROLABE_UI_WIDTH, ASTROLABE_UI_HEIGHT);
-  s_panel_zoom = ((int32_t)display_w * 256) / ASTROLABE_UI_WIDTH;
-  const int32_t zoom_y = ((int32_t)display_h * 256) / ASTROLABE_UI_HEIGHT;
+  lv_obj_set_size(s_scale_root, ASTROLABE_REAL_UI_WIDTH, ASTROLABE_REAL_UI_HEIGHT);
+  s_panel_zoom = ((int32_t)display_w * 256) / ASTROLABE_REAL_UI_WIDTH;
+  const int32_t zoom_y = ((int32_t)display_h * 256) / ASTROLABE_REAL_UI_HEIGHT;
   if (zoom_y < s_panel_zoom) {
     s_panel_zoom = zoom_y;
   }
   if (s_panel_zoom <= 0) {
     s_panel_zoom = 256;
   }
-  const int32_t scaled_w = (ASTROLABE_UI_WIDTH * s_panel_zoom) / 256;
-  const int32_t scaled_h = (ASTROLABE_UI_HEIGHT * s_panel_zoom) / 256;
-  const int32_t extra_w = scaled_w > ASTROLABE_UI_WIDTH ? scaled_w - ASTROLABE_UI_WIDTH : 0;
-  const int32_t extra_h = scaled_h > ASTROLABE_UI_HEIGHT ? scaled_h - ASTROLABE_UI_HEIGHT : 0;
+  const int32_t scaled_w = (ASTROLABE_REAL_UI_WIDTH * s_panel_zoom) / 256;
+  const int32_t scaled_h = (ASTROLABE_REAL_UI_HEIGHT * s_panel_zoom) / 256;
+  const int32_t extra_w = scaled_w > ASTROLABE_REAL_UI_WIDTH ? scaled_w - ASTROLABE_REAL_UI_WIDTH : 0;
+  const int32_t extra_h = scaled_h > ASTROLABE_REAL_UI_HEIGHT ? scaled_h - ASTROLABE_REAL_UI_HEIGHT : 0;
   lv_obj_set_pos(s_scale_root, ((int32_t)display_w - scaled_w) / 2, ((int32_t)display_h - scaled_h) / 2);
   lv_obj_set_style_bg_opa(s_scale_root, LV_OPA_TRANSP, 0);
   lv_obj_set_style_transform_pivot_x(s_scale_root, 0, 0);
@@ -149,23 +135,26 @@ static void apply_display_fit(void) {
   lv_obj_add_flag(s_scale_root, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_clear_flag(s_scale_root, LV_OBJ_FLAG_SCROLLABLE);
 
-  ESP_LOGI(TAG, "Astrolabe logical %dx%d fit to %dx%d panel at zoom %ld/256", ASTROLABE_UI_WIDTH,
-           ASTROLABE_UI_HEIGHT, (int)display_w, (int)display_h, (long)s_panel_zoom);
+  ESP_LOGI(TAG, "Astrolabe logical %dx%d fit to %dx%d panel at zoom %ld/256", ASTROLABE_REAL_UI_WIDTH,
+           ASTROLABE_REAL_UI_HEIGHT, (int)display_w, (int)display_h, (long)s_panel_zoom);
 }
 
 static void next_face(void) {
-  set_face((astrolabe_ui_face_t)((astrolabe_ui_current_face() + 1) % ASTROLABE_UI_FACE_COUNT));
+  astrolabe_real_ui_cycle(1);
+  ESP_LOGI(TAG, "face=%d %s", astrolabe_real_ui_current_face(),
+           astrolabe_real_ui_face_name(astrolabe_real_ui_current_face()));
 }
 
 static void previous_face(void) {
-  set_face((astrolabe_ui_face_t)((astrolabe_ui_current_face() + ASTROLABE_UI_FACE_COUNT - 1) %
-                                 ASTROLABE_UI_FACE_COUNT));
+  astrolabe_real_ui_cycle(-1);
+  ESP_LOGI(TAG, "face=%d %s", astrolabe_real_ui_current_face(),
+           astrolabe_real_ui_face_name(astrolabe_real_ui_current_face()));
 }
 
-static void set_face(astrolabe_ui_face_t face) {
-  astrolabe_ui_set_face(face);
-  face = astrolabe_ui_current_face();
-  ESP_LOGI(TAG, "face=%d %s", (int)face, astrolabe_ui_face_name(face));
+static void set_face(int face) {
+  astrolabe_real_ui_set_face(face);
+  face = astrolabe_real_ui_current_face();
+  ESP_LOGI(TAG, "face=%d %s", face, astrolabe_real_ui_face_name(face));
 }
 
 static void serial_console_task(void *arg) {
@@ -201,13 +190,12 @@ static void serial_console_task(void *arg) {
     char *settings_home_cmd = strstr(line, "settings home ");
     if (settings_home_cmd != NULL) {
       char *value = settings_home_cmd + strlen("settings home ");
-      astrolabe_ui_face_t home_face = ASTROLABE_UI_FACE_MOON;
+      int home_face = ASTROLABE_REAL_UI_FACE_MOON;
       if (strcasecmp(value, "current") == 0) {
-        home_face = astrolabe_ui_current_face();
+        home_face = astrolabe_real_ui_current_face();
       }
       if (strcasecmp(value, "current") == 0 || parse_face_token(value, &home_face)) {
         if (astrolabe_p4_settings_set_home_face(home_face)) {
-          refresh_settings_summary();
           set_face(home_face);
           log_service_status();
         }
@@ -253,9 +241,9 @@ static void serial_console_task(void *arg) {
     } else if (strstr(line, "home") != NULL) {
       set_face(astrolabe_p4_settings_home_face());
     } else if (strstr(line, "next") != NULL) {
-      s_requested_face = (int)astrolabe_ui_current_face() + 1;
+      s_requested_face = astrolabe_real_ui_current_face() + 1;
     } else if (strstr(line, "prev") != NULL) {
-      s_requested_face = (int)astrolabe_ui_current_face() - 1;
+      s_requested_face = astrolabe_real_ui_current_face() - 1;
     } else if (strstr(line, "tour") != NULL) {
       s_tour_requested = true;
     } else if (strstr(line, "status") != NULL) {
@@ -375,8 +363,7 @@ void app_main(void) {
   }
   apply_display_fit();
   ESP_LOGI(TAG, "initializing Astrolabe UI");
-  astrolabe_ui_init_in(s_scale_root);
-  refresh_settings_summary();
+  astrolabe_real_ui_init_in(s_scale_root);
   astrolabe_p4_settings_log_status();
   ESP_LOGI(TAG, "applying configured home face");
   set_face(astrolabe_p4_settings_home_face());
@@ -393,25 +380,25 @@ void app_main(void) {
     lv_timer_handler();
     int64_t now_us = esp_timer_get_time();
     if (now_us - last_tick_us >= 1000000) {
-      astrolabe_ui_tick((uint32_t)((now_us - last_tick_us) / 1000));
+      astrolabe_real_ui_tick((uint32_t)((now_us - last_tick_us) / 1000));
       last_tick_us = now_us;
     }
     if (s_requested_face != -1) {
       int requested = s_requested_face;
       s_requested_face = -1;
       while (requested < 0) {
-        requested += ASTROLABE_UI_FACE_COUNT;
+        requested += astrolabe_real_ui_face_count();
       }
-      set_face((astrolabe_ui_face_t)(requested % ASTROLABE_UI_FACE_COUNT));
+      set_face(requested % astrolabe_real_ui_face_count());
     }
     if (s_tour_requested) {
       s_tour_requested = false;
-      ESP_LOGI(TAG, "tour: start faces=%d", ASTROLABE_UI_FACE_COUNT);
-      for (int face = 0; face < ASTROLABE_UI_FACE_COUNT; ++face) {
-        set_face((astrolabe_ui_face_t)face);
+      ESP_LOGI(TAG, "tour: start faces=%d", astrolabe_real_ui_face_count());
+      for (int face = 0; face < astrolabe_real_ui_face_count(); ++face) {
+        set_face(face);
         for (int step = 0; step < 75; ++step) {
           lv_timer_handler();
-          astrolabe_ui_tick(16);
+          astrolabe_real_ui_tick(16);
           vTaskDelay(pdMS_TO_TICKS(16));
         }
       }

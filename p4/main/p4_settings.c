@@ -3,31 +3,32 @@
 #include "esp_err.h"
 #include "esp_log.h"
 #include "nvs.h"
+#include "p4_real_ui.h"
 
 static const char *TAG = "astrolabe_settings";
 static const char *NVS_NS = "p4_settings";
 static const char *NVS_HOME_FACE = "home_face";
 static const char *PROFILE = "LunaSay";
-static const astrolabe_ui_face_t DEFAULT_HOME_FACE = ASTROLABE_UI_FACE_MOON;
+static const int DEFAULT_HOME_FACE = ASTROLABE_REAL_UI_FACE_MOON;
 
 const char *astrolabe_p4_settings_profile(void) { return PROFILE; }
 
-astrolabe_ui_face_t astrolabe_p4_settings_home_face(void) {
+int astrolabe_p4_settings_home_face(void) {
   int32_t face = DEFAULT_HOME_FACE;
   nvs_handle_t nvs;
   if (nvs_open(NVS_NS, NVS_READONLY, &nvs) == ESP_OK) {
     (void)nvs_get_i32(nvs, NVS_HOME_FACE, &face);
     nvs_close(nvs);
   }
-  if (face < 0 || face >= ASTROLABE_UI_FACE_COUNT) {
+  if (face < 0 || face >= astrolabe_real_ui_face_count()) {
     return DEFAULT_HOME_FACE;
   }
-  return (astrolabe_ui_face_t)face;
+  return (int)face;
 }
 
-bool astrolabe_p4_settings_set_home_face(astrolabe_ui_face_t face) {
-  if (face < 0 || face >= ASTROLABE_UI_FACE_COUNT) {
-    ESP_LOGW(TAG, "invalid home face=%d", (int)face);
+bool astrolabe_p4_settings_set_home_face(int face) {
+  if (face < 0 || face >= astrolabe_real_ui_face_count()) {
+    ESP_LOGW(TAG, "invalid home face=%d", face);
     return false;
   }
 
@@ -46,13 +47,12 @@ bool astrolabe_p4_settings_set_home_face(astrolabe_ui_face_t face) {
     return false;
   }
 
-  ESP_LOGI(TAG, "home face saved: %d %s", (int)face, astrolabe_ui_face_name(face));
+  ESP_LOGI(TAG, "home face saved: %d %s", face, astrolabe_real_ui_face_name(face));
   return true;
 }
 
 void astrolabe_p4_settings_log_status(void) {
-  astrolabe_ui_face_t home = astrolabe_p4_settings_home_face();
+  int home = astrolabe_p4_settings_home_face();
   ESP_LOGI(TAG, "settings: profile=%s home_face=%d home_name=%s", PROFILE, (int)home,
-           astrolabe_ui_face_name(home));
+           astrolabe_real_ui_face_name(home));
 }
-

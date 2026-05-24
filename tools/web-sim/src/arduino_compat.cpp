@@ -1,12 +1,25 @@
 #include "Arduino_GFX_Library.h"
 
+#if !defined(ASTROLABE_P4_TARGET)
 #include <emscripten.h>
+#else
+#include "esp_timer.h"
+#endif
 
 #include <cctype>
 #include <cstring>
 
 SerialClass Serial;
 
+#if defined(ASTROLABE_P4_TARGET)
+uint32_t millis(void) { return static_cast<uint32_t>(esp_timer_get_time() / 1000); }
+uint32_t micros(void) { return static_cast<uint32_t>(esp_timer_get_time()); }
+void delay(uint32_t ms) {
+  const uint64_t deadline = esp_timer_get_time() + static_cast<uint64_t>(ms) * 1000ULL;
+  while (esp_timer_get_time() < deadline) {
+  }
+}
+#else
 uint32_t millis(void) { return static_cast<uint32_t>(emscripten_get_now()); }
 uint32_t micros(void) { return static_cast<uint32_t>(emscripten_get_now() * 1000.0); }
 void delay(uint32_t) {}
@@ -17,6 +30,7 @@ uint32_t esp_random(void) {
   s ^= s << 5;
   return s;
 }
+#endif
 
 void Arduino_GFX::fillRect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color) {
   if (w < 0) {

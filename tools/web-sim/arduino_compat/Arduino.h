@@ -15,7 +15,9 @@
 #define INPUT 0
 #define INPUT_PULLUP 2
 #define PROGMEM
+#if !defined(ASTROLABE_P4_TARGET)
 #define IRAM_ATTR
+#endif
 #define ARDUINO 10819
 
 using byte = uint8_t;
@@ -24,7 +26,11 @@ uint32_t millis(void);
 uint32_t micros(void);
 void delay(uint32_t ms);
 inline void yield(void) {}
+#if defined(ASTROLABE_P4_TARGET)
+extern "C" uint32_t esp_random(void);
+#else
 uint32_t esp_random(void);
+#endif
 
 template <typename T>
 static inline T min(T a, T b) {
