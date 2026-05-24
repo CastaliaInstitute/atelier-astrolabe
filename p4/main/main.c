@@ -448,15 +448,21 @@ void app_main(void) {
   ESP_ERROR_CHECK(ret);
   ESP_ERROR_CHECK_WITHOUT_ABORT(astrolabe_p4_network_init());
   (void)astrolabe_p4_network_start();
+  esp_err_t sd_ret = bsp_sdcard_mount();
+  if (sd_ret == ESP_OK) {
+    ESP_LOGI(TAG, "mounted SD card at %s", BSP_SD_MOUNT_POINT);
+  } else {
+    ESP_LOGW(TAG, "SD card mount skipped/failed: %s", esp_err_to_name(sd_ret));
+  }
 
   bsp_display_cfg_t cfg = {
       .lv_adapter_cfg = ESP_LV_ADAPTER_DEFAULT_CONFIG(),
-      .rotation = ESP_LV_ADAPTER_ROTATE_0,
+      .rotation = ESP_LV_ADAPTER_ROTATE_270,
       .tear_avoid_mode = ESP_LV_ADAPTER_TEAR_AVOID_MODE_TRIPLE_PARTIAL,
       .touch_flags = {
-          .swap_xy = 0,
+          .swap_xy = 1,
           .mirror_x = 0,
-          .mirror_y = 0,
+          .mirror_y = 1,
       },
   };
   lv_display_t *display = bsp_display_start_with_config(&cfg);

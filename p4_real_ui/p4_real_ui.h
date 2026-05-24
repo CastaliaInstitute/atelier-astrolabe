@@ -8,8 +8,8 @@
 extern "C" {
 #endif
 
-#define ASTROLABE_REAL_UI_WIDTH 466
-#define ASTROLABE_REAL_UI_HEIGHT 466
+#define ASTROLABE_REAL_UI_WIDTH 720
+#define ASTROLABE_REAL_UI_HEIGHT 720
 #define ASTROLABE_REAL_UI_FACE_MOON 5
 
 void astrolabe_real_ui_init_in(lv_obj_t *parent);

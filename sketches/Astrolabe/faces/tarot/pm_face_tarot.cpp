@@ -23,9 +23,10 @@ constexpr int kCx = LCD_WIDTH / 2;
 constexpr int kCy = LCD_HEIGHT / 2;
 constexpr const char *kManifestUrl = "http://tarot.castalia.institute/assets/major/manifest.json";
 constexpr const char *kAssetBaseUrl = "http://tarot.castalia.institute/assets/major/full";
+constexpr const char *kSdAssetBasePath = "/sdcard/astrolabe/tarot/720";
 constexpr uint32_t kTarotFetchTimeoutMs = 30000u;
 constexpr uint32_t kTarotMinFetchHeap = 18000u;
-constexpr int kTarotMaxImageBytes = 390000;
+constexpr int kTarotMaxImageBytes = 1400000;
 constexpr int kTarotMaxImageDim = LCD_WIDTH;
 constexpr uint32_t kTarotTaskStack = 12288u;
 
@@ -71,6 +72,8 @@ volatile bool s_fetch_busy = false;
 volatile bool s_fetch_done = false;
 volatile bool s_fetch_ok = false;
 int s_request_idx = -1;
+int s_last_request_idx = -1;
+uint32_t s_last_request_ms = 0;
 int s_cached_idx = -1;
 int s_decoding_w = 0;
 int s_decoding_h = 0;
@@ -177,6 +180,7 @@ bool mask_get(const uint8_t *mask, int idx) {
   return (mask[idx >> 3] & (1u << (idx & 7))) != 0;
 }
 
+#if !defined(ASTROLABE_P4_TARGET)
 bool build_card_url(int idx, char *url, size_t cap) {
   if (idx < 0 || idx >= kCardCount || !url || cap == 0) {
     return false;
@@ -184,7 +188,61 @@ bool build_card_url(int idx, char *url, size_t cap) {
   const int n = snprintf(url, cap, "%s/%02d-%s.png", kAssetBaseUrl, idx, kCards[idx].slug);
   return n > 0 && static_cast<size_t>(n) < cap;
 }
+#endif
 
+bool build_sd_card_path(int idx, char *path, size_t cap) {
+  if (idx < 0 || idx >= kCardCount || !path || cap == 0) {
+    return false;
+  }
+  const int n = snprintf(path, cap, "%s/%02d-%s.png", kSdAssetBasePath, idx, kCards[idx].slug);
+  return n > 0 && static_cast<size_t>(n) < cap;
+}
+
+bool load_card_png_from_sd(int idx, uint8_t **out_buf, size_t *out_len) {
+  if (!out_buf || !out_len) {
+    return false;
+  }
+  *out_buf = nullptr;
+  *out_len = 0;
+  char path[96];
+  if (!build_sd_card_path(idx, path, sizeof(path))) {
+    return false;
+  }
+  FILE *fp = fopen(path, "rb");
+  if (!fp) {
+    set_error("sd missing");
+    return false;
+  }
+  if (fseek(fp, 0, SEEK_END) != 0) {
+    fclose(fp);
+    set_error("sd seek");
+    return false;
+  }
+  const long len = ftell(fp);
+  if (len <= 0 || len > kTarotMaxImageBytes || fseek(fp, 0, SEEK_SET) != 0) {
+    fclose(fp);
+    set_error("sd size");
+    return false;
+  }
+  uint8_t *buf = static_cast<uint8_t *>(pm_heap_alloc_response(static_cast<size_t>(len)));
+  if (!buf) {
+    fclose(fp);
+    set_error("sd alloc");
+    return false;
+  }
+  const size_t rd = fread(buf, 1, static_cast<size_t>(len), fp);
+  fclose(fp);
+  if (rd != static_cast<size_t>(len)) {
+    free(buf);
+    set_error("sd read");
+    return false;
+  }
+  *out_buf = buf;
+  *out_len = rd;
+  return true;
+}
+
+#if !defined(ASTROLABE_P4_TARGET)
 bool download_card_png(const char *url, uint8_t **out_buf, size_t *out_len) {
   if (!url || !out_buf || !out_len) {
     return false;
@@ -256,6 +314,7 @@ bool download_card_png(const char *url, uint8_t **out_buf, size_t *out_len) {
   *out_len = rd;
   return true;
 }
+#endif
 
 int tarot_png_draw(PNGDRAW *pDraw) {
   if (!pDraw || !s_decoding_fb || s_decoding_w <= 0 || s_decoding_h <= 0 || pDraw->y < 0 || pDraw->y >= s_decoding_h) {
@@ -335,6 +394,18 @@ bool decode_card_png(uint8_t *data, size_t len, int idx) {
 }
 
 bool fetch_card_inner(int idx) {
+#if defined(ASTROLABE_P4_TARGET)
+  uint8_t *sd_png = nullptr;
+  size_t sd_png_len = 0;
+  if (!load_card_png_from_sd(idx, &sd_png, &sd_png_len)) {
+    return false;
+  }
+  const bool sd_ok = decode_card_png(sd_png, sd_png_len, idx);
+  free(sd_png);
+  Serial.printf("tarot: %s sd %02d %s (%u B)\n", sd_ok ? "cached" : "decode failed", idx, kCards[idx].slug,
+                static_cast<unsigned>(sd_png_len));
+  return sd_ok;
+#else
   char url[160];
   if (!build_card_url(idx, url, sizeof(url))) {
     set_error("bad url");
@@ -350,6 +421,7 @@ bool fetch_card_inner(int idx) {
   Serial.printf("tarot: %s %02d %s (%u B)\n", ok ? "cached" : "decode failed", idx, kCards[idx].slug,
                 static_cast<unsigned>(png_len));
   return ok;
+#endif
 }
 
 void tarot_fetch_task(void *arg) {
@@ -376,8 +448,24 @@ void fetch_task_ensure() {
 
 void request_card_image(int idx) {
   if (idx < 0 || idx >= kCardCount || s_cached_idx == idx || s_fetch_busy || !pm_wifi_connected()) {
+#if defined(ASTROLABE_P4_TARGET)
+    if (idx >= 0 && idx < kCardCount && s_cached_idx != idx && !s_fetch_busy) {
+      // P4 loads the native tarot deck from SD card; Wi-Fi is not required.
+    } else {
+      return;
+    }
+#else
+    return;
+#endif
+  }
+#if defined(ASTROLABE_P4_TARGET)
+  const uint32_t now = millis();
+  if (s_last_request_idx == idx && now - s_last_request_ms < 5000u) {
     return;
   }
+  s_last_request_idx = idx;
+  s_last_request_ms = now;
+#endif
   fetch_task_ensure();
   if (!s_fetch_task) {
     set_error("task");
@@ -605,8 +693,8 @@ void draw_card_symbol(int idx, int cx, int cy, uint16_t ink, uint16_t accent) {
 }
 
 void draw_fallback_card(int idx, int cx, int cy, uint16_t panel, uint16_t ink, uint16_t dim, uint16_t accent) {
-  const int card_w = min(250, LCD_WIDTH - 120);
-  const int card_h = min(320, LCD_HEIGHT - 130);
+  const int card_w = min((LCD_WIDTH * 54) / 100, LCD_WIDTH - 120);
+  const int card_h = min((LCD_HEIGHT * 64) / 100, LCD_HEIGHT - 160);
   const int x = cx - card_w / 2;
   const int y = cy - card_h / 2 - 8;
   const TarotCard &card = kCards[idx];
@@ -716,8 +804,8 @@ void pm_face_tarot_draw(const struct tm *tm_local, bool valid_local) {
   for (int i = 0; i < kCardCount; ++i) {
     const float deg = static_cast<float>(i) * 360.f / static_cast<float>(kCardCount);
     const float ang = pm_face_deg_to_rad(deg);
-    const int r0 = (i == idx) ? 206 : 214;
-    const int r1 = (i == idx) ? 230 : 224;
+    const int r0 = (i == idx) ? (R * 88) / 100 : (R * 91) / 100;
+    const int r1 = (i == idx) ? (R * 98) / 100 : (R * 95) / 100;
     const uint16_t col = (i == idx) ? c_accent : blend565(c_bg, c_ink, image_drawn ? 0.32f : 0.18f);
     pm_gfx->drawLine(kCx + static_cast<int>(lrintf(cosf(ang) * r0)),
                      kCy + static_cast<int>(lrintf(sinf(ang) * r0)),
@@ -725,24 +813,27 @@ void pm_face_tarot_draw(const struct tm *tm_local, bool valid_local) {
                      kCy + static_cast<int>(lrintf(sinf(ang) * r1)), col);
   }
 
-  pm_gfx->fillRect(0, 0, LCD_WIDTH, 64, image_drawn ? pm_gfx->color565(6, 7, 11) : c_bg);
-  pm_gfx->fillRect(0, 330, LCD_WIDTH, 136, image_drawn ? pm_gfx->color565(6, 7, 11) : c_bg);
-  pm_gfx->drawFastHLine(0, 64, LCD_WIDTH, blend565(c_bg, c_accent, 0.45f));
-  pm_gfx->drawFastHLine(0, 330, LCD_WIDTH, blend565(c_bg, c_accent, 0.45f));
+  const int top_band_h = image_drawn ? max(54, LCD_HEIGHT / 12) : max(64, LCD_HEIGHT / 11);
+  const int bottom_band_y = image_drawn ? (LCD_HEIGHT * 5) / 6 : (LCD_HEIGHT * 3) / 4;
+  pm_gfx->fillRect(0, 0, LCD_WIDTH, top_band_h, image_drawn ? pm_gfx->color565(6, 7, 11) : c_bg);
+  pm_gfx->fillRect(0, bottom_band_y, LCD_WIDTH, LCD_HEIGHT - bottom_band_y,
+                   image_drawn ? pm_gfx->color565(6, 7, 11) : c_bg);
+  pm_gfx->drawFastHLine(0, top_band_h, LCD_WIDTH, blend565(c_bg, c_accent, 0.45f));
+  pm_gfx->drawFastHLine(0, bottom_band_y, LCD_WIDTH, blend565(c_bg, c_accent, 0.45f));
 
   char num[8];
   snprintf(num, sizeof(num), "%02d", idx);
-  pm_face_draw_centered_line(num, 38, c_accent, 2, 2);
-  pm_face_draw_centered_line(card.title, 340, c_ink, 2, 2);
-  pm_face_draw_centered_line(card.theme, 374, c_dim, 1, 1);
+  pm_face_draw_centered_line(num, image_drawn ? top_band_h - 22 : top_band_h - 26, c_accent, 2, 2);
+  pm_face_draw_centered_line(card.title, image_drawn ? bottom_band_y + 14 : bottom_band_y + 14, c_ink, 2, 2);
+  pm_face_draw_centered_line(card.theme, image_drawn ? bottom_band_y + 48 : bottom_band_y + 48, c_dim, 1, 1);
 
   const char *fallback = s_last_error[0] ? s_last_error : "daily major";
   const char *deck_hint = s_last_error[0] ? s_last_error : "swipe deck  tap daily";
   if (s_selected < 0) {
-    pm_face_draw_centered_line(image_drawn ? "daily major" : (s_fetch_busy ? "fetching card" : fallback), 408,
-                               c_dim, 1, 1);
+    pm_face_draw_centered_line(image_drawn ? "daily major" : (s_fetch_busy ? "fetching card" : fallback),
+                               bottom_band_y + 76, c_dim, 1, 1);
   } else {
     pm_face_draw_centered_line(image_drawn ? "swipe deck  tap daily" : (s_fetch_busy ? "fetching card" : deck_hint),
-                               408, c_dim, 1, 1);
+                               bottom_band_y + 76, c_dim, 1, 1);
   }
 }
