@@ -5,7 +5,13 @@
 static constexpr const char *kNvsNs = "mynah";
 static constexpr const char *kNvsKey = "variant";
 
-static PmDeviceVariant s_variant = PmDeviceVariant::Pocket;
+#if defined(ASTROLABE_DEFAULT_VARIANT_CAMEO)
+static constexpr PmDeviceVariant kDefaultVariant = PmDeviceVariant::Cameo;
+#else
+static constexpr PmDeviceVariant kDefaultVariant = PmDeviceVariant::Pocket;
+#endif
+
+static PmDeviceVariant s_variant = kDefaultVariant;
 
 static bool valid_variant(uint8_t value) {
   return value < static_cast<uint8_t>(PmDeviceVariant::kCount);
@@ -91,14 +97,14 @@ static bool face_is_luopan(ClockFace face) {
 void pm_variant_begin(void) {
   Preferences pref;
   if (!pref.begin(kNvsNs, false)) {
-    s_variant = PmDeviceVariant::Pocket;
+    s_variant = kDefaultVariant;
     return;
   }
-  const uint8_t value = pref.getUChar(kNvsKey, static_cast<uint8_t>(PmDeviceVariant::Pocket));
+  const uint8_t value = pref.getUChar(kNvsKey, static_cast<uint8_t>(kDefaultVariant));
   if (valid_variant(value)) {
     s_variant = static_cast<PmDeviceVariant>(value);
   } else {
-    s_variant = PmDeviceVariant::Pocket;
+    s_variant = kDefaultVariant;
     pref.putUChar(kNvsKey, static_cast<uint8_t>(s_variant));
   }
   pref.end();
