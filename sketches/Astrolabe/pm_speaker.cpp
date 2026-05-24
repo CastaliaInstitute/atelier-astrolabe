@@ -728,6 +728,14 @@ static constexpr size_t kHttpMp3StartBytes = 16384u;
 static constexpr size_t kHttpMp3RefillLow = 8192u;
 
 bool pm_speaker_play_mp3_http_stream(WiFiClient *stream, int content_length, volatile bool *cancel) {
+#if defined(ASTROLABE_NO_ONBOARD_AUDIO) && ASTROLABE_NO_ONBOARD_AUDIO
+  (void)stream;
+  (void)content_length;
+  (void)cancel;
+  s_http_mp3_stream_active = false;
+  s_speaker_status = PmSpeakerStatus::DoneFail;
+  return false;
+#endif
   s_http_mp3_stream_active = false;
   if (!stream) {
     return false;
@@ -1085,6 +1093,12 @@ static void speaker_task_ensure() {
 }
 
 bool pm_speaker_play_begin(const uint8_t *mp3, size_t mp3_len) {
+#if defined(ASTROLABE_NO_ONBOARD_AUDIO) && ASTROLABE_NO_ONBOARD_AUDIO
+  (void)mp3;
+  (void)mp3_len;
+  s_speaker_status = PmSpeakerStatus::DoneFail;
+  return false;
+#endif
   if (pm_speaker_pcm_active() || pm_usb_uac_speaker_active()) {
     ESP_LOGW(TAG, "MP3 blocked: PCM/UAC owns speaker");
     Serial.println("speaker: MP3 blocked: PCM/UAC active");
@@ -1152,6 +1166,12 @@ void pm_speaker_tone_stop(void) {
 }
 
 bool pm_speaker_play_tone_begin(float hz, uint32_t duration_ms) {
+#if defined(ASTROLABE_NO_ONBOARD_AUDIO) && ASTROLABE_NO_ONBOARD_AUDIO
+  (void)hz;
+  (void)duration_ms;
+  s_speaker_status = PmSpeakerStatus::DoneFail;
+  return false;
+#endif
   speaker_task_ensure();
   if (!s_speaker_task || hz < 20.f || duration_ms == 0) {
     s_speaker_status = PmSpeakerStatus::DoneFail;
@@ -1182,6 +1202,12 @@ bool pm_speaker_play_tone_begin(float hz, uint32_t duration_ms) {
 }
 
 bool pm_speaker_play_bongo_begin(float hz, float strength) {
+#if defined(ASTROLABE_NO_ONBOARD_AUDIO) && ASTROLABE_NO_ONBOARD_AUDIO
+  (void)hz;
+  (void)strength;
+  s_speaker_status = PmSpeakerStatus::DoneFail;
+  return false;
+#endif
   speaker_task_ensure();
   if (!s_speaker_task || hz < 70.f) {
     s_speaker_status = PmSpeakerStatus::DoneFail;
@@ -1205,6 +1231,10 @@ bool pm_speaker_play_bongo_begin(float hz, float strength) {
 }
 
 void pm_speaker_bowl_voice_push(const PmBowlVoiceCtrl &ctrl) {
+#if defined(ASTROLABE_NO_ONBOARD_AUDIO) && ASTROLABE_NO_ONBOARD_AUDIO
+  (void)ctrl;
+  return;
+#endif
   s_bowl.target_hz = ctrl.target_hz;
   s_bowl.brightness = ctrl.brightness;
   s_bowl.pan = ctrl.pan;
@@ -1257,6 +1287,11 @@ bool pm_speaker_bowl_voice_active(void) {
 }
 
 bool pm_speaker_bowl_voice_test(float hz, uint32_t hold_ms) {
+#if defined(ASTROLABE_NO_ONBOARD_AUDIO) && ASTROLABE_NO_ONBOARD_AUDIO
+  (void)hz;
+  (void)hold_ms;
+  return false;
+#endif
   PmBowlVoiceCtrl strike = {};
   strike.target_hz = hz;
   strike.brightness = 0.9f;
@@ -1275,6 +1310,11 @@ bool pm_speaker_bowl_voice_test(float hz, uint32_t hold_ms) {
 }
 
 bool pm_speaker_play_tone_loop_begin(float hz) {
+#if defined(ASTROLABE_NO_ONBOARD_AUDIO) && ASTROLABE_NO_ONBOARD_AUDIO
+  (void)hz;
+  s_speaker_status = PmSpeakerStatus::DoneFail;
+  return false;
+#endif
   speaker_task_ensure();
   if (!s_speaker_task || hz < 20.f) {
     s_speaker_status = PmSpeakerStatus::DoneFail;
