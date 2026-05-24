@@ -67,7 +67,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, voi
   (void)arg;
   if (base == WIFI_EVENT && id == WIFI_EVENT_STA_START) {
     ESP_LOGI(TAG, "wifi sta start");
-    if (s_has_credentials) {
+    if (s_has_credentials && s_wifi_enabled) {
       (void)esp_wifi_connect();
     }
   } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
@@ -204,7 +204,7 @@ bool astrolabe_p4_network_save_credentials(const char *ssid, const char *pass) {
   strlcpy(s_pass, pass ? pass : "", sizeof(s_pass));
   s_has_credentials = true;
   ESP_LOGI(TAG, "saved wifi credentials ssid=%s", s_ssid);
-  return astrolabe_p4_network_start();
+  return true;
 }
 
 bool astrolabe_p4_network_forget_credentials(void) {
@@ -227,14 +227,15 @@ bool astrolabe_p4_network_forget_credentials(void) {
 
 void astrolabe_p4_network_log_status(void) {
   astrolabe_p4_network_status_t st = astrolabe_p4_network_status();
-  ESP_LOGI(TAG, "wifi status init=%d creds=%d connected=%d ssid=%s ip=%s rssi=%d host=%s", st.initialized,
-           st.has_credentials, st.connected, st.ssid, st.ip, st.rssi, st.hostname);
+  ESP_LOGI(TAG, "wifi status init=%d creds=%d enabled=%d connected=%d ssid=%s ip=%s rssi=%d host=%s",
+           st.initialized, st.has_credentials, st.enabled, st.connected, st.ssid, st.ip, st.rssi, st.hostname);
 }
 
 void astrolabe_p4_network_scan(void) {
   if (astrolabe_p4_network_init() != ESP_OK) {
     return;
   }
+  const bool was_enabled = s_wifi_enabled;
   esp_err_t ret = esp_wifi_start();
   if (ret != ESP_OK && ret != ESP_ERR_WIFI_CONN) {
     ESP_LOGW(TAG, "wifi scan start failed: %s", esp_err_to_name(ret));
@@ -254,12 +255,16 @@ void astrolabe_p4_network_scan(void) {
     ESP_LOGI(TAG, "wifi ap %u ssid=%s rssi=%d auth=%d", (unsigned)i, (const char *)aps[i].ssid, aps[i].rssi,
              aps[i].authmode);
   }
+  if (!was_enabled) {
+    (void)astrolabe_p4_network_stop();
+  }
 }
 
 astrolabe_p4_network_status_t astrolabe_p4_network_status(void) {
   astrolabe_p4_network_status_t status = {
       .initialized = s_initialized,
       .has_credentials = s_has_credentials,
+      .enabled = s_wifi_enabled,
       .connected = s_connected,
       .rssi = s_rssi,
   };

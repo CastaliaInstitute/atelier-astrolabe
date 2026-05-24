@@ -12,6 +12,7 @@ extern "C" {
 typedef struct {
   bool initialized;
   bool has_credentials;
+  bool enabled;
   bool connected;
   char ssid[33];
   char ip[16];

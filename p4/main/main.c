@@ -46,6 +46,29 @@ static volatile bool s_screen_http_requested;
 
 static void set_face(int face);
 
+static bool ensure_network_for_request(const char *reason, uint32_t timeout_ms) {
+  astrolabe_p4_network_status_t net = astrolabe_p4_network_status();
+  if (net.connected) {
+    return true;
+  }
+  if (!net.enabled) {
+    ESP_LOGI(TAG, "wifi starting for %s", reason ? reason : "request");
+    if (!astrolabe_p4_network_start()) {
+      return false;
+    }
+  }
+  const int64_t deadline = esp_timer_get_time() + (int64_t)timeout_ms * 1000;
+  while (esp_timer_get_time() < deadline) {
+    net = astrolabe_p4_network_status();
+    if (net.connected) {
+      return true;
+    }
+    vTaskDelay(pdMS_TO_TICKS(100));
+  }
+  ESP_LOGW(TAG, "wifi not connected for %s after %lu ms", reason ? reason : "request", (unsigned long)timeout_ms);
+  return false;
+}
+
 static void put_le16(uint8_t *out, uint16_t value) {
   out[0] = (uint8_t)(value & 0xff);
   out[1] = (uint8_t)((value >> 8) & 0xff);
@@ -137,8 +160,7 @@ static void serial_dump_screen_bmp_hex(void) {
 }
 
 static void maybe_start_screen_http(void) {
-  astrolabe_p4_network_status_t net = astrolabe_p4_network_status();
-  if (s_screen_http_requested && net.connected) {
+  if (s_screen_http_requested && ensure_network_for_request("screen http", 10000)) {
     ESP_ERROR_CHECK_WITHOUT_ABORT(astrolabe_p4_screen_http_start());
     s_screen_http_requested = false;
   }
@@ -182,12 +204,12 @@ static void log_service_status(void) {
   const lv_coord_t panel_h = lv_display_get_vertical_resolution(NULL);
   ESP_LOGI(TAG,
            "qa: profile=%s face=%d name=%s home=%d home_name=%s faces=%d panel=%dx%d touch=%d touch_max=%d "
-           "touch_events=%lu touch_last=%d,%d wifi=%d ip=%s rssi=%d audio_spk=%d audio_mic=%d",
+           "touch_events=%lu touch_last=%d,%d wifi_enabled=%d wifi=%d ip=%s rssi=%d audio_spk=%d audio_mic=%d",
            astrolabe_p4_settings_profile(), face, astrolabe_real_ui_face_name(face), home,
            astrolabe_real_ui_face_name(home), astrolabe_real_ui_face_count(), (int)panel_w, (int)panel_h,
            s_touch_indev != NULL, CONFIG_ESP_LCD_TOUCH_MAX_POINTS, (unsigned long)s_touch_events,
            s_touch_seen ? (int)s_last_touch_point.x : -1, s_touch_seen ? (int)s_last_touch_point.y : -1,
-           net.connected, net.ip, net.rssi, audio.speaker_ready, audio.mic_ready);
+           net.enabled, net.connected, net.ip, net.rssi, audio.speaker_ready, audio.mic_ready);
 }
 
 static void force_waveshare_4c_backlight_on(void) {
@@ -453,7 +475,7 @@ void app_main(void) {
   }
   ESP_ERROR_CHECK(ret);
   ESP_ERROR_CHECK_WITHOUT_ABORT(astrolabe_p4_network_init());
-  (void)astrolabe_p4_network_start();
+  ESP_LOGI(TAG, "wifi idle at boot; use wifi start or a network-backed action to connect");
   esp_err_t sd_ret = bsp_sdcard_mount();
   if (sd_ret == ESP_OK) {
     ESP_LOGI(TAG, "mounted SD card at %s", BSP_SD_MOUNT_POINT);
@@ -544,6 +566,7 @@ void app_main(void) {
     }
     if (s_tour_tts_requested) {
       s_tour_tts_requested = false;
+      (void)ensure_network_for_request("tour tts", 10000);
       ESP_LOGI(TAG, "tour tts: start faces=%d", astrolabe_real_ui_face_count());
       for (int face = 0; face < astrolabe_real_ui_face_count(); ++face) {
         if (bsp_display_lock(100) == ESP_OK) {
