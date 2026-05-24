@@ -576,6 +576,45 @@ void draw_card_symbol(int idx, int cx, int cy, uint16_t ink, uint16_t accent) {
   }
 }
 
+void draw_fallback_card(int idx, int cx, int cy, uint16_t panel, uint16_t ink, uint16_t dim, uint16_t accent) {
+  const int card_w = min(250, LCD_WIDTH - 120);
+  const int card_h = min(320, LCD_HEIGHT - 130);
+  const int x = cx - card_w / 2;
+  const int y = cy - card_h / 2 - 8;
+  const TarotCard &card = kCards[idx];
+
+  pm_gfx->fillRoundRect(x - 10, y + 12, card_w + 20, card_h, 18, pm_gfx->color565(2, 3, 7));
+  pm_gfx->fillRoundRect(x, y, card_w, card_h, 20, panel);
+  pm_gfx->drawRoundRect(x, y, card_w, card_h, 20, accent);
+  pm_gfx->drawRoundRect(x + 9, y + 9, card_w - 18, card_h - 18, 14, blend565(panel, ink, 0.28f));
+  pm_gfx->fillRoundRect(x + 18, y + 18, card_w - 36, 42, 12, blend565(panel, accent, 0.22f));
+  pm_gfx->fillRoundRect(x + 18, y + card_h - 58, card_w - 36, 40, 12, blend565(panel, accent, 0.18f));
+
+  pm_gfx->setTextColor(accent);
+  pm_gfx->setTextSize(2);
+  char num[8];
+  snprintf(num, sizeof(num), "%02d", idx);
+  int16_t bx, by;
+  uint16_t bw, bh;
+  pm_gfx->getTextBounds(num, 0, 0, &bx, &by, &bw, &bh);
+  pm_gfx->setCursor(cx - static_cast<int>(bw) / 2, y + 30);
+  pm_gfx->print(num);
+
+  draw_card_symbol(idx, cx, cy - 8, ink, accent);
+
+  pm_gfx->setTextColor(ink);
+  pm_gfx->setTextSize(2);
+  pm_gfx->getTextBounds(card.glyph, 0, 0, &bx, &by, &bw, &bh);
+  pm_gfx->setCursor(cx - static_cast<int>(bw) / 2, y + card_h - 47);
+  pm_gfx->print(card.glyph);
+
+  pm_gfx->setTextColor(dim);
+  pm_gfx->setTextSize(1);
+  pm_gfx->getTextBounds(card.theme, 0, 0, &bx, &by, &bw, &bh);
+  pm_gfx->setCursor(cx - static_cast<int>(bw) / 2, y + card_h - 28);
+  pm_gfx->print(card.theme);
+}
+
 }  // namespace
 
 const char *pm_face_tarot_manifest_url(void) { return kManifestUrl; }
@@ -632,10 +671,7 @@ void pm_face_tarot_draw(const struct tm *tm_local, bool valid_local) {
       pm_gfx->drawCircle(kCx, kCy, r, blend565(c_bg, c_glow, a * 0.32f));
     }
 
-    pm_gfx->fillCircle(kCx, kCy, 160, c_panel);
-    pm_gfx->drawCircle(kCx, kCy, 160, c_accent);
-    pm_gfx->drawCircle(kCx, kCy, 154, blend565(c_panel, c_accent, 0.38f));
-    draw_card_symbol(idx, kCx, kCy - 6, c_ink, c_accent);
+    draw_fallback_card(idx, kCx, kCy, c_panel, c_ink, c_dim, c_accent);
   }
 
   const int R = min(LCD_WIDTH, LCD_HEIGHT) / 2;
