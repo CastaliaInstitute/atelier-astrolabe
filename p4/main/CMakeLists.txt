@@ -3,6 +3,7 @@ idf_component_register(
         "main.c"
         "p4_audio.c"
         "p4_network.c"
+        "p4_settings.c"
     INCLUDE_DIRS "." "../../include"
     REQUIRES
         ui

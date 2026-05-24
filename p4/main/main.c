@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 #include "astrolabe_ui.h"
 #include "bsp/esp-bsp.h"
@@ -19,14 +20,13 @@
 #include "nvs_flash.h"
 #include "p4_audio.h"
 #include "p4_network.h"
+#include "p4_settings.h"
 #include "sdkconfig.h"
 
 static const char *TAG = "astrolabe_p4";
 enum {
   GESTURE_MIN_PX = 80,
 };
-
-static const astrolabe_ui_face_t P4_HOME_FACE = ASTROLABE_UI_FACE_MOON;
 
 static lv_obj_t *s_scale_root;
 static lv_obj_t *s_touch_layer;
@@ -42,16 +42,61 @@ static volatile bool s_tour_requested;
 
 static void set_face(astrolabe_ui_face_t face);
 
+static void refresh_settings_summary(void) {
+  astrolabe_ui_face_t home = astrolabe_p4_settings_home_face();
+  astrolabe_ui_set_settings_summary(astrolabe_p4_settings_profile(), astrolabe_ui_face_name(home));
+}
+
+static bool parse_face_token(const char *token, astrolabe_ui_face_t *face) {
+  if (token == NULL || face == NULL) {
+    return false;
+  }
+  while (*token == ' ') {
+    ++token;
+  }
+  if (strncasecmp(token, "face ", 5) == 0) {
+    token += 5;
+    while (*token == ' ') {
+      ++token;
+    }
+  }
+  if (*token >= '0' && *token <= '9') {
+    int parsed = atoi(token);
+    if (parsed >= 0 && parsed < ASTROLABE_UI_FACE_COUNT) {
+      *face = (astrolabe_ui_face_t)parsed;
+      return true;
+    }
+    return false;
+  }
+  for (int i = 0; i < ASTROLABE_UI_FACE_COUNT; ++i) {
+    if (strcasecmp(token, astrolabe_ui_face_name((astrolabe_ui_face_t)i)) == 0) {
+      *face = (astrolabe_ui_face_t)i;
+      return true;
+    }
+  }
+  if (strcasecmp(token, "moon") == 0 || strcasecmp(token, "lunasay") == 0) {
+    *face = ASTROLABE_UI_FACE_MOON;
+    return true;
+  }
+  if (strcasecmp(token, "classic") == 0 || strcasecmp(token, "astrolabe") == 0) {
+    *face = ASTROLABE_UI_FACE_CLASSIC_ANALOG;
+    return true;
+  }
+  return false;
+}
+
 static void log_service_status(void) {
   astrolabe_ui_face_t face = astrolabe_ui_current_face();
+  astrolabe_ui_face_t home = astrolabe_p4_settings_home_face();
   astrolabe_p4_network_status_t net = astrolabe_p4_network_status();
   astrolabe_p4_audio_status_t audio = astrolabe_p4_audio_status();
   const lv_coord_t panel_w = lv_display_get_horizontal_resolution(NULL);
   const lv_coord_t panel_h = lv_display_get_vertical_resolution(NULL);
   ESP_LOGI(TAG,
-           "qa: face=%d name=%s faces=%d panel=%dx%d touch=%d touch_max=%d touch_events=%lu touch_last=%d,%d "
-           "wifi=%d ip=%s rssi=%d audio_spk=%d audio_mic=%d",
-           (int)face, astrolabe_ui_face_name(face), ASTROLABE_UI_FACE_COUNT, (int)panel_w, (int)panel_h,
+           "qa: profile=%s face=%d name=%s home=%d home_name=%s faces=%d panel=%dx%d touch=%d touch_max=%d "
+           "touch_events=%lu touch_last=%d,%d wifi=%d ip=%s rssi=%d audio_spk=%d audio_mic=%d",
+           astrolabe_p4_settings_profile(), (int)face, astrolabe_ui_face_name(face), (int)home,
+           astrolabe_ui_face_name(home), ASTROLABE_UI_FACE_COUNT, (int)panel_w, (int)panel_h,
            s_touch_indev != NULL, CONFIG_ESP_LCD_TOUCH_MAX_POINTS, (unsigned long)s_touch_events,
            s_touch_seen ? (int)s_last_touch_point.x : -1, s_touch_seen ? (int)s_last_touch_point.y : -1,
            net.connected, net.ip, net.rssi, audio.speaker_ready, audio.mic_ready);
@@ -153,7 +198,23 @@ static void serial_console_task(void *arg) {
     char *face_cmd = strstr(line, "face ");
     char *wifi_set_cmd = strstr(line, "wifi set ");
     char *audio_tone_cmd = strstr(line, "audio tone");
-    if (face_cmd != NULL) {
+    char *settings_home_cmd = strstr(line, "settings home ");
+    if (settings_home_cmd != NULL) {
+      char *value = settings_home_cmd + strlen("settings home ");
+      astrolabe_ui_face_t home_face = ASTROLABE_UI_FACE_MOON;
+      if (strcasecmp(value, "current") == 0) {
+        home_face = astrolabe_ui_current_face();
+      }
+      if (strcasecmp(value, "current") == 0 || parse_face_token(value, &home_face)) {
+        if (astrolabe_p4_settings_set_home_face(home_face)) {
+          refresh_settings_summary();
+          set_face(home_face);
+          log_service_status();
+        }
+      } else {
+        ESP_LOGW(TAG, "settings home expects moon | classic | face N | current");
+      }
+    } else if (face_cmd != NULL) {
       s_requested_face = atoi(face_cmd + 5);
     } else if (wifi_set_cmd != NULL) {
       char *ssid = wifi_set_cmd + strlen("wifi set ");
@@ -187,6 +248,10 @@ static void serial_console_task(void *arg) {
       (void)astrolabe_p4_audio_probe_mic();
     } else if (strstr(line, "audio status") != NULL) {
       astrolabe_p4_audio_log_status();
+    } else if (strstr(line, "settings status") != NULL) {
+      astrolabe_p4_settings_log_status();
+    } else if (strstr(line, "home") != NULL) {
+      set_face(astrolabe_p4_settings_home_face());
     } else if (strstr(line, "next") != NULL) {
       s_requested_face = (int)astrolabe_ui_current_face() + 1;
     } else if (strstr(line, "prev") != NULL) {
@@ -197,8 +262,8 @@ static void serial_console_task(void *arg) {
       log_service_status();
     } else if (line[0] != '\0') {
       ESP_LOGI(TAG,
-               "commands: face N | next | prev | tour | qa status | wifi status/start/scan/forget/set SSID PASS | "
-               "audio status/tone HZ MS/mic");
+               "commands: face N | home | settings status/home moon|classic|face N|current | next | prev | tour | "
+               "qa status | wifi status/start/scan/forget/set SSID PASS | audio status/tone HZ MS/mic");
     }
   }
 }
@@ -311,8 +376,10 @@ void app_main(void) {
   apply_display_fit();
   ESP_LOGI(TAG, "initializing Astrolabe UI");
   astrolabe_ui_init_in(s_scale_root);
-  ESP_LOGI(TAG, "applying LunaSay home face");
-  set_face(P4_HOME_FACE);
+  refresh_settings_summary();
+  astrolabe_p4_settings_log_status();
+  ESP_LOGI(TAG, "applying configured home face");
+  set_face(astrolabe_p4_settings_home_face());
   ESP_LOGI(TAG, "starting Astrolabe render loop");
   ESP_LOGI(TAG, "registering Astrolabe touch layer");
   register_touch_layer(display);
