@@ -70,7 +70,7 @@ static float moon_pixel_shade(int dx, int dy, int r, float illum, bool waxing) {
     return -1.f;
   }
   if (!pm_moon_point_lit(dx, r, illum, waxing)) {
-    return 0.07f;
+    return 0.18f;
   }
   constexpr float k_edge = 1.25f;
   const float t = (1.f - 2.f * illum) * static_cast<float>(r);
