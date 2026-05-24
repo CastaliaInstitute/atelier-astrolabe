@@ -26,6 +26,8 @@ enum {
   GESTURE_MIN_PX = 80,
 };
 
+static const astrolabe_ui_face_t P4_HOME_FACE = ASTROLABE_UI_FACE_MOON;
+
 static lv_obj_t *s_scale_root;
 static lv_obj_t *s_touch_layer;
 static lv_indev_t *s_touch_indev;
@@ -309,6 +311,8 @@ void app_main(void) {
   apply_display_fit();
   ESP_LOGI(TAG, "initializing Astrolabe UI");
   astrolabe_ui_init_in(s_scale_root);
+  ESP_LOGI(TAG, "applying LunaSay home face");
+  set_face(P4_HOME_FACE);
   ESP_LOGI(TAG, "starting Astrolabe render loop");
   ESP_LOGI(TAG, "registering Astrolabe touch layer");
   register_touch_layer(display);
