@@ -21,6 +21,7 @@ typedef struct {
 
 esp_err_t astrolabe_p4_network_init(void);
 bool astrolabe_p4_network_start(void);
+bool astrolabe_p4_network_stop(void);
 bool astrolabe_p4_network_save_credentials(const char *ssid, const char *pass);
 bool astrolabe_p4_network_forget_credentials(void);
 void astrolabe_p4_network_log_status(void);

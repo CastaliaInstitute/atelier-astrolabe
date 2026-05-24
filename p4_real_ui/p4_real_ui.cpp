@@ -7,6 +7,7 @@
 #include "faces/quotes/pm_face_quotes.h"
 #include "pin_config.h"
 #include "pm_display.h"
+#include "pm_settings.h"
 
 static PmDisplayCanvas *s_canvas = nullptr;
 static lv_obj_t *s_image = nullptr;
@@ -78,7 +79,11 @@ void astrolabe_real_ui_set_face(int face) {
   if (s_canvas == nullptr) {
     return;
   }
-  pm_faces_set(static_cast<ClockFace>(normalize_face(face)));
+  const ClockFace target = static_cast<ClockFace>(normalize_face(face));
+  if (target == ClockFace::Settings) {
+    pm_settings_set_page(SettingsPage::WiFi);
+  }
+  pm_faces_set(target);
   astrolabe_real_ui_tick(0);
 }
 
@@ -87,7 +92,12 @@ void astrolabe_real_ui_cycle(int delta) {
   astrolabe_real_ui_tick(0);
 }
 
-int astrolabe_real_ui_current_face(void) { return static_cast<int>(pm_faces_current()); }
+int astrolabe_real_ui_current_face(void) {
+  if (pm_faces_castalia_active()) {
+    return static_cast<int>(ClockFace::Castalia);
+  }
+  return static_cast<int>(pm_faces_current());
+}
 
 int astrolabe_real_ui_face_count(void) { return static_cast<int>(ClockFace::kNumFaces); }
 
@@ -115,4 +125,12 @@ int astrolabe_real_ui_parse_face_name(const char *name) {
     return static_cast<int>(ClockFace::ClassicAnalog);
   }
   return -1;
+}
+
+int astrolabe_real_ui_width(void) { return LCD_WIDTH; }
+
+int astrolabe_real_ui_height(void) { return LCD_HEIGHT; }
+
+const uint16_t *astrolabe_real_ui_framebuffer(void) {
+  return s_canvas ? s_canvas->getFramebuffer() : nullptr;
 }

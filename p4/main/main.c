@@ -20,12 +20,14 @@
 #include "p4_audio.h"
 #include "p4_network.h"
 #include "p4_real_ui.h"
+#include "p4_screen_http.h"
 #include "p4_settings.h"
 #include "sdkconfig.h"
 
 static const char *TAG = "astrolabe_p4";
 enum {
   GESTURE_MIN_PX = 80,
+  TOUR_TTS_FRAME_STEPS = 1,
 };
 
 static lv_obj_t *s_scale_root;
@@ -39,8 +41,108 @@ static bool s_touch_seen;
 static uint32_t s_touch_events;
 static volatile int s_requested_face = -1;
 static volatile bool s_tour_requested;
+static volatile bool s_tour_tts_requested;
+static volatile bool s_screen_http_requested;
 
 static void set_face(int face);
+
+static void put_le16(uint8_t *out, uint16_t value) {
+  out[0] = (uint8_t)(value & 0xff);
+  out[1] = (uint8_t)((value >> 8) & 0xff);
+}
+
+static void put_le32(uint8_t *out, uint32_t value) {
+  out[0] = (uint8_t)(value & 0xff);
+  out[1] = (uint8_t)((value >> 8) & 0xff);
+  out[2] = (uint8_t)((value >> 16) & 0xff);
+  out[3] = (uint8_t)((value >> 24) & 0xff);
+}
+
+static void uart_write_cstr(const char *text) { uart_write_bytes(UART_NUM_0, text, strlen(text)); }
+
+static void serial_hex_emit(const uint8_t *bytes, size_t len) {
+  static const char hex[] = "0123456789ABCDEF";
+  char out[131];
+  size_t out_len = 0;
+  for (size_t i = 0; i < len; ++i) {
+    out[out_len++] = hex[(bytes[i] >> 4) & 0x0f];
+    out[out_len++] = hex[bytes[i] & 0x0f];
+    if (out_len >= 128) {
+      out[out_len++] = '\n';
+      uart_write_bytes(UART_NUM_0, out, out_len);
+      out_len = 0;
+    }
+  }
+  if (out_len > 0) {
+    out[out_len++] = '\n';
+    uart_write_bytes(UART_NUM_0, out, out_len);
+  }
+}
+
+static void serial_dump_screen_bmp_hex(void) {
+  const uint16_t *fb = astrolabe_real_ui_framebuffer();
+  const int src_w = astrolabe_real_ui_width();
+  const int src_h = astrolabe_real_ui_height();
+  if (fb == NULL || src_w <= 0 || src_h <= 0) {
+    uart_write_cstr("SCREEN_BMP_HEX_ERROR framebuffer unavailable\n");
+    return;
+  }
+
+  const int scale = 4;
+  const int w = src_w / scale;
+  const int h = src_h / scale;
+  const uint32_t row_stride = (((uint32_t)w * 24u + 31u) / 32u) * 4u;
+  const uint32_t pixel_bytes = row_stride * (uint32_t)h;
+  const uint32_t file_size = 54u + pixel_bytes;
+  uint8_t header[54] = {0};
+  uint8_t *row = calloc(1, row_stride);
+  if (row == NULL) {
+    uart_write_cstr("SCREEN_BMP_HEX_ERROR out of memory\n");
+    return;
+  }
+
+  header[0] = 'B';
+  header[1] = 'M';
+  put_le32(&header[2], file_size);
+  put_le32(&header[10], 54);
+  put_le32(&header[14], 40);
+  put_le32(&header[18], (uint32_t)w);
+  put_le32(&header[22], (uint32_t)h);
+  put_le16(&header[26], 1);
+  put_le16(&header[28], 24);
+  put_le32(&header[34], pixel_bytes);
+
+  char begin[96];
+  snprintf(begin, sizeof(begin), "SCREEN_BMP_HEX_BEGIN %lu %d %d\n", (unsigned long)file_size, w, h);
+  uart_write_cstr(begin);
+  serial_hex_emit(header, sizeof(header));
+
+  for (int y = h - 1; y >= 0; --y) {
+    memset(row, 0, row_stride);
+    for (int x = 0; x < w; ++x) {
+      const int src_x = x * scale;
+      const int src_y = y * scale;
+      const uint16_t rgb565 = fb[(src_y * src_w) + src_x];
+      const uint8_t r = (uint8_t)(((rgb565 >> 11) & 0x1f) * 255 / 31);
+      const uint8_t g = (uint8_t)(((rgb565 >> 5) & 0x3f) * 255 / 63);
+      const uint8_t b = (uint8_t)((rgb565 & 0x1f) * 255 / 31);
+      row[x * 3 + 0] = b;
+      row[x * 3 + 1] = g;
+      row[x * 3 + 2] = r;
+    }
+    serial_hex_emit(row, row_stride);
+  }
+  uart_write_cstr("SCREEN_BMP_HEX_END\n");
+  free(row);
+}
+
+static void maybe_start_screen_http(void) {
+  astrolabe_p4_network_status_t net = astrolabe_p4_network_status();
+  if (s_screen_http_requested && net.connected) {
+    ESP_ERROR_CHECK_WITHOUT_ABORT(astrolabe_p4_screen_http_start());
+    s_screen_http_requested = false;
+  }
+}
 
 static bool parse_face_token(const char *token, int *face) {
   if (token == NULL || face == NULL) {
@@ -221,6 +323,8 @@ static void serial_console_task(void *arg) {
       }
     } else if (strstr(line, "wifi start") != NULL) {
       (void)astrolabe_p4_network_start();
+    } else if (strstr(line, "wifi stop") != NULL) {
+      (void)astrolabe_p4_network_stop();
     } else if (strstr(line, "wifi forget") != NULL) {
       (void)astrolabe_p4_network_forget_credentials();
     } else if (strstr(line, "wifi scan") != NULL) {
@@ -244,14 +348,21 @@ static void serial_console_task(void *arg) {
       s_requested_face = astrolabe_real_ui_current_face() + 1;
     } else if (strstr(line, "prev") != NULL) {
       s_requested_face = astrolabe_real_ui_current_face() - 1;
+    } else if (strstr(line, "tour tts") != NULL || strstr(line, "tour voice") != NULL) {
+      s_tour_tts_requested = true;
     } else if (strstr(line, "tour") != NULL) {
       s_tour_requested = true;
+    } else if (strstr(line, "screen http") != NULL) {
+      s_screen_http_requested = true;
+    } else if (strstr(line, "screenshot") != NULL || strstr(line, "screen hex") != NULL) {
+      serial_dump_screen_bmp_hex();
     } else if (strstr(line, "status") != NULL) {
       log_service_status();
     } else if (line[0] != '\0') {
       ESP_LOGI(TAG,
-               "commands: face N | home | settings status/home moon|classic|face N|current | next | prev | tour | "
-               "qa status | wifi status/start/scan/forget/set SSID PASS | audio status/tone HZ MS/mic");
+               "commands: face N | home | settings status/home moon|classic|face N|current | next | prev | "
+               "tour/tour tts | screenshot/screen http | qa status | wifi status/start/stop/scan/forget/set SSID "
+               "PASS | audio status/tone HZ MS/mic");
     }
   }
 }
@@ -374,6 +485,7 @@ void app_main(void) {
   xTaskCreate(serial_console_task, "astrolabe_console", 4096, NULL, 5, NULL);
   ESP_LOGI(TAG, "Astrolabe P4 is running");
   log_service_status();
+  maybe_start_screen_http();
 
   int64_t last_tick_us = esp_timer_get_time();
   while (true) {
@@ -382,6 +494,7 @@ void app_main(void) {
     if (now_us - last_tick_us >= 1000000) {
       astrolabe_real_ui_tick((uint32_t)((now_us - last_tick_us) / 1000));
       last_tick_us = now_us;
+      maybe_start_screen_http();
     }
     if (s_requested_face != -1) {
       int requested = s_requested_face;
@@ -403,6 +516,20 @@ void app_main(void) {
         }
       }
       ESP_LOGI(TAG, "tour: done");
+    }
+    if (s_tour_tts_requested) {
+      s_tour_tts_requested = false;
+      ESP_LOGI(TAG, "tour tts: start faces=%d", astrolabe_real_ui_face_count());
+      for (int face = 0; face < astrolabe_real_ui_face_count(); ++face) {
+        set_face(face);
+        ESP_LOGI(TAG, "tour tts: face=%d name=%s", face, astrolabe_real_ui_face_name(face));
+        for (int step = 0; step < TOUR_TTS_FRAME_STEPS; ++step) {
+          lv_timer_handler();
+          astrolabe_real_ui_tick(16);
+          vTaskDelay(pdMS_TO_TICKS(16));
+        }
+      }
+      ESP_LOGI(TAG, "tour tts: done");
     }
     vTaskDelay(pdMS_TO_TICKS(16));
   }

@@ -20,6 +20,9 @@ int astrolabe_real_ui_current_face(void);
 int astrolabe_real_ui_face_count(void);
 const char *astrolabe_real_ui_face_name(int face);
 int astrolabe_real_ui_parse_face_name(const char *name);
+int astrolabe_real_ui_width(void);
+int astrolabe_real_ui_height(void);
+const uint16_t *astrolabe_real_ui_framebuffer(void);
 
 #ifdef __cplusplus
 }

@@ -24,6 +24,7 @@ static bool s_initialized;
 static bool s_init_failed;
 static bool s_has_credentials;
 static bool s_connected;
+static bool s_wifi_enabled;
 static esp_netif_t *s_netif;
 static char s_ssid[33];
 static char s_pass[65];
@@ -74,8 +75,8 @@ static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, voi
     s_connected = false;
     strlcpy(s_ip, "0.0.0.0", sizeof(s_ip));
     ESP_LOGW(TAG, "wifi disconnected reason=%d%s", event ? event->reason : -1,
-             s_has_credentials ? "; reconnecting" : "");
-    if (s_has_credentials) {
+             s_has_credentials && s_wifi_enabled ? "; reconnecting" : "");
+    if (s_has_credentials && s_wifi_enabled) {
       (void)esp_wifi_connect();
     }
   } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
@@ -137,6 +138,7 @@ bool astrolabe_p4_network_start(void) {
     ESP_LOGW(TAG, "wifi not started: no credentials. Use: wifi set <ssid> <password>");
     return false;
   }
+  s_wifi_enabled = true;
 
   wifi_config_t wifi_config = {};
   strlcpy((char *)wifi_config.sta.ssid, s_ssid, sizeof(wifi_config.sta.ssid));
@@ -157,6 +159,23 @@ bool astrolabe_p4_network_start(void) {
     return false;
   }
   ESP_LOGI(TAG, "wifi connecting ssid=%s host=%s", s_ssid, s_hostname);
+  return true;
+}
+
+bool astrolabe_p4_network_stop(void) {
+  if (!s_initialized) {
+    return true;
+  }
+  s_wifi_enabled = false;
+  s_connected = false;
+  strlcpy(s_ip, "0.0.0.0", sizeof(s_ip));
+  (void)esp_wifi_disconnect();
+  esp_err_t ret = esp_wifi_stop();
+  if (ret != ESP_OK && ret != ESP_ERR_WIFI_NOT_INIT) {
+    ESP_LOGW(TAG, "wifi stop failed: %s", esp_err_to_name(ret));
+    return false;
+  }
+  ESP_LOGI(TAG, "wifi stopped");
   return true;
 }
 
