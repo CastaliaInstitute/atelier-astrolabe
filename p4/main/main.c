@@ -19,6 +19,7 @@
 #include "nvs_flash.h"
 #include "p4_audio.h"
 #include "p4_network.h"
+#include "sdkconfig.h"
 
 static const char *TAG = "astrolabe_p4";
 enum {
@@ -46,12 +47,12 @@ static void log_service_status(void) {
   const lv_coord_t panel_w = lv_display_get_horizontal_resolution(NULL);
   const lv_coord_t panel_h = lv_display_get_vertical_resolution(NULL);
   ESP_LOGI(TAG,
-           "qa: face=%d name=%s faces=%d panel=%dx%d touch=%d touch_events=%lu touch_last=%d,%d wifi=%d ip=%s "
-           "rssi=%d audio_spk=%d audio_mic=%d",
+           "qa: face=%d name=%s faces=%d panel=%dx%d touch=%d touch_max=%d touch_events=%lu touch_last=%d,%d "
+           "wifi=%d ip=%s rssi=%d audio_spk=%d audio_mic=%d",
            (int)face, astrolabe_ui_face_name(face), ASTROLABE_UI_FACE_COUNT, (int)panel_w, (int)panel_h,
-           s_touch_indev != NULL, (unsigned long)s_touch_events, s_touch_seen ? (int)s_last_touch_point.x : -1,
-           s_touch_seen ? (int)s_last_touch_point.y : -1, net.connected, net.ip, net.rssi, audio.speaker_ready,
-           audio.mic_ready);
+           s_touch_indev != NULL, CONFIG_ESP_LCD_TOUCH_MAX_POINTS, (unsigned long)s_touch_events,
+           s_touch_seen ? (int)s_last_touch_point.x : -1, s_touch_seen ? (int)s_last_touch_point.y : -1,
+           net.connected, net.ip, net.rssi, audio.speaker_ready, audio.mic_ready);
 }
 
 static void force_waveshare_4c_backlight_on(void) {
@@ -268,8 +269,8 @@ static void register_touch_layer(lv_display_t *display) {
   lv_obj_add_event_cb(s_touch_layer, gesture_event_cb, LV_EVENT_RELEASED, NULL);
   lv_obj_move_foreground(s_touch_layer);
 
-  ESP_LOGI(TAG, "touch input ready: indev=%p layer=%dx%d", (void *)s_touch_indev, (int)display_w,
-           (int)display_h);
+  ESP_LOGI(TAG, "touch input ready: indev=%p layer=%dx%d max_points=%d", (void *)s_touch_indev, (int)display_w,
+           (int)display_h, CONFIG_ESP_LCD_TOUCH_MAX_POINTS);
 }
 
 void app_main(void) {
