@@ -26,9 +26,14 @@ enum {
 };
 
 static lv_obj_t *s_scale_root;
+static lv_obj_t *s_touch_layer;
+static lv_indev_t *s_touch_indev;
 static int32_t s_panel_zoom = 256;
 static lv_point_t s_press_point;
+static lv_point_t s_last_touch_point;
 static bool s_press_valid;
+static bool s_touch_seen;
+static uint32_t s_touch_events;
 static volatile int s_requested_face = -1;
 static volatile bool s_tour_requested;
 
@@ -41,9 +46,12 @@ static void log_service_status(void) {
   const lv_coord_t panel_w = lv_display_get_horizontal_resolution(NULL);
   const lv_coord_t panel_h = lv_display_get_vertical_resolution(NULL);
   ESP_LOGI(TAG,
-           "qa: face=%d name=%s faces=%d panel=%dx%d wifi=%d ip=%s rssi=%d audio_spk=%d audio_mic=%d",
+           "qa: face=%d name=%s faces=%d panel=%dx%d touch=%d touch_events=%lu touch_last=%d,%d wifi=%d ip=%s "
+           "rssi=%d audio_spk=%d audio_mic=%d",
            (int)face, astrolabe_ui_face_name(face), ASTROLABE_UI_FACE_COUNT, (int)panel_w, (int)panel_h,
-           net.connected, net.ip, net.rssi, audio.speaker_ready, audio.mic_ready);
+           s_touch_indev != NULL, (unsigned long)s_touch_events, s_touch_seen ? (int)s_last_touch_point.x : -1,
+           s_touch_seen ? (int)s_last_touch_point.y : -1, net.connected, net.ip, net.rssi, audio.speaker_ready,
+           audio.mic_ready);
 }
 
 static void force_waveshare_4c_backlight_on(void) {
@@ -201,7 +209,11 @@ static void gesture_event_cb(lv_event_t *event) {
   const lv_event_code_t code = lv_event_get_code(event);
   if (code == LV_EVENT_PRESSED) {
     lv_indev_get_point(indev, &s_press_point);
+    s_last_touch_point = s_press_point;
     s_press_valid = true;
+    s_touch_seen = true;
+    s_touch_events++;
+    ESP_LOGI(TAG, "touch down x=%d y=%d", (int)s_press_point.x, (int)s_press_point.y);
     return;
   }
   if (code != LV_EVENT_RELEASED || !s_press_valid) {
@@ -210,12 +222,16 @@ static void gesture_event_cb(lv_event_t *event) {
 
   lv_point_t release_point;
   lv_indev_get_point(indev, &release_point);
+  s_last_touch_point = release_point;
   s_press_valid = false;
+  s_touch_events++;
 
   const int32_t dx = release_point.x - s_press_point.x;
   const int32_t dy = release_point.y - s_press_point.y;
   const int32_t abs_dx = dx < 0 ? -dx : dx;
   const int32_t abs_dy = dy < 0 ? -dy : dy;
+  ESP_LOGI(TAG, "touch up x=%d y=%d dx=%ld dy=%ld", (int)release_point.x, (int)release_point.y, (long)dx,
+           (long)dy);
   if (abs_dx >= GESTURE_MIN_PX && abs_dx > abs_dy) {
     if (dx < 0) {
       next_face();
@@ -228,6 +244,32 @@ static void gesture_event_cb(lv_event_t *event) {
   if (abs_dx < GESTURE_MIN_PX / 2 && abs_dy < GESTURE_MIN_PX / 2) {
     next_face();
   }
+}
+
+static void register_touch_layer(lv_display_t *display) {
+  s_touch_indev = bsp_display_get_input_dev();
+  if (s_touch_indev == NULL) {
+    ESP_LOGW(TAG, "Waveshare touch input was not registered by BSP");
+    return;
+  }
+  lv_indev_set_display(s_touch_indev, display);
+
+  const lv_coord_t display_w = lv_display_get_horizontal_resolution(display);
+  const lv_coord_t display_h = lv_display_get_vertical_resolution(display);
+  s_touch_layer = lv_obj_create(lv_screen_active());
+  lv_obj_remove_style_all(s_touch_layer);
+  lv_obj_set_pos(s_touch_layer, 0, 0);
+  lv_obj_set_size(s_touch_layer, display_w, display_h);
+  lv_obj_set_style_bg_opa(s_touch_layer, LV_OPA_TRANSP, 0);
+  lv_obj_set_scrollbar_mode(s_touch_layer, LV_SCROLLBAR_MODE_OFF);
+  lv_obj_add_flag(s_touch_layer, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_clear_flag(s_touch_layer, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_event_cb(s_touch_layer, gesture_event_cb, LV_EVENT_PRESSED, NULL);
+  lv_obj_add_event_cb(s_touch_layer, gesture_event_cb, LV_EVENT_RELEASED, NULL);
+  lv_obj_move_foreground(s_touch_layer);
+
+  ESP_LOGI(TAG, "touch input ready: indev=%p layer=%dx%d", (void *)s_touch_indev, (int)display_w,
+           (int)display_h);
 }
 
 void app_main(void) {
@@ -267,9 +309,8 @@ void app_main(void) {
   ESP_LOGI(TAG, "initializing Astrolabe UI");
   astrolabe_ui_init_in(s_scale_root);
   ESP_LOGI(TAG, "starting Astrolabe render loop");
-  ESP_LOGI(TAG, "registering Astrolabe touch handler");
-  lv_obj_add_event_cb(s_scale_root, gesture_event_cb, LV_EVENT_PRESSED, NULL);
-  lv_obj_add_event_cb(s_scale_root, gesture_event_cb, LV_EVENT_RELEASED, NULL);
+  ESP_LOGI(TAG, "registering Astrolabe touch layer");
+  register_touch_layer(display);
   ESP_ERROR_CHECK_WITHOUT_ABORT(astrolabe_p4_audio_init());
   xTaskCreate(serial_console_task, "astrolabe_console", 4096, NULL, 5, NULL);
   ESP_LOGI(TAG, "Astrolabe P4 is running");
