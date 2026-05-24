@@ -28,6 +28,10 @@
 #include "pm_weather.h"
 #include "pm_wifi_ntp.h"
 
+#if defined(ASTROLABE_P4_TARGET)
+#include "p4_faculty_assets.h"
+#endif
+
 char g_gesture_banner[44] = {};
 
 bool pm_time_valid(void) { return true; }
@@ -185,6 +189,38 @@ bool pm_faculty_get_slot(int, PmFacultyProfile *out) { return pm_faculty_active(
 void pm_faculty_release_bust_cache(void) {}
 static void websim_draw_faculty_bust(int cx, int bottom_y, int max_w, int max_h, const char *name) {
   if (!pm_gfx) return;
+
+#if defined(ASTROLABE_P4_TARGET)
+  const uint16_t *rgb = nullptr;
+  const uint8_t *mask = nullptr;
+  int src_w = 0;
+  int src_h = 0;
+  if (astrolabe_p4_hypatia_bust(&rgb, &mask, &src_w, &src_h) && rgb && mask && src_w > 0 && src_h > 0) {
+    const float scale = min(static_cast<float>(max_w) / static_cast<float>(src_w),
+                            static_cast<float>(max_h) / static_cast<float>(src_h));
+    const int draw_w = max(1, static_cast<int>(src_w * scale));
+    const int draw_h = max(1, static_cast<int>(src_h * scale));
+    const int x0 = cx - draw_w / 2;
+    const int y0 = bottom_y - draw_h;
+    for (int y = 0; y < draw_h; ++y) {
+      const int sy = min(src_h - 1, static_cast<int>(static_cast<float>(y) / scale));
+      const int yy = y0 + y;
+      if (yy < 0 || yy >= LCD_HEIGHT) {
+        continue;
+      }
+      for (int x = 0; x < draw_w; ++x) {
+        const int sx = min(src_w - 1, static_cast<int>(static_cast<float>(x) / scale));
+        const int xx = x0 + x;
+        const int si = sy * src_w + sx;
+        if (xx < 0 || xx >= LCD_WIDTH || (mask[si >> 3] & (1u << (si & 7))) == 0) {
+          continue;
+        }
+        pm_gfx->writePixel(xx, yy, rgb[si]);
+      }
+    }
+    return;
+  }
+#endif
 
   const int head_r = max(14, min(max_w, max_h) / 7);
   const int head_cy = bottom_y - max_h + head_r * 3;

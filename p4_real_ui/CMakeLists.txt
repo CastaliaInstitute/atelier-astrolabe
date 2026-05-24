@@ -8,6 +8,7 @@ file(GLOB_RECURSE ASTROLABE_FACE_SRCS
 idf_component_register(
     SRCS
         "p4_real_ui.cpp"
+        "p4_faculty_assets.cpp"
         "${ASTROLABE_WEB_SIM}/src/arduino_compat.cpp"
         "${ASTROLABE_WEB_SIM}/src/device_stubs.cpp"
         "${ASTROLABE_SKETCH}/pm_display.cpp"

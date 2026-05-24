@@ -10,6 +10,7 @@
 #include <ctime>
 
 #include "faces/shared/pm_face_draw.h"
+#include "faces/tarot/pm_face_tarot_assets.h"
 #include "pin_config.h"
 #include "pm_display.h"
 #include "pm_heap.h"
@@ -419,6 +420,33 @@ bool draw_cached_card_image(int idx, int cx, int cy) {
   return true;
 }
 
+bool draw_embedded_card_image(int idx, int cx, int cy) {
+  const uint16_t *rgb = nullptr;
+  const uint8_t *mask = nullptr;
+  int w = 0;
+  int h = 0;
+  if (!pm_face_tarot_embedded_card(idx, &rgb, &mask, &w, &h) || !rgb || !mask || w <= 0 || h <= 0) {
+    return false;
+  }
+  const int x0 = cx - w / 2;
+  const int y0 = cy - h / 2;
+  for (int y = 0; y < h; ++y) {
+    const int yy = y0 + y;
+    if (yy < 0 || yy >= LCD_HEIGHT) {
+      continue;
+    }
+    for (int x = 0; x < w; ++x) {
+      const int xx = x0 + x;
+      const int idx_px = y * w + x;
+      if (xx < 0 || xx >= LCD_WIDTH || !mask_get(mask, idx_px)) {
+        continue;
+      }
+      pm_gfx->writePixel(xx, yy, rgb[idx_px]);
+    }
+  }
+  return true;
+}
+
 void draw_star(int cx, int cy, int r_outer, int r_inner, int points, uint16_t col) {
   int px = 0;
   int py = 0;
@@ -662,7 +690,10 @@ void pm_face_tarot_draw(const struct tm *tm_local, bool valid_local) {
   const uint16_t c_glow = blend565(c_bg, c_accent, 0.22f);
   pm_gfx->fillScreen(c_bg);
 
-  const bool image_drawn = draw_cached_card_image(idx, kCx, kCy);
+  bool image_drawn = draw_cached_card_image(idx, kCx, kCy);
+  if (!image_drawn) {
+    image_drawn = draw_embedded_card_image(idx, kCx, kCy);
+  }
 
   if (!image_drawn) {
     const int R = min(LCD_WIDTH, LCD_HEIGHT) / 2;
