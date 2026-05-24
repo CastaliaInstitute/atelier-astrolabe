@@ -80,7 +80,7 @@ bool pm_face_sky_touch_tick(uint32_t now_ms) {
   const float dx = static_cast<float>(xs[0] - pm_face_lcd_cx);
   const float dy = static_cast<float>(ys[0] - pm_face_lcd_cy);
   const float r = sqrtf(dx * dx + dy * dy);
-  if (r < 150.f) {
+  if (r < static_cast<float>(pm_face_scale_i(150))) {
     return false;
   }
   const float a = touch_angle(xs[0], ys[0]);
@@ -119,13 +119,14 @@ static bool project_star(const SkyStar &s, float sidereal_deg, int *x, int *y) {
   if (alt_proxy < -0.18f) {
     return false;
   }
-  const float rr = (1.f - alt_proxy) * 150.f;
+  const float rr = (1.f - alt_proxy) * static_cast<float>(pm_face_scale_i(150));
   const float az = atan2f(sinf(hour), cosf(hour) * sinf(dec) + 0.24f);
   *x = pm_face_lcd_cx + static_cast<int>(sinf(az) * rr);
   *y = pm_face_lcd_cy - static_cast<int>(cosf(az) * rr);
   const int dx = *x - pm_face_lcd_cx;
   const int dy = *y - pm_face_lcd_cy;
-  return dx * dx + dy * dy < 178 * 178;
+  const int horizon = pm_face_scale_i(178);
+  return dx * dx + dy * dy < horizon * horizon;
 }
 
 void pm_face_sky_draw(const struct tm *local, bool valid_time) {
@@ -137,10 +138,10 @@ void pm_face_sky_draw(const struct tm *local, bool valid_time) {
   const uint16_t grid = pm_gfx->color565(22, 34, 58);
   const uint16_t line_col = pm_gfx->color565(70, 92, 138);
   const uint16_t star_col = pm_gfx->color565(220, 228, 255);
-  pm_gfx->drawCircle(pm_face_lcd_cx, pm_face_lcd_cy, 178, grid);
-  pm_gfx->drawCircle(pm_face_lcd_cx, pm_face_lcd_cy, 118, grid);
-  pm_gfx->drawLine(pm_face_lcd_cx, 56, pm_face_lcd_cx, 408, grid);
-  pm_gfx->drawLine(56, pm_face_lcd_cy, 408, pm_face_lcd_cy, grid);
+  pm_gfx->drawCircle(pm_face_lcd_cx, pm_face_lcd_cy, pm_face_scale_i(178), grid);
+  pm_gfx->drawCircle(pm_face_lcd_cx, pm_face_lcd_cy, pm_face_scale_i(118), grid);
+  pm_gfx->drawLine(pm_face_lcd_cx, pm_face_scale_y(56), pm_face_lcd_cx, pm_face_scale_y(408), grid);
+  pm_gfx->drawLine(pm_face_scale_x(56), pm_face_lcd_cy, pm_face_scale_x(408), pm_face_lcd_cy, grid);
 
   int sx[sizeof(kStars) / sizeof(kStars[0])];
   int sy[sizeof(kStars) / sizeof(kStars[0])];
@@ -157,7 +158,7 @@ void pm_face_sky_draw(const struct tm *local, bool valid_time) {
     if (!vis[i]) {
       continue;
     }
-    const int r = kStars[i].mag < 0.5f ? 3 : (kStars[i].mag < 1.8f ? 2 : 1);
+    const int r = pm_face_scale_i(kStars[i].mag < 0.5f ? 3 : (kStars[i].mag < 1.8f ? 2 : 1));
     pm_gfx->fillCircle(sx[i], sy[i], r, star_col);
   }
 

@@ -370,6 +370,9 @@ uint16_t pm_face_color565_from_hsv(Arduino_GFX *out, float h_deg, float s, float
 
 
 void pm_face_draw_centered_line(const char *text, int y, uint16_t fg, uint8_t textSizeX, uint8_t textSizeY) {
+  if (pm_face_short_px != pm_face_base_px && y >= 0 && y <= pm_face_base_px) {
+    y = pm_face_scale_y(y);
+  }
   pm_gfx->setTextSize(textSizeX, textSizeY);
   int16_t x1, y1;
   uint16_t w, h;
