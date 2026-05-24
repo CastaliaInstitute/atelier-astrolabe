@@ -181,8 +181,8 @@ void pm_faculty_prepare_demo_view(void) {}
 int pm_faculty_count(void) { return 1; }
 bool pm_faculty_active(PmFacultyProfile *out) {
   if (!out) return false;
-  std::snprintf(out->slug, sizeof(out->slug), "hypatia");
-  std::snprintf(out->name, sizeof(out->name), "Hypatia");
+  std::snprintf(out->slug, sizeof(out->slug), "a.adalovelace");
+  std::snprintf(out->name, sizeof(out->name), "Ada Lovelace");
   return true;
 }
 bool pm_faculty_get_slot(int, PmFacultyProfile *out) { return pm_faculty_active(out); }
@@ -195,7 +195,7 @@ static void websim_draw_faculty_bust(int cx, int bottom_y, int max_w, int max_h,
   const uint8_t *mask = nullptr;
   int src_w = 0;
   int src_h = 0;
-  if (astrolabe_p4_hypatia_bust(&rgb, &mask, &src_w, &src_h) && rgb && mask && src_w > 0 && src_h > 0) {
+  if (astrolabe_p4_faculty_bust(&rgb, &mask, &src_w, &src_h) && rgb && mask && src_w > 0 && src_h > 0) {
     const float scale = min(static_cast<float>(max_w) / static_cast<float>(src_w),
                             static_cast<float>(max_h) / static_cast<float>(src_h));
     const int draw_w = max(1, static_cast<int>(src_w * scale));
@@ -264,11 +264,11 @@ static void websim_draw_faculty_bust(int cx, int bottom_y, int max_w, int max_h,
     pm_gfx->print(name);
   }
 }
-void pm_faculty_draw_bust(void) { websim_draw_faculty_bust(LCD_WIDTH / 2, LCD_HEIGHT - 34, LCD_WIDTH - 96, LCD_HEIGHT - 90, "Hypatia"); }
+void pm_faculty_draw_bust(void) {
+  websim_draw_faculty_bust(LCD_WIDTH / 2, LCD_HEIGHT, LCD_WIDTH, LCD_HEIGHT, "Ada Lovelace");
+}
 void pm_faculty_draw_bust_fullscreen(void) {
-  pm_gfx->fillCircle(LCD_WIDTH / 2, LCD_HEIGHT / 2, 210, pm_gfx->color565(10, 16, 30));
-  pm_gfx->drawCircle(LCD_WIDTH / 2, LCD_HEIGHT / 2, 214, pm_gfx->color565(74, 92, 126));
-  websim_draw_faculty_bust(LCD_WIDTH / 2, LCD_HEIGHT - 44, LCD_WIDTH - 78, LCD_HEIGHT - 88, "Hypatia");
+  websim_draw_faculty_bust(LCD_WIDTH / 2, LCD_HEIGHT, LCD_WIDTH, LCD_HEIGHT, "Ada Lovelace");
 }
 void pm_faculty_draw_bust_for(const PmFacultyProfile *profile) {
   websim_draw_faculty_bust(LCD_WIDTH / 2, LCD_HEIGHT - 34, LCD_WIDTH - 96, LCD_HEIGHT - 90,
@@ -277,7 +277,7 @@ void pm_faculty_draw_bust_for(const PmFacultyProfile *profile) {
 void pm_faculty_draw_bust_for_at(const PmFacultyProfile *profile, int cx, int bottom_y, int max_w, int max_h, int, int) {
   websim_draw_faculty_bust(cx, bottom_y, max_w, max_h, profile && profile->name[0] ? profile->name : nullptr);
 }
-const char *pm_faculty_bust_slug(void) { return "hypatia"; }
+const char *pm_faculty_bust_slug(void) { return "a.adalovelace"; }
 bool pm_faculty_bust_ready_for(const char *) { return true; }
 
 PmCommonplaceStatus pm_commonplace_status(void) { return PmCommonplaceStatus::Idle; }
