@@ -6,6 +6,7 @@
 #include "faces/shared/pm_face_draw.h"
 #include "pin_config.h"
 #include "pm_display.h"
+#include "pm_faculty.h"
 
 namespace {
 
@@ -38,40 +39,13 @@ void draw_vapor(uint32_t now_ms) {
 }
 
 void draw_bust(void) {
+  static const PmFacultyProfile kPythiaProfile = {"pythia", "Pythia", "", "", true};
   const int cx = LCD_WIDTH / 2;
-  const int cy = 214;
-  const uint16_t marble = col(214, 206, 190);
-  const uint16_t shadow = col(120, 112, 112);
-  const uint16_t ink = col(54, 45, 58);
-  const uint16_t gold = col(224, 176, 86);
-  const uint16_t robe = col(92, 58, 92);
-  const uint16_t dark_robe = col(42, 28, 52);
-
-  pm_gfx->fillCircle(cx, cy - 56, 66, shadow);
-  pm_gfx->fillCircle(cx, cy - 60, 62, marble);
-  pm_gfx->fillTriangle(cx - 70, cy - 64, cx - 24, cy - 128, cx - 8, cy - 62, shadow);
-  pm_gfx->fillTriangle(cx + 70, cy - 64, cx + 24, cy - 128, cx + 8, cy - 62, shadow);
-  pm_gfx->fillCircle(cx - 28, cy - 74, 18, col(236, 226, 208));
-  pm_gfx->fillCircle(cx + 28, cy - 74, 18, col(236, 226, 208));
-  pm_gfx->drawLine(cx - 22, cy - 56, cx - 48, cy - 52, ink);
-  pm_gfx->drawLine(cx + 22, cy - 56, cx + 48, cy - 52, ink);
-  pm_gfx->fillCircle(cx - 24, cy - 48, 4, ink);
-  pm_gfx->fillCircle(cx + 24, cy - 48, 4, ink);
-  pm_gfx->drawLine(cx, cy - 42, cx - 6, cy - 20, shadow);
-  pm_gfx->drawLine(cx - 16, cy - 4, cx + 16, cy - 4, ink);
-
-  pm_gfx->fillRect(cx - 32, cy + 2, 64, 58, marble);
-  pm_gfx->fillEllipse(cx, cy + 108, 132, 76, dark_robe);
-  pm_gfx->fillEllipse(cx, cy + 92, 106, 64, robe);
-  pm_gfx->fillTriangle(cx - 96, cy + 84, cx, cy + 34, cx + 96, cy + 84, robe);
-  pm_gfx->drawLine(cx - 64, cy + 58, cx - 16, cy + 150, gold);
-  pm_gfx->drawLine(cx + 64, cy + 58, cx + 16, cy + 150, gold);
-  pm_gfx->fillEllipse(cx, cy + 151, 128, 18, col(112, 98, 82));
-  pm_gfx->drawEllipse(cx, cy + 151, 128, 18, gold);
-
-  draw_laurel(cx, cy - 36, 112);
-  pm_gfx->drawCircle(cx, cy - 60, 84, col(194, 158, 90));
-  pm_gfx->drawCircle(cx, cy - 60, 88, col(82, 70, 48));
+  pm_gfx->fillCircle(cx, 230, 155, col(16, 16, 22));
+  pm_gfx->drawCircle(cx, 230, 160, col(82, 70, 48));
+  pm_gfx->drawCircle(cx, 230, 154, col(194, 158, 90));
+  pm_faculty_draw_bust_for_at(&kPythiaProfile, cx, 392, 286, 334, 52, 392);
+  draw_laurel(cx, 174, 116);
 }
 
 }  // namespace

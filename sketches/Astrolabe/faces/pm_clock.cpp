@@ -228,6 +228,9 @@ static void pm_faces_on_leave(ClockFace from, ClockFace to) {
     case ClockFace::Quotes:
       pm_faculty_release_bust_cache();
       break;
+    case ClockFace::Pythia:
+      pm_faculty_release_bust_cache();
+      break;
     case ClockFace::Weather:
       memset(&g_weather_ui, 0, sizeof(g_weather_ui));
       break;
