@@ -1,9 +1,11 @@
 #include <stdbool.h>
+#include <errno.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <sys/stat.h>
 
 #include "bsp/esp-bsp.h"
 #include "bsp/display.h"
@@ -22,6 +24,7 @@
 #include "p4_real_ui.h"
 #include "p4_screen_http.h"
 #include "p4_settings.h"
+#include "p4_voice.h"
 #include "sdkconfig.h"
 
 static const char *TAG = "astrolabe_p4";
@@ -45,6 +48,7 @@ static volatile bool s_tour_tts_requested;
 static volatile bool s_screen_http_requested;
 
 static void set_face(int face);
+static bool run_wifi_test(void);
 
 static bool ensure_network_for_request(const char *reason, uint32_t timeout_ms) {
   astrolabe_p4_network_status_t net = astrolabe_p4_network_status();
@@ -67,6 +71,58 @@ static bool ensure_network_for_request(const char *reason, uint32_t timeout_ms) 
   }
   ESP_LOGW(TAG, "wifi not connected for %s after %lu ms", reason ? reason : "request", (unsigned long)timeout_ms);
   return false;
+}
+
+static bool run_voice_message(const char *message) {
+  static const char kSystem[] =
+      "You are Luna on the Astrolabe P4. Keep the spoken reply warm, concise, and under twenty seconds.";
+  if (!ensure_network_for_request("voice tts", 25000)) {
+    ESP_LOGW(TAG, "voice tts: wifi unavailable");
+    return false;
+  }
+  bool ok = astrolabe_p4_voice_speak_message(message, kSystem);
+  (void)astrolabe_p4_network_stop();
+  if (!ok) {
+    ESP_LOGW(TAG, "voice tts failed: %s", astrolabe_p4_voice_last_error());
+  }
+  return ok;
+}
+
+static bool run_voice_pcm(bool vad, int duration_ms) {
+  static const char kSystem[] =
+      "Moon context for a spoken answer. User asked via microphone. Keep reply brief for audio.";
+  int16_t *pcm = NULL;
+  size_t samples = 0;
+  int peak = 0;
+  int64_t avg_energy = 0;
+  bool captured = vad ? astrolabe_p4_audio_capture_vad(16000, duration_ms, &pcm, &samples, &peak, &avg_energy)
+                      : astrolabe_p4_audio_capture_pcm(16000, duration_ms, &pcm, &samples, &peak, &avg_energy);
+  if (!captured) {
+    ESP_LOGW(TAG, "voice stt: capture failed");
+    return false;
+  }
+  ESP_LOGI(TAG, "voice stt: captured samples=%u peak=%d avg_energy=%lld", (unsigned)samples, peak,
+           (long long)avg_energy);
+  if (!ensure_network_for_request("voice stt", 25000)) {
+    free(pcm);
+    ESP_LOGW(TAG, "voice stt: wifi unavailable");
+    return false;
+  }
+  astrolabe_p4_voice_result_t result = {};
+  bool ok = astrolabe_p4_voice_post_pcm(pcm, samples, 16000, kSystem, &result);
+  free(pcm);
+  (void)astrolabe_p4_network_stop();
+  if (ok) {
+    ESP_LOGI(TAG, "voice stt transcript: %s", result.transcript);
+    ESP_LOGI(TAG, "voice stt reply: %s", result.reply);
+    if (result.mp3 != NULL && result.mp3_len > 0) {
+      ok = astrolabe_p4_audio_play_mp3(result.mp3, result.mp3_len);
+    }
+  } else {
+    ESP_LOGW(TAG, "voice stt failed: %s", astrolabe_p4_voice_last_error());
+  }
+  astrolabe_p4_voice_result_free(&result);
+  return ok;
 }
 
 static void put_le16(uint8_t *out, uint16_t value) {
@@ -164,6 +220,20 @@ static void maybe_start_screen_http(void) {
     ESP_ERROR_CHECK_WITHOUT_ABORT(astrolabe_p4_screen_http_start());
     s_screen_http_requested = false;
   }
+}
+
+static bool ensure_globe_dirs(void) {
+  errno = 0;
+  int mk0 = mkdir("/sdcard/astrolabe", 0775);
+  int e0 = errno;
+  errno = 0;
+  int mk1 = mkdir("/sdcard/astrolabe/globe", 0775);
+  int e1 = errno;
+  if ((mk0 == 0 || e0 == EEXIST) && (mk1 == 0 || e1 == EEXIST)) {
+    return true;
+  }
+  ESP_LOGW(TAG, "globe cache mkdir failed mkdir=%d/%d %d/%d", mk0, e0, mk1, e1);
+  return false;
 }
 
 static bool parse_face_token(const char *token, int *face) {
@@ -281,6 +351,134 @@ static void set_face(int face) {
   ESP_LOGI(TAG, "face=%d %s", face, astrolabe_real_ui_face_name(face));
 }
 
+static bool valid_tarot_filename(const char *name) {
+  if (name == NULL) {
+    return false;
+  }
+  const size_t len = strlen(name);
+  if (len < 16 || strcmp(name + len - 4, ".png") != 0) {
+    return false;
+  }
+  if (strncmp(name, "major-", 6) != 0 && strncmp(name, "wands-", 6) != 0 && strncmp(name, "cups-", 5) != 0 &&
+      strncmp(name, "swords-", 7) != 0 && strncmp(name, "pentacles-", 10) != 0) {
+    return false;
+  }
+  for (size_t i = 0; i < len; ++i) {
+    const char c = name[i];
+    if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '.')) {
+      return false;
+    }
+  }
+  return true;
+}
+
+static bool serial_receive_tarot_asset(const char *name, int size) {
+  if (!valid_tarot_filename(name) || size <= 0 || size > 1400000) {
+    ESP_LOGW(TAG, "tarot serial upload rejected name=%s size=%d", name ? name : "", size);
+    return false;
+  }
+  errno = 0;
+  int mk0 = mkdir("/sdcard/astrolabe", 0775);
+  int e0 = errno;
+  errno = 0;
+  int mk1 = mkdir("/sdcard/astrolabe/tarot", 0775);
+  int e1 = errno;
+  errno = 0;
+  int mk2 = mkdir("/sdcard/astrolabe/tarot/720", 0775);
+  int e2 = errno;
+
+  char path[128];
+  snprintf(path, sizeof(path), "/sdcard/astrolabe/tarot/720/%s", name);
+  FILE *fp = fopen(path, "wb");
+  if (fp == NULL) {
+    ESP_LOGW(TAG, "tarot serial upload open failed path=%s errno=%d mkdir=%d/%d %d/%d %d/%d", path, errno, mk0, e0,
+             mk1, e1, mk2, e2);
+    return false;
+  }
+
+  ESP_LOGI(TAG, "TAROT_PUT_READY %s %d", name, size);
+  uint8_t buf[1024];
+  int remaining = size;
+  int written = 0;
+  while (remaining > 0) {
+    const int want = remaining < (int)sizeof(buf) ? remaining : (int)sizeof(buf);
+    const int got = uart_read_bytes(UART_NUM_0, buf, want, pdMS_TO_TICKS(30000));
+    if (got <= 0) {
+      fclose(fp);
+      remove(path);
+      ESP_LOGW(TAG, "tarot serial upload timeout path=%s written=%d remaining=%d", path, written, remaining);
+      return false;
+    }
+    if (fwrite(buf, 1, got, fp) != (size_t)got) {
+      fclose(fp);
+      remove(path);
+      ESP_LOGW(TAG, "tarot serial upload write failed path=%s", path);
+      return false;
+    }
+    remaining -= got;
+    written += got;
+  }
+  fclose(fp);
+  ESP_LOGI(TAG, "TAROT_PUT_OK %s %d", name, written);
+  return true;
+}
+
+static bool serial_receive_globe_texture(int size) {
+  if (size <= 8 || size > 1800000) {
+    ESP_LOGW(TAG, "globe serial upload rejected size=%d", size);
+    return false;
+  }
+  if (!ensure_globe_dirs()) {
+    return false;
+  }
+
+  const char *path = "/sdcard/astrolabe/globe/live_clouds.png";
+  char tmp_path[160];
+  snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", path);
+  FILE *fp = fopen(tmp_path, "wb");
+  if (fp == NULL) {
+    ESP_LOGW(TAG, "globe serial upload open failed path=%s errno=%d", tmp_path, errno);
+    return false;
+  }
+
+  ESP_LOGI(TAG, "GLOBE_PUT_READY %d", size);
+  uint8_t buf[1024];
+  int remaining = size;
+  int written = 0;
+  while (remaining > 0) {
+    const int want = remaining < (int)sizeof(buf) ? remaining : (int)sizeof(buf);
+    const int got = uart_read_bytes(UART_NUM_0, buf, want, pdMS_TO_TICKS(30000));
+    if (got <= 0) {
+      fclose(fp);
+      remove(tmp_path);
+      ESP_LOGW(TAG, "globe serial upload timeout written=%d remaining=%d", written, remaining);
+      return false;
+    }
+    if (fwrite(buf, 1, got, fp) != (size_t)got) {
+      fclose(fp);
+      remove(tmp_path);
+      ESP_LOGW(TAG, "globe serial upload write failed written=%d got=%d errno=%d", written, got, errno);
+      return false;
+    }
+    remaining -= got;
+    written += got;
+  }
+  fclose(fp);
+
+  remove(path);
+  if (rename(tmp_path, path) != 0) {
+    ESP_LOGW(TAG, "globe serial upload rename failed errno=%d", errno);
+    remove(tmp_path);
+    return false;
+  }
+  if (!astrolabe_real_ui_globe_load_png(path, "serial live-cloud upload")) {
+    ESP_LOGW(TAG, "globe serial upload decode failed path=%s", path);
+    return false;
+  }
+  ESP_LOGI(TAG, "GLOBE_PUT_OK %s %d", path, written);
+  return true;
+}
+
 static void serial_console_task(void *arg) {
   (void)arg;
   char line[192];
@@ -310,9 +508,39 @@ static void serial_console_task(void *arg) {
 
     char *face_cmd = strstr(line, "face ");
     char *wifi_set_cmd = strstr(line, "wifi set ");
+    char *wifi_dns_cmd = strstr(line, "wifi dns ");
+    char *wifi_get_cmd = strstr(line, "wifi get ");
     char *audio_tone_cmd = strstr(line, "audio tone");
+    char *audio_record_cmd = strstr(line, "audio record");
+    char *voice_tts_cmd = strstr(line, "voice tts ");
+    char *voice_stt_cmd = strstr(line, "voice stt");
+    char *voice_listen_cmd = strstr(line, "voice listen");
     char *settings_home_cmd = strstr(line, "settings home ");
-    if (settings_home_cmd != NULL) {
+    if (strncmp(line, "tarot put ", 10) == 0) {
+      char name[80] = "";
+      int size = 0;
+      if (sscanf(line + 10, "%79s %d", name, &size) == 2) {
+        (void)serial_receive_tarot_asset(name, size);
+      } else {
+        ESP_LOGW(TAG, "tarot put expects: tarot put NAME SIZE");
+      }
+    } else if (strncmp(line, "globe put ", 10) == 0) {
+      int size = 0;
+      if (sscanf(line + 10, "%d", &size) == 1) {
+        (void)serial_receive_globe_texture(size);
+      } else {
+        ESP_LOGW(TAG, "globe put expects: globe put SIZE");
+      }
+    } else if (strncmp(line, "serial baud ", 12) == 0) {
+      int baud = atoi(line + 12);
+      if (baud >= 115200 && baud <= 2000000) {
+        ESP_LOGI(TAG, "serial baud changing to %d", baud);
+        uart_wait_tx_done(UART_NUM_0, pdMS_TO_TICKS(200));
+        ESP_ERROR_CHECK_WITHOUT_ABORT(uart_set_baudrate(UART_NUM_0, baud));
+      } else {
+        ESP_LOGW(TAG, "serial baud range is 115200..2000000");
+      }
+    } else if (settings_home_cmd != NULL) {
       char *value = settings_home_cmd + strlen("settings home ");
       int home_face = ASTROLABE_REAL_UI_FACE_MOON;
       if (strcasecmp(value, "current") == 0) {
@@ -354,6 +582,32 @@ static void serial_console_task(void *arg) {
       (void)astrolabe_p4_network_forget_credentials();
     } else if (strstr(line, "wifi scan") != NULL) {
       astrolabe_p4_network_scan();
+    } else if (strstr(line, "wifi test") != NULL) {
+      (void)run_wifi_test();
+    } else if (wifi_dns_cmd != NULL) {
+      char *host = wifi_dns_cmd + strlen("wifi dns ");
+      while (*host == ' ') {
+        ++host;
+      }
+      char ip[16] = "";
+      if (ensure_network_for_request("wifi dns", 15000) && astrolabe_p4_network_dns_probe(host, ip, sizeof(ip))) {
+        ESP_LOGI(TAG, "wifi dns ok host=%s ip=%s", host, ip);
+      } else {
+        ESP_LOGW(TAG, "wifi dns failed host=%s", host);
+      }
+    } else if (wifi_get_cmd != NULL) {
+      char *url = wifi_get_cmd + strlen("wifi get ");
+      while (*url == ' ') {
+        ++url;
+      }
+      int status = 0;
+      int bytes = 0;
+      if (ensure_network_for_request("wifi get", 15000) &&
+          astrolabe_p4_network_http_probe(url, &status, &bytes)) {
+        ESP_LOGI(TAG, "wifi get ok status=%d bytes=%d url=%s", status, bytes, url);
+      } else {
+        ESP_LOGW(TAG, "wifi get failed status=%d url=%s", status, url);
+      }
     } else if (strstr(line, "wifi status") != NULL) {
       astrolabe_p4_network_log_status();
     } else if (audio_tone_cmd != NULL) {
@@ -361,8 +615,34 @@ static void serial_console_task(void *arg) {
       int ms = 350;
       (void)sscanf(audio_tone_cmd, "audio tone %d %d", &hz, &ms);
       (void)astrolabe_p4_audio_play_tone(hz, ms);
+    } else if (audio_record_cmd != NULL) {
+      int ms = 2000;
+      (void)sscanf(audio_record_cmd, "audio record %d", &ms);
+      int16_t *pcm = NULL;
+      size_t samples = 0;
+      int peak = 0;
+      int64_t avg_energy = 0;
+      if (astrolabe_p4_audio_capture_pcm(16000, ms, &pcm, &samples, &peak, &avg_energy)) {
+        ESP_LOGI(TAG, "audio record ok samples=%u peak=%d avg_energy=%lld", (unsigned)samples, peak,
+                 (long long)avg_energy);
+        free(pcm);
+      }
     } else if (strstr(line, "audio mic") != NULL) {
       (void)astrolabe_p4_audio_probe_mic();
+    } else if (voice_tts_cmd != NULL) {
+      char *message = voice_tts_cmd + strlen("voice tts ");
+      while (*message == ' ') {
+        ++message;
+      }
+      (void)run_voice_message(message);
+    } else if (voice_listen_cmd != NULL) {
+      int ms = 8000;
+      (void)sscanf(voice_listen_cmd, "voice listen %d", &ms);
+      (void)run_voice_pcm(true, ms);
+    } else if (voice_stt_cmd != NULL) {
+      int ms = 4000;
+      (void)sscanf(voice_stt_cmd, "voice stt %d", &ms);
+      (void)run_voice_pcm(false, ms);
     } else if (strstr(line, "audio status") != NULL) {
       astrolabe_p4_audio_log_status();
     } else if (strstr(line, "settings status") != NULL) {
@@ -382,17 +662,45 @@ static void serial_console_task(void *arg) {
       s_tour_requested = true;
     } else if (strstr(line, "screen http") != NULL) {
       s_screen_http_requested = true;
+    } else if (strstr(line, "globe refresh") != NULL || strstr(line, "clouds refresh") != NULL) {
+      ESP_LOGW(TAG, "globe refresh over hosted WiFi is disabled; use scripts/update-p4-globe-clouds.py");
     } else if (strstr(line, "screenshot") != NULL || strstr(line, "screen hex") != NULL) {
-      serial_dump_screen_bmp_hex();
+      if (bsp_display_lock(1000) == ESP_OK) {
+        astrolabe_real_ui_tick(0);
+        serial_dump_screen_bmp_hex();
+        bsp_display_unlock();
+      } else {
+        uart_write_cstr("SCREEN_BMP_HEX_ERROR display busy\n");
+      }
     } else if (strstr(line, "status") != NULL) {
       log_service_status();
     } else if (line[0] != '\0') {
       ESP_LOGI(TAG,
                "commands: face N | home | settings status/home moon|classic|face N|current | next | prev | "
                "tour/tour tts | screenshot/screen http | qa status | wifi status/start/stop/scan/forget/set SSID "
-               "PASS | audio status/tone HZ MS/mic");
+               "PASS/test/dns HOST/get URL | globe refresh/put SIZE | audio status/tone HZ MS/mic/record MS | "
+               "voice tts TEXT/stt MS/listen MS");
     }
   }
+}
+
+static bool run_wifi_test(void) {
+  bool ok = ensure_network_for_request("wifi test", 20000);
+  char ip[16] = "";
+  if (ok) {
+    ok = astrolabe_p4_network_dns_probe("castalia.institute", ip, sizeof(ip));
+  }
+  int status = 0;
+  int bytes = 0;
+  if (ok) {
+    ok = astrolabe_p4_network_http_probe("http://connectivitycheck.gstatic.com/generate_204", &status, &bytes);
+  }
+  if (ok) {
+    ESP_LOGI(TAG, "WIFI_TEST PASS dns_ip=%s http_status=%d", ip, status);
+  } else {
+    ESP_LOGW(TAG, "WIFI_TEST FAIL dns_ip=%s http_status=%d", ip, status);
+  }
+  return ok;
 }
 
 static void gesture_event_cb(lv_event_t *event) {
@@ -509,6 +817,9 @@ void app_main(void) {
   apply_display_fit();
   ESP_LOGI(TAG, "initializing Astrolabe UI");
   astrolabe_real_ui_init_in(s_scale_root);
+  if (astrolabe_real_ui_globe_load_png("/sdcard/astrolabe/globe/live_clouds.png", "sdcard cache")) {
+    ESP_LOGI(TAG, "loaded cached globe live clouds");
+  }
   astrolabe_p4_settings_log_status();
   ESP_LOGI(TAG, "applying configured home face");
   set_face(astrolabe_p4_settings_home_face());
@@ -517,7 +828,7 @@ void app_main(void) {
   register_touch_layer(display);
   bsp_display_unlock();
   ESP_ERROR_CHECK_WITHOUT_ABORT(astrolabe_p4_audio_init());
-  xTaskCreate(serial_console_task, "astrolabe_console", 4096, NULL, 5, NULL);
+  xTaskCreate(serial_console_task, "astrolabe_console", 16384, NULL, 5, NULL);
   ESP_LOGI(TAG, "Astrolabe P4 is running");
   log_service_status();
   maybe_start_screen_http();
@@ -566,7 +877,10 @@ void app_main(void) {
     }
     if (s_tour_tts_requested) {
       s_tour_tts_requested = false;
-      (void)ensure_network_for_request("tour tts", 10000);
+      if (!run_wifi_test()) {
+        ESP_LOGW(TAG, "tour tts: wifi test failed; continuing render-only tour");
+      }
+      (void)astrolabe_p4_network_stop();
       ESP_LOGI(TAG, "tour tts: start faces=%d", astrolabe_real_ui_face_count());
       for (int face = 0; face < astrolabe_real_ui_face_count(); ++face) {
         if (bsp_display_lock(100) == ESP_OK) {

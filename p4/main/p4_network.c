@@ -5,10 +5,13 @@
 
 #include "esp_check.h"
 #include "esp_event.h"
+#include "esp_http_client.h"
 #include "esp_log.h"
 #include "esp_mac.h"
 #include "esp_netif.h"
 #include "esp_wifi.h"
+#include "lwip/inet.h"
+#include "lwip/netdb.h"
 #include "nvs.h"
 
 #if __has_include("secrets.local.h")
@@ -150,6 +153,7 @@ bool astrolabe_p4_network_start(void) {
   wifi_config.sta.sae_pwe_h2e = WPA3_SAE_PWE_BOTH;
 
   ESP_ERROR_CHECK_WITHOUT_ABORT(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
+  ESP_ERROR_CHECK_WITHOUT_ABORT(esp_wifi_set_ps(WIFI_PS_NONE));
   esp_err_t ret = esp_wifi_start();
   if (ret == ESP_ERR_WIFI_CONN) {
     ret = esp_wifi_connect();
@@ -258,6 +262,91 @@ void astrolabe_p4_network_scan(void) {
   if (!was_enabled) {
     (void)astrolabe_p4_network_stop();
   }
+}
+
+bool astrolabe_p4_network_dns_probe(const char *host, char *out_ip, size_t out_ip_size) {
+  if (out_ip != NULL && out_ip_size > 0) {
+    out_ip[0] = '\0';
+  }
+  if (host == NULL || host[0] == '\0') {
+    ESP_LOGW(TAG, "dns probe requires a host");
+    return false;
+  }
+  if (!s_connected) {
+    ESP_LOGW(TAG, "dns probe skipped: wifi is not connected");
+    return false;
+  }
+
+  struct addrinfo hints = {
+      .ai_family = AF_INET,
+      .ai_socktype = SOCK_STREAM,
+  };
+  struct addrinfo *res = NULL;
+  const int err = getaddrinfo(host, NULL, &hints, &res);
+  if (err != 0 || res == NULL) {
+    ESP_LOGW(TAG, "dns probe failed host=%s err=%d", host, err);
+    return false;
+  }
+
+  char ip[16] = "";
+  const struct sockaddr_in *addr = (const struct sockaddr_in *)res->ai_addr;
+  inet_ntoa_r(addr->sin_addr, ip, sizeof(ip));
+  freeaddrinfo(res);
+  if (out_ip != NULL && out_ip_size > 0) {
+    strlcpy(out_ip, ip, out_ip_size);
+  }
+  ESP_LOGI(TAG, "dns probe ok host=%s ip=%s", host, ip);
+  return true;
+}
+
+bool astrolabe_p4_network_http_probe(const char *url, int *out_status, int *out_bytes) {
+  if (out_status != NULL) {
+    *out_status = 0;
+  }
+  if (out_bytes != NULL) {
+    *out_bytes = 0;
+  }
+  if (url == NULL || url[0] == '\0') {
+    ESP_LOGW(TAG, "http probe requires a URL");
+    return false;
+  }
+  if (!s_connected) {
+    ESP_LOGW(TAG, "http probe skipped: wifi is not connected");
+    return false;
+  }
+
+  esp_http_client_config_t config = {
+      .url = url,
+      .timeout_ms = 15000,
+      .buffer_size = 1024,
+      .buffer_size_tx = 1024,
+  };
+  esp_http_client_handle_t client = esp_http_client_init(&config);
+  if (client == NULL) {
+    ESP_LOGW(TAG, "http probe init failed url=%s", url);
+    return false;
+  }
+
+  esp_http_client_set_method(client, HTTP_METHOD_GET);
+  esp_http_client_set_header(client, "User-Agent", "Astrolabe-P4/1.0");
+  esp_err_t ret = esp_http_client_perform(client);
+  const int status = esp_http_client_get_status_code(client);
+  const int64_t content_length = esp_http_client_get_content_length(client);
+  const int bytes = content_length > 0 && content_length < INT32_MAX ? (int)content_length : 0;
+  if (out_status != NULL) {
+    *out_status = status;
+  }
+  if (out_bytes != NULL) {
+    *out_bytes = bytes;
+  }
+  esp_http_client_cleanup(client);
+
+  if (ret != ESP_OK) {
+    ESP_LOGW(TAG, "http probe failed url=%s err=%s status=%d", url, esp_err_to_name(ret), status);
+    return false;
+  }
+  ESP_LOGI(TAG, "http probe ok url=%s status=%d bytes=%d", url, status, bytes);
+  return status >= 200 && status < 400;
 }
 
 astrolabe_p4_network_status_t astrolabe_p4_network_status(void) {

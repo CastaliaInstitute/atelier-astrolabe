@@ -9,6 +9,12 @@
 #include <string>
 #include <ctime>
 
+#if defined(ASTROLABE_P4_TARGET)
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+#include "freertos/task.h"
+#endif
+
 #define HIGH 1
 #define LOW 0
 #define OUTPUT 1
@@ -65,6 +71,7 @@ class String : public std::string {
   }
 };
 
+#if !defined(ASTROLABE_P4_TARGET)
 using TaskHandle_t = void *;
 using SemaphoreHandle_t = void *;
 using BaseType_t = int;
@@ -82,3 +89,4 @@ inline int xTaskCreatePinnedToCore(void (*)(void *), const char *, uint32_t, voi
 }
 inline uint32_t ulTaskNotifyTake(int, uint32_t) { return 0; }
 inline void xTaskNotify(TaskHandle_t, uint32_t, int) {}
+#endif

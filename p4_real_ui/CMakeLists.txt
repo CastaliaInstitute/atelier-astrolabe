@@ -12,6 +12,7 @@ idf_component_register(
         "${ASTROLABE_WEB_SIM}/src/arduino_compat.cpp"
         "${ASTROLABE_WEB_SIM}/src/device_stubs.cpp"
         "${ASTROLABE_SKETCH}/pm_display.cpp"
+        "${ASTROLABE_SKETCH}/pm_heap.cpp"
         "${ASTROLABE_SKETCH}/pm_presence_graph.cpp"
         "${ASTROLABE_SKETCH}/third_party/qrcodegen/qrcodegen.c"
         ${ASTROLABE_FACE_SRCS}
@@ -27,7 +28,8 @@ idf_component_register(
         esp_timer
         esp_common
         heap
-        freertos)
+        freertos
+        espressif__libpng)
 
 target_compile_definitions(${COMPONENT_LIB} PRIVATE
     ASTROLABE_P4_TARGET=1

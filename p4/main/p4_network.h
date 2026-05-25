@@ -27,6 +27,8 @@ bool astrolabe_p4_network_save_credentials(const char *ssid, const char *pass);
 bool astrolabe_p4_network_forget_credentials(void);
 void astrolabe_p4_network_log_status(void);
 void astrolabe_p4_network_scan(void);
+bool astrolabe_p4_network_dns_probe(const char *host, char *out_ip, size_t out_ip_size);
+bool astrolabe_p4_network_http_probe(const char *url, int *out_status, int *out_bytes);
 astrolabe_p4_network_status_t astrolabe_p4_network_status(void);
 
 #ifdef __cplusplus

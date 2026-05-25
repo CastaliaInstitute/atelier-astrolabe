@@ -5,7 +5,8 @@ idf_component_register(
         "p4_network.c"
         "p4_screen_http.c"
         "p4_settings.c"
-    INCLUDE_DIRS "." "../../include"
+        "p4_voice.c"
+    INCLUDE_DIRS "." "../../include" "../../lib/minimp3"
     REQUIRES
         p4_real_ui
         esp_timer
@@ -13,7 +14,10 @@ idf_component_register(
         esp_wifi
         esp_netif
         esp_event
+        esp_http_client
         esp_http_server
+        esp-tls
+        mbedtls
         esp_driver_uart
         esp_driver_gpio
         esp_driver_i2s

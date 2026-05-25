@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Copy generated 720px Major Arcana art into the P4 SD-card layout.
+"""Prepare full-resolution tarot deck art for the P4 SD-card layout.
 
-Source files come from the sibling tarot repo's generated round deck:
+Source files come from the sibling tarot repo's generated round deck masters:
   ../tarot/docs/assets/deck/720/major-00-fool.png
+  ../tarot/docs/assets/deck/720/wands-01-ace-wands.png
 
 The firmware reads:
   /sdcard/astrolabe/tarot/720/major-00-fool.png
+  /sdcard/astrolabe/tarot/720/wands-01-ace-wands.png
 """
 
 from __future__ import annotations
@@ -14,31 +16,8 @@ import argparse
 import shutil
 from pathlib import Path
 
+from PIL import Image
 
-CARDS = [
-    "fool",
-    "magician",
-    "priestess",
-    "empress",
-    "emperor",
-    "hierophant",
-    "lovers",
-    "chariot",
-    "strength",
-    "hermit",
-    "fortune",
-    "justice",
-    "hanged",
-    "death",
-    "temperance",
-    "devil",
-    "tower",
-    "star",
-    "moon",
-    "sun",
-    "judgement",
-    "world",
-]
 
 def main() -> int:
     root = Path(__file__).resolve().parents[1]
@@ -47,7 +26,13 @@ def main() -> int:
         "--source",
         type=Path,
         default=root.parent / "tarot" / "docs" / "assets" / "deck" / "720",
-        help="Directory containing major-00-fool.png style 720px generated art.",
+        help="Directory containing generated deck PNGs.",
+    )
+    parser.add_argument(
+        "--size",
+        type=int,
+        default=720,
+        help="Output square size in pixels. The P4 4C display uses 720.",
     )
     parser.add_argument(
         "destination",
@@ -58,23 +43,31 @@ def main() -> int:
 
     source = args.source.expanduser().resolve()
     destination = args.destination.expanduser().resolve()
-    if destination.name != "720":
-        destination = destination / "astrolabe" / "tarot" / "720"
+    output_size = int(args.size)
+    if output_size <= 0:
+        raise ValueError("--size must be positive")
+    if destination.name != str(output_size):
+        destination = destination / "astrolabe" / "tarot" / str(output_size)
 
     if not source.is_dir():
         raise FileNotFoundError(source)
     destination.mkdir(parents=True, exist_ok=True)
 
     copied = 0
-    for number, slug in enumerate(CARDS):
-        name = f"major-{number:02d}-{slug}.png"
+    for src in sorted(source.glob("*.png")):
+        name = src.name
         src = source / name
-        if not src.exists():
-            raise FileNotFoundError(src)
-        shutil.copy2(src, destination / name)
+        dst = destination / name
+        with Image.open(src) as image:
+            image = image.convert("RGBA")
+            if image.size == (output_size, output_size):
+                shutil.copy2(src, dst)
+            else:
+                image = image.resize((output_size, output_size), Image.Resampling.LANCZOS)
+                image.save(dst, optimize=True)
         copied += 1
 
-    print(f"copied {copied} tarot assets to {destination}")
+    print(f"prepared {copied} tarot assets at {output_size}px from {source} to {destination}")
     return 0
 
 

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #include "lvgl.h"
@@ -28,6 +29,7 @@ int astrolabe_real_ui_parse_face_name(const char *name);
 int astrolabe_real_ui_width(void);
 int astrolabe_real_ui_height(void);
 const uint16_t *astrolabe_real_ui_framebuffer(void);
+bool astrolabe_real_ui_globe_load_png(const char *path, const char *source_url);
 
 #ifdef __cplusplus
 }

@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
 #include "esp_http_server.h"
 #include "esp_log.h"
@@ -44,7 +45,7 @@ static esp_err_t screen_bmp_get_handler(httpd_req_t *req) {
   const uint16_t *fb = astrolabe_real_ui_framebuffer();
   const int32_t src_w = astrolabe_real_ui_width();
   const int32_t src_h = astrolabe_real_ui_height();
-  const int32_t scale = 2;
+  const int32_t scale = 4;
   const int32_t w = src_w / scale;
   const int32_t h = src_h / scale;
   if (fb == NULL || src_w <= 0 || src_h <= 0 || w <= 0 || h <= 0 || src_w > 1024 || src_h > 1024) {
@@ -100,13 +101,91 @@ static esp_err_t screen_bmp_get_handler(httpd_req_t *req) {
     }
     ret = httpd_resp_send_chunk(req, (const char *)row, row_stride);
     if (ret != ESP_OK) {
+      ESP_LOGW(TAG, "screen.bmp send failed row=%ld/%ld err=%s", (long)yi, (long)h, esp_err_to_name(ret));
       free(row);
       return ret;
     }
   }
 
   free(row);
-  return httpd_resp_send_chunk(req, NULL, 0);
+  ret = httpd_resp_send_chunk(req, NULL, 0);
+  ESP_LOGI(TAG, "screen.bmp sent %ldx%ld bytes=%lu ret=%s", (long)w, (long)h, (unsigned long)file_size,
+           esp_err_to_name(ret));
+  return ret;
+}
+
+static bool valid_tarot_upload_name(const char *name) {
+  if (name == NULL) {
+    return false;
+  }
+  const size_t len = strlen(name);
+  if (len < 16 || strcmp(name + len - 4, ".png") != 0) {
+    return false;
+  }
+  if (strncmp(name, "major-", 6) != 0 && strncmp(name, "wands-", 6) != 0 && strncmp(name, "cups-", 5) != 0 &&
+      strncmp(name, "swords-", 7) != 0 && strncmp(name, "pentacles-", 10) != 0) {
+    return false;
+  }
+  for (size_t i = 0; i < len; ++i) {
+    const char c = name[i];
+    const bool ok = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '.';
+    if (!ok) {
+      return false;
+    }
+  }
+  return true;
+}
+
+static esp_err_t tarot_upload_put_handler(httpd_req_t *req) {
+  const char *name = req->uri + strlen("/upload/tarot/");
+  if (!valid_tarot_upload_name(name)) {
+    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "invalid tarot filename");
+    return ESP_OK;
+  }
+  if (req->content_len <= 0 || req->content_len > 1400000) {
+    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "invalid content length");
+    return ESP_OK;
+  }
+
+  (void)mkdir("/sdcard/astrolabe", 0775);
+  (void)mkdir("/sdcard/astrolabe/tarot", 0775);
+  (void)mkdir("/sdcard/astrolabe/tarot/720", 0775);
+
+  char path[128];
+  snprintf(path, sizeof(path), "/sdcard/astrolabe/tarot/720/%s", name);
+  FILE *fp = fopen(path, "wb");
+  if (fp == NULL) {
+    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "open failed");
+    return ESP_OK;
+  }
+
+  char buf[2048];
+  int remaining = req->content_len;
+  int written = 0;
+  while (remaining > 0) {
+    const int want = remaining < (int)sizeof(buf) ? remaining : (int)sizeof(buf);
+    const int got = httpd_req_recv(req, buf, want);
+    if (got <= 0) {
+      fclose(fp);
+      remove(path);
+      httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "receive failed");
+      return ESP_OK;
+    }
+    if (fwrite(buf, 1, got, fp) != (size_t)got) {
+      fclose(fp);
+      remove(path);
+      httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "write failed");
+      return ESP_OK;
+    }
+    remaining -= got;
+    written += got;
+  }
+  fclose(fp);
+
+  ESP_LOGI(TAG, "uploaded tarot asset %s bytes=%d", path, written);
+  httpd_resp_set_type(req, "text/plain");
+  httpd_resp_sendstr(req, "ok\n");
+  return ESP_OK;
 }
 
 esp_err_t astrolabe_p4_screen_http_start(void) {
@@ -115,6 +194,9 @@ esp_err_t astrolabe_p4_screen_http_start(void) {
   }
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
   config.lru_purge_enable = true;
+  config.uri_match_fn = httpd_uri_match_wildcard;
+  config.send_wait_timeout = 30;
+  config.recv_wait_timeout = 10;
   esp_err_t ret = httpd_start(&s_httpd, &config);
   if (ret != ESP_OK) {
     ESP_LOGE(TAG, "screen HTTP start failed: %s", esp_err_to_name(ret));
@@ -133,8 +215,15 @@ esp_err_t astrolabe_p4_screen_http_start(void) {
       .handler = screen_bmp_get_handler,
       .user_ctx = NULL,
   };
+  const httpd_uri_t tarot_upload = {
+      .uri = "/upload/tarot/*",
+      .method = HTTP_PUT,
+      .handler = tarot_upload_put_handler,
+      .user_ctx = NULL,
+  };
   ESP_ERROR_CHECK_WITHOUT_ABORT(httpd_register_uri_handler(s_httpd, &root));
   ESP_ERROR_CHECK_WITHOUT_ABORT(httpd_register_uri_handler(s_httpd, &screen));
+  ESP_ERROR_CHECK_WITHOUT_ABORT(httpd_register_uri_handler(s_httpd, &tarot_upload));
   astrolabe_p4_network_status_t net = astrolabe_p4_network_status();
   ESP_LOGI(TAG, "screen HTTP ready: http://%s/screen.bmp", net.ip);
   return ESP_OK;
