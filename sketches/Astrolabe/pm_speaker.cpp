@@ -1,6 +1,7 @@
 #include "pm_speaker.h"
 
 #include <WiFiClient.h>
+#include <Wire.h>
 #include <math.h>
 #include <string.h>
 
@@ -37,7 +38,9 @@ static constexpr int kSpeakerVolume = 70;
 static uint32_t s_max_play_seconds = 180u;
 
 static es8311_handle_t s_es = nullptr;
+static uint16_t s_es_addr = 0;
 static bool s_es_inited = false;
+static bool s_i2s_tx_installed = false;
 
 static TaskHandle_t s_speaker_task = nullptr;
 static volatile bool s_spk_task_busy = false;
@@ -81,11 +84,49 @@ static volatile uint32_t s_play_pcm_hz = 0;
 static volatile bool s_tone_stop = false;
 static volatile bool s_http_mp3_stream_active = false;
 
+static bool i2c_addr_ack(uint8_t addr) {
+  Wire.beginTransmission(addr);
+  return Wire.endTransmission() == 0;
+}
+
+static uint16_t es8311_probe_addr() {
+  if (i2c_addr_ack(ES8311_ADDRESS_0)) {
+    return ES8311_ADDRESS_0;
+  }
+  if (i2c_addr_ack(ES8311_ADDRESS_1)) {
+    return ES8311_ADDRESS_1;
+  }
+  return 0;
+}
+
 static esp_err_t es8311_board_init(int sample_hz) {
+#if defined(ASTROLABE_AUDIO_CODEC_PCM5101)
+  (void)sample_hz;
+#if defined(ASTROLABE_WAVESHARE_S3_185)
+  static bool s_pcm5101_logged = false;
+  if (!s_pcm5101_logged) {
+    Serial.printf("speaker: PCM5101 pins bclk=%d lrck=%d dout=%d mclk=%d\n", PIN_I2S_BCLK, PIN_I2S_LRCK,
+                  PIN_I2S_DOUT, PIN_I2S_MCLK);
+    s_pcm5101_logged = true;
+  }
+#endif
+  return ESP_OK;
+#else
+  const uint16_t addr = es8311_probe_addr();
+  ESP_RETURN_ON_FALSE(addr != 0, ESP_FAIL, TAG, "es8311 probe");
+  if (s_es && s_es_addr != addr) {
+    es8311_delete(s_es);
+    s_es = nullptr;
+    s_es_inited = false;
+  }
   if (!s_es) {
-    s_es = es8311_create(I2C_NUM_0, ES8311_ADDRESS_0);
+    s_es_addr = addr;
+    s_es = es8311_create(I2C_NUM_0, s_es_addr);
     ESP_RETURN_ON_FALSE(s_es, ESP_FAIL, TAG, "es8311_create");
   }
+#if defined(ASTROLABE_I2C_DEBUG)
+  Serial.printf("speaker: ES8311 addr=0x%02x sample=%d\n", static_cast<unsigned>(s_es_addr), sample_hz);
+#endif
   es8311_clock_config_t clk = {
       .mclk_inverted = false,
       .sclk_inverted = false,
@@ -100,18 +141,24 @@ static esp_err_t es8311_board_init(int sample_hz) {
     ESP_RETURN_ON_ERROR(es8311_microphone_config(s_es, false), TAG, "mic off");
     ESP_RETURN_ON_ERROR(es8311_voice_volume_set(s_es, kSpeakerVolume, nullptr), TAG, "vol");
     ESP_RETURN_ON_ERROR(es8311_microphone_gain_set(s_es, ES8311_MIC_GAIN_6DB), TAG, "mg");
+#if PA >= 0
     ESP_RETURN_ON_ERROR(gpio_set_direction((gpio_num_t)PA, GPIO_MODE_OUTPUT), TAG, "pa dir");
     ESP_RETURN_ON_ERROR(gpio_set_level((gpio_num_t)PA, 1), TAG, "pa on");
+#endif
     s_es_inited = true;
   } else {
     ESP_RETURN_ON_ERROR(
         es8311_sample_frequency_config(s_es, clk.mclk_frequency, clk.sample_frequency), TAG, "sf2");
   }
   return ESP_OK;
+#endif
 }
 
 static void i2s_tx_stop() {
-  i2s_driver_uninstall(I2S_TX);
+  if (s_i2s_tx_installed) {
+    i2s_driver_uninstall(I2S_TX);
+    s_i2s_tx_installed = false;
+  }
 }
 
 static esp_err_t i2s_tx_begin(int sample_hz, int channels) {
@@ -142,14 +189,24 @@ static esp_err_t i2s_tx_begin(int sample_hz, int channels) {
                   static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)));
     return install_err;
   }
+  s_i2s_tx_installed = true;
 
   i2s_pin_config_t pin = {};
-  pin.bck_io_num = PIN_ES7210_BCLK;
-  pin.ws_io_num = PIN_ES7210_LRCK;
-  pin.data_out_num = PIN_ES8311_DOUT;
-  pin.mck_io_num = PIN_ES7210_MCLK;
-  ESP_RETURN_ON_ERROR(i2s_set_pin(I2S_TX, &pin), TAG, "i2s pins");
+  pin.bck_io_num = PIN_I2S_BCLK;
+  pin.ws_io_num = PIN_I2S_LRCK;
+  pin.data_out_num = PIN_I2S_DOUT;
+  pin.mck_io_num = PIN_I2S_MCLK;
+  const esp_err_t pin_err = i2s_set_pin(I2S_TX, &pin);
+  if (pin_err != ESP_OK) {
+    s_i2s_tx_installed = true;
+    i2s_tx_stop();
+    ESP_RETURN_ON_ERROR(pin_err, TAG, "i2s pins");
+  }
   i2s_zero_dma_buffer(I2S_TX);
+#if defined(ASTROLABE_WAVESHARE_S3_185)
+  Serial.printf("speaker: i2s tx ready sample=%d channels=%d bclk=%d lrck=%d dout=%d\n", sample_hz, channels,
+                PIN_I2S_BCLK, PIN_I2S_LRCK, PIN_I2S_DOUT);
+#endif
   return ESP_OK;
 }
 
@@ -163,12 +220,15 @@ static esp_err_t i2s_write_all(const int16_t *pcm, size_t total_s16) {
   while (remain > 0) {
     esp_task_wdt_reset();
     size_t wrote = 0;
-    if (i2s_write(I2S_TX, p, remain, &wrote, portMAX_DELAY) != ESP_OK) {
+    const esp_err_t err = i2s_write(I2S_TX, p, remain, &wrote, pdMS_TO_TICKS(250));
+    if (err != ESP_OK) {
+      Serial.printf("speaker: i2s write err=%d remain=%u wrote=%u\n", static_cast<int>(err),
+                    static_cast<unsigned>(remain), static_cast<unsigned>(wrote));
       return ESP_FAIL;
     }
     if (wrote == 0) {
-      taskYIELD();
-      continue;
+      Serial.printf("speaker: i2s write timeout remain=%u\n", static_cast<unsigned>(remain));
+      return ESP_ERR_TIMEOUT;
     }
     p += wrote;
     remain -= wrote;
@@ -245,7 +305,7 @@ static void bowl_add_voice(float hz, float amp) {
 static bool play_bowl_voice_streaming(void) {
   pm_mic_stop();
 
-  static constexpr int kToneHz = 22050;
+  static constexpr int kToneHz = 44100;
   static constexpr uint32_t kFrame = 512u;
 
   if (es8311_board_init(kToneHz) != ESP_OK) {
@@ -409,7 +469,7 @@ static bool play_tone_streaming(float hz, uint32_t duration_ms) {
   const bool until_stop = (duration_ms == 0);
   pm_mic_stop();
 
-  static constexpr int kToneHz = 22050;
+  static constexpr int kToneHz = 44100;
   if (es8311_board_init(kToneHz) != ESP_OK) {
     ESP_LOGW(TAG, "es8311 init failed (tone)");
     return false;
@@ -467,13 +527,13 @@ static bool play_tone_streaming(float hz, uint32_t duration_ms) {
         --stop_fade_left;
       }
       const float s =
-          sinf(static_cast<float>(phase)) * 0.82f * env +
-          sinf(static_cast<float>(phase * 2.0)) * 0.12f * env;
+          sinf(static_cast<float>(phase)) * 0.88f * env +
+          sinf(static_cast<float>(phase * 2.0)) * 0.10f * env;
       phase += phase_inc;
       if (phase > 2.0 * 3.14159265358979323846) {
         phase -= 2.0 * 3.14159265358979323846;
       }
-      int16_t v = static_cast<int16_t>(s * 28000.f);
+      int16_t v = static_cast<int16_t>(s * 31000.f);
       if (v > 30000) {
         v = 30000;
       } else if (v < -30000) {
@@ -501,6 +561,8 @@ static bool play_tone_streaming(float hz, uint32_t duration_ms) {
   } else {
     ESP_LOGI(TAG, "tone %.1f Hz ~%u ms", static_cast<double>(hz), duration_ms);
   }
+  Serial.printf("speaker: tone done hz=%.1f frames=%u sample=%d ok=1\n", static_cast<double>(hz),
+                static_cast<unsigned>(written), kToneHz);
   return true;
 }
 

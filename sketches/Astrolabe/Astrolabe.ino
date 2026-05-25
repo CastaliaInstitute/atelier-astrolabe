@@ -43,6 +43,7 @@
 #include "faces/astrology/pm_face_astrology.h"
 #include "faces/biometrics/pm_face_biometrics.h"
 #include "faces/bongo/pm_face_bongo.h"
+#include "faces/cauldron/pm_face_cauldron.h"
 #include "faces/chakra/pm_face_chakra.h"
 #include "faces/ocarina/pm_face_ocarina.h"
 #include "faces/pandrum/pm_face_pandrum.h"
@@ -96,16 +97,85 @@
 Arduino_DataBus *bus = new Arduino_ESP32QSPI(
     LCD_CS, LCD_SCLK, LCD_SDIO0, LCD_SDIO1, LCD_SDIO2, LCD_SDIO3);
 
+#if defined(ASTROLABE_WAVESHARE_S3_185)
+Arduino_ST77916 *tft = new Arduino_ST77916(
+    bus, LCD_RESET, 0, true, LCD_WIDTH, LCD_HEIGHT, 0, 0, 0, 0);
+#else
 Arduino_CO5300 *tft = new Arduino_CO5300(
     bus, LCD_RESET, 0, false, LCD_WIDTH, LCD_HEIGHT, 6, 0, 0, 0);
+#endif
 /** Portable framebuffer facade; flush() pushes pixels to the CO5300 (enables WiFi BMP grab). */
 PmDisplayCanvas *gfx = new PmDisplayCanvas(LCD_WIDTH, LCD_HEIGHT, tft);
 
+#if defined(ASTROLABE_WAVESHARE_S3_185)
+static bool tca9554_write(uint8_t reg, uint8_t value) {
+  Wire.beginTransmission(MYNAH_TCA9554_ADDR);
+  Wire.write(reg);
+  Wire.write(value);
+  return Wire.endTransmission() == 0;
+}
+
+static bool tca9554_read(uint8_t reg, uint8_t *value) {
+  if (!value) {
+    return false;
+  }
+  Wire.beginTransmission(MYNAH_TCA9554_ADDR);
+  Wire.write(reg);
+  if (Wire.endTransmission() != 0) {
+    return false;
+  }
+  if (Wire.requestFrom(MYNAH_TCA9554_ADDR, 1) != 1) {
+    return false;
+  }
+  *value = Wire.read();
+  return true;
+}
+
+static void tca9554_set_pin(uint8_t pin, bool high) {
+  uint8_t out = 0;
+  (void)tca9554_read(0x01, &out);
+  const uint8_t mask = static_cast<uint8_t>(1u << (pin - 1u));
+  out = high ? static_cast<uint8_t>(out | mask) : static_cast<uint8_t>(out & ~mask);
+  (void)tca9554_write(0x01, out);
+}
+
+static void astrolabe_board_pre_display_begin() {
+  (void)tca9554_write(0x03, 0x00);
+  tca9554_set_pin(MYNAH_EXIO_TOUCH_RST, true);
+  tca9554_set_pin(MYNAH_EXIO_LCD_RST, false);
+  delay(10);
+  tca9554_set_pin(MYNAH_EXIO_LCD_RST, true);
+  delay(120);
+  pinMode(LCD_BL, OUTPUT);
+  analogWrite(LCD_BL, 200);
+}
+#endif
+
+#if defined(ASTROLABE_I2C_DEBUG)
+static void astrolabe_i2c_scan(const char *label) {
+  Serial.printf("i2c: scan %s", label ? label : "");
+  uint8_t found = 0;
+  for (uint8_t addr = 1; addr < 0x7f; ++addr) {
+    Wire.beginTransmission(addr);
+    if (Wire.endTransmission() == 0) {
+      Serial.printf(" 0x%02x", addr);
+      ++found;
+    }
+    delay(1);
+  }
+  Serial.printf(" (%u found)\n", static_cast<unsigned>(found));
+}
+#endif
+
 static void astrolabe_set_brightness(uint8_t brightness) {
 #ifndef ASTROLABE_QEMU
+#if defined(ASTROLABE_WAVESHARE_S3_185)
+  analogWrite(LCD_BL, brightness);
+#else
   if (tft) {
     tft->setBrightness(brightness);
   }
+#endif
 #else
   (void)brightness;
 #endif
@@ -738,6 +808,8 @@ static bool face_index_from_name(const char *name, int *out) {
   } k[] = {
       {"classic", ClockFace::ClassicAnalog}, {"hue", ClockFace::ClassicAnalog},
       {"analog", ClockFace::ClassicAnalog}, {"apocalypso", ClockFace::Apocalypso},
+      {"cauldron", ClockFace::Cauldron}, {"pot", ClockFace::Cauldron},
+      {"brew", ClockFace::Cauldron}, {"swirl", ClockFace::Cauldron},
       {"digital", ClockFace::DigitalLocal}, {"spotify", ClockFace::Spotify},
       {"astro", ClockFace::Astrology}, {"astrology", ClockFace::Astrology},
       {"moon", ClockFace::Moon}, {"calcifer", ClockFace::CalciferCountdown},
@@ -814,6 +886,9 @@ struct FaceTourInfo {
 };
 
 static const FaceTourInfo k_face_tour[] = {
+    {ClockFace::Cauldron, "cauldron", "dynamic vapor cauldron with drag-stirred swirls",
+     "a simmering cauldron meditation",
+     "drawing locally", "drawing locally", false, false},
     {ClockFace::ClassicAnalog, "classic", "hue home clock with breathing gem pulse", "a short daily orientation from the home clock",
      "drawing locally", "heap is low", false, false},
     {ClockFace::Apocalypso, "apocalypso", "watch-style day wheel and local time", "a brief reading of the day wheel and risk-radar mood",
@@ -1117,6 +1192,11 @@ static bool face_voice_build_prompt(const FaceTourInfo *info, char *msg, size_t 
            "is a test unless something is unavailable, and never claim certainty or fixed fate.");
 
   switch (face) {
+    case ClockFace::Cauldron:
+      snprintf(msg, msg_cap,
+               "Face: cauldron. Current state: black-background vapor simulation with drag-stirred swirls. "
+               "Give a short simmering meditation cue about motion, breath, and attention.");
+      break;
     case ClockFace::ClassicAnalog:
       snprintf(msg, msg_cap,
                "Face: classic home clock. Current state: %s; %s. Give a short daily orientation grounded in "
@@ -1938,6 +2018,24 @@ static void poll_serial_birth_commands() {
           Serial.printf("qa: tone %s\n", pm_speaker_play_tone_begin(528.f, 1200u) ? "started" : "failed");
         } else if (strcmp(args, "bowl") == 0) {
           Serial.printf("qa: bowl %s\n", pm_speaker_bowl_voice_test(320.f, 1800u) ? "done" : "failed");
+        } else if (strncmp(args, "spotify", 7) == 0 && (args[7] == '\0' || args[7] == ' ')) {
+          const char *action = args + 7;
+          while (*action == ' ') {
+            ++action;
+          }
+          if (*action == '\0') {
+            action = "status";
+          }
+          const bool ok = strcmp(action, "status") == 0
+                              ? pm_spotify_refresh(&g_spotify_ui)
+                              : pm_spotify_command(action, &g_spotify_ui);
+          pm_face_spotify_sync_hub(&g_spotify_ui, ok);
+          s_last_spotify_poll_ms = millis();
+          s_spotify_have_data = true;
+          Serial.printf("qa: spotify %s ok=%d playing=%d device=\"%s\" track=\"%s\" artist=\"%s\" err=\"%s\"\n",
+                        action, g_spotify_ui.ok ? 1 : 0, g_spotify_ui.is_playing ? 1 : 0,
+                        g_spotify_ui.device, g_spotify_ui.track, g_spotify_ui.artist,
+                        g_spotify_ui.error);
         } else if (strcmp(args, "faces") == 0) {
           Serial.printf("qa: faces=%d tour=%d\n", static_cast<int>(ClockFace::kNumFaces), face_tour_count());
           for (int i = 0; i < face_tour_count(); ++i) {
@@ -1947,7 +2045,7 @@ static void poll_serial_birth_commands() {
         } else if (strncmp(args, "tour", 4) == 0 && (args[4] == '\0' || args[4] == ' ')) {
           handle_tour_command(args + 4);
         } else if (!pm_qa_inject_command(args)) {
-          Serial.println("qa: usage: status | heap | audio | time | briefing | tone | bowl | faces | tour [narrate|tts] [dwell_ms] | tour stop | inject …");
+          Serial.println("qa: usage: status | heap | audio | time | briefing | tone | bowl | spotify [status|play|stop|next|previous] | faces | tour [narrate|tts] [dwell_ms] | tour stop | inject …");
         }
       } else if (strncmp(line, "face ", 5) == 0) {
         s_face_tour_active = false;
@@ -2106,7 +2204,16 @@ void setup() {
   }
 
 #ifndef ASTROLABE_QEMU
-  Wire.begin(IIC_SDA, IIC_SCL);
+  Wire.begin(IIC_SDA, IIC_SCL, 400000);
+#if defined(ASTROLABE_I2C_DEBUG)
+  astrolabe_i2c_scan("after Wire.begin");
+#endif
+#if defined(ASTROLABE_WAVESHARE_S3_185)
+  astrolabe_board_pre_display_begin();
+#if defined(ASTROLABE_I2C_DEBUG)
+  astrolabe_i2c_scan("after board reset");
+#endif
+#endif
 #endif
 
 #if !defined(ASTROLABE_UAC_DISABLED) && defined(CONFIG_UAC_SPEAKER_CHANNEL_NUM) && CONFIG_UAC_SPEAKER_CHANNEL_NUM > 0
@@ -2133,7 +2240,11 @@ void setup() {
       delay(1000);
     }
   }
+#if defined(ASTROLABE_WAVESHARE_S3_185)
+  analogWrite(LCD_BL, 200);
+#else
   tft->setBrightness(200);
+#endif
   pm_power_begin(astrolabe_set_brightness);
   gfx->fillScreen(RGB565_BLACK);
   gfx->flush();
@@ -2201,6 +2312,12 @@ void loop() {
       g_clock_repaint_pending = true;
     }
   }
+  if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Cauldron) {
+    if (pm_face_cauldron_touch_tick(now)) {
+      pm_power_note_activity(now);
+      g_clock_repaint_pending = true;
+    }
+  }
 
   PmGestureEvent ge;
   while (pm_gesture_consume(&ge)) {
@@ -2246,6 +2363,16 @@ void loop() {
       }
     }
     if (g_state == AppState::kClock && pm_faces_is_commonplace_home() &&
+        ge.kind == PmGestureKind::SwipeDown) {
+      pm_faces_open_settings();
+      g_gesture_banner[0] = '\0';
+      g_clock_repaint_pending = false;
+      if (pm_gfx) {
+        pm_faces_draw();
+      }
+      continue;
+    }
+    if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Cauldron &&
         ge.kind == PmGestureKind::SwipeDown) {
       pm_faces_open_settings();
       g_gesture_banner[0] = '\0';
@@ -2331,6 +2458,14 @@ void loop() {
         continue;
       }
     }
+#if defined(ASTROLABE_WAVESHARE_S3_185)
+    if (g_state == AppState::kClock && !pm_faces_navigation_mode() &&
+        (ge.kind == PmGestureKind::SwipeLeft || ge.kind == PmGestureKind::SwipeRight)) {
+      const int delta = gesture_navigation_delta(ge.kind);
+      (void)gesture_cycle_face(delta);
+      continue;
+    }
+#endif
     if (g_state == AppState::kClock &&
         pm_audio_route_handle_gesture(ge.kind, pm_faces_current(), g_gesture_banner,
                                       sizeof(g_gesture_banner))) {
@@ -2833,6 +2968,8 @@ void loop() {
 
       const bool chakra_anim =
           pm_faces_current() == ClockFace::Chakra && pm_face_chakra_anim_tick(now);
+      const bool cauldron_anim =
+          pm_faces_current() == ClockFace::Cauldron && pm_face_cauldron_anim_tick(now);
       const bool bowl_anim =
           pm_faces_current() == ClockFace::TibetanBowl && pm_face_tibetan_bowl_anim_tick(now);
       const bool ocarina_anim =
@@ -2861,6 +2998,7 @@ void loop() {
           pm_faces_current() == ClockFace::ClassicAnalog && pm_home_gem_pulse_enabled();
       const bool sec_tick_paint =
           sec_tick && !pm_faces_castalia_active() && pm_faces_current() != ClockFace::Settings &&
+          pm_faces_current() != ClockFace::Cauldron &&
           pm_faces_current() != ClockFace::CalciferCountdown &&
           pm_faces_current() != ClockFace::Synastry && pm_faces_current() != ClockFace::Spectrum &&
           pm_faces_current() != ClockFace::Chakra && pm_faces_current() != ClockFace::TibetanBowl &&
@@ -2904,7 +3042,7 @@ void loop() {
       const bool non_gem_paint = !s_clock_paint_inited || slow_no_time || banner_chg || wifi_chg ||
                                  g_clock_repaint_pending || local_hm_chg || spotify_stale || calcifer_stale ||
                                  weather_stale || quotes_face_stale || quotes_preload_due || rocket_stale || sec_tick_paint || calcifer_sec || rocket_sec ||
-                                 astro_repaint || spectrum_anim || chakra_anim || bowl_anim || ocarina_anim || bongo_anim ||
+                                 astro_repaint || spectrum_anim || chakra_anim || cauldron_anim || bowl_anim || ocarina_anim || bongo_anim ||
                                  piano_anim || pandrum_anim || alethiometer_anim || radar_anim || biometrics_anim ||
                                  level_anim || faculty_anim || focus_anim || globe_anim || sky_anim || settings_status_paint;
 #if MYNAH_HUE_HOME_ONLY

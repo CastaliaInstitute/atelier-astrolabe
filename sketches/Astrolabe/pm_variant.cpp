@@ -13,6 +13,7 @@ static bool valid_variant(uint8_t value) {
 
 static bool face_is_astrolabe(ClockFace face) {
   switch (face) {
+    case ClockFace::Cauldron:
     case ClockFace::ClassicAnalog:
     case ClockFace::DigitalLocal:
     case ClockFace::Apocalypso:
@@ -165,6 +166,9 @@ const char *pm_variant_summary(PmDeviceVariant variant) {
 }
 
 ClockFace pm_variant_home_face(void) {
+#if defined(ASTROLABE_WAVESHARE_S3_185)
+  return ClockFace::Cauldron;
+#endif
   switch (s_variant) {
     case PmDeviceVariant::Pocket:
     case PmDeviceVariant::Astrolabe:

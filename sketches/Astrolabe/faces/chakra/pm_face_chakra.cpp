@@ -46,7 +46,7 @@ static uint16_t chakra_color(const ChakraDef &c, float dim) {
 }
 
 static bool chakra_audio_active(void) {
-  return s_ripple_active || pm_speaker_bowl_voice_active();
+  return s_ripple_active || pm_speaker_is_playing();
 }
 
 static void chakra_advance_wave(uint32_t now_ms, float hz) {
@@ -67,8 +67,7 @@ static void chakra_advance_wave(uint32_t now_ms, float hz) {
 
 void pm_face_chakra_draw(void) {
   const ChakraDef &ch = kChakras[s_index];
-  const uint16_t bg = pm_gfx->color565(6, 6, 10);
-  pm_gfx->fillScreen(bg);
+  pm_gfx->fillScreen(0x0000);
 
   const bool waves = chakra_audio_active();
   float pulse = 0.78f;
@@ -77,7 +76,7 @@ void pm_face_chakra_draw(void) {
   }
   pm_face_draw_chakra_gem(kCx, kCy, kGemRadius, ch.r, ch.g, ch.b, pulse, s_wave_phase, ch.hz, waves);
 
-  const bool playing = pm_speaker_bowl_voice_active();
+  const bool playing = pm_speaker_is_playing();
   pm_chakra_draw_glyph(pm_gfx, kCx, kCy, s_index, chakra_color(ch, 1.f), playing);
 
   char label[24];
@@ -90,7 +89,7 @@ void pm_face_chakra_draw(void) {
 }
 
 static void chakra_stop_tone(void) {
-  pm_speaker_bowl_voice_stop();
+  pm_speaker_abort();
   s_ripple_active = false;
 }
 
@@ -100,14 +99,7 @@ static bool chakra_strike_current(void) {
   s_ripple_start = millis();
   s_wave_phase = 0.f;
   s_wave_last_ms = 0;
-  PmBowlVoiceCtrl strike = {};
-  strike.target_hz = ch.hz;
-  strike.center_strike = true;
-  strike.excitation = 1.f;
-  strike.brightness = 0.78f;
-  strike.rim_quality = 0.8f;
-  pm_speaker_bowl_voice_push(strike);
-  return true;
+  return pm_speaker_play_tone_begin(ch.hz, 2400);
 }
 
 int pm_face_chakra_cycle(int delta) {
@@ -130,7 +122,7 @@ bool pm_face_chakra_anim_tick(uint32_t now_ms) {
     return false;
   }
 
-  const bool playing = pm_speaker_bowl_voice_active();
+  const bool playing = pm_speaker_is_playing();
   const uint32_t interval = playing ? 90u : 140u;
   if (now_ms - s_last_anim_ms < interval) {
     return false;

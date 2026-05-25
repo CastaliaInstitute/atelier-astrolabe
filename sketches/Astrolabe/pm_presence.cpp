@@ -14,7 +14,7 @@
 
 #include <esp_mac.h>
 
-#if !defined(ASTROLABE_QEMU) && __has_include(<BLEDevice.h>)
+#if !defined(ASTROLABE_QEMU) && !defined(ASTROLABE_WAVESHARE_S3_185) && __has_include(<BLEDevice.h>)
 #include <BLEAdvertisedDevice.h>
 #include <BLEDevice.h>
 #include <BLEScan.h>

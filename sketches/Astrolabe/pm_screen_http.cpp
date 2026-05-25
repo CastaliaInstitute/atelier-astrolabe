@@ -1,5 +1,13 @@
 #include "pm_screen_http.h"
 
+#if defined(ASTROLABE_WAVESHARE_S3_185)
+
+void pm_screen_http_begin(PmDisplayCanvas *canvas) { (void)canvas; }
+
+void pm_screen_http_loop() {}
+
+#else
+
 #include <WebServer.h>
 #include <WiFi.h>
 #include <cstring>
@@ -203,3 +211,5 @@ void pm_screen_http_loop() {
   }
   s_server.handleClient();
 }
+
+#endif

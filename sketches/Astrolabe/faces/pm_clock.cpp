@@ -13,6 +13,7 @@
 #include "faces/bongo/pm_face_bongo.h"
 #include "faces/calcifer/pm_face_calcifer.h"
 #include "faces/castalia/pm_face_castalia.h"
+#include "faces/cauldron/pm_face_cauldron.h"
 #include "faces/chakra/pm_face_chakra.h"
 #include "faces/classic_analog/pm_face_classic_analog.h"
 #include "faces/digital/pm_face_digital.h"
@@ -62,6 +63,7 @@ static bool pm_faces_skip_in_dial(ClockFace face) {
 
 static const ClockFace k_face_dial_order[] = {
     // Astrolabe / Pocket: orientation, time, presence, and daily rhythm.
+    ClockFace::Cauldron,
     ClockFace::ClassicAnalog,
     ClockFace::DigitalLocal,
     ClockFace::Apocalypso,
@@ -109,7 +111,11 @@ static const ClockFace k_face_dial_order[] = {
     ClockFace::Luopan,
 };
 
+#if defined(ASTROLABE_WAVESHARE_S3_185)
+static ClockFace s_clock_face = ClockFace::Cauldron;
+#else
 static ClockFace s_clock_face = ClockFace::ClassicAnalog;
+#endif
 static uint16_t s_clock_bg565 = 0;
 static int s_analog_saved_local_h = -1;
 static int s_analog_saved_local_m = -1;
@@ -172,6 +178,9 @@ static float pm_faces_home_hue_deg(void) {
 static void pm_faces_on_leave(ClockFace from, ClockFace to) {
   (void)to;
   switch (from) {
+    case ClockFace::Cauldron:
+      pm_face_cauldron_on_leave();
+      break;
     case ClockFace::Spotify:
       memset(&g_spotify_ui, 0, sizeof(g_spotify_ui));
       break;
@@ -242,6 +251,9 @@ static void pm_faces_on_leave(ClockFace from, ClockFace to) {
 static void pm_faces_on_enter(ClockFace face, ClockFace from) {
   (void)from;
   switch (face) {
+    case ClockFace::Cauldron:
+      pm_face_cauldron_on_enter();
+      break;
     case ClockFace::Spectrum:
       pm_face_spectrum_on_enter();
       break;
@@ -338,7 +350,7 @@ void pm_faces_draw(float thinking_progress) {
   const uint16_t bg_hsv = pm_face_color565_from_hsv(pm_gfx, hue, pm_face_hsv_s, pm_face_hsv_v);
   uint16_t bg = bg_hsv;
   if (s_clock_face != ClockFace::Apocalypso && s_clock_face != ClockFace::LiveTransits &&
-      s_clock_face != ClockFace::CalciferCountdown &&
+      s_clock_face != ClockFace::CalciferCountdown && s_clock_face != ClockFace::Cauldron &&
       s_clock_face != ClockFace::Spectrum && s_clock_face != ClockFace::Chakra &&
       s_clock_face != ClockFace::TibetanBowl && s_clock_face != ClockFace::Rocket &&
       s_clock_face != ClockFace::Radar && s_clock_face != ClockFace::Biometrics && s_clock_face != ClockFace::Faculty &&
@@ -365,6 +377,9 @@ void pm_faces_draw(float thinking_progress) {
   }
 
   switch (s_clock_face) {
+    case ClockFace::Cauldron:
+      pm_face_cauldron_draw();
+      break;
     case ClockFace::ClassicAnalog:
       pm_face_classic_analog_draw(bg, &tm, pm_time_valid());
       break;
@@ -497,7 +512,8 @@ void pm_faces_draw(float thinking_progress) {
       break;
   }
 
-  const int banner_y = (s_clock_face == ClockFace::Apocalypso || s_clock_face == ClockFace::Spotify ||
+  const int banner_y = (s_clock_face == ClockFace::Cauldron ||
+                        s_clock_face == ClockFace::Apocalypso || s_clock_face == ClockFace::Spotify ||
                         s_clock_face == ClockFace::Astrology || s_clock_face == ClockFace::LiveTransits ||
                         s_clock_face == ClockFace::Moon ||
                         s_clock_face == ClockFace::CalciferCountdown || s_clock_face == ClockFace::Castalia ||
@@ -525,6 +541,7 @@ void pm_faces_draw(float thinking_progress) {
 
   /** Rainbow annulus last (Moon/Daywheel draw their own; skip Castalia — QR repaint was tripping WDT/stack). */
   if (!pm_faces_castalia_active() && s_clock_face != ClockFace::Moon &&
+      s_clock_face != ClockFace::Cauldron &&
       s_clock_face != ClockFace::Apocalypso && s_clock_face != ClockFace::Spotify &&
       s_clock_face != ClockFace::LiveTransits &&
       s_clock_face != ClockFace::CalciferCountdown && s_clock_face != ClockFace::Spectrum &&
@@ -573,7 +590,7 @@ void pm_faces_draw_home_gem_pulse(void) {
 
 bool pm_faces_banner_low(void) {
   const ClockFace f = s_clock_face;
-  return f == ClockFace::Apocalypso || f == ClockFace::Spotify || f == ClockFace::Astrology ||
+  return f == ClockFace::Cauldron || f == ClockFace::Apocalypso || f == ClockFace::Spotify || f == ClockFace::Astrology ||
          f == ClockFace::LiveTransits || f == ClockFace::Moon || f == ClockFace::CalciferCountdown || f == ClockFace::Castalia ||
          f == ClockFace::Settings || f == ClockFace::Synastry || f == ClockFace::Spectrum ||
          f == ClockFace::Chakra || f == ClockFace::TibetanBowl || f == ClockFace::Rocket ||
@@ -592,6 +609,7 @@ uint16_t pm_faces_last_bg565(void) { return s_clock_bg565; }
 
 bool pm_faces_local_hm_changed(int hour, int min) {
   if (s_clock_face == ClockFace::Settings || s_clock_face == ClockFace::Castalia ||
+      s_clock_face == ClockFace::Cauldron ||
       s_clock_face == ClockFace::LiveTransits || s_clock_face == ClockFace::Synastry || s_clock_face == ClockFace::Spectrum ||
       s_clock_face == ClockFace::Chakra || s_clock_face == ClockFace::TibetanBowl ||
       s_clock_face == ClockFace::Rocket || s_clock_face == ClockFace::Radar || s_clock_face == ClockFace::Biometrics ||

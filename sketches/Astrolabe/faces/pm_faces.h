@@ -6,6 +6,8 @@
 
 enum class ClockFace : uint8_t {
   ClassicAnalog = 0,
+  /** Dynamic cauldron: black iron bowl, gas-like swirling vapor, drag to stir. */
+  Cauldron,
   Apocalypso,
   DigitalLocal,
   Spotify,

@@ -20,18 +20,45 @@ if port_available "${UPLOAD_PORT:-}"; then
   exit 0
 fi
 
-if command -v pio >/dev/null 2>&1; then
-  while IFS= read -r line; do
-    if [[ "$line" == *"303A:1001"* ]]; then
-      want_port=1
-      continue
-    fi
-    if [[ "${want_port:-0}" == "1" ]] && [[ "$line" =~ ^(/dev/|COM[0-9]) ]]; then
-      echo "${line%% *}"
+esptool_python() {
+  if [[ -x "$HOME/.platformio/penv/bin/python" ]]; then
+    echo "$HOME/.platformio/penv/bin/python"
+    return 0
+  fi
+  if command -v python3 >/dev/null 2>&1; then
+    command -v python3
+    return 0
+  fi
+  return 1
+}
+
+is_esp32_s3_port() {
+  local port="$1"
+  local py
+  py="$(esptool_python)" || return 1
+  "$py" -m esptool --port "$port" chip_id 2>/dev/null | grep -q "Chip is ESP32-S3"
+}
+
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  shopt -s nullglob
+  candidates=(/dev/cu.usbmodem*)
+  shopt -u nullglob
+  if [[ ${#candidates[@]} -gt 1 ]]; then
+    s3_candidates=()
+    for dev in "${candidates[@]}"; do
+      if is_esp32_s3_port "$dev"; then
+        s3_candidates+=("$dev")
+      fi
+    done
+    if [[ ${#s3_candidates[@]} -eq 1 ]]; then
+      echo "${s3_candidates[0]}"
       exit 0
     fi
-    want_port=0
-  done < <(pio device list 2>/dev/null || true)
+    if [[ ${#s3_candidates[@]} -gt 1 ]]; then
+      echo "error: multiple ESP32-S3 usbmodem devices: ${s3_candidates[*]}; set ASTROLABE_UPLOAD_PORT" >&2
+      exit 1
+    fi
+  fi
 fi
 
 if [[ "$(uname -s)" == "Darwin" ]]; then

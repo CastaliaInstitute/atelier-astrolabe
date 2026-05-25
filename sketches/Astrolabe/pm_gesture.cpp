@@ -227,6 +227,50 @@ void pm_gesture_poll(uint32_t now_ms) {
   int16_t ys[5];
   const uint8_t n = pm_touch_sample(xs, ys, 5);
 
+#if defined(ASTROLABE_WAVESHARE_S3_185)
+  uint8_t hw_gesture = 0;
+  int16_t hw_x = 0;
+  int16_t hw_y = 0;
+  if (pm_touch_consume_hardware_gesture(&hw_gesture, &hw_x, &hw_y)) {
+    PmGestureKind kind = PmGestureKind::None;
+    switch (hw_gesture) {
+      case 0x01:
+        kind = PmGestureKind::SwipeUp;
+        break;
+      case 0x02:
+        kind = PmGestureKind::SwipeDown;
+        break;
+      case 0x03:
+        kind = PmGestureKind::SwipeLeft;
+        break;
+      case 0x04:
+        kind = PmGestureKind::SwipeRight;
+        break;
+      default:
+        break;
+    }
+    if (kind != PmGestureKind::None) {
+      PmGestureEvent ev = {};
+      ev.kind = kind;
+      ev.x = hw_x;
+      ev.y = hw_y;
+      q_push(ev);
+      g_down = n > 0;
+      g_t_down = now_ms;
+      g_x0 = hw_x;
+      g_y0 = hw_y;
+      g_last_cx = hw_x;
+      g_last_cy = hw_y;
+      g_madx = 0;
+      g_mady = 0;
+      g_max_pts = n;
+      g_chain = 0;
+      g_chain_deadline = 0;
+      return;
+    }
+  }
+#endif
+
   if (n == 0) {
     try_emit_chain_idle(now_ms);
     if (g_down) {

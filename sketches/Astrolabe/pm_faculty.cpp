@@ -896,6 +896,10 @@ bool pm_faculty_request_bust(const char *slug) {
     s_rise_start_ms = millis();
     return true;
   }
+#if defined(ASTROLABE_WAVESHARE_S3_185)
+  bust_set_error("network bust disabled");
+  return false;
+#endif
   if (!pm_wifi_connected()) {
     return false;
   }
@@ -920,6 +924,10 @@ bool pm_faculty_request_bust(const char *slug) {
 }
 
 bool pm_faculty_preload_busts(const char *quote_slug) {
+#if defined(ASTROLABE_WAVESHARE_S3_185)
+  (void)quote_slug;
+  return false;
+#else
   const uint32_t now = millis();
   if (s_bust_status == PmFacultyBustStatus::Working ||
       (s_last_preload_ms != 0 && now - s_last_preload_ms < kBustPreloadMinIntervalMs)) {
@@ -949,6 +957,7 @@ bool pm_faculty_preload_busts(const char *quote_slug) {
     return pm_faculty_request_bust(active.slug);
   }
   return false;
+#endif
 }
 
 PmFacultyBustStatus pm_faculty_bust_status(void) { return s_bust_status; }

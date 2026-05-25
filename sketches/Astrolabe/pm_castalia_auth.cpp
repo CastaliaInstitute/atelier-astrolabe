@@ -27,6 +27,9 @@ static const char kAt[] = "access_token";
 static const char kRt[] = "refresh_token";
 static const char kEx[] = "exp_ms";
 static const char kIndividual[] = "individual";
+static const char kPairId[] = "pair_id";
+static const char kPairSecret[] = "pair_secret";
+static const char kPairUrl[] = "pair_url";
 
 static Preferences s_pref;
 static bool s_inited = false;
@@ -77,6 +80,9 @@ static bool s_qr_modules_valid = false;
 static constexpr uint32_t kCastaliaHttpTimeoutMs = 12000;
 static constexpr uint32_t kCastaliaBodyReadMs = 10000;
 static constexpr uint32_t kCastaliaPollIntervalMs = 2000;
+
+static void build_signin_url();
+static void invalidate_qr_cache();
 
 static void trim_supabase_url(char *url, size_t cap) {
   if (!url || cap == 0) {
@@ -202,6 +208,39 @@ static bool read_small_json_body(HTTPClient *http, char *buf, size_t cap) {
   return rd > 0;
 }
 
+static void pair_clear_ram() {
+  s_pair_id[0] = '\0';
+  s_pair_secret[0] = '\0';
+  s_signin_url[0] = '\0';
+  invalidate_qr_cache();
+}
+
+static void prefs_clear_pairing() {
+  if (s_pref.begin(kNs, false)) {
+    s_pref.remove(kPairId);
+    s_pref.remove(kPairSecret);
+    s_pref.remove(kPairUrl);
+    s_pref.end();
+  }
+  pair_clear_ram();
+}
+
+static void prefs_save_pairing() {
+  if (!s_pref.begin(kNs, false)) {
+    return;
+  }
+  if (s_pair_id[0] != '\0' && s_pair_secret[0] != '\0' && s_signin_url[0] != '\0') {
+    s_pref.putString(kPairId, s_pair_id);
+    s_pref.putString(kPairSecret, s_pair_secret);
+    s_pref.putString(kPairUrl, s_signin_url);
+  } else {
+    s_pref.remove(kPairId);
+    s_pref.remove(kPairSecret);
+    s_pref.remove(kPairUrl);
+  }
+  s_pref.end();
+}
+
 static void prefs_load() {
   normalize_individual(MYNAH_CASTALIA_INDIVIDUAL_DEFAULT, s_individual_id, sizeof(s_individual_id));
   if (s_individual_id[0] == '\0') {
@@ -233,6 +272,23 @@ static void prefs_load() {
       normalize_individual(MYNAH_CASTALIA_INDIVIDUAL_DEFAULT, s_individual_id, sizeof(s_individual_id));
     }
     rebuild_repo_name();
+  }
+  if (s_pref.isKey(kPairId)) {
+    s_pref.getString(kPairId, s_pair_id, sizeof(s_pair_id));
+  }
+  if (s_pref.isKey(kPairSecret)) {
+    s_pref.getString(kPairSecret, s_pair_secret, sizeof(s_pair_secret));
+  }
+  if (s_pref.isKey(kPairUrl)) {
+    s_pref.getString(kPairUrl, s_signin_url, sizeof(s_signin_url));
+  }
+  if (s_pair_id[0] != '\0' && s_pair_secret[0] != '\0') {
+    if (s_signin_url[0] == '\0') {
+      build_signin_url();
+    }
+    snprintf(s_status, sizeof(s_status), "Scan with phone");
+  } else if (s_pair_id[0] != '\0' || s_pair_secret[0] != '\0' || s_signin_url[0] != '\0') {
+    pair_clear_ram();
   }
   s_pref.end();
 }
@@ -650,6 +706,7 @@ static bool castalia_pair_start_http() {
     return false;
   }
   build_signin_url();
+  prefs_save_pairing();
   snprintf(s_status, sizeof(s_status), "Scan for %s", pm_castalia_individual_id());
   s_last_poll_ms = millis();
   s_warmup_requested = false;
@@ -667,7 +724,7 @@ void pm_castalia_warmup_after_wifi() {
   if (strlen(MYNAH_SUPABASE_URL) == 0 || strlen(MYNAH_SUPABASE_ANON_KEY) == 0) {
     return;
   }
-  if (s_pair_id[0] != '\0' && s_signin_url[0] != '\0' && s_qr_modules_valid) {
+  if (s_pair_id[0] != '\0' && s_signin_url[0] != '\0') {
     return;
   }
   s_warmup_requested = true;
@@ -685,10 +742,6 @@ void pm_castalia_on_face_enter() {
   }
   if (!pm_wifi_connected()) {
     snprintf(s_status, sizeof(s_status), "WiFi needed");
-    s_pair_id[0] = '\0';
-    s_pair_secret[0] = '\0';
-    s_signin_url[0] = '\0';
-    invalidate_qr_cache();
     return;
   }
   if (strlen(MYNAH_SUPABASE_URL) == 0 || strlen(MYNAH_SUPABASE_ANON_KEY) == 0) {
@@ -699,10 +752,7 @@ void pm_castalia_on_face_enter() {
     snprintf(s_status, sizeof(s_status), "Scan with phone");
     return;
   }
-  s_pair_id[0] = '\0';
-  s_pair_secret[0] = '\0';
-  s_signin_url[0] = '\0';
-  invalidate_qr_cache();
+  prefs_clear_pairing();
   s_pair_start_pending = true;
   snprintf(s_status, sizeof(s_status), "Pairing...");
 }
@@ -778,10 +828,7 @@ static bool pm_castalia_poll_pairing() {
   if (strstr(s_http_json_buf, "\"status\":\"consumed\"") != nullptr ||
       strstr(s_http_json_buf, "\"error\":\"bad_secret\"") != nullptr) {
     snprintf(s_status, sizeof(s_status), "Pair expired — swipe away & back");
-    s_pair_id[0] = '\0';
-    s_pair_secret[0] = '\0';
-    s_signin_url[0] = '\0';
-    invalidate_qr_cache();
+    prefs_clear_pairing();
     return true;
   }
   if (strstr(s_http_json_buf, "\"status\":\"ready\"") == nullptr) {
@@ -810,10 +857,7 @@ static bool pm_castalia_poll_pairing() {
     s_expires_at_ms = static_cast<uint64_t>(millis()) + static_cast<uint64_t>(exp_in) * 1000ULL;
   }
   prefs_save_session();
-  s_pair_id[0] = '\0';
-  s_pair_secret[0] = '\0';
-  s_signin_url[0] = '\0';
-  invalidate_qr_cache();
+  prefs_clear_pairing();
   snprintf(s_status, sizeof(s_status), "Linked %s", pm_castalia_individual_id());
   return true;
 }
@@ -877,10 +921,7 @@ static bool set_castalia_individual(const char *raw) {
   s_individual_id[sizeof(s_individual_id) - 1] = '\0';
   rebuild_repo_name();
   prefs_save_individual();
-  s_pair_id[0] = '\0';
-  s_pair_secret[0] = '\0';
-  s_signin_url[0] = '\0';
-  invalidate_qr_cache();
+  prefs_clear_pairing();
   snprintf(s_status, sizeof(s_status), "Profile %s", s_individual_id);
   return true;
 }
@@ -907,6 +948,15 @@ bool pm_castalia_serial_command(const char *line) {
     } else {
       Serial.printf("castalia: url pending status=%s\n", pm_castalia_status_line());
     }
+    return true;
+  }
+  if (strcmp(line, "castalia poll") == 0 || strcmp(line, "castalia status") == 0) {
+    if (!pm_castalia_has_session()) {
+      (void)pm_castalia_tick_pair_start();
+      (void)pm_castalia_tick_poll();
+    }
+    Serial.printf("castalia: session=%d status=%s url=%s\n", pm_castalia_has_session() ? 1 : 0,
+                  pm_castalia_status_line(), s_signin_url);
     return true;
   }
   const char *arg = nullptr;

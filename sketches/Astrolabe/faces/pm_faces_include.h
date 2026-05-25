@@ -8,6 +8,7 @@
 #include "faces/bongo/pm_face_bongo.h"
 #include "faces/calcifer/pm_face_calcifer.h"
 #include "faces/castalia/pm_face_castalia.h"
+#include "faces/cauldron/pm_face_cauldron.h"
 #include "faces/classic_analog/pm_face_classic_analog.h"
 #include "faces/digital/pm_face_digital.h"
 #include "faces/enochian_angel/pm_face_enochian_angel.h"

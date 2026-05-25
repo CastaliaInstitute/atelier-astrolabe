@@ -9,6 +9,8 @@ struct PmSpotifyStatus {
   bool is_playing;
   char track[88];
   char artist[88];
+  /** Spotify album cover image URL, preferably the smallest available artwork. */
+  char album_art_url[192];
   /** Active Spotify Connect device name from GET /me/player (empty if none). */
   char device[72];
   char error[120];

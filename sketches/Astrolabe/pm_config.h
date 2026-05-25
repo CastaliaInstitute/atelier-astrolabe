@@ -157,7 +157,7 @@
 
 /** Skip Spotify HTTPS calls when internal heap is too low for TLS. */
 #ifndef MYNAH_SPOTIFY_MIN_FETCH_HEAP
-#define MYNAH_SPOTIFY_MIN_FETCH_HEAP 140000u
+#define MYNAH_SPOTIFY_MIN_FETCH_HEAP 70000u
 #endif
 
 /** Skip foreground HTTPS refreshes on face load when loopTask memory is constrained. */

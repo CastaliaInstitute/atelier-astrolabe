@@ -8,6 +8,9 @@ bool pm_touch_begin();
 /** Sample capacitive touch: returns point count 0..max_pts; fills xs/ys in screen coordinates. */
 uint8_t pm_touch_sample(int16_t *xs, int16_t *ys, uint8_t max_pts);
 
+/** Optional controller-level gesture. Returns and clears one pending hardware gesture id. */
+bool pm_touch_consume_hardware_gesture(uint8_t *gesture, int16_t *x, int16_t *y);
+
 /** QA / automation: override the next touch samples until cleared. */
 void pm_touch_inject_set(int16_t x, int16_t y);
 void pm_touch_inject_clear(void);

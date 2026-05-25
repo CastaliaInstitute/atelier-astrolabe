@@ -1,0 +1,4 @@
+[submodule "third_party/cspot"]
+	path = third_party/cspot
+	url = https://github.com/CastaliaInstitute/cspot.git
+	branch = codex/astrolabe-185-spotify-cspot

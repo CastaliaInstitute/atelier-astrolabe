@@ -9,7 +9,11 @@
 #include "pin_config.h"
 
 #define I2S_CH I2S_NUM_1
+#if defined(ASTROLABE_MIC_I2S_DIGITAL)
+#define PM_MIC_I2S_CHANNELS 1
+#else
 #define PM_MIC_I2S_CHANNELS 4
+#endif
 #define VAD_SAMPLE_RATE_HZ 16000
 #define VAD_FRAME_LENGTH_MS 30
 #define VAD_BUFFER_LENGTH (VAD_FRAME_LENGTH_MS * VAD_SAMPLE_RATE_HZ / 1000)
@@ -19,16 +23,39 @@ static bool g_mic = false;
 int pm_mic_i2s_channels() { return PM_MIC_I2S_CHANNELS; }
 
 static esp_err_t es7210_write_reg_direct(uint8_t reg, uint8_t value) {
+#if defined(ASTROLABE_MIC_I2S_DIGITAL)
+  (void)reg;
+  (void)value;
+  return ESP_OK;
+#else
   Wire.beginTransmission(ES7210_ADDR);
   Wire.write(reg);
   Wire.write(value);
   return Wire.endTransmission() == 0 ? ESP_OK : ESP_FAIL;
+#endif
 }
 
 bool pm_mic_begin() {
   if (g_mic) {
     return true;
   }
+#if defined(ASTROLABE_MIC_I2S_DIGITAL)
+  i2s_config_t i2s_config = {
+      .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX),
+      .sample_rate = VAD_SAMPLE_RATE_HZ,
+      .bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT,
+      .channel_format = I2S_CHANNEL_FMT_ONLY_LEFT,
+      .communication_format = I2S_COMM_FORMAT_STAND_I2S,
+      .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
+      .dma_buf_count = 8,
+      .dma_buf_len = 64,
+      .use_apll = false,
+      .tx_desc_auto_clear = false,
+      .fixed_mclk = 0,
+      .mclk_multiple = I2S_MCLK_MULTIPLE_256,
+      .bits_per_chan = I2S_BITS_PER_CHAN_16BIT,
+  };
+#else
   audio_hal_codec_config_t cfg = {
       .adc_input = AUDIO_HAL_ADC_INPUT_ALL,
       .codec_mode = AUDIO_HAL_CODEC_MODE_ENCODE,
@@ -74,15 +101,18 @@ bool pm_mic_begin() {
       .chan_mask = (i2s_channel_t)(I2S_TDM_ACTIVE_CH0 | I2S_TDM_ACTIVE_CH1 |
                                    I2S_TDM_ACTIVE_CH2 | I2S_TDM_ACTIVE_CH3),
   };
+#endif
 
   i2s_pin_config_t pin_config = {};
-  pin_config.bck_io_num = PIN_ES7210_BCLK;
-  pin_config.ws_io_num = PIN_ES7210_LRCK;
-  pin_config.data_in_num = PIN_ES7210_DIN;
-  pin_config.mck_io_num = PIN_ES7210_MCLK;
+  pin_config.bck_io_num = PIN_MIC_BCLK;
+  pin_config.ws_io_num = PIN_MIC_LRCK;
+  pin_config.data_in_num = PIN_MIC_DIN;
+  pin_config.mck_io_num = PIN_MIC_MCLK;
 
   if (i2s_driver_install(I2S_CH, &i2s_config, 0, NULL) != ESP_OK) {
+#if !defined(ASTROLABE_MIC_I2S_DIGITAL)
     es7210_adc_ctrl_state(cfg.codec_mode, AUDIO_HAL_CTRL_STOP);
+#endif
     return false;
   }
   i2s_set_pin(I2S_CH, &pin_config);
@@ -95,7 +125,9 @@ void pm_mic_stop() {
   if (!g_mic) {
     return;
   }
+#if !defined(ASTROLABE_MIC_I2S_DIGITAL)
   es7210_adc_ctrl_state(AUDIO_HAL_CODEC_MODE_ENCODE, AUDIO_HAL_CTRL_STOP);
+#endif
   i2s_driver_uninstall(I2S_CH);
   g_mic = false;
 }

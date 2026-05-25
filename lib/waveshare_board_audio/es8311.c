@@ -154,7 +154,11 @@ static inline esp_err_t es8311_read_reg(es8311_handle_t dev, uint8_t reg_addr, u
 {
     es8311_dev_t *es = (es8311_dev_t *) dev;
     size_t readCount = 0;
-    return i2cWriteReadNonStop(es->port, es->dev_addr, &reg_addr, 1, reg_value, 1, 1000, &readCount);
+    esp_err_t ret = i2cWrite(es->port, es->dev_addr, &reg_addr, 1, 1000);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    return i2cRead(es->port, es->dev_addr, reg_value, 1, 1000, &readCount);
 }
 
 /*
