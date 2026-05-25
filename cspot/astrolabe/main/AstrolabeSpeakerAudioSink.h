@@ -29,3 +29,5 @@ class AstrolabeSpeakerAudioSink : public AudioSink {
   bool codecReady_ = false;
   int volume_ = 70;
 };
+
+void astrolabe_instrument_note_on(int note, uint8_t velocity);
