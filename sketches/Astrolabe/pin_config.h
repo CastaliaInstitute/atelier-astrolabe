@@ -9,8 +9,13 @@
 #define LCD_SCLK 38
 #define LCD_RESET 2
 #define LCD_CS 12
+#if defined(ASTROLABE_P4_TARGET)
+#define LCD_WIDTH 720
+#define LCD_HEIGHT 720
+#else
 #define LCD_WIDTH 466
 #define LCD_HEIGHT 466
+#endif
 
 #define IIC_SDA 15
 #define IIC_SCL 14

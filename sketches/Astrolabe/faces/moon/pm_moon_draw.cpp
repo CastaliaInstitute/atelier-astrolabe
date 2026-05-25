@@ -70,7 +70,7 @@ static float moon_pixel_shade(int dx, int dy, int r, float illum, bool waxing) {
     return -1.f;
   }
   if (!pm_moon_point_lit(dx, r, illum, waxing)) {
-    return 0.07f;
+    return 0.18f;
   }
   constexpr float k_edge = 1.25f;
   const float t = (1.f - 2.f * illum) * static_cast<float>(r);
@@ -102,6 +102,9 @@ void pm_moon_draw_disk(PmDisplayCanvas *gfx, int cx, int cy, int screen_r, float
   const int r2 = screen_r * screen_r;
 
   for (int dy = -screen_r; dy <= screen_r; ++dy) {
+    if ((dy & 0x0f) == 0) {
+      yield();
+    }
     for (int dx = -screen_r; dx <= screen_r; ++dx) {
       if (dx * dx + dy * dy > r2) {
         continue;

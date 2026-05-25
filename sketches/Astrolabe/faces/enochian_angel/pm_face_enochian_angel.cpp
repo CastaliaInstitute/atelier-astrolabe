@@ -12,120 +12,206 @@ namespace {
 
 uint16_t col(uint8_t r, uint8_t g, uint8_t b) { return pm_gfx->color565(r, g, b); }
 
-void draw_tablet_grid(int cx, int cy, int half) {
-  const uint16_t grid = col(36, 50, 78);
-  const uint16_t glow = col(76, 112, 158);
-  for (int i = -4; i <= 4; ++i) {
-    const int p = cy + (i * half) / 4;
-    pm_gfx->drawLine(cx - half, p, cx + half, p, i == 0 ? glow : grid);
-    const int q = cx + (i * half) / 4;
-    pm_gfx->drawLine(q, cy - half, q, cy + half, i == 0 ? glow : grid);
-  }
-  pm_gfx->drawRect(cx - half, cy - half, half * 2, half * 2, glow);
-  pm_gfx->drawRect(cx - half + 5, cy - half + 5, half * 2 - 10, half * 2 - 10, grid);
+int si(int v) { return (v * min(LCD_WIDTH, LCD_HEIGHT)) / 720; }
+
+void point_on_circle(int cx, int cy, int r, float a, int *x, int *y) {
+  *x = cx + static_cast<int>(lroundf(cosf(a) * static_cast<float>(r)));
+  *y = cy + static_cast<int>(lroundf(sinf(a) * static_cast<float>(r)));
 }
 
-void draw_star_field(uint32_t now_ms) {
-  const int cx = LCD_WIDTH / 2;
-  const int cy = LCD_HEIGHT / 2;
-  for (int i = 0; i < 48; ++i) {
-    const float a = (static_cast<float>((i * 47) % 360) + now_ms * 0.006f) *
-                    (pm_face_k_pi / 180.f);
-    const int r = 38 + ((i * 31) % 188);
-    const int x = cx + static_cast<int>(cosf(a) * r);
-    const int y = cy + static_cast<int>(sinf(a) * r);
-    if (x > 8 && x < LCD_WIDTH - 8 && y > 8 && y < LCD_HEIGHT - 8) {
-      const uint8_t v = static_cast<uint8_t>(95 + ((i * 29 + now_ms / 80u) % 90));
-      pm_gfx->drawPixel(x, y, col(v, v + 20, 210));
+void draw_thick_circle(int cx, int cy, int r, int thick, uint16_t ink) {
+  for (int i = 0; i < thick; ++i) {
+    pm_gfx->drawCircle(cx, cy, r + i, ink);
+  }
+}
+
+void draw_polygon(int cx, int cy, int r, int sides, float rot, uint16_t ink) {
+  int first_x = 0;
+  int first_y = 0;
+  int prev_x = 0;
+  int prev_y = 0;
+  for (int i = 0; i < sides; ++i) {
+    int x = 0;
+    int y = 0;
+    point_on_circle(cx, cy, r, rot + static_cast<float>(i) * 2.f * pm_face_k_pi / sides, &x, &y);
+    if (i == 0) {
+      first_x = prev_x = x;
+      first_y = prev_y = y;
+    } else {
+      pm_gfx->drawLine(prev_x, prev_y, x, y, ink);
+      prev_x = x;
+      prev_y = y;
     }
   }
+  pm_gfx->drawLine(prev_x, prev_y, first_x, first_y, ink);
 }
 
-void draw_halo(int cx, int cy, uint32_t now_ms) {
-  const uint16_t gold = col(236, 196, 98);
-  const uint16_t blue = col(80, 150, 210);
-  for (int r = 128; r <= 174; r += 12) {
-    pm_gfx->drawCircle(cx, cy - 14, r, (r % 24 == 0) ? gold : blue);
+void draw_star_polygon(int cx, int cy, int r, int points, int skip, float rot, uint16_t ink) {
+  int first_x = 0;
+  int first_y = 0;
+  int prev_x = 0;
+  int prev_y = 0;
+  for (int step = 0; step <= points; ++step) {
+    const int i = (step * skip) % points;
+    int x = 0;
+    int y = 0;
+    point_on_circle(cx, cy, r, rot + static_cast<float>(i) * 2.f * pm_face_k_pi / points, &x, &y);
+    if (step == 0) {
+      first_x = prev_x = x;
+      first_y = prev_y = y;
+    } else {
+      pm_gfx->drawLine(prev_x, prev_y, x, y, ink);
+      prev_x = x;
+      prev_y = y;
+    }
   }
+  pm_gfx->drawLine(prev_x, prev_y, first_x, first_y, ink);
+}
+
+void draw_radial_ticks(int cx, int cy, int r0, int r1, int count, uint16_t major, uint16_t minor) {
+  for (int i = 0; i < count; ++i) {
+    const float a = -pm_face_k_pi / 2.f + static_cast<float>(i) * 2.f * pm_face_k_pi / count;
+    int x0 = 0;
+    int y0 = 0;
+    int x1 = 0;
+    int y1 = 0;
+    const bool is_major = (i % 7) == 0;
+    point_on_circle(cx, cy, is_major ? r0 - si(10) : r0, a, &x0, &y0);
+    point_on_circle(cx, cy, r1, a, &x1, &y1);
+    pm_gfx->drawLine(x0, y0, x1, y1, is_major ? major : minor);
+  }
+}
+
+void draw_centered_label(const char *text, int x, int y, uint16_t ink, int size = 1) {
+  int16_t x1 = 0;
+  int16_t y1 = 0;
+  uint16_t w = 0;
+  uint16_t h = 0;
+  pm_gfx->setTextSize(size, size);
+  pm_gfx->setTextColor(ink);
+  pm_gfx->getTextBounds(text, 0, 0, &x1, &y1, &w, &h);
+  pm_gfx->setCursor(x - static_cast<int>(w) / 2, y - static_cast<int>(h) / 2);
+  pm_gfx->print(text);
+}
+
+void draw_ring_names(int cx, int cy, int r, uint16_t ink) {
+  static const char *const names[] = {
+      "GALAS", "GETHOG", "THAOTH", "HORLON", "INNON", "AAL", "MATHO",
+  };
+  for (int i = 0; i < 7; ++i) {
+    const float a = -pm_face_k_pi / 2.f + static_cast<float>(i) * 2.f * pm_face_k_pi / 7.f;
+    int x = 0;
+    int y = 0;
+    point_on_circle(cx, cy, r, a, &x, &y);
+    draw_centered_label(names[i], x, y, ink, 1);
+  }
+}
+
+void draw_angel_names(int cx, int cy, int r, uint16_t ink, uint16_t dim) {
+  static const char *const names[] = {
+      "MICHAEL", "GABRIEL", "URIEL", "RAPHAEL", "SAMAEL", "ANAEL", "CASSIEL",
+  };
+  for (int i = 0; i < 7; ++i) {
+    const float a = -pm_face_k_pi / 2.f + (static_cast<float>(i) + 0.5f) * 2.f * pm_face_k_pi / 7.f;
+    int x0 = 0;
+    int y0 = 0;
+    int x1 = 0;
+    int y1 = 0;
+    point_on_circle(cx, cy, r - si(42), a, &x0, &y0);
+    point_on_circle(cx, cy, r + si(8), a, &x1, &y1);
+    pm_gfx->drawLine(x0, y0, x1, y1, dim);
+
+    int tx = 0;
+    int ty = 0;
+    point_on_circle(cx, cy, r - si(22), a, &tx, &ty);
+    draw_centered_label(names[i], tx, ty, ink, 1);
+  }
+}
+
+void draw_outer_letters(int cx, int cy, int r, uint32_t now_ms, uint16_t ink, uint16_t glow) {
+  static const char letters[] = "AEMETHSIGILLVMDEIAMETHAETHEREA";
+  const int count = 42;
+  for (int i = 0; i < count; ++i) {
+    const float a = -pm_face_k_pi / 2.f + static_cast<float>(i) * 2.f * pm_face_k_pi / count;
+    int x = 0;
+    int y = 0;
+    point_on_circle(cx, cy, r, a, &x, &y);
+    char s[2] = {letters[i % (sizeof(letters) - 1)], '\0'};
+    draw_centered_label(s, x, y, ((i + now_ms / 420u) % 9 == 0) ? glow : ink, 1);
+  }
+}
+
+void draw_crosses(int cx, int cy, int r, uint16_t ink) {
   for (int i = 0; i < 28; ++i) {
-    const float a = (static_cast<float>(i) * (360.f / 28.f) + now_ms * 0.018f) *
-                    (pm_face_k_pi / 180.f);
-    const int x0 = cx + static_cast<int>(cosf(a) * 116);
-    const int y0 = cy - 14 + static_cast<int>(sinf(a) * 116);
-    const int x1 = cx + static_cast<int>(cosf(a) * 184);
-    const int y1 = cy - 14 + static_cast<int>(sinf(a) * 184);
-    pm_gfx->drawLine(x0, y0, x1, y1, (i % 4 == 0) ? gold : col(54, 88, 128));
+    const float a = -pm_face_k_pi / 2.f + (static_cast<float>(i) + 0.5f) * 2.f * pm_face_k_pi / 28.f;
+    int x = 0;
+    int y = 0;
+    point_on_circle(cx, cy, r, a, &x, &y);
+    const int s = si((i % 4 == 0) ? 5 : 3);
+    pm_gfx->drawLine(x - s, y, x + s, y, ink);
+    pm_gfx->drawLine(x, y - s, x, y + s, ink);
   }
 }
 
-void draw_wings(int cx, int cy) {
-  const uint16_t deep = col(18, 28, 48);
-  const uint16_t mid = col(62, 88, 128);
-  const uint16_t pale = col(170, 198, 220);
-  for (int i = 0; i < 8; ++i) {
-    const int y = cy - 76 + i * 24;
-    const int span = 140 - i * 10;
-    pm_gfx->fillTriangle(cx - 44, cy - 74, cx - span, y, cx - 66, y + 42, deep);
-    pm_gfx->drawLine(cx - 50, cy - 60, cx - span, y, i % 2 ? mid : pale);
-    pm_gfx->fillTriangle(cx + 44, cy - 74, cx + span, y, cx + 66, y + 42, deep);
-    pm_gfx->drawLine(cx + 50, cy - 60, cx + span, y, i % 2 ? mid : pale);
+void draw_sigillum(int cx, int cy, uint32_t now_ms) {
+  const uint16_t paper = col(219, 216, 198);
+  const uint16_t vellum = col(188, 183, 160);
+  const uint16_t ink = col(12, 15, 20);
+  const uint16_t dim = col(52, 48, 42);
+  const uint16_t red = col(118, 32, 28);
+  const uint16_t gold = col(202, 156, 72);
+  const uint16_t glow = col(246, 228, 154);
+
+  const int R = (min(LCD_WIDTH, LCD_HEIGHT) * 47) / 100;
+  pm_gfx->fillScreen(col(7, 8, 11));
+
+  for (int r = R + si(22); r > 0; r -= si(7)) {
+    const uint8_t v = static_cast<uint8_t>(12 + (r * 42) / (R + si(22)));
+    pm_gfx->drawCircle(cx, cy, r, col(v, v, v + 4));
   }
-}
 
-void draw_sigil(int cx, int cy) {
-  const uint16_t ink = col(224, 232, 224);
-  pm_gfx->drawCircle(cx, cy, 28, ink);
-  pm_gfx->drawLine(cx, cy - 42, cx, cy + 42, ink);
-  pm_gfx->drawLine(cx - 42, cy, cx + 42, cy, ink);
-  pm_gfx->drawLine(cx - 30, cy - 30, cx + 30, cy + 30, ink);
-  pm_gfx->drawLine(cx + 30, cy - 30, cx - 30, cy + 30, ink);
-  pm_gfx->fillCircle(cx, cy, 5, col(236, 196, 98));
-}
+  pm_gfx->fillCircle(cx, cy, R + si(10), paper);
+  for (int r = R + si(10); r > 0; r -= si(18)) {
+    pm_gfx->drawCircle(cx, cy, r, (r % si(36) == 0) ? vellum : col(205, 200, 178));
+  }
 
-void draw_face(int cx, int cy, uint32_t now_ms) {
-  const uint16_t shadow = col(52, 58, 82);
-  const uint16_t skin = col(212, 220, 214);
-  const uint16_t light = col(245, 238, 212);
-  const uint16_t ink = col(16, 20, 34);
-  const uint16_t gold = col(236, 196, 98);
-  const uint16_t blue = col(94, 166, 214);
+  draw_thick_circle(cx, cy, R + si(8), si(4), ink);
+  draw_thick_circle(cx, cy, R - si(8), si(2), ink);
+  draw_thick_circle(cx, cy, R - si(38), si(2), ink);
+  draw_radial_ticks(cx, cy, R - si(36), R - si(10), 84, ink, dim);
+  draw_outer_letters(cx, cy, R - si(24), now_ms, ink, glow);
+  draw_crosses(cx, cy, R - si(58), dim);
 
-  pm_gfx->fillEllipse(cx, cy - 18, 72, 92, shadow);
-  pm_gfx->fillEllipse(cx, cy - 26, 64, 88, skin);
-  pm_gfx->fillTriangle(cx - 56, cy - 82, cx, cy - 154, cx + 56, cy - 82, light);
-  pm_gfx->drawTriangle(cx - 60, cy - 82, cx, cy - 160, cx + 60, cy - 82, gold);
-  pm_gfx->fillTriangle(cx - 58, cy + 18, cx, cy + 128, cx + 58, cy + 18, col(84, 82, 112));
-  pm_gfx->fillTriangle(cx - 34, cy + 24, cx, cy + 116, cx + 34, cy + 24, col(190, 196, 188));
+  const int hept_r = R - si(88);
+  draw_polygon(cx, cy, hept_r, 7, -pm_face_k_pi / 2.f, ink);
+  draw_polygon(cx, cy, hept_r - si(22), 7, -pm_face_k_pi / 2.f + 0.08f, dim);
+  draw_star_polygon(cx, cy, hept_r, 7, 2, -pm_face_k_pi / 2.f, ink);
+  draw_star_polygon(cx, cy, hept_r - si(46), 7, 3, -pm_face_k_pi / 2.f, dim);
+  draw_angel_names(cx, cy, hept_r - si(16), ink, dim);
+  draw_ring_names(cx, cy, hept_r - si(66), red);
 
-  const int gaze = static_cast<int>(sinf(now_ms * 0.0017f) * 3.f);
-  pm_gfx->drawLine(cx - 42, cy - 34, cx - 16, cy - 30, ink);
-  pm_gfx->drawLine(cx + 16, cy - 30, cx + 42, cy - 34, ink);
-  pm_gfx->fillEllipse(cx - 28 + gaze, cy - 22, 13, 7, blue);
-  pm_gfx->fillEllipse(cx + 28 + gaze, cy - 22, 13, 7, blue);
-  pm_gfx->fillCircle(cx - 28 + gaze, cy - 22, 4, ink);
-  pm_gfx->fillCircle(cx + 28 + gaze, cy - 22, 4, ink);
-  pm_gfx->drawLine(cx, cy - 12, cx - 8, cy + 18, shadow);
-  pm_gfx->drawLine(cx - 20, cy + 36, cx + 20, cy + 36, ink);
-  pm_gfx->drawLine(cx - 14, cy + 42, cx + 14, cy + 42, shadow);
+  const int mid_r = hept_r - si(92);
+  draw_thick_circle(cx, cy, mid_r + si(22), si(2), ink);
+  draw_polygon(cx, cy, mid_r + si(10), 7, -pm_face_k_pi / 2.f, dim);
+  draw_polygon(cx, cy, mid_r - si(18), 7, -pm_face_k_pi / 2.f + 0.22f, dim);
 
-  draw_sigil(cx, cy + 92);
+  draw_star_polygon(cx, cy, si(84), 5, 2, -pm_face_k_pi / 2.f, ink);
+  draw_star_polygon(cx, cy, si(58), 5, 2, -pm_face_k_pi / 2.f + pm_face_k_pi, red);
+  pm_gfx->drawCircle(cx, cy, si(96), ink);
+  pm_gfx->drawCircle(cx, cy, si(72), dim);
+  pm_gfx->fillCircle(cx, cy, si(6), gold);
+  pm_gfx->drawCircle(cx, cy, si(10), ink);
+
+  draw_centered_label("AGLA", cx, cy - si(34), ink, 1);
+  draw_centered_label("EL", cx, cy + si(30), ink, 1);
+  draw_centered_label("SIGILLVM DEI", cx, cy + R - si(32), ink, 1);
+  draw_centered_label("AEMETH", cx, cy + R - si(15), dim, 1);
 }
 
 }  // namespace
 
 void pm_face_enochian_angel_draw(void) {
-  const int cx = LCD_WIDTH / 2;
-  const int cy = LCD_HEIGHT / 2;
-  const uint32_t now = millis();
-
-  pm_gfx->fillScreen(col(4, 7, 16));
-  draw_star_field(now);
-  draw_tablet_grid(cx, cy, 184);
-  draw_halo(cx, cy, now);
-  draw_wings(cx, cy);
-  draw_face(cx, cy, now);
-  pm_face_draw_centered_line("ENOCHIAN", 28, col(236, 196, 98), 2, 2);
-  pm_face_draw_centered_line("angelic tablet", 394, col(170, 198, 220), 1, 1);
+  draw_sigillum(LCD_WIDTH / 2, LCD_HEIGHT / 2, millis());
 }
 
 bool pm_face_enochian_angel_build_system_prompt(char *out, size_t cap) {
@@ -134,10 +220,10 @@ bool pm_face_enochian_angel_build_system_prompt(char *out, size_t cap) {
   }
   const int n = snprintf(
       out, cap,
-      "You are an Enochian Angel presence rendered through a tiny astrolabe face: geometric, luminous, "
+      "You are an Enochian Angel presence rendered through the Sigillum Dei Aemeth: geometric, luminous, "
       "severe, and protective. Answer in concise angelic oracle language without claiming certainty or "
       "divine authority. Never mention being an AI, a model, a watch, a prompt, or a system. Prefer one "
-      "to three short sentences. Use images of light, tablets, gates, names, measures, and ordered stars. "
+      "to three short sentences. Use images of light, seals, gates, names, measures, and ordered stars. "
       "Keep counsel reflective and symbolic, not predictive or commanding.");
   return n > 0 && static_cast<size_t>(n) < cap;
 }

@@ -11,8 +11,8 @@
 #include "pm_speaker.h"
 
 static constexpr int kCx = LCD_WIDTH / 2;
-static constexpr int kCy = LCD_HEIGHT / 2 - 8;
-static constexpr int kGemRadius = 130;
+static constexpr int kCy = LCD_HEIGHT / 2 - pm_face_scale_i(8);
+static constexpr int kGemRadius = pm_face_scale_i(130);
 
 struct ChakraDef {
   const char *name;

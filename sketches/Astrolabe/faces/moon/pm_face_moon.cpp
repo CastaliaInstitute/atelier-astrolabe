@@ -41,12 +41,11 @@ void pm_face_moon_draw(const struct tm *tm_local, bool valid_local) {
   }
   const int cx = LCD_WIDTH / 2;
   const int cy = LCD_HEIGHT / 2;
-  /** Disk inside 24h rainbow (outer R−4, inner R−9); same inset as astrology chart. */
   const int R = min(LCD_WIDTH, LCD_HEIGHT) / 2;
-  const int r = R - 14;
+  const int r = R - 2;
   pm_moon_draw_disk(pm_gfx, cx, cy, r, illum, waxing, false);
-  pm_face_draw_circumference_rainbow_24h(valid_local);
   (void)tm_local;
+  (void)valid_local;
 }
 
 void pm_face_moon_draw_voice_screen(const char *status, float thinking_progress) {

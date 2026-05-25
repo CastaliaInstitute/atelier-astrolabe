@@ -2,14 +2,21 @@
 
 #include <Arduino_GFX_Library.h>
 #include <HTTPClient.h>
+#if defined(ASTROLABE_P4_TARGET)
+#include <png.h>
+#else
 #include <PNGdec.h>
+#endif
 #include <WiFiClient.h>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <sys/stat.h>
 
 #include "faces/shared/pm_face_draw.h"
+#include "faces/tarot/pm_face_tarot_assets.h"
 #include "pin_config.h"
 #include "pm_display.h"
 #include "pm_heap.h"
@@ -17,14 +24,24 @@
 
 namespace {
 
+#if defined(ASTROLABE_P4_TARGET)
+constexpr int kCardCount = 78;
+#else
 constexpr int kCardCount = 22;
+#endif
 constexpr int kCx = LCD_WIDTH / 2;
 constexpr int kCy = LCD_HEIGHT / 2;
+#if defined(ASTROLABE_P4_TARGET)
+constexpr const char *kManifestUrl = "http://tarot.castalia.institute/assets/deck/manifest.json";
+constexpr const char *kAssetBaseUrl = "http://tarot.castalia.institute/assets/deck/720";
+#else
 constexpr const char *kManifestUrl = "http://tarot.castalia.institute/assets/major/manifest.json";
 constexpr const char *kAssetBaseUrl = "http://tarot.castalia.institute/assets/major/full";
+#endif
+constexpr const char *kSdAssetBasePath = "/sdcard/astrolabe/tarot/720";
 constexpr uint32_t kTarotFetchTimeoutMs = 30000u;
 constexpr uint32_t kTarotMinFetchHeap = 18000u;
-constexpr int kTarotMaxImageBytes = 390000;
+constexpr int kTarotMaxImageBytes = 1400000;
 constexpr int kTarotMaxImageDim = LCD_WIDTH;
 constexpr uint32_t kTarotTaskStack = 12288u;
 
@@ -33,34 +50,91 @@ struct TarotCard {
   const char *glyph;
   const char *theme;
   const char *slug;
+  const char *file;
   uint8_t r;
   uint8_t g;
   uint8_t b;
 };
 
-const TarotCard kCards[kCardCount] = {
-    {"The Fool", "0", "begin", "fool", 244, 204, 90},
-    {"The Magician", "I", "will", "magician", 220, 70, 64},
-    {"The High Priestess", "II", "veil", "priestess", 78, 116, 210},
-    {"The Empress", "III", "bloom", "empress", 88, 170, 98},
-    {"The Emperor", "IV", "order", "emperor", 196, 82, 54},
-    {"The Hierophant", "V", "rite", "hierophant", 190, 170, 108},
-    {"The Lovers", "VI", "choice", "lovers", 225, 112, 142},
-    {"The Chariot", "VII", "drive", "chariot", 80, 132, 210},
-    {"Strength", "VIII", "gentle", "strength", 238, 170, 76},
-    {"The Hermit", "IX", "lamp", "hermit", 170, 186, 205},
-    {"Wheel of Fortune", "X", "turn", "fortune", 214, 174, 72},
-    {"Justice", "XI", "balance", "justice", 190, 82, 86},
-    {"The Hanged Man", "XII", "pause", "hanged", 92, 166, 190},
-    {"Death", "XIII", "change", "death", 210, 210, 210},
-    {"Temperance", "XIV", "blend", "temperance", 116, 184, 164},
-    {"The Devil", "XV", "chain", "devil", 174, 64, 72},
-    {"The Tower", "XVI", "break", "tower", 230, 144, 64},
-    {"The Star", "XVII", "hope", "star", 116, 174, 226},
-    {"The Moon", "XVIII", "dream", "moon", 150, 150, 218},
-    {"The Sun", "XIX", "joy", "sun", 248, 204, 74},
-    {"Judgement", "XX", "call", "judgement", 214, 130, 92},
-    {"The World", "XXI", "whole", "world", 116, 190, 142},
+const TarotCard kCards[] = {
+    {"The Fool", "0", "begin", "fool", "major-00-fool", 244, 204, 90},
+    {"The Magician", "I", "will", "magician", "major-01-magician", 220, 70, 64},
+    {"The High Priestess", "II", "veil", "priestess", "major-02-priestess", 78, 116, 210},
+    {"The Empress", "III", "bloom", "empress", "major-03-empress", 88, 170, 98},
+    {"The Emperor", "IV", "order", "emperor", "major-04-emperor", 196, 82, 54},
+    {"The Hierophant", "V", "rite", "hierophant", "major-05-hierophant", 190, 170, 108},
+    {"The Lovers", "VI", "choice", "lovers", "major-06-lovers", 225, 112, 142},
+    {"The Chariot", "VII", "drive", "chariot", "major-07-chariot", 80, 132, 210},
+    {"Strength", "VIII", "gentle", "strength", "major-08-strength", 238, 170, 76},
+    {"The Hermit", "IX", "lamp", "hermit", "major-09-hermit", 170, 186, 205},
+    {"Wheel of Fortune", "X", "turn", "fortune", "major-10-fortune", 214, 174, 72},
+    {"Justice", "XI", "balance", "justice", "major-11-justice", 190, 82, 86},
+    {"The Hanged Man", "XII", "pause", "hanged", "major-12-hanged", 92, 166, 190},
+    {"Death", "XIII", "change", "death", "major-13-death", 210, 210, 210},
+    {"Temperance", "XIV", "blend", "temperance", "major-14-temperance", 116, 184, 164},
+    {"The Devil", "XV", "chain", "devil", "major-15-devil", 174, 64, 72},
+    {"The Tower", "XVI", "break", "tower", "major-16-tower", 230, 144, 64},
+    {"The Star", "XVII", "hope", "star", "major-17-star", 116, 174, 226},
+    {"The Moon", "XVIII", "dream", "moon", "major-18-moon", 150, 150, 218},
+    {"The Sun", "XIX", "joy", "sun", "major-19-sun", 248, 204, 74},
+    {"Judgement", "XX", "call", "judgement", "major-20-judgement", 214, 130, 92},
+    {"The World", "XXI", "whole", "world", "major-21-world", 116, 190, 142},
+    {"Ace of Wands", "W1", "wands", "ace-wands", "wands-01-ace-wands", 224, 130, 62},
+    {"Two of Wands", "W2", "wands", "two-wands", "wands-02-two-wands", 224, 130, 62},
+    {"Three of Wands", "W3", "wands", "three-wands", "wands-03-three-wands", 224, 130, 62},
+    {"Four of Wands", "W4", "wands", "four-wands", "wands-04-four-wands", 224, 130, 62},
+    {"Five of Wands", "W5", "wands", "five-wands", "wands-05-five-wands", 224, 130, 62},
+    {"Six of Wands", "W6", "wands", "six-wands", "wands-06-six-wands", 224, 130, 62},
+    {"Seven of Wands", "W7", "wands", "seven-wands", "wands-07-seven-wands", 224, 130, 62},
+    {"Eight of Wands", "W8", "wands", "eight-wands", "wands-08-eight-wands", 224, 130, 62},
+    {"Nine of Wands", "W9", "wands", "nine-wands", "wands-09-nine-wands", 224, 130, 62},
+    {"Ten of Wands", "W10", "wands", "ten-wands", "wands-10-ten-wands", 224, 130, 62},
+    {"Page of Wands", "W11", "wands", "page-wands", "wands-11-page-wands", 224, 130, 62},
+    {"Knight of Wands", "W12", "wands", "knight-wands", "wands-12-knight-wands", 224, 130, 62},
+    {"Queen of Wands", "W13", "wands", "queen-wands", "wands-13-queen-wands", 224, 130, 62},
+    {"King of Wands", "W14", "wands", "king-wands", "wands-14-king-wands", 224, 130, 62},
+    {"Ace of Cups", "C1", "cups", "ace-cups", "cups-01-ace-cups", 86, 152, 214},
+    {"Two of Cups", "C2", "cups", "two-cups", "cups-02-two-cups", 86, 152, 214},
+    {"Three of Cups", "C3", "cups", "three-cups", "cups-03-three-cups", 86, 152, 214},
+    {"Four of Cups", "C4", "cups", "four-cups", "cups-04-four-cups", 86, 152, 214},
+    {"Five of Cups", "C5", "cups", "five-cups", "cups-05-five-cups", 86, 152, 214},
+    {"Six of Cups", "C6", "cups", "six-cups", "cups-06-six-cups", 86, 152, 214},
+    {"Seven of Cups", "C7", "cups", "seven-cups", "cups-07-seven-cups", 86, 152, 214},
+    {"Eight of Cups", "C8", "cups", "eight-cups", "cups-08-eight-cups", 86, 152, 214},
+    {"Nine of Cups", "C9", "cups", "nine-cups", "cups-09-nine-cups", 86, 152, 214},
+    {"Ten of Cups", "C10", "cups", "ten-cups", "cups-10-ten-cups", 86, 152, 214},
+    {"Page of Cups", "C11", "cups", "page-cups", "cups-11-page-cups", 86, 152, 214},
+    {"Knight of Cups", "C12", "cups", "knight-cups", "cups-12-knight-cups", 86, 152, 214},
+    {"Queen of Cups", "C13", "cups", "queen-cups", "cups-13-queen-cups", 86, 152, 214},
+    {"King of Cups", "C14", "cups", "king-cups", "cups-14-king-cups", 86, 152, 214},
+    {"Ace of Swords", "S1", "swords", "ace-swords", "swords-01-ace-swords", 170, 178, 198},
+    {"Two of Swords", "S2", "swords", "two-swords", "swords-02-two-swords", 170, 178, 198},
+    {"Three of Swords", "S3", "swords", "three-swords", "swords-03-three-swords", 170, 178, 198},
+    {"Four of Swords", "S4", "swords", "four-swords", "swords-04-four-swords", 170, 178, 198},
+    {"Five of Swords", "S5", "swords", "five-swords", "swords-05-five-swords", 170, 178, 198},
+    {"Six of Swords", "S6", "swords", "six-swords", "swords-06-six-swords", 170, 178, 198},
+    {"Seven of Swords", "S7", "swords", "seven-swords", "swords-07-seven-swords", 170, 178, 198},
+    {"Eight of Swords", "S8", "swords", "eight-swords", "swords-08-eight-swords", 170, 178, 198},
+    {"Nine of Swords", "S9", "swords", "nine-swords", "swords-09-nine-swords", 170, 178, 198},
+    {"Ten of Swords", "S10", "swords", "ten-swords", "swords-10-ten-swords", 170, 178, 198},
+    {"Page of Swords", "S11", "swords", "page-swords", "swords-11-page-swords", 170, 178, 198},
+    {"Knight of Swords", "S12", "swords", "knight-swords", "swords-12-knight-swords", 170, 178, 198},
+    {"Queen of Swords", "S13", "swords", "queen-swords", "swords-13-queen-swords", 170, 178, 198},
+    {"King of Swords", "S14", "swords", "king-swords", "swords-14-king-swords", 170, 178, 198},
+    {"Ace of Pentacles", "P1", "pentacles", "ace-pentacles", "pentacles-01-ace-pentacles", 92, 174, 112},
+    {"Two of Pentacles", "P2", "pentacles", "two-pentacles", "pentacles-02-two-pentacles", 92, 174, 112},
+    {"Three of Pentacles", "P3", "pentacles", "three-pentacles", "pentacles-03-three-pentacles", 92, 174, 112},
+    {"Four of Pentacles", "P4", "pentacles", "four-pentacles", "pentacles-04-four-pentacles", 92, 174, 112},
+    {"Five of Pentacles", "P5", "pentacles", "five-pentacles", "pentacles-05-five-pentacles", 92, 174, 112},
+    {"Six of Pentacles", "P6", "pentacles", "six-pentacles", "pentacles-06-six-pentacles", 92, 174, 112},
+    {"Seven of Pentacles", "P7", "pentacles", "seven-pentacles", "pentacles-07-seven-pentacles", 92, 174, 112},
+    {"Eight of Pentacles", "P8", "pentacles", "eight-pentacles", "pentacles-08-eight-pentacles", 92, 174, 112},
+    {"Nine of Pentacles", "P9", "pentacles", "nine-pentacles", "pentacles-09-nine-pentacles", 92, 174, 112},
+    {"Ten of Pentacles", "P10", "pentacles", "ten-pentacles", "pentacles-10-ten-pentacles", 92, 174, 112},
+    {"Page of Pentacles", "P11", "pentacles", "page-pentacles", "pentacles-11-page-pentacles", 92, 174, 112},
+    {"Knight of Pentacles", "P12", "pentacles", "knight-pentacles", "pentacles-12-knight-pentacles", 92, 174, 112},
+    {"Queen of Pentacles", "P13", "pentacles", "queen-pentacles", "pentacles-13-queen-pentacles", 92, 174, 112},
+    {"King of Pentacles", "P14", "pentacles", "king-pentacles", "pentacles-14-king-pentacles", 92, 174, 112},
 };
 
 int s_selected = -1;
@@ -70,6 +144,8 @@ volatile bool s_fetch_busy = false;
 volatile bool s_fetch_done = false;
 volatile bool s_fetch_ok = false;
 int s_request_idx = -1;
+int s_last_request_idx = -1;
+uint32_t s_last_request_ms = 0;
 int s_cached_idx = -1;
 int s_decoding_w = 0;
 int s_decoding_h = 0;
@@ -80,7 +156,17 @@ int s_image_h = 0;
 uint16_t *s_image_fb = nullptr;
 uint8_t *s_image_mask = nullptr;
 char s_last_error[40] = "";
+#if !defined(ASTROLABE_P4_TARGET)
 PNG s_png;
+#endif
+
+#if defined(ASTROLABE_P4_TARGET)
+struct PngMemoryReader {
+  const uint8_t *data;
+  size_t len;
+  size_t pos;
+};
+#endif
 
 uint16_t blend565(uint16_t bg, uint16_t fg, float alpha) {
   if (alpha <= 0.f) {
@@ -180,8 +266,112 @@ bool build_card_url(int idx, char *url, size_t cap) {
   if (idx < 0 || idx >= kCardCount || !url || cap == 0) {
     return false;
   }
+#if defined(ASTROLABE_P4_TARGET)
+  const int n = snprintf(url, cap, "%s/%s.png", kAssetBaseUrl, kCards[idx].file);
+#else
   const int n = snprintf(url, cap, "%s/%02d-%s.png", kAssetBaseUrl, idx, kCards[idx].slug);
+#endif
   return n > 0 && static_cast<size_t>(n) < cap;
+}
+
+bool build_sd_card_path(int idx, char *path, size_t cap) {
+  if (idx < 0 || idx >= kCardCount || !path || cap == 0) {
+    return false;
+  }
+#if defined(ASTROLABE_P4_TARGET)
+  const int n = snprintf(path, cap, "%s/%s.png", kSdAssetBasePath, kCards[idx].file);
+#else
+  const int n = snprintf(path, cap, "%s/%02d-%s.png", kSdAssetBasePath, idx, kCards[idx].slug);
+#endif
+  return n > 0 && static_cast<size_t>(n) < cap;
+}
+
+bool build_sd_legacy_card_path(int idx, char *path, size_t cap) {
+  if (idx < 0 || idx >= kCardCount || !path || cap == 0) {
+    return false;
+  }
+  const int n = snprintf(path, cap, "%s/%02d-%s.png", kSdAssetBasePath, idx, kCards[idx].slug);
+  return n > 0 && static_cast<size_t>(n) < cap;
+}
+
+bool load_card_png_file(const char *path, uint8_t **out_buf, size_t *out_len) {
+  if (!out_buf || !out_len) {
+    return false;
+  }
+  *out_buf = nullptr;
+  *out_len = 0;
+  if (!path || !path[0]) {
+    return false;
+  }
+  FILE *fp = fopen(path, "rb");
+  if (!fp) {
+    set_error("sd missing");
+    return false;
+  }
+  if (fseek(fp, 0, SEEK_END) != 0) {
+    fclose(fp);
+    set_error("sd seek");
+    return false;
+  }
+  const long len = ftell(fp);
+  if (len <= 0 || len > kTarotMaxImageBytes || fseek(fp, 0, SEEK_SET) != 0) {
+    fclose(fp);
+    set_error("sd size");
+    return false;
+  }
+  uint8_t *buf = static_cast<uint8_t *>(pm_heap_alloc_response(static_cast<size_t>(len)));
+  if (!buf) {
+    fclose(fp);
+    set_error("sd alloc");
+    return false;
+  }
+  const size_t rd = fread(buf, 1, static_cast<size_t>(len), fp);
+  fclose(fp);
+  if (rd != static_cast<size_t>(len)) {
+    free(buf);
+    set_error("sd read");
+    return false;
+  }
+  *out_buf = buf;
+  *out_len = rd;
+  return true;
+}
+
+bool load_card_png_from_sd(int idx, uint8_t **out_buf, size_t *out_len) {
+  char path[112];
+  if (build_sd_card_path(idx, path, sizeof(path)) && load_card_png_file(path, out_buf, out_len)) {
+    return true;
+  }
+  if (build_sd_legacy_card_path(idx, path, sizeof(path)) && load_card_png_file(path, out_buf, out_len)) {
+    return true;
+  }
+  return false;
+}
+
+void ensure_sd_asset_dirs() {
+  (void)mkdir("/sdcard/astrolabe", 0775);
+  (void)mkdir("/sdcard/astrolabe/tarot", 0775);
+  (void)mkdir(kSdAssetBasePath, 0775);
+}
+
+void save_card_png_to_sd(int idx, const uint8_t *data, size_t len) {
+  if (!data || len == 0) {
+    return;
+  }
+  char path[112];
+  if (!build_sd_card_path(idx, path, sizeof(path))) {
+    return;
+  }
+  ensure_sd_asset_dirs();
+  FILE *fp = fopen(path, "wb");
+  if (!fp) {
+    return;
+  }
+  const size_t wr = fwrite(data, 1, len, fp);
+  fclose(fp);
+  if (wr == len) {
+    Serial.printf("tarot: cached sd %02d %s (%u B)\n", idx, kCards[idx].slug, static_cast<unsigned>(len));
+  }
 }
 
 bool download_card_png(const char *url, uint8_t **out_buf, size_t *out_len) {
@@ -256,6 +446,127 @@ bool download_card_png(const char *url, uint8_t **out_buf, size_t *out_len) {
   return true;
 }
 
+#if defined(ASTROLABE_P4_TARGET)
+void tarot_png_read(png_structp png_ptr, png_bytep out, png_size_t bytes) {
+  PngMemoryReader *reader = static_cast<PngMemoryReader *>(png_get_io_ptr(png_ptr));
+  if (!reader || !out || reader->pos + bytes > reader->len) {
+    png_error(png_ptr, "short png");
+    return;
+  }
+  memcpy(out, reader->data + reader->pos, bytes);
+  reader->pos += bytes;
+}
+
+bool decode_card_png(uint8_t *data, size_t len, int idx) {
+  free_decode_image();
+  if (!data || len < 8 || png_sig_cmp(data, 0, 8) != 0) {
+    set_error("png open");
+    return false;
+  }
+
+  png_structp png_ptr = png_create_read_struct(PNG_LIBPNG_VER_STRING, nullptr, nullptr, nullptr);
+  if (!png_ptr) {
+    set_error("png open");
+    return false;
+  }
+  png_infop info_ptr = png_create_info_struct(png_ptr);
+  if (!info_ptr) {
+    png_destroy_read_struct(&png_ptr, nullptr, nullptr);
+    set_error("png open");
+    return false;
+  }
+
+  PngMemoryReader reader{data, len, 0};
+  bool ok = false;
+  if (setjmp(png_jmpbuf(png_ptr))) {
+    set_error("png decode");
+  } else {
+    png_set_read_fn(png_ptr, &reader, tarot_png_read);
+    png_read_info(png_ptr, info_ptr);
+
+    const int w = static_cast<int>(png_get_image_width(png_ptr, info_ptr));
+    const int h = static_cast<int>(png_get_image_height(png_ptr, info_ptr));
+    png_byte color_type = png_get_color_type(png_ptr, info_ptr);
+    png_byte bit_depth = png_get_bit_depth(png_ptr, info_ptr);
+
+    if (w <= 0 || h <= 0 || w > kTarotMaxImageDim || h > kTarotMaxImageDim) {
+      set_error("png size");
+    } else {
+      if (bit_depth == 16) {
+        png_set_strip_16(png_ptr);
+      }
+      if (color_type == PNG_COLOR_TYPE_PALETTE) {
+        png_set_palette_to_rgb(png_ptr);
+      }
+      if (color_type == PNG_COLOR_TYPE_GRAY && bit_depth < 8) {
+        png_set_expand_gray_1_2_4_to_8(png_ptr);
+      }
+      if (png_get_valid(png_ptr, info_ptr, PNG_INFO_tRNS)) {
+        png_set_tRNS_to_alpha(png_ptr);
+      }
+      if (color_type == PNG_COLOR_TYPE_GRAY || color_type == PNG_COLOR_TYPE_GRAY_ALPHA) {
+        png_set_gray_to_rgb(png_ptr);
+      }
+      if ((color_type & PNG_COLOR_MASK_ALPHA) == 0 && !png_get_valid(png_ptr, info_ptr, PNG_INFO_tRNS)) {
+        png_set_filler(png_ptr, 0xff, PNG_FILLER_AFTER);
+      }
+
+      png_read_update_info(png_ptr, info_ptr);
+      const size_t rowbytes = png_get_rowbytes(png_ptr, info_ptr);
+      const size_t px = static_cast<size_t>(w) * static_cast<size_t>(h);
+      s_decoding_fb = static_cast<uint16_t *>(pm_heap_alloc_response(px * sizeof(uint16_t)));
+      s_decoding_mask = static_cast<uint8_t *>(pm_heap_alloc_response(mask_bytes_for(w, h)));
+      png_bytep row = static_cast<png_bytep>(std::malloc(rowbytes));
+      if (!s_decoding_fb || !s_decoding_mask || !row) {
+        set_error("alloc fb");
+      } else {
+        s_decoding_w = w;
+        s_decoding_h = h;
+        memset(s_decoding_mask, 0, mask_bytes_for(w, h));
+        for (int y = 0; y < h; ++y) {
+          png_read_row(png_ptr, row, nullptr);
+          for (int x = 0; x < w; ++x) {
+            const png_bytep pxp = row + x * 4;
+            const uint8_t a = pxp[3];
+            if (a != 0) {
+              mask_set(s_decoding_mask, y * w + x);
+            }
+            s_decoding_fb[y * w + x] = pm_gfx->color565(pxp[0], pxp[1], pxp[2]);
+          }
+        }
+        png_read_end(png_ptr, nullptr);
+        ok = true;
+      }
+      if (row) {
+        std::free(row);
+      }
+    }
+  }
+  png_destroy_read_struct(&png_ptr, &info_ptr, nullptr);
+  if (!ok) {
+    free_decode_image();
+    return false;
+  }
+  if (!image_mux_take(3000)) {
+    free_decode_image();
+    set_error("image lock");
+    return false;
+  }
+  free_active_image_locked();
+  s_image_fb = s_decoding_fb;
+  s_image_mask = s_decoding_mask;
+  s_image_w = s_decoding_w;
+  s_image_h = s_decoding_h;
+  s_cached_idx = idx;
+  s_decoding_fb = nullptr;
+  s_decoding_mask = nullptr;
+  s_decoding_w = 0;
+  s_decoding_h = 0;
+  image_mux_give();
+  set_error(nullptr);
+  return true;
+}
+#else
 int tarot_png_draw(PNGDRAW *pDraw) {
   if (!pDraw || !s_decoding_fb || s_decoding_w <= 0 || s_decoding_h <= 0 || pDraw->y < 0 || pDraw->y >= s_decoding_h) {
     return 0;
@@ -332,8 +643,21 @@ bool decode_card_png(uint8_t *data, size_t len, int idx) {
   set_error(nullptr);
   return true;
 }
+#endif
 
 bool fetch_card_inner(int idx) {
+  uint8_t *sd_png = nullptr;
+  size_t sd_png_len = 0;
+  if (load_card_png_from_sd(idx, &sd_png, &sd_png_len)) {
+    const bool sd_ok = decode_card_png(sd_png, sd_png_len, idx);
+    free(sd_png);
+    Serial.printf("tarot: %s sd %02d %s (%u B)\n", sd_ok ? "cached" : "decode failed", idx, kCards[idx].slug,
+                  static_cast<unsigned>(sd_png_len));
+    if (sd_ok) {
+      return true;
+    }
+  }
+
   char url[160];
   if (!build_card_url(idx, url, sizeof(url))) {
     set_error("bad url");
@@ -345,6 +669,9 @@ bool fetch_card_inner(int idx) {
     return false;
   }
   const bool ok = decode_card_png(png, png_len, idx);
+  if (ok) {
+    save_card_png_to_sd(idx, png, png_len);
+  }
   free(png);
   Serial.printf("tarot: %s %02d %s (%u B)\n", ok ? "cached" : "decode failed", idx, kCards[idx].slug,
                 static_cast<unsigned>(png_len));
@@ -375,8 +702,24 @@ void fetch_task_ensure() {
 
 void request_card_image(int idx) {
   if (idx < 0 || idx >= kCardCount || s_cached_idx == idx || s_fetch_busy || !pm_wifi_connected()) {
+#if defined(ASTROLABE_P4_TARGET)
+    if (idx >= 0 && idx < kCardCount && s_cached_idx != idx && !s_fetch_busy) {
+      // P4 loads the native tarot deck from SD card; Wi-Fi is not required.
+    } else {
+      return;
+    }
+#else
+    return;
+#endif
+  }
+#if defined(ASTROLABE_P4_TARGET)
+  const uint32_t now = millis();
+  if (s_last_request_idx == idx && now - s_last_request_ms < 5000u) {
     return;
   }
+  s_last_request_idx = idx;
+  s_last_request_ms = now;
+#endif
   fetch_task_ensure();
   if (!s_fetch_task) {
     set_error("task");
@@ -389,7 +732,10 @@ void request_card_image(int idx) {
   xTaskNotify(s_fetch_task, 1, eSetBits);
 }
 
-bool draw_cached_card_image(int idx, int cx, int cy) {
+bool draw_cached_card_image(int idx, int cx, int cy, bool *full_bleed) {
+  if (full_bleed) {
+    *full_bleed = false;
+  }
   if (idx < 0 || !image_mux_take(25)) {
     return false;
   }
@@ -415,7 +761,37 @@ bool draw_cached_card_image(int idx, int cx, int cy) {
       pm_gfx->writePixel(xx, yy, s_image_fb[y * s_image_w + x]);
     }
   }
+  if (full_bleed) {
+    *full_bleed = s_image_w >= LCD_WIDTH && s_image_h >= LCD_HEIGHT;
+  }
   image_mux_give();
+  return true;
+}
+
+bool draw_embedded_card_image(int idx, int cx, int cy) {
+  const uint16_t *rgb = nullptr;
+  const uint8_t *mask = nullptr;
+  int w = 0;
+  int h = 0;
+  if (!pm_face_tarot_embedded_card(idx, &rgb, &mask, &w, &h) || !rgb || !mask || w <= 0 || h <= 0) {
+    return false;
+  }
+  const int x0 = cx - w / 2;
+  const int y0 = cy - h / 2;
+  for (int y = 0; y < h; ++y) {
+    const int yy = y0 + y;
+    if (yy < 0 || yy >= LCD_HEIGHT) {
+      continue;
+    }
+    for (int x = 0; x < w; ++x) {
+      const int xx = x0 + x;
+      const int idx_px = y * w + x;
+      if (xx < 0 || xx >= LCD_WIDTH || !mask_get(mask, idx_px)) {
+        continue;
+      }
+      pm_gfx->writePixel(xx, yy, rgb[idx_px]);
+    }
+  }
   return true;
 }
 
@@ -576,6 +952,45 @@ void draw_card_symbol(int idx, int cx, int cy, uint16_t ink, uint16_t accent) {
   }
 }
 
+void draw_fallback_card(int idx, int cx, int cy, uint16_t panel, uint16_t ink, uint16_t dim, uint16_t accent) {
+  const int card_w = min((LCD_WIDTH * 54) / 100, LCD_WIDTH - 120);
+  const int card_h = min((LCD_HEIGHT * 64) / 100, LCD_HEIGHT - 160);
+  const int x = cx - card_w / 2;
+  const int y = cy - card_h / 2 - 8;
+  const TarotCard &card = kCards[idx];
+
+  pm_gfx->fillRoundRect(x - 10, y + 12, card_w + 20, card_h, 18, pm_gfx->color565(2, 3, 7));
+  pm_gfx->fillRoundRect(x, y, card_w, card_h, 20, panel);
+  pm_gfx->drawRoundRect(x, y, card_w, card_h, 20, accent);
+  pm_gfx->drawRoundRect(x + 9, y + 9, card_w - 18, card_h - 18, 14, blend565(panel, ink, 0.28f));
+  pm_gfx->fillRoundRect(x + 18, y + 18, card_w - 36, 42, 12, blend565(panel, accent, 0.22f));
+  pm_gfx->fillRoundRect(x + 18, y + card_h - 58, card_w - 36, 40, 12, blend565(panel, accent, 0.18f));
+
+  pm_gfx->setTextColor(accent);
+  pm_gfx->setTextSize(2);
+  char num[8];
+  snprintf(num, sizeof(num), "%02d", idx);
+  int16_t bx, by;
+  uint16_t bw, bh;
+  pm_gfx->getTextBounds(num, 0, 0, &bx, &by, &bw, &bh);
+  pm_gfx->setCursor(cx - static_cast<int>(bw) / 2, y + 30);
+  pm_gfx->print(num);
+
+  draw_card_symbol(idx, cx, cy - 8, ink, accent);
+
+  pm_gfx->setTextColor(ink);
+  pm_gfx->setTextSize(2);
+  pm_gfx->getTextBounds(card.glyph, 0, 0, &bx, &by, &bw, &bh);
+  pm_gfx->setCursor(cx - static_cast<int>(bw) / 2, y + card_h - 47);
+  pm_gfx->print(card.glyph);
+
+  pm_gfx->setTextColor(dim);
+  pm_gfx->setTextSize(1);
+  pm_gfx->getTextBounds(card.theme, 0, 0, &bx, &by, &bw, &bh);
+  pm_gfx->setCursor(cx - static_cast<int>(bw) / 2, y + card_h - 28);
+  pm_gfx->print(card.theme);
+}
+
 }  // namespace
 
 const char *pm_face_tarot_manifest_url(void) { return kManifestUrl; }
@@ -621,9 +1036,19 @@ void pm_face_tarot_draw(const struct tm *tm_local, bool valid_local) {
   const uint16_t c_dim = pm_gfx->color565(150, 136, 116);
   const uint16_t c_accent = pm_gfx->color565(card.r, card.g, card.b);
   const uint16_t c_glow = blend565(c_bg, c_accent, 0.22f);
-  pm_gfx->fillScreen(c_bg);
 
-  const bool image_drawn = draw_cached_card_image(idx, kCx, kCy);
+  bool image_full_bleed = false;
+  bool image_drawn = draw_cached_card_image(idx, kCx, kCy, &image_full_bleed);
+  if (image_full_bleed) {
+    return;
+  }
+  pm_gfx->fillScreen(c_bg);
+  if (image_drawn) {
+    image_drawn = draw_cached_card_image(idx, kCx, kCy, nullptr);
+  }
+  if (!image_drawn) {
+    image_drawn = draw_embedded_card_image(idx, kCx, kCy);
+  }
 
   if (!image_drawn) {
     const int R = min(LCD_WIDTH, LCD_HEIGHT) / 2;
@@ -632,10 +1057,7 @@ void pm_face_tarot_draw(const struct tm *tm_local, bool valid_local) {
       pm_gfx->drawCircle(kCx, kCy, r, blend565(c_bg, c_glow, a * 0.32f));
     }
 
-    pm_gfx->fillCircle(kCx, kCy, 160, c_panel);
-    pm_gfx->drawCircle(kCx, kCy, 160, c_accent);
-    pm_gfx->drawCircle(kCx, kCy, 154, blend565(c_panel, c_accent, 0.38f));
-    draw_card_symbol(idx, kCx, kCy - 6, c_ink, c_accent);
+    draw_fallback_card(idx, kCx, kCy, c_panel, c_ink, c_dim, c_accent);
   }
 
   const int R = min(LCD_WIDTH, LCD_HEIGHT) / 2;
@@ -649,8 +1071,8 @@ void pm_face_tarot_draw(const struct tm *tm_local, bool valid_local) {
   for (int i = 0; i < kCardCount; ++i) {
     const float deg = static_cast<float>(i) * 360.f / static_cast<float>(kCardCount);
     const float ang = pm_face_deg_to_rad(deg);
-    const int r0 = (i == idx) ? 206 : 214;
-    const int r1 = (i == idx) ? 230 : 224;
+    const int r0 = (i == idx) ? (R * 88) / 100 : (R * 91) / 100;
+    const int r1 = (i == idx) ? (R * 98) / 100 : (R * 95) / 100;
     const uint16_t col = (i == idx) ? c_accent : blend565(c_bg, c_ink, image_drawn ? 0.32f : 0.18f);
     pm_gfx->drawLine(kCx + static_cast<int>(lrintf(cosf(ang) * r0)),
                      kCy + static_cast<int>(lrintf(sinf(ang) * r0)),
@@ -658,24 +1080,27 @@ void pm_face_tarot_draw(const struct tm *tm_local, bool valid_local) {
                      kCy + static_cast<int>(lrintf(sinf(ang) * r1)), col);
   }
 
-  pm_gfx->fillRect(0, 0, LCD_WIDTH, 64, image_drawn ? pm_gfx->color565(6, 7, 11) : c_bg);
-  pm_gfx->fillRect(0, 330, LCD_WIDTH, 136, image_drawn ? pm_gfx->color565(6, 7, 11) : c_bg);
-  pm_gfx->drawFastHLine(0, 64, LCD_WIDTH, blend565(c_bg, c_accent, 0.45f));
-  pm_gfx->drawFastHLine(0, 330, LCD_WIDTH, blend565(c_bg, c_accent, 0.45f));
+  const int top_band_h = image_drawn ? max(54, LCD_HEIGHT / 12) : max(64, LCD_HEIGHT / 11);
+  const int bottom_band_y = image_drawn ? (LCD_HEIGHT * 5) / 6 : (LCD_HEIGHT * 3) / 4;
+  pm_gfx->fillRect(0, 0, LCD_WIDTH, top_band_h, image_drawn ? pm_gfx->color565(6, 7, 11) : c_bg);
+  pm_gfx->fillRect(0, bottom_band_y, LCD_WIDTH, LCD_HEIGHT - bottom_band_y,
+                   image_drawn ? pm_gfx->color565(6, 7, 11) : c_bg);
+  pm_gfx->drawFastHLine(0, top_band_h, LCD_WIDTH, blend565(c_bg, c_accent, 0.45f));
+  pm_gfx->drawFastHLine(0, bottom_band_y, LCD_WIDTH, blend565(c_bg, c_accent, 0.45f));
 
   char num[8];
   snprintf(num, sizeof(num), "%02d", idx);
-  pm_face_draw_centered_line(num, 38, c_accent, 2, 2);
-  pm_face_draw_centered_line(card.title, 340, c_ink, 2, 2);
-  pm_face_draw_centered_line(card.theme, 374, c_dim, 1, 1);
+  pm_face_draw_centered_line(num, image_drawn ? top_band_h - 22 : top_band_h - 26, c_accent, 2, 2);
+  pm_face_draw_centered_line(card.title, image_drawn ? bottom_band_y + 14 : bottom_band_y + 14, c_ink, 2, 2);
+  pm_face_draw_centered_line(card.theme, image_drawn ? bottom_band_y + 48 : bottom_band_y + 48, c_dim, 1, 1);
 
   const char *fallback = s_last_error[0] ? s_last_error : "daily major";
   const char *deck_hint = s_last_error[0] ? s_last_error : "swipe deck  tap daily";
   if (s_selected < 0) {
-    pm_face_draw_centered_line(image_drawn ? "daily major" : (s_fetch_busy ? "fetching card" : fallback), 408,
-                               c_dim, 1, 1);
+    pm_face_draw_centered_line(image_drawn ? "daily major" : (s_fetch_busy ? "fetching card" : fallback),
+                               bottom_band_y + 76, c_dim, 1, 1);
   } else {
     pm_face_draw_centered_line(image_drawn ? "swipe deck  tap daily" : (s_fetch_busy ? "fetching card" : deck_hint),
-                               408, c_dim, 1, 1);
+                               bottom_band_y + 76, c_dim, 1, 1);
   }
 }

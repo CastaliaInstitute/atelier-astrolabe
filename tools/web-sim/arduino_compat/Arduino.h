@@ -9,13 +9,21 @@
 #include <string>
 #include <ctime>
 
+#if defined(ASTROLABE_P4_TARGET)
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+#include "freertos/task.h"
+#endif
+
 #define HIGH 1
 #define LOW 0
 #define OUTPUT 1
 #define INPUT 0
 #define INPUT_PULLUP 2
 #define PROGMEM
+#if !defined(ASTROLABE_P4_TARGET)
 #define IRAM_ATTR
+#endif
 #define ARDUINO 10819
 
 using byte = uint8_t;
@@ -24,7 +32,11 @@ uint32_t millis(void);
 uint32_t micros(void);
 void delay(uint32_t ms);
 inline void yield(void) {}
+#if defined(ASTROLABE_P4_TARGET)
+extern "C" uint32_t esp_random(void);
+#else
 uint32_t esp_random(void);
+#endif
 
 template <typename T>
 static inline T min(T a, T b) {
@@ -59,6 +71,7 @@ class String : public std::string {
   }
 };
 
+#if !defined(ASTROLABE_P4_TARGET)
 using TaskHandle_t = void *;
 using SemaphoreHandle_t = void *;
 using BaseType_t = int;
@@ -76,3 +89,4 @@ inline int xTaskCreatePinnedToCore(void (*)(void *), const char *, uint32_t, voi
 }
 inline uint32_t ulTaskNotifyTake(int, uint32_t) { return 0; }
 inline void xTaskNotify(TaskHandle_t, uint32_t, int) {}
+#endif

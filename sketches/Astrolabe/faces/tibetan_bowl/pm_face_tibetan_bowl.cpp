@@ -17,9 +17,9 @@ static constexpr float kPi = 3.14159265f;
 static constexpr float kTwoPi = kPi * 2.f;
 static constexpr float kTargetAngVel = 2.8f;
 static constexpr float kRimSwipeBlockRad = 0.45f;
-static constexpr float kCenterTouchRadius = 72.f;
-static constexpr float kCenterTouchReleaseRadius = 104.f;
-static constexpr int16_t kCenterTouchSlop = 30;
+static constexpr float kCenterTouchRadius = static_cast<float>(pm_face_scale_i(72));
+static constexpr float kCenterTouchReleaseRadius = static_cast<float>(pm_face_scale_i(104));
+static constexpr int16_t kCenterTouchSlop = pm_face_scale_i(30);
 static constexpr uint32_t kCenterHoldMs = 220u;
 static constexpr int kChakraCount = 7;
 
@@ -135,7 +135,7 @@ static float rim_quality(float r) {
   const float mid = static_cast<float>(r_in + r_out) * 0.5f;
   const float half = static_cast<float>(r_out - r_in) * 0.5f;
   const float err = fabsf(r - mid);
-  const float q = 1.f - err / (half + 18.f);
+  const float q = 1.f - err / (half + static_cast<float>(pm_face_scale_i(18)));
   if (q < 0.f) {
     return 0.f;
   }
@@ -162,13 +162,14 @@ static void draw_chakra_sectors(float energy) {
     const float start_deg = static_cast<float>(i) * (360.f / static_cast<float>(kChakraCount));
     const float end_deg = static_cast<float>(i + 1) * (360.f / static_cast<float>(kChakraCount));
     const float dim = (i == s_chakra_idx) ? (0.22f + 0.34f * energy) : 0.08f;
-    pm_face_draw_annular_wedge(kCx, kCy, r_in - 4, r_out + 4, start_deg, end_deg, chakra_color(i, dim));
+    pm_face_draw_annular_wedge(kCx, kCy, r_in - pm_face_scale_i(4), r_out + pm_face_scale_i(4), start_deg,
+                               end_deg, chakra_color(i, dim));
   }
   if (s_touch_down && energy > 0.05f) {
     const int r_mid = static_cast<int>(bowl_rim_mid());
     const int fx = kCx + static_cast<int>(cosf(s_finger_ang) * static_cast<float>(r_mid));
     const int fy = kCy + static_cast<int>(sinf(s_finger_ang) * static_cast<float>(r_mid));
-    pm_gfx->drawCircle(fx, fy, 12, bowl_color(0.35f + 0.4f * energy));
+    pm_gfx->drawCircle(fx, fy, pm_face_scale_i(12), bowl_color(0.35f + 0.4f * energy));
   }
 }
 
@@ -272,31 +273,31 @@ static void draw_bowl_graphic(float energy) {
   const uint16_t disc_outer = bowl_color(0.24f + 0.16f * energy);
   const uint16_t disc_mid = bowl_color(0.34f + 0.18f * energy);
   const uint16_t disc_center = pm_gfx->color565(10, 9, 14);
-  const int breath = static_cast<int>(3.f * sinf(s_wave_phase * 0.7f));
+  const int breath = pm_face_scale_i(static_cast<int>(3.f * sinf(s_wave_phase * 0.7f)));
 
-  pm_gfx->fillCircle(kCx, kCy + 6, 178 + breath, shadow);
-  pm_gfx->fillCircle(kCx, kCy, 176 + breath, rim_mid);
-  pm_gfx->fillCircle(kCx, kCy, 166, wall);
-  pm_gfx->fillCircle(kCx, kCy, 138, bowl_color(0.20f));
-  pm_gfx->fillCircle(kCx, kCy, 116, bowl_color(0.14f));
-  pm_gfx->fillCircle(kCx, kCy, 88, well);
-  pm_gfx->fillCircle(kCx, kCy, 58, disc_outer);
-  pm_gfx->fillCircle(kCx, kCy, 44, disc_mid);
-  pm_gfx->fillCircle(kCx, kCy, 28, disc_center);
+  pm_gfx->fillCircle(kCx, kCy + pm_face_scale_i(6), pm_face_scale_i(178) + breath, shadow);
+  pm_gfx->fillCircle(kCx, kCy, pm_face_scale_i(176) + breath, rim_mid);
+  pm_gfx->fillCircle(kCx, kCy, pm_face_scale_i(166), wall);
+  pm_gfx->fillCircle(kCx, kCy, pm_face_scale_i(138), bowl_color(0.20f));
+  pm_gfx->fillCircle(kCx, kCy, pm_face_scale_i(116), bowl_color(0.14f));
+  pm_gfx->fillCircle(kCx, kCy, pm_face_scale_i(88), well);
+  pm_gfx->fillCircle(kCx, kCy, pm_face_scale_i(58), disc_outer);
+  pm_gfx->fillCircle(kCx, kCy, pm_face_scale_i(44), disc_mid);
+  pm_gfx->fillCircle(kCx, kCy, pm_face_scale_i(28), disc_center);
 
-  pm_gfx->drawCircle(kCx, kCy, 176 + breath, rim_hi);
-  pm_gfx->drawCircle(kCx, kCy, 168, bowl_color(0.95f));
-  pm_gfx->drawCircle(kCx, kCy, 138, bowl_color(0.36f));
-  pm_gfx->drawCircle(kCx, kCy, 88, bowl_color(0.28f));
-  pm_gfx->drawCircle(kCx, kCy, 58, bowl_color(0.62f));
-  pm_gfx->drawCircle(kCx, kCy, 44, bowl_color(0.48f));
+  pm_gfx->drawCircle(kCx, kCy, pm_face_scale_i(176) + breath, rim_hi);
+  pm_gfx->drawCircle(kCx, kCy, pm_face_scale_i(168), bowl_color(0.95f));
+  pm_gfx->drawCircle(kCx, kCy, pm_face_scale_i(138), bowl_color(0.36f));
+  pm_gfx->drawCircle(kCx, kCy, pm_face_scale_i(88), bowl_color(0.28f));
+  pm_gfx->drawCircle(kCx, kCy, pm_face_scale_i(58), bowl_color(0.62f));
+  pm_gfx->drawCircle(kCx, kCy, pm_face_scale_i(44), bowl_color(0.48f));
 
   pm_chakra_draw_glyph(pm_gfx, kCx, kCy, s_chakra_idx, bowl_color(0.98f), energy > 0.04f || s_touch_down);
 
   if (energy > 0.05f) {
-    const int ring_a = 74 + static_cast<int>(22.f * energy);
-    const int ring_b = 112 + static_cast<int>(18.f * energy);
-    const int ring_c = 148 + static_cast<int>(10.f * energy * s_ring_envelope);
+    const int ring_a = pm_face_scale_i(74) + pm_face_scale_i(static_cast<int>(22.f * energy));
+    const int ring_b = pm_face_scale_i(112) + pm_face_scale_i(static_cast<int>(18.f * energy));
+    const int ring_c = pm_face_scale_i(148) + pm_face_scale_i(static_cast<int>(10.f * energy * s_ring_envelope));
     pm_gfx->drawCircle(kCx, kCy, ring_a, bowl_color(0.15f + 0.45f * energy));
     pm_gfx->drawCircle(kCx, kCy, ring_b, bowl_color(0.12f + 0.35f * energy));
     if (s_ring_envelope > 0.08f) {
@@ -312,8 +313,8 @@ static void draw_rim_finger(void) {
   const int r_mid = static_cast<int>(bowl_rim_mid());
   const int fx = kCx + static_cast<int>(cosf(s_finger_ang) * static_cast<float>(r_mid));
   const int fy = kCy + static_cast<int>(sinf(s_finger_ang) * static_cast<float>(r_mid));
-  pm_gfx->fillCircle(fx, fy, 7, bowl_color(0.95f));
-  pm_gfx->drawCircle(fx, fy, 10, pm_gfx->color565(255, 245, 210));
+  pm_gfx->fillCircle(fx, fy, pm_face_scale_i(7), bowl_color(0.95f));
+  pm_gfx->drawCircle(fx, fy, pm_face_scale_i(10), pm_gfx->color565(255, 245, 210));
 }
 
 void pm_face_tibetan_bowl_draw(void) {

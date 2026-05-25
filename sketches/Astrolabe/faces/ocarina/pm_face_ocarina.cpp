@@ -35,12 +35,12 @@ static const OcarinaKey kKeys[] = {
 };
 
 static const OcarinaHole kHoles[kHoleCount] = {
-    {kCx - 70, kCy - 22, 18, 0, "1"},
-    {kCx - 24, kCy - 42, 17, 2, "2"},
-    {kCx + 25, kCy - 34, 18, 4, "3"},
-    {kCx + 72, kCy - 8, 17, 7, "5"},
-    {kCx - 28, kCy + 28, 15, 9, "6"},
-    {kCx + 30, kCy + 34, 15, 12, "8"},
+    {kCx - pm_face_scale_i(70), kCy - pm_face_scale_i(22), pm_face_scale_i(18), 0, "1"},
+    {kCx - pm_face_scale_i(24), kCy - pm_face_scale_i(42), pm_face_scale_i(17), 2, "2"},
+    {kCx + pm_face_scale_i(25), kCy - pm_face_scale_i(34), pm_face_scale_i(18), 4, "3"},
+    {kCx + pm_face_scale_i(72), kCy - pm_face_scale_i(8), pm_face_scale_i(17), 7, "5"},
+    {kCx - pm_face_scale_i(28), kCy + pm_face_scale_i(28), pm_face_scale_i(15), 9, "6"},
+    {kCx + pm_face_scale_i(30), kCy + pm_face_scale_i(34), pm_face_scale_i(15), 12, "8"},
 };
 
 static int s_key_idx = 0;
@@ -75,7 +75,7 @@ static bool hit_hole(int16_t x, int16_t y, int *out_idx) {
     const int dx = static_cast<int>(x) - kHoles[i].x;
     const int dy = static_cast<int>(y) - kHoles[i].y;
     const int d2 = dx * dx + dy * dy;
-    const int hit_r = kHoles[i].r + 18;
+    const int hit_r = kHoles[i].r + pm_face_scale_i(18);
     if (d2 <= hit_r * hit_r && (best < 0 || d2 < best_d2)) {
       best = i;
       best_d2 = d2;
@@ -107,29 +107,39 @@ static void draw_breath_rings(float energy) {
   }
   const uint16_t ring = jade(0.32f + 0.42f * energy);
   for (int i = 0; i < 4; ++i) {
-    const int r = 86 + i * 23 + static_cast<int>(sinf(s_phase + static_cast<float>(i)) * 5.f);
+    const int r = pm_face_scale_i(86 + i * 23) + pm_face_scale_i(static_cast<int>(sinf(s_phase + static_cast<float>(i)) * 5.f));
     pm_gfx->drawCircle(kCx, kCy, r, ring);
   }
 }
 
 static void draw_ocarina_body(float energy) {
-  const int breath = static_cast<int>(5.f * energy * sinf(s_phase));
+  const int breath = pm_face_scale_i(static_cast<int>(5.f * energy * sinf(s_phase)));
   const uint16_t shadow = pm_gfx->color565(18, 10, 8);
   const uint16_t body = clay(0.72f + 0.12f * energy);
   const uint16_t body_hi = clay(0.98f);
   const uint16_t edge = clay(0.42f);
 
-  pm_gfx->fillEllipse(kCx + 4, kCy + 18, 132, 86, shadow);
-  pm_gfx->fillRoundRect(kCx - 168, kCy - 74, 110, 42, 16, shadow);
-  pm_gfx->fillRoundRect(kCx - 174, kCy - 85, 124, 44, 16, body);
-  pm_gfx->drawRoundRect(kCx - 174, kCy - 85, 124, 44, 16, edge);
-  pm_gfx->fillTriangle(kCx - 62, kCy - 82, kCx - 24, kCy - 50, kCx - 62, kCy - 44, body);
+  pm_gfx->fillEllipse(kCx + pm_face_scale_i(4), kCy + pm_face_scale_i(18), pm_face_scale_i(132),
+                      pm_face_scale_i(86), shadow);
+  pm_gfx->fillRoundRect(kCx - pm_face_scale_i(168), kCy - pm_face_scale_i(74), pm_face_scale_i(110),
+                        pm_face_scale_i(42), pm_face_scale_i(16), shadow);
+  pm_gfx->fillRoundRect(kCx - pm_face_scale_i(174), kCy - pm_face_scale_i(85), pm_face_scale_i(124),
+                        pm_face_scale_i(44), pm_face_scale_i(16), body);
+  pm_gfx->drawRoundRect(kCx - pm_face_scale_i(174), kCy - pm_face_scale_i(85), pm_face_scale_i(124),
+                        pm_face_scale_i(44), pm_face_scale_i(16), edge);
+  pm_gfx->fillTriangle(kCx - pm_face_scale_i(62), kCy - pm_face_scale_i(82), kCx - pm_face_scale_i(24),
+                       kCy - pm_face_scale_i(50), kCx - pm_face_scale_i(62), kCy - pm_face_scale_i(44), body);
 
-  pm_gfx->fillEllipse(kCx + 8, kCy + 4, 126 + breath, 82, body);
-  pm_gfx->drawEllipse(kCx + 8, kCy + 4, 128 + breath, 84, edge);
-  pm_gfx->fillEllipse(kCx - 20, kCy - 30, 54, 20, body_hi);
-  pm_gfx->fillEllipse(kCx + 86, kCy - 42, 24, 18, clay(0.58f));
-  pm_gfx->drawEllipse(kCx + 86, kCy - 42, 25, 19, edge);
+  pm_gfx->fillEllipse(kCx + pm_face_scale_i(8), kCy + pm_face_scale_i(4), pm_face_scale_i(126) + breath,
+                      pm_face_scale_i(82), body);
+  pm_gfx->drawEllipse(kCx + pm_face_scale_i(8), kCy + pm_face_scale_i(4), pm_face_scale_i(128) + breath,
+                      pm_face_scale_i(84), edge);
+  pm_gfx->fillEllipse(kCx - pm_face_scale_i(20), kCy - pm_face_scale_i(30), pm_face_scale_i(54),
+                      pm_face_scale_i(20), body_hi);
+  pm_gfx->fillEllipse(kCx + pm_face_scale_i(86), kCy - pm_face_scale_i(42), pm_face_scale_i(24),
+                      pm_face_scale_i(18), clay(0.58f));
+  pm_gfx->drawEllipse(kCx + pm_face_scale_i(86), kCy - pm_face_scale_i(42), pm_face_scale_i(25),
+                      pm_face_scale_i(19), edge);
 }
 
 static void draw_holes(float energy) {
@@ -140,10 +150,10 @@ static void draw_holes(float energy) {
     const OcarinaHole &h = kHoles[i];
     const bool on = i == s_note_idx && energy > 0.02f;
     const int grow = on ? static_cast<int>(5.f * energy) : 0;
-    pm_gfx->fillCircle(h.x, h.y, h.r + grow + 3, on ? active : rim);
+    pm_gfx->fillCircle(h.x, h.y, h.r + grow + pm_face_scale_i(3), on ? active : rim);
     pm_gfx->fillCircle(h.x, h.y, h.r + grow, dark);
     if (on) {
-      pm_gfx->drawCircle(h.x, h.y, h.r + 8 + grow, active);
+      pm_gfx->drawCircle(h.x, h.y, h.r + pm_face_scale_i(8) + grow, active);
     }
     pm_face_draw_centered_line(h.degree, h.y - 5, on ? active : pm_gfx->color565(112, 70, 48), 1, 1);
   }

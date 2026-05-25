@@ -2,6 +2,7 @@
 
 #include <math.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "lvgl.h"
 
@@ -12,6 +13,8 @@ static lv_obj_t *s_hint_label;
 static lv_obj_t *s_dial;
 static astrolabe_ui_face_t s_face = ASTROLABE_UI_FACE_CLASSIC_ANALOG;
 static uint32_t s_elapsed_ms;
+static char s_settings_profile[24] = "Astrolabe";
+static char s_settings_home_face[24] = "Classic";
 
 typedef struct {
   const char *name;
@@ -617,6 +620,16 @@ static void create_device_face(astrolabe_ui_face_t face) {
     s_hint_label = make_label(meta->line1, 348, &lv_font_montserrat_18, meta->accent);
     make_label(meta->line2, 390, &lv_font_montserrat_16, 0x8e7ca8);
     break;
+  case ASTROLABE_UI_FACE_SETTINGS: {
+    char profile_text[48];
+    char home_text[48];
+    snprintf(profile_text, sizeof(profile_text), "Profile: %s", s_settings_profile);
+    snprintf(home_text, sizeof(home_text), "Home: %s", s_settings_home_face);
+    s_face_label = make_label("Settings", 42, &lv_font_montserrat_22, meta->accent);
+    make_label(profile_text, 348, &lv_font_montserrat_18, 0xf8fbff);
+    s_hint_label = make_label(home_text, 386, &lv_font_montserrat_18, 0x8e9ba8);
+    break;
+  }
   case ASTROLABE_UI_FACE_LEVEL:
     s_face_label = make_label(meta->line1, 46, &lv_font_montserrat_22, meta->accent);
     s_hint_label = make_label(meta->line2, 79, &lv_font_montserrat_16, 0x8e9ba8);
@@ -745,9 +758,25 @@ static void refresh_time_labels(void) {
 }
 
 void astrolabe_ui_init(void) {
-  s_root = lv_screen_active();
+  astrolabe_ui_init_in(lv_screen_active());
+}
+
+void astrolabe_ui_init_in(void *parent) {
+  s_root = (lv_obj_t *)parent;
   s_elapsed_ms = 12u * 3600u * 1000u;
   astrolabe_ui_set_face(ASTROLABE_UI_FACE_CLASSIC_ANALOG);
+}
+
+void astrolabe_ui_set_settings_summary(const char *profile, const char *home_face) {
+  if (profile && profile[0]) {
+    snprintf(s_settings_profile, sizeof(s_settings_profile), "%s", profile);
+  }
+  if (home_face && home_face[0]) {
+    snprintf(s_settings_home_face, sizeof(s_settings_home_face), "%s", home_face);
+  }
+  if (s_face == ASTROLABE_UI_FACE_SETTINGS) {
+    astrolabe_ui_set_face(ASTROLABE_UI_FACE_SETTINGS);
+  }
 }
 
 void astrolabe_ui_set_face(astrolabe_ui_face_t face) {

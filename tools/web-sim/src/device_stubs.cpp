@@ -28,6 +28,10 @@
 #include "pm_weather.h"
 #include "pm_wifi_ntp.h"
 
+#if defined(ASTROLABE_P4_TARGET)
+#include "p4_faculty_assets.h"
+#endif
+
 char g_gesture_banner[44] = {};
 
 bool pm_time_valid(void) { return true; }
@@ -43,12 +47,21 @@ void pm_wifi_resume_after_ble(void) {}
 int32_t pm_geo_tz_offset_sec(void) { return 0; }
 
 bool pm_variant_face_allowed(ClockFace) { return true; }
+#if defined(ASTROLABE_P4_TARGET)
+PmDeviceVariant pm_variant_get(void) { return PmDeviceVariant::Lunasay; }
+void pm_variant_set(PmDeviceVariant) {}
+PmDeviceVariant pm_variant_cycle(int) { return PmDeviceVariant::Lunasay; }
+const char *pm_variant_label(PmDeviceVariant) { return "Lunasay"; }
+const char *pm_variant_summary(PmDeviceVariant) { return "P4"; }
+ClockFace pm_variant_home_face(void) { return ClockFace::Moon; }
+#else
 PmDeviceVariant pm_variant_get(void) { return PmDeviceVariant::Astrolabe; }
 void pm_variant_set(PmDeviceVariant) {}
 PmDeviceVariant pm_variant_cycle(int) { return PmDeviceVariant::Astrolabe; }
 const char *pm_variant_label(PmDeviceVariant) { return "Astrolabe"; }
 const char *pm_variant_summary(PmDeviceVariant) { return "web sim"; }
 ClockFace pm_variant_home_face(void) { return ClockFace::ClassicAnalog; }
+#endif
 
 static SettingsPage s_settings_page = SettingsPage::WiFi;
 void pm_settings_set_page(SettingsPage page) { s_settings_page = page; }
@@ -168,14 +181,46 @@ void pm_faculty_prepare_demo_view(void) {}
 int pm_faculty_count(void) { return 1; }
 bool pm_faculty_active(PmFacultyProfile *out) {
   if (!out) return false;
-  std::snprintf(out->slug, sizeof(out->slug), "hypatia");
-  std::snprintf(out->name, sizeof(out->name), "Hypatia");
+  std::snprintf(out->slug, sizeof(out->slug), "a.adalovelace");
+  std::snprintf(out->name, sizeof(out->name), "Ada Lovelace");
   return true;
 }
 bool pm_faculty_get_slot(int, PmFacultyProfile *out) { return pm_faculty_active(out); }
 void pm_faculty_release_bust_cache(void) {}
 static void websim_draw_faculty_bust(int cx, int bottom_y, int max_w, int max_h, const char *name) {
   if (!pm_gfx) return;
+
+#if defined(ASTROLABE_P4_TARGET)
+  const uint16_t *rgb = nullptr;
+  const uint8_t *mask = nullptr;
+  int src_w = 0;
+  int src_h = 0;
+  if (astrolabe_p4_faculty_bust(&rgb, &mask, &src_w, &src_h) && rgb && mask && src_w > 0 && src_h > 0) {
+    const float scale = min(static_cast<float>(max_w) / static_cast<float>(src_w),
+                            static_cast<float>(max_h) / static_cast<float>(src_h));
+    const int draw_w = max(1, static_cast<int>(src_w * scale));
+    const int draw_h = max(1, static_cast<int>(src_h * scale));
+    const int x0 = cx - draw_w / 2;
+    const int y0 = bottom_y - draw_h;
+    for (int y = 0; y < draw_h; ++y) {
+      const int sy = min(src_h - 1, static_cast<int>(static_cast<float>(y) / scale));
+      const int yy = y0 + y;
+      if (yy < 0 || yy >= LCD_HEIGHT) {
+        continue;
+      }
+      for (int x = 0; x < draw_w; ++x) {
+        const int sx = min(src_w - 1, static_cast<int>(static_cast<float>(x) / scale));
+        const int xx = x0 + x;
+        const int si = sy * src_w + sx;
+        if (xx < 0 || xx >= LCD_WIDTH || (mask[si >> 3] & (1u << (si & 7))) == 0) {
+          continue;
+        }
+        pm_gfx->writePixel(xx, yy, rgb[si]);
+      }
+    }
+    return;
+  }
+#endif
 
   const int head_r = max(14, min(max_w, max_h) / 7);
   const int head_cy = bottom_y - max_h + head_r * 3;
@@ -219,11 +264,11 @@ static void websim_draw_faculty_bust(int cx, int bottom_y, int max_w, int max_h,
     pm_gfx->print(name);
   }
 }
-void pm_faculty_draw_bust(void) { websim_draw_faculty_bust(LCD_WIDTH / 2, LCD_HEIGHT - 34, LCD_WIDTH - 96, LCD_HEIGHT - 90, "Hypatia"); }
+void pm_faculty_draw_bust(void) {
+  websim_draw_faculty_bust(LCD_WIDTH / 2, LCD_HEIGHT, LCD_WIDTH, LCD_HEIGHT, "Ada Lovelace");
+}
 void pm_faculty_draw_bust_fullscreen(void) {
-  pm_gfx->fillCircle(LCD_WIDTH / 2, LCD_HEIGHT / 2, 210, pm_gfx->color565(10, 16, 30));
-  pm_gfx->drawCircle(LCD_WIDTH / 2, LCD_HEIGHT / 2, 214, pm_gfx->color565(74, 92, 126));
-  websim_draw_faculty_bust(LCD_WIDTH / 2, LCD_HEIGHT - 44, LCD_WIDTH - 78, LCD_HEIGHT - 88, "Hypatia");
+  websim_draw_faculty_bust(LCD_WIDTH / 2, LCD_HEIGHT, LCD_WIDTH, LCD_HEIGHT, "Ada Lovelace");
 }
 void pm_faculty_draw_bust_for(const PmFacultyProfile *profile) {
   websim_draw_faculty_bust(LCD_WIDTH / 2, LCD_HEIGHT - 34, LCD_WIDTH - 96, LCD_HEIGHT - 90,
@@ -232,7 +277,7 @@ void pm_faculty_draw_bust_for(const PmFacultyProfile *profile) {
 void pm_faculty_draw_bust_for_at(const PmFacultyProfile *profile, int cx, int bottom_y, int max_w, int max_h, int, int) {
   websim_draw_faculty_bust(cx, bottom_y, max_w, max_h, profile && profile->name[0] ? profile->name : nullptr);
 }
-const char *pm_faculty_bust_slug(void) { return "hypatia"; }
+const char *pm_faculty_bust_slug(void) { return "a.adalovelace"; }
 bool pm_faculty_bust_ready_for(const char *) { return true; }
 
 PmCommonplaceStatus pm_commonplace_status(void) { return PmCommonplaceStatus::Idle; }

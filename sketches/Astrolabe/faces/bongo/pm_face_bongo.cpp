@@ -12,8 +12,8 @@
 
 static constexpr int kCx = pm_face_lcd_cx;
 static constexpr int kCy = pm_face_lcd_cy;
-static constexpr int kDrumRadius = 170;
-static constexpr int kInnerRadius = 72;
+static constexpr int kDrumRadius = pm_face_scale_i(170);
+static constexpr int kInnerRadius = pm_face_scale_i(72);
 static constexpr float kLowHz = 148.f;
 static constexpr float kHighHz = 420.f;
 
@@ -89,20 +89,21 @@ static void draw_head(float energy) {
   const uint16_t bg = pm_gfx->color565(8, 7, 8);
   const uint16_t shadow = pm_gfx->color565(24, 12, 8);
   pm_gfx->fillScreen(bg);
-  pm_gfx->fillEllipse(kCx, kCy + 36, kDrumRadius + 22, kDrumRadius - 14, shadow);
-  pm_gfx->fillCircle(kCx, kCy, kDrumRadius + 15, wood(0.55f));
-  pm_gfx->fillCircle(kCx, kCy, kDrumRadius + 4, wood(0.84f));
-  pm_gfx->fillCircle(kCx, kCy, kDrumRadius - 12, skin(0.93f + 0.07f * energy));
-  pm_gfx->drawCircle(kCx, kCy, kDrumRadius - 11, skin(0.58f));
+  pm_gfx->fillEllipse(kCx, kCy + pm_face_scale_i(36), kDrumRadius + pm_face_scale_i(22),
+                      kDrumRadius - pm_face_scale_i(14), shadow);
+  pm_gfx->fillCircle(kCx, kCy, kDrumRadius + pm_face_scale_i(15), wood(0.55f));
+  pm_gfx->fillCircle(kCx, kCy, kDrumRadius + pm_face_scale_i(4), wood(0.84f));
+  pm_gfx->fillCircle(kCx, kCy, kDrumRadius - pm_face_scale_i(12), skin(0.93f + 0.07f * energy));
+  pm_gfx->drawCircle(kCx, kCy, kDrumRadius - pm_face_scale_i(11), skin(0.58f));
   pm_gfx->drawCircle(kCx, kCy, kInnerRadius, skin(0.58f));
   pm_gfx->drawCircle(kCx, kCy, kInnerRadius + 1, skin(0.45f));
 
   for (int i = 0; i < 12; ++i) {
     const float a = static_cast<float>(i) * (6.2831853f / 12.f);
-    const int x0 = kCx + static_cast<int>(cosf(a) * static_cast<float>(kDrumRadius - 5));
-    const int y0 = kCy + static_cast<int>(sinf(a) * static_cast<float>(kDrumRadius - 5));
-    pm_gfx->fillCircle(x0, y0, 6, wood(0.30f));
-    pm_gfx->drawCircle(x0, y0, 8, skin(0.55f));
+    const int x0 = kCx + static_cast<int>(cosf(a) * static_cast<float>(kDrumRadius - pm_face_scale_i(5)));
+    const int y0 = kCy + static_cast<int>(sinf(a) * static_cast<float>(kDrumRadius - pm_face_scale_i(5)));
+    pm_gfx->fillCircle(x0, y0, pm_face_scale_i(6), wood(0.30f));
+    pm_gfx->drawCircle(x0, y0, pm_face_scale_i(8), skin(0.55f));
   }
 }
 
@@ -121,12 +122,12 @@ static void draw_hit(float energy) {
   }
   const uint16_t accent = pm_face_color565_from_hsv(pm_gfx, 32.f + 150.f * s_hit_r_norm, 0.78f,
                                                    0.62f + 0.30f * energy);
-  const int force_grow = static_cast<int>(10.f * s_hit_force);
-  const int pulse = static_cast<int>((1.f - energy) * (42.f + 34.f * s_hit_force));
-  pm_gfx->fillCircle(s_hit_x, s_hit_y, 10 + force_grow + static_cast<int>(8.f * energy), accent);
-  pm_gfx->drawCircle(s_hit_x, s_hit_y, 18 + force_grow + pulse, accent);
+  const int force_grow = pm_face_scale_i(static_cast<int>(10.f * s_hit_force));
+  const int pulse = pm_face_scale_i(static_cast<int>((1.f - energy) * (42.f + 34.f * s_hit_force)));
+  pm_gfx->fillCircle(s_hit_x, s_hit_y, pm_face_scale_i(10) + force_grow + pm_face_scale_i(static_cast<int>(8.f * energy)), accent);
+  pm_gfx->drawCircle(s_hit_x, s_hit_y, pm_face_scale_i(18) + force_grow + pulse, accent);
   pm_gfx->drawCircle(kCx, kCy,
-                     kInnerRadius + static_cast<int>(sinf(s_phase) * (3.f + 5.f * s_hit_force) * energy),
+                     kInnerRadius + pm_face_scale_i(static_cast<int>(sinf(s_phase) * (3.f + 5.f * s_hit_force) * energy)),
                      accent);
 }
 

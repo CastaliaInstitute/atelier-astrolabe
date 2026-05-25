@@ -65,7 +65,7 @@ void pm_face_radar_draw(const struct tm *tm, bool valid) {
 
   const int rcx = pm_face_lcd_cx;
   const int rcy = pm_face_lcd_cy;
-  const float ppm = pm_presence_graph_px_per_meter();
+  const float ppm = pm_presence_graph_px_per_meter() * pm_face_scale;
   const uint16_t c_edge_self = pm_gfx->color565(56, 120, 160);
   const uint16_t c_edge_peer = pm_gfx->color565(72, 88, 110);
   const uint16_t c_self = pm_gfx->color565(120, 220, 255);
@@ -86,7 +86,7 @@ void pm_face_radar_draw(const struct tm *tm, bool valid) {
   pm_gfx->setTextSize(1, 1);
   for (int ring_m = 2; ring_m <= 10; ring_m += 2) {
     const int rr = static_cast<int>(lrintf(static_cast<float>(ring_m) * ppm));
-    if (rr > 8 && rr < 120) {
+    if (rr > pm_face_scale_i(8) && rr < pm_face_scale_i(120)) {
       pm_gfx->drawCircle(rcx, rcy, rr, pm_gfx->color565(40, 48, 58));
     }
   }
@@ -140,7 +140,7 @@ void pm_face_radar_draw(const struct tm *tm, bool valid) {
     pm_gfx->drawLine(rcx, rcy, px, py, c_edge_self);
 
     const bool is_loc = nd->kind == PmPresenceGraphNodeKind::LocationAnchor;
-    const int r = static_cast<int>(lrintf(5.f + 3.f * nd->alpha));
+    const int r = pm_face_scale_i(static_cast<int>(lrintf(5.f + 3.f * nd->alpha)));
     if (is_loc) {
       pm_gfx->fillRect(px - r, py - r, r * 2, r * 2, c_loc);
       pm_gfx->drawRect(px - r - 1, py - r - 1, r * 2 + 2, r * 2 + 2, RGB565_WHITE);
@@ -160,12 +160,12 @@ void pm_face_radar_draw(const struct tm *tm, bool valid) {
     int16_t x1, y1;
     uint16_t tw, th;
     pm_gfx->getTextBounds(lab, 0, 0, &x1, &y1, &tw, &th);
-    pm_gfx->setCursor(px - static_cast<int>(tw) / 2, py - r - static_cast<int>(th) - 2);
+    pm_gfx->setCursor(px - static_cast<int>(tw) / 2, py - r - static_cast<int>(th) - pm_face_scale_i(2));
     pm_gfx->print(lab);
   }
 
-  pm_gfx->fillCircle(rcx, rcy, 6, c_self);
-  pm_gfx->drawCircle(rcx, rcy, 7, RGB565_WHITE);
+  pm_gfx->fillCircle(rcx, rcy, pm_face_scale_i(6), c_self);
+  pm_gfx->drawCircle(rcx, rcy, pm_face_scale_i(7), RGB565_WHITE);
 
   char footer[48];
   if (pm_presence_ble_failed()) {
