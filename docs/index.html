@@ -3,297 +3,191 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#07090f" />
-    <title>Astrolabe — Round voice companion for Castalia homes</title>
+    <meta name="theme-color" content="#060403" />
+    <title>Astrolabe — Ritual interfaces for presence, memory, and awareness</title>
     <meta
       name="description"
-      content="A pocket-sized round display for time, moon, and spoken answers from Castalia — made for Mynah households and instrument lovers. Founding batch open."
+      content="Astrolabe is a family of round ritual interfaces for celestial awareness, reflection, music, memory, mindfulness, and spatial alignment."
     />
-    <meta property="og:title" content="Astrolabe — An instrument, not another screen" />
+    <meta property="og:title" content="Astrolabe — Ritual interfaces for presence" />
     <meta
       property="og:description"
-      content="Glance at the moon. Hold the side button. Hear a reply. A round Castalia companion that fits in your pocket."
+      content="Pocket, LunaSay, Ocarina, Cameo, Enso, and LuoPan: one round module, many rites."
     />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://astrolabe.castalia.institute/" />
-    <meta property="og:image" content="https://astrolabe.castalia.institute/assets/og.svg" />
+    <meta property="og:image" content="https://astrolabe.castalia.institute/assets/astrolabe-family-poster.jpg" />
     <link rel="canonical" href="https://astrolabe.castalia.institute/" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;1,400&family=Instrument+Serif:ital@0;1&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600;700&family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;1,400&family=Instrument+Serif:ital@0;1&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="styles.css" />
   </head>
-  <body>
+  <body class="front-page">
     <div class="wrap">
       <nav class="nav" aria-label="Primary">
         <a class="nav__brand" href="/">Astrolabe</a>
         <div class="nav__links">
-          <a href="#how">How it works</a>
-          <a href="#dial">On the dial</a>
+          <a href="#instruments">Instruments</a>
+          <a href="#rites">Rites</a>
           <a href="faces/">Faces</a>
           <a href="sim/">Simulator</a>
-          <a href="#variants">LunaSay</a>
-          <a href="#founding">Founding batch</a>
+          <a href="articles/">Articles</a>
           <a class="btn btn--primary" href="#founding">Request a spot</a>
         </div>
       </nav>
     </div>
 
-    <header class="hero wrap">
-      <div>
-        <p class="eyebrow">Castalia Institute · Founding batch</p>
-        <h1>An instrument, not another screen.</h1>
-        <p class="lede">
-          Astrolabe is a <strong>round pocket companion</strong> for homes that already use
-          <a href="https://castalia.institute">Castalia</a> and Mynah: time at a glance, tonight’s
-          moon, your transits — and when you have a question, you <strong>hold one button and
-          listen</strong> for the answer.
-        </p>
-        <div class="hero__actions">
-          <a class="btn btn--primary" href="#founding">Request a founding spot</a>
-          <a class="btn btn--ghost" href="#how">See how it works</a>
-        </div>
-        <p class="hero__proof">
-          About the size of a pocket watch · Round 1.75″ display · Wi‑Fi · Built for daily
-          glances, not scrolling
-        </p>
-      </div>
-
-      <div class="device" aria-label="Preview of watch faces">
-        <div class="device__frame">
-          <div class="device__screen">
-            <div class="device__face face-analog" data-face="analog">
-              <span class="tick"></span>
-              <span class="hand hand--h"></span>
-              <span class="hand hand--m"></span>
-              <span class="dot"></span>
-            </div>
-            <div class="device__face face-moon is-active" data-face="moon">
-              <div class="ring"></div>
-              <div class="orb"></div>
-            </div>
-            <div class="device__face face-astro" data-face="astro">
-              <div class="wheel"></div>
-              <span class="spoke"></span>
-              <span class="spoke"></span>
-              <span class="spoke"></span>
-            </div>
-            <div class="device__face face-digital" data-face="digital">
-              <span class="time">10:42</span>
-              <span class="date">Saturday · May</span>
-            </div>
-          </div>
-        </div>
-        <p class="device__face-label">Showing: <strong data-face-label>Moon</strong></p>
-        <div class="face-pills" role="tablist" aria-label="Face preview">
-          <button type="button" class="face-pill" data-face-pill="analog">Time</button>
-          <button type="button" class="face-pill is-active" data-face-pill="moon">Moon</button>
-          <button type="button" class="face-pill" data-face-pill="astro">Transits</button>
-          <button type="button" class="face-pill" data-face-pill="digital">Digital</button>
-        </div>
-        <p class="muted" style="font-size: 0.82rem; text-align: center; max-width: 28ch">
-          Illustration — product photos coming with the founding shipment.
-        </p>
+    <header class="family-hero">
+      <div class="family-hero__inner wrap">
+        <p class="eyebrow">Castalia Institute</p>
+        <h1>Astrolabe</h1>
+        <p class="family-hero__subtitle">Ritual interfaces for presence, memory, and awareness</p>
+        <figure class="family-poster">
+          <img
+            src="assets/astrolabe-family-poster.jpg"
+            alt="Astrolabe product family poster showing Pocket, LunaSay, Ocarina, Cameo, Enso, and LuoPan devices"
+          />
+        </figure>
       </div>
     </header>
 
-    <section id="how" class="strip">
-      <div class="wrap">
-        <div class="section-intro">
-          <h2>How you use it</h2>
+    <main>
+      <section id="instruments" class="wrap family-section">
+        <div class="section-intro center">
+          <p class="eyebrow">Astrolabe is the instrument</p>
+          <h2>One module. Many rites.</h2>
           <p class="muted">
-            No feed. No app grid. You look, you swipe once in a while, and when you need Castalia you
-            talk to the instrument.
+            A shared 1.75-inch round module becomes a pocket companion, desktop dock, musical
+            breath interface, pendant, mindfulness band, or spatial compass.
           </p>
         </div>
-        <div class="steps">
-          <article class="step">
-            <span class="step__num">1</span>
-            <h3>Glance</h3>
-            <p>
-              Wake the round face for time, moon phase, or today’s transit wheel — made for a two-
-              second look, not a session.
-            </p>
+
+        <div class="instrument-row" aria-label="Astrolabe product line">
+          <article class="instrument-card">
+            <div class="instrument-device instrument-device--pocket" aria-hidden="true">
+              <span></span>
+            </div>
+            <h3>Astrolabe Pocket</h3>
+            <p>Celestial companion for orientation, time, and rhythm wherever you go.</p>
           </article>
-          <article class="step">
-            <span class="step__num">2</span>
-            <h3>Ask</h3>
-            <p>
-              <strong>Hold the side button</strong> and ask aloud — about tonight’s sky, your chart,
-              or the day ahead. The watch records, thinks, and answers through Castalia’s voice
-              service (the same family as Mynah).
-            </p>
+          <article class="instrument-card">
+            <div class="instrument-device instrument-device--dock" aria-hidden="true">
+              <span></span>
+            </div>
+            <h3>Astrolabe LunaSay</h3>
+            <p>Lunar and astrological companion for reflection, insight, and timing.</p>
           </article>
-          <article class="step">
-            <span class="step__num">3</span>
-            <h3>Listen</h3>
-            <p>
-              <strong>Tap the other button</strong> to hear the last reply again — or your agenda
-              when there’s nothing to replay. Sound comes from the built-in speaker.
-            </p>
+          <article class="instrument-card">
+            <div class="instrument-device instrument-device--ocarina" aria-hidden="true">
+              <span></span>
+            </div>
+            <h3>Astrolabe Ocarina</h3>
+            <p>Breath and music companion for calm, tone, and harmony.</p>
+          </article>
+          <article class="instrument-card">
+            <div class="instrument-device instrument-device--cameo" aria-hidden="true">
+              <span></span>
+            </div>
+            <h3>Astrolabe Cameo</h3>
+            <p>Memory and presence companion for remembrance, honor, and connection.</p>
+          </article>
+          <article class="instrument-card instrument-card--soon">
+            <div class="instrument-device instrument-device--enso" aria-hidden="true">
+              <span></span>
+            </div>
+            <p class="instrument-card__status">Coming soon</p>
+            <h3>Astrolabe Enso</h3>
+            <p>Focus and mindfulness companion for clarity, presence, and flow.</p>
+          </article>
+          <article class="instrument-card instrument-card--soon">
+            <div class="instrument-device instrument-device--luopan" aria-hidden="true">
+              <span></span>
+            </div>
+            <p class="instrument-card__status">Coming soon</p>
+            <h3>Astrolabe LuoPan</h3>
+            <p>Compass and geomancy companion for direction, alignment, and space.</p>
           </article>
         </div>
-      </div>
-    </section>
+      </section>
 
-    <section id="dial" class="wrap">
-      <div class="section-intro">
-        <h2>What’s on the dial</h2>
-        <p class="muted">
-          Swipe around the bezel. Each face is one job. Astrolabe ships with the full set — time,
-          sky, music status, focus timer, and sign-in for your Castalia account.
-        </p>
-      </div>
-      <div class="grid grid--3">
-        <article class="card">
-          <h3>Time &amp; rhythm</h3>
-          <p>Classic analog and digital clocks tuned to the round screen.</p>
-        </article>
-        <article class="card">
-          <h3>Sky</h3>
-          <p>Moon illumination disk and a live transit wheel with spoken readings.</p>
-        </article>
-        <article class="card">
-          <h3>Home</h3>
-          <p>
-            Optional Spotify glance, focus countdown for deep work, and QR pairing to your
-            Castalia login.
-          </p>
-        </article>
-      </div>
-      <p style="margin-top: 1.5rem">
-        <a class="btn btn--ghost" href="faces/">Explore every face</a>
-        <a class="btn btn--ghost" href="sim/">Open LVGL simulator</a>
-      </p>
-    </section>
+      <section id="rites" class="front-strip">
+        <div class="wrap">
+          <div class="use-grid">
+            <article>
+              <p class="eyebrow">Pocket</p>
+              <h3>Carry the sky</h3>
+              <p>Keep time, moon phase, transits, and Castalia voice answers in a round pocket-watch form.</p>
+            </article>
+            <article>
+              <p class="eyebrow">Desktop dock</p>
+              <h3>Return to reflection</h3>
+              <p>Dock to connect, charge, and receive guidance throughout your day.</p>
+            </article>
+            <article>
+              <p class="eyebrow">Breath / music</p>
+              <h3>Make calm audible</h3>
+              <p>Use breath, touch, and motion sensors to shape simple musical and focus rituals.</p>
+            </article>
+            <article>
+              <p class="eyebrow">Pendant</p>
+              <h3>Wear memory close</h3>
+              <p>Carry a small reminder of what matters most, close to your heart.</p>
+            </article>
+          </div>
+        </div>
+      </section>
 
-    <section class="strip">
-      <div class="wrap">
-        <div class="section-intro center">
-          <h2>Made for Castalia households</h2>
-          <p class="muted" style="margin-inline: auto">
-            Mynah is the portrait phone at the center of the home. Astrolabe is the
-            <em>round satellite</em> — pocketable, glanceable, and quiet between questions. Sign in
-            once; your account works on the watch for voice answers.
+      <section class="wrap family-section hardware-section">
+        <div>
+          <p class="eyebrow">Common architecture</p>
+          <h2>Voice. Memory. Presence.</h2>
+          <p class="muted">
+            All Astrolabe devices share a unified round module and magnetic dock integration. The
+            shell changes the ritual; the core hardware and firmware lineage stay familiar.
           </p>
         </div>
-      </div>
-    </section>
-
-    <section id="variants" class="wrap">
-      <div class="section-intro">
-        <h2>Astrolabe and LunaSay</h2>
-        <p class="muted">
-          Same beautiful round hardware. Two ways we flash and tune it for the founding batch.
-        </p>
-      </div>
-      <div class="variant-grid">
-        <article class="variant variant--focus">
-          <h3>Astrolabe</h3>
-          <p class="muted" style="font-size: 0.95rem">
-            The <strong>complete instrument</strong> — every launch face, for families who want time,
-            sky, music, and focus in one swipe cycle.
-          </p>
-          <ul>
-            <li>Full face set at boot</li>
-            <li>Best default if you’re new to Castalia hardware</li>
-          </ul>
-        </article>
-        <article class="variant">
-          <h3><a href="https://lunasay.castalia.institute">LunaSay</a></h3>
-          <p class="muted" style="font-size: 0.95rem">
-            The <strong>chart-first edition</strong> — moon and transits up front, tuned prompts for
-            sky language, quieter if you don’t need Spotify or focus timers on your wrist.
-          </p>
-          <ul>
-            <li>Same founding price</li>
-            <li>Same firmware tree — flash either image later</li>
-          </ul>
-          <p style="margin: 1rem 0 0">
-            <a href="https://lunasay.castalia.institute">lunasay.castalia.institute →</a>
-          </p>
-        </article>
-      </div>
-    </section>
-
-    <section id="founding" class="strip">
-      <div class="wrap">
-        <div class="section-intro center">
-          <h2>Founding batch</h2>
-          <p class="muted" style="margin-inline: auto">
-            We’re building a small first run on the bench — hand-tested units for people who want
-            the instrument early and can tolerate fast-moving firmware.
-          </p>
+        <div class="spec-grid">
+          <article>
+            <h3>Module</h3>
+            <p>1.75-inch round AMOLED, USB-C charging and data, Wi-Fi, BLE, and offline-capable firmware.</p>
+          </article>
+          <article>
+            <h3>Sensors</h3>
+            <p>Temperature, heart-rate/PPG, respiration, accelerometer, ambient light, sound, and pressure pathways.</p>
+          </article>
+          <article>
+            <h3>Docking</h3>
+            <p>Magnetic alignment, secure hold, charging display, and keyed orientation for accessory shells.</p>
+          </article>
+          <article>
+            <h3>Interface</h3>
+            <p>Touch, side buttons, speaker, microphone, and I2C expansion for mount and electrode accessories.</p>
+          </article>
         </div>
-        <div class="offer">
-          <p class="eyebrow" style="margin-bottom: 0.5rem">Astrolabe · complete edition</p>
-          <p class="offer__price">$349</p>
-          <p class="muted" style="margin-bottom: 0">USD · assembled · USB-C · quick-start card</p>
-          <ul>
-            <li>All launch faces and voice answers through Castalia</li>
-            <li>Open firmware — inspect and flash from GitHub</li>
-            <li>Founding support while features mature</li>
-            <li>Firmware updates as sky accuracy improves</li>
-          </ul>
+      </section>
+
+      <section id="founding" class="front-strip">
+        <div class="wrap founding-band">
+          <div>
+            <p class="eyebrow">Founding batch</p>
+            <h2>Navigate yourself and your world.</h2>
+            <p class="muted">
+              The first Astrolabe run centers on the Pocket and LunaSay configurations, with Ocarina,
+              Cameo, Enso, and LuoPan shaping the accessory roadmap.
+            </p>
+          </div>
           <a
             class="btn btn--primary"
-            href="mailto:hello@castalia.institute?subject=Astrolabe%20founding%20batch&amp;body=Hi%20Castalia%2C%0A%0AI%27d%20like%20to%20join%20the%20Astrolabe%20founding%20batch.%0A%0AName%3A%0AEmail%3A%0ACountry%20(region)%3A%0AAlready%20use%20Mynah%20or%20Castalia%3F%20(yes%2Fno)%0AInterested%20in%20LunaSay%20instead%3F%20(yes%2Fno)%0A%0AThank%20you."
-            >Email us to request a spot</a
+            href="mailto:hello@castalia.institute?subject=Astrolabe%20founding%20batch&amp;body=Hi%20Castalia%2C%0A%0AI%27d%20like%20to%20join%20the%20Astrolabe%20founding%20batch.%0A%0AName%3A%0AEmail%3A%0ACountry%20(region)%3A%0AInterested%20configuration%3A%0A%0AThank%20you."
+            >Request a founding spot</a
           >
-          <p class="offer__fine">
-            We reply with availability, deposit, and ship window. No charge from this link alone.
-          </p>
         </div>
-      </div>
-    </section>
-
-    <section class="wrap faq" aria-labelledby="faq-buyer">
-      <h2 id="faq-buyer">Common questions</h2>
-      <details>
-        <summary>Do I need a Mynah phone?</summary>
-        <p>
-          No. Astrolabe talks to Castalia over Wi‑Fi on its own. Mynah is the reference companion in
-          the same household — closer integration is on the roadmap.
-        </p>
-      </details>
-      <details>
-        <summary>Is this a smartwatch?</summary>
-        <p>
-          It’s closer to a <strong>pocket instrument</strong>: round display, two buttons, no app
-          store, no notifications feed. You buy it for time, sky, and short voice turns with
-          Castalia.
-        </p>
-      </details>
-      <details>
-        <summary>When does it ship?</summary>
-        <p>
-          Founding units ship in waves through 2026. We confirm your window by email after you
-          request a spot.
-        </p>
-      </details>
-
-      <div class="faq faq--builder" aria-labelledby="faq-builder">
-        <h2 id="faq-builder">For builders</h2>
-        <details>
-          <summary>Hardware &amp; repo</summary>
-          <p>
-            Reference board: Waveshare ESP32-S3 Touch AMOLED 1.75C class (466×466 round AMOLED).
-            Firmware and build instructions:
-            <a href="https://github.com/CastaliaInstitute/astrolabe">github.com/CastaliaInstitute/astrolabe</a>.
-          </p>
-        </details>
-        <details>
-          <summary>Chart accuracy in early firmware</summary>
-          <p>
-            V0 uses on-device approximations today; server-side ephemeris is in progress. Founders
-            receive updates as accuracy improves — no extra hardware required.
-          </p>
-        </details>
-      </div>
-    </section>
+      </section>
+    </main>
 
     <footer class="footer wrap">
       <p class="footer__brand">Astrolabe</p>
