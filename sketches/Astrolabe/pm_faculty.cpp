@@ -52,6 +52,7 @@ static constexpr uint32_t kBustRiseMs = 420u;
 static constexpr int kBustJpegMaxDim = 512;
 
 static uint16_t *s_decoded_fb = nullptr;
+static uint8_t *s_decoded_alpha = nullptr;
 static int s_decoded_w = 0;
 static int s_decoded_h = 0;
 static char s_decoded_slug[32] = "";
@@ -978,6 +979,10 @@ static void bust_free_decoded(void) {
     free(s_decoded_fb);
     s_decoded_fb = nullptr;
   }
+  if (s_decoded_alpha) {
+    free(s_decoded_alpha);
+    s_decoded_alpha = nullptr;
+  }
   s_decoded_w = 0;
   s_decoded_h = 0;
   s_decoded_slug[0] = '\0';
@@ -1008,7 +1013,11 @@ static int bust_png_draw(PNGDRAW *pDraw) {
     return 0;
   }
   uint16_t *dst = s_decoded_fb + pDraw->y * s_decoded_w;
-  s_bust_png.getLineAsRGB565(pDraw, dst, PNG_RGB565_BIG_ENDIAN, 0xffffffff);
+  s_bust_png.getLineAsRGB565(pDraw, dst, PNG_RGB565_BIG_ENDIAN, static_cast<uint32_t>(-1));
+  if (s_decoded_alpha) {
+    uint8_t *mask = s_decoded_alpha + pDraw->y * s_decoded_w;
+    s_bust_png.getAlphaMask(pDraw, mask, 1);
+  }
   return 1;
 }
 
@@ -1063,6 +1072,15 @@ static bool bust_decode_png_locked(const char *slug) {
     s_bust_png.close();
     bust_free_decoded();
     return false;
+  }
+  if (s_bust_png.hasAlpha()) {
+    s_decoded_alpha = static_cast<uint8_t *>(pm_heap_alloc_response(px));
+    if (!s_decoded_alpha) {
+      s_bust_png.close();
+      bust_free_decoded();
+      return false;
+    }
+    memset(s_decoded_alpha, 0, px);
   }
   memset(s_decoded_fb, 0, px * sizeof(uint16_t));
   const int rc = s_bust_png.decode(nullptr, 0);
@@ -1144,6 +1162,9 @@ static void bust_draw_scaled_jpeg(int cx, int bottom_y, int draw_w, int draw_h, 
         continue;
       }
       const int sx = dx * s_decoded_w / draw_w;
+      if (s_decoded_alpha && s_decoded_alpha[sy * s_decoded_w + sx] == 0) {
+        continue;
+      }
       pm_gfx->writePixel(x, y, s_decoded_fb[sy * s_decoded_w + sx]);
     }
   }
