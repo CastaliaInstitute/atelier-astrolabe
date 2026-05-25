@@ -30,4 +30,11 @@ class AstrolabeSpeakerAudioSink : public AudioSink {
   int volume_ = 70;
 };
 
+enum class AstrolabeAudioRole : uint8_t {
+  Stereo = 0,
+  Left = 1,
+  Right = 2,
+};
+
+void astrolabe_audio_set_role(AstrolabeAudioRole role);
 void astrolabe_instrument_note_on(int note, uint8_t velocity);

@@ -15,6 +15,7 @@ static const char *TAG = "astrolabe_cspot_audio";
 static constexpr float kInstrumentPi = 3.14159265358979323846f;
 static constexpr float kInstrumentSampleRate = 44100.f;
 static portMUX_TYPE s_instrumentMux = portMUX_INITIALIZER_UNLOCKED;
+static AstrolabeAudioRole s_audioRole = AstrolabeAudioRole::Stereo;
 
 struct InstrumentVoice {
   float phase = 0.f;
@@ -109,6 +110,12 @@ AstrolabeSpeakerAudioSink::~AstrolabeSpeakerAudioSink() {
   stopI2s();
 }
 
+void astrolabe_audio_set_role(AstrolabeAudioRole role) {
+  s_audioRole = role;
+  const char *name = role == AstrolabeAudioRole::Left ? "left" : role == AstrolabeAudioRole::Right ? "right" : "stereo";
+  ESP_LOGI(TAG, "audio role=%s", name);
+}
+
 void astrolabe_instrument_note_on(int note, uint8_t velocity) {
   static constexpr float kBaseFreq = 261.6256f;  // Middle C.
   note = std::max(-24, std::min(36, note));
@@ -160,6 +167,19 @@ static void mixInstrumentIntoPcm(int16_t *samples, size_t sampleCount) {
       const int32_t right = static_cast<int32_t>(samples[i + 1]) + note;
       samples[i + 1] = static_cast<int16_t>(std::max<int32_t>(INT16_MIN, std::min<int32_t>(INT16_MAX, right)));
     }
+  }
+}
+
+static void applyAudioRole(int16_t *samples, size_t sampleCount, uint8_t channels) {
+  if (!samples || channels != 2 || sampleCount < 2 || s_audioRole == AstrolabeAudioRole::Stereo) {
+    return;
+  }
+  const size_t frames = sampleCount / 2;
+  const size_t srcOffset = s_audioRole == AstrolabeAudioRole::Right ? 1 : 0;
+  for (size_t frame = 0; frame < frames; ++frame) {
+    const int16_t selected = samples[frame * 2 + srcOffset];
+    samples[frame * 2] = selected;
+    samples[frame * 2 + 1] = selected;
   }
 }
 
@@ -220,6 +240,7 @@ void AstrolabeSpeakerAudioSink::feedPCMFrames(const uint8_t *buffer, size_t byte
         scaled[i] = static_cast<int16_t>((static_cast<int32_t>(src[i]) * volume_) / 100);
       }
       mixInstrumentIntoPcm(scaled, samples);
+      applyAudioRole(scaled, samples, channelCount_);
       astrolabe_audio_visualizer_feed_output_pcm(scaled, samples, channelCount_);
       if (!writeChunk(reinterpret_cast<const uint8_t *>(scaled), chunkBytes)) {
         return;
@@ -243,6 +264,7 @@ void AstrolabeSpeakerAudioSink::feedPCMFrames(const uint8_t *buffer, size_t byte
       memcpy(mixed, p, chunkBytes);
       const size_t samples = chunkBytes / sizeof(int16_t);
       mixInstrumentIntoPcm(mixed, samples);
+      applyAudioRole(mixed, samples, channelCount_);
       astrolabe_audio_visualizer_feed_output_pcm(mixed, samples, channelCount_);
       if (!writeChunk(reinterpret_cast<const uint8_t *>(mixed), chunkBytes)) {
         return;

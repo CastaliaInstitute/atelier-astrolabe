@@ -1975,6 +1975,26 @@ static void loadWifiCredentials(char *ssid, size_t ssidSize, char *pass, size_t 
   }
 }
 
+static void configureAstrolabeAudioRole() {
+  char role[24] = {};
+  nvs_handle_t nvs = 0;
+  if (nvs_open("mynah", NVS_READONLY, &nvs) == ESP_OK) {
+    (void)(nvsGetString(nvs, "audio_role", role, sizeof(role)) || nvsGetString(nvs, "stereo_role", role, sizeof(role)) ||
+           nvsGetString(nvs, "speaker_role", role, sizeof(role)));
+    nvs_close(nvs);
+  }
+  for (char *p = role; *p; ++p) {
+    *p = static_cast<char>(tolower(static_cast<unsigned char>(*p)));
+  }
+  AstrolabeAudioRole audioRole = AstrolabeAudioRole::Stereo;
+  if (strcmp(role, "left") == 0 || strcmp(role, "l") == 0) {
+    audioRole = AstrolabeAudioRole::Left;
+  } else if (strcmp(role, "right") == 0 || strcmp(role, "r") == 0) {
+    audioRole = AstrolabeAudioRole::Right;
+  }
+  astrolabe_audio_set_role(audioRole);
+}
+
 static void wifiEventHandler(void *, esp_event_base_t eventBase, int32_t eventId, void *) {
   if (eventBase == WIFI_EVENT && eventId == WIFI_EVENT_STA_START) {
     esp_wifi_connect();
@@ -2278,6 +2298,7 @@ extern "C" void app_main(void) {
   drawDisplayStatus("Connecting WiFi", ASTROLABE_WIFI_DEFAULT_SSID);
   ESP_ERROR_CHECK(connectWifiFromAstrolabeNvs());
   configureAstrolabeIdentityFromMac();
+  configureAstrolabeAudioRole();
   drawDisplayStatus("WiFi connected", astrolabeDeviceName());
 
   bell::setDefaultLogger();
