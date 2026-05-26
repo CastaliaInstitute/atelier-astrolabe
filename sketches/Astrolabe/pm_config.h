@@ -200,7 +200,7 @@
 #define MYNAH_DEV_INTEGRATION_OTA 1
 #endif
 #ifndef MYNAH_OTA_INTEGRATION_BASE_URL
-#define MYNAH_OTA_INTEGRATION_BASE_URL "https://castaliainstitute.github.io/astrolabe/releases/integration"
+#define MYNAH_OTA_INTEGRATION_BASE_URL "https://astrolabe.castalia.institute/releases/integration"
 #endif
 
 /** 1 = fetch Swiss Ephemeris from ephemeris.castalia.institute when WiFi is up. */

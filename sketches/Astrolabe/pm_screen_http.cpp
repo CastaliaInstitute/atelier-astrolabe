@@ -136,6 +136,7 @@ static bool ota_update_from_url(const char *url) {
     ota_set_status("URL failed");
     return false;
   }
+  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
   ota_set_status("downloading");
   pm_log_printf(false, "ota: integration fetch %s", url);
   const int code = http.GET();
