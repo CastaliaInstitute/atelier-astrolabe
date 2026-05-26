@@ -14,7 +14,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "config" / "release_variants.csv"
-DEFAULT_BUILD_DIR = Path(os.environ.get("PLATFORMIO_BUILD_DIR", "/tmp/astrolabe-pio-build"))
+DEFAULT_BUILD_DIR = Path(os.environ.get("ASTROLABE_RELEASE_ARTIFACT_DIR", os.environ.get("PLATFORMIO_BUILD_DIR", "/tmp/astrolabe-pio-build")))
 OUT = ROOT / "docs" / "releases" / "integration"
 
 

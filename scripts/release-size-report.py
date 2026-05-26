@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import csv
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -109,6 +110,7 @@ def main() -> int:
     parser.add_argument("--manifest", type=Path, default=MANIFEST)
     parser.add_argument("--build-dir", type=Path, default=DEFAULT_BUILD_DIR)
     parser.add_argument("--build", action="store_true", help="build each env before reporting")
+    parser.add_argument("--artifact-dir", type=Path, help="copy built firmware and partitions to a stable per-env artifact dir")
     parser.add_argument("--env", action="append", dest="envs", help="limit report to one or more PIO envs")
     args = parser.parse_args()
 
@@ -132,6 +134,14 @@ def main() -> int:
             failures += 1
             print(f"| {row['product_name']} | `{env}` | {fmt_size(parse_size(row['flash_bytes']))} | - | - | - | missing build |")
             continue
+
+        if args.artifact_dir:
+            env_artifacts = args.artifact_dir / env
+            env_artifacts.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(firmware, env_artifacts / "firmware.bin")
+            partitions = firmware.with_name("partitions.bin")
+            if partitions.exists():
+                shutil.copy2(partitions, env_artifacts / "partitions.bin")
 
         build_root = firmware.parents[1]
         size = firmware.stat().st_size
