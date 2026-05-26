@@ -139,9 +139,10 @@ def main() -> int:
             env_artifacts = args.artifact_dir / env
             env_artifacts.mkdir(parents=True, exist_ok=True)
             shutil.copy2(firmware, env_artifacts / "firmware.bin")
-            partitions = firmware.with_name("partitions.bin")
-            if partitions.exists():
-                shutil.copy2(partitions, env_artifacts / "partitions.bin")
+            for artifact_name in ("partitions.bin", "bootloader.bin"):
+                artifact = firmware.with_name(artifact_name)
+                if artifact.exists():
+                    shutil.copy2(artifact, env_artifacts / artifact_name)
 
         build_root = firmware.parents[1]
         size = firmware.stat().st_size

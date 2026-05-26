@@ -30,6 +30,15 @@ def sha256(path: Path) -> str:
     return h.hexdigest()
 
 
+def publish_artifact(src: Path, dst: Path) -> dict[str, str | int]:
+    shutil.copy2(src, dst)
+    return {
+        "name": dst.name,
+        "bytes": dst.stat().st_size,
+        "sha256": sha256(dst),
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--build-dir", type=Path, default=DEFAULT_BUILD_DIR)
@@ -54,7 +63,32 @@ def main() -> int:
         channel_dir = OUT / row["ota_channel"]
         channel_dir.mkdir(parents=True, exist_ok=True)
         dst = channel_dir / "firmware.bin"
-        shutil.copy2(src, dst)
+        firmware_artifact = publish_artifact(src, dst)
+        artifacts = [
+            {
+                **firmware_artifact,
+                "address": "0x10000",
+                "url": f"releases/integration/{row['ota_channel']}/firmware.bin",
+                "role": "app",
+            }
+        ]
+        for name, address, role in (
+            ("bootloader.bin", "0x0", "bootloader"),
+            ("partitions.bin", "0x8000", "partitions"),
+        ):
+            artifact_src = args.build_dir / env / name
+            if not artifact_src.exists():
+                artifact_src = ROOT / ".pio" / "build" / env / name
+            if artifact_src.exists():
+                artifact = publish_artifact(artifact_src, channel_dir / name)
+                artifacts.append(
+                    {
+                        **artifact,
+                        "address": address,
+                        "url": f"releases/integration/{row['ota_channel']}/{name}",
+                        "role": role,
+                    }
+                )
         meta = {
             "release_id": row["release_id"],
             "product_name": row["product_name"],
@@ -64,9 +98,10 @@ def main() -> int:
             "ota_channel": row["ota_channel"],
             "git_ref": git_ref,
             "git_sha": git_sha,
-            "firmware_bytes": dst.stat().st_size,
-            "sha256": sha256(dst),
+            "firmware_bytes": firmware_artifact["bytes"],
+            "sha256": firmware_artifact["sha256"],
             "firmware_url": f"releases/integration/{row['ota_channel']}/firmware.bin",
+            "artifacts": artifacts,
         }
         (channel_dir / "manifest.json").write_text(json.dumps(meta, indent=2) + "\n")
         published.append(meta)
