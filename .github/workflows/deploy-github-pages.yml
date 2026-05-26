@@ -50,9 +50,10 @@ jobs:
         if: github.ref == 'refs/heads/integration'
         env:
           PLATFORMIO_BUILD_DIR: /tmp/astrolabe-pio-build-${{ github.run_id }}
+          ASTROLABE_RELEASE_ARTIFACT_DIR: /tmp/astrolabe-release-artifacts-${{ github.run_id }}
         run: |
-          ./scripts/release-size-report.py --build --build-dir "$PLATFORMIO_BUILD_DIR"
-          python3 ./scripts/publish-integration-firmware.py --build-dir "$PLATFORMIO_BUILD_DIR"
+          ./scripts/release-size-report.py --build --build-dir "$PLATFORMIO_BUILD_DIR" --artifact-dir "$ASTROLABE_RELEASE_ARTIFACT_DIR"
+          python3 ./scripts/publish-integration-firmware.py --build-dir "$ASTROLABE_RELEASE_ARTIFACT_DIR"
       - name: Build LVGL web simulator
         run: |
           docker run --rm \
