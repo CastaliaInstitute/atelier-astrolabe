@@ -51,7 +51,7 @@ The OTA page also includes a developer-only **Install latest integration build**
 action. It downloads the current channel from GitHub Pages:
 
 ```text
-https://castaliainstitute.github.io/astrolabe/releases/integration/<ota_channel>/firmware.bin
+https://astrolabe.castalia.institute/releases/integration/<ota_channel>/firmware.bin
 ```
 
 The Pages workflow publishes those files from the `integration` branch after
