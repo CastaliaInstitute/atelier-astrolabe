@@ -1,5 +1,6 @@
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <ctime>
 
@@ -12,18 +13,24 @@
 #include "pm_calcifer.h"
 #include "pm_castalia_auth.h"
 #include "pm_chart_profiles.h"
+#include "pm_colmi_r02.h"
 #include "pm_commonplace.h"
 #include "pm_display.h"
 #include "pm_faculty.h"
+#include "pm_heap.h"
 #include "pm_motion.h"
 #include "pm_power.h"
 #include "pm_presence.h"
+#include "pm_rtp_midi.h"
+#include "pm_screen_http.h"
 #include "pm_settings.h"
 #include "pm_side_buttons.h"
 #include "pm_speaker.h"
 #include "pm_spotify.h"
 #include "pm_touch.h"
 #include "pm_transit.h"
+#include "pm_usb_hid.h"
+#include "pm_usb_midi.h"
 #include "pm_variant.h"
 #include "pm_weather.h"
 #include "pm_wifi_ntp.h"
@@ -40,6 +47,7 @@ int64_t pm_time_epoch(void) { return 1716508800 + millis() / 1000; }
 bool pm_wifi_connected(void) { return false; }
 void pm_wifi_pause_for_ble(void) {}
 void pm_wifi_resume_after_ble(void) {}
+const char *pm_wifi_mdns_name() { return "astrolabe-web-sim"; }
 int32_t pm_geo_tz_offset_sec(void) { return 0; }
 
 bool pm_variant_face_allowed(ClockFace) { return true; }
@@ -49,6 +57,8 @@ PmDeviceVariant pm_variant_cycle(int) { return PmDeviceVariant::Astrolabe; }
 const char *pm_variant_label(PmDeviceVariant) { return "Astrolabe"; }
 const char *pm_variant_summary(PmDeviceVariant) { return "web sim"; }
 ClockFace pm_variant_home_face(void) { return ClockFace::ClassicAnalog; }
+const char *pm_variant_device_platform(void) { return "web"; }
+const char *pm_variant_ota_channel(void) { return "web-sim"; }
 
 static SettingsPage s_settings_page = SettingsPage::WiFi;
 void pm_settings_set_page(SettingsPage page) { s_settings_page = page; }
@@ -63,6 +73,7 @@ const char *pm_settings_page_label(SettingsPage page) {
     case SettingsPage::Battery: return "Battery";
     case SettingsPage::Sleep: return "Sleep";
     case SettingsPage::Variant: return "Variant";
+    case SettingsPage::Ota: return "OTA";
     case SettingsPage::Castalia: return "Castalia";
     case SettingsPage::kCount: break;
   }
@@ -81,6 +92,13 @@ const char *pm_castalia_individual_id() { return "demo"; }
 const char *pm_castalia_repo_name() { return "castalia-demo"; }
 bool pm_castalia_has_session() { return false; }
 void pm_castalia_note_qr_drawn(void) {}
+
+uint32_t pm_heap_internal_free(void) { return 128u * 1024u; }
+uint32_t pm_heap_internal_largest(void) { return 96u * 1024u; }
+uint32_t pm_heap_psram_free(void) { return 0; }
+bool pm_heap_tls_ready(uint32_t, const char *) { return true; }
+void *pm_heap_alloc_response(size_t bytes) { return std::malloc(bytes); }
+void pm_heap_log(const char *) {}
 
 PmBatteryStats pm_battery_stats_update(const PmPmuStatus &, uint32_t) { return {}; }
 PmPowerState pm_power_state(uint32_t) { return {}; }
@@ -252,6 +270,40 @@ void pm_speaker_bowl_voice_stop(void) {}
 void pm_speaker_bowl_voice_push(const PmBowlVoiceCtrl &) {}
 
 uint8_t pm_touch_sample(int16_t *, int16_t *, uint8_t) { return 0; }
+
+bool pm_colmi_r02_begin(void) { return false; }
+void pm_colmi_r02_stop(void) {}
+void pm_colmi_r02_tick(uint32_t) {}
+bool pm_colmi_r02_ready(void) { return false; }
+bool pm_colmi_r02_streaming(void) { return false; }
+bool pm_colmi_r02_accel_g(PmColmiR02AccelSample *) { return false; }
+const char *pm_colmi_r02_status_label(void) { return "ring offline"; }
+
+bool pm_usb_hid_begin(void) { return false; }
+bool pm_usb_hid_enabled(void) { return false; }
+bool pm_usb_hid_ready(void) { return false; }
+bool pm_usb_hid_mouse_move(int8_t, int8_t, int8_t, int8_t) { return false; }
+bool pm_usb_hid_mouse_click(uint8_t) { return false; }
+bool pm_usb_hid_gamepad_send(int8_t, int8_t, int8_t, int8_t, int8_t, int8_t, uint32_t) { return false; }
+
+bool pm_usb_midi_begin(void) { return false; }
+bool pm_usb_midi_enabled(void) { return false; }
+bool pm_usb_midi_note_on(uint8_t, uint8_t) { return false; }
+bool pm_usb_midi_note_off(uint8_t) { return false; }
+bool pm_rtp_midi_begin(void) { return false; }
+void pm_rtp_midi_tick(void) {}
+bool pm_rtp_midi_enabled(void) { return false; }
+bool pm_rtp_midi_note_on(uint8_t, uint8_t) { return false; }
+bool pm_rtp_midi_note_off(uint8_t) { return false; }
+
+void pm_screen_http_begin(PmDisplayCanvas *) {}
+void pm_screen_http_loop() {}
+void pm_screen_http_ota_arm(uint32_t) {}
+bool pm_screen_http_ota_armed(void) { return false; }
+const char *pm_screen_http_ota_status(void) { return "web sim"; }
+size_t pm_screen_http_ota_bytes(void) { return 0; }
+size_t pm_screen_http_ota_total(void) { return 0; }
+const char *pm_screen_http_ota_integration_url(void) { return ""; }
 
 bool pm_calcifer_fetch(PmCalciferStatus *, time_t) { return false; }
 bool pm_weather_fetch(PmWeatherStatus *) { return false; }
