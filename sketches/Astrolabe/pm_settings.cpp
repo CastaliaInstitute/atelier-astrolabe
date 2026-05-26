@@ -2,6 +2,7 @@
 
 #include "faces/castalia/pm_face_castalia.h"
 #include "faces/settings/pm_face_settings_battery.h"
+#include "faces/settings/pm_face_settings_ota.h"
 #include "faces/settings/pm_face_settings_sleep.h"
 #include "faces/settings/pm_face_settings_variant.h"
 #include "faces/settings/pm_face_settings_wifi.h"
@@ -37,6 +38,8 @@ const char *pm_settings_page_label(SettingsPage page) {
       return "sleep";
     case SettingsPage::Variant:
       return "variant";
+    case SettingsPage::Ota:
+      return "ota";
     case SettingsPage::Castalia:
       return "castalia";
     default:
@@ -75,6 +78,9 @@ void pm_settings_draw(void) {
       break;
     case SettingsPage::Variant:
       pm_face_settings_variant_draw();
+      break;
+    case SettingsPage::Ota:
+      pm_face_settings_ota_draw();
       break;
     case SettingsPage::Castalia:
       pm_face_castalia_draw();

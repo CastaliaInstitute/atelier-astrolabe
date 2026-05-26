@@ -4,9 +4,33 @@
 
 static constexpr const char *kNvsNs = "mynah";
 static constexpr const char *kNvsKey = "variant";
+static constexpr const char *kNvsFirmwareVariantKey = "fw_variant";
+static constexpr const char *kNvsDevicePlatformKey = "device_platform";
+static constexpr const char *kNvsOtaChannelKey = "ota_channel";
 
-#if defined(ASTROLABE_DEFAULT_VARIANT_CAMEO)
+#ifndef ASTROLABE_DEVICE_PLATFORM
+#define ASTROLABE_DEVICE_PLATFORM "1.75"
+#endif
+
+#ifndef ASTROLABE_OTA_CHANNEL
+#define ASTROLABE_OTA_CHANNEL "dev"
+#endif
+
+static constexpr const char *kDevicePlatform = ASTROLABE_DEVICE_PLATFORM;
+static constexpr const char *kOtaChannel = ASTROLABE_OTA_CHANNEL;
+
+#if defined(ASTROLABE_FORCE_VARIANT_ASTROLABE) || defined(ASTROLABE_DEFAULT_VARIANT_ASTROLABE)
+static constexpr PmDeviceVariant kDefaultVariant = PmDeviceVariant::Astrolabe;
+#elif defined(ASTROLABE_FORCE_VARIANT_LUNASAY) || defined(ASTROLABE_DEFAULT_VARIANT_LUNASAY)
+static constexpr PmDeviceVariant kDefaultVariant = PmDeviceVariant::Lunasay;
+#elif defined(ASTROLABE_FORCE_VARIANT_OCARINA) || defined(ASTROLABE_DEFAULT_VARIANT_OCARINA)
+static constexpr PmDeviceVariant kDefaultVariant = PmDeviceVariant::Ocarina;
+#elif defined(ASTROLABE_FORCE_VARIANT_CAMEO) || defined(ASTROLABE_DEFAULT_VARIANT_CAMEO)
 static constexpr PmDeviceVariant kDefaultVariant = PmDeviceVariant::Cameo;
+#elif defined(ASTROLABE_FORCE_VARIANT_LUOPAN) || defined(ASTROLABE_DEFAULT_VARIANT_LUOPAN)
+static constexpr PmDeviceVariant kDefaultVariant = PmDeviceVariant::Luopan;
+#elif defined(ASTROLABE_FORCE_VARIANT_ENSO) || defined(ASTROLABE_DEFAULT_VARIANT_ENSO)
+static constexpr PmDeviceVariant kDefaultVariant = PmDeviceVariant::Enso;
 #else
 static constexpr PmDeviceVariant kDefaultVariant = PmDeviceVariant::Pocket;
 #endif
@@ -15,6 +39,22 @@ static PmDeviceVariant s_variant = kDefaultVariant;
 
 static bool valid_variant(uint8_t value) {
   return value < static_cast<uint8_t>(PmDeviceVariant::kCount);
+}
+
+static bool force_variant_enabled(void) {
+#if defined(ASTROLABE_FORCE_VARIANT_ASTROLABE) || defined(ASTROLABE_FORCE_VARIANT_LUNASAY) || \
+    defined(ASTROLABE_FORCE_VARIANT_OCARINA) || defined(ASTROLABE_FORCE_VARIANT_CAMEO) ||     \
+    defined(ASTROLABE_FORCE_VARIANT_LUOPAN) || defined(ASTROLABE_FORCE_VARIANT_ENSO)
+  return true;
+#else
+  return false;
+#endif
+}
+
+static void persist_release_identity(Preferences &pref, PmDeviceVariant variant) {
+  pref.putString(kNvsFirmwareVariantKey, pm_variant_label(variant));
+  pref.putString(kNvsDevicePlatformKey, kDevicePlatform);
+  pref.putString(kNvsOtaChannelKey, kOtaChannel);
 }
 
 static bool face_is_astrolabe(ClockFace face) {
@@ -27,7 +67,9 @@ static bool face_is_astrolabe(ClockFace face) {
     case ClockFace::Weather:
     case ClockFace::Globe:
     case ClockFace::Radar:
+    case ClockFace::HidTouchpad:
     case ClockFace::Biometrics:
+    case ClockFace::Watcher:
     case ClockFace::Level:
     case ClockFace::Rocket:
       return true;
@@ -44,6 +86,7 @@ static bool face_is_lunasay(ClockFace face) {
     case ClockFace::Sky:
     case ClockFace::Synastry:
     case ClockFace::Tarot:
+    case ClockFace::InqCard:
     case ClockFace::Lenormand:
     case ClockFace::Geomancy:
     case ClockFace::Pythia:
@@ -84,6 +127,20 @@ static bool face_is_cameo(ClockFace face) {
   }
 }
 
+static bool face_is_enso(ClockFace face) {
+  switch (face) {
+    case ClockFace::Biometrics:
+    case ClockFace::Watcher:
+    case ClockFace::FocusTimer:
+    case ClockFace::Chakra:
+    case ClockFace::TibetanBowl:
+    case ClockFace::Runes:
+      return true;
+    default:
+      return false;
+  }
+}
+
 static bool face_is_luopan(ClockFace face) {
   switch (face) {
     case ClockFace::Orientation:
@@ -100,6 +157,14 @@ void pm_variant_begin(void) {
     s_variant = kDefaultVariant;
     return;
   }
+  if (force_variant_enabled()) {
+    s_variant = kDefaultVariant;
+    pref.putUChar(kNvsKey, static_cast<uint8_t>(s_variant));
+    persist_release_identity(pref, s_variant);
+    pref.end();
+    return;
+  }
+
   const uint8_t value = pref.getUChar(kNvsKey, static_cast<uint8_t>(kDefaultVariant));
   if (valid_variant(value)) {
     s_variant = static_cast<PmDeviceVariant>(value);
@@ -107,6 +172,7 @@ void pm_variant_begin(void) {
     s_variant = kDefaultVariant;
     pref.putUChar(kNvsKey, static_cast<uint8_t>(s_variant));
   }
+  persist_release_identity(pref, s_variant);
   pref.end();
 }
 
@@ -119,7 +185,8 @@ void pm_variant_set(PmDeviceVariant variant) {
   s_variant = variant;
   Preferences pref;
   if (pref.begin(kNvsNs, false)) {
-    pref.putUChar(kNvsKey, static_cast<uint8_t>(variant));
+    pref.putUChar(kNvsKey, static_cast<uint8_t>(s_variant));
+    persist_release_identity(pref, s_variant);
     pref.end();
   }
 }
@@ -144,6 +211,8 @@ const char *pm_variant_label(PmDeviceVariant variant) {
       return "Ocarina";
     case PmDeviceVariant::Cameo:
       return "Cameo";
+    case PmDeviceVariant::Enso:
+      return "Enso";
     case PmDeviceVariant::Luopan:
       return "Luopan";
     default:
@@ -163,12 +232,18 @@ const char *pm_variant_summary(PmDeviceVariant variant) {
       return "breath / music / sound";
     case PmDeviceVariant::Cameo:
       return "memory / companion";
+    case PmDeviceVariant::Enso:
+      return "attention / readiness";
     case PmDeviceVariant::Luopan:
       return "orientation / feng shui";
     default:
       return "";
   }
 }
+
+const char *pm_variant_device_platform(void) { return kDevicePlatform; }
+
+const char *pm_variant_ota_channel(void) { return kOtaChannel; }
 
 ClockFace pm_variant_home_face(void) {
   switch (s_variant) {
@@ -181,6 +256,8 @@ ClockFace pm_variant_home_face(void) {
       return ClockFace::Ocarina;
     case PmDeviceVariant::Cameo:
       return ClockFace::Faculty;
+    case PmDeviceVariant::Enso:
+      return ClockFace::Biometrics;
     case PmDeviceVariant::Luopan:
       return ClockFace::Orientation;
     default:
@@ -203,6 +280,8 @@ bool pm_variant_face_allowed(ClockFace face) {
       return face_is_ocarina(face);
     case PmDeviceVariant::Cameo:
       return face_is_cameo(face);
+    case PmDeviceVariant::Enso:
+      return face_is_enso(face);
     case PmDeviceVariant::Luopan:
       return face_is_luopan(face);
     default:

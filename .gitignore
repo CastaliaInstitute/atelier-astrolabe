@@ -27,6 +27,7 @@ idf/build/
 idf/managed_components/
 idf/sdkconfig
 idf/sdkconfig.old
+sensecap/artifacts/
 uac/idf_bootstrap/build/
 uac/idf_bootstrap/sdkconfig
 uac/idf_bootstrap/sdkconfig.old
@@ -34,9 +35,11 @@ sdkconfig
 sdkconfig.*
 !sdkconfig.uac.defaults
 !idf/sdkconfig.defaults
+!sensecap/sdkconfig.defaults
 sdkconfig.old
 compile_commands.json
 build/
 docs/sim/
 .dummy/
 dependencies.lock
+!sensecap/dependencies.lock

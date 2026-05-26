@@ -25,11 +25,20 @@ done
 
 ENV="${PIO_ENV:-waveshare_s3_175}"
 BUILD_DIR="${PLATFORMIO_BUILD_DIR:-/tmp/astrolabe-pio-build}"
+
+# USB port can re-enumerate during long compiles; optional hub VBUS cycle before upload.
+bash ./scripts/usb-power-cycle-watch.sh || true
+PORT="$(./scripts/detect_upload_port.sh)"
+export ASTROLABE_UPLOAD_PORT="$PORT"
+if [[ -z "${PIO_ENV:-}" && "$PORT" == *5A360268091 ]]; then
+  echo "→ 1.75 native USB not found; using 1.85 fallback env"
+  ENV="waveshare_s3_185_astrolabe"
+fi
 BIN="${BUILD_DIR}/${ENV}/firmware.bin"
 
 if [[ "$UPLOAD_ONLY" != "1" ]] || [[ ! -f "$BIN" ]]; then
   echo "→ build ${ENV}"
-  ./scripts/build.sh
+  PIO_ENV="$ENV" ./scripts/build.sh
 fi
 
 if [[ ! -f "$BIN" ]]; then
@@ -37,10 +46,6 @@ if [[ ! -f "$BIN" ]]; then
   exit 1
 fi
 
-# USB port can re-enumerate during long compiles; optional hub VBUS cycle before upload.
-bash ./scripts/usb-power-cycle-watch.sh || true
-PORT="$(./scripts/detect_upload_port.sh)"
-export ASTROLABE_UPLOAD_PORT="$PORT"
 echo "→ upload port: ${PORT}"
 echo "→ upload ${BIN}"
 

@@ -4,6 +4,7 @@
 #
 #   ./scripts/flash_astrolabe.sh
 #   ./scripts/flash_astrolabe.sh --port /dev/cu.usbmodem1401
+#   ./scripts/flash_astrolabe.sh --env waveshare_s3_175_ocarina
 #   ./scripts/flash_astrolabe.sh --allow-dirty   # flash with uncommitted changes (not recommended)
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -11,9 +12,13 @@ cd "$ROOT"
 
 ALLOW_DIRTY=0
 PORT="${ASTROLABE_UPLOAD_PORT:-}"
+ENV="${PIO_ENV:-waveshare_s3_175}"
+ENV_EXPLICIT=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --allow-dirty) ALLOW_DIRTY=1; shift ;;
+    --env=*) ENV="${1#--env=}"; ENV_EXPLICIT=1; shift ;;
+    --env) ENV="${2:-}"; ENV_EXPLICIT=1; shift 2 ;;
     --port=*) PORT="${1#--port=}"; shift ;;
     --port) PORT="${2:-}"; shift 2 ;;
     *) shift ;;
@@ -36,20 +41,24 @@ if [[ -n "$(git -C "$ROOT" status --porcelain)" ]]; then
   echo "warning: flashing with dirty tree — PM_BUILD_DIRTY=1 in firmware"
 fi
 
-echo "→ HEAD: $(git -C "$ROOT" log -1 --oneline)"
-echo "→ build (generates sketches/Astrolabe/pm_build_info.h with commit message)"
-env -u PLATFORMIO_BUILD_DIR "$ROOT/scripts/build.sh"
-
-UPLOAD_ARGS=(-e waveshare_s3_175 -t upload)
-if [[ -n "$PORT" ]]; then
-  UPLOAD_ARGS+=(--upload-port "$PORT")
+if [[ -z "$PORT" ]]; then
+  PORT="$(./scripts/detect_upload_port.sh)"
 fi
+if [[ "$ENV_EXPLICIT" -eq 0 && -z "${PIO_ENV:-}" && "$PORT" == *5A360268091 ]]; then
+  echo "→ 1.75 native USB not found; using 1.85 fallback env"
+  ENV="waveshare_s3_185_astrolabe"
+fi
+
+echo "→ HEAD: $(git -C "$ROOT" log -1 --oneline)"
+echo "→ build ${ENV} (generates sketches/Astrolabe/pm_build_info.h with commit message)"
+PIO_ENV="$ENV" env -u PLATFORMIO_BUILD_DIR "$ROOT/scripts/build.sh"
+
+UPLOAD_ARGS=(-e "$ENV" -t upload)
+UPLOAD_ARGS+=(--upload-port "$PORT")
 echo "→ upload ${PORT:-auto port}"
 env -u PLATFORMIO_BUILD_DIR pio run "${UPLOAD_ARGS[@]}"
 
-if [[ -n "$PORT" ]]; then
-  bash ./scripts/postupload-watchdog-reset.sh "$PORT" || true
-fi
+bash ./scripts/postupload-watchdog-reset.sh "$PORT" || true
 
 echo ""
 echo "After WiFi connects, the watch should auto-play the daily briefing"

@@ -21,6 +21,8 @@
 #include "faces/focus/pm_face_focus.h"
 #include "faces/geomancy/pm_face_geomancy.h"
 #include "faces/globe/pm_face_globe.h"
+#include "faces/hid/pm_face_hid.h"
+#include "faces/inq_card/pm_face_inq_card.h"
 #include "faces/level/pm_face_level.h"
 #include "faces/lenormand/pm_face_lenormand.h"
 #include "faces/live_transits/pm_face_live_transits.h"
@@ -45,6 +47,7 @@
 #include "faces/radar/pm_face_radar.h"
 #include "faces/tibetan_bowl/pm_face_tibetan_bowl.h"
 #include "faces/tuning/pm_face_tuning.h"
+#include "faces/watcher/pm_face_watcher.h"
 #include "faces/weather/pm_face_weather.h"
 #include "pm_config.h"
 #include "pm_display.h"
@@ -66,12 +69,11 @@ static const ClockFace k_face_dial_order[] = {
     ClockFace::DigitalLocal,
     ClockFace::Apocalypso,
     ClockFace::CalciferCountdown,
-    ClockFace::FocusTimer,
     ClockFace::Weather,
     ClockFace::Globe,
     ClockFace::Sky,
     ClockFace::Radar,
-    ClockFace::Biometrics,
+    ClockFace::HidTouchpad,
     ClockFace::Level,
     ClockFace::Rocket,
 
@@ -81,19 +83,25 @@ static const ClockFace k_face_dial_order[] = {
     ClockFace::LiveTransits,
     ClockFace::Synastry,
     ClockFace::Tarot,
+    ClockFace::InqCard,
     ClockFace::Lenormand,
     ClockFace::Geomancy,
     ClockFace::Pythia,
     ClockFace::EnochianAngel,
-    ClockFace::Runes,
     ClockFace::Alethiometer,
+
+    // Enso: attention, readiness, and focus rituals.
+    ClockFace::Biometrics,
+    ClockFace::Watcher,
+    ClockFace::FocusTimer,
+    ClockFace::Chakra,
+    ClockFace::TibetanBowl,
+    ClockFace::Runes,
 
     // Ocarina: breath, music, and sound instruments.
     ClockFace::Ocarina,
     ClockFace::Tuning,
     ClockFace::Spectrum,
-    ClockFace::Chakra,
-    ClockFace::TibetanBowl,
     ClockFace::Bongo,
     ClockFace::Piano,
     ClockFace::PanDrum,
@@ -109,7 +117,11 @@ static const ClockFace k_face_dial_order[] = {
     ClockFace::Luopan,
 };
 
+#if defined(ASTROLABE_FORCE_VARIANT_ENSO)
+static ClockFace s_clock_face = ClockFace::Biometrics;
+#else
 static ClockFace s_clock_face = ClockFace::ClassicAnalog;
+#endif
 static uint16_t s_clock_bg565 = 0;
 static int s_analog_saved_local_h = -1;
 static int s_analog_saved_local_m = -1;
@@ -219,8 +231,14 @@ static void pm_faces_on_leave(ClockFace from, ClockFace to) {
     case ClockFace::Radar:
       pm_face_radar_on_leave();
       break;
+    case ClockFace::HidTouchpad:
+      pm_face_hid_on_leave();
+      break;
     case ClockFace::Biometrics:
       pm_face_biometrics_on_leave();
+      break;
+    case ClockFace::Watcher:
+      pm_face_watcher_on_leave();
       break;
     case ClockFace::Faculty:
       pm_faculty_release_bust_cache();
@@ -251,8 +269,14 @@ static void pm_faces_on_enter(ClockFace face, ClockFace from) {
     case ClockFace::Radar:
       pm_face_radar_on_enter();
       break;
+    case ClockFace::HidTouchpad:
+      pm_face_hid_on_enter();
+      break;
     case ClockFace::Biometrics:
       pm_face_biometrics_on_enter();
+      break;
+    case ClockFace::Watcher:
+      pm_face_watcher_on_enter();
       break;
     case ClockFace::Faculty:
       break;
@@ -341,7 +365,9 @@ void pm_faces_draw(float thinking_progress) {
       s_clock_face != ClockFace::CalciferCountdown &&
       s_clock_face != ClockFace::Spectrum && s_clock_face != ClockFace::Chakra &&
       s_clock_face != ClockFace::TibetanBowl && s_clock_face != ClockFace::Rocket &&
-      s_clock_face != ClockFace::Radar && s_clock_face != ClockFace::Biometrics && s_clock_face != ClockFace::Faculty &&
+      s_clock_face != ClockFace::Radar && s_clock_face != ClockFace::HidTouchpad &&
+      s_clock_face != ClockFace::Biometrics && s_clock_face != ClockFace::Faculty &&
+      s_clock_face != ClockFace::Watcher &&
       s_clock_face != ClockFace::Weather && s_clock_face != ClockFace::Quotes &&
       s_clock_face != ClockFace::Globe && s_clock_face != ClockFace::Sky &&
       s_clock_face != ClockFace::Notes && s_clock_face != ClockFace::Ocarina &&
@@ -349,7 +375,8 @@ void pm_faces_draw(float thinking_progress) {
       s_clock_face != ClockFace::Piano && s_clock_face != ClockFace::Tuning &&
       s_clock_face != ClockFace::Level && s_clock_face != ClockFace::Orientation &&
       s_clock_face != ClockFace::Luopan && s_clock_face != ClockFace::Alethiometer &&
-      s_clock_face != ClockFace::Lenormand && s_clock_face != ClockFace::Geomancy &&
+      s_clock_face != ClockFace::InqCard && s_clock_face != ClockFace::Lenormand &&
+      s_clock_face != ClockFace::Geomancy &&
       s_clock_face != ClockFace::Pythia && s_clock_face != ClockFace::EnochianAngel &&
       s_clock_face != ClockFace::Runes && s_clock_face != ClockFace::QuestionOfDay &&
       s_clock_face != ClockFace::FocusTimer) {
@@ -414,8 +441,14 @@ void pm_faces_draw(float thinking_progress) {
     case ClockFace::Radar:
       pm_face_radar_draw(&tm, pm_time_valid());
       break;
+    case ClockFace::HidTouchpad:
+      pm_face_hid_draw();
+      break;
     case ClockFace::Biometrics:
       pm_face_biometrics_draw();
+      break;
+    case ClockFace::Watcher:
+      pm_face_watcher_draw();
       break;
     case ClockFace::Faculty:
       pm_face_faculty_draw();
@@ -441,6 +474,9 @@ void pm_faces_draw(float thinking_progress) {
       break;
     case ClockFace::Tarot:
       pm_face_tarot_draw(&tm, pm_time_valid());
+      break;
+    case ClockFace::InqCard:
+      pm_face_inq_card_draw(&tm, pm_time_valid());
       break;
     case ClockFace::Lenormand:
       pm_face_lenormand_draw(&tm, pm_time_valid());
@@ -504,12 +540,14 @@ void pm_faces_draw(float thinking_progress) {
                         s_clock_face == ClockFace::Settings || s_clock_face == ClockFace::Synastry ||
                         s_clock_face == ClockFace::Spectrum || s_clock_face == ClockFace::Chakra ||
                         s_clock_face == ClockFace::TibetanBowl || s_clock_face == ClockFace::Rocket ||
-                        s_clock_face == ClockFace::Radar || s_clock_face == ClockFace::Biometrics ||
+                        s_clock_face == ClockFace::Radar || s_clock_face == ClockFace::HidTouchpad ||
+                        s_clock_face == ClockFace::Biometrics ||
+                        s_clock_face == ClockFace::Watcher ||
                         s_clock_face == ClockFace::Faculty ||
                         s_clock_face == ClockFace::Weather || s_clock_face == ClockFace::Quotes ||
                         s_clock_face == ClockFace::Globe || s_clock_face == ClockFace::Sky ||
-                        s_clock_face == ClockFace::Tarot || s_clock_face == ClockFace::Notes ||
-                        s_clock_face == ClockFace::Ocarina || s_clock_face == ClockFace::Bongo ||
+                        s_clock_face == ClockFace::Tarot || s_clock_face == ClockFace::InqCard ||
+                        s_clock_face == ClockFace::Notes || s_clock_face == ClockFace::Ocarina || s_clock_face == ClockFace::Bongo ||
                         s_clock_face == ClockFace::PanDrum || s_clock_face == ClockFace::Piano ||
                         s_clock_face == ClockFace::Level || s_clock_face == ClockFace::Orientation ||
                         s_clock_face == ClockFace::Luopan || s_clock_face == ClockFace::Tuning ||
@@ -529,10 +567,13 @@ void pm_faces_draw(float thinking_progress) {
       s_clock_face != ClockFace::LiveTransits &&
       s_clock_face != ClockFace::CalciferCountdown && s_clock_face != ClockFace::Spectrum &&
       s_clock_face != ClockFace::TibetanBowl && s_clock_face != ClockFace::Rocket &&
-      s_clock_face != ClockFace::Radar && s_clock_face != ClockFace::Biometrics && s_clock_face != ClockFace::Faculty &&
+      s_clock_face != ClockFace::Radar && s_clock_face != ClockFace::HidTouchpad &&
+      s_clock_face != ClockFace::Biometrics && s_clock_face != ClockFace::Faculty &&
+      s_clock_face != ClockFace::Watcher &&
       s_clock_face != ClockFace::Weather && s_clock_face != ClockFace::Quotes &&
       s_clock_face != ClockFace::Globe && s_clock_face != ClockFace::Sky &&
-      s_clock_face != ClockFace::Tarot && s_clock_face != ClockFace::Lenormand &&
+      s_clock_face != ClockFace::Tarot && s_clock_face != ClockFace::InqCard &&
+      s_clock_face != ClockFace::Lenormand &&
       s_clock_face != ClockFace::Geomancy && s_clock_face != ClockFace::Pythia &&
       s_clock_face != ClockFace::EnochianAngel &&
       s_clock_face != ClockFace::Notes &&
@@ -577,9 +618,11 @@ bool pm_faces_banner_low(void) {
          f == ClockFace::LiveTransits || f == ClockFace::Moon || f == ClockFace::CalciferCountdown || f == ClockFace::Castalia ||
          f == ClockFace::Settings || f == ClockFace::Synastry || f == ClockFace::Spectrum ||
          f == ClockFace::Chakra || f == ClockFace::TibetanBowl || f == ClockFace::Rocket ||
-         f == ClockFace::Radar || f == ClockFace::Biometrics || f == ClockFace::Faculty || f == ClockFace::Weather ||
+         f == ClockFace::Radar || f == ClockFace::HidTouchpad ||
+         f == ClockFace::Biometrics || f == ClockFace::Watcher ||
+         f == ClockFace::Faculty || f == ClockFace::Weather ||
          f == ClockFace::Globe || f == ClockFace::Sky ||
-         f == ClockFace::Quotes || f == ClockFace::Tarot || f == ClockFace::Notes ||
+         f == ClockFace::Quotes || f == ClockFace::Tarot || f == ClockFace::InqCard || f == ClockFace::Notes ||
          f == ClockFace::Ocarina || f == ClockFace::Bongo || f == ClockFace::PanDrum ||
          f == ClockFace::Piano || f == ClockFace::Level || f == ClockFace::Orientation ||
          f == ClockFace::Luopan || f == ClockFace::Tuning || f == ClockFace::Alethiometer ||
@@ -594,10 +637,13 @@ bool pm_faces_local_hm_changed(int hour, int min) {
   if (s_clock_face == ClockFace::Settings || s_clock_face == ClockFace::Castalia ||
       s_clock_face == ClockFace::LiveTransits || s_clock_face == ClockFace::Synastry || s_clock_face == ClockFace::Spectrum ||
       s_clock_face == ClockFace::Chakra || s_clock_face == ClockFace::TibetanBowl ||
-      s_clock_face == ClockFace::Rocket || s_clock_face == ClockFace::Radar || s_clock_face == ClockFace::Biometrics ||
+      s_clock_face == ClockFace::Rocket || s_clock_face == ClockFace::Radar ||
+      s_clock_face == ClockFace::HidTouchpad || s_clock_face == ClockFace::Biometrics ||
+      s_clock_face == ClockFace::Watcher ||
       s_clock_face == ClockFace::Faculty || s_clock_face == ClockFace::Weather ||
       s_clock_face == ClockFace::Globe || s_clock_face == ClockFace::Sky ||
       s_clock_face == ClockFace::Quotes || s_clock_face == ClockFace::Tarot ||
+      s_clock_face == ClockFace::InqCard ||
       s_clock_face == ClockFace::Lenormand || s_clock_face == ClockFace::Geomancy ||
       s_clock_face == ClockFace::Pythia || s_clock_face == ClockFace::EnochianAngel ||
       s_clock_face == ClockFace::Notes || s_clock_face == ClockFace::Ocarina ||

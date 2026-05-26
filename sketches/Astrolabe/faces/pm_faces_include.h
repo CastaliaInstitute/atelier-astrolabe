@@ -14,6 +14,7 @@
 #include "faces/faculty/pm_face_faculty.h"
 #include "faces/focus/pm_face_focus.h"
 #include "faces/geomancy/pm_face_geomancy.h"
+#include "faces/inq_card/pm_face_inq_card.h"
 #include "faces/level/pm_face_level.h"
 #include "faces/lenormand/pm_face_lenormand.h"
 #include "faces/live_transits/pm_face_live_transits.h"

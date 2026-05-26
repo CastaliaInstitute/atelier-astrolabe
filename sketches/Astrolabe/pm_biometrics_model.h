@@ -10,6 +10,10 @@ struct PmBiometricsEstimate {
   float coherence = 0.f;
   float arousal = 0.f;
   float grounding = 0.f;
+  float eeg_focus = 0.f;
+  float hrv_balance = 0.f;
+  float attention = 0.f;
+  float readiness = 0.f;
   float signal_quality = 0.f;
   int wifi_rssi_dbm = -127;
   size_t ble_peers = 0;

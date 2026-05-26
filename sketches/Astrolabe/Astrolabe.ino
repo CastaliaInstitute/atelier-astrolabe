@@ -14,6 +14,7 @@
 #include <esp_system.h>
 #include "esp32-hal-tinyusb.h"
 
+#include "astrolabe_baseline.h"
 #include "pin_config.h"
 #include "pm_config.h"
 #include "pm_gesture.h"
@@ -23,12 +24,16 @@
 #include "pm_speaker.h"
 #include "pm_audio_route.h"
 #include "pm_usb_uac.h"
+#include "pm_usb_hid.h"
+#include "pm_usb_midi.h"
+#include "pm_rtp_midi.h"
 #include "pm_touch.h"
 #include "pm_spotify.h"
 #include "pm_voice.h"
 #include "pm_wifi_creds.h"
 #include "pm_wifi_ntp.h"
 #include "pm_screen_http.h"
+#include "pm_remote_control.h"
 #include "pm_birth_nvs.h"
 #include "pm_chart_profiles.h"
 #include "pm_transit.h"
@@ -56,6 +61,8 @@
 #include "faces/focus/pm_face_focus.h"
 #include "faces/geomancy/pm_face_geomancy.h"
 #include "faces/globe/pm_face_globe.h"
+#include "faces/hid/pm_face_hid.h"
+#include "faces/inq_card/pm_face_inq_card.h"
 #include "faces/spotify/pm_face_spotify.h"
 #include "faces/calcifer/pm_face_calcifer.h"
 #include "faces/level/pm_face_level.h"
@@ -64,6 +71,7 @@
 #include "faces/pythia/pm_face_pythia.h"
 #include "faces/enochian_angel/pm_face_enochian_angel.h"
 #include "faces/weather/pm_face_weather.h"
+#include "faces/watcher/pm_face_watcher.h"
 #include "faces/settings/pm_face_settings_wifi.h"
 #include "pm_weather.h"
 #include "faces/quotes/pm_face_quotes.h"
@@ -230,6 +238,8 @@ static bool s_synastry_play_armed = false;
 static PmAstroHighlightPlan g_astro_highlight_plan = {};
 /** Set when entering clock UI so the face repaints after voice/recording states. */
 static bool g_clock_repaint_pending = true;
+static uint32_t s_remote_touch_clear_at = 0;
+static uint32_t s_remote_pwr_hold_clear_at = 0;
 static uint8_t *g_pcm = nullptr;
 static size_t g_pcm_len = 0;
 static PmVoiceResult g_voice_result = {};
@@ -763,7 +773,10 @@ static bool face_index_from_name(const char *name, int *out) {
       {"transits", ClockFace::LiveTransits}, {"live_transits", ClockFace::LiveTransits},
       {"live-transits", ClockFace::LiveTransits}, {"live", ClockFace::LiveTransits},
       {"tarot", ClockFace::Tarot}, {"cards", ClockFace::Tarot}, {"card", ClockFace::Tarot},
-      {"arcana", ClockFace::Tarot}, {"notes", ClockFace::Notes}, {"note", ClockFace::Notes},
+      {"arcana", ClockFace::Tarot}, {"inq", ClockFace::InqCard}, {"inq_card", ClockFace::InqCard},
+      {"inq-card", ClockFace::InqCard}, {"card_of_day", ClockFace::InqCard},
+      {"card-of-day", ClockFace::InqCard}, {"cotd", ClockFace::InqCard},
+      {"notes", ClockFace::Notes}, {"note", ClockFace::Notes},
       {"commonplace", ClockFace::Notes}, {"notebook", ClockFace::Notes},
       {"ocarina", ClockFace::Ocarina}, {"ocarina_face", ClockFace::Ocarina},
       {"flute", ClockFace::Ocarina}, {"bongo", ClockFace::Bongo},
@@ -790,11 +803,17 @@ static bool face_index_from_name(const char *name, int *out) {
       {"timer", ClockFace::FocusTimer}, {"pomodoro", ClockFace::FocusTimer},
       {"productivity", ClockFace::FocusTimer}, {"biometrics", ClockFace::Biometrics},
       {"bio", ClockFace::Biometrics}, {"signals", ClockFace::Biometrics},
+      {"enso", ClockFace::Biometrics}, {"readiness", ClockFace::Biometrics},
+      {"attention", ClockFace::Biometrics},
+      {"watcher", ClockFace::Watcher}, {"sensecap", ClockFace::Watcher},
+      {"camera", ClockFace::Watcher}, {"facecam", ClockFace::Watcher},
       {"lenormand", ClockFace::Lenormand}, {"len", ClockFace::Lenormand},
       {"oracle", ClockFace::Lenormand}, {"petit_lenormand", ClockFace::Lenormand},
       {"pythia", ClockFace::Pythia}, {"delphi", ClockFace::Pythia},
       {"geomancy", ClockFace::Geomancy}, {"geomantic", ClockFace::Geomancy},
       {"geo", ClockFace::Geomancy}, {"figures", ClockFace::Geomancy},
+      {"hid", ClockFace::HidTouchpad}, {"touchpad", ClockFace::HidTouchpad},
+      {"mouse", ClockFace::HidTouchpad}, {"controller", ClockFace::HidTouchpad},
       {"enochian", ClockFace::EnochianAngel}, {"angel", ClockFace::EnochianAngel},
       {"enochian_angel", ClockFace::EnochianAngel}, {"enochian-angel", ClockFace::EnochianAngel}};
   for (const auto &e : k) {
@@ -848,6 +867,8 @@ static const FaceTourInfo k_face_tour[] = {
      "launch refresh can run", "needs WiFi and time for launches", true, true},
     {ClockFace::Radar, "radar", "BLE locator and nearby peer radar", "nearby BLE peers and spatial presence",
      "BLE radar can start", "heap is tight after BLE", false, false},
+    {ClockFace::HidTouchpad, "hid", "USB HID mouse and touchpad controller", "the HID touchpad readiness and host control state",
+     "USB HID touchpad is available", "requires HID firmware target", false, false},
     {ClockFace::Faculty, "faculty", "recent ask-faculty conversation portraits", "the active faculty persona and recent conversation",
      "WiFi is available for portraits", "offline, cached portraits only", true, false},
     {ClockFace::Weather, "weather", "24-hour radial forecast rings", "the local 24-hour weather ring",
@@ -864,6 +885,8 @@ static const FaceTourInfo k_face_tour[] = {
      "time and ephemeris are ready", "needs time for live transits", false, true},
     {ClockFace::Tarot, "tarot", "daily Major Arcana card and deck browser", "the active Major Arcana card",
      "drawing local Major Arcana", "drawing local Major Arcana", false, false},
+    {ClockFace::InqCard, "inq-card", "iNQ Card of the Day image from cards.castalia.institute",
+     "today's iNQ Card of the Day", "card image refresh can run", "needs WiFi and time for card image", true, true},
     {ClockFace::Notes, "notes", "offline voice notes queued for Commonplace", "the offline note capture queue",
      "flash note queue is available", "flash note queue is available", false, false},
     {ClockFace::Ocarina, "ocarina", "touch-playable clay ocarina", "the active ocarina key and breath note",
@@ -893,9 +916,12 @@ static const FaceTourInfo k_face_tour[] = {
     {ClockFace::FocusTimer, "focus", "Pomodoro productivity timer with focus and break presets",
      "the active focus timer and session state",
      "local timer is available", "local timer is available", false, false},
-    {ClockFace::Biometrics, "biometrics", "WiFi, BLE, IMU, and audio inference face",
-     "the inferred presence, breath, motion, arousal, grounding, and coherence parameters",
+    {ClockFace::Biometrics, "enso", "simulated EEG/HRV attention and readiness face",
+     "the inferred attention, readiness, simulated EEG focus, HRV balance, and coherence parameters",
      "sensor model is sampling", "some sensor inputs are unavailable", false, false},
+    {ClockFace::Watcher, "watcher", "SenseCAP camera presence face with SSCMA, face metrics, and Castalia greeting",
+     "the Watcher camera/presence pipeline, face metrics, and greeting readiness",
+     "Watcher pipeline is visible", "needs Watcher firmware for live camera frames", true, false},
     {ClockFace::Lenormand, "lenormand", "daily 36-card Lenormand oracle using Noto Emoji symbols",
      "the active Lenormand card and its practical keyword",
      "drawing local Lenormand deck", "drawing local Lenormand deck", false, false},
@@ -1225,13 +1251,31 @@ static bool face_voice_build_prompt(const FaceTourInfo *info, char *msg, size_t 
       pm_face_biometrics_format_prompt_state(state, sizeof(state));
       pm_face_biometrics_pause_ble_for_voice();
       snprintf(sys, sys_cap,
-               "You are the Mynah Astrolabe biometrics fortune teller. The watch supplies inferred wellness "
-               "parameters from WiFi RSSI, BLE presence, IMU motion, and microphone audio features. Treat them "
-               "as playful, non-medical signals: never diagnose, identify a person, or claim clinical accuracy. "
-               "Offer one omen, one counsel, and one vivid image under 30 seconds.");
+               "You are the Mynah Astrolabe Enso readiness guide. The watch supplies simulated attention and "
+               "readiness parameters from provisional EEG and HRV channels plus WiFi RSSI, BLE presence, IMU "
+               "motion, and microphone audio features. " ASTROLABE_MINDFULNESS_POLICY_TEXT " "
+               "Treat these channels as playful, non-medical signals and never claim clinical accuracy. "
+               ASTROLABE_MINDFULNESS_RESPONSE_STYLE_TEXT " Offer one readiness readout, one counsel, and one vivid image "
+               "under 30 seconds.");
       snprintf(msg, msg_cap,
-               "Face: biometrics. Inferred sensor state: %s. Give a concise fortune-teller reading from these "
-               "parameters.",
+               "Face: Enso readiness. Inferred sensor state: %s. Give a concise attention/readiness reading "
+               "from these parameters.",
+               state);
+      break;
+    }
+    case ClockFace::Watcher: {
+      char state[420];
+      pm_face_watcher_format_prompt_state(state, sizeof(state));
+      snprintf(sys, sys_cap,
+               "You are the Mynah Astrolabe Watcher guide. The Watcher face represents a SenseCAP camera "
+               "pipeline that uses local SSCMA person/face detections, waits for the subject to settle near "
+               "center, sends an image to face.castalia.institute for facial metrics, then asks Castalia for "
+               "a brief spoken greeting. " ASTROLABE_MINDFULNESS_POLICY_TEXT " Treat all face observations as "
+               "self-reflection cues, never as facts about identity, personality, diagnosis, emotion, or fate. "
+               ASTROLABE_MINDFULNESS_RESPONSE_STYLE_TEXT " Keep the response under 25 seconds.");
+      snprintf(msg, msg_cap,
+               "Face: Watcher camera presence. Pipeline state: %s. Give a concise readiness check and one "
+               "mindful greeting cue for using the Watcher.",
                state);
       break;
     }
@@ -1306,6 +1350,12 @@ static bool face_voice_build_prompt(const FaceTourInfo *info, char *msg, size_t 
                tarot_idx, pm_face_tarot_title(tarot_idx), pm_face_tarot_manifest_url());
       break;
     }
+    case ClockFace::InqCard:
+      snprintf(msg, msg_cap,
+               "Face: iNQ Card of the Day. Date: %s. Active card: %s. Give a concise observation prompt "
+               "for the displayed card image.",
+               pm_face_inq_card_date(), pm_face_inq_card_title());
+      break;
     case ClockFace::Lenormand: {
       struct tm local = {};
       const bool valid = pm_time_valid();
@@ -1613,6 +1663,148 @@ static bool face_voice_begin_current(void) {
   return true;
 }
 
+static bool remote_tts_begin(const char *text, const char *face) {
+  if (!text || text[0] == '\0') {
+    snprintf(g_gesture_banner, sizeof(g_gesture_banner), "remote: no text");
+    return false;
+  }
+  if (!voice_prompt_buffers_ensure()) {
+    snprintf(g_gesture_banner, sizeof(g_gesture_banner), "remote: PSRAM OOM");
+    return false;
+  }
+  if (!pm_wifi_connected()) {
+    snprintf(g_gesture_banner, sizeof(g_gesture_banner), "remote: need WiFi");
+    return false;
+  }
+  if (g_state != AppState::kClock) {
+    gesture_end_voice_ui();
+  }
+  strlcpy(s_face_tour_voice_msg, text, kFaceTourVoiceMsgCap);
+  snprintf(s_face_tour_sys_prompt, kFaceTourSysPromptCap,
+           "You are speaking as an Astrolabe device in a synchronized presentation tour. "
+           "Say exactly the user's supplied message unless a tiny verbal cleanup is needed for speech. "
+           "Do not add preamble, extra commentary, or implementation details.");
+  strlcpy(s_face_voice_face, face && face[0] ? face : "remote_tour", sizeof(s_face_voice_face));
+  s_face_voice_faculty_slug[0] = '\0';
+  s_face_voice_faculty_name[0] = '\0';
+  pm_voice_result_free(&g_voice_result);
+  g_voice_use_message = true;
+  g_text_voice_route = k_tv_face;
+  g_calcifer_briefing = false;
+  g_daily_briefing = false;
+  g_astro_voice_active = false;
+  g_astro_voice_pcm = false;
+  g_synastry_voice_active = false;
+  g_synastry_voice_pcm = false;
+  g_moon_fortune_active = false;
+  g_moon_voice_pcm = false;
+  g_question_voice_active = false;
+  g_question_answer_pcm = false;
+  g_voice_play_reset = true;
+  g_state = AppState::kThinking;
+  snprintf(g_gesture_banner, sizeof(g_gesture_banner), "remote: speaking");
+  return true;
+}
+
+static void remote_control_process(uint32_t now) {
+  if (s_remote_touch_clear_at != 0 && now - s_remote_touch_clear_at < 0x80000000u) {
+    pm_touch_inject_clear();
+    s_remote_touch_clear_at = 0;
+  }
+  if (s_remote_pwr_hold_clear_at != 0 && now - s_remote_pwr_hold_clear_at < 0x80000000u) {
+    pm_side_buttons_inject_pek_hold(false);
+    s_remote_pwr_hold_clear_at = 0;
+  }
+
+  PmRemoteCommand cmd;
+  while (pm_remote_control_take(&cmd)) {
+    switch (cmd.type) {
+      case PmRemoteCommandType::Face: {
+        s_face_tour_active = false;
+        int idx = -1;
+        char *end = nullptr;
+        const long n = strtol(cmd.face, &end, 10);
+        if (end != cmd.face && end && *end == '\0') {
+          idx = static_cast<int>(n);
+        } else if (face_index_from_name(cmd.face, &idx)) {
+          /* ok */
+        }
+        if (idx >= 0 && idx < static_cast<int>(ClockFace::kNumFaces)) {
+          if (g_state != AppState::kClock) {
+            gesture_end_voice_ui();
+          }
+          pm_faces_set(static_cast<ClockFace>(idx));
+          snprintf(g_gesture_banner, sizeof(g_gesture_banner), "remote face: %d", idx);
+          g_clock_repaint_pending = true;
+          Serial.printf("remote: face seq=%lu face=%d\n", static_cast<unsigned long>(cmd.seq), idx);
+        } else {
+          Serial.printf("remote: bad face seq=%lu value=%s\n", static_cast<unsigned long>(cmd.seq), cmd.face);
+        }
+        break;
+      }
+      case PmRemoteCommandType::Button:
+        if (strcasecmp(cmd.button, "boot") == 0) {
+          pm_side_buttons_inject(PM_SIDE_BTN_BOOT);
+        } else if (strcasecmp(cmd.button, "pwr") == 0 || strcasecmp(cmd.button, "power") == 0) {
+          pm_side_buttons_inject(PM_SIDE_BTN_PWR);
+        } else if (strcasecmp(cmd.button, "pwr_hold") == 0 || strcasecmp(cmd.button, "ptt") == 0) {
+          pm_side_buttons_inject_pek_hold(true);
+          s_remote_pwr_hold_clear_at = now + (cmd.duration_ms ? cmd.duration_ms : 900u);
+        }
+        snprintf(g_gesture_banner, sizeof(g_gesture_banner), "remote button: %.20s", cmd.button);
+        g_clock_repaint_pending = true;
+        break;
+      case PmRemoteCommandType::Tap:
+        pm_touch_inject_set(cmd.x, cmd.y);
+        s_remote_touch_clear_at = now + (cmd.duration_ms ? cmd.duration_ms : 120u);
+        snprintf(g_gesture_banner, sizeof(g_gesture_banner), "remote tap %d,%d", cmd.x, cmd.y);
+        break;
+      case PmRemoteCommandType::TouchDown:
+        pm_touch_inject_set(cmd.x, cmd.y);
+        s_remote_touch_clear_at = 0;
+        snprintf(g_gesture_banner, sizeof(g_gesture_banner), "remote touch");
+        break;
+      case PmRemoteCommandType::TouchUp:
+        pm_touch_inject_clear();
+        s_remote_touch_clear_at = 0;
+        snprintf(g_gesture_banner, sizeof(g_gesture_banner), "remote touch up");
+        break;
+      case PmRemoteCommandType::Tts: {
+        if (cmd.face[0]) {
+          int idx = -1;
+          if (face_index_from_name(cmd.face, &idx) && idx >= 0 && idx < static_cast<int>(ClockFace::kNumFaces)) {
+            pm_faces_set(static_cast<ClockFace>(idx));
+            g_clock_repaint_pending = true;
+          }
+        }
+        (void)remote_tts_begin(cmd.text, cmd.face);
+        break;
+      }
+      case PmRemoteCommandType::Tour:
+        if (strcasecmp(cmd.mode, "stop") == 0) {
+          face_tour_stop();
+        } else {
+          const bool tts = strcasecmp(cmd.mode, "tts") == 0 || strcasecmp(cmd.mode, "button") == 0;
+          const bool narrate = tts || strcasecmp(cmd.mode, "narrate") == 0 || strcasecmp(cmd.mode, "voice") == 0;
+          face_tour_start(cmd.dwell_ms ? cmd.dwell_ms : (narrate ? 1200u : 2800u), narrate, tts);
+        }
+        break;
+      case PmRemoteCommandType::Stop:
+        face_tour_stop();
+        gesture_end_voice_ui();
+        pm_touch_inject_clear();
+        pm_side_buttons_inject_pek_hold(false);
+        s_remote_touch_clear_at = 0;
+        s_remote_pwr_hold_clear_at = 0;
+        snprintf(g_gesture_banner, sizeof(g_gesture_banner), "remote: stopped");
+        g_clock_repaint_pending = true;
+        break;
+      case PmRemoteCommandType::None:
+        break;
+    }
+  }
+}
+
 static void face_tour_tick(uint32_t now) {
   if (!s_face_tour_active || g_state != AppState::kClock) {
     return;
@@ -1876,6 +2068,8 @@ static void poll_serial_birth_commands() {
       li = 0;
       if (pm_home_gem_pulse_serial_command(line)) {
         g_clock_repaint_pending = true;
+      } else if (pm_remote_control_serial_command(line)) {
+        g_clock_repaint_pending = true;
       } else if (handle_wifi_serial_command(line)) {
         g_clock_repaint_pending = true;
       } else if (pm_user_serial_command(line)) {
@@ -2100,6 +2294,166 @@ static void log_crash_reset_reason(void) {
   }
 }
 
+static void boot_variant_palette(PmDeviceVariant variant, uint8_t *r, uint8_t *g, uint8_t *b) {
+  switch (variant) {
+    case PmDeviceVariant::Lunasay:
+      *r = 112;
+      *g = 162;
+      *b = 238;
+      break;
+    case PmDeviceVariant::Ocarina:
+      *r = 96;
+      *g = 214;
+      *b = 174;
+      break;
+    case PmDeviceVariant::Cameo:
+      *r = 224;
+      *g = 154;
+      *b = 184;
+      break;
+    case PmDeviceVariant::Enso:
+      *r = 238;
+      *g = 214;
+      *b = 138;
+      break;
+    case PmDeviceVariant::Luopan:
+      *r = 224;
+      *g = 92;
+      *b = 76;
+      break;
+    case PmDeviceVariant::Astrolabe:
+    case PmDeviceVariant::Pocket:
+    default:
+      *r = 202;
+      *g = 168;
+      *b = 76;
+      break;
+  }
+}
+
+static float boot_variant_chime_hz(PmDeviceVariant variant) {
+  switch (variant) {
+    case PmDeviceVariant::Lunasay:
+      return 432.f;
+    case PmDeviceVariant::Ocarina:
+      return 528.f;
+    case PmDeviceVariant::Cameo:
+      return 396.f;
+    case PmDeviceVariant::Enso:
+      return 639.f;
+    case PmDeviceVariant::Luopan:
+      return 288.f;
+    case PmDeviceVariant::Astrolabe:
+    case PmDeviceVariant::Pocket:
+    default:
+      return 480.f;
+  }
+}
+
+static void draw_boot_variant_mark(PmDeviceVariant variant, int frame, uint16_t accent, uint16_t dim) {
+  const int cx = LCD_WIDTH / 2;
+  const int cy = LCD_HEIGHT / 2;
+  const float t = static_cast<float>(frame) / 5.f;
+  const int pulse = static_cast<int>(10.f * sinf(t * pm_face_k_two_pi));
+
+  switch (variant) {
+    case PmDeviceVariant::Lunasay:
+      gfx->fillCircle(cx + 18, cy - 20, 78 + pulse, accent);
+      gfx->fillCircle(cx + 44, cy - 32, 82 + pulse, RGB565_BLACK);
+      gfx->drawCircle(cx + 18, cy - 20, 104 + frame * 3, dim);
+      break;
+    case PmDeviceVariant::Ocarina:
+      gfx->drawRoundRect(cx - 104, cy - 42, 208, 84, 42, accent);
+      gfx->fillCircle(cx - 54, cy, 15 + frame, dim);
+      gfx->fillCircle(cx - 12, cy - 18, 12 + frame / 2, accent);
+      gfx->fillCircle(cx + 34, cy + 10, 11 + frame / 2, accent);
+      gfx->drawLine(cx + 84, cy - 18, cx + 128, cy - 42 - frame * 2, accent);
+      gfx->drawLine(cx + 84, cy + 18, cx + 128, cy + 42 + frame * 2, accent);
+      break;
+    case PmDeviceVariant::Cameo:
+      gfx->fillEllipse(cx, cy - 10, 58 + pulse / 2, 82 + pulse, dim);
+      gfx->drawEllipse(cx, cy - 10, 78, 104, accent);
+      gfx->fillCircle(cx - 18, cy - 28, 10, accent);
+      gfx->drawLine(cx - 28, cy + 30, cx + 32, cy + 30, accent);
+      break;
+    case PmDeviceVariant::Enso:
+      gfx->drawCircle(cx, cy - 8, 82 + pulse, accent);
+      gfx->drawCircle(cx, cy - 8, 83 + pulse, accent);
+      gfx->drawCircle(cx + 22, cy - 30, 12 + frame, dim);
+      break;
+    case PmDeviceVariant::Luopan:
+      gfx->drawCircle(cx, cy - 6, 102, dim);
+      gfx->drawCircle(cx, cy - 6, 74 + pulse, accent);
+      for (int i = 0; i < 8; ++i) {
+        const float a = (static_cast<float>(i) * 45.f + frame * 6.f) * (pm_face_k_pi / 180.f);
+        gfx->drawLine(cx + static_cast<int>(sinf(a) * 42), cy - 6 - static_cast<int>(cosf(a) * 42),
+                      cx + static_cast<int>(sinf(a) * 102), cy - 6 - static_cast<int>(cosf(a) * 102), dim);
+      }
+      gfx->fillTriangle(cx, cy - 92, cx - 12, cy - 8, cx + 12, cy - 8, accent);
+      break;
+    case PmDeviceVariant::Astrolabe:
+    case PmDeviceVariant::Pocket:
+    default:
+      gfx->drawCircle(cx, cy - 8, 94 + pulse / 2, accent);
+      gfx->drawCircle(cx, cy - 8, 56, dim);
+      for (int i = 0; i < 12; ++i) {
+        const float a = (static_cast<float>(i) * 30.f + frame * 4.f) * (pm_face_k_pi / 180.f);
+        gfx->drawLine(cx + static_cast<int>(sinf(a) * 74), cy - 8 - static_cast<int>(cosf(a) * 74),
+                      cx + static_cast<int>(sinf(a) * 94), cy - 8 - static_cast<int>(cosf(a) * 94), accent);
+      }
+      gfx->fillCircle(cx, cy - 8, 8 + frame, accent);
+      break;
+  }
+}
+
+static void boot_variant_splash(void) {
+#ifdef ASTROLABE_QEMU
+  return;
+#else
+  if (!gfx) {
+    return;
+  }
+  pm_display_bind(gfx);
+  const PmDeviceVariant variant = pm_variant_get();
+  uint8_t r = 0;
+  uint8_t g = 0;
+  uint8_t b = 0;
+  boot_variant_palette(variant, &r, &g, &b);
+  const uint16_t accent = gfx->color565(r, g, b);
+  const uint16_t dim = gfx->color565(r / 3, g / 3, b / 3);
+  const char *label = pm_variant_label(variant);
+  char platform[32];
+  snprintf(platform, sizeof(platform), "Astrolabe %s", pm_variant_device_platform());
+
+  for (int frame = 0; frame < 6; ++frame) {
+    gfx->fillScreen(RGB565_BLACK);
+    for (int ring = 0; ring < 4; ++ring) {
+      gfx->drawCircle(LCD_WIDTH / 2, LCD_HEIGHT / 2, 120 + ring * 24 + frame * 2, dim);
+    }
+    draw_boot_variant_mark(variant, frame, accent, dim);
+    gfx->setTextColor(accent);
+    gfx->setTextSize(2);
+    int16_t x1 = 0;
+    int16_t y1 = 0;
+    uint16_t w = 0;
+    uint16_t h = 0;
+    gfx->getTextBounds(label, 0, 0, &x1, &y1, &w, &h);
+    gfx->setCursor((LCD_WIDTH - static_cast<int>(w)) / 2, 330);
+    gfx->print(label);
+    gfx->setTextColor(gfx->color565(154, 148, 134));
+    gfx->setTextSize(1);
+    gfx->getTextBounds(platform, 0, 0, &x1, &y1, &w, &h);
+    gfx->setCursor((LCD_WIDTH - static_cast<int>(w)) / 2, 362);
+    gfx->print(platform);
+    gfx->flush();
+    delay(72);
+  }
+#ifndef ASTROLABE_NO_ONBOARD_AUDIO
+  (void)pm_speaker_play_tone_begin(boot_variant_chime_hz(variant), 260);
+#endif
+#endif
+}
+
 void setup() {
   Serial.begin(115200);
   delay(200);
@@ -2120,6 +2474,26 @@ void setup() {
   } else {
     pm_log_printf(false, "uac: init failed");
     Serial.println("USB UAC init failed");
+  }
+#endif
+
+#if defined(ASTROLABE_USB_MIDI_ENABLED)
+  if (pm_usb_midi_begin()) {
+    pm_log_printf(false, "usb-midi: ocarina ready");
+    Serial.println("USB MIDI ready (Astrolabe Ocarina MIDI)");
+  } else {
+    pm_log_printf(false, "usb-midi: unavailable");
+    Serial.println("USB MIDI unavailable");
+  }
+#endif
+
+#if defined(ASTROLABE_USB_HID_ENABLED)
+  if (pm_usb_hid_begin()) {
+    pm_log_printf(false, "usb-hid: touchpad ready");
+    Serial.println("USB HID ready (Astrolabe HID Touchpad)");
+  } else {
+    pm_log_printf(false, "usb-hid: unavailable");
+    Serial.println("USB HID unavailable");
   }
 #endif
 
@@ -2151,12 +2525,25 @@ void setup() {
   pm_home_gem_pulse_begin();
   pm_user_begin();
   pm_variant_begin();
+  boot_variant_splash();
+#if defined(ASTROLABE_FORCE_VARIANT_ENSO)
+  pm_home_gem_pulse_set_enabled(false);
+  pm_faces_set(pm_variant_home_face());
+#endif
 
   if (pm_wifi_begin()) {
+#if defined(ASTROLABE_RTP_MIDI_ENABLED)
+    if (pm_rtp_midi_begin()) {
+      pm_log_printf(false, "rtpmidi: ready");
+      Serial.println("RTP-MIDI ready (AppleMIDI network session)");
+    } else {
+      pm_log_printf(false, "rtpmidi: unavailable");
+      Serial.println("RTP-MIDI unavailable");
+    }
+#endif
     pm_ntp_sync_blocking();
     pm_castalia_warmup_after_wifi();
   }
-  pm_display_bind(gfx);
   pm_screen_http_begin(gfx);
   pm_faces_draw();
 
@@ -2178,8 +2565,12 @@ void loop() {
 #ifndef ASTROLABE_QEMU
   pm_screen_http_loop();
   pm_wifi_poll();
+#if defined(ASTROLABE_RTP_MIDI_ENABLED)
+  pm_rtp_midi_tick();
+#endif
 #endif
   const uint32_t now = millis();
+  remote_control_process(now);
   pm_gesture_poll(now);
   pm_presence_tick(now);
   poll_serial_birth_commands();
@@ -2201,6 +2592,12 @@ void loop() {
   }
   if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Sky) {
     if (pm_face_sky_touch_tick(now)) {
+      pm_power_note_activity(now);
+      g_clock_repaint_pending = true;
+    }
+  }
+  if (g_state == AppState::kClock && pm_faces_current() == ClockFace::HidTouchpad) {
+    if (pm_face_hid_touch_tick(now)) {
       pm_power_note_activity(now);
       g_clock_repaint_pending = true;
     }
@@ -2283,6 +2680,15 @@ void loop() {
         }
         continue;
       }
+      if (ge.kind == PmGestureKind::Tap && pm_settings_page() == SettingsPage::Ota) {
+        pm_screen_http_ota_arm(5u * 60u * 1000u);
+        snprintf(g_gesture_banner, sizeof(g_gesture_banner), "ota: armed");
+        g_clock_repaint_pending = false;
+        if (pm_gfx) {
+          pm_faces_draw();
+        }
+        continue;
+      }
       if (ge.kind == PmGestureKind::Tap && pm_settings_page() == SettingsPage::Sleep) {
         pm_power_cycle_sleep_timeout(1);
         snprintf(g_gesture_banner, sizeof(g_gesture_banner), "sleep: timeout");
@@ -2344,6 +2750,11 @@ void loop() {
       }
       g_clock_repaint_pending = true;
       continue;
+    } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::HidTouchpad) {
+      (void)pm_face_hid_on_gesture(ge.kind, ge.x, ge.y, g_gesture_banner,
+                                   sizeof(g_gesture_banner));
+      g_clock_repaint_pending = true;
+      continue;
     } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::FocusTimer &&
                ge.kind == PmGestureKind::Tap) {
       const bool running = pm_face_focus_toggle();
@@ -2360,6 +2771,17 @@ void loop() {
                (ge.kind == PmGestureKind::SwipeUp || ge.kind == PmGestureKind::SwipeDown)) {
       (void)pm_face_focus_cycle_mode(ge.kind == PmGestureKind::SwipeUp ? 1 : -1);
       snprintf(g_gesture_banner, sizeof(g_gesture_banner), "focus: %s", pm_face_focus_mode_label());
+      g_clock_repaint_pending = true;
+      continue;
+    } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Biometrics &&
+               ge.kind == PmGestureKind::Tap) {
+      (void)pm_face_biometrics_cycle_lens();
+      g_gesture_banner[0] = '\0';
+      g_clock_repaint_pending = true;
+      continue;
+    } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Watcher &&
+               ge.kind == PmGestureKind::Tap) {
+      snprintf(g_gesture_banner, sizeof(g_gesture_banner), "watcher: %s", pm_face_watcher_cycle_mode());
       g_clock_repaint_pending = true;
       continue;
     } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Luopan &&
@@ -2639,6 +3061,10 @@ void loop() {
   if (g_state == AppState::kClock && (side_ev & PM_SIDE_BTN_BOOT) && pm_faces_voice_input_enabled() &&
       pm_faces_current() != ClockFace::Astrology && pm_faces_current() != ClockFace::Synastry &&
       pm_faces_current() != ClockFace::QuestionOfDay) {
+    if (pm_faces_current() == ClockFace::Biometrics) {
+      pm_face_biometrics_reveal();
+      g_clock_repaint_pending = true;
+    }
     if (voice_last_play_begin()) {
       /* BOOT replay last TTS */
     } else {
@@ -2730,12 +3156,11 @@ void loop() {
       }
 
       static uint32_t s_last_biometrics_ms = 0;
-      const bool biometrics_anim =
-          pm_faces_current() == ClockFace::Biometrics && g_state == AppState::kClock &&
-          (now - s_last_biometrics_ms >= 80u);
-      if (biometrics_anim) {
+      bool biometrics_anim = false;
+      if (pm_faces_current() == ClockFace::Biometrics && g_state == AppState::kClock &&
+          (now - s_last_biometrics_ms >= 80u)) {
         s_last_biometrics_ms = now;
-        pm_face_biometrics_anim_tick(now);
+        biometrics_anim = pm_face_biometrics_anim_tick(now);
       }
 
       static uint32_t s_last_level_ms = 0;
@@ -2888,7 +3313,7 @@ void loop() {
       bool settings_status_paint = false;
       if (pm_faces_current() == ClockFace::Settings &&
           (pm_settings_page() == SettingsPage::WiFi || pm_settings_page() == SettingsPage::Battery ||
-           pm_settings_page() == SettingsPage::Sleep) &&
+           pm_settings_page() == SettingsPage::Sleep || pm_settings_page() == SettingsPage::Ota) &&
           now - s_last_settings_status_ms >= 1000u) {
         s_last_settings_status_ms = now;
         settings_status_paint = true;

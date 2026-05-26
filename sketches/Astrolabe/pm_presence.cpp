@@ -5,6 +5,7 @@
 #include "pm_presence_locations.h"
 #include "pm_config.h"
 #include "pm_heap.h"
+#include "pm_remote_control.h"
 #include "pm_wifi_ntp.h"
 
 #include <Arduino.h>
@@ -295,7 +296,7 @@ bool presence_ble_ensure(void) {
   BLEDevice::init("Astrolabe");
 
   BLEServer *server = BLEDevice::createServer();
-  (void)server;
+  pm_remote_control_attach_ble(server);
 
   refresh_advertisement();
 

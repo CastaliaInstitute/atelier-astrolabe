@@ -16,14 +16,16 @@ Each face is a self-contained module under `faces/<name>/`. The app shell (`Astr
 | `calcifer/` | Hue Daywheel (rolling 12h hue ring + event wedges + CalDAV) |
 | `focus/` | Pomodoro productivity timer with work, short break, and long break presets |
 | `castalia/` | Sign-in QR (Settings hub page) |
-| `settings/` | WiFi status + settings chrome |
+| `settings/` | WiFi, power, variant, OTA upload, and Castalia settings pages |
 | `synastry/` | Partner/family dual natal wheel + aspect highlights |
 | `spectrum/` | Dual FFT bars: mic in (inner), speaker out (outer) |
 | `chakra/` | Chakra symbols + solfeggio tones |
 | `tibetan_bowl/` | Singing bowl; drag rainbow rim to strike |
 | `rocket/` | Launch clock — upcoming launches on a 14-day dial |
 | `radar/` | BLE peer radar — RSSI rings + gyro bearing |
-| `biometrics/` | WiFi + BLE + IMU + audio wellness-signal inference |
+| `hid/` | USB HID mouse/touchpad/spatial controller face for ESP32-S3 native USB builds; HID variant can bridge Colmi R02 raw accelerometer samples over BLE |
+| `biometrics/` | Enso readiness face: simulated EEG/HRV attention model backed by WiFi, BLE, IMU, and audio signals |
+| `watcher/` | SenseCAP Watcher camera/presence face: SSCMA detections, face metrics, and Castalia greeting pipeline |
 | `faculty/` | ask-faculty recents + bust portrait |
 | `weather/` | 24h radial temp + humidity rings, current conditions center |
 | `quotes/` | Quote of the day + faculty bust |

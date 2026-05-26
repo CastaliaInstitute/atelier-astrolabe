@@ -44,6 +44,8 @@ enum class ClockFace : uint8_t {
   LiveTransits,
   /** Daily Major Arcana tarot card; swipe up/down browses deck. */
   Tarot,
+  /** iNQ Card of the Day from cards.castalia.institute. */
+  InqCard,
   /** Offline-first voice notes queued for Commonplace. */
   Notes,
   /** Touch-playable clay ocarina; tap holes for notes, swipe up/down changes key. */
@@ -70,8 +72,10 @@ enum class ClockFace : uint8_t {
   QuestionOfDay,
   /** Pomodoro-style productivity timer; tap starts/pauses, swipe up/down changes preset. */
   FocusTimer,
-  /** WiFi + BLE + IMU + audio signal model for wellness-style biometric inference. */
+  /** Enso readiness: simulated EEG/HRV attention model backed by local wellness signals. */
   Biometrics,
+  /** SenseCAP Watcher camera/presence face: SSCMA detections, face metrics, and Castalia greeting pipeline. */
+  Watcher,
   /** Daily Lenormand card; swipe up/down browses the 36-card deck. */
   Lenormand,
   /** Pythia oracle bust; PWR asks Delphi and receives an obtuse response. */
@@ -80,6 +84,8 @@ enum class ClockFace : uint8_t {
   Geomancy,
   /** Enochian Angel visage: luminous tablet oracle face. */
   EnochianAngel,
+  /** USB HID mouse/touchpad controller for ESP32-S3 native USB builds. */
+  HidTouchpad,
   kNumFaces,
 };
 

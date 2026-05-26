@@ -49,6 +49,7 @@ add_executable(astrolabe-web-sim
   ../../sketches/Astrolabe/faces/geomancy/pm_face_geomancy.cpp
   ../../sketches/Astrolabe/faces/globe/pm_face_globe.cpp
   ../../sketches/Astrolabe/faces/home/pm_face_home_briefing.cpp
+  ../../sketches/Astrolabe/faces/inq_card/pm_face_inq_card.cpp
   ../../sketches/Astrolabe/faces/lenormand/pm_face_lenormand.cpp
   ../../sketches/Astrolabe/faces/level/pm_face_level.cpp
   ../../sketches/Astrolabe/faces/live_transits/pm_face_live_transits.cpp

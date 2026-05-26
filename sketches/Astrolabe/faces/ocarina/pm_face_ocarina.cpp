@@ -7,7 +7,9 @@
 #include "faces/shared/pm_face_draw.h"
 #include "pin_config.h"
 #include "pm_display.h"
+#include "pm_rtp_midi.h"
 #include "pm_speaker.h"
+#include "pm_usb_midi.h"
 
 static constexpr int kCx = pm_face_lcd_cx;
 static constexpr int kCy = pm_face_lcd_cy;
@@ -16,6 +18,7 @@ static constexpr int kHoleCount = 6;
 struct OcarinaKey {
   const char *name;
   float root_hz;
+  uint8_t root_midi;
 };
 
 struct OcarinaHole {
@@ -27,11 +30,11 @@ struct OcarinaHole {
 };
 
 static const OcarinaKey kKeys[] = {
-    {"C", 261.63f},
-    {"D", 293.66f},
-    {"F", 349.23f},
-    {"G", 392.00f},
-    {"A", 440.00f},
+    {"C", 261.63f, 60},
+    {"D", 293.66f, 62},
+    {"F", 349.23f, 65},
+    {"G", 392.00f, 67},
+    {"A", 440.00f, 69},
 };
 
 static const OcarinaHole kHoles[kHoleCount] = {
@@ -48,6 +51,7 @@ static int s_note_idx = -1;
 static uint32_t s_note_start_ms = 0;
 static uint32_t s_last_anim_ms = 0;
 static float s_phase = 0.f;
+static bool s_midi_note_on = false;
 
 static uint16_t clay(float dim) {
   const float d = dim < 0.f ? 0.f : (dim > 1.f ? 1.f : dim);
@@ -66,6 +70,21 @@ static float note_hz(int hole_idx) {
     return kKeys[s_key_idx].root_hz;
   }
   return kKeys[s_key_idx].root_hz * powf(2.f, static_cast<float>(kHoles[hole_idx].semitone) / 12.f);
+}
+
+static uint8_t note_midi(int hole_idx) {
+  if (hole_idx < 0 || hole_idx >= kHoleCount) {
+    return kKeys[s_key_idx].root_midi;
+  }
+  return static_cast<uint8_t>(kKeys[s_key_idx].root_midi + kHoles[hole_idx].semitone);
+}
+
+static void midi_note_off_current(void) {
+  if (s_midi_note_on && s_note_idx >= 0) {
+    (void)pm_usb_midi_note_off(note_midi(s_note_idx));
+    (void)pm_rtp_midi_note_off(note_midi(s_note_idx));
+  }
+  s_midi_note_on = false;
 }
 
 static bool hit_hole(int16_t x, int16_t y, int *out_idx) {
@@ -173,10 +192,14 @@ bool pm_face_ocarina_play_at(int16_t x, int16_t y) {
   if (!hit_hole(x, y, &idx)) {
     idx = (s_note_idx + 1) % kHoleCount;
   }
+  midi_note_off_current();
   s_note_idx = idx;
   s_note_start_ms = millis();
   s_last_anim_ms = 0;
   s_phase = 0.f;
+  (void)pm_usb_midi_note_on(note_midi(idx), 108);
+  (void)pm_rtp_midi_note_on(note_midi(idx), 108);
+  s_midi_note_on = true;
   return pm_speaker_play_tone_begin(note_hz(idx), 620);
 }
 
@@ -191,6 +214,7 @@ void pm_face_ocarina_cycle_key(int delta) {
 
 bool pm_face_ocarina_anim_tick(uint32_t now_ms) {
   if (s_note_idx < 0 || note_energy() <= 0.02f) {
+    midi_note_off_current();
     return false;
   }
   if (now_ms - s_last_anim_ms < 45u) {
@@ -202,6 +226,7 @@ bool pm_face_ocarina_anim_tick(uint32_t now_ms) {
 }
 
 void pm_face_ocarina_stop(void) {
+  midi_note_off_current();
   if (pm_speaker_is_playing()) {
     pm_speaker_abort();
     pm_speaker_tone_stop();

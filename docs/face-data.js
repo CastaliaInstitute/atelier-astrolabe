@@ -51,6 +51,57 @@
     },
   ];
 
+  window.astrolabeFeatureMatrix = [
+    {
+      variant: "pocket",
+      platform: "1.75",
+      release: "Astrolabe Astrolabe 1.75",
+      hardware: ["AMOLED", "touch", "side buttons", "battery", "USB-C", "Wi-Fi", "BLE", "speaker", "microphone", "IMU"],
+      focus: "Carry-first time, presence, weather, launch, and orientation companion.",
+      status: "Founding",
+    },
+    {
+      variant: "lunasay",
+      platform: "1.75",
+      release: "Astrolabe Lunasay 1.75",
+      hardware: ["AMOLED", "touch", "side buttons", "battery", "USB-C", "Wi-Fi", "BLE", "speaker", "microphone", "IMU"],
+      focus: "Moon, astrology, transits, synastry, and symbolic reflection.",
+      status: "Founding",
+    },
+    {
+      variant: "ocarina",
+      platform: "1.75",
+      release: "Astrolabe Ocarina 1.75",
+      hardware: ["AMOLED", "touch", "side buttons", "battery", "USB-C", "Wi-Fi", "BLE", "speaker", "microphone", "IMU"],
+      focus: "Breath, tone, tuning, audio visualization, and touch-playable instruments.",
+      status: "Planned",
+    },
+    {
+      variant: "cameo",
+      platform: "1.75 / 1.45",
+      release: "Astrolabe Cameo 1.75; Astrolabe Cameo 1.45",
+      hardware: ["AMOLED", "touch", "side buttons", "battery", "USB-C", "Wi-Fi", "BLE", "speaker", "microphone"],
+      focus: "Memory, faculty, quotes, notes, and daily question rituals.",
+      status: "Planned",
+    },
+    {
+      variant: "enso",
+      platform: "1.75",
+      release: "Astrolabe Enso 1.75",
+      hardware: ["AMOLED", "touch", "side buttons", "battery", "USB-C", "Wi-Fi", "BLE", "speaker", "microphone", "IMU", "biometrics"],
+      focus: "Readiness, focus, breath, chakra, bowl, and mindful attention cues.",
+      status: "Coming soon",
+    },
+    {
+      variant: "luopan",
+      platform: "1.75",
+      release: "Astrolabe Luopan 1.75",
+      hardware: ["AMOLED", "touch", "side buttons", "battery", "USB-C", "Wi-Fi", "BLE", "speaker", "microphone", "IMU"],
+      focus: "Direction, level, spatial alignment, radar, and luopan practice.",
+      status: "Coming soon",
+    },
+  ];
+
   window.astrolabeFaces = [
     {
       slug: "classic",
@@ -230,6 +281,44 @@
         "Swipe up or down to switch between focus, short break, and long break modes.",
       ],
       interactions: "Tap starts or pauses. Long press resets. Swipe up or down changes timer mode.",
+    },
+    {
+      slug: "biometrics",
+      title: "Enso Readiness",
+      kicker: "Attention and readiness from simulated signals",
+      summary:
+        "A headband-oriented Enso face that simulates EEG focus and HRV balance, then folds them into attention and readiness scores.",
+      inquiry: "Is this a moment for deep attention, gentle recovery, or a lighter task?",
+      questions: [
+        "How ready is my nervous system for focused work?",
+        "Is attention steady, scattered, or over-driven?",
+        "Which signal should I treat as a cue to pause before acting?",
+      ],
+      use: [
+        "Glance for attention and readiness before a focus block, meditation, or difficult conversation.",
+        "Treat EEG and HRV channels as simulated until the Enso sensor interface is connected.",
+        "Press BOOT for a non-medical readiness reading from the current signal model.",
+      ],
+      interactions: "Swipe left or right navigates. BOOT speaks a concise attention/readiness readout.",
+    },
+    {
+      slug: "watcher",
+      title: "Watcher",
+      kicker: "Camera presence, face metrics, and greeting flow",
+      summary:
+        "A SenseCAP Watcher face for the camera pipeline: SSCMA detections, center-and-settle gating, facial metrics, and Castalia LLM-TTS greetings.",
+      inquiry: "Is the face centered, settled, and ready for a mindful greeting?",
+      questions: [
+        "Has the Watcher detected a person or face?",
+        "Is the subject centered enough to send a stable image?",
+        "Are face metrics and Castalia voice ready for a self-reflective greeting?",
+      ],
+      use: [
+        "Use the SenseCAP Watcher firmware for live camera frames and SSCMA detection.",
+        "Treat facial metrics as mindfulness cues, not identity, emotion, or personality claims.",
+        "Tap the Astrolabe face to cycle camera, settle, metrics, and voice views.",
+      ],
+      interactions: "Tap cycles Watcher pipeline views. BOOT speaks a concise readiness check.",
     },
     {
       slug: "castalia",
@@ -769,7 +858,6 @@
     classic: "pocket",
     digital: "pocket",
     calcifer: "pocket",
-    focus: "pocket",
     apocalypso: "pocket",
     weather: "pocket",
 
@@ -796,6 +884,9 @@
     quotes: "cameo",
     notes: "cameo",
 
+    biometrics: "enso",
+    watcher: "enso",
+    focus: "enso",
     chakra: "enso",
     bowl: "enso",
     runes: "enso",

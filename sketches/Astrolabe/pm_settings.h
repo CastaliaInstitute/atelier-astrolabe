@@ -8,6 +8,7 @@ enum class SettingsPage : uint8_t {
   Battery,
   Sleep,
   Variant,
+  Ota,
   Castalia,
   kCount,
 };

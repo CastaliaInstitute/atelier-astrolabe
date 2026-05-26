@@ -24,6 +24,7 @@
 
   const faceDocs = window.astrolabeFaces || [];
   const variants = window.astrolabeVariants || [];
+  const featureMatrix = window.astrolabeFeatureMatrix || [];
 
   function escapeHtml(value) {
     return String(value)
@@ -35,6 +36,10 @@
 
   function renderList(items) {
     return items.map((item) => `<li>${escapeHtml(item)}</li>`).join("");
+  }
+
+  function renderChips(items) {
+    return items.map((item) => `<span>${escapeHtml(item)}</span>`).join("");
   }
 
   function renderFaceVisual(face, className) {
@@ -72,6 +77,7 @@
       moon: { up: "Moon face gesture: move through moon-focused modes.", down: "Moon face gesture: return through moon-focused modes." },
       calcifer: { up: "No vertical gesture on this face.", down: "No vertical gesture on this face." },
       cycle: { up: "Cycle face gesture: increase the cycle-length preset.", down: "Cycle face gesture: decrease the cycle-length preset." },
+      biometrics: { up: "Enso gesture: attention/readiness is read from the live signal model.", down: "Enso gesture: attention/readiness is read from the live signal model." },
       castalia: { up: "Settings gesture: return from the settings surface.", down: "Settings gesture: move deeper into setup when available." },
       settings: { up: "Settings gesture: return from Settings.", down: "Settings gesture: open or move deeper into setup." },
       synastry: { up: "No vertical gesture on this face.", down: "No vertical gesture on this face." },
@@ -257,6 +263,38 @@
                 .join("")}
             </div>
           </section>
+        `;
+      })
+      .join("");
+  }
+
+  const matrix = document.querySelector("[data-feature-matrix]");
+  if (matrix && featureMatrix.length) {
+    matrix.innerHTML = featureMatrix
+      .map((row) => {
+        const variant = variants.find((item) => item.id === row.variant) || {};
+        const variantFaces = faceDocs.filter((face) => face.variant === row.variant);
+        return `
+          <article class="feature-row">
+            <div class="feature-row__identity">
+              <p class="eyebrow">${escapeHtml(row.status)}</p>
+              <h3>${escapeHtml(variant.title || row.release)}</h3>
+              <p>${escapeHtml(row.release)}</p>
+              <p class="feature-row__platform">Platform ${escapeHtml(row.platform)}</p>
+            </div>
+            <div>
+              <h4>Hardware</h4>
+              <div class="feature-chip-list">${renderChips(row.hardware)}</div>
+            </div>
+            <div>
+              <h4>Faces</h4>
+              <p>${escapeHtml(variantFaces.map((face) => face.title).join(", "))}</p>
+            </div>
+            <div>
+              <h4>Release Focus</h4>
+              <p>${escapeHtml(row.focus)}</p>
+            </div>
+          </article>
         `;
       })
       .join("");
