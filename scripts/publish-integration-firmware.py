@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import argparse
 import hashlib
 import json
 import os
@@ -13,7 +14,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "config" / "release_variants.csv"
-BUILD_DIR = Path(os.environ.get("PLATFORMIO_BUILD_DIR", "/tmp/astrolabe-pio-build"))
+DEFAULT_BUILD_DIR = Path(os.environ.get("PLATFORMIO_BUILD_DIR", "/tmp/astrolabe-pio-build"))
 OUT = ROOT / "docs" / "releases" / "integration"
 
 
@@ -30,6 +31,10 @@ def sha256(path: Path) -> str:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--build-dir", type=Path, default=DEFAULT_BUILD_DIR)
+    args = parser.parse_args()
+
     with MANIFEST.open(newline="") as f:
         rows = list(csv.DictReader(f))
 
@@ -40,11 +45,11 @@ def main() -> int:
 
     for row in rows:
         env = row["pio_env"]
-        src = BUILD_DIR / env / "firmware.bin"
+        src = args.build_dir / env / "firmware.bin"
         if not src.exists():
             src = ROOT / ".pio" / "build" / env / "firmware.bin"
         if not src.exists():
-            raise FileNotFoundError(f"missing firmware for {env}: {src}")
+            raise FileNotFoundError(f"missing firmware for {env}: checked {args.build_dir / env / 'firmware.bin'} and {src}")
 
         channel_dir = OUT / row["ota_channel"]
         channel_dir.mkdir(parents=True, exist_ok=True)
