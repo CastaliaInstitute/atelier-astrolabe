@@ -4,7 +4,9 @@ Import("env")
 
 _KEEP = (
     "Arduino_ESP32QSPI.cpp",
+    "Arduino_ESP32SPI.cpp",
     "Arduino_CO5300.cpp",
+    "Arduino_GC9A01.cpp",
     "Arduino_DataBus.cpp",
     "Arduino_G.cpp",
     "Arduino_GFX.cpp",

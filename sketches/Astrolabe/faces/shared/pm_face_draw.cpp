@@ -491,7 +491,11 @@ void pm_face_draw_circumference_rainbow_24h(bool valid) {
   const int cx = pm_face_lcd_cx;
   const int cy = pm_face_lcd_cy;
   const int R = min(LCD_WIDTH, LCD_HEIGHT) / 2;
+#if defined(ASTROLABE_PLATFORM_C3_128) && ASTROLABE_PLATFORM_C3_128
+  const int r_outer = R - 2;
+#else
   const int r_outer = R - 9;
+#endif
   const int r_inner = r_outer - 5;
   constexpr int k_seg = 288;
   constexpr int k_half_w = 4;

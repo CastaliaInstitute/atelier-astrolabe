@@ -85,7 +85,11 @@ static void handle_bootloader() {
   pm_log_printf(false, "http: entering USB CDC bootloader");
   s_server.send(200, "text/plain", "entering bootloader\n");
   delay(100);
+#if defined(ASTROLABE_PLATFORM_C3_128) && ASTROLABE_PLATFORM_C3_128
+  esp_restart();
+#else
   usb_persist_restart(RESTART_BOOTLOADER);
+#endif
 }
 
 static void handle_screen_bmp() {

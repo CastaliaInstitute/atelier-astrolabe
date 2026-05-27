@@ -8,7 +8,11 @@
 
 #include "pin_config.h"
 
+#if defined(I2S_NUM_1)
 #define I2S_CH I2S_NUM_1
+#else
+#define I2S_CH I2S_NUM_0
+#endif
 #define PM_MIC_I2S_CHANNELS 4
 #define VAD_SAMPLE_RATE_HZ 16000
 #define VAD_FRAME_LENGTH_MS 30

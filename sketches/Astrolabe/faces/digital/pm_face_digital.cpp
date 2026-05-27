@@ -11,7 +11,10 @@ void pm_face_digital_draw(const struct tm *tm, bool valid) {
   } else {
     snprintf(line1, sizeof(line1), "--:--");
   }
+#if defined(ASTROLABE_PLATFORM_C3_128) && ASTROLABE_PLATFORM_C3_128
+  pm_face_draw_centered_line(line1, 98, RGB565_WHITE, 5, 5);
+#else
   pm_face_draw_centered_line(line1, 210, RGB565_WHITE, 5, 5);
+#endif
 }
-
 

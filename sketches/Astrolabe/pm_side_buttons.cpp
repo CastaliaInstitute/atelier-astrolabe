@@ -6,6 +6,34 @@
 #include "pin_config.h"
 #include "XPowersLib.h"
 
+#if defined(ASTROLABE_NO_SIDE_BUTTONS) && ASTROLABE_NO_SIDE_BUTTONS
+static uint8_t s_qa_inject_ev = 0;
+static bool s_qa_pek_hold = false;
+
+bool pm_side_buttons_begin() { return true; }
+
+void pm_side_buttons_inject(uint8_t ev_mask) { s_qa_inject_ev |= ev_mask; }
+
+void pm_side_buttons_inject_pek_hold(bool held) { s_qa_pek_hold = held; }
+
+uint8_t pm_side_buttons_poll(uint32_t now_ms) {
+  (void)now_ms;
+  uint8_t ev = s_qa_inject_ev;
+  s_qa_inject_ev = 0;
+  return ev;
+}
+
+bool pm_ptt_button_held(void) { return s_qa_pek_hold; }
+
+bool pm_pmu_status(PmPmuStatus *out) {
+  if (!out) {
+    return false;
+  }
+  *out = {};
+  out->battery_percent = -1;
+  return false;
+}
+#else
 static XPowersPMU s_pmu;
 static bool s_pmu_ok = false;
 static uint32_t s_last_pmu_scan = 0;
@@ -111,3 +139,4 @@ bool pm_pmu_status(PmPmuStatus *out) {
   out->system_mv = s_pmu.getSystemVoltage();
   return true;
 }
+#endif

@@ -8,7 +8,7 @@
 PmDisplayCanvas *pm_gfx = nullptr;
 void pm_display_bind(PmDisplayCanvas *canvas) { pm_gfx = canvas; }
 
-PmDisplayCanvas::PmDisplayCanvas(int16_t w, int16_t h, Arduino_GFX *output, int16_t output_x, int16_t output_y)
+PmDisplayCanvas::PmDisplayCanvas(int16_t w, int16_t h, Arduino_G *output, int16_t output_x, int16_t output_y)
     : Arduino_GFX(w, h), _output(output), _output_x(output_x), _output_y(output_y) {}
 
 PmDisplayCanvas::~PmDisplayCanvas() {
@@ -21,9 +21,6 @@ bool PmDisplayCanvas::begin(int32_t speed) {
   if (speed != GFX_SKIP_OUTPUT_BEGIN && _output && !_output->begin(speed)) {
     return false;
   }
-#if defined(ASTROLABE_DISPLAY_DIRECT) && ASTROLABE_DISPLAY_DIRECT
-  return true;
-#else
   if (!_framebuffer) {
     const size_t bytes = static_cast<size_t>(WIDTH) * static_cast<size_t>(HEIGHT) * sizeof(uint16_t);
     _framebuffer = static_cast<uint16_t *>(heap_caps_aligned_alloc(16, bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
@@ -35,20 +32,12 @@ bool PmDisplayCanvas::begin(int32_t speed) {
     }
   }
   return true;
-#endif
 }
 
 uint16_t *PmDisplayCanvas::getFramebuffer() { return _framebuffer; }
 
 void PmDisplayCanvas::writePixelPreclipped(int16_t x, int16_t y, uint16_t color) {
   if (!_framebuffer) {
-#if defined(ASTROLABE_DISPLAY_DIRECT) && ASTROLABE_DISPLAY_DIRECT
-    if (_output && _ordered_in_range(y, 0, _max_y) &&
-        (!_isRoundMode || _ordered_in_range(x, _roundMinX[y], _roundMaxX[y])) &&
-        _ordered_in_range(x, 0, _max_x)) {
-      _output->drawPixel(_output_x + x, _output_y + y, color);
-    }
-#endif
     return;
   }
   uint16_t *fb = _framebuffer;
@@ -95,37 +84,6 @@ void PmDisplayCanvas::writeFastVLine(int16_t x, int16_t y, int16_t h, uint16_t c
 
 void PmDisplayCanvas::writeFastVLineCore(int16_t x, int16_t y, int16_t h, uint16_t color) {
   if (!_framebuffer || !_ordered_in_range(x, 0, _max_x) || h == 0) {
-#if defined(ASTROLABE_DISPLAY_DIRECT) && ASTROLABE_DISPLAY_DIRECT
-    if (!_framebuffer && _output && _ordered_in_range(x, 0, _max_x) && h != 0) {
-      if (h < 0) {
-        y += h + 1;
-        h = -h;
-      }
-      if (y > _max_y) {
-        return;
-      }
-      int16_t y2 = y + h - 1;
-      if (y2 < 0) {
-        return;
-      }
-      if (y < 0) {
-        y = 0;
-        h = y2 + 1;
-      }
-      if (y2 > _max_y) {
-        h = _max_y - y + 1;
-      }
-      if (_isRoundMode) {
-        for (int16_t yy = y; yy < y + h; ++yy) {
-          if (_ordered_in_range(x, _roundMinX[yy], _roundMaxX[yy])) {
-            _output->drawPixel(_output_x + x, _output_y + yy, color);
-          }
-        }
-      } else {
-        _output->drawFastVLine(_output_x + x, _output_y + y, h, color);
-      }
-    }
-#endif
     return;
   }
   if (h < 0) {
@@ -172,41 +130,6 @@ void PmDisplayCanvas::writeFastHLine(int16_t x, int16_t y, int16_t w, uint16_t c
 
 void PmDisplayCanvas::writeFastHLineCore(int16_t x, int16_t y, int16_t w, uint16_t color) {
   if (!_framebuffer || !_ordered_in_range(y, 0, _max_y) || w == 0) {
-#if defined(ASTROLABE_DISPLAY_DIRECT) && ASTROLABE_DISPLAY_DIRECT
-    if (!_framebuffer && _output && _ordered_in_range(y, 0, _max_y) && w != 0) {
-      if (w < 0) {
-        x += w + 1;
-        w = -w;
-      }
-      if (x > _max_x) {
-        return;
-      }
-      int16_t x2 = x + w - 1;
-      if (x2 < 0) {
-        return;
-      }
-      if (x < 0) {
-        x = 0;
-        w = x2 + 1;
-      }
-      if (x2 > _max_x) {
-        w = _max_x - x + 1;
-      }
-      if (_isRoundMode) {
-        if (x < _roundMinX[y]) {
-          w -= _roundMinX[y] - x;
-          x = _roundMinX[y];
-        }
-        if (x + w - 1 > _roundMaxX[y]) {
-          w = _roundMaxX[y] - x + 1;
-        }
-        if (w <= 0) {
-          return;
-        }
-      }
-      _output->drawFastHLine(_output_x + x, _output_y + y, w, color);
-    }
-#endif
     return;
   }
   if (w < 0) {
@@ -235,9 +158,6 @@ void PmDisplayCanvas::writeFastHLineCore(int16_t x, int16_t y, int16_t w, uint16
 
 void PmDisplayCanvas::writeFillRectPreclipped(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color) {
   if (!_framebuffer) {
-#if defined(ASTROLABE_DISPLAY_DIRECT) && ASTROLABE_DISPLAY_DIRECT
-    Arduino_GFX::writeFillRectPreclipped(x, y, w, h, color);
-#endif
     return;
   }
   if (_rotation > 0) {
@@ -254,12 +174,6 @@ void PmDisplayCanvas::writeFillRectPreclipped(int16_t x, int16_t y, int16_t w, i
 }
 
 void PmDisplayCanvas::draw16bitRGBBitmap(int16_t x, int16_t y, uint16_t *bitmap, int16_t w, int16_t h) {
-  if (!_framebuffer) {
-#if defined(ASTROLABE_DISPLAY_DIRECT) && ASTROLABE_DISPLAY_DIRECT
-    Arduino_GFX::draw16bitRGBBitmap(x, y, bitmap, w, h);
-#endif
-    return;
-  }
   switch (_rotation) {
     case 1:
       gfx_draw_bitmap_to_framebuffer_rotate_1(bitmap, w, h, _framebuffer, x, y, _width, _height);
@@ -280,12 +194,6 @@ void PmDisplayCanvas::draw16bitRGBBitmapWithTranColor(int16_t x, int16_t y, uint
                                                       uint16_t transparent_color, int16_t w, int16_t h) {
   if (_rotation > 0) {
     Arduino_GFX::draw16bitRGBBitmapWithTranColor(x, y, bitmap, transparent_color, w, h);
-    return;
-  }
-  if (!_framebuffer) {
-#if defined(ASTROLABE_DISPLAY_DIRECT) && ASTROLABE_DISPLAY_DIRECT
-    Arduino_GFX::draw16bitRGBBitmapWithTranColor(x, y, bitmap, transparent_color, w, h);
-#endif
     return;
   }
   if (!_framebuffer || (x + w - 1) < 0 || (y + h - 1) < 0 || x > _max_x || y > _max_y) {
@@ -324,12 +232,6 @@ void PmDisplayCanvas::draw16bitRGBBitmapWithTranColor(int16_t x, int16_t y, uint
 void PmDisplayCanvas::draw16bitBeRGBBitmap(int16_t x, int16_t y, uint16_t *bitmap, int16_t w, int16_t h) {
   if (_rotation > 0) {
     Arduino_GFX::draw16bitBeRGBBitmap(x, y, bitmap, w, h);
-    return;
-  }
-  if (!_framebuffer) {
-#if defined(ASTROLABE_DISPLAY_DIRECT) && ASTROLABE_DISPLAY_DIRECT
-    Arduino_GFX::draw16bitBeRGBBitmap(x, y, bitmap, w, h);
-#endif
     return;
   }
   if (!_framebuffer || (x + w - 1) < 0 || (y + h - 1) < 0 || x > _max_x || y > _max_y) {

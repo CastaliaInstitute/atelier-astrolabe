@@ -93,16 +93,26 @@
 #include "faces/home/pm_face_home_briefing.h"
 #include "pm_speaker.h"
 
+#if defined(ASTROLABE_PLATFORM_C3_128) && ASTROLABE_PLATFORM_C3_128
+Arduino_DataBus *bus = new Arduino_ESP32SPI(LCD_DC, LCD_CS, LCD_SCLK, LCD_MOSI, GFX_NOT_DEFINED);
+
+Arduino_GC9A01 *tft = new Arduino_GC9A01(
+    bus, LCD_RESET, 0, true, LCD_WIDTH, LCD_HEIGHT);
+#else
 Arduino_DataBus *bus = new Arduino_ESP32QSPI(
     LCD_CS, LCD_SCLK, LCD_SDIO0, LCD_SDIO1, LCD_SDIO2, LCD_SDIO3);
 
 Arduino_CO5300 *tft = new Arduino_CO5300(
     bus, LCD_RESET, 0, false, LCD_WIDTH, LCD_HEIGHT, 6, 0, 0, 0);
+#endif
 /** Portable framebuffer facade; flush() pushes pixels to the CO5300 (enables WiFi BMP grab). */
 PmDisplayCanvas *gfx = new PmDisplayCanvas(LCD_WIDTH, LCD_HEIGHT, tft);
 
 static void astrolabe_set_brightness(uint8_t brightness) {
-#ifndef ASTROLABE_QEMU
+#if defined(ASTROLABE_PLATFORM_C3_128) && ASTROLABE_PLATFORM_C3_128
+  pinMode(LCD_BL, OUTPUT);
+  digitalWrite(LCD_BL, brightness > 0 ? HIGH : LOW);
+#elif !defined(ASTROLABE_QEMU)
   if (tft) {
     tft->setBrightness(brightness);
   }
@@ -1704,7 +1714,12 @@ static void enter_rom_bootloader_from_serial(bool dfu) {
   Serial.printf("bootloader: entering %s bootloader\n", dfu ? "DFU" : "USB CDC");
   Serial.flush();
   delay(100);
+#if defined(ASTROLABE_PLATFORM_C3_128) && ASTROLABE_PLATFORM_C3_128
+  (void)dfu;
+  esp_restart();
+#else
   usb_persist_restart(dfu ? RESTART_BOOTLOADER_DFU : RESTART_BOOTLOADER);
+#endif
 }
 
 static bool parse_token(char **cursor, char *out, size_t out_sz) {
@@ -2109,7 +2124,8 @@ void setup() {
     Serial.println("voice: PSRAM prompt buffer allocation failed");
   }
 
-#ifndef ASTROLABE_QEMU
+#if !defined(ASTROLABE_QEMU) && defined(IIC_SDA) && defined(IIC_SCL) && IIC_SDA >= 0 && IIC_SCL >= 0 && \
+    !(defined(ASTROLABE_PLATFORM_C3_128) && ASTROLABE_PLATFORM_C3_128)
   Wire.begin(IIC_SDA, IIC_SCL);
 #endif
 
@@ -2131,13 +2147,20 @@ void setup() {
   pm_log_printf(false, "boot: Mynah Astrolabe ready qemu");
   Serial.println("Mynah Astrolabe ready");
 #else
+#if defined(ASTROLABE_PLATFORM_C3_128) && ASTROLABE_PLATFORM_C3_128
+  if (!gfx->begin(40000000)) {
+#else
   if (!gfx->begin()) {
+#endif
     Serial.println("gfx->begin() failed");
     while (true) {
       delay(1000);
     }
   }
-  tft->setBrightness(200);
+#if defined(ASTROLABE_PLATFORM_C3_128) && ASTROLABE_PLATFORM_C3_128
+  gfx->enableRoundMode();
+#endif
+  astrolabe_set_brightness(200);
   pm_power_begin(astrolabe_set_brightness);
   gfx->fillScreen(RGB565_BLACK);
   gfx->flush();
@@ -2152,12 +2175,19 @@ void setup() {
   pm_user_begin();
   pm_variant_begin();
 
+#if defined(ASTROLABE_PLATFORM_C3_128) && ASTROLABE_PLATFORM_C3_128
+  pm_log_printf(false, "c3: skipping wifi boot work");
+#else
   if (pm_wifi_begin()) {
     pm_ntp_sync_blocking();
     pm_castalia_warmup_after_wifi();
   }
+#endif
   pm_display_bind(gfx);
   pm_screen_http_begin(gfx);
+#if defined(ASTROLABE_PLATFORM_C3_128) && ASTROLABE_PLATFORM_C3_128
+  pm_faces_set(ClockFace::DigitalLocal);
+#endif
   pm_faces_draw();
 
   ensure_pcm_buffer();
