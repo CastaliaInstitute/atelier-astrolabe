@@ -4,6 +4,7 @@
 #
 #   ./scripts/flash_astrolabe.sh
 #   ./scripts/flash_astrolabe.sh --port /dev/cu.usbmodem1401
+#   ./scripts/flash_astrolabe.sh --mac a4:cb:8f:d6:42:60 --env waveshare_s3_175_cameo
 #   ./scripts/flash_astrolabe.sh --env waveshare_s3_175_ocarina
 #   ./scripts/flash_astrolabe.sh --allow-dirty   # flash with uncommitted changes (not recommended)
 set -euo pipefail
@@ -12,6 +13,7 @@ cd "$ROOT"
 
 ALLOW_DIRTY=0
 PORT="${ASTROLABE_UPLOAD_PORT:-}"
+MAC="${ASTROLABE_DEVICE_MAC:-}"
 ENV="${PIO_ENV:-waveshare_s3_175}"
 ENV_EXPLICIT=0
 while [[ $# -gt 0 ]]; do
@@ -19,6 +21,8 @@ while [[ $# -gt 0 ]]; do
     --allow-dirty) ALLOW_DIRTY=1; shift ;;
     --env=*) ENV="${1#--env=}"; ENV_EXPLICIT=1; shift ;;
     --env) ENV="${2:-}"; ENV_EXPLICIT=1; shift 2 ;;
+    --mac=*) MAC="${1#--mac=}"; shift ;;
+    --mac) MAC="${2:-}"; shift 2 ;;
     --port=*) PORT="${1#--port=}"; shift ;;
     --port) PORT="${2:-}"; shift 2 ;;
     *) shift ;;
@@ -41,7 +45,13 @@ if [[ -n "$(git -C "$ROOT" status --porcelain)" ]]; then
   echo "warning: flashing with dirty tree — PM_BUILD_DIRTY=1 in firmware"
 fi
 
-if [[ -z "$PORT" ]]; then
+if [[ -n "$MAC" ]]; then
+  if [[ -n "$PORT" ]]; then
+    PORT="$(./scripts/resolve_esp_port_by_mac.sh "$MAC" "$PORT")"
+  else
+    PORT="$(./scripts/resolve_esp_port_by_mac.sh "$MAC")"
+  fi
+elif [[ -z "$PORT" ]]; then
   PORT="$(./scripts/detect_upload_port.sh)"
 fi
 if [[ "$ENV_EXPLICIT" -eq 0 && -z "${PIO_ENV:-}" && "$PORT" == *5A360268091 ]]; then
@@ -50,6 +60,7 @@ if [[ "$ENV_EXPLICIT" -eq 0 && -z "${PIO_ENV:-}" && "$PORT" == *5A360268091 ]]; 
 fi
 
 echo "→ HEAD: $(git -C "$ROOT" log -1 --oneline)"
+[[ -n "$MAC" ]] && echo "→ target MAC: ${MAC}"
 echo "→ build ${ENV} (generates sketches/Astrolabe/pm_build_info.h with commit message)"
 PIO_ENV="$ENV" env -u PLATFORMIO_BUILD_DIR "$ROOT/scripts/build.sh"
 

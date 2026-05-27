@@ -23,6 +23,7 @@ import {
 import {
   SYSTEM_VOICE_FACE_CLOCK_AGENDA,
   VOICE_FACE_ASTRO,
+  VOICE_FACE_BABEL_FISH,
   VOICE_FACE_CLOCK_AGENDA,
   VOICE_FACE_DAILY_BRIEFING,
   VOICE_FACE_SYNASTRY,
@@ -37,6 +38,7 @@ type ReqBody = {
   audioBase64?: string;
   sampleRateHertz?: number;
   languageCode?: string;
+  alternativeLanguageCodes?: string[];
   message?: string;
   systemInstruction?: string;
   skipLlm?: boolean;
@@ -56,6 +58,11 @@ type ReqBody = {
   facultySlug?: string;
   /** Optional display name for the faculty metadata headers / logging fallback. */
   facultyName?: string;
+  /** Direct Google Cloud TTS voice override for tour/device narration. */
+  ttsVoiceName?: string;
+  ttsVoice?: string | Record<string, unknown>;
+  voiceName?: string;
+  voice?: string | Record<string, unknown>;
   /**
    * `json` (default): `{ transcript, reply, audioBase64 }`.
    * `mp3`: raw MPEG body (~33% smaller download); text in `X-Voice-*` headers.
@@ -111,9 +118,25 @@ function commonplaceRoute(face: string, fallback: string): string {
     case "question-day":
     case "qotd":
       return "question_of_day";
+    case VOICE_FACE_BABEL_FISH:
+    case "babel-fish":
+    case "babel":
+      return VOICE_FACE_BABEL_FISH;
     default:
       return fallback;
   }
+}
+
+function babelFishAlternativeLanguageCodes(body: ReqBody): string[] {
+  const explicit = Array.isArray(body.alternativeLanguageCodes)
+    ? body.alternativeLanguageCodes
+      .map((v) => (typeof v === "string" ? v.trim() : ""))
+      .filter(Boolean)
+    : [];
+  if (explicit.length) {
+    return explicit.slice(0, 3);
+  }
+  return ["es-US", "fr-FR", "de-DE"];
 }
 
 function wantsMp3Response(req: Request, body: ReqBody): boolean {
@@ -358,7 +381,12 @@ async function voicePipelineOk(
     reply: payload.reply,
   });
 
-  const ttsVoice = await resolveFacultyTtsVoice(payload.facultySlug);
+  const ttsVoice =
+    voiceFromUnknown(body.ttsVoice) ||
+    voiceFromUnknown(body.voice) ||
+    voiceFromUnknown(body.ttsVoiceName) ||
+    voiceFromUnknown(body.voiceName) ||
+    await resolveFacultyTtsVoice(payload.facultySlug);
 
   if (wantsMp3Response(req, body)) {
     const localHour = requestLocalHour(body);
@@ -708,6 +736,7 @@ Deno.serve(async (req: Request) => {
         audio,
         languageCode,
         sampleRateHertz,
+        face === VOICE_FACE_BABEL_FISH ? babelFishAlternativeLanguageCodes(body) : undefined,
       );
       if (!transcript) {
         return jsonResponse(422, {

@@ -7,7 +7,7 @@
 #include "pm_faculty.h"
 
 void pm_face_faculty_draw(void) {
-  pm_faculty_ensure_seed();
+  pm_faculty_ensure_demo_seed();
   pm_gfx->fillScreen(pm_gfx->color565(6, 8, 16));
   pm_faculty_draw_bust_fullscreen();
 }

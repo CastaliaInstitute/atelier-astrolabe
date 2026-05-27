@@ -23,7 +23,7 @@
 
 static const char *TAG = "pm_voice";
 
-static constexpr uint32_t kVoiceNetTaskStack = 32768;
+static constexpr uint32_t kVoiceNetTaskStack = 20480;
 /** STT + Gemini + TTS + large chunked JSON (astrology readings). */
 static constexpr uint32_t kVoiceHttpTimeoutMs = 660000;
 /** voice-pipeline JSON + base64 MP3. */
@@ -47,6 +47,7 @@ static const char *s_req_system = nullptr;
 static const char *s_req_face = nullptr;
 static const char *s_req_faculty_slug = nullptr;
 static const char *s_req_faculty_name = nullptr;
+static const char *s_req_tts_voice_name = nullptr;
 static const uint8_t *s_req_pcm = nullptr;
 static size_t s_req_pcm_len = 0;
 static PmVoiceResult *s_req_result = nullptr;
@@ -831,6 +832,7 @@ static bool voice_post_message_inner(const char *message, const char *system_ins
   char *esc_face = nullptr;
   char *esc_faculty_slug = nullptr;
   char *esc_faculty_name = nullptr;
+  char *esc_tts_voice_name = nullptr;
 
   const size_t msg_cap = strlen(message) * 2 + 16;
   esc_msg = voice_psram_char_alloc(msg_cap, "oom esc msg");
@@ -848,6 +850,7 @@ static bool voice_post_message_inner(const char *message, const char *system_ins
       free(esc_face);
       free(esc_faculty_slug);
       free(esc_faculty_name);
+      free(esc_tts_voice_name);
       free(esc_sys);
       voice_set_error("system prompt too long");
       return false;
@@ -861,6 +864,7 @@ static bool voice_post_message_inner(const char *message, const char *system_ins
       free(esc_msg);
       free(esc_sys);
       free(esc_face);
+      free(esc_tts_voice_name);
       voice_set_error("face too long");
       return false;
     }
@@ -873,6 +877,7 @@ static bool voice_post_message_inner(const char *message, const char *system_ins
       free(esc_sys);
       free(esc_face);
       free(esc_faculty_slug);
+      free(esc_tts_voice_name);
       voice_set_error("faculty slug too long");
       return false;
     }
@@ -886,7 +891,22 @@ static bool voice_post_message_inner(const char *message, const char *system_ins
       free(esc_face);
       free(esc_faculty_slug);
       free(esc_faculty_name);
+      free(esc_tts_voice_name);
       voice_set_error("faculty name too long");
+      return false;
+    }
+  }
+  if (s_req_tts_voice_name && s_req_tts_voice_name[0] != '\0') {
+    const size_t voice_cap = strlen(s_req_tts_voice_name) * 2 + 16;
+    esc_tts_voice_name = voice_psram_char_alloc(voice_cap, "oom esc voice");
+    if (!esc_tts_voice_name || !json_escape_string(s_req_tts_voice_name, esc_tts_voice_name, voice_cap)) {
+      free(esc_msg);
+      free(esc_sys);
+      free(esc_face);
+      free(esc_faculty_slug);
+      free(esc_faculty_name);
+      free(esc_tts_voice_name);
+      voice_set_error("tts voice too long");
       return false;
     }
   }
@@ -895,11 +915,13 @@ static bool voice_post_message_inner(const char *message, const char *system_ins
   const bool have_face = esc_face && esc_face[0] != '\0';
   const bool have_faculty_slug = esc_faculty_slug && esc_faculty_slug[0] != '\0';
   const bool have_faculty_name = esc_faculty_name && esc_faculty_name[0] != '\0';
+  const bool have_tts_voice_name = esc_tts_voice_name && esc_tts_voice_name[0] != '\0';
   const int local_hour = voice_local_hour();
   const size_t body_cap = strlen(esc_msg) + (have_sys ? strlen(esc_sys) : 0) +
                           (have_face ? strlen(esc_face) : 0) +
                           (have_faculty_slug ? strlen(esc_faculty_slug) : 0) +
-                          (have_faculty_name ? strlen(esc_faculty_name) : 0) + 320;
+                          (have_faculty_name ? strlen(esc_faculty_name) : 0) +
+                          (have_tts_voice_name ? strlen(esc_tts_voice_name) : 0) + 352;
   char *body = static_cast<char *>(
       heap_caps_malloc(body_cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
   if (!body) {
@@ -908,6 +930,7 @@ static bool voice_post_message_inner(const char *message, const char *system_ins
     free(esc_face);
     free(esc_faculty_slug);
     free(esc_faculty_name);
+    free(esc_tts_voice_name);
     voice_set_error("oom body");
     return false;
   }
@@ -927,6 +950,9 @@ static bool voice_post_message_inner(const char *message, const char *system_ins
   if (n > 0 && static_cast<size_t>(n) < body_cap && have_faculty_name) {
     n += snprintf(body + n, body_cap - static_cast<size_t>(n), ",\"facultyName\":\"%s\"", esc_faculty_name);
   }
+  if (n > 0 && static_cast<size_t>(n) < body_cap && have_tts_voice_name) {
+    n += snprintf(body + n, body_cap - static_cast<size_t>(n), ",\"ttsVoiceName\":\"%s\"", esc_tts_voice_name);
+  }
   if (n > 0 && static_cast<size_t>(n) < body_cap) {
     n += snprintf(body + n, body_cap - static_cast<size_t>(n), ",\"responseFormat\":\"mp3\",\"localHour\":%d}", local_hour);
   }
@@ -935,6 +961,7 @@ static bool voice_post_message_inner(const char *message, const char *system_ins
   free(esc_face);
   free(esc_faculty_slug);
   free(esc_faculty_name);
+  free(esc_tts_voice_name);
   if (n <= 0 || static_cast<size_t>(n) >= body_cap) {
     free(body);
     voice_set_error("body too large");
@@ -1454,7 +1481,13 @@ static void voice_net_task_ensure() {
   if (s_voice_task) {
     return;
   }
-  xTaskCreatePinnedToCore(voice_net_task, "voice_net", kVoiceNetTaskStack, nullptr, 1, &s_voice_task, 1);
+  const BaseType_t ok = xTaskCreatePinnedToCore(voice_net_task, "voice_net", kVoiceNetTaskStack, nullptr, 1,
+                                               &s_voice_task, 1);
+  if (ok != pdPASS || !s_voice_task) {
+    Serial.printf("voice: task create failed stack=%lu heap=%u largest=%u\n",
+                  static_cast<unsigned long>(kVoiceNetTaskStack), static_cast<unsigned>(ESP.getFreeHeap()),
+                  static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL)));
+  }
 }
 
 static bool voice_net_begin(uint8_t op) {
@@ -1502,11 +1535,18 @@ bool pm_voice_begin_message(const char *message, const char *system_instruction,
 
 bool pm_voice_begin_message_ex(const char *message, const char *system_instruction, const char *face,
                                const char *faculty_slug, const char *faculty_name, PmVoiceResult *r) {
+  return pm_voice_begin_message_voice(message, system_instruction, face, faculty_slug, faculty_name, nullptr, r);
+}
+
+bool pm_voice_begin_message_voice(const char *message, const char *system_instruction, const char *face,
+                                  const char *faculty_slug, const char *faculty_name,
+                                  const char *tts_voice_name, PmVoiceResult *r) {
   s_req_message = message;
   s_req_system = system_instruction;
   s_req_face = face;
   s_req_faculty_slug = faculty_slug;
   s_req_faculty_name = faculty_name;
+  s_req_tts_voice_name = tts_voice_name;
   s_req_result = r;
   return voice_net_begin(1);
 }
@@ -1523,6 +1563,7 @@ bool pm_voice_begin_pcm_ex(const uint8_t *pcm, size_t pcm_len, const char *syste
   s_req_face = face;
   s_req_faculty_slug = nullptr;
   s_req_faculty_name = nullptr;
+  s_req_tts_voice_name = nullptr;
   s_req_result = r;
   return voice_net_begin(2);
 }
@@ -1531,6 +1572,7 @@ bool pm_voice_begin_clock_agenda(PmVoiceResult *r) {
   s_req_face = nullptr;
   s_req_faculty_slug = nullptr;
   s_req_faculty_name = nullptr;
+  s_req_tts_voice_name = nullptr;
   s_req_result = r;
   return voice_net_begin(3);
 }

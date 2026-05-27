@@ -96,7 +96,8 @@ static bool face_uses_vertical_swipes(ClockFace face) {
   return face == ClockFace::Spotify || face == ClockFace::Synastry || face == ClockFace::Moon ||
          face == ClockFace::Settings || face == ClockFace::Spectrum || face == ClockFace::Chakra ||
          face == ClockFace::TibetanBowl || face == ClockFace::Rocket || face == ClockFace::Faculty ||
-         face == ClockFace::Tarot || face == ClockFace::Ocarina || face == ClockFace::Bongo ||
+         face == ClockFace::Tarot || face == ClockFace::Ocarina || face == ClockFace::PitchPipe ||
+         face == ClockFace::Bongo ||
          face == ClockFace::Piano || face == ClockFace::Tuning || face == ClockFace::Alethiometer ||
          face == ClockFace::QuestionOfDay || face == ClockFace::FocusTimer;
 }

@@ -12,6 +12,8 @@ enum class PmDeviceVariant : uint8_t {
   Cameo,
   Luopan,
   Enso,
+  SmartSpeaker,
+  BabelFish,
   kCount,
 };
 

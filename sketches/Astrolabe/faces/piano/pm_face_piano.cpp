@@ -7,6 +7,7 @@
 #include "faces/shared/pm_face_draw.h"
 #include "pin_config.h"
 #include "pm_display.h"
+#include "pm_midi.h"
 #include "pm_speaker.h"
 
 static constexpr int kCx = pm_face_lcd_cx;
@@ -24,6 +25,7 @@ struct PianoNote {
   const char *name;
   float hz;
   int semitone;
+  uint8_t midi;
 };
 
 struct BlackKey {
@@ -32,9 +34,9 @@ struct BlackKey {
 };
 
 static const PianoNote kNotes[kNoteCount] = {
-    {"C", 261.63f, 0},   {"C#", 277.18f, 1}, {"D", 293.66f, 2},   {"D#", 311.13f, 3},
-    {"E", 329.63f, 4},   {"F", 349.23f, 5},  {"F#", 369.99f, 6},  {"G", 392.00f, 7},
-    {"G#", 415.30f, 8},  {"A", 440.00f, 9},  {"A#", 466.16f, 10}, {"B", 493.88f, 11},
+    {"C", 261.63f, 0, 60},   {"C#", 277.18f, 1, 61}, {"D", 293.66f, 2, 62},   {"D#", 311.13f, 3, 63},
+    {"E", 329.63f, 4, 64},   {"F", 349.23f, 5, 65},  {"F#", 369.99f, 6, 66},  {"G", 392.00f, 7, 67},
+    {"G#", 415.30f, 8, 68},  {"A", 440.00f, 9, 69},  {"A#", 466.16f, 10, 70}, {"B", 493.88f, 11, 71},
 };
 
 static const int kWhiteNoteIdx[kWhiteCount] = {0, 2, 4, 5, 7, 9, 11};
@@ -50,6 +52,14 @@ static int s_note_idx = -1;
 static uint32_t s_note_start_ms = 0;
 static uint32_t s_last_anim_ms = 0;
 static float s_phase = 0.f;
+static bool s_midi_note_on = false;
+
+static void midi_note_off_current(void) {
+  if (s_midi_note_on && s_note_idx >= 0) {
+    (void)pm_midi_note_off(PmMidiInstrument::Piano, kNotes[s_note_idx].midi);
+  }
+  s_midi_note_on = false;
+}
 
 static uint16_t key_white(bool active, float energy) {
   if (active) {
@@ -201,15 +211,19 @@ bool pm_face_piano_play_at(int16_t x, int16_t y) {
   if (!hit_note(x, y, &idx)) {
     return false;
   }
+  midi_note_off_current();
   s_note_idx = idx;
   s_note_start_ms = millis();
   s_last_anim_ms = 0;
   s_phase = 0.f;
-  return pm_speaker_play_tone_begin(kNotes[idx].hz, 520);
+  (void)pm_midi_note_on(PmMidiInstrument::Piano, kNotes[idx].midi, 106);
+  s_midi_note_on = true;
+  return pm_speaker_play_synth_note_begin(kNotes[idx].hz, 680, PmSynthPatch::Piano, 0.90f);
 }
 
 bool pm_face_piano_anim_tick(uint32_t now_ms) {
   if (s_note_idx < 0 || note_energy() <= 0.02f) {
+    midi_note_off_current();
     return false;
   }
   if (now_ms - s_last_anim_ms < 45u) {
@@ -221,6 +235,7 @@ bool pm_face_piano_anim_tick(uint32_t now_ms) {
 }
 
 void pm_face_piano_stop(void) {
+  midi_note_off_current();
   if (pm_speaker_is_playing()) {
     pm_speaker_abort();
     pm_speaker_tone_stop();

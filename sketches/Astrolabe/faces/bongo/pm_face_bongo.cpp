@@ -7,6 +7,7 @@
 #include "faces/shared/pm_face_draw.h"
 #include "pin_config.h"
 #include "pm_display.h"
+#include "pm_midi.h"
 #include "pm_motion.h"
 #include "pm_speaker.h"
 
@@ -169,6 +170,9 @@ bool pm_face_bongo_play_at(int16_t x, int16_t y) {
   s_last_anim_ms = 0;
   s_phase = 0.f;
   const float strength = clamp01((0.64f - 0.08f * s_hit_r_norm) + 0.62f * s_hit_force);
+  const uint8_t note = s_hit_r_norm < 0.28f ? 36 : (s_hit_r_norm < 0.58f ? 41 : 50);
+  (void)pm_midi_note_on(PmMidiInstrument::Bongo, note, static_cast<uint8_t>(72 + 44.f * s_hit_force));
+  (void)pm_midi_note_off(PmMidiInstrument::Bongo, note);
   return pm_speaker_play_bongo_begin(s_last_hz, strength);
 }
 

@@ -43,6 +43,20 @@
       accessory: "Compass-oriented kit for space, bearing, and alignment.",
     },
     {
+      id: "smart-speaker",
+      title: "Astrolabe Smart Speaker",
+      subtitle: "Spotify gadget SKU",
+      promise: "Music · room · presence",
+      accessory: "1.85 smart speaker presentation for Spotify control and now-playing glance.",
+    },
+    {
+      id: "babel-fish",
+      title: "Astrolabe Babel Fish",
+      subtitle: "Translator SKU",
+      promise: "Listen · translate · answer",
+      accessory: "1.75 spoken translator for in-room language handoff.",
+    },
+    {
       id: "core",
       title: "Core Firmware",
       subtitle: "All SKUs",
@@ -99,6 +113,22 @@
       hardware: ["AMOLED", "touch", "side buttons", "battery", "USB-C", "Wi-Fi", "BLE", "speaker", "microphone", "IMU"],
       focus: "Direction, level, spatial alignment, radar, and luopan practice.",
       status: "Coming soon",
+    },
+    {
+      variant: "smart-speaker",
+      platform: "1.85",
+      release: "Astrolabe Smart Speaker 1.85",
+      hardware: ["AMOLED", "touch", "USB-C", "Wi-Fi", "BLE", "speaker", "microphone"],
+      focus: "Spotify now-playing, queue browsing, room audio control, and lightweight audio visualization.",
+      status: "Bench",
+    },
+    {
+      variant: "babel-fish",
+      platform: "1.75",
+      release: "Astrolabe Babel Fish 1.75",
+      hardware: ["AMOLED", "touch", "side buttons", "battery", "USB-C", "Wi-Fi", "BLE", "speaker", "microphone"],
+      focus: "STT-LLM-TTS translation into the device native language and back again.",
+      status: "Bench",
     },
   ];
 
@@ -852,6 +882,25 @@
       ],
       interactions: "Tap casts from entropy. Swipe up and down browses figures.",
     },
+    {
+      slug: "babel-fish",
+      title: "Babel Fish",
+      kicker: "Spoken translation with a fish on the face",
+      summary:
+        "A translator face that records speech, sends it through STT and the LLM, then speaks the translation back through the device native TTS voice.",
+      inquiry: "What did they say, and how does this device say it back?",
+      questions: [
+        "What phrase needs to cross the language boundary right now?",
+        "Is the watch translating into its native language or back out again?",
+        "What should be preserved exactly: names, numbers, places, or tone?",
+      ],
+      use: [
+        "Hold PWR and speak a short phrase to translate.",
+        "Name a target language when speaking in the device native language.",
+        "Press BOOT to replay the last spoken translation.",
+      ],
+      interactions: "PWR hold records a translation request. BOOT replays the last TTS response.",
+    },
   ];
 
   const variantBySlug = {
@@ -871,8 +920,9 @@
     geomancy: "lunasay",
     enochian: "lunasay",
     pythia: "lunasay",
+    "babel-fish": "babel-fish",
 
-    spotify: "ocarina",
+    spotify: "smart-speaker",
     spectrum: "ocarina",
     tuning: "ocarina",
     ocarina: "ocarina",

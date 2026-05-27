@@ -203,20 +203,39 @@ void pm_rtp_midi_tick(void) {
 }
 
 bool pm_rtp_midi_enabled(void) { return true; }
-bool pm_rtp_midi_note_on(uint8_t note, uint8_t velocity) { return send_channel_voice(0x90, note, velocity); }
-bool pm_rtp_midi_note_off(uint8_t note) { return send_channel_voice(0x80, note, 0); }
+bool pm_rtp_midi_has_sink(void) { return s_started && s_data_peer && WiFi.status() == WL_CONNECTED; }
+bool pm_rtp_midi_note_on(uint8_t note, uint8_t velocity) { return pm_rtp_midi_note_on_channel(0, note, velocity); }
+bool pm_rtp_midi_note_off(uint8_t note) { return pm_rtp_midi_note_off_channel(0, note); }
+bool pm_rtp_midi_note_on_channel(uint8_t channel, uint8_t note, uint8_t velocity) {
+  return send_channel_voice(static_cast<uint8_t>(0x90 | (channel & 0x0f)), note, velocity);
+}
+bool pm_rtp_midi_note_off_channel(uint8_t channel, uint8_t note) {
+  return send_channel_voice(static_cast<uint8_t>(0x80 | (channel & 0x0f)), note, 0);
+}
 
 #else
 
 bool pm_rtp_midi_begin(void) { return false; }
 void pm_rtp_midi_tick(void) {}
 bool pm_rtp_midi_enabled(void) { return false; }
+bool pm_rtp_midi_has_sink(void) { return false; }
 bool pm_rtp_midi_note_on(uint8_t note, uint8_t velocity) {
   (void)note;
   (void)velocity;
   return false;
 }
 bool pm_rtp_midi_note_off(uint8_t note) {
+  (void)note;
+  return false;
+}
+bool pm_rtp_midi_note_on_channel(uint8_t channel, uint8_t note, uint8_t velocity) {
+  (void)channel;
+  (void)note;
+  (void)velocity;
+  return false;
+}
+bool pm_rtp_midi_note_off_channel(uint8_t channel, uint8_t note) {
+  (void)channel;
   (void)note;
   return false;
 }

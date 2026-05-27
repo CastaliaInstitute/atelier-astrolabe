@@ -107,6 +107,19 @@ static int16_t g_chain_y = 0;
 
 bool pm_gesture_touch_down(void) { return g_down; }
 
+bool pm_gesture_touch_point(int16_t *x, int16_t *y) {
+  if (!g_down) {
+    return false;
+  }
+  if (x) {
+    *x = g_last_cx;
+  }
+  if (y) {
+    *y = g_last_cy;
+  }
+  return true;
+}
+
 static void emit_chain_locked() {
   if (g_chain == 0) {
     return;
