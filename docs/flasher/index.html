@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#07090f" />
+    <title>Astrolabe WebSerial Flasher</title>
+    <meta
+      name="description"
+      content="Flash Astrolabe ESP32-S3 firmware from Chrome or Edge with WebSerial and esptool-js."
+    />
+    <link rel="canonical" href="https://astrolabe.castalia.institute/flasher/" />
+    <link rel="stylesheet" href="../styles.css" />
+  </head>
+  <body class="tool-page">
+    <div class="wrap">
+      <nav class="nav" aria-label="Primary">
+        <a class="nav__brand" href="../">Astrolabe</a>
+        <div class="nav__links">
+          <a href="../#matrix">Matrix</a>
+          <a href="../faces/">Faces</a>
+          <a href="../sim/">Simulator</a>
+          <a href="./" aria-current="page">Flasher</a>
+        </div>
+      </nav>
+    </div>
+
+    <main class="wrap flasher-shell">
+      <section class="flasher-head">
+        <p class="eyebrow">WebSerial recovery</p>
+        <h1>Astrolabe Flasher</h1>
+        <p class="muted">
+          Connect an ESP32-S3 Astrolabe over USB, select a release image, and flash it directly
+          from the browser with esptool-js.
+        </p>
+      </section>
+
+      <section class="flasher-grid" aria-label="Astrolabe WebSerial flasher">
+        <form class="flasher-panel" data-flasher-form>
+          <div class="field-group">
+            <label for="release-select">Integration release</label>
+            <select id="release-select" data-release-select></select>
+          </div>
+
+          <div class="release-summary" data-release-summary>
+            Loading release manifest...
+          </div>
+
+          <div class="field-row">
+            <div class="field-group">
+              <label for="baud-select">Baud</label>
+              <select id="baud-select" data-baud>
+                <option value="921600" selected>921600</option>
+                <option value="460800">460800</option>
+                <option value="230400">230400</option>
+                <option value="115200">115200</option>
+              </select>
+            </div>
+            <div class="field-group">
+              <label for="address-input">App address</label>
+              <input id="address-input" data-address value="0x10000" spellcheck="false" />
+            </div>
+          </div>
+
+          <label class="check-row">
+            <input type="checkbox" data-erase-all />
+            <span>Erase entire flash before writing a <code>0x0</code> recovery image</span>
+          </label>
+
+          <details class="advanced-flash">
+            <summary>Advanced local image</summary>
+            <div class="field-group">
+              <label for="local-bin">Local .bin file</label>
+              <input id="local-bin" type="file" accept=".bin,application/octet-stream" data-local-file />
+            </div>
+            <p class="muted">
+              Local mode writes the selected file at the app address above. Use this for test
+              builds or recovery images when they already match the device partition layout.
+            </p>
+          </details>
+
+          <div class="button-row">
+            <button class="btn btn--primary" type="button" data-connect>Connect</button>
+            <button class="btn" type="button" data-flash disabled>Flash selected image</button>
+            <button class="btn" type="button" data-disconnect disabled>Disconnect</button>
+          </div>
+
+          <progress class="flash-progress" data-progress max="100" value="0"></progress>
+        </form>
+
+        <aside class="flasher-panel flasher-panel--notes">
+          <h2>Before flashing</h2>
+          <ul>
+            <li>Use Chrome or Edge on a secure origin.</li>
+            <li>Select the USB Serial/JTAG port for the attached Astrolabe.</li>
+            <li>If connect fails, hold BOOT while plugging in, then try again.</li>
+            <li>The default mode flashes only the app image at <code>0x10000</code>.</li>
+          </ul>
+          <p class="muted">
+            Full factory flashing also needs bootloader and partition images. Release manifests
+            include those artifacts when the build publisher has them.
+          </p>
+        </aside>
+      </section>
+
+      <section class="terminal-panel" aria-label="Flasher log">
+        <div class="terminal-panel__bar">
+          <h2>Log</h2>
+          <button type="button" data-clear-log>Clear</button>
+        </div>
+        <pre data-log></pre>
+      </section>
+    </main>
+
+    <script type="module" src="flasher.js"></script>
+  </body>
+</html>

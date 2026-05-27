@@ -38,5 +38,8 @@ bool pm_gesture_consume(PmGestureEvent *out);
 /** True while a finger is on the panel (gesture recognizer active). */
 bool pm_gesture_touch_down(void);
 
+/** Current touch centroid while down. Returns false when no finger is active. */
+bool pm_gesture_touch_point(int16_t *x, int16_t *y);
+
 /** Enqueue a synthetic gesture (functional / CI tests). */
 void pm_gesture_inject(PmGestureKind kind, int16_t x, int16_t y);

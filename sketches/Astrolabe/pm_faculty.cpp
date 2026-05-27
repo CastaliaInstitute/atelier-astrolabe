@@ -33,7 +33,23 @@ static constexpr const char *kKeyActive = "fac_active";
 static constexpr size_t kBustMaxBytes = 128u * 1024u;
 static constexpr size_t kBustFlashMaxBytes = 160u * 1024u;
 static constexpr uint32_t kBustTaskStack = 12288;
-static constexpr uint32_t kBustPreloadMinIntervalMs = 2500u;
+static constexpr uint32_t kBustPreloadMinIntervalMs = 60000u;
+
+#ifndef ASTROLABE_DEFAULT_FACULTY_SLUG
+#if defined(ASTROLABE_DEFAULT_FACULTY_TOM_ROBBINS) && ASTROLABE_DEFAULT_FACULTY_TOM_ROBBINS
+#define ASTROLABE_DEFAULT_FACULTY_SLUG "tom-robbins"
+#else
+#define ASTROLABE_DEFAULT_FACULTY_SLUG "a.einstein"
+#endif
+#endif
+
+#ifndef ASTROLABE_DEFAULT_FACULTY_NAME
+#if defined(ASTROLABE_DEFAULT_FACULTY_TOM_ROBBINS) && ASTROLABE_DEFAULT_FACULTY_TOM_ROBBINS
+#define ASTROLABE_DEFAULT_FACULTY_NAME "Tom Robbins"
+#else
+#define ASTROLABE_DEFAULT_FACULTY_NAME "Einstein"
+#endif
+#endif
 
 static TaskHandle_t s_bust_task = nullptr;
 static volatile PmFacultyBustStatus s_bust_status = PmFacultyBustStatus::Idle;
@@ -62,6 +78,8 @@ static uint32_t s_rise_start_ms = 0;
 static PmFacultyBustStatus s_prev_bust_status = PmFacultyBustStatus::Idle;
 static uint32_t s_last_preload_ms = 0;
 static int s_preload_slot = -1;
+static bool s_bust_fs_checked = false;
+static bool s_bust_fs_available = false;
 
 static void key_for_slot(char *out, size_t cap, int slot, const char *suffix) {
   snprintf(out, cap, "fac%d_%s", slot, suffix);
@@ -485,6 +503,9 @@ void pm_faculty_ensure_demo_seed(void) {
       (void)pm_faculty_remember(seed.slug, seed.name);
     }
   }
+#if defined(ASTROLABE_FORCE_FACULTY_HOME) && ASTROLABE_FORCE_FACULTY_HOME
+  (void)pm_faculty_set_active_slug(ASTROLABE_DEFAULT_FACULTY_SLUG, ASTROLABE_DEFAULT_FACULTY_NAME);
+#endif
 }
 
 void pm_faculty_prepare_demo_view(void) {
@@ -516,13 +537,19 @@ static void bust_set_error(const char *msg) {
 }
 
 static bool bust_cache_fs_begin(void) {
+  if (s_bust_fs_checked) {
+    return s_bust_fs_available;
+  }
+  s_bust_fs_checked = true;
   if (!LittleFS.begin(true)) {
     bust_set_error("fs unavailable");
+    ESP_LOGW(TAG, "faculty bust flash cache unavailable");
     return false;
   }
   if (!LittleFS.exists("/busts")) {
     (void)LittleFS.mkdir("/busts");
   }
+  s_bust_fs_available = true;
   return true;
 }
 
@@ -801,6 +828,12 @@ static bool cache_embedded_bust(const char *slug) {
   return true;
 }
 
+static bool has_embedded_bust(const char *slug) {
+  const uint8_t *embedded = nullptr;
+  size_t embedded_len = 0;
+  return pm_faculty_embedded_bust(slug, &embedded, &embedded_len) && embedded_len > 0;
+}
+
 static bool fetch_bust_inner(const char *slug) {
   if (!slug_sane(slug)) {
     bust_set_error("bad slug");
@@ -927,7 +960,11 @@ bool pm_faculty_preload_busts(const char *quote_slug) {
   }
   s_last_preload_ms = now;
 
-  if (slug_sane(quote_slug) && !bust_flash_cached(quote_slug)) {
+  if (!bust_cache_fs_begin()) {
+    return false;
+  }
+
+  if (slug_sane(quote_slug) && !has_embedded_bust(quote_slug) && !bust_flash_cached(quote_slug)) {
     return pm_faculty_request_bust(quote_slug);
   }
 
@@ -938,6 +975,9 @@ bool pm_faculty_preload_busts(const char *quote_slug) {
     if (!pm_faculty_get_slot(s_preload_slot, &f)) {
       continue;
     }
+    if (has_embedded_bust(f.slug)) {
+      continue;
+    }
     if (bust_flash_cached(f.slug)) {
       continue;
     }
@@ -945,7 +985,7 @@ bool pm_faculty_preload_busts(const char *quote_slug) {
   }
 
   PmFacultyProfile active = {};
-  if (pm_faculty_active(&active) && s_bust_len == 0) {
+  if (pm_faculty_active(&active) && s_bust_len == 0 && !has_embedded_bust(active.slug)) {
     return pm_faculty_request_bust(active.slug);
   }
   return false;

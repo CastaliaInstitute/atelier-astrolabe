@@ -94,13 +94,24 @@ void pm_biometrics_model_tick(uint32_t now_ms) {
                         clamp01((1.f - fabsf(s_est.breath - s_est.motion)) * 0.42f + s_est.grounding * 0.35f +
                                 s_est.presence * 0.23f),
                         0.14f);
-
   float q = 0.f;
   q += s_est.wifi ? 0.22f : 0.f;
   q += (s_est.ble_ready || s_est.ble_peers > 0) ? 0.22f : 0.f;
   q += s_est.imu ? 0.28f : 0.f;
   q += s_est.audio ? 0.28f : 0.f;
   s_est.signal_quality = ema(s_est.signal_quality, q, 0.18f);
+
+  const float simulated_eeg =
+      clamp01(stillness * 0.36f + s_est.coherence * 0.34f + (1.f - fabsf(s_est.arousal - 0.42f)) * 0.30f);
+  const float simulated_hrv = clamp01(s_est.grounding * 0.46f + (1.f - s_est.arousal) * 0.34f + s_est.breath * 0.20f);
+  s_est.eeg_focus = ema(s_est.eeg_focus, simulated_eeg, 0.12f);
+  s_est.hrv_balance = ema(s_est.hrv_balance, simulated_hrv, 0.12f);
+  s_est.attention = ema(s_est.attention, clamp01(s_est.eeg_focus * 0.56f + s_est.coherence * 0.28f +
+                                                 (1.f - s_est.motion) * 0.16f),
+                        0.14f);
+  s_est.readiness = ema(s_est.readiness, clamp01(s_est.attention * 0.36f + s_est.hrv_balance * 0.34f +
+                                                s_est.grounding * 0.18f + s_est.signal_quality * 0.12f),
+                        0.14f);
 }
 
 void pm_biometrics_model_estimate(PmBiometricsEstimate *out) {
@@ -111,8 +122,11 @@ void pm_biometrics_model_estimate(PmBiometricsEstimate *out) {
 void pm_biometrics_model_format(const PmBiometricsEstimate *e, char *out, size_t cap) {
   if (!e || !out || cap == 0) return;
   snprintf(out, cap,
+           "attention %.0f%%, readiness %.0f%%, simulated EEG focus %.0f%%, simulated HRV balance %.0f%%, "
            "presence %.0f%%, motion %.0f%%, breath %.0f%%, coherence %.0f%%, arousal %.0f%%, grounding %.0f%%, "
            "signal quality %.0f%%; WiFi %s %d dBm; BLE %u peer%s %s; IMU %s; audio %s",
+           static_cast<double>(e->attention * 100.f), static_cast<double>(e->readiness * 100.f),
+           static_cast<double>(e->eeg_focus * 100.f), static_cast<double>(e->hrv_balance * 100.f),
            static_cast<double>(e->presence * 100.f), static_cast<double>(e->motion * 100.f),
            static_cast<double>(e->breath * 100.f), static_cast<double>(e->coherence * 100.f),
            static_cast<double>(e->arousal * 100.f), static_cast<double>(e->grounding * 100.f),

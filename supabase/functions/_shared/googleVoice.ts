@@ -45,6 +45,7 @@ export async function speechRecognize(
   audioBase64: string,
   languageCode: string,
   sampleRateHertz: number,
+  alternativeLanguageCodes?: string[],
 ): Promise<string> {
   const url =
     `https://speech.googleapis.com/v1/speech:recognize?key=${encodeURIComponent(apiKey)}`;
@@ -56,6 +57,9 @@ export async function speechRecognize(
         encoding: "LINEAR16",
         sampleRateHertz,
         languageCode,
+        ...(alternativeLanguageCodes && alternativeLanguageCodes.length
+          ? { alternativeLanguageCodes }
+          : {}),
         enableAutomaticPunctuation: true,
       },
       audio: { content: audioBase64 },

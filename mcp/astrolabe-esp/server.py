@@ -136,6 +136,9 @@ FACE_BY_NAME = {
     "biometrics": 35,
     "bio": 35,
     "signals": 35,
+    "enso": 35,
+    "readiness": 35,
+    "attention": 35,
     "lenormand": 36,
     "len": 36,
     "oracle": 36,
@@ -177,7 +180,7 @@ FACE_LABELS = (
     "Luopan",
     "QuestionOfDay",
     "FocusTimer",
-    "Biometrics",
+    "EnsoReadiness",
     "Lenormand",
 )
 

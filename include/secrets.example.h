@@ -1,5 +1,7 @@
 #pragma once
 
+#include "astrolabe_baseline.h"
+
 // Optional: copy to `include/secrets.local.h` (gitignored) so you can keep this template unchanged.
 
 #define MYNAH_WIFI_SSID ""
@@ -12,6 +14,14 @@
 // Supabase project (same as Android Mynah BuildConfig).
 #define MYNAH_SUPABASE_URL ""
 #define MYNAH_SUPABASE_ANON_KEY ""
+
+// Optional LAN/BLE presentation control token. Leave empty to disable /control and BLE control writes.
+#define MYNAH_REMOTE_CONTROL_KEY ""
+
+/** Facial metrics service. The Watcher posts camera frames here before Castalia capture. */
+#ifndef MYNAH_FACE_METRICS_URL
+#define MYNAH_FACE_METRICS_URL ASTROLABE_FACE_METRICS_URL_DEFAULT
+#endif
 
 /** castalia.institute origin for QR sign-in (Google → /auth/mynah-device/ handoff). */
 #ifndef MYNAH_CASTALIA_WEB_ORIGIN

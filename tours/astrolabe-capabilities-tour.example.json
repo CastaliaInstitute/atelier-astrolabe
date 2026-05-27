@@ -1,0 +1,121 @@
+{
+  "vars": {
+    "venue": "Castalia Institute"
+  },
+  "devices": [
+    {
+      "id": "host",
+      "name": "Host Astrolabe",
+      "role": "host",
+      "group": "all",
+      "url": "http://astrolabe-host.local"
+    },
+    {
+      "id": "enso",
+      "name": "Enso",
+      "role": "readiness",
+      "group": "all",
+      "url": "http://astrolabe-enso.local"
+    },
+    {
+      "id": "ocarina",
+      "name": "Ocarina",
+      "role": "instrument",
+      "group": "all",
+      "url": "http://astrolabe-ocarina.local"
+    }
+  ],
+  "steps": [
+    {
+      "label": "opening tableau",
+      "target": "all",
+      "action": "face",
+      "face": "classic",
+      "pause": 1
+    },
+    {
+      "label": "host welcome",
+      "target": "host",
+      "action": "tts",
+      "face": "classic",
+      "text": "Welcome to $venue. I am $name, the coordinating Astrolabe. I can cue every device, change faces, trigger buttons, and speak from the tour script.",
+      "pause": 5
+    },
+    {
+      "label": "introduce each device",
+      "target": "all",
+      "action": "tts",
+      "face": "classic",
+      "text": "I am $name. My role in this tour is $role.",
+      "pause": 5
+    },
+    {
+      "label": "show moon",
+      "target": "all",
+      "action": "face",
+      "face": "moon",
+      "pause": 1
+    },
+    {
+      "label": "moon capability",
+      "target": "host",
+      "action": "tts",
+      "face": "moon",
+      "text": "The Moon face shows phase, texture, and a short lunar reflection. A tour can move every Astrolabe here at once.",
+      "pause": 5
+    },
+    {
+      "label": "show radar",
+      "target": "all",
+      "action": "face",
+      "face": "radar",
+      "pause": 2
+    },
+    {
+      "label": "radar capability",
+      "target": "host",
+      "action": "tts",
+      "face": "radar",
+      "text": "Radar visualizes nearby Astrolabe peers and anchors over BLE presence. This is how the fleet can become part of the room.",
+      "pause": 6
+    },
+    {
+      "label": "show readiness",
+      "target": "enso",
+      "action": "face",
+      "face": "enso",
+      "pause": 1
+    },
+    {
+      "label": "enso capability",
+      "target": "enso",
+      "action": "tts",
+      "face": "enso",
+      "text": "The Enso face turns local signals into a playful readiness reading. It is for reflection, not diagnosis.",
+      "pause": 6
+    },
+    {
+      "label": "show instruments",
+      "target": "instrument",
+      "action": "face",
+      "face": "ocarina",
+      "pause": 1
+    },
+    {
+      "label": "trigger instrument note",
+      "target": "instrument",
+      "action": "tap",
+      "x": 233,
+      "y": 233,
+      "durationMs": 180,
+      "pause": 1
+    },
+    {
+      "label": "built in tts face tour",
+      "target": "host",
+      "action": "tour",
+      "mode": "tts",
+      "dwellMs": 1200
+    }
+  ]
+}

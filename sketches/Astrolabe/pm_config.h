@@ -190,6 +190,19 @@
 #define MYNAH_RESPONSE_INTERNAL_FLOOR 90000u
 #endif
 
+/** Bearer token for LAN/BLE presentation control. Empty means remote control is disabled. */
+#ifndef MYNAH_REMOTE_CONTROL_KEY
+#define MYNAH_REMOTE_CONTROL_KEY ""
+#endif
+
+/** Developer-only OTA from the latest integration build published to GitHub Pages. */
+#ifndef MYNAH_DEV_INTEGRATION_OTA
+#define MYNAH_DEV_INTEGRATION_OTA 1
+#endif
+#ifndef MYNAH_OTA_INTEGRATION_BASE_URL
+#define MYNAH_OTA_INTEGRATION_BASE_URL "https://astrolabe.castalia.institute/releases/integration"
+#endif
+
 /** 1 = fetch Swiss Ephemeris from ephemeris.castalia.institute when WiFi is up. */
 #ifndef MYNAH_EPHEMERIS_ENABLE
 #define MYNAH_EPHEMERIS_ENABLE 1

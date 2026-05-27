@@ -48,7 +48,9 @@ add_executable(astrolabe-web-sim
   ../../sketches/Astrolabe/faces/focus/pm_face_focus.cpp
   ../../sketches/Astrolabe/faces/geomancy/pm_face_geomancy.cpp
   ../../sketches/Astrolabe/faces/globe/pm_face_globe.cpp
+  ../../sketches/Astrolabe/faces/hid/pm_face_hid.cpp
   ../../sketches/Astrolabe/faces/home/pm_face_home_briefing.cpp
+  ../../sketches/Astrolabe/faces/inq_card/pm_face_inq_card.cpp
   ../../sketches/Astrolabe/faces/lenormand/pm_face_lenormand.cpp
   ../../sketches/Astrolabe/faces/level/pm_face_level.cpp
   ../../sketches/Astrolabe/faces/live_transits/pm_face_live_transits.cpp
@@ -67,6 +69,7 @@ add_executable(astrolabe-web-sim
   ../../sketches/Astrolabe/faces/rocket/pm_face_rocket.cpp
   ../../sketches/Astrolabe/faces/runes/pm_face_runes.cpp
   ../../sketches/Astrolabe/faces/settings/pm_face_settings_battery.cpp
+  ../../sketches/Astrolabe/faces/settings/pm_face_settings_ota.cpp
   ../../sketches/Astrolabe/faces/settings/pm_face_settings_sleep.cpp
   ../../sketches/Astrolabe/faces/settings/pm_face_settings_variant.cpp
   ../../sketches/Astrolabe/faces/settings/pm_face_settings_wifi.cpp
@@ -78,6 +81,7 @@ add_executable(astrolabe-web-sim
   ../../sketches/Astrolabe/faces/tarot/pm_face_tarot.cpp
   ../../sketches/Astrolabe/faces/tibetan_bowl/pm_face_tibetan_bowl.cpp
   ../../sketches/Astrolabe/faces/tuning/pm_face_tuning.cpp
+  ../../sketches/Astrolabe/faces/watcher/pm_face_watcher.cpp
   ../../sketches/Astrolabe/faces/weather/pm_face_weather.cpp
   ../../sketches/Astrolabe/pm_presence_graph.cpp
   ../../sketches/Astrolabe/third_party/qrcodegen/qrcodegen.c

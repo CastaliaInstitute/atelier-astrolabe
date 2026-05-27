@@ -70,6 +70,19 @@ Current service expectations:
 | **Commonplace** | Use only for public or anonymous flows. Do not write user-owned commonplace data with the anon bearer. | Required for user-owned commonplace reads/writes so Castalia can attach entries to the signed-in account. |
 | **Calcifer** (`calcifer-status` / CalDAV agenda) | Can reach the function but has no user CalDAV configuration; expect unavailable, unconfigured, or `401` responses. | Required for personalized CalDAV countdowns and BOOT spoken agenda briefs. |
 
+## Reflection Baseline
+
+Astrolabe treats face, biometrics, and sensor-derived cues as a mindfulness
+mirror. These signals may be included in `voice-pipeline` LLM/TTS turns, but
+only as uncertain observations for self-reflection. Baseline prompts must not
+infer identity, personality, truthfulness, diagnosis, intent, or stable mental
+state from face or sensor metrics.
+
+The shared wording lives in
+[`include/astrolabe_baseline.h`](include/astrolabe_baseline.h). The default face
+metrics endpoint is `https://face-api.castalia.institute/v1/face`; override
+`MYNAH_FACE_METRICS_URL` in `include/secrets.local.h` for local testing.
+
 ## Cycle face
 
 The `Cycle` clock face is an on-device menstrual cycle wellness glance. The full ring maps to
@@ -99,10 +112,12 @@ Partner and child birth profiles (up to 8) are editable on the **Settings** face
 |-----|---------|
 | [`docs/BACKLOG.md`](docs/BACKLOG.md) | Roadmap |
 | [`docs/WORKFLOW.md`](docs/WORKFLOW.md) | Issues → PR to **`integration`** → promote to **`main`** (build + flash) |
+| [`docs/release/variant-plan.md`](docs/release/variant-plan.md) | Release matrix, NVS identity, and OTA size checks for Astrolabe variants |
 
 ```bash
 ./scripts/cloud-agent.sh <issue#>              # Cloud agent → PR to integration
 ./scripts/ci-flash.sh                          # build + USB flash (self-hosted CI / local)
+./scripts/release-size-report.py --build        # build variants + check OTA fit
 ./scripts/promote-integration.sh --flash-ok    # integration → main after flash QA
 ```
 

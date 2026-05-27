@@ -7,6 +7,7 @@
 #include "faces/shared/pm_face_draw.h"
 #include "pin_config.h"
 #include "pm_display.h"
+#include "pm_midi.h"
 #include "pm_motion.h"
 #include "pm_speaker.h"
 
@@ -23,23 +24,24 @@ struct PanNote {
   int ring_r;
   int pad_rx;
   int pad_ry;
+  uint8_t midi;
 };
 
 static const PanNote kNotes[kNoteCount] = {
-    {"D3", 146.83f, 0.f, 0, 54, 54},
-    {"A3", 220.00f, 270.f, 86, 34, 48},
-    {"Bb3", 233.08f, 321.f, 86, 34, 48},
-    {"C4", 261.63f, 13.f, 86, 34, 48},
-    {"D4", 293.66f, 64.f, 86, 34, 48},
-    {"E4", 329.63f, 116.f, 86, 34, 48},
-    {"F4", 349.23f, 167.f, 86, 34, 48},
-    {"G4", 392.00f, 219.f, 86, 34, 48},
-    {"A4", 440.00f, 296.f, 148, 31, 42},
-    {"C5", 523.25f, 356.f, 148, 31, 42},
-    {"D5", 587.33f, 56.f, 148, 31, 42},
-    {"E5", 659.25f, 116.f, 148, 31, 42},
-    {"F5", 698.46f, 176.f, 148, 31, 42},
-    {"A5", 880.00f, 236.f, 148, 31, 42},
+    {"D3", 146.83f, 0.f, 0, 54, 54, 50},
+    {"A3", 220.00f, 270.f, 86, 34, 48, 57},
+    {"Bb3", 233.08f, 321.f, 86, 34, 48, 58},
+    {"C4", 261.63f, 13.f, 86, 34, 48, 60},
+    {"D4", 293.66f, 64.f, 86, 34, 48, 62},
+    {"E4", 329.63f, 116.f, 86, 34, 48, 64},
+    {"F4", 349.23f, 167.f, 86, 34, 48, 65},
+    {"G4", 392.00f, 219.f, 86, 34, 48, 67},
+    {"A4", 440.00f, 296.f, 148, 31, 42, 69},
+    {"C5", 523.25f, 356.f, 148, 31, 42, 72},
+    {"D5", 587.33f, 56.f, 148, 31, 42, 74},
+    {"E5", 659.25f, 116.f, 148, 31, 42, 76},
+    {"F5", 698.46f, 176.f, 148, 31, 42, 77},
+    {"A5", 880.00f, 236.f, 148, 31, 42, 81},
 };
 
 static int s_note_idx = -1;
@@ -50,6 +52,7 @@ static float s_phase = 0.f;
 static float s_last_hz = kNotes[0].hz;
 static float s_hit_force = 0.50f;
 static float s_force_peak_g = 0.f;
+static bool s_midi_note_on = false;
 
 static float clamp01(float v) {
   if (v < 0.f) {
@@ -110,6 +113,13 @@ static float force_from_imu(void) {
   }
   s_force_peak_g = 0.f;
   return 0.32f + 0.68f * clamp01(excess_g / 1.20f);
+}
+
+static void midi_note_off_current(void) {
+  if (s_midi_note_on && s_note_idx >= 0) {
+    (void)pm_midi_note_off(PmMidiInstrument::PanDrum, kNotes[s_note_idx].midi);
+  }
+  s_midi_note_on = false;
 }
 
 static bool hit_note(int16_t x, int16_t y, int *out_idx) {
@@ -238,6 +248,7 @@ bool pm_face_pandrum_play_at(int16_t x, int16_t y) {
   if (!hit_note(x, y, &idx)) {
     return false;
   }
+  midi_note_off_current();
   s_note_idx = idx;
   s_note_start_ms = millis();
   s_last_anim_ms = 0;
@@ -245,7 +256,11 @@ bool pm_face_pandrum_play_at(int16_t x, int16_t y) {
   s_last_hz = kNotes[idx].hz;
   s_hit_force = force_from_imu();
   const uint32_t duration_ms = 540u + static_cast<uint32_t>(360.f * s_hit_force);
-  return pm_speaker_play_tone_begin(kNotes[idx].hz, duration_ms);
+  (void)pm_midi_note_on(PmMidiInstrument::PanDrum, kNotes[idx].midi,
+                        static_cast<uint8_t>(72 + static_cast<int>(44.f * s_hit_force)));
+  s_midi_note_on = true;
+  return pm_speaker_play_synth_note_begin(kNotes[idx].hz, duration_ms + 220u, PmSynthPatch::PanDrum,
+                                          0.72f + 0.34f * s_hit_force);
 }
 
 bool pm_face_pandrum_motion_tick(uint32_t now_ms) {
@@ -271,6 +286,7 @@ bool pm_face_pandrum_motion_tick(uint32_t now_ms) {
 
 bool pm_face_pandrum_anim_tick(uint32_t now_ms) {
   if (s_note_idx < 0 || note_energy() <= 0.02f) {
+    midi_note_off_current();
     return false;
   }
   if (now_ms - s_last_anim_ms < 42u) {
@@ -282,6 +298,7 @@ bool pm_face_pandrum_anim_tick(uint32_t now_ms) {
 }
 
 void pm_face_pandrum_stop(void) {
+  midi_note_off_current();
   if (pm_speaker_is_playing()) {
     pm_speaker_abort();
     pm_speaker_tone_stop();

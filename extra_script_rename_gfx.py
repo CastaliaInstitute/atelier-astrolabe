@@ -11,6 +11,8 @@ def rename_gfx_no_spaces():
     good = libdeps / "GFX_Library_for_Arduino"
     if bad.is_dir() and not good.exists():
         shutil.move(str(bad), str(good))
+    if good.is_dir():
+        env.Append(CPPPATH=[str(good)])
 
 
 rename_gfx_no_spaces()

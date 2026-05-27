@@ -2,6 +2,7 @@
 # Build and flash firmware on a machine with the watch on USB (CI self-hosted runner or local).
 #
 #   ./scripts/ci-flash.sh
+#   ASTROLABE_DEVICE_MAC=a4:cb:8f:d6:42:60 PIO_ENV=waveshare_s3_175_cameo ./scripts/ci-flash.sh
 #   ASTROLABE_UPLOAD_PORT=/dev/cu.usbmodem1101 ./scripts/ci-flash.sh
 #   ./scripts/ci-flash.sh --upload-only   # skip rebuild if firmware.bin exists
 #
@@ -15,8 +16,10 @@ SMOKE_SEC="${ASTROLABE_FLASH_SMOKE_SEC:-8}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --upload-only) UPLOAD_ONLY=1; shift ;;
+    --mac=*) export ASTROLABE_DEVICE_MAC="${1#--mac=}"; shift ;;
+    --mac) export ASTROLABE_DEVICE_MAC="${2:-}"; shift 2 ;;
     -h | --help)
-      echo "Usage: ci-flash.sh [--upload-only]"
+      echo "Usage: ci-flash.sh [--upload-only] [--mac MAC]"
       exit 0
       ;;
     *) echo "unknown option: $1" >&2; exit 1 ;;
@@ -25,11 +28,20 @@ done
 
 ENV="${PIO_ENV:-waveshare_s3_175}"
 BUILD_DIR="${PLATFORMIO_BUILD_DIR:-/tmp/astrolabe-pio-build}"
+
+# USB port can re-enumerate during long compiles; optional hub VBUS cycle before upload.
+bash ./scripts/usb-power-cycle-watch.sh || true
+PORT="$(./scripts/detect_upload_port.sh)"
+export ASTROLABE_UPLOAD_PORT="$PORT"
+if [[ -z "${PIO_ENV:-}" && "$PORT" == *5A360268091 ]]; then
+  echo "→ 1.75 native USB not found; using 1.85 fallback env"
+  ENV="waveshare_s3_185_astrolabe"
+fi
 BIN="${BUILD_DIR}/${ENV}/firmware.bin"
 
 if [[ "$UPLOAD_ONLY" != "1" ]] || [[ ! -f "$BIN" ]]; then
   echo "→ build ${ENV}"
-  ./scripts/build.sh
+  PIO_ENV="$ENV" ./scripts/build.sh
 fi
 
 if [[ ! -f "$BIN" ]]; then
@@ -37,11 +49,10 @@ if [[ ! -f "$BIN" ]]; then
   exit 1
 fi
 
-# USB port can re-enumerate during long compiles; optional hub VBUS cycle before upload.
-bash ./scripts/usb-power-cycle-watch.sh || true
-PORT="$(./scripts/detect_upload_port.sh)"
-export ASTROLABE_UPLOAD_PORT="$PORT"
 echo "→ upload port: ${PORT}"
+if [[ -n "${ASTROLABE_DEVICE_MAC:-}" ]]; then
+  echo "→ upload MAC:  ${ASTROLABE_DEVICE_MAC}"
+fi
 echo "→ upload ${BIN}"
 
 upload_once() {
@@ -60,6 +71,9 @@ for ((i = 1; i <= TRIES; i++)); do
   [[ "$i" -gt 1 ]] && bash ./scripts/usb-power-cycle-watch.sh || true
   PORT="$(./scripts/detect_upload_port.sh)"
   export ASTROLABE_UPLOAD_PORT="$PORT"
+  if [[ -n "${ASTROLABE_DEVICE_MAC:-}" ]]; then
+    echo "→ resolved ${ASTROLABE_DEVICE_MAC} to ${PORT}"
+  fi
   preupload_reset
   upload_once && ok=1 && break
   sleep 2

@@ -32,7 +32,9 @@ bool pm_touch_begin() {
   g_touch_ok = true;
   return true;
 #else
-  g_touch.setPins(TP_RST, TP_INT);
+  const int touch_rst =
+      (TP_RST == LCD_RESET) ? -1 : TP_RST;
+  g_touch.setPins(touch_rst, TP_INT);
   g_touch_ok = g_touch.begin(Wire, CST92XX_SLAVE_ADDRESS, IIC_SDA, IIC_SCL);
   pinMode(TP_INT, INPUT);
   return g_touch_ok;
