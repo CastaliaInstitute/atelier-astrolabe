@@ -7,6 +7,16 @@
 
 enum class PmSpeakerStatus : int8_t { Idle = 0, Playing = 1, DoneOk = 2, DoneFail = -1 };
 
+enum class PmSynthPatch : uint8_t {
+  Sine = 0,
+  Ocarina,
+  Kalimba,
+  Piano,
+  PanDrum,
+  Drone,
+  Chord,
+};
+
 /** Start MP3 playback on the speaker task (non-blocking). Waits for prior playback to finish. */
 bool pm_speaker_play_begin(const uint8_t *mp3, size_t mp3_len);
 
@@ -32,11 +42,17 @@ void pm_speaker_abort(void);
 /** Start a solfeggio-style sine tone (non-blocking). Replaces any current playback. */
 bool pm_speaker_play_tone_begin(float hz, uint32_t duration_ms);
 
+/** Start a lightweight synthesized instrument preview (non-blocking). MIDI/DAW output is unaffected. */
+bool pm_speaker_play_synth_note_begin(float hz, uint32_t duration_ms, PmSynthPatch patch, float velocity = 1.f);
+
 /** Start a short percussive bongo hit (non-blocking). */
 bool pm_speaker_play_bongo_begin(float hz, float strength);
 
 /** Loop tone until pm_speaker_tone_stop(). */
 bool pm_speaker_play_tone_loop_begin(float hz);
+
+/** Loop a synthesized instrument preview until pm_speaker_tone_stop(). */
+bool pm_speaker_play_synth_loop_begin(float hz, PmSynthPatch patch, float velocity = 1.f);
 
 /** Request stop of a looped tone (blocks until speaker task exits). */
 void pm_speaker_tone_stop(void);

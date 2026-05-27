@@ -1,11 +1,22 @@
 #!/usr/bin/env bash
 # Print the PlatformIO upload port for an Espressif USB-JTAG/serial device (VID 303A, PID 1001).
-# Set ASTROLABE_UPLOAD_PORT to skip detection.
+# Set ASTROLABE_DEVICE_MAC to resolve a stable device identity. Set
+# ASTROLABE_UPLOAD_PORT only when intentionally bypassing MAC resolution.
 set -euo pipefail
 
 port_available() {
   [[ -n "${1:-}" && -e "$1" ]]
 }
+
+if [[ -n "${ASTROLABE_DEVICE_MAC:-}" ]]; then
+  if port_available "${ASTROLABE_UPLOAD_PORT:-}"; then
+    resolved="$(./scripts/resolve_esp_port_by_mac.sh "$ASTROLABE_DEVICE_MAC" "$ASTROLABE_UPLOAD_PORT")"
+  else
+    resolved="$(./scripts/resolve_esp_port_by_mac.sh "$ASTROLABE_DEVICE_MAC")"
+  fi
+  echo "$resolved"
+  exit 0
+fi
 
 if port_available "${ASTROLABE_UPLOAD_PORT:-}"; then
   echo "$ASTROLABE_UPLOAD_PORT"

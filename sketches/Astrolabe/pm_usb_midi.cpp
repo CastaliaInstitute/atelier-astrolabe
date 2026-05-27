@@ -18,7 +18,7 @@ static bool s_descriptor_loaded = false;
 static bool s_interface_enabled = false;
 static bool s_ready = false;
 
-static constexpr uint8_t kMidiChannel = 0;
+static constexpr uint8_t kDefaultMidiChannel = 0;
 static constexpr uint8_t kMidiCable = 0;
 static constexpr uint8_t kMidiEndpointSize = 64;
 
@@ -79,24 +79,46 @@ bool pm_usb_midi_begin(void) {
 
 bool pm_usb_midi_enabled(void) { return true; }
 
+bool pm_usb_midi_has_sink(void) { return s_ready && tud_midi_mounted(); }
+
 bool pm_usb_midi_note_on(uint8_t note, uint8_t velocity) {
-  return write_packet(MIDI_CIN_NOTE_ON, static_cast<uint8_t>(0x90 | kMidiChannel), note, velocity);
+  return pm_usb_midi_note_on_channel(kDefaultMidiChannel, note, velocity);
 }
 
 bool pm_usb_midi_note_off(uint8_t note) {
-  return write_packet(MIDI_CIN_NOTE_OFF, static_cast<uint8_t>(0x80 | kMidiChannel), note, 0);
+  return pm_usb_midi_note_off_channel(kDefaultMidiChannel, note);
+}
+
+bool pm_usb_midi_note_on_channel(uint8_t channel, uint8_t note, uint8_t velocity) {
+  return write_packet(MIDI_CIN_NOTE_ON, static_cast<uint8_t>(0x90 | (channel & 0x0f)), note, velocity);
+}
+
+bool pm_usb_midi_note_off_channel(uint8_t channel, uint8_t note) {
+  return write_packet(MIDI_CIN_NOTE_OFF, static_cast<uint8_t>(0x80 | (channel & 0x0f)), note, 0);
 }
 
 #else
 
 bool pm_usb_midi_begin(void) { return false; }
 bool pm_usb_midi_enabled(void) { return false; }
+bool pm_usb_midi_has_sink(void) { return false; }
 bool pm_usb_midi_note_on(uint8_t note, uint8_t velocity) {
   (void)note;
   (void)velocity;
   return false;
 }
 bool pm_usb_midi_note_off(uint8_t note) {
+  (void)note;
+  return false;
+}
+bool pm_usb_midi_note_on_channel(uint8_t channel, uint8_t note, uint8_t velocity) {
+  (void)channel;
+  (void)note;
+  (void)velocity;
+  return false;
+}
+bool pm_usb_midi_note_off_channel(uint8_t channel, uint8_t note) {
+  (void)channel;
   (void)note;
   return false;
 }

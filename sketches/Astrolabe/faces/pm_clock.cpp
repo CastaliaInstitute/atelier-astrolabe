@@ -9,13 +9,16 @@
 #include "faces/apocalypso/pm_face_apocalypso.h"
 #include "faces/alethiometer/pm_face_alethiometer.h"
 #include "faces/astrology/pm_face_astrology.h"
+#include "faces/babel_fish/pm_face_babel_fish.h"
 #include "faces/biometrics/pm_face_biometrics.h"
 #include "faces/bongo/pm_face_bongo.h"
 #include "faces/calcifer/pm_face_calcifer.h"
 #include "faces/castalia/pm_face_castalia.h"
 #include "faces/chakra/pm_face_chakra.h"
+#include "faces/chord/pm_face_chord.h"
 #include "faces/classic_analog/pm_face_classic_analog.h"
 #include "faces/digital/pm_face_digital.h"
+#include "faces/drone/pm_face_drone.h"
 #include "faces/enochian_angel/pm_face_enochian_angel.h"
 #include "faces/faculty/pm_face_faculty.h"
 #include "faces/focus/pm_face_focus.h"
@@ -23,6 +26,7 @@
 #include "faces/globe/pm_face_globe.h"
 #include "faces/hid/pm_face_hid.h"
 #include "faces/inq_card/pm_face_inq_card.h"
+#include "faces/kalimba/pm_face_kalimba.h"
 #include "faces/level/pm_face_level.h"
 #include "faces/lenormand/pm_face_lenormand.h"
 #include "faces/live_transits/pm_face_live_transits.h"
@@ -33,6 +37,7 @@
 #include "faces/orientation/pm_face_orientation.h"
 #include "faces/pandrum/pm_face_pandrum.h"
 #include "faces/piano/pm_face_piano.h"
+#include "faces/pitch_pipe/pm_face_pitch_pipe.h"
 #include "faces/question_day/pm_face_question_day.h"
 #include "faces/pythia/pm_face_pythia.h"
 #include "faces/quotes/pm_face_quotes.h"
@@ -100,9 +105,13 @@ static const ClockFace k_face_dial_order[] = {
 
     // Ocarina: breath, music, and sound instruments.
     ClockFace::Ocarina,
+    ClockFace::PitchPipe,
     ClockFace::Tuning,
     ClockFace::Spectrum,
     ClockFace::Bongo,
+    ClockFace::Kalimba,
+    ClockFace::Drone,
+    ClockFace::Chord,
     ClockFace::Piano,
     ClockFace::PanDrum,
 
@@ -112,13 +121,22 @@ static const ClockFace k_face_dial_order[] = {
     ClockFace::Notes,
     ClockFace::QuestionOfDay,
 
+    // Babel Fish: spoken translation in and out of the device native language.
+    ClockFace::BabelFish,
+
     // Luopan: direction and feng-shui alignment.
     ClockFace::Orientation,
     ClockFace::Luopan,
 };
 
-#if defined(ASTROLABE_FORCE_VARIANT_ENSO)
+#if defined(ASTROLABE_FORCE_VARIANT_SMART_SPEAKER)
+static ClockFace s_clock_face = ClockFace::Spotify;
+#elif defined(ASTROLABE_FORCE_VARIANT_BABEL_FISH)
+static ClockFace s_clock_face = ClockFace::BabelFish;
+#elif defined(ASTROLABE_FORCE_VARIANT_ENSO)
 static ClockFace s_clock_face = ClockFace::Biometrics;
+#elif defined(ASTROLABE_FORCE_VARIANT_CAMEO)
+static ClockFace s_clock_face = ClockFace::Faculty;
 #else
 static ClockFace s_clock_face = ClockFace::ClassicAnalog;
 #endif
@@ -209,10 +227,22 @@ static void pm_faces_on_leave(ClockFace from, ClockFace to) {
       pm_face_tibetan_bowl_stop();
       break;
     case ClockFace::Ocarina:
-      pm_face_ocarina_stop();
+      pm_face_ocarina_on_leave();
+      break;
+    case ClockFace::PitchPipe:
+      pm_face_pitch_pipe_on_leave();
       break;
     case ClockFace::Bongo:
       pm_face_bongo_stop();
+      break;
+    case ClockFace::Kalimba:
+      pm_face_kalimba_stop();
+      break;
+    case ClockFace::Drone:
+      pm_face_drone_stop();
+      break;
+    case ClockFace::Chord:
+      pm_face_chord_stop();
       break;
     case ClockFace::PanDrum:
       pm_face_pandrum_stop();
@@ -271,6 +301,12 @@ static void pm_faces_on_enter(ClockFace face, ClockFace from) {
       break;
     case ClockFace::HidTouchpad:
       pm_face_hid_on_enter();
+      break;
+    case ClockFace::Ocarina:
+      pm_face_ocarina_on_enter();
+      break;
+    case ClockFace::PitchPipe:
+      pm_face_pitch_pipe_on_enter();
       break;
     case ClockFace::Biometrics:
       pm_face_biometrics_on_enter();
@@ -371,8 +407,11 @@ void pm_faces_draw(float thinking_progress) {
       s_clock_face != ClockFace::Weather && s_clock_face != ClockFace::Quotes &&
       s_clock_face != ClockFace::Globe && s_clock_face != ClockFace::Sky &&
       s_clock_face != ClockFace::Notes && s_clock_face != ClockFace::Ocarina &&
-      s_clock_face != ClockFace::Bongo && s_clock_face != ClockFace::PanDrum &&
-      s_clock_face != ClockFace::Piano && s_clock_face != ClockFace::Tuning &&
+      s_clock_face != ClockFace::BabelFish &&
+      s_clock_face != ClockFace::PitchPipe && s_clock_face != ClockFace::Bongo && s_clock_face != ClockFace::PanDrum &&
+      s_clock_face != ClockFace::Piano && s_clock_face != ClockFace::Kalimba &&
+      s_clock_face != ClockFace::Drone && s_clock_face != ClockFace::Chord &&
+      s_clock_face != ClockFace::Tuning &&
       s_clock_face != ClockFace::Level && s_clock_face != ClockFace::Orientation &&
       s_clock_face != ClockFace::Luopan && s_clock_face != ClockFace::Alethiometer &&
       s_clock_face != ClockFace::InqCard && s_clock_face != ClockFace::Lenormand &&
@@ -493,8 +532,14 @@ void pm_faces_draw(float thinking_progress) {
     case ClockFace::Notes:
       pm_face_notes_draw();
       break;
+    case ClockFace::BabelFish:
+      pm_face_babel_fish_draw();
+      break;
     case ClockFace::Ocarina:
       pm_face_ocarina_draw();
+      break;
+    case ClockFace::PitchPipe:
+      pm_face_pitch_pipe_draw();
       break;
     case ClockFace::Bongo:
       pm_face_bongo_draw();
@@ -504,6 +549,15 @@ void pm_faces_draw(float thinking_progress) {
       break;
     case ClockFace::Piano:
       pm_face_piano_draw();
+      break;
+    case ClockFace::Kalimba:
+      pm_face_kalimba_draw();
+      break;
+    case ClockFace::Drone:
+      pm_face_drone_draw();
+      break;
+    case ClockFace::Chord:
+      pm_face_chord_draw();
       break;
     case ClockFace::Level:
       pm_face_level_draw();
@@ -547,8 +601,12 @@ void pm_faces_draw(float thinking_progress) {
                         s_clock_face == ClockFace::Weather || s_clock_face == ClockFace::Quotes ||
                         s_clock_face == ClockFace::Globe || s_clock_face == ClockFace::Sky ||
                         s_clock_face == ClockFace::Tarot || s_clock_face == ClockFace::InqCard ||
-                        s_clock_face == ClockFace::Notes || s_clock_face == ClockFace::Ocarina || s_clock_face == ClockFace::Bongo ||
+                        s_clock_face == ClockFace::Notes || s_clock_face == ClockFace::BabelFish ||
+                        s_clock_face == ClockFace::Ocarina ||
+                        s_clock_face == ClockFace::PitchPipe || s_clock_face == ClockFace::Bongo ||
                         s_clock_face == ClockFace::PanDrum || s_clock_face == ClockFace::Piano ||
+                        s_clock_face == ClockFace::Kalimba || s_clock_face == ClockFace::Drone ||
+                        s_clock_face == ClockFace::Chord ||
                         s_clock_face == ClockFace::Level || s_clock_face == ClockFace::Orientation ||
                         s_clock_face == ClockFace::Luopan || s_clock_face == ClockFace::Tuning ||
                         s_clock_face == ClockFace::Alethiometer || s_clock_face == ClockFace::Lenormand ||
@@ -576,9 +634,12 @@ void pm_faces_draw(float thinking_progress) {
       s_clock_face != ClockFace::Lenormand &&
       s_clock_face != ClockFace::Geomancy && s_clock_face != ClockFace::Pythia &&
       s_clock_face != ClockFace::EnochianAngel &&
-      s_clock_face != ClockFace::Notes &&
-      s_clock_face != ClockFace::Ocarina && s_clock_face != ClockFace::Bongo &&
+      s_clock_face != ClockFace::Notes && s_clock_face != ClockFace::BabelFish &&
+      s_clock_face != ClockFace::Ocarina && s_clock_face != ClockFace::PitchPipe &&
+      s_clock_face != ClockFace::Bongo &&
       s_clock_face != ClockFace::PanDrum && s_clock_face != ClockFace::Piano &&
+      s_clock_face != ClockFace::Kalimba && s_clock_face != ClockFace::Drone &&
+      s_clock_face != ClockFace::Chord &&
       s_clock_face != ClockFace::Level && s_clock_face != ClockFace::Orientation &&
       s_clock_face != ClockFace::Luopan && s_clock_face != ClockFace::Tuning &&
       s_clock_face != ClockFace::Alethiometer && s_clock_face != ClockFace::Runes &&
@@ -623,8 +684,10 @@ bool pm_faces_banner_low(void) {
          f == ClockFace::Faculty || f == ClockFace::Weather ||
          f == ClockFace::Globe || f == ClockFace::Sky ||
          f == ClockFace::Quotes || f == ClockFace::Tarot || f == ClockFace::InqCard || f == ClockFace::Notes ||
-         f == ClockFace::Ocarina || f == ClockFace::Bongo || f == ClockFace::PanDrum ||
-         f == ClockFace::Piano || f == ClockFace::Level || f == ClockFace::Orientation ||
+         f == ClockFace::BabelFish ||
+         f == ClockFace::Ocarina || f == ClockFace::PitchPipe || f == ClockFace::Bongo || f == ClockFace::PanDrum ||
+         f == ClockFace::Piano || f == ClockFace::Kalimba || f == ClockFace::Drone ||
+         f == ClockFace::Chord || f == ClockFace::Level || f == ClockFace::Orientation ||
          f == ClockFace::Luopan || f == ClockFace::Tuning || f == ClockFace::Alethiometer ||
          f == ClockFace::Lenormand || f == ClockFace::Geomancy || f == ClockFace::Pythia ||
          f == ClockFace::EnochianAngel || f == ClockFace::Runes || f == ClockFace::QuestionOfDay ||
@@ -646,9 +709,12 @@ bool pm_faces_local_hm_changed(int hour, int min) {
       s_clock_face == ClockFace::InqCard ||
       s_clock_face == ClockFace::Lenormand || s_clock_face == ClockFace::Geomancy ||
       s_clock_face == ClockFace::Pythia || s_clock_face == ClockFace::EnochianAngel ||
-      s_clock_face == ClockFace::Notes || s_clock_face == ClockFace::Ocarina ||
+      s_clock_face == ClockFace::Notes || s_clock_face == ClockFace::BabelFish ||
+      s_clock_face == ClockFace::Ocarina || s_clock_face == ClockFace::PitchPipe ||
       s_clock_face == ClockFace::Bongo || s_clock_face == ClockFace::PanDrum ||
-      s_clock_face == ClockFace::Piano || s_clock_face == ClockFace::Level ||
+      s_clock_face == ClockFace::Piano || s_clock_face == ClockFace::Kalimba ||
+      s_clock_face == ClockFace::Drone || s_clock_face == ClockFace::Chord ||
+      s_clock_face == ClockFace::Level ||
       s_clock_face == ClockFace::Orientation || s_clock_face == ClockFace::Luopan ||
       s_clock_face == ClockFace::Tuning || s_clock_face == ClockFace::Alethiometer ||
       s_clock_face == ClockFace::Runes || s_clock_face == ClockFace::QuestionOfDay ||
@@ -666,5 +732,6 @@ bool pm_faces_voice_input_enabled(void) {
 #if defined(ASTROLABE_NO_ONBOARD_AUDIO) && ASTROLABE_NO_ONBOARD_AUDIO
   return false;
 #endif
-  return s_clock_face != ClockFace::Spectrum && s_clock_face != ClockFace::Tuning;
+  return s_clock_face != ClockFace::Spectrum && s_clock_face != ClockFace::Tuning &&
+         s_clock_face != ClockFace::PitchPipe;
 }

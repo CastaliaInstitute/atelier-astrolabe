@@ -149,6 +149,21 @@ bool parse_command_json(const char *body, PmRemoteCommand *out, char *err, size_
   copy_json_string(doc["face"], c.face, sizeof(c.face));
   copy_json_string(doc["button"], c.button, sizeof(c.button));
   copy_json_string(doc["mode"], c.mode, sizeof(c.mode));
+  copy_json_string(doc["facultySlug"], c.faculty_slug, sizeof(c.faculty_slug));
+  if (c.faculty_slug[0] == '\0') {
+    copy_json_string(doc["faculty_slug"], c.faculty_slug, sizeof(c.faculty_slug));
+  }
+  copy_json_string(doc["facultyName"], c.faculty_name, sizeof(c.faculty_name));
+  if (c.faculty_name[0] == '\0') {
+    copy_json_string(doc["faculty_name"], c.faculty_name, sizeof(c.faculty_name));
+  }
+  copy_json_string(doc["ttsVoiceName"], c.tts_voice, sizeof(c.tts_voice));
+  if (c.tts_voice[0] == '\0') {
+    copy_json_string(doc["ttsVoice"], c.tts_voice, sizeof(c.tts_voice));
+  }
+  if (c.tts_voice[0] == '\0') {
+    copy_json_string(doc["voice"], c.tts_voice, sizeof(c.tts_voice));
+  }
   copy_json_string(doc["text"], c.text, sizeof(c.text));
   c.x = static_cast<int16_t>(doc["x"] | 233);
   c.y = static_cast<int16_t>(doc["y"] | 233);

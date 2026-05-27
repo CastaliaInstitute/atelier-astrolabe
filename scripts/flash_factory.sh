@@ -5,11 +5,16 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 ENV="${PIO_ENV:-waveshare_s3_175}"
 export PLATFORMIO_BUILD_DIR="${PLATFORMIO_BUILD_DIR:-$HOME/astrolabe-pio-build-integration}"
-PORT="$(./scripts/detect_upload_port.sh)"
+if [[ -n "${ASTROLABE_DEVICE_MAC:-}" ]]; then
+  PORT="$(./scripts/resolve_esp_port_by_mac.sh "$ASTROLABE_DEVICE_MAC")"
+else
+  PORT="$(./scripts/detect_upload_port.sh)"
+fi
 PY="${PLATFORMIO_PYTHON:-/opt/homebrew/opt/python@3.11/bin/python3.11}"
 [[ -x "$PY" ]] || PY="$(command -v python3)"
 
 echo "→ port: ${PORT}"
+[[ -n "${ASTROLABE_DEVICE_MAC:-}" ]] && echo "→ mac:  ${ASTROLABE_DEVICE_MAC}"
 echo "→ erase_flash (required after prior 32MB OTA partition table)"
 $PY -m esptool --chip esp32s3 --port "$PORT" erase_flash
 

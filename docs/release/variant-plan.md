@@ -14,7 +14,9 @@ platform, for example **Astrolabe Ocarina 1.75**. The release manifest is
 | Astrolabe Cameo 1.75 | 1.75 | Cameo | `waveshare_s3_175_cameo` | `astrolabe-cameo-175` |
 | Astrolabe Luopan 1.75 | 1.75 | Luopan | `waveshare_s3_175_luopan` | `astrolabe-luopan-175` |
 | Astrolabe Enso 1.75 | 1.75 | Enso | `waveshare_s3_175_enso` | `astrolabe-enso-175` |
+| Astrolabe Babel Fish 1.75 | 1.75 | BabelFish | `waveshare_s3_175_babel_fish` | `astrolabe-babel-fish-175` |
 | Astrolabe Astrolabe 1.85 | 1.85 | Astrolabe | `waveshare_s3_185_astrolabe` | `astrolabe-astrolabe-185` |
+| Astrolabe Smart Speaker 1.85 | 1.85 | SmartSpeaker | `waveshare_s3_185_smart_speaker` | `astrolabe-smart-speaker-185` |
 | Astrolabe Cameo 1.45 | 1.45 | Cameo | `waveshare_s3_145_cameo` | `astrolabe-cameo-145` |
 
 ## Build And Flash Identity

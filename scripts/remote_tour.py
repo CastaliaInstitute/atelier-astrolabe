@@ -102,6 +102,7 @@ def render_value(value: Any, device: Device, globals_: dict[str, Any]) -> Any:
             "name": device.name,
             "role": device.role,
             "group": device.group,
+            **{str(k): v for k, v in device.meta.items() if isinstance(v, (str, int, float))},
             **{f"device_{k}": v for k, v in device.meta.items() if isinstance(v, (str, int, float))},
             **{str(k): v for k, v in globals_.items() if isinstance(v, (str, int, float))},
         }
@@ -120,9 +121,36 @@ def command_payload(step: dict[str, Any], device: Device, globals_: dict[str, An
     if action == "say":
         action = "tts"
     payload: dict[str, Any] = {"cmd": action}
-    for key in ("face", "button", "mode", "text", "x", "y", "durationMs", "dwellMs"):
+    for key in (
+        "face",
+        "button",
+        "mode",
+        "text",
+        "x",
+        "y",
+        "durationMs",
+        "dwellMs",
+        "facultySlug",
+        "facultyName",
+        "ttsVoice",
+        "ttsVoiceName",
+        "voice",
+    ):
         if key in step:
             payload[key] = render_value(step[key], device, globals_)
+    if action == "tts":
+        if "facultySlug" not in payload:
+            faculty_slug = device.meta.get("facultySlug") or device.meta.get("faculty_slug")
+            if isinstance(faculty_slug, str) and faculty_slug:
+                payload["facultySlug"] = faculty_slug
+        if "facultyName" not in payload:
+            faculty_name = device.meta.get("facultyName") or device.meta.get("faculty_name")
+            if isinstance(faculty_name, str) and faculty_name:
+                payload["facultyName"] = faculty_name
+    if action == "tts" and not any(k in payload for k in ("ttsVoice", "ttsVoiceName", "voice")):
+        voice = device.meta.get("ttsVoiceName") or device.meta.get("ttsVoice") or device.meta.get("voice")
+        if isinstance(voice, str) and voice:
+            payload["ttsVoiceName"] = voice
     if "duration_ms" in step:
         payload["durationMs"] = step["duration_ms"]
     if "dwell_ms" in step:
@@ -130,6 +158,30 @@ def command_payload(step: dict[str, Any], device: Device, globals_: dict[str, An
     if action == "tts" and "text" not in payload:
         raise ValueError("tts step missing text")
     return payload
+
+
+def swipe_payloads(step: dict[str, Any], device: Device, globals_: dict[str, Any]) -> list[tuple[dict[str, Any], float]]:
+    direction = str(render_value(step.get("direction", "left"), device, globals_)).strip().lower()
+    duration_ms = int(step.get("durationMs") or step.get("duration_ms") or 260)
+    center = 233
+    edge = 86
+    far = 380
+    if direction == "left":
+        start, end = (far, center), (edge, center)
+    elif direction == "right":
+        start, end = (edge, center), (far, center)
+    elif direction == "up":
+        start, end = (center, far), (center, edge)
+    elif direction == "down":
+        start, end = (center, edge), (center, far)
+    else:
+        raise ValueError(f"unknown swipe direction: {direction}")
+    pause = max(duration_ms, 60) / 1000.0
+    return [
+        ({"cmd": "touch_down", "x": start[0], "y": start[1]}, pause),
+        ({"cmd": "touch_down", "x": end[0], "y": end[1]}, 0.04),
+        ({"cmd": "touch_up"}, 0.0),
+    ]
 
 
 def post_control(device: Device, payload: dict[str, Any], timeout: float) -> dict[str, Any]:
@@ -169,6 +221,8 @@ def run_command_step(
     payloads = [(d, command_payload(step, d, globals_)) for d in selected]
     label = step.get("label") or step.get("action") or step.get("cmd")
     print(f"[{step_idx:02d}] {label}: {', '.join(d.id for d, _ in payloads)}", flush=True)
+    if step.get("stage"):
+        print(f"     stage: {render_value(step['stage'], selected[0], globals_)}", flush=True)
     if dry_run:
         for device, payload in payloads:
             print(f"  DRY {device.id} {device.url}/control {json.dumps(payload, ensure_ascii=False)}", flush=True)
@@ -196,6 +250,32 @@ def run_command_step(
     return ok
 
 
+def run_swipe_step(
+    step: dict[str, Any],
+    step_idx: int,
+    devices: list[Device],
+    globals_: dict[str, Any],
+    *,
+    timeout: float,
+    dry_run: bool,
+) -> bool:
+    selected = select_devices(step, devices)
+    label = step.get("label") or "swipe"
+    print(f"[{step_idx:02d}] {label}: {', '.join(d.id for d in selected)}", flush=True)
+    if step.get("stage"):
+        print(f"     stage: {render_value(step['stage'], selected[0], globals_)}", flush=True)
+    ok = True
+    for device in selected:
+        for payload, pause in swipe_payloads(step, device, globals_):
+            if dry_run:
+                print(f"  DRY {device.id} {device.url}/control {json.dumps(payload, ensure_ascii=False)}", flush=True)
+            else:
+                ok = print_result(device, payload, post_control(device, payload, timeout)) and ok
+                if pause > 0:
+                    time.sleep(pause)
+    return ok
+
+
 def print_result(device: Device, payload: dict[str, Any], result: dict[str, Any] | Exception) -> bool:
     if isinstance(result, Exception):
         print(f"  FAIL {device.id} {payload['cmd']}: {type(result).__name__}: {result}", flush=True)
@@ -220,6 +300,15 @@ def run_script(script: dict[str, Any], devices: list[Device], args: argparse.Nam
             raise ValueError(f"steps[{idx - 1}] must be an object")
         step = step_raw
         action = str(step.get("action") or step.get("cmd") or "").strip()
+        if action == "stage":
+            text = step.get("text") or step.get("stage") or step.get("label") or "stage"
+            print(f"[{idx:02d}] stage: {render_value(text, devices[0], globals_)}", flush=True)
+            seconds = float(step.get("seconds", 0))
+            if "ms" in step:
+                seconds = float(step["ms"]) / 1000.0
+            if not args.dry_run and seconds > 0:
+                time.sleep(seconds)
+            continue
         if action == "wait":
             # Deliberately allow wait-only steps without devices.
             seconds = float(step.get("seconds", 0))
@@ -229,14 +318,24 @@ def run_script(script: dict[str, Any], devices: list[Device], args: argparse.Nam
             if not args.dry_run and seconds > 0:
                 time.sleep(seconds)
             continue
-        ok = run_command_step(
-            step,
-            idx,
-            devices,
-            globals_,
-            timeout=args.timeout,
-            dry_run=args.dry_run,
-        )
+        if action == "swipe":
+            ok = run_swipe_step(
+                step,
+                idx,
+                devices,
+                globals_,
+                timeout=args.timeout,
+                dry_run=args.dry_run,
+            )
+        else:
+            ok = run_command_step(
+                step,
+                idx,
+                devices,
+                globals_,
+                timeout=args.timeout,
+                dry_run=args.dry_run,
+            )
         failed = failed or not ok
         pause = float(step.get("pause", 0))
         if not args.dry_run and pause > 0:

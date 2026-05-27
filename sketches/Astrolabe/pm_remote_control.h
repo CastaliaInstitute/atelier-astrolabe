@@ -23,6 +23,9 @@ struct PmRemoteCommand {
   char face[32] = "";
   char button[16] = "";
   char mode[16] = "";
+  char faculty_slug[64] = "";
+  char faculty_name[96] = "";
+  char tts_voice[64] = "";
   char text[768] = "";
   int16_t x = 0;
   int16_t y = 0;

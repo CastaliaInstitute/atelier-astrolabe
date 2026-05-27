@@ -31,9 +31,13 @@ extern "C" {
 static const char *TAG = "pm_speaker";
 
 #define I2S_TX I2S_NUM_0
-static constexpr uint32_t kSpeakerTaskStack = 32768;
+#if defined(ASTROLABE_USB_MIDI_ENABLED)
+static constexpr uint32_t kSpeakerTaskStack = 8192;
+#else
+static constexpr uint32_t kSpeakerTaskStack = 24576;
+#endif
 static constexpr UBaseType_t kSpeakerTaskPriority = 3;
-static constexpr int kSpeakerVolume = 70;
+static constexpr int kSpeakerVolume = 86;
 static uint32_t s_max_play_seconds = 180u;
 
 static es8311_handle_t s_es = nullptr;
@@ -73,6 +77,8 @@ struct BowlVoiceState {
 static BowlVoiceState s_bowl;
 static float s_play_tone_hz = 528.f;
 static uint32_t s_play_tone_ms = 5000;
+static PmSynthPatch s_play_synth_patch = PmSynthPatch::Sine;
+static float s_play_synth_velocity = 1.f;
 static float s_play_bongo_strength = 0.85f;
 static uint32_t s_play_start_ms = 0;
 static uint32_t s_play_est_ms = 1;
@@ -123,8 +129,13 @@ static esp_err_t i2s_tx_begin(int sample_hz, int channels) {
   c.channel_format = (channels == 2) ? I2S_CHANNEL_FMT_RIGHT_LEFT : I2S_CHANNEL_FMT_ONLY_LEFT;
   c.communication_format = I2S_COMM_FORMAT_STAND_I2S;
   c.intr_alloc_flags = ESP_INTR_FLAG_LEVEL1;
+#if defined(ASTROLABE_USB_MIDI_ENABLED)
+  c.dma_buf_count = 3;
+  c.dma_buf_len = 128;
+#else
   c.dma_buf_count = 4;
   c.dma_buf_len = 256;
+#endif
   c.use_apll = false;
   c.tx_desc_auto_clear = true;
   c.fixed_mclk = 0;
@@ -402,6 +413,71 @@ static bool play_bowl_voice_streaming(void) {
   return true;
 }
 
+static float clampf(float v, float lo, float hi) {
+  if (v < lo) {
+    return lo;
+  }
+  if (v > hi) {
+    return hi;
+  }
+  return v;
+}
+
+static float synth_env(PmSynthPatch patch, float t, float dur_s, bool until_stop, bool stop_fading, float stop_env) {
+  if (until_stop) {
+    const float a = t < 0.10f ? t / 0.10f : 1.f;
+    return stop_fading ? a * stop_env : a;
+  }
+  switch (patch) {
+    case PmSynthPatch::Kalimba:
+      return expf(-5.8f * t) * (t < 0.012f ? t / 0.012f : 1.f);
+    case PmSynthPatch::Piano:
+      return (t < 0.018f ? t / 0.018f : 1.f) * (0.18f + 0.82f * expf(-2.9f * t)) *
+             clampf((dur_s - t) / 0.20f, 0.f, 1.f);
+    case PmSynthPatch::PanDrum:
+      return (t < 0.010f ? t / 0.010f : 1.f) * expf(-2.25f * t);
+    case PmSynthPatch::Ocarina:
+      return (t < 0.055f ? t / 0.055f : 1.f) * clampf((dur_s - t) / 0.18f, 0.f, 1.f);
+    case PmSynthPatch::Chord:
+      return (t < 0.070f ? t / 0.070f : 1.f) * (0.42f + 0.58f * expf(-1.35f * t)) *
+             clampf((dur_s - t) / 0.30f, 0.f, 1.f);
+    case PmSynthPatch::Drone:
+      return (t < 0.18f ? t / 0.18f : 1.f) * clampf((dur_s - t) / 0.35f, 0.f, 1.f);
+    case PmSynthPatch::Sine:
+    default:
+      return (t < 0.18f ? t / 0.18f : 1.f) * clampf((dur_s - t) / 0.90f, 0.f, 1.f);
+  }
+}
+
+static float synth_sample(PmSynthPatch patch, float ph, float ph2, float ph3, float t, float velocity) {
+  switch (patch) {
+    case PmSynthPatch::Ocarina: {
+      const float breath = sinf(123.7f * t + 0.8f * sinf(19.0f * t)) * 0.045f +
+                           sinf(271.0f * t) * 0.018f;
+      return 0.92f * sinf(ph + 0.018f * sinf(27.f * t)) + 0.18f * sinf(ph2) +
+             0.08f * sinf(ph3) + breath;
+    }
+    case PmSynthPatch::Kalimba: {
+      const float click = t < 0.026f ? sinf(1800.f * t) * (1.f - t / 0.026f) : 0.f;
+      return 0.76f * sinf(ph) + 0.28f * sinf(ph2 * 1.005f) + 0.18f * sinf(ph3 * 1.012f) + 0.22f * click;
+    }
+    case PmSynthPatch::Piano:
+      return 0.72f * sinf(ph) + 0.25f * sinf(ph2) + 0.10f * sinf(ph3) +
+             0.04f * sinf(ph * 4.01f);
+    case PmSynthPatch::PanDrum:
+      return 0.64f * sinf(ph) + 0.42f * sinf(ph * 1.501f) + 0.22f * sinf(ph2 * 1.007f) +
+             0.10f * sinf(ph3 * 0.996f);
+    case PmSynthPatch::Drone:
+      return 0.58f * sinf(ph) + 0.24f * sinf(ph * 1.5f) + 0.20f * sinf(ph2) + 0.10f * sinf(ph3);
+    case PmSynthPatch::Chord:
+      return 0.52f * sinf(ph) + 0.36f * sinf(ph * 1.259921f) + 0.30f * sinf(ph * 1.498307f) +
+             0.12f * sinf(ph2);
+    case PmSynthPatch::Sine:
+    default:
+      return sinf(ph) * 0.82f + sinf(ph2) * 0.12f * velocity;
+  }
+}
+
 static bool play_tone_streaming(float hz, uint32_t duration_ms) {
   if (hz < 20.f || hz > 2000.f) {
     return false;
@@ -433,9 +509,16 @@ static bool play_tone_streaming(float hz, uint32_t duration_ms) {
     return false;
   }
   double phase = 0.0;
+  double phase2 = 0.0;
+  double phase3 = 0.0;
   const double phase_inc = (2.0 * 3.14159265358979323846 * static_cast<double>(hz)) / static_cast<double>(kToneHz);
+  const double phase_inc2 = phase_inc * 2.0;
+  const double phase_inc3 = phase_inc * 3.0;
   uint32_t written = 0;
   uint32_t stop_fade_left = 0;
+  const PmSynthPatch patch = s_play_synth_patch;
+  const float velocity = clampf(s_play_synth_velocity, 0.15f, 1.25f);
+  const float dur_s = until_stop ? 3600.f : static_cast<float>(duration_ms) * 0.001f;
 
   s_play_pcm_hz = kToneHz;
   s_play_pcm_frames = 0;
@@ -466,19 +549,26 @@ static bool play_tone_streaming(float hz, uint32_t duration_ms) {
         env = static_cast<float>(stop_fade_left) / static_cast<float>(fade_out);
         --stop_fade_left;
       }
-      const float s =
-          sinf(static_cast<float>(phase)) * 0.82f * env +
-          sinf(static_cast<float>(phase * 2.0)) * 0.12f * env;
+      const float t = static_cast<float>(pos) / static_cast<float>(kToneHz);
+      const bool stop_fading = until_stop && stop_fade_left > 0;
+      env *= synth_env(patch, t, dur_s, until_stop, stop_fading,
+                       stop_fading ? static_cast<float>(stop_fade_left) / static_cast<float>(fade_out) : 1.f);
+      float s = synth_sample(patch, static_cast<float>(phase), static_cast<float>(phase2),
+                             static_cast<float>(phase3), t, velocity) * env * velocity;
+      s = s / (1.f + fabsf(s) * 0.42f);
       phase += phase_inc;
+      phase2 += phase_inc2;
+      phase3 += phase_inc3;
       if (phase > 2.0 * 3.14159265358979323846) {
         phase -= 2.0 * 3.14159265358979323846;
       }
-      int16_t v = static_cast<int16_t>(s * 28000.f);
-      if (v > 30000) {
-        v = 30000;
-      } else if (v < -30000) {
-        v = -30000;
+      if (phase2 > 2.0 * 3.14159265358979323846) {
+        phase2 -= 2.0 * 3.14159265358979323846;
       }
+      if (phase3 > 2.0 * 3.14159265358979323846) {
+        phase3 -= 2.0 * 3.14159265358979323846;
+      }
+      const int16_t v = static_cast<int16_t>(clampf(s, -1.f, 1.f) * 27000.f);
       buf[2 * i] = v;
       buf[2 * i + 1] = v;
     }
@@ -1190,6 +1280,48 @@ bool pm_speaker_play_tone_begin(float hz, uint32_t duration_ms) {
   s_play_mode = 1;
   s_play_tone_hz = hz;
   s_play_tone_ms = duration_ms;
+  s_play_synth_patch = PmSynthPatch::Sine;
+  s_play_synth_velocity = 1.f;
+  s_play_start_ms = millis();
+  s_play_est_ms = duration_ms + 120u;
+  s_play_pcm_frames = 0;
+  s_play_pcm_hz = 0;
+  s_tone_stop = false;
+  s_speaker_ok = false;
+  s_speaker_status = PmSpeakerStatus::Playing;
+  xTaskNotify(s_speaker_task, 1, eSetBits);
+  return true;
+}
+
+bool pm_speaker_play_synth_note_begin(float hz, uint32_t duration_ms, PmSynthPatch patch, float velocity) {
+#if defined(ASTROLABE_NO_ONBOARD_AUDIO) && ASTROLABE_NO_ONBOARD_AUDIO
+  (void)hz;
+  (void)duration_ms;
+  (void)patch;
+  (void)velocity;
+  s_speaker_status = PmSpeakerStatus::DoneFail;
+  return false;
+#endif
+  speaker_task_ensure();
+  if (!s_speaker_task || hz < 20.f || duration_ms == 0) {
+    s_speaker_status = PmSpeakerStatus::DoneFail;
+    return false;
+  }
+  if (s_play_mode == 3 && (s_speaker_status == PmSpeakerStatus::Playing || s_spk_task_busy)) {
+    s_bongo_stop = true;
+    if (!speaker_wait_idle(120u)) {
+      s_speaker_status = PmSpeakerStatus::DoneFail;
+      return false;
+    }
+  } else if (!speaker_wait_idle(8000)) {
+    s_speaker_status = PmSpeakerStatus::DoneFail;
+    return false;
+  }
+  s_play_mode = 1;
+  s_play_tone_hz = hz;
+  s_play_tone_ms = duration_ms;
+  s_play_synth_patch = patch;
+  s_play_synth_velocity = velocity;
   s_play_start_ms = millis();
   s_play_est_ms = duration_ms + 120u;
   s_play_pcm_frames = 0;
@@ -1327,6 +1459,41 @@ bool pm_speaker_play_tone_loop_begin(float hz) {
   s_play_mode = 1;
   s_play_tone_hz = hz;
   s_play_tone_ms = 0;
+  s_play_synth_patch = PmSynthPatch::Sine;
+  s_play_synth_velocity = 1.f;
+  s_play_start_ms = millis();
+  s_play_est_ms = 60000u;
+  s_play_pcm_frames = 0;
+  s_play_pcm_hz = 0;
+  s_tone_stop = false;
+  s_speaker_ok = false;
+  s_speaker_status = PmSpeakerStatus::Playing;
+  xTaskNotify(s_speaker_task, 1, eSetBits);
+  return true;
+}
+
+bool pm_speaker_play_synth_loop_begin(float hz, PmSynthPatch patch, float velocity) {
+#if defined(ASTROLABE_NO_ONBOARD_AUDIO) && ASTROLABE_NO_ONBOARD_AUDIO
+  (void)hz;
+  (void)patch;
+  (void)velocity;
+  s_speaker_status = PmSpeakerStatus::DoneFail;
+  return false;
+#endif
+  speaker_task_ensure();
+  if (!s_speaker_task || hz < 20.f) {
+    s_speaker_status = PmSpeakerStatus::DoneFail;
+    return false;
+  }
+  if (!speaker_wait_idle(8000)) {
+    s_speaker_status = PmSpeakerStatus::DoneFail;
+    return false;
+  }
+  s_play_mode = 1;
+  s_play_tone_hz = hz;
+  s_play_tone_ms = 0;
+  s_play_synth_patch = patch;
+  s_play_synth_velocity = velocity;
   s_play_start_ms = millis();
   s_play_est_ms = 60000u;
   s_play_pcm_frames = 0;

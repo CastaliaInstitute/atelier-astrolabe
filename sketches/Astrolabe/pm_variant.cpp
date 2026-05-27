@@ -31,6 +31,10 @@ static constexpr PmDeviceVariant kDefaultVariant = PmDeviceVariant::Cameo;
 static constexpr PmDeviceVariant kDefaultVariant = PmDeviceVariant::Luopan;
 #elif defined(ASTROLABE_FORCE_VARIANT_ENSO) || defined(ASTROLABE_DEFAULT_VARIANT_ENSO)
 static constexpr PmDeviceVariant kDefaultVariant = PmDeviceVariant::Enso;
+#elif defined(ASTROLABE_FORCE_VARIANT_SMART_SPEAKER) || defined(ASTROLABE_DEFAULT_VARIANT_SMART_SPEAKER)
+static constexpr PmDeviceVariant kDefaultVariant = PmDeviceVariant::SmartSpeaker;
+#elif defined(ASTROLABE_FORCE_VARIANT_BABEL_FISH) || defined(ASTROLABE_DEFAULT_VARIANT_BABEL_FISH)
+static constexpr PmDeviceVariant kDefaultVariant = PmDeviceVariant::BabelFish;
 #else
 static constexpr PmDeviceVariant kDefaultVariant = PmDeviceVariant::Pocket;
 #endif
@@ -44,7 +48,8 @@ static bool valid_variant(uint8_t value) {
 static bool force_variant_enabled(void) {
 #if defined(ASTROLABE_FORCE_VARIANT_ASTROLABE) || defined(ASTROLABE_FORCE_VARIANT_LUNASAY) || \
     defined(ASTROLABE_FORCE_VARIANT_OCARINA) || defined(ASTROLABE_FORCE_VARIANT_CAMEO) ||     \
-    defined(ASTROLABE_FORCE_VARIANT_LUOPAN) || defined(ASTROLABE_FORCE_VARIANT_ENSO)
+    defined(ASTROLABE_FORCE_VARIANT_LUOPAN) || defined(ASTROLABE_FORCE_VARIANT_ENSO) ||       \
+    defined(ASTROLABE_FORCE_VARIANT_SMART_SPEAKER) || defined(ASTROLABE_FORCE_VARIANT_BABEL_FISH)
   return true;
 #else
   return false;
@@ -102,12 +107,16 @@ static bool face_is_lunasay(ClockFace face) {
 static bool face_is_ocarina(ClockFace face) {
   switch (face) {
     case ClockFace::Ocarina:
+    case ClockFace::PitchPipe:
     case ClockFace::Tuning:
     case ClockFace::Spectrum:
     case ClockFace::Chakra:
     case ClockFace::TibetanBowl:
     case ClockFace::Bongo:
     case ClockFace::Piano:
+    case ClockFace::Kalimba:
+    case ClockFace::Drone:
+    case ClockFace::Chord:
     case ClockFace::PanDrum:
       return true;
     default:
@@ -145,6 +154,28 @@ static bool face_is_luopan(ClockFace face) {
   switch (face) {
     case ClockFace::Orientation:
     case ClockFace::Luopan:
+      return true;
+    default:
+      return false;
+  }
+}
+
+static bool face_is_smart_speaker(ClockFace face) {
+  switch (face) {
+    case ClockFace::Spotify:
+    case ClockFace::Spectrum:
+    case ClockFace::DigitalLocal:
+      return true;
+    default:
+      return false;
+  }
+}
+
+static bool face_is_babel_fish(ClockFace face) {
+  switch (face) {
+    case ClockFace::BabelFish:
+    case ClockFace::DigitalLocal:
+    case ClockFace::Notes:
       return true;
     default:
       return false;
@@ -215,6 +246,10 @@ const char *pm_variant_label(PmDeviceVariant variant) {
       return "Enso";
     case PmDeviceVariant::Luopan:
       return "Luopan";
+    case PmDeviceVariant::SmartSpeaker:
+      return "SmartSpeaker";
+    case PmDeviceVariant::BabelFish:
+      return "BabelFish";
     default:
       return "Unknown";
   }
@@ -236,6 +271,10 @@ const char *pm_variant_summary(PmDeviceVariant variant) {
       return "attention / readiness";
     case PmDeviceVariant::Luopan:
       return "orientation / feng shui";
+    case PmDeviceVariant::SmartSpeaker:
+      return "spotify / room audio";
+    case PmDeviceVariant::BabelFish:
+      return "spoken translation";
     default:
       return "";
   }
@@ -260,6 +299,10 @@ ClockFace pm_variant_home_face(void) {
       return ClockFace::Biometrics;
     case PmDeviceVariant::Luopan:
       return ClockFace::Orientation;
+    case PmDeviceVariant::SmartSpeaker:
+      return ClockFace::Spotify;
+    case PmDeviceVariant::BabelFish:
+      return ClockFace::BabelFish;
     default:
       return ClockFace::ClassicAnalog;
   }
@@ -284,6 +327,10 @@ bool pm_variant_face_allowed(ClockFace face) {
       return face_is_enso(face);
     case PmDeviceVariant::Luopan:
       return face_is_luopan(face);
+    case PmDeviceVariant::SmartSpeaker:
+      return face_is_smart_speaker(face);
+    case PmDeviceVariant::BabelFish:
+      return face_is_babel_fish(face);
     default:
       return true;
   }

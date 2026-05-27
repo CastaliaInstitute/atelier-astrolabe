@@ -1,0 +1,231 @@
+{
+  "vars": {
+    "venue": "Castalia Institute"
+  },
+  "devices": [
+    {
+      "id": "pocket",
+      "name": "Astrolabe Pocket",
+      "role": "carry-first time and presence companion",
+      "group": "variants",
+      "variant": "pocket",
+      "facultySlug": "a.einstein",
+      "facultyName": "Einstein",
+      "url": "http://astrolabe-pocket.local"
+    },
+    {
+      "id": "lunasay",
+      "name": "Astrolabe LunaSay",
+      "role": "moon, astrology, and symbolic reflection companion",
+      "group": "variants",
+      "variant": "lunasay",
+      "facultySlug": "a.plato",
+      "facultyName": "Plato",
+      "url": "http://astrolabe-lunasay.local"
+    },
+    {
+      "id": "ocarina",
+      "name": "Astrolabe Ocarina",
+      "role": "breath, music, and playable sound companion",
+      "group": "variants",
+      "variant": "ocarina",
+      "facultySlug": "a.brucelee",
+      "facultyName": "Bruce Lee",
+      "url": "http://astrolabe-ocarina.local"
+    },
+    {
+      "id": "cameo",
+      "name": "Astrolabe Cameo",
+      "role": "memory, faculty, quotes, and keepsake companion",
+      "group": "variants",
+      "variant": "cameo",
+      "facultySlug": "a.campbell",
+      "facultyName": "Joseph Campbell",
+      "url": "http://astrolabe-cameo.local"
+    },
+    {
+      "id": "enso",
+      "name": "Astrolabe Enso",
+      "role": "focus, readiness, and calm attention companion",
+      "group": "variants",
+      "variant": "enso",
+      "facultySlug": "a.curie",
+      "facultyName": "Marie Curie",
+      "url": "http://astrolabe-enso.local"
+    },
+    {
+      "id": "luopan",
+      "name": "Astrolabe Luopan",
+      "role": "direction, bearing, and spatial alignment companion",
+      "group": "variants",
+      "variant": "luopan",
+      "facultySlug": "a.turing",
+      "facultyName": "Alan Turing",
+      "url": "http://astrolabe-luopan.local"
+    }
+  ],
+  "steps": [
+    {
+      "action": "stage",
+      "text": "House lights down. Place every variant face-up in a semicircle, Pocket at stage left and Luopan at stage right.",
+      "seconds": 1
+    },
+    {
+      "label": "opening tableau",
+      "target": "variants",
+      "action": "face",
+      "face": "classic",
+      "stage": "All devices settle on their home clock face.",
+      "pause": 1
+    },
+    {
+      "label": "shared hello",
+      "target": "variants",
+      "action": "tts",
+      "face": "classic",
+      "text": "I am $name. My Castalia voice is $facultyName. In this tour, I am the $role.",
+      "parallel": true,
+      "pause": 7
+    },
+    {
+      "label": "pocket time",
+      "target": "pocket",
+      "action": "tts",
+      "face": "classic",
+      "text": "Pocket keeps time close to the body. I am for quick glances, errands, and small rituals that should not become another phone session.",
+      "stage": "Presenter lifts Pocket briefly, then returns it to the table.",
+      "pause": 6
+    },
+    {
+      "label": "lunasay moon",
+      "target": "lunasay",
+      "action": "face",
+      "face": "moon",
+      "pause": 1
+    },
+    {
+      "label": "lunasay speaks",
+      "target": "lunasay",
+      "action": "tts",
+      "face": "moon",
+      "text": "LunaSay turns the moon, chart, and symbolic faces into a quiet desk ritual. I answer best when the room wants reflection, timing, and pattern.",
+      "pause": 6
+    },
+    {
+      "label": "lunasay swipe to chart",
+      "target": "lunasay",
+      "action": "swipe",
+      "direction": "left",
+      "durationMs": 280,
+      "stage": "Stage direction: swipe LunaSay left from Moon toward the next symbolic face.",
+      "pause": 1
+    },
+    {
+      "label": "ocarina ready",
+      "target": "ocarina",
+      "action": "face",
+      "face": "ocarina",
+      "pause": 1
+    },
+    {
+      "label": "ocarina sings",
+      "target": "ocarina",
+      "action": "tts",
+      "face": "ocarina",
+      "text": "Ocarina: I can sing. Touch my face and I become a small instrument for breath, pitch, tuning, and play.",
+      "stage": "Presenter points to Ocarina speaker before the tap cue.",
+      "pause": 5
+    },
+    {
+      "label": "ocarina tap note",
+      "target": "ocarina",
+      "action": "tap",
+      "x": 233,
+      "y": 233,
+      "durationMs": 180,
+      "stage": "Stage direction: tap the center of Ocarina to trigger a note.",
+      "pause": 2
+    },
+    {
+      "label": "cameo faculty",
+      "target": "cameo",
+      "action": "face",
+      "face": "faculty",
+      "pause": 1
+    },
+    {
+      "label": "cameo remembers",
+      "target": "cameo",
+      "action": "tts",
+      "face": "faculty",
+      "text": "Cameo is the pendant form. I keep faculty voices, quotations, notes, and memory prompts near the heart.",
+      "pause": 6
+    },
+    {
+      "label": "cameo quotes swipe",
+      "target": "cameo",
+      "action": "swipe",
+      "direction": "left",
+      "durationMs": 260,
+      "stage": "Stage direction: swipe Cameo toward Quotes or Notes.",
+      "pause": 1
+    },
+    {
+      "label": "enso readiness",
+      "target": "enso",
+      "action": "face",
+      "face": "biometrics",
+      "pause": 1
+    },
+    {
+      "label": "enso speaks",
+      "target": "enso",
+      "action": "tts",
+      "face": "biometrics",
+      "text": "Enso is for attention. I translate signal, breath, and readiness into a non-medical reflection before study, practice, or rest.",
+      "pause": 6
+    },
+    {
+      "label": "enso calm tap",
+      "target": "enso",
+      "action": "tap",
+      "x": 233,
+      "y": 150,
+      "durationMs": 160,
+      "stage": "Stage direction: tap high on Enso to suggest a readiness check.",
+      "pause": 1
+    },
+    {
+      "label": "luopan bearing",
+      "target": "luopan",
+      "action": "face",
+      "face": "luopan",
+      "pause": 1
+    },
+    {
+      "label": "luopan aligns",
+      "target": "luopan",
+      "action": "tts",
+      "face": "luopan",
+      "text": "Luopan is the compass variant. I care about direction, bearing, level, and the way a room teaches attention.",
+      "pause": 6
+    },
+    {
+      "label": "ensemble answer",
+      "target": "variants",
+      "action": "tts",
+      "face": "classic",
+      "text": "$name reporting in: $role. I can be cued by the master script for speech, face changes, taps, and swipes.",
+      "parallel": false,
+      "pause": 2
+    },
+    {
+      "label": "final tableau",
+      "target": "variants",
+      "action": "face",
+      "face": "classic",
+      "stage": "All variants return to clocks for questions.",
+      "pause": 1
+    }
+  ]
+}

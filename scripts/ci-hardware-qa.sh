@@ -28,6 +28,7 @@ Usage: ci-hardware-qa.sh [--face NAME] [--issue N]
 Environment:
   ASTROLABE_QA_FACE       Face name or index (default: moon)
   ASTROLABE_QA_ISSUE      GitHub issue number (required unless --issue)
+  ASTROLABE_DEVICE_MAC    Stable target MAC; preferred over USB port names
   ASTROLABE_UPLOAD_PORT   USB port (auto-detect if unset)
   ASTROLABE_SECRETS_FILE  Path to secrets.local.h on runner host
 EOF
@@ -37,6 +38,8 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --face) FACE="$2"; shift 2 ;;
     --issue) ISSUE="$2"; shift 2 ;;
+    --mac) export ASTROLABE_DEVICE_MAC="$2"; shift 2 ;;
+    --mac=*) export ASTROLABE_DEVICE_MAC="${1#--mac=}"; shift ;;
     -h | --help) usage; exit 0 ;;
     *) echo "unknown option: $1" >&2; usage >&2; exit 1 ;;
   esac
@@ -68,6 +71,7 @@ ensure_secrets() {
 PORT="$(./scripts/detect_upload_port.sh)"
 export ASTROLABE_UPLOAD_PORT="$PORT"
 echo "→ port ${PORT}"
+[[ -n "${ASTROLABE_DEVICE_MAC:-}" ]] && echo "→ mac ${ASTROLABE_DEVICE_MAC}"
 
 ensure_secrets
 

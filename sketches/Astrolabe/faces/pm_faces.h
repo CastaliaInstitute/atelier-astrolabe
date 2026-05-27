@@ -50,10 +50,18 @@ enum class ClockFace : uint8_t {
   Notes,
   /** Touch-playable clay ocarina; tap holes for notes, swipe up/down changes key. */
   Ocarina,
+  /** Pitch pipe reference tone; tap or breath starts the selected pitch. */
+  PitchPipe,
   /** Touch-playable bongo; tap distance from center controls drum pitch. */
   Bongo,
   /** One-octave circular piano; white keys outside, black keys inside. */
   Piano,
+  /** Pentatonic tine kalimba; discrete plucks on a separate MIDI channel. */
+  Kalimba,
+  /** Sustained root/fifth/octave drone; tap toggles, swipe changes root. */
+  Drone,
+  /** Autoharp-style chord pads; each pad emits a MIDI chord. */
+  Chord,
   /** IMU bubble level: top of the display is forward; BOOT speaks the correction. */
   Level,
   /** Live microphone tuner: detected notes move across a treble staff. */
@@ -86,6 +94,8 @@ enum class ClockFace : uint8_t {
   EnochianAngel,
   /** USB HID mouse/touchpad controller for ESP32-S3 native USB builds. */
   HidTouchpad,
+  /** Babel Fish translator: STT -> LLM translation -> native-language TTS. */
+  BabelFish,
   kNumFaces,
 };
 

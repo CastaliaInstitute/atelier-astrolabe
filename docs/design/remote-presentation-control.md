@@ -51,6 +51,7 @@ BLE writes include the same paired/static token as a JSON `token` field.
 {"cmd":"button","button":"pwr_hold","durationMs":1200}
 {"cmd":"tap","x":233,"y":233,"durationMs":120}
 {"cmd":"tts","face":"classic","text":"Welcome to the first station."}
+{"cmd":"tts","face":"faculty","facultySlug":"a.einstein","facultyName":"Einstein","text":"I am speaking with Castalia faculty TTS."}
 {"cmd":"tour","mode":"tts","dwellMs":1200}
 {"cmd":"stop"}
 ```
@@ -71,8 +72,13 @@ The runner supports these step actions:
 
 - `face`: switch a device to a face.
 - `tts` or `say`: speak text through the device's TTS path.
+  Optional `facultySlug` / `facultyName` selects a Castalia faculty TTS voice
+  when the backend has one configured. Direct `ttsVoiceName` is available for
+  QA, but product tours should prefer faculty fields.
 - `button`: trigger `boot`, `pwr`, or `pwr_hold`.
 - `tap`, `touch_down`, `touch_up`: inject touchscreen input.
+- `swipe`: script-level gesture cue expanded to timed touch commands.
+- `stage`: script-only presenter direction.
 - `tour`: start the built-in firmware face tour, with `mode` set to `narrate`
   or `tts`.
 - `stop`: stop playback/tour/input.
@@ -81,6 +87,16 @@ The runner supports these step actions:
 Targets can be `all`, a device `id`, a `name`, a `role`, a `group`, or an array
 of those values. Text supports simple substitutions such as `$name`, `$role`,
 `$group`, and entries from the script `vars` object.
+
+Variant master tour:
+
+```bash
+ASTROLABE_REMOTE_KEY="shared-secret" \
+  ./scripts/remote_tour.py tours/astrolabe-variant-master-tour.example.json
+```
+
+Devices may define `facultySlug` and `facultyName`; `tts` steps inherit those
+fields unless the step overrides them.
 
 ## BLE
 

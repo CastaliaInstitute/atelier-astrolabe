@@ -31,6 +31,8 @@ JWT verification is on (`config.toml`). The watch sends Supabase `apikey` + Cast
 | `systemInstruction` | Gemini system prompt (astro chart context) |
 | `face` | `clock_agenda` + `epochSeconds`; **`daily_briefing`** + optional `briefingFacts` (watch home tap / auto brief) |
 | `briefingFacts` | Device-built astrology/synastry/moon/flash text for `daily_briefing` |
+| `facultySlug` / `facultyName` | Select Castalia faculty metadata and that faculty's configured Google TTS voice |
+| `ttsVoiceName` / `ttsVoice` | Direct Google TTS override for QA or local scripted tours; prefer faculty fields for product tours |
 | `responseFormat` | `json` (default) or `mp3` |
 
 **Response**
