@@ -2269,6 +2269,14 @@ static void poll_serial_birth_commands() {
         }
       } else if (strncmp(line, "tour", 4) == 0 && (line[4] == '\0' || line[4] == ' ')) {
         handle_tour_command(line + 4);
+      } else if ((strncmp(line, "say ", 4) == 0 || strncmp(line, "tts ", 4) == 0) && line[4] != '\0') {
+        const char *text = line + 4;
+        while (*text == ' ') {
+          ++text;
+        }
+        const char *face = pm_faces_current() == ClockFace::BabelFish ? "babel_fish" : "serial";
+        const bool ok = remote_tts_begin(text, face, nullptr, nullptr, nullptr);
+        Serial.printf("say: %s face=%s\n", ok ? "started" : g_gesture_banner, face);
       } else if (strcmp(line, "time") == 0) {
         print_time_status("time");
       } else if (strcmp(line, "ntp") == 0 || strcmp(line, "time sync") == 0) {
