@@ -73,7 +73,7 @@
 #include "faces/lenormand/pm_face_lenormand.h"
 #include "faces/luopan/pm_face_luopan.h"
 #include "faces/pythia/pm_face_pythia.h"
-#include "faces/babel_fish/pm_face_babel_fish.h"
+#include "faces/babelfish/pm_face_babelfish.h"
 #include "faces/enochian_angel/pm_face_enochian_angel.h"
 #include "faces/weather/pm_face_weather.h"
 #include "faces/watcher/pm_face_watcher.h"
@@ -232,8 +232,8 @@ static bool g_alethiometer_voice_pcm = false;
 static bool g_pythia_voice_active = false;
 static bool g_pythia_voice_pcm = false;
 /** Babel Fish voice: stay on the fish during record/think/speak translation. */
-static bool g_babel_fish_voice_active = false;
-static bool g_babel_fish_voice_pcm = false;
+static bool g_babelfish_voice_active = false;
+static bool g_babelfish_voice_pcm = false;
 /** Question of the Day: text fetch or recorded answer. */
 static bool g_question_voice_active = false;
 static bool g_question_answer_pcm = false;
@@ -374,8 +374,8 @@ static void gesture_end_voice_ui(void) {
   g_alethiometer_voice_pcm = false;
   g_pythia_voice_active = false;
   g_pythia_voice_pcm = false;
-  g_babel_fish_voice_active = false;
-  g_babel_fish_voice_pcm = false;
+  g_babelfish_voice_active = false;
+  g_babelfish_voice_pcm = false;
   g_moon_voice_pcm = false;
   g_question_voice_active = false;
   g_question_answer_pcm = false;
@@ -418,8 +418,8 @@ static bool home_begin_daily_briefing(void) {
   g_alethiometer_voice_pcm = false;
   g_pythia_voice_active = false;
   g_pythia_voice_pcm = false;
-  g_babel_fish_voice_active = false;
-  g_babel_fish_voice_pcm = false;
+  g_babelfish_voice_active = false;
+  g_babelfish_voice_pcm = false;
   g_moon_fortune_active = false;
   g_moon_voice_pcm = false;
   g_question_voice_active = false;
@@ -529,8 +529,8 @@ static bool voice_last_play_begin() {
   g_alethiometer_voice_pcm = false;
   g_pythia_voice_active = false;
   g_pythia_voice_pcm = false;
-  g_babel_fish_voice_active = false;
-  g_babel_fish_voice_pcm = false;
+  g_babelfish_voice_active = false;
+  g_babelfish_voice_pcm = false;
   g_moon_voice_pcm = false;
   g_question_voice_active = false;
   g_question_answer_pcm = false;
@@ -831,8 +831,8 @@ static bool face_index_from_name(const char *name, int *out) {
       {"lenormand", ClockFace::Lenormand}, {"len", ClockFace::Lenormand},
       {"oracle", ClockFace::Lenormand}, {"petit_lenormand", ClockFace::Lenormand},
       {"pythia", ClockFace::Pythia}, {"delphi", ClockFace::Pythia},
-      {"babel", ClockFace::BabelFish}, {"babel_fish", ClockFace::BabelFish},
-      {"babel-fish", ClockFace::BabelFish}, {"fish", ClockFace::BabelFish},
+      {"babelfish", ClockFace::BabelFish}, {"babel", ClockFace::BabelFish},
+      {"babel_fish", ClockFace::BabelFish}, {"babel-fish", ClockFace::BabelFish}, {"fish", ClockFace::BabelFish},
       {"translate", ClockFace::BabelFish}, {"translator", ClockFace::BabelFish},
       {"geomancy", ClockFace::Geomancy}, {"geomantic", ClockFace::Geomancy},
       {"geo", ClockFace::Geomancy}, {"figures", ClockFace::Geomancy},
@@ -960,7 +960,7 @@ static const FaceTourInfo k_face_tour[] = {
     {ClockFace::Pythia, "pythia", "Delphi oracle bust for obtuse spoken answers",
      "a question for Pythia, answered as an ambiguous oracle",
      "WiFi is available for oracle voice", "offline, Pythia bust only", true, false},
-    {ClockFace::BabelFish, "babel_fish", "Babel Fish spoken translator with STT, LLM, and TTS",
+    {ClockFace::BabelFish, "babelfish", "Babel Fish spoken translator with STT, LLM, and TTS",
      "a spoken phrase translated into or back out of the device native language",
      "WiFi is available for translation voice", "offline, fish face only", true, false},
     {ClockFace::Geomancy, "geomancy", "daily geomantic figure from the 16 traditional figures",
@@ -1441,8 +1441,8 @@ static bool face_voice_build_prompt(const FaceTourInfo *info, char *msg, size_t 
                tour_test ? "Tour-test the Pythia TTS button. " : "");
       break;
     case ClockFace::BabelFish:
-      snprintf(s_face_voice_face, sizeof(s_face_voice_face), "babel_fish");
-      if (!pm_face_babel_fish_build_system_prompt(sys, sys_cap)) {
+      snprintf(s_face_voice_face, sizeof(s_face_voice_face), "babelfish");
+      if (!pm_face_babelfish_build_system_prompt(sys, sys_cap)) {
         snprintf(g_gesture_banner, sizeof(g_gesture_banner), "babel: prompt fail");
         return false;
       }
@@ -1759,12 +1759,13 @@ static bool remote_tts_begin(const char *text, const char *face, const char *fac
   if (g_state != AppState::kClock) {
     gesture_end_voice_ui();
   }
-  const bool babel_face = face && (strcasecmp(face, "babel_fish") == 0 ||
+  const bool babel_face = face && (strcasecmp(face, "babelfish") == 0 ||
+                                   strcasecmp(face, "babel_fish") == 0 ||
                                    strcasecmp(face, "babel-fish") == 0 ||
                                    strcasecmp(face, "babel") == 0);
   strlcpy(s_face_tour_voice_msg, text, kFaceTourVoiceMsgCap);
   if (babel_face) {
-    if (!pm_face_babel_fish_build_system_prompt(s_face_tour_sys_prompt, kFaceTourSysPromptCap)) {
+    if (!pm_face_babelfish_build_system_prompt(s_face_tour_sys_prompt, kFaceTourSysPromptCap)) {
       snprintf(g_gesture_banner, sizeof(g_gesture_banner), "remote: babel prompt fail");
       return false;
     }
@@ -1774,7 +1775,7 @@ static bool remote_tts_begin(const char *text, const char *face, const char *fac
              "Say exactly the user's supplied message unless a tiny verbal cleanup is needed for speech. "
              "Do not add preamble, extra commentary, or implementation details.");
   }
-  strlcpy(s_face_voice_face, babel_face ? "babel_fish" : (face && face[0] ? face : "remote_tour"),
+  strlcpy(s_face_voice_face, babel_face ? "babelfish" : (face && face[0] ? face : "remote_tour"),
           sizeof(s_face_voice_face));
   strlcpy(s_face_voice_faculty_slug, faculty_slug && faculty_slug[0] ? faculty_slug : "",
           sizeof(s_face_voice_faculty_slug));
@@ -1798,6 +1799,79 @@ static bool remote_tts_begin(const char *text, const char *face, const char *fac
   g_state = AppState::kThinking;
   snprintf(g_gesture_banner, sizeof(g_gesture_banner), "remote: speaking");
   return true;
+}
+
+static const char *variant_intro_role(PmDeviceVariant variant) {
+  switch (variant) {
+    case PmDeviceVariant::Pocket:
+      return "a carry-first time and presence companion";
+    case PmDeviceVariant::Astrolabe:
+      return "the core Astrolabe reference build for time, presence, and launch";
+    case PmDeviceVariant::Lunasay:
+      return "a moon, astrology, and symbolic reflection companion";
+    case PmDeviceVariant::Ocarina:
+      return "a breath, music, pitch, and playable sound companion";
+    case PmDeviceVariant::Cameo:
+      return "a pendant for memory, faculty voices, quotes, and keepsake prompts";
+    case PmDeviceVariant::Enso:
+      return "a focus, readiness, and calm attention companion";
+    case PmDeviceVariant::Luopan:
+      return "a compass for bearing, level, and spatial alignment";
+    case PmDeviceVariant::SmartSpeaker:
+      return "a room audio and Spotify companion";
+    case PmDeviceVariant::BabelFish:
+      return "a spoken translation companion";
+    default:
+      return "an Astrolabe device";
+  }
+}
+
+static const char *variant_intro_face(PmDeviceVariant variant) {
+  switch (variant) {
+    case PmDeviceVariant::Lunasay:
+      return "moon";
+    case PmDeviceVariant::Ocarina:
+      return "ocarina";
+    case PmDeviceVariant::Cameo:
+      return "faculty";
+    case PmDeviceVariant::Enso:
+      return "biometrics";
+    case PmDeviceVariant::Luopan:
+      return "luopan";
+    case PmDeviceVariant::SmartSpeaker:
+      return "spotify";
+    case PmDeviceVariant::BabelFish:
+      return "babelfish";
+    case PmDeviceVariant::Pocket:
+    case PmDeviceVariant::Astrolabe:
+    default:
+      return "classic";
+  }
+}
+
+static bool variant_intro_build(char *out, size_t out_sz) {
+  if (!out || out_sz == 0) {
+    return false;
+  }
+  const PmDeviceVariant variant = pm_variant_get();
+  snprintf(out, out_sz,
+           "Hello. I am Astrolabe %s %s, %s. My home face is %s, and my device identity is %s.",
+           pm_variant_label(variant), pm_variant_device_platform(), variant_intro_role(variant),
+           variant_intro_face(variant), pm_wifi_mac_suffix());
+  return out[0] != '\0';
+}
+
+static bool variant_intro_begin(void) {
+  char intro[384];
+  if (!variant_intro_build(intro, sizeof(intro))) {
+    snprintf(g_gesture_banner, sizeof(g_gesture_banner), "intro: unavailable");
+    return false;
+  }
+  pm_faces_set(pm_variant_home_face());
+  g_clock_repaint_pending = true;
+  const bool ok = remote_tts_begin(intro, "variant_intro", nullptr, nullptr, nullptr);
+  Serial.printf("intro: %s text=\"%s\"\n", ok ? "started" : g_gesture_banner, intro);
+  return ok;
 }
 
 static void remote_control_process(uint32_t now) {
@@ -2105,6 +2179,11 @@ static void handle_tour_command(const char *args) {
     face_tour_stop();
     return;
   }
+  if ((strncmp(p, "intro", 5) == 0 && (p[5] == '\0' || p[5] == ' ')) ||
+      (strncmp(p, "introduce", 9) == 0 && (p[9] == '\0' || p[9] == ' '))) {
+    (void)variant_intro_begin();
+    return;
+  }
   bool narrate = false;
   bool button_test = false;
   if (strncmp(p, "narrate", 7) == 0 && (p[7] == '\0' || p[7] == ' ')) {
@@ -2244,7 +2323,7 @@ static void poll_serial_birth_commands() {
         } else if (strncmp(args, "tour", 4) == 0 && (args[4] == '\0' || args[4] == ' ')) {
           handle_tour_command(args + 4);
         } else if (!pm_qa_inject_command(args)) {
-          Serial.println("qa: usage: status | heap | audio | time | briefing | tone | bowl | faces | tour [narrate|tts] [dwell_ms] | tour stop | inject …");
+          Serial.println("qa: usage: status | heap | audio | time | briefing | tone | bowl | faces | tour intro | tour [narrate|tts] [dwell_ms] | tour stop | inject …");
         }
       } else if (strncmp(line, "face ", 5) == 0) {
         s_face_tour_active = false;
@@ -2269,14 +2348,36 @@ static void poll_serial_birth_commands() {
         }
       } else if (strncmp(line, "tour", 4) == 0 && (line[4] == '\0' || line[4] == ' ')) {
         handle_tour_command(line + 4);
+      } else if (strcmp(line, "intro") == 0 || strcmp(line, "introduce") == 0) {
+        (void)variant_intro_begin();
       } else if ((strncmp(line, "say ", 4) == 0 || strncmp(line, "tts ", 4) == 0) && line[4] != '\0') {
         const char *text = line + 4;
         while (*text == ' ') {
           ++text;
         }
-        const char *face = pm_faces_current() == ClockFace::BabelFish ? "babel_fish" : "serial";
+        const char *face = pm_faces_current() == ClockFace::BabelFish ? "babelfish" : "serial";
         const bool ok = remote_tts_begin(text, face, nullptr, nullptr, nullptr);
         Serial.printf("say: %s face=%s\n", ok ? "started" : g_gesture_banner, face);
+      } else if (strcmp(line, "ota") == 0 || strcmp(line, "ota arm") == 0 ||
+                 strncmp(line, "ota arm ", 8) == 0) {
+        uint32_t seconds = 300u;
+        if (strncmp(line, "ota arm ", 8) == 0) {
+          char *end = nullptr;
+          const unsigned long parsed = strtoul(line + 8, &end, 10);
+          if (end != line + 8 && parsed > 0ul) {
+            seconds = parsed > 1800ul ? 1800u : static_cast<uint32_t>(parsed);
+          }
+        }
+        pm_screen_http_ota_arm(seconds * 1000u);
+        snprintf(g_gesture_banner, sizeof(g_gesture_banner), "ota: armed");
+        Serial.printf("ota: armed %lus status=%s\n", static_cast<unsigned long>(seconds),
+                      pm_screen_http_ota_status());
+      } else if (strcmp(line, "ota status") == 0) {
+        Serial.printf("ota: status=%s armed=%d bytes=%u total=%u url=%s\n", pm_screen_http_ota_status(),
+                      pm_screen_http_ota_armed() ? 1 : 0,
+                      static_cast<unsigned>(pm_screen_http_ota_bytes()),
+                      static_cast<unsigned>(pm_screen_http_ota_total()),
+                      pm_screen_http_ota_integration_url());
       } else if (strcmp(line, "time") == 0) {
         print_time_status("time");
       } else if (strcmp(line, "ntp") == 0 || strcmp(line, "time sync") == 0) {
@@ -3771,8 +3872,8 @@ void loop() {
           g_alethiometer_voice_pcm = false;
           g_pythia_voice_active = false;
           g_pythia_voice_pcm = false;
-          g_babel_fish_voice_active = true;
-          g_babel_fish_voice_pcm = true;
+          g_babelfish_voice_active = true;
+          g_babelfish_voice_pcm = true;
           g_moon_voice_pcm = false;
           g_question_voice_active = false;
           g_question_answer_pcm = false;
@@ -3824,8 +3925,8 @@ void loop() {
           g_alethiometer_voice_pcm = false;
           g_pythia_voice_active = false;
           g_pythia_voice_pcm = false;
-          g_babel_fish_voice_active = false;
-          g_babel_fish_voice_pcm = false;
+          g_babelfish_voice_active = false;
+          g_babelfish_voice_pcm = false;
           g_moon_voice_pcm = false;
         } else if (pm_faces_current() == ClockFace::Notes) {
           g_commonplace_journal = true;
@@ -3838,8 +3939,8 @@ void loop() {
           g_alethiometer_voice_pcm = false;
           g_pythia_voice_active = false;
           g_pythia_voice_pcm = false;
-          g_babel_fish_voice_active = false;
-          g_babel_fish_voice_pcm = false;
+          g_babelfish_voice_active = false;
+          g_babelfish_voice_pcm = false;
           g_moon_voice_pcm = false;
         } else {
           g_commonplace_journal = false;
@@ -3852,8 +3953,8 @@ void loop() {
           g_alethiometer_voice_pcm = false;
           g_pythia_voice_active = false;
           g_pythia_voice_pcm = false;
-          g_babel_fish_voice_active = false;
-          g_babel_fish_voice_pcm = false;
+          g_babelfish_voice_active = false;
+          g_babelfish_voice_pcm = false;
           g_moon_voice_pcm = false;
         }
         reset_recording_buffer();
@@ -3881,8 +3982,8 @@ void loop() {
         g_synastry_voice_active = false;
         g_alethiometer_voice_active = false;
         g_alethiometer_voice_pcm = false;
-        g_babel_fish_voice_active = false;
-        g_babel_fish_voice_pcm = false;
+        g_babelfish_voice_active = false;
+        g_babelfish_voice_pcm = false;
         g_question_voice_active = false;
         g_question_answer_pcm = false;
         g_state = AppState::kClock;
@@ -3921,8 +4022,8 @@ void loop() {
         pm_face_alethiometer_draw_voice_screen("listening");
       } else if (g_pythia_voice_active) {
         pm_face_pythia_draw_voice_screen("listening");
-      } else if (g_babel_fish_voice_active) {
-        pm_face_babel_fish_draw_voice_screen("listening");
+      } else if (g_babelfish_voice_active) {
+        pm_face_babelfish_draw_voice_screen("listening");
       } else if (g_question_voice_active) {
         const float progress =
             static_cast<float>(g_pcm_len) / static_cast<float>(MYNAH_VOICE_MAX_PCM_BYTES);
@@ -3969,8 +4070,8 @@ void loop() {
         g_synastry_voice_active = false;
         g_alethiometer_voice_active = false;
         g_question_voice_active = false;
-        g_babel_fish_voice_active = false;
-        g_babel_fish_voice_pcm = false;
+        g_babelfish_voice_active = false;
+        g_babelfish_voice_pcm = false;
         g_question_answer_pcm = false;
         g_commonplace_journal = false;
         g_commonplace_note_face = false;
@@ -4146,12 +4247,12 @@ void loop() {
               break;
             }
             sys = s_face_tour_sys_prompt;
-          } else if (g_babel_fish_voice_active) {
-            if (!pm_face_babel_fish_build_system_prompt(s_face_tour_sys_prompt, kFaceTourSysPromptCap)) {
-              pm_face_babel_fish_draw_voice_screen("prompt fail");
+          } else if (g_babelfish_voice_active) {
+            if (!pm_face_babelfish_build_system_prompt(s_face_tour_sys_prompt, kFaceTourSysPromptCap)) {
+              pm_face_babelfish_draw_voice_screen("prompt fail");
               delay(1200);
-              g_babel_fish_voice_active = false;
-              g_babel_fish_voice_pcm = false;
+              g_babelfish_voice_active = false;
+              g_babelfish_voice_pcm = false;
               g_state = AppState::kClock;
               g_clock_repaint_pending = true;
               break;
@@ -4174,8 +4275,8 @@ void loop() {
             started = pm_voice_begin_pcm_ex(g_pcm, g_pcm_len, sys, "question_of_day", &g_voice_result);
           } else if (g_pythia_voice_active) {
             started = pm_voice_begin_pcm_ex(g_pcm, g_pcm_len, sys, "pythia", &g_voice_result);
-          } else if (g_babel_fish_voice_active) {
-            started = pm_voice_begin_pcm_ex(g_pcm, g_pcm_len, sys, "babel_fish", &g_voice_result);
+          } else if (g_babelfish_voice_active) {
+            started = pm_voice_begin_pcm_ex(g_pcm, g_pcm_len, sys, "babelfish", &g_voice_result);
           } else if (pm_faces_current() == ClockFace::Faculty) {
             started = pm_voice_begin_pcm_ex(g_pcm, g_pcm_len, sys, "faculty", &g_voice_result);
           } else {
@@ -4194,8 +4295,8 @@ void loop() {
             pm_face_alethiometer_draw_voice_screen("voice start fail");
           } else if (g_pythia_voice_active) {
             pm_face_pythia_draw_voice_screen("voice start fail");
-          } else if (g_babel_fish_voice_active) {
-            pm_face_babel_fish_draw_voice_screen("voice start fail");
+          } else if (g_babelfish_voice_active) {
+            pm_face_babelfish_draw_voice_screen("voice start fail");
           } else if (g_runes_fortune_active) {
             pm_face_runes_draw_voice_screen("voice start fail", -1.f);
           } else if (g_question_voice_active) {
@@ -4213,8 +4314,8 @@ void loop() {
           g_alethiometer_voice_pcm = false;
           g_pythia_voice_active = false;
           g_pythia_voice_pcm = false;
-          g_babel_fish_voice_active = false;
-          g_babel_fish_voice_pcm = false;
+          g_babelfish_voice_active = false;
+          g_babelfish_voice_pcm = false;
           g_runes_fortune_active = false;
           g_question_voice_active = false;
           g_question_answer_pcm = false;
@@ -4226,7 +4327,7 @@ void loop() {
         thinking_progress_begin(g_daily_briefing ? 680000u
                                                 : ((g_astro_voice_active || g_synastry_voice_active ||
                                                     g_alethiometer_voice_active || g_runes_fortune_active ||
-                                                    g_pythia_voice_active || g_babel_fish_voice_active ||
+                                                    g_pythia_voice_active || g_babelfish_voice_active ||
                                                     g_question_voice_active)
                                                        ? 180000u
                                                        : 45000u));
@@ -4244,8 +4345,8 @@ void loop() {
         pm_face_alethiometer_draw_voice_screen(nullptr, thinking_progress_now());
       } else if (g_pythia_voice_active) {
         pm_face_pythia_draw_voice_screen(nullptr, thinking_progress_now());
-      } else if (g_babel_fish_voice_active) {
-        pm_face_babel_fish_draw_voice_screen(nullptr, thinking_progress_now());
+      } else if (g_babelfish_voice_active) {
+        pm_face_babelfish_draw_voice_screen(nullptr, thinking_progress_now());
       } else if (g_astro_voice_active) {
         pm_face_astrology_draw_voice_screen(nullptr, -1, -1, false, thinking_progress_now());
       } else if (g_moon_fortune_active) {
@@ -4264,7 +4365,7 @@ void loop() {
             g_daily_briefing ? 680000u
                              : ((g_moon_fortune_active || g_astro_voice_active || g_synastry_voice_active ||
                                  g_alethiometer_voice_active || g_runes_fortune_active ||
-                                 g_pythia_voice_active || g_babel_fish_voice_active ||
+                                 g_pythia_voice_active || g_babelfish_voice_active ||
                                  g_question_voice_active)
                                     ? 620000u
                                     : 100000u);
@@ -4291,7 +4392,7 @@ void loop() {
         Serial.printf("pythia: voice done status=%d mp3=%u err=%s\n", static_cast<int>(vs),
                       static_cast<unsigned>(g_voice_result.mp3_len),
                       vs == PmVoiceStatus::DoneOk ? "-" : pm_voice_last_error());
-      } else if (g_babel_fish_voice_active) {
+      } else if (g_babelfish_voice_active) {
         Serial.printf("babel: voice done status=%d mp3=%u err=%s\n", static_cast<int>(vs),
                       static_cast<unsigned>(g_voice_result.mp3_len),
                       vs == PmVoiceStatus::DoneOk ? "-" : pm_voice_last_error());
@@ -4314,8 +4415,8 @@ void loop() {
           pm_face_alethiometer_draw_voice_screen(pm_voice_last_error());
         } else if (g_pythia_voice_active) {
           pm_face_pythia_draw_voice_screen(pm_voice_last_error());
-        } else if (g_babel_fish_voice_active) {
-          pm_face_babel_fish_draw_voice_screen(pm_voice_last_error());
+        } else if (g_babelfish_voice_active) {
+          pm_face_babelfish_draw_voice_screen(pm_voice_last_error());
         } else if (g_astro_voice_active) {
           pm_face_astrology_draw_voice_screen(pm_voice_last_error(), -1, -1, false);
         } else if (g_moon_fortune_active) {
@@ -4343,8 +4444,8 @@ void loop() {
         g_alethiometer_voice_pcm = false;
         g_pythia_voice_active = false;
         g_pythia_voice_pcm = false;
-        g_babel_fish_voice_active = false;
-        g_babel_fish_voice_pcm = false;
+        g_babelfish_voice_active = false;
+        g_babelfish_voice_pcm = false;
         g_moon_fortune_active = false;
         g_runes_fortune_active = false;
         g_question_voice_active = false;
@@ -4400,12 +4501,12 @@ void loop() {
           g_clock_repaint_pending = true;
           break;
         }
-        if (g_babel_fish_voice_active) {
-          pm_face_babel_fish_draw_voice_screen("no audio reply");
+        if (g_babelfish_voice_active) {
+          pm_face_babelfish_draw_voice_screen("no audio reply");
           delay(1500);
           pm_voice_result_free(&g_voice_result);
-          g_babel_fish_voice_active = false;
-          g_babel_fish_voice_pcm = false;
+          g_babelfish_voice_active = false;
+          g_babelfish_voice_pcm = false;
           g_state = AppState::kClock;
           g_clock_repaint_pending = true;
           break;
@@ -4493,7 +4594,7 @@ void loop() {
       g_synastry_voice_pcm = false;
       g_alethiometer_voice_pcm = false;
       g_moon_voice_pcm = false;
-      g_babel_fish_voice_pcm = false;
+      g_babelfish_voice_pcm = false;
       g_voice_play_reset = true;
       if (g_daily_briefing && pm_voice_daily_briefing_streamed()) {
         pm_voice_result_free(&g_voice_result);
@@ -4715,24 +4816,24 @@ void loop() {
         g_clock_repaint_pending = true;
         break;
       }
-      if (g_babel_fish_voice_active) {
+      if (g_babelfish_voice_active) {
         if (!s_play_armed) {
           if (!g_voice_result.mp3 || g_voice_result.mp3_len < 64) {
-            pm_face_babel_fish_draw_voice_screen("no audio");
+            pm_face_babelfish_draw_voice_screen("no audio");
             delay(1200);
             pm_voice_result_free(&g_voice_result);
-            g_babel_fish_voice_active = false;
-            g_babel_fish_voice_pcm = false;
+            g_babelfish_voice_active = false;
+            g_babelfish_voice_pcm = false;
             g_state = AppState::kClock;
             g_clock_repaint_pending = true;
             break;
           }
           if (!pm_speaker_play_begin(g_voice_result.mp3, g_voice_result.mp3_len)) {
-            pm_face_babel_fish_draw_voice_screen("speaker busy");
+            pm_face_babelfish_draw_voice_screen("speaker busy");
             delay(1200);
             pm_voice_result_free(&g_voice_result);
-            g_babel_fish_voice_active = false;
-            g_babel_fish_voice_pcm = false;
+            g_babelfish_voice_active = false;
+            g_babelfish_voice_pcm = false;
             g_state = AppState::kClock;
             g_clock_repaint_pending = true;
             break;
@@ -4740,7 +4841,7 @@ void loop() {
           s_play_armed = true;
           s_play_wait_t0 = now;
         }
-        pm_face_babel_fish_draw_voice_screen("speaking", -1.f, true);
+        pm_face_babelfish_draw_voice_screen("speaking", -1.f, true);
         PmSpeakerStatus spk = pm_speaker_poll();
         if (spk == PmSpeakerStatus::Playing) {
           const uint32_t est_ms =
@@ -4752,14 +4853,14 @@ void loop() {
           }
         }
         if (spk == PmSpeakerStatus::DoneFail) {
-          pm_face_babel_fish_draw_voice_screen("playback failed");
+          pm_face_babelfish_draw_voice_screen("playback failed");
           delay(1200);
         }
         pm_voice_result_free(&g_voice_result);
         s_play_armed = false;
         s_play_wait_t0 = 0;
-        g_babel_fish_voice_active = false;
-        g_babel_fish_voice_pcm = false;
+        g_babelfish_voice_active = false;
+        g_babelfish_voice_pcm = false;
         g_state = AppState::kClock;
         g_clock_repaint_pending = true;
         break;

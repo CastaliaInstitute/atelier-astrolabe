@@ -120,6 +120,8 @@ def command_payload(step: dict[str, Any], device: Device, globals_: dict[str, An
         raise ValueError("step missing action")
     if action == "say":
         action = "tts"
+    if action in ("intro", "introduce"):
+        action = "tts"
     payload: dict[str, Any] = {"cmd": action}
     for key in (
         "face",
@@ -155,6 +157,16 @@ def command_payload(step: dict[str, Any], device: Device, globals_: dict[str, An
         payload["durationMs"] = step["duration_ms"]
     if "dwell_ms" in step:
         payload["dwellMs"] = step["dwell_ms"]
+    if action == "tts" and "text" not in payload and str(step.get("action") or step.get("cmd")) in ("intro", "introduce"):
+        payload["text"] = render_value(
+            step.get(
+                "template",
+                "Hello. I am $name, $role. My firmware variant is $variant, my platform is $platform, "
+                "and my home face is $homeFace.",
+            ),
+            device,
+            globals_,
+        )
     if action == "tts" and "text" not in payload:
         raise ValueError("tts step missing text")
     return payload

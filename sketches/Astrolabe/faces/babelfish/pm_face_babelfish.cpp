@@ -1,4 +1,4 @@
-#include "faces/babel_fish/pm_face_babel_fish.h"
+#include "faces/babelfish/pm_face_babelfish.h"
 
 #include <Arduino_GFX_Library.h>
 #include <cmath>
@@ -62,7 +62,7 @@ void draw_fish(uint32_t now_ms) {
 
 }  // namespace
 
-void pm_face_babel_fish_draw(void) {
+void pm_face_babelfish_draw(void) {
   const uint32_t now = millis();
   pm_gfx->fillScreen(col(4, 18, 28));
   for (int r = 218; r > 32; r -= 18) {
@@ -74,8 +74,8 @@ void pm_face_babel_fish_draw(void) {
   pm_face_draw_centered_line("hold PWR to translate", 392, col(188, 218, 202), 1, 1);
 }
 
-void pm_face_babel_fish_draw_voice_screen(const char *status, float thinking_progress, bool speaking) {
-  pm_face_babel_fish_draw();
+void pm_face_babelfish_draw_voice_screen(const char *status, float thinking_progress, bool speaking) {
+  pm_face_babelfish_draw();
   if (thinking_progress >= 0.f) {
     pm_face_draw_thinking_progress_ring(thinking_progress);
   }
@@ -89,7 +89,7 @@ void pm_face_babel_fish_draw_voice_screen(const char *status, float thinking_pro
   pm_gfx->flush();
 }
 
-bool pm_face_babel_fish_build_system_prompt(char *out, size_t cap) {
+bool pm_face_babelfish_build_system_prompt(char *out, size_t cap) {
   if (!out || cap == 0) {
     return false;
   }

@@ -9,6 +9,8 @@
       "role": "carry-first time and presence companion",
       "group": "variants",
       "variant": "pocket",
+      "platform": "1.75",
+      "homeFace": "classic",
       "facultySlug": "a.einstein",
       "facultyName": "Einstein",
       "url": "http://astrolabe-pocket.local"
@@ -19,6 +21,8 @@
       "role": "moon, astrology, and symbolic reflection companion",
       "group": "variants",
       "variant": "lunasay",
+      "platform": "1.75",
+      "homeFace": "moon",
       "facultySlug": "a.plato",
       "facultyName": "Plato",
       "url": "http://astrolabe-lunasay.local"
@@ -29,6 +33,8 @@
       "role": "breath, music, and playable sound companion",
       "group": "variants",
       "variant": "ocarina",
+      "platform": "1.75",
+      "homeFace": "ocarina",
       "facultySlug": "a.brucelee",
       "facultyName": "Bruce Lee",
       "url": "http://astrolabe-ocarina.local"
@@ -39,6 +45,8 @@
       "role": "memory, faculty, quotes, and keepsake companion",
       "group": "variants",
       "variant": "cameo",
+      "platform": "1.75",
+      "homeFace": "faculty",
       "facultySlug": "a.campbell",
       "facultyName": "Joseph Campbell",
       "url": "http://astrolabe-cameo.local"
@@ -49,6 +57,8 @@
       "role": "focus, readiness, and calm attention companion",
       "group": "variants",
       "variant": "enso",
+      "platform": "1.75",
+      "homeFace": "biometrics",
       "facultySlug": "a.curie",
       "facultyName": "Marie Curie",
       "url": "http://astrolabe-enso.local"
@@ -59,9 +69,35 @@
       "role": "direction, bearing, and spatial alignment companion",
       "group": "variants",
       "variant": "luopan",
+      "platform": "1.75",
+      "homeFace": "luopan",
       "facultySlug": "a.turing",
       "facultyName": "Alan Turing",
       "url": "http://astrolabe-luopan.local"
+    },
+    {
+      "id": "smart-speaker",
+      "name": "Astrolabe Smart Speaker",
+      "role": "room audio and Spotify companion",
+      "group": "variants",
+      "variant": "smart-speaker",
+      "platform": "1.85",
+      "homeFace": "spotify",
+      "facultySlug": "a.turing",
+      "facultyName": "Alan Turing",
+      "url": "http://astrolabe-smart-speaker.local"
+    },
+    {
+      "id": "babelfish",
+      "name": "Astrolabe BabelFish",
+      "role": "spoken translation companion",
+      "group": "variants",
+      "variant": "babelfish",
+      "platform": "1.75",
+      "homeFace": "babelfish",
+      "facultySlug": "a.borges",
+      "facultyName": "Jorge Luis Borges",
+      "url": "http://astrolabe-d64194.local"
     }
   ],
   "steps": [
@@ -81,9 +117,8 @@
     {
       "label": "shared hello",
       "target": "variants",
-      "action": "tts",
-      "face": "classic",
-      "text": "I am $name. My Castalia voice is $facultyName. In this tour, I am the $role.",
+      "action": "introduce",
+      "template": "Hello. I am $name on the $platform platform. My Castalia voice is $facultyName. In this tour, I am the $role.",
       "parallel": true,
       "pause": 7
     },
@@ -213,9 +248,8 @@
     {
       "label": "ensemble answer",
       "target": "variants",
-      "action": "tts",
-      "face": "classic",
-      "text": "$name reporting in: $role. I can be cued by the master script for speech, face changes, taps, and swipes.",
+      "action": "introduce",
+      "template": "$name reporting in: $role. My home face is $homeFace, and I can be cued by the master script for speech, face changes, taps, and swipes.",
       "parallel": false,
       "pause": 2
     },

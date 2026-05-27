@@ -50,7 +50,7 @@
       accessory: "1.85 smart speaker presentation for Spotify control and now-playing glance.",
     },
     {
-      id: "babel-fish",
+      id: "babelfish",
       title: "Astrolabe Babel Fish",
       subtitle: "Translator SKU",
       promise: "Listen · translate · answer",
@@ -123,7 +123,7 @@
       status: "Bench",
     },
     {
-      variant: "babel-fish",
+      variant: "babelfish",
       platform: "1.75",
       release: "Astrolabe Babel Fish 1.75",
       hardware: ["AMOLED", "touch", "side buttons", "battery", "USB-C", "Wi-Fi", "BLE", "speaker", "microphone"],
@@ -883,7 +883,7 @@
       interactions: "Tap casts from entropy. Swipe up and down browses figures.",
     },
     {
-      slug: "babel-fish",
+      slug: "babelfish",
       title: "Babel Fish",
       kicker: "Spoken translation with a fish on the face",
       summary:
@@ -920,7 +920,7 @@
     geomancy: "lunasay",
     enochian: "lunasay",
     pythia: "lunasay",
-    "babel-fish": "babel-fish",
+    babelfish: "babelfish",
 
     spotify: "smart-speaker",
     spectrum: "ocarina",

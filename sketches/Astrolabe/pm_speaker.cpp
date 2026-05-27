@@ -34,7 +34,7 @@ static const char *TAG = "pm_speaker";
 #if defined(ASTROLABE_USB_MIDI_ENABLED)
 static constexpr uint32_t kSpeakerTaskStack = 8192;
 #else
-static constexpr uint32_t kSpeakerTaskStack = 24576;
+static constexpr uint32_t kSpeakerTaskStack = 12288;
 #endif
 static constexpr UBaseType_t kSpeakerTaskPriority = 3;
 static constexpr int kSpeakerVolume = 86;

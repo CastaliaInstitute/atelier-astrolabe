@@ -119,6 +119,7 @@ function commonplaceRoute(face: string, fallback: string): string {
     case "qotd":
       return "question_of_day";
     case VOICE_FACE_BABEL_FISH:
+    case "babel_fish":
     case "babel-fish":
     case "babel":
       return VOICE_FACE_BABEL_FISH;

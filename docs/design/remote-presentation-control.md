@@ -75,6 +75,8 @@ The runner supports these step actions:
   Optional `facultySlug` / `facultyName` selects a Castalia faculty TTS voice
   when the backend has one configured. Direct `ttsVoiceName` is available for
   QA, but product tours should prefer faculty fields.
+- `introduce`: speak a concise self-introduction generated from the device
+  metadata, including `name`, `role`, `variant`, `platform`, and `homeFace`.
 - `button`: trigger `boot`, `pwr`, or `pwr_hold`.
 - `tap`, `touch_down`, `touch_up`: inject touchscreen input.
 - `swipe`: script-level gesture cue expanded to timed touch commands.

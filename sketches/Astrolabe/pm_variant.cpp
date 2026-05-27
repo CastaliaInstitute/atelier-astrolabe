@@ -171,7 +171,7 @@ static bool face_is_smart_speaker(ClockFace face) {
   }
 }
 
-static bool face_is_babel_fish(ClockFace face) {
+static bool face_is_babelfish(ClockFace face) {
   switch (face) {
     case ClockFace::BabelFish:
     case ClockFace::DigitalLocal:
@@ -330,7 +330,7 @@ bool pm_variant_face_allowed(ClockFace face) {
     case PmDeviceVariant::SmartSpeaker:
       return face_is_smart_speaker(face);
     case PmDeviceVariant::BabelFish:
-      return face_is_babel_fish(face);
+      return face_is_babelfish(face);
     default:
       return true;
   }

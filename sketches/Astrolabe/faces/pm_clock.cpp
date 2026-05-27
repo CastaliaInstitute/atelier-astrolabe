@@ -9,7 +9,7 @@
 #include "faces/apocalypso/pm_face_apocalypso.h"
 #include "faces/alethiometer/pm_face_alethiometer.h"
 #include "faces/astrology/pm_face_astrology.h"
-#include "faces/babel_fish/pm_face_babel_fish.h"
+#include "faces/babelfish/pm_face_babelfish.h"
 #include "faces/biometrics/pm_face_biometrics.h"
 #include "faces/bongo/pm_face_bongo.h"
 #include "faces/calcifer/pm_face_calcifer.h"
@@ -533,7 +533,7 @@ void pm_faces_draw(float thinking_progress) {
       pm_face_notes_draw();
       break;
     case ClockFace::BabelFish:
-      pm_face_babel_fish_draw();
+      pm_face_babelfish_draw();
       break;
     case ClockFace::Ocarina:
       pm_face_ocarina_draw();

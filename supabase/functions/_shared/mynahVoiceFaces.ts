@@ -7,7 +7,7 @@ export const VOICE_FACE_CLOCK_AGENDA = "clock_agenda";
 export const VOICE_FACE_DAILY_BRIEFING = "daily_briefing";
 export const VOICE_FACE_SYNASTRY = "synastry";
 export const VOICE_FACE_ASTRO = "astro";
-export const VOICE_FACE_BABEL_FISH = "babel_fish";
+export const VOICE_FACE_BABEL_FISH = "babelfish";
 
 /** When `skipLlm` is false, Gemini rewrites schedule facts using this unless the client sends `systemInstruction`. */
 export const SYSTEM_VOICE_FACE_CLOCK_AGENDA =
