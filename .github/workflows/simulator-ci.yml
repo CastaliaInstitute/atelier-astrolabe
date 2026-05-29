@@ -1,0 +1,32 @@
+# Level-1 host simulator + HAL compile smoke on feature PRs and integration.
+name: Simulator CI
+
+on:
+  push:
+    branches: [integration]
+  pull_request:
+    branches: [integration, main]
+
+concurrency:
+  group: sim-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  host-simulator:
+    name: Host sim + HAL smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install system deps
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends g++
+
+      - name: Run simulator CI
+        env:
+          SDL_VIDEODRIVER: dummy
+          PYGAME_HIDE_SUPPORT_PROMPT: "1"
+        run: ./scripts/ci-sim.sh

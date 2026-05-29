@@ -1,6 +1,6 @@
 # Mynah Pocketwatch (firmware)
 
-PlatformIO firmware for the Waveshare **[ESP32-S3-Touch-AMOLED-1.75C](https://github.com/waveshareteam/ESP32-S3-Touch-AMOLED-1.75C)** class board. Product notes: [`docs/design/pocketwatch.md`](../docs/design/pocketwatch.md).
+PlatformIO firmware for the Waveshare **[ESP32-S3-Touch-AMOLED-1.75C](https://github.com/waveshareteam/ESP32-S3-Touch-AMOLED-1.75C)** class board. Product notes: [`docs/pocketwatch.md`](docs/pocketwatch.md). **Simulation (QEMU / host / HIL):** [`docs/simulation.md`](docs/simulation.md).
 
 ## Default sketch: Mynah Astrolabe
 
@@ -16,6 +16,16 @@ PlatformIO firmware for the Waveshare **[ESP32-S3-Touch-AMOLED-1.75C](https://gi
 GFX note: CO5300 is constructed with **`false`** for the IPS argument (GFX 1.5.0 vs Waveshare’s newer GFX).
 
 Optional: clone the full Waveshare repo into `vendor/` for LVGL demos (`vendor/` is gitignored).
+
+### Host face preview (no hardware)
+
+```bash
+pip install pygame
+python3 sim/host_round/viewer.py
+python3 sim/host_round/viewer.py artifacts/qa-<face>.bmp   # after hardware screen.bmp capture
+```
+
+See [`sim/host_round/README.md`](sim/host_round/README.md) and [`devices/waveshare-1.75c/`](devices/waveshare-1.75c/) for the HAL layout.
 
 ```bash
 git clone --depth 1 https://github.com/waveshareteam/ESP32-S3-Touch-AMOLED-1.75C.git vendor/ESP32-S3-Touch-AMOLED-1.75C
