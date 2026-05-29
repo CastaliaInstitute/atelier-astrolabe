@@ -1323,10 +1323,12 @@ static bool face_voice_build_prompt(const FaceTourInfo *info, char *msg, size_t 
                state);
       break;
     }
-    case ClockFace::Faculty: {
+    case ClockFace::Faculty:
+    case ClockFace::Wand: {
       PmFacultyProfile faculty = {};
       if (pm_faculty_active(&faculty)) {
-        snprintf(s_face_voice_face, sizeof(s_face_voice_face), "faculty");
+        snprintf(s_face_voice_face, sizeof(s_face_voice_face), "%s",
+                 pm_faces_current() == ClockFace::Wand ? "wand" : "faculty");
         snprintf(s_face_voice_faculty_slug, sizeof(s_face_voice_faculty_slug), "%s", faculty.slug);
         snprintf(s_face_voice_faculty_name, sizeof(s_face_voice_faculty_name), "%s", faculty.name);
         snprintf(msg, msg_cap,

@@ -1,0 +1,20 @@
+idf_component_register(
+    SRCS
+        "main.c"
+        "atom_board.c"
+        "atom_voice.c"
+        "atom_listen.c"
+    INCLUDE_DIRS "." "../../include"
+    REQUIRES
+        driver
+        esp_codec_dev
+        esp_event
+        esp_http_client
+        esp_lcd
+        esp_netif
+        esp-tls
+        esp_wifi
+        minimp3
+        nvs_flash
+        mbedtls
+)

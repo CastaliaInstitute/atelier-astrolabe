@@ -703,7 +703,7 @@ bool pm_faces_local_hm_changed(int hour, int min) {
       s_clock_face == ClockFace::Rocket || s_clock_face == ClockFace::Radar ||
       s_clock_face == ClockFace::HidTouchpad || s_clock_face == ClockFace::Biometrics ||
       s_clock_face == ClockFace::Watcher ||
-      s_clock_face == ClockFace::Faculty || s_clock_face == ClockFace::Weather ||
+      s_clock_face == ClockFace::Faculty || s_clock_face == ClockFace::Wand || s_clock_face == ClockFace::Weather ||
       s_clock_face == ClockFace::Globe || s_clock_face == ClockFace::Sky ||
       s_clock_face == ClockFace::Quotes || s_clock_face == ClockFace::Tarot ||
       s_clock_face == ClockFace::InqCard ||
