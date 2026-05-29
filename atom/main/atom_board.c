@@ -16,6 +16,8 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#include "atom_faculty.h"
+
 static const char *TAG = "atom_board";
 
 /* AtomS3R 0.85" GC9107 (ST7789-class SPI) — see M5 AtomS3R pin map. */
@@ -430,7 +432,7 @@ void atom_display_draw_status(atom_ui_state_t state, const char *faculty_name, c
     const uint16_t fg = rgb565(220, 230, 240);
     atom_display_fill_rgb565(bg);
 
-    const char *label = "WAND";
+    const char *label = "LISTEN";
     uint16_t ring = rgb565(40, 245, 168);
     switch (state) {
         case ATOM_UI_BOOT:
@@ -462,14 +464,25 @@ void atom_display_draw_status(atom_ui_state_t state, const char *faculty_name, c
             break;
     }
 
-    atom_display_fill_rect(8, 8, ATOM_LCD_W - 16, ATOM_LCD_H - 16, rgb565(12, 16, 28));
-    atom_display_fill_rect(12, 12, ATOM_LCD_W - 24, 3, ring);
-    draw_text(label, 16, 24, ring);
-    if (faculty_name != NULL && faculty_name[0] != '\0') {
-        draw_text(faculty_name, 16, 40, fg);
+    const int bust_x = (ATOM_LCD_W - ATOM_FACULTY_BUST_W) / 2;
+    const int bust_y = 8;
+    if (!atom_faculty_draw_bust(bust_x, bust_y)) {
+        atom_display_fill_rect(bust_x + 12, bust_y + 12, ATOM_FACULTY_BUST_W - 24, ATOM_FACULTY_BUST_W - 24,
+                               rgb565(18, 24, 40));
+        atom_display_fill_rect(bust_x + 20, bust_y + 20, ATOM_FACULTY_BUST_W - 40, 3, ring);
     }
-    if (detail != NULL && detail[0] != '\0') {
-        draw_text(detail, 16, 56, rgb565(140, 150, 165));
+
+    atom_display_fill_rect(0, ATOM_LCD_H - 28, ATOM_LCD_W, 28, rgb565(12, 16, 28));
+    atom_display_fill_rect(8, ATOM_LCD_H - 26, ATOM_LCD_W - 16, 2, ring);
+    if (faculty_name != NULL && faculty_name[0] != ' ') {
+        draw_text(faculty_name, 8, ATOM_LCD_H - 22, fg);
+    } else {
+        draw_text(label, 8, ATOM_LCD_H - 22, ring);
+    }
+    if (detail != NULL && detail[0] != ' ') {
+        draw_text(detail, 8, ATOM_LCD_H - 12, rgb565(140, 150, 165));
+    } else {
+        draw_text(label, 8, ATOM_LCD_H - 12, rgb565(140, 150, 165));
     }
 
     if (s_panel != NULL && s_fb != NULL) {

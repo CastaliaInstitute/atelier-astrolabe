@@ -41,10 +41,12 @@ Or from repo root:
 
 ## Runtime behavior
 
-1. Boots into the Wand UI with default faculty **Tom Robbins** (`tom-robbins`).
+1. Boots into the Wand UI with default faculty **Einstein** (`a.einstein`).
 2. **Always listens** — energy VAD captures utterances (≈400 ms–15 s) and posts PCM to Castalia `voice-pipeline` with `face=wand`.
-3. Plays returned MP3 via ES8311.
-4. **Button tap** resets faculty + conversation history to defaults.
+3. Infers faculty from speech via STT→LLM routing (e.g. “ask Einstein…”) — no hard-coded faculty in the pipeline request.
+4. Downloads a tiny **faculty bust** (`96×96` JPEG) from `faculty-bust` and shows it on the display.
+5. Plays returned MP3 via ES8311.
+6. **Button tap** resets faculty + conversation history to defaults.
 
 Serial log tag: `atom_wand`.
 

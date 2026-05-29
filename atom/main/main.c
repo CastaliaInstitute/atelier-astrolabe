@@ -15,6 +15,7 @@
 #include "atom_board.h"
 #include "atom_listen.h"
 #include "atom_voice.h"
+#include "atom_faculty.h"
 #include "atom_util.h"
 
 #if __has_include("secrets.local.h")
@@ -35,12 +36,19 @@ static char s_faculty_name[96] = ASTROLABE_WAND_DEFAULT_FACULTY_NAME;
 static char s_history[512];
 static char s_detail[96];
 static atom_listen_t s_listen;
+
+static void save_faculty_to_nvs(void);
 static QueueHandle_t s_ui_queue;
 
 typedef struct {
     atom_ui_state_t state;
     char detail[96];
 } atom_ui_msg_t;
+
+static void bust_ui_refresh(void)
+{
+    ui_set(s_ui, s_detail[0] ? s_detail : NULL);
+}
 
 static void ui_set(atom_ui_state_t state, const char *detail)
 {
@@ -108,13 +116,21 @@ static void voice_worker_task(void *arg)
             continue;
         }
 
-        if (result.faculty_slug[0] != '\0') {
+        bool faculty_changed = false;
+        if (result.faculty_slug[0] != '\0' && strcmp(s_faculty_slug, result.faculty_slug) != 0) {
             atom_strlcpy(s_faculty_slug, result.faculty_slug, sizeof(s_faculty_slug));
+            faculty_changed = true;
         }
         if (result.faculty_name[0] != '\0') {
             atom_strlcpy(s_faculty_name, result.faculty_name, sizeof(s_faculty_name));
         }
         append_history(result.transcript, result.reply);
+        if (faculty_changed) {
+            atom_faculty_request_bust(s_faculty_slug);
+            save_faculty_to_nvs();
+        } else if (result.faculty_slug[0] != '\0' || result.faculty_name[0] != '\0') {
+            save_faculty_to_nvs();
+        }
         ESP_LOGI(TAG, "transcript: %s", result.transcript);
         ESP_LOGI(TAG, "reply: %s", result.reply);
 
@@ -245,6 +261,10 @@ void app_main(void)
         return;
     }
 
+    ESP_ERROR_CHECK(atom_faculty_init());
+    atom_faculty_set_ui_notify(bust_ui_refresh);
+    atom_faculty_request_bust(s_faculty_slug);
+
     ESP_ERROR_CHECK(atom_listen_init(&s_listen));
     xTaskCreate(listen_task, "listen", 6144, NULL, 5, NULL);
     xTaskCreate(voice_worker_task, "voice", 12288, NULL, 4, NULL);
@@ -257,6 +277,7 @@ void app_main(void)
             atom_strlcpy(s_faculty_name, ASTROLABE_WAND_DEFAULT_FACULTY_NAME, sizeof(s_faculty_name));
             s_history[0] = '\0';
             save_faculty_to_nvs();
+            atom_faculty_request_bust(s_faculty_slug);
             ui_set(ATOM_UI_LISTEN, "reset");
             ESP_LOGI(TAG, "faculty reset to default");
         }

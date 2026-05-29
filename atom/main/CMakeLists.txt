@@ -4,6 +4,7 @@ idf_component_register(
         "atom_board.c"
         "atom_voice.c"
         "atom_listen.c"
+        "atom_faculty.c"
     INCLUDE_DIRS "." "../../include"
     REQUIRES
         driver
@@ -17,4 +18,5 @@ idf_component_register(
         minimp3
         nvs_flash
         mbedtls
+        esp_new_jpeg
 )

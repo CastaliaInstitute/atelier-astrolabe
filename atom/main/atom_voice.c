@@ -23,7 +23,8 @@
 #endif
 
 static const char *TAG = "atom_voice";
-#define HTTP_TIMEOUT_MS 25000
+#define HTTP_TIMEOUT_MS 660000
+#define VOICE_RESP_MAX_BYTES (768 * 1024)
 #define TTS_MP3_MAX_BYTES (384 * 1024)
 
 static char *json_escape_alloc(const char *src)
@@ -79,6 +80,58 @@ static const char *json_find_string(const char *body, const char *key, char *out
     }
     out[i] = '\0';
     return out;
+}
+
+static bool extract_audio_base64(const char *json, uint8_t **out_bin, size_t *out_len)
+{
+    if (json == NULL || out_bin == NULL || out_len == NULL) {
+        return false;
+    }
+    const char *key = "\"audioBase64\":\"";
+    const char *start = strstr(json, key);
+    if (start == NULL) {
+        return false;
+    }
+    start += strlen(key);
+    const char *end = start;
+    while (*end != '\0' && *end != '"') {
+        ++end;
+    }
+    const size_t b64_len = (size_t)(end - start);
+    if (b64_len == 0) {
+        return false;
+    }
+
+    size_t cap = (b64_len / 4) * 3 + 64;
+    uint8_t *buf = heap_caps_malloc(cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (buf == NULL) {
+        buf = malloc(cap);
+    }
+    if (buf == NULL) {
+        return false;
+    }
+
+    size_t olen = 0;
+    int rc = mbedtls_base64_decode(buf, cap, &olen, (const unsigned char *)start, b64_len);
+    if (rc == MBEDTLS_ERR_BASE64_BUFFER_TOO_SMALL) {
+        free(buf);
+        cap = (b64_len / 4) * 3 + 256;
+        buf = heap_caps_malloc(cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (buf == NULL) {
+            buf = malloc(cap);
+        }
+        if (buf == NULL) {
+            return false;
+        }
+        rc = mbedtls_base64_decode(buf, cap, &olen, (const unsigned char *)start, b64_len);
+    }
+    if (rc != 0 || olen == 0) {
+        free(buf);
+        return false;
+    }
+    *out_bin = buf;
+    *out_len = olen;
+    return true;
 }
 
 void atom_voice_result_free(atom_voice_result_t *result)
@@ -165,6 +218,9 @@ static esp_err_t post_collect_body(const char *url,
     size_t cap = 64 * 1024;
     uint8_t *response = heap_caps_malloc(cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (response == NULL) {
+        response = malloc(cap);
+    }
+    if (response == NULL) {
         esp_http_client_close(client);
         esp_http_client_cleanup(client);
         return ESP_ERR_NO_MEM;
@@ -173,13 +229,16 @@ static esp_err_t post_collect_body(const char *url,
     while (true) {
         if (total == cap) {
             size_t next = cap * 2;
-            if (next > TTS_MP3_MAX_BYTES) {
+            if (next > VOICE_RESP_MAX_BYTES) {
                 free(response);
                 esp_http_client_close(client);
                 esp_http_client_cleanup(client);
                 return ESP_ERR_NO_MEM;
             }
             uint8_t *grown = heap_caps_realloc(response, next, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+            if (grown == NULL) {
+                grown = realloc(response, next);
+            }
             if (grown == NULL) {
                 free(response);
                 esp_http_client_close(client);
@@ -232,8 +291,16 @@ esp_err_t atom_voice_post_pcm(const uint8_t *pcm,
 
     memset(result, 0, sizeof(*result));
 
+    const char *active_slug =
+        (faculty_slug != NULL && faculty_slug[0] != '\0') ? faculty_slug : ASTROLABE_WAND_DEFAULT_FACULTY_SLUG;
+    const char *active_name =
+        (faculty_name != NULL && faculty_name[0] != '\0') ? faculty_name : ASTROLABE_WAND_DEFAULT_FACULTY_NAME;
+
     const size_t b64_cap = ((pcm_len + 2) / 3) * 4 + 1;
     char *audio_b64 = heap_caps_malloc(b64_cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (audio_b64 == NULL) {
+        audio_b64 = malloc(b64_cap);
+    }
     if (audio_b64 == NULL) {
         return ESP_ERR_NO_MEM;
     }
@@ -244,43 +311,36 @@ esp_err_t atom_voice_post_pcm(const uint8_t *pcm,
     }
     audio_b64[b64_len] = '\0';
 
-    char sys[768];
-    snprintf(sys, sizeof(sys), "%s Active faculty slug: %s. Conversation history: %s",
-             ASTROLABE_WAND_SYSTEM_INSTRUCTION,
-             faculty_slug != NULL ? faculty_slug : ASTROLABE_WAND_DEFAULT_FACULTY_SLUG,
+    char sys[896];
+    snprintf(sys, sizeof(sys),
+             "%s If the user does not name a faculty member, continue with the active faculty (%s, %s). "
+             "Conversation history: %s",
+             ASTROLABE_WAND_SYSTEM_INSTRUCTION, active_name, active_slug,
              history != NULL && history[0] != '\0' ? history : "(none yet)");
 
     char *esc_sys = json_escape_alloc(sys);
-    char *esc_slug = json_escape_alloc(faculty_slug != NULL ? faculty_slug : ASTROLABE_WAND_DEFAULT_FACULTY_SLUG);
-    char *esc_name = json_escape_alloc(faculty_name != NULL ? faculty_name : ASTROLABE_WAND_DEFAULT_FACULTY_NAME);
-    if (esc_sys == NULL || esc_slug == NULL || esc_name == NULL) {
+    if (esc_sys == NULL) {
         free(audio_b64);
-        free(esc_sys);
-        free(esc_slug);
-        free(esc_name);
         return ESP_ERR_NO_MEM;
     }
 
-    const size_t body_cap = b64_len + strlen(esc_sys) + strlen(esc_slug) + strlen(esc_name) + 256;
+    const size_t body_cap = b64_len + strlen(esc_sys) + 192;
     char *body = heap_caps_malloc(body_cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (body == NULL) {
+        body = malloc(body_cap);
+    }
     if (body == NULL) {
         free(audio_b64);
         free(esc_sys);
-        free(esc_slug);
-        free(esc_name);
         return ESP_ERR_NO_MEM;
     }
 
     const int body_len = snprintf(body, body_cap,
                                   "{\"languageCode\":\"en-US\",\"sampleRateHertz\":16000,"
-                                  "\"face\":\"%s\",\"facultySlug\":\"%s\",\"facultyName\":\"%s\","
-                                  "\"systemInstruction\":\"%s\",\"audioBase64\":\"%s\","
-                                  "\"responseFormat\":\"mp3\"}",
-                                  ASTROLABE_WAND_FACE_NAME, esc_slug, esc_name, esc_sys, audio_b64);
+                                  "\"face\":\"%s\",\"systemInstruction\":\"%s\",\"audioBase64\":\"%s\"}",
+                                  ASTROLABE_WAND_FACE_NAME, esc_sys, audio_b64);
     free(audio_b64);
     free(esc_sys);
-    free(esc_slug);
-    free(esc_name);
     if (body_len <= 0 || (size_t)body_len >= body_cap) {
         free(body);
         return ESP_ERR_NO_MEM;
@@ -292,33 +352,44 @@ esp_err_t atom_voice_post_pcm(const uint8_t *pcm,
     uint8_t *response = NULL;
     size_t response_len = 0;
     esp_err_t ret = post_collect_body(url, "application/json", (const uint8_t *)body, (size_t)body_len,
-                                      "audio/mpeg,application/json", &response, &response_len, &status);
+                                      "application/json,audio/mpeg", &response, &response_len, &status);
     free(body);
     ESP_LOGI(TAG, "voice-pipeline status=%d bytes=%u err=%s", status, (unsigned)response_len, esp_err_to_name(ret));
-    if (ret != ESP_OK || response == NULL || response_len < 64) {
+    if (ret != ESP_OK || response == NULL || response_len < 8) {
         free(response);
         return ESP_FAIL;
     }
 
-    if (response_len > 0 && response[0] == '{') {
-        char *json = realloc(response, response_len + 1);
-        if (json == NULL) {
-            free(response);
-            return ESP_ERR_NO_MEM;
-        }
-        response = (uint8_t *)json;
-        response[response_len] = '\0';
-        json_find_string((const char *)response, "transcript", result->transcript, sizeof(result->transcript));
-        json_find_string((const char *)response, "reply", result->reply, sizeof(result->reply));
-        json_find_string((const char *)response, "route", result->route, sizeof(result->route));
-        json_find_string((const char *)response, "facultySlug", result->faculty_slug, sizeof(result->faculty_slug));
-        json_find_string((const char *)response, "facultyName", result->faculty_name, sizeof(result->faculty_name));
-        free(response);
+    if (response_len > 0 && response[0] != '{') {
+        result->mp3 = response;
+        result->mp3_len = response_len;
         return ESP_OK;
     }
 
-    result->mp3 = response;
-    result->mp3_len = response_len;
+    char *json = realloc(response, response_len + 1);
+    if (json == NULL) {
+        free(response);
+        return ESP_ERR_NO_MEM;
+    }
+    json[response_len] = '\0';
+
+    json_find_string(json, "transcript", result->transcript, sizeof(result->transcript));
+    json_find_string(json, "reply", result->reply, sizeof(result->reply));
+    json_find_string(json, "route", result->route, sizeof(result->route));
+    json_find_string(json, "facultySlug", result->faculty_slug, sizeof(result->faculty_slug));
+    json_find_string(json, "facultyName", result->faculty_name, sizeof(result->faculty_name));
+
+    uint8_t *mp3 = NULL;
+    size_t mp3_len = 0;
+    if (extract_audio_base64(json, &mp3, &mp3_len)) {
+        result->mp3 = mp3;
+        result->mp3_len = mp3_len;
+    }
+    free(json);
+
+    if (result->transcript[0] == '\0' && result->reply[0] == '\0' && result->mp3 == NULL) {
+        return ESP_FAIL;
+    }
     return ESP_OK;
 }
 
