@@ -45,11 +45,6 @@ typedef struct {
     char detail[96];
 } atom_ui_msg_t;
 
-static void bust_ui_refresh(void)
-{
-    ui_set(s_ui, s_detail[0] ? s_detail : NULL);
-}
-
 static void ui_set(atom_ui_state_t state, const char *detail)
 {
     s_ui = state;
@@ -64,6 +59,12 @@ static void ui_set(atom_ui_state_t state, const char *detail)
     atom_strlcpy(msg.detail, s_detail, sizeof(msg.detail));
     (void)xQueueOverwrite(s_ui_queue, &msg);
 }
+
+static void bust_ui_refresh(void)
+{
+    ui_set(s_ui, s_detail[0] != '\0' ? s_detail : NULL);
+}
+
 
 static void ui_task(void *arg)
 {

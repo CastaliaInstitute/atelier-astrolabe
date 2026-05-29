@@ -4,6 +4,7 @@
 
 #include "driver/gpio.h"
 #include "driver/i2c_master.h"
+#include "driver/i2c_types.h"
 #include "driver/i2s_std.h"
 #include "driver/spi_master.h"
 #include "esp_check.h"
@@ -51,28 +52,28 @@ static bool s_button_prev;
 static esp_err_t pi4ioe_enable_speaker(void)
 {
     uint8_t buf[2];
-    i2c_device_handle_t dev;
+    i2c_master_dev_handle_t pi4ioe_dev;
     const i2c_device_config_t cfg = {
         .dev_addr_length = I2C_ADDR_BIT_LEN_7,
         .device_address = ATOM_PI4IOE_ADDR,
         .scl_speed_hz = 100000,
     };
-    ESP_RETURN_ON_ERROR(i2c_master_bus_add_device(s_audio_i2c, &cfg, &dev), TAG, "pi4ioe add");
+    ESP_RETURN_ON_ERROR(i2c_master_bus_add_device(s_audio_i2c, &cfg, &pi4ioe_dev), TAG, "pi4ioe add");
 
     buf[0] = 0x07;
     buf[1] = 0x00;
-    ESP_RETURN_ON_ERROR(i2c_master_transmit(dev, buf, 2, 1000), TAG, "pi4ioe pp");
+    ESP_RETURN_ON_ERROR(i2c_master_transmit(pi4ioe_dev, buf, 2, 1000), TAG, "pi4ioe pp");
     buf[0] = 0x0D;
     buf[1] = 0xFF;
-    ESP_RETURN_ON_ERROR(i2c_master_transmit(dev, buf, 2, 1000), TAG, "pi4ioe pull");
+    ESP_RETURN_ON_ERROR(i2c_master_transmit(pi4ioe_dev, buf, 2, 1000), TAG, "pi4ioe pull");
     buf[0] = 0x03;
     buf[1] = 0x6F;
-    ESP_RETURN_ON_ERROR(i2c_master_transmit(dev, buf, 2, 1000), TAG, "pi4ioe dir");
+    ESP_RETURN_ON_ERROR(i2c_master_transmit(pi4ioe_dev, buf, 2, 1000), TAG, "pi4ioe dir");
     buf[0] = 0x05;
     buf[1] = 0xFF;
-    ESP_RETURN_ON_ERROR(i2c_master_transmit(dev, buf, 2, 1000), TAG, "pi4ioe out");
+    ESP_RETURN_ON_ERROR(i2c_master_transmit(pi4ioe_dev, buf, 2, 1000), TAG, "pi4ioe out");
 
-    i2c_master_bus_rm_device(dev);
+    i2c_master_bus_rm_device(pi4ioe_dev);
     return ESP_OK;
 }
 
@@ -474,12 +475,12 @@ void atom_display_draw_status(atom_ui_state_t state, const char *faculty_name, c
 
     atom_display_fill_rect(0, ATOM_LCD_H - 28, ATOM_LCD_W, 28, rgb565(12, 16, 28));
     atom_display_fill_rect(8, ATOM_LCD_H - 26, ATOM_LCD_W - 16, 2, ring);
-    if (faculty_name != NULL && faculty_name[0] != ' ') {
+    if (faculty_name != NULL && faculty_name[0] != '\0') {
         draw_text(faculty_name, 8, ATOM_LCD_H - 22, fg);
     } else {
         draw_text(label, 8, ATOM_LCD_H - 22, ring);
     }
-    if (detail != NULL && detail[0] != ' ') {
+    if (detail != NULL && detail[0] != '\0') {
         draw_text(detail, 8, ATOM_LCD_H - 12, rgb565(140, 150, 165));
     } else {
         draw_text(label, 8, ATOM_LCD_H - 12, rgb565(140, 150, 165));

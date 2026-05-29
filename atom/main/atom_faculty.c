@@ -216,12 +216,11 @@ static bool decode_jpeg_rgb565(const uint8_t *jpeg, size_t jpeg_len, uint16_t *o
         return false;
     }
 
-    jpeg_dec_config_t config = {
-        .output_type = JPEG_RAW_TYPE_RGB565_BE,
-        .rotate = JPEG_ROTATE_0D,
-    };
-    jpeg_dec_handle_t jpeg_dec = jpeg_dec_open(&config);
-    if (jpeg_dec == NULL) {
+    jpeg_dec_config_t config = DEFAULT_JPEG_DEC_CONFIG();
+    config.output_type = JPEG_PIXEL_FORMAT_RGB565_BE;
+
+    jpeg_dec_handle_t jpeg_dec = NULL;
+    if (jpeg_dec_open(&config, &jpeg_dec) != JPEG_ERR_OK || jpeg_dec == NULL) {
         return false;
     }
 
@@ -237,28 +236,33 @@ static bool decode_jpeg_rgb565(const uint8_t *jpeg, size_t jpeg_len, uint16_t *o
 
     jpeg_io->inbuf = (uint8_t *)jpeg;
     jpeg_io->inbuf_len = (int)jpeg_len;
-    esp_err_t ret = jpeg_dec_parse_header(jpeg_dec, jpeg_io, jpeg_info);
-    if (ret != ESP_OK) {
-        ESP_LOGW(TAG, "JPEG header parse failed: %s", esp_err_to_name(ret));
+    jpeg_error_t jret = jpeg_dec_parse_header(jpeg_dec, jpeg_io, jpeg_info);
+    if (jret != JPEG_ERR_OK) {
+        ESP_LOGW(TAG, "JPEG header parse failed: %d", (int)jret);
         free(jpeg_io);
         free(jpeg_info);
         jpeg_dec_close(jpeg_dec);
         return false;
     }
 
-    const int consumed = jpeg_io->inbuf_len - jpeg_io->inbuf_remain;
-    jpeg_io->inbuf = (uint8_t *)jpeg + consumed;
-    jpeg_io->inbuf_len = jpeg_io->inbuf_remain;
-    jpeg_io->outbuf = (uint8_t *)out;
-
-    ret = jpeg_dec_process(jpeg_dec, jpeg_io);
     const int decoded_w = jpeg_info->width;
     const int decoded_h = jpeg_info->height;
+    int outbuf_len = 0;
+    if (jpeg_dec_get_outbuf_len(jpeg_dec, &outbuf_len) != JPEG_ERR_OK || outbuf_len <= 0) {
+        free(jpeg_io);
+        free(jpeg_info);
+        jpeg_dec_close(jpeg_dec);
+        return false;
+    }
+
+    jpeg_io->outbuf = (uint8_t *)out;
+    jpeg_io->out_size = outbuf_len;
+    jret = jpeg_dec_process(jpeg_dec, jpeg_io);
     jpeg_dec_close(jpeg_dec);
     free(jpeg_io);
     free(jpeg_info);
-    if (ret != ESP_OK) {
-        ESP_LOGW(TAG, "JPEG decode failed: %s", esp_err_to_name(ret));
+    if (jret != JPEG_ERR_OK) {
+        ESP_LOGW(TAG, "JPEG decode failed: %d", (int)jret);
         return false;
     }
 
