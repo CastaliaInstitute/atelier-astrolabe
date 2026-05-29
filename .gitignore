@@ -36,6 +36,7 @@ sdkconfig.*
 !sdkconfig.uac.defaults
 !idf/sdkconfig.defaults
 !sensecap/sdkconfig.defaults
+!atom/sdkconfig.defaults
 sdkconfig.old
 compile_commands.json
 build/
