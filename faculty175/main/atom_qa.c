@@ -4,6 +4,7 @@
 #include <string.h>
 #include <stdlib.h>
 
+#include "esp_attr.h"
 #include "esp_heap_caps.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
@@ -14,6 +15,8 @@
 #include "faculty175_board.h"
 
 static atom_qa_bind_t s_bind = {};
+EXT_RAM_BSS_ATTR static int16_t s_audio_stress_in[ATOM_LISTEN_FRAME_SAMPLES];
+EXT_RAM_BSS_ATTR static int16_t s_audio_stress_out[ATOM_LISTEN_FRAME_SAMPLES];
 
 static const char *ui_state_name(faculty175_ui_state_t state)
 {
@@ -248,19 +251,8 @@ static void qa_audio_stress(unsigned seconds)
         return;
     }
 
-    int16_t *in = heap_caps_malloc(ATOM_LISTEN_FRAME_SAMPLES * sizeof(int16_t),
-                                   MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    int16_t *out = heap_caps_malloc(ATOM_LISTEN_FRAME_SAMPLES * sizeof(int16_t),
-                                    MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    if (in == NULL || out == NULL) {
-        free(in);
-        free(out);
-        printf("qa: audio-stress alloc failed heap=%lu largest=%lu\n",
-               (unsigned long)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
-               (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
-        fflush(stdout);
-        return;
-    }
+    int16_t *in = s_audio_stress_in;
+    int16_t *out = s_audio_stress_out;
     const uint32_t total_frames = (seconds * FACULTY175_AUDIO_RATE) / ATOM_LISTEN_FRAME_SAMPLES;
     uint32_t phase = 0;
     uint32_t frames_read = 0;
@@ -337,8 +329,6 @@ static void qa_audio_stress(unsigned seconds)
            (unsigned long)min_internal,
            (unsigned long)min_largest,
            (long)((int32_t)heap_caps_get_free_size(MALLOC_CAP_SPIRAM) - (int32_t)psram_start));
-    free(in);
-    free(out);
     fflush(stdout);
 }
 

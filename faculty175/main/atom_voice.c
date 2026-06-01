@@ -5,6 +5,7 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "esp_attr.h"
 #include "esp_crt_bundle.h"
 #include "esp_heap_caps.h"
 #include "esp_http_client.h"
@@ -41,6 +42,9 @@ static const char *TAG = "atom_voice";
 #define VOICE_HEAP_MIN_INTERNAL_LARGEST (36 * 1024)
 #define VOICE_STREAM_CHUNK_BYTES 2048
 #define VOICE_MP3_STREAM_BUFFER_BYTES (24 * 1024)
+
+EXT_RAM_BSS_ATTR static uint8_t s_voice_mp3_stream_buf[VOICE_MP3_STREAM_BUFFER_BYTES];
+EXT_RAM_BSS_ATTR static int16_t s_voice_mp3_pcm[MINIMP3_MAX_SAMPLES_PER_FRAME * 2];
 
 typedef struct {
     bool open;
@@ -1046,15 +1050,7 @@ esp_err_t atom_voice_play_mp3(const uint8_t *mp3, size_t mp3_len)
 
     mp3dec_t dec;
     mp3dec_frame_info_t info;
-    int16_t *pcm = heap_caps_malloc(MINIMP3_MAX_SAMPLES_PER_FRAME * sizeof(int16_t) * 2,
-                                    MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    if (pcm == NULL) {
-        pcm = heap_caps_malloc(MINIMP3_MAX_SAMPLES_PER_FRAME * sizeof(int16_t) * 2,
-                               MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    }
-    if (pcm == NULL) {
-        return ESP_ERR_NO_MEM;
-    }
+    int16_t *pcm = s_voice_mp3_pcm;
 
     mp3dec_init(&dec);
     size_t offset = 0;
@@ -1089,7 +1085,6 @@ esp_err_t atom_voice_play_mp3(const uint8_t *mp3, size_t mp3_len)
         vTaskDelay(1);
     }
 
-    free(pcm);
     ESP_ERROR_CHECK_WITHOUT_ABORT(faculty175_audio_set_sample_rate(FACULTY175_AUDIO_RATE));
     ATOM_LOG_STAGE(TAG, "tts", "play done in %ums", (unsigned)(atom_log_ms() - t0));
     return ESP_OK;
@@ -1106,22 +1101,8 @@ esp_err_t atom_voice_play_mp3_file(const char *path, size_t mp3_len)
         return ESP_ERR_NOT_FOUND;
     }
 
-    uint8_t *in = heap_caps_malloc(VOICE_MP3_STREAM_BUFFER_BYTES, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (in == NULL) {
-        in = heap_caps_malloc(VOICE_MP3_STREAM_BUFFER_BYTES, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    }
-    int16_t *pcm = heap_caps_malloc(MINIMP3_MAX_SAMPLES_PER_FRAME * sizeof(int16_t) * 2,
-                                    MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    if (pcm == NULL) {
-        pcm = heap_caps_malloc(MINIMP3_MAX_SAMPLES_PER_FRAME * sizeof(int16_t) * 2,
-                               MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    }
-    if (in == NULL || pcm == NULL) {
-        free(in);
-        free(pcm);
-        fclose(f);
-        return ESP_ERR_NO_MEM;
-    }
+    uint8_t *in = s_voice_mp3_stream_buf;
+    int16_t *pcm = s_voice_mp3_pcm;
 
     const uint32_t t0 = atom_log_ms();
     ATOM_LOG_STAGE(TAG, "tts", "play file start mp3=%uB path=%s", (unsigned)mp3_len, path);
@@ -1188,8 +1169,6 @@ esp_err_t atom_voice_play_mp3_file(const char *path, size_t mp3_len)
         vTaskDelay(1);
     }
 
-    free(in);
-    free(pcm);
     fclose(f);
     ESP_ERROR_CHECK_WITHOUT_ABORT(faculty175_audio_set_sample_rate(FACULTY175_AUDIO_RATE));
     ATOM_LOG_STAGE(TAG, "tts", "play file done in %ums", (unsigned)(atom_log_ms() - t0));

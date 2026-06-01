@@ -2,6 +2,7 @@
 #include <string.h>
 
 #include "esp_event.h"
+#include "esp_attr.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_netif.h"
@@ -37,6 +38,7 @@ static const char *TAG = "faculty175";
 
 #define WIFI_CONNECTED_BIT BIT0
 #define WIFI_FAIL_BIT BIT1
+#define VOICE_FRAME_POOL_LEN 16
 
 static EventGroupHandle_t s_wifi_events;
 static faculty175_ui_state_t s_ui = FACULTY175_UI_BOOT;
@@ -48,6 +50,9 @@ static atom_listen_t s_listen;
 static uint32_t s_voice_turn;
 static QueueHandle_t s_voice_queue;
 static volatile bool s_voice_capture_enabled;
+EXT_RAM_BSS_ATTR static int16_t s_voice_frame_pool[VOICE_FRAME_POOL_LEN][ATOM_LISTEN_FRAME_SAMPLES];
+static bool s_voice_frame_pool_used[VOICE_FRAME_POOL_LEN];
+static portMUX_TYPE s_voice_frame_pool_mux = portMUX_INITIALIZER_UNLOCKED;
 
 typedef enum {
     VOICE_EVT_START,
@@ -60,6 +65,36 @@ typedef struct {
     size_t sample_count;
     int16_t *samples;
 } voice_event_t;
+
+static int16_t *voice_frame_pool_acquire(void)
+{
+    int16_t *frame = NULL;
+    portENTER_CRITICAL(&s_voice_frame_pool_mux);
+    for (size_t i = 0; i < VOICE_FRAME_POOL_LEN; ++i) {
+        if (!s_voice_frame_pool_used[i]) {
+            s_voice_frame_pool_used[i] = true;
+            frame = s_voice_frame_pool[i];
+            break;
+        }
+    }
+    portEXIT_CRITICAL(&s_voice_frame_pool_mux);
+    return frame;
+}
+
+static void voice_frame_pool_release(int16_t *frame)
+{
+    if (frame == NULL) {
+        return;
+    }
+    portENTER_CRITICAL(&s_voice_frame_pool_mux);
+    for (size_t i = 0; i < VOICE_FRAME_POOL_LEN; ++i) {
+        if (frame == s_voice_frame_pool[i]) {
+            s_voice_frame_pool_used[i] = false;
+            break;
+        }
+    }
+    portEXIT_CRITICAL(&s_voice_frame_pool_mux);
+}
 
 static void listen_stream_start(void *ctx)
 {
@@ -81,14 +116,14 @@ static void listen_stream_frame(const int16_t *frame, size_t frame_samples, void
     if (!s_voice_capture_enabled || frame == NULL || frame_samples == 0 || s_voice_queue == NULL) {
         return;
     }
-    const size_t bytes = frame_samples * sizeof(int16_t);
-    int16_t *copy = heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (copy == NULL) {
-        copy = malloc(bytes);
+    if (frame_samples > ATOM_LISTEN_FRAME_SAMPLES) {
+        return;
     }
+    int16_t *copy = voice_frame_pool_acquire();
     if (copy == NULL) {
         return;
     }
+    const size_t bytes = frame_samples * sizeof(int16_t);
     memcpy(copy, frame, bytes);
     const voice_event_t ev = {
         .type = VOICE_EVT_PCM,
@@ -96,7 +131,7 @@ static void listen_stream_frame(const int16_t *frame, size_t frame_samples, void
         .samples = copy,
     };
     if (xQueueSend(s_voice_queue, &ev, pdMS_TO_TICKS(20)) != pdTRUE) {
-        free(copy);
+        voice_frame_pool_release(copy);
     }
 }
 
@@ -284,7 +319,7 @@ static void voice_worker_task(void *arg)
                     if (atom_voice_stream_write(ev.samples, ev.sample_count) != ESP_OK) {
                         ATOM_LOG_STAGE_W(TAG, "stream", "pcm write failed — cancelled");
                     }
-                    free(ev.samples);
+                    voice_frame_pool_release(ev.samples);
                 }
                 break;
             case VOICE_EVT_END: {
