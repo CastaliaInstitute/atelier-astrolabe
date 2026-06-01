@@ -6,6 +6,7 @@ on:
       key_name:
         description: Short key name used in artifact filenames
         required: true
+        type: string
         default: faculty175-prod-v1
 
 permissions:
@@ -19,7 +20,7 @@ jobs:
     steps:
       - name: Generate encrypted key bundle
         env:
-          KEY_NAME: ${{ inputs.key_name }}
+          KEY_NAME: ${{ github.event.inputs.key_name }}
           OTA_KEY_ENCRYPTION_PASSPHRASE: ${{ secrets.OTA_KEY_ENCRYPTION_PASSPHRASE }}
         run: |
           set -euo pipefail
@@ -76,7 +77,7 @@ jobs:
       - name: Upload encrypted private key
         uses: actions/upload-artifact@v4
         with:
-          name: ota-release-private-key-${{ inputs.key_name }}
+          name: ota-release-private-key-${{ github.event.inputs.key_name }}
           path: ota-release-key-*/private.pem.enc
           retention-days: 7
           if-no-files-found: error
@@ -84,7 +85,7 @@ jobs:
       - name: Upload public key bundle
         uses: actions/upload-artifact@v4
         with:
-          name: ota-release-public-key-${{ inputs.key_name }}
+          name: ota-release-public-key-${{ github.event.inputs.key_name }}
           path: |
             ota-release-key-*/public.pem
             ota-release-key-*/public-key-sha256.txt
