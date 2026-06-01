@@ -65,6 +65,8 @@ static const char *TAG = "faculty_board";
 #define ATOM_PA_GPIO GPIO_NUM_46
 #define ATOM_ES7210_ADDR ES7210_CODEC_DEFAULT_ADDR
 #define ATOM_ES8311_ADDR ES8311_CODEC_DEFAULT_ADDR
+#define FACULTY175_AUDIO_MIN_PROBE_PEAK 1
+#define FACULTY175_AUDIO_WARN_PROBE_PEAK 32
 
 #define ATOM_BUTTON_GPIO GPIO_NUM_0
 
@@ -407,14 +409,17 @@ static int32_t faculty175_audio_probe_peak(void)
     if (esp_codec_dev_open(s_mic_codec, &fs) != ESP_OK) {
         return 0;
     }
+    (void)esp_codec_dev_set_in_gain(s_mic_codec, 30.0f);
 
     int16_t frame[320];
     int32_t peak = 0;
+    bool read_ok = false;
     vTaskDelay(pdMS_TO_TICKS(80));
     for (int i = 0; i < 8; ++i) {
         if (esp_codec_dev_read(s_mic_codec, frame, sizeof(frame)) != ESP_OK) {
             continue;
         }
+        read_ok = true;
         for (size_t j = 0; j < 320; ++j) {
             const int32_t abs = sample_abs(frame[j]);
             if (abs > peak) {
@@ -423,7 +428,7 @@ static int32_t faculty175_audio_probe_peak(void)
         }
     }
     esp_codec_dev_close(s_mic_codec);
-    return peak;
+    return read_ok ? peak : 0;
 }
 
 static esp_err_t faculty175_audio_init(void)
@@ -445,12 +450,16 @@ static esp_err_t faculty175_audio_init(void)
     ESP_RETURN_ON_ERROR(esp_codec_dev_close(s_spk_codec), TAG, "spk close");
 
     s_mic_probe_peak = faculty175_audio_probe_peak();
-    if (s_mic_probe_peak < 32) {
-        ESP_LOGE(TAG, "mic probe peak=%ld — ES7210 not capturing", (long)s_mic_probe_peak);
+    if (s_mic_probe_peak < FACULTY175_AUDIO_MIN_PROBE_PEAK) {
+        ESP_LOGE(TAG, "mic probe peak=%ld - ES7210 not capturing", (long)s_mic_probe_peak);
         return ESP_FAIL;
+    }
+    if (s_mic_probe_peak < FACULTY175_AUDIO_WARN_PROBE_PEAK) {
+        ESP_LOGW(TAG, "mic probe peak=%ld below voice-quality threshold; continuing", (long)s_mic_probe_peak);
     }
     ESP_LOGI(TAG, "mic probe peak=%ld", (long)s_mic_probe_peak);
     ESP_RETURN_ON_ERROR(faculty175_codec_open(false, FACULTY175_AUDIO_RATE), TAG, "mic listen open");
+    (void)esp_codec_dev_set_in_gain(s_mic_codec, 30.0f);
     return ESP_OK;
 }
 
