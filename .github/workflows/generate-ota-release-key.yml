@@ -44,26 +44,26 @@ jobs:
             -pass env:OTA_KEY_ENCRYPTION_PASSPHRASE
 
           python3 - "${out}/public.pem" "${out}/astrolabe_faculty175_ota_key.h" <<'PY'
-import pathlib
-import sys
+          import pathlib
+          import sys
 
-public_pem = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8").splitlines()
-header = [
-    "#pragma once",
-    "",
-    "/* Production OTA manifest verification key. */",
-    "#define ASTROLABE_FACULTY175_OTA_PUBKEY_PEM \\",
-]
-for idx, line in enumerate(public_pem):
-    suffix = " \\" if idx + 1 < len(public_pem) else ""
-    header.append(f'    "{line}\\n"{suffix}')
-header.extend([
-    "",
-    '#define ASTROLABE_FACULTY175_OTA_SIG_ALG "ecdsa-p256-sha256"',
-    "",
-])
-pathlib.Path(sys.argv[2]).write_text("\n".join(header), encoding="utf-8")
-PY
+          public_pem = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8").splitlines()
+          header = [
+              "#pragma once",
+              "",
+              "/* Production OTA manifest verification key. */",
+              "#define ASTROLABE_FACULTY175_OTA_PUBKEY_PEM \\",
+          ]
+          for idx, line in enumerate(public_pem):
+              suffix = " \\" if idx + 1 < len(public_pem) else ""
+              header.append(f'    "{line}\\n"{suffix}')
+          header.extend([
+              "",
+              '#define ASTROLABE_FACULTY175_OTA_SIG_ALG "ecdsa-p256-sha256"',
+              "",
+          ])
+          pathlib.Path(sys.argv[2]).write_text("\n".join(header), encoding="utf-8")
+          PY
 
           rm -f "${out}/private.pem"
           {
