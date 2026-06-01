@@ -2,12 +2,6 @@ name: Generate OTA Release Key
 
 on:
   workflow_dispatch:
-    inputs:
-      key_name:
-        description: Short key name used in artifact filenames
-        required: true
-        type: string
-        default: faculty175-prod-v1
 
 permissions:
   contents: read
@@ -16,16 +10,16 @@ jobs:
   generate:
     name: Generate encrypted OTA signing key
     runs-on: ubuntu-latest
-    environment: production
+    env:
+      KEY_NAME: faculty175-prod-v1
     steps:
       - name: Generate encrypted key bundle
         env:
-          KEY_NAME: ${{ github.event.inputs.key_name }}
           OTA_KEY_ENCRYPTION_PASSPHRASE: ${{ secrets.OTA_KEY_ENCRYPTION_PASSPHRASE }}
         run: |
           set -euo pipefail
           if [ -z "${OTA_KEY_ENCRYPTION_PASSPHRASE}" ]; then
-            echo "OTA_KEY_ENCRYPTION_PASSPHRASE environment secret is required" >&2
+            echo "OTA_KEY_ENCRYPTION_PASSPHRASE repository secret is required" >&2
             exit 1
           fi
 
@@ -44,27 +38,7 @@ jobs:
             -out "${out}/private.pem.enc" \
             -pass env:OTA_KEY_ENCRYPTION_PASSPHRASE
 
-          python3 - "${out}/public.pem" "${out}/astrolabe_faculty175_ota_key.h" <<'PY'
-          import pathlib
-          import sys
-
-          public_pem = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8").splitlines()
-          header = [
-              "#pragma once",
-              "",
-              "/* Production OTA manifest verification key. */",
-              "#define ASTROLABE_FACULTY175_OTA_PUBKEY_PEM \\",
-          ]
-          for idx, line in enumerate(public_pem):
-              suffix = " \\" if idx + 1 < len(public_pem) else ""
-              header.append(f'    "{line}\\n"{suffix}')
-          header.extend([
-              "",
-              '#define ASTROLABE_FACULTY175_OTA_SIG_ALG "ecdsa-p256-sha256"',
-              "",
-          ])
-          pathlib.Path(sys.argv[2]).write_text("\n".join(header), encoding="utf-8")
-          PY
+          python3 -c 'import pathlib, sys; lines = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8").splitlines(); header = ["#pragma once", "", "/* Production OTA manifest verification key. */", "#define ASTROLABE_FACULTY175_OTA_PUBKEY_PEM \\\\"]; header.extend([f"    \"{line}\\\\n\"" + (" \\\\" if idx + 1 < len(lines) else "") for idx, line in enumerate(lines)]); header.extend(["", "#define ASTROLABE_FACULTY175_OTA_SIG_ALG \"ecdsa-p256-sha256\"", ""]); pathlib.Path(sys.argv[2]).write_text("\n".join(header), encoding="utf-8")' "${out}/public.pem" "${out}/astrolabe_faculty175_ota_key.h"
 
           rm -f "${out}/private.pem"
           {
@@ -77,7 +51,7 @@ jobs:
       - name: Upload encrypted private key
         uses: actions/upload-artifact@v4
         with:
-          name: ota-release-private-key-${{ github.event.inputs.key_name }}
+          name: ota-release-private-key-faculty175-prod-v1
           path: ota-release-key-*/private.pem.enc
           retention-days: 7
           if-no-files-found: error
@@ -85,7 +59,7 @@ jobs:
       - name: Upload public key bundle
         uses: actions/upload-artifact@v4
         with:
-          name: ota-release-public-key-${{ github.event.inputs.key_name }}
+          name: ota-release-public-key-faculty175-prod-v1
           path: |
             ota-release-key-*/public.pem
             ota-release-key-*/public-key-sha256.txt
