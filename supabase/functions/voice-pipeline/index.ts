@@ -29,10 +29,20 @@ import {
   VOICE_FACE_SYNASTRY,
 } from "../_shared/mynahVoiceFaces.ts";
 import {
+  isDedicatedFacultyFace,
   matchAskFacultyRoute,
+  normalizeFacultySlug,
   siblingFunctionUrl,
+  type FacultySelection,
 } from "../_shared/askFacultyRoute.ts";
+import {
+  facultyTtsFallback,
+  facultyTtsFromRow,
+  type FacultyTtsConfig,
+} from "../_shared/facultyTts.ts";
 import { scheduleMynahCommonplaceLog } from "../_shared/commonplaceDirectus.ts";
+import { verifyAstrolabeDevice } from "../_shared/deviceAuth.ts";
+import { resolveVoiceUsageUserId } from "../_shared/voiceUsage.ts";
 
 type ReqBody = {
   audioBase64?: string;
@@ -58,6 +68,8 @@ type ReqBody = {
   facultySlug?: string;
   /** Optional display name for the faculty metadata headers / logging fallback. */
   facultyName?: string;
+  /** Device-side turn history; forwarded to ask-faculty (does not replace faculty voice_prompt). */
+  conversationHistory?: string;
   /** Direct Google Cloud TTS voice override for tour/device narration. */
   ttsVoiceName?: string;
   ttsVoice?: string | Record<string, unknown>;
@@ -80,10 +92,42 @@ type AskFacultyResponse = {
   facultyBustUrl?: string | null;
 };
 
-type FacultySelection = {
-  slug: string;
-  name: string;
-};
+/** Faculty firmware streams VAD PCM: [u32 jsonLen LE][json metadata][raw LINEAR16 mono PCM]. */
+const VOICE_STREAM_CT = "application/vnd.astrolabe.voice-stream";
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
+async function parseVoiceRequestBody(req: Request): Promise<ReqBody> {
+  const ct = (req.headers.get("content-type") ?? "").toLowerCase();
+  if (!ct.includes(VOICE_STREAM_CT)) {
+    return (await req.json()) as ReqBody;
+  }
+
+  const raw = new Uint8Array(await req.arrayBuffer());
+  if (raw.byteLength < 4) {
+    throw new Error("voice stream too short");
+  }
+  const jsonLen = new DataView(raw.buffer, raw.byteOffset, raw.byteLength).getUint32(0, true);
+  if (!Number.isFinite(jsonLen) || jsonLen <= 0 || jsonLen > 16384 || 4 + jsonLen > raw.byteLength) {
+    throw new Error("invalid voice stream header");
+  }
+  const jsonText = new TextDecoder().decode(raw.subarray(4, 4 + jsonLen));
+  const body = JSON.parse(jsonText) as ReqBody;
+  const pcm = raw.subarray(4 + jsonLen);
+  if (pcm.byteLength === 0) {
+    throw new Error("empty PCM in voice stream");
+  }
+  body.audioBase64 = bytesToBase64(pcm);
+  body.sampleRateHertz = body.sampleRateHertz ?? 16000;
+  return body;
+}
 
 const ASK_FACULTY_SELECTIONS: Array<FacultySelection & { hints: string }> = [
   {
@@ -217,7 +261,7 @@ function requestLocalHour(body: ReqBody): number | undefined {
 }
 
 function cleanFacultySlug(raw: unknown): string {
-  return typeof raw === "string" ? raw.trim().replace(/-/g, ".") : "";
+  return normalizeFacultySlug(raw);
 }
 
 function voiceFromUnknown(value: unknown): WatchTtsVoiceSelection | undefined {
@@ -273,54 +317,43 @@ function voiceFromEnv(slug: string): WatchTtsVoiceSelection | undefined {
 }
 
 function voiceFromFacultyRow(row: Record<string, unknown>): WatchTtsVoiceSelection | undefined {
-  const directName =
-    stringField(row.google_tts_voice_name) ||
-    stringField(row.tts_voice_name) ||
-    stringField(row.google_voice_name);
-  if (directName) {
-    return {
-      languageCode:
-        stringField(row.google_tts_language_code) ||
-        stringField(row.tts_language_code) ||
-        stringField(row.google_language_code) ||
-        languageFromVoiceName(directName),
-      name: directName,
-    };
-  }
+  const cfg = facultyTtsFromRow(row);
+  if (!cfg.name) return undefined;
+  return { languageCode: cfg.languageCode, name: cfg.name };
+}
 
-  const voice = typeof row.voice === "object" && row.voice && !Array.isArray(row.voice)
-    ? (row.voice as Record<string, unknown>)
-    : {};
-  const voiceCard = typeof row.voice_card === "object" && row.voice_card && !Array.isArray(row.voice_card)
-    ? (row.voice_card as Record<string, unknown>)
-    : {};
-
+function promptFromEnv(slug: string): string | undefined {
+  if (!slug) return undefined;
+  const keySlug = slug.toUpperCase().replace(/[^A-Z0-9]+/g, "_");
   return (
-    voiceFromUnknown(row.google_tts_voice) ||
-    voiceFromUnknown(row.tts_voice) ||
-    voiceFromUnknown(voice.googleTts) ||
-    voiceFromUnknown(voice.google_tts) ||
-    voiceFromUnknown(voiceCard.googleTts) ||
-    voiceFromUnknown(voiceCard.google_tts) ||
-    voiceFromUnknown(voiceCard.ttsVoice) ||
-    voiceFromUnknown(voiceCard.tts_voice)
+    Deno.env.get(`FACULTY_TTS_PROMPT_${keySlug}`)?.trim() ||
+    Deno.env.get(`FACULTY_GOOGLE_TTS_PROMPT_${keySlug}`)?.trim() ||
+    undefined
   );
 }
 
-async function resolveFacultyTtsVoice(slugRaw: unknown): Promise<WatchTtsVoiceSelection | undefined> {
+function facultyTtsConfigFromEnv(slug: string): FacultyTtsConfig | undefined {
+  const voice = voiceFromEnv(slug);
+  if (!voice) return undefined;
+  const prompt = promptFromEnv(slug);
+  return { ...voice, ...(prompt ? { prompt } : {}) };
+}
+
+async function resolveFacultyTtsConfig(slugRaw: unknown): Promise<FacultyTtsConfig | undefined> {
   const slug = cleanFacultySlug(slugRaw);
   if (!slug) return undefined;
 
-  const envVoice = voiceFromEnv(slug);
-  if (envVoice) return envVoice;
+  const envCfg = facultyTtsConfigFromEnv(slug);
+  if (envCfg) return envCfg;
 
   const url = Deno.env.get("SUPABASE_URL")?.trim() ?? "";
   const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")?.trim() ?? "";
-  if (!url || !key) return undefined;
+  if (!url || !key) return facultyTtsFallback(slug);
 
   try {
     const supabase = createClient(url, key);
-    const select = "id,slug,google_tts_voice_name,google_tts_language_code";
+    const select =
+      "id,slug,google_tts_voice_name,google_tts_language_code,google_tts_prompt,voice_prompt";
     let row: Record<string, unknown> | null = null;
     const byId = await supabase.from("faculty").select(select).eq("id", slug).maybeSingle();
     if (!byId.error && byId.data) {
@@ -332,11 +365,11 @@ async function resolveFacultyTtsVoice(slugRaw: unknown): Promise<WatchTtsVoiceSe
         row = bySlug.data as Record<string, unknown>;
       }
     }
-    if (!row) return undefined;
-    return voiceFromFacultyRow(row);
+    if (!row) return facultyTtsFallback(slug);
+    return facultyTtsFromRow(row, slug);
   } catch (e) {
-    console.warn("voice-pipeline: faculty TTS voice lookup failed", e);
-    return undefined;
+    console.warn("voice-pipeline: faculty TTS lookup failed", e);
+    return facultyTtsFallback(slug);
   }
 }
 
@@ -381,17 +414,41 @@ async function voicePipelineOk(
     reply: payload.reply,
   });
 
-  const ttsVoice =
+  const ttsOverride =
     voiceFromUnknown(body.ttsVoice) ||
     voiceFromUnknown(body.voice) ||
     voiceFromUnknown(body.ttsVoiceName) ||
-    voiceFromUnknown(body.voiceName) ||
-    await resolveFacultyTtsVoice(payload.facultySlug);
+    voiceFromUnknown(body.voiceName);
+
+  const facultyTts = ttsOverride
+    ? undefined
+    : await resolveFacultyTtsConfig(payload.facultySlug);
+  const ttsVoice = ttsOverride ??
+    (facultyTts
+      ? { languageCode: facultyTts.languageCode, name: facultyTts.name }
+      : undefined);
+  const ttsPrompt = facultyTts?.prompt;
+
+  const usageUserId = await resolveVoiceUsageUserId(req);
+  const usageBase = {
+    route: payload.route,
+    userId: usageUserId,
+    face: payload.face,
+    facultySlug: payload.facultySlug,
+    source: "voice-pipeline",
+  };
+
+  const ttsOptions = (localHour?: number) => ({
+    localHour,
+    voice: ttsVoice,
+    ...(ttsPrompt ? { prompt: ttsPrompt } : {}),
+    usage: usageBase,
+  });
 
   if (wantsMp3Response(req, body)) {
     const localHour = requestLocalHour(body);
     const voice = watchTtsVoiceSelection({ voice: ttsVoice });
-    const mp3 = await ttsMp3Bytes(tts, spoken, { localHour, voice: ttsVoice });
+    const mp3 = await ttsMp3Bytes(tts, spoken, ttsOptions(localHour));
     const headers: Record<string, string> = {
       ...corsHeaders,
       "Content-Type": "audio/mpeg",
@@ -417,7 +474,7 @@ async function voicePipelineOk(
 
   const localHour = requestLocalHour(body);
   const voice = watchTtsVoiceSelection({ voice: ttsVoice });
-  const audioBase64 = await ttsMp3Base64(tts, spoken, { localHour, voice: ttsVoice });
+  const audioBase64 = await ttsMp3Base64(tts, spoken, ttsOptions(localHour));
   return jsonResponse(
     200,
     {
@@ -452,11 +509,12 @@ async function forwardToAskFaculty(
     localHour?: number;
     facultySlug?: string;
     facultyName?: string;
+    conversationHistory?: string;
     /** Only forwarded when the client set `systemInstruction`; otherwise ask-faculty uses its faculty default. */
     overrideSystemInstruction?: string;
   },
 ): Promise<Response> {
-  const url = siblingFunctionUrl("ask-faculty");
+  const url = siblingFunctionUrl("ask-faculty-voice");
   const auth = req.headers.get("Authorization") ?? "";
   const apikey = req.headers.get("apikey") ?? "";
   const body: Record<string, unknown> = {
@@ -601,11 +659,15 @@ Deno.serve(async (req: Request) => {
     return jsonResponse(405, { error: "Method not allowed" });
   }
 
+  const deviceAuthError = await verifyAstrolabeDevice(req);
+  if (deviceAuthError) return deviceAuthError;
+
   let body: ReqBody;
   try {
-    body = (await req.json()) as ReqBody;
-  } catch {
-    return jsonResponse(400, { error: "Invalid JSON body" });
+    body = await parseVoiceRequestBody(req);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return jsonResponse(400, { error: msg || "Invalid request body" });
   }
 
   const { speech, gemini, tts } = envKeys();
@@ -772,6 +834,28 @@ Deno.serve(async (req: Request) => {
         overrideSystemInstruction: clientSystem || undefined,
       });
       return await askFacultyPipelineResponse(req, body, fr, face || undefined, selection);
+    }
+
+    const activeSlug = cleanFacultySlug(body.facultySlug);
+    const activeName = (body.facultyName ?? "").trim();
+    if (isDedicatedFacultyFace(face) && activeSlug) {
+      const fallback: FacultySelection = {
+        slug: activeSlug,
+        name: activeName || activeSlug,
+      };
+      const history = (body.conversationHistory ?? "").trim();
+      const fr = await forwardToAskFaculty(req, {
+        message: transcript,
+        languageCode,
+        geminiModel,
+        rawTranscript: transcript,
+        skipLlm: body.skipLlm ?? false,
+        localHour: requestLocalHour(body),
+        facultySlug: activeSlug,
+        facultyName: activeName || undefined,
+        conversationHistory: history || undefined,
+      });
+      return await askFacultyPipelineResponse(req, body, fr, face || undefined, fallback);
     }
 
     let reply: string;

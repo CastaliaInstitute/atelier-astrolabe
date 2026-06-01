@@ -1,0 +1,98 @@
+name: Generate OTA Release Key
+
+on:
+  workflow_dispatch:
+    inputs:
+      key_name:
+        description: Short key name used in artifact filenames
+        required: true
+        default: faculty175-prod-v1
+      environment:
+        description: GitHub Environment containing OTA_KEY_ENCRYPTION_PASSPHRASE
+        required: true
+        default: production
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    name: Generate encrypted OTA signing key
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - name: Generate encrypted key bundle
+        env:
+          KEY_NAME: ${{ inputs.key_name }}
+          OTA_KEY_ENCRYPTION_PASSPHRASE: ${{ secrets.OTA_KEY_ENCRYPTION_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          if [ -z "${OTA_KEY_ENCRYPTION_PASSPHRASE}" ]; then
+            echo "OTA_KEY_ENCRYPTION_PASSPHRASE environment secret is required" >&2
+            exit 1
+          fi
+
+          safe_name="$(printf '%s' "${KEY_NAME}" | tr -cs 'A-Za-z0-9._-' '-')"
+          out="ota-release-key-${safe_name}"
+          mkdir -p "${out}"
+
+          openssl ecparam -name prime256v1 -genkey -noout -out "${out}/private.pem"
+          openssl ec -in "${out}/private.pem" -pubout -out "${out}/public.pem"
+          openssl ec -in "${out}/private.pem" -pubout -outform DER |
+            openssl dgst -sha256 -binary |
+            xxd -p -c 256 > "${out}/public-key-sha256.txt"
+
+          openssl enc -aes-256-cbc -pbkdf2 -iter 600000 -salt \
+            -in "${out}/private.pem" \
+            -out "${out}/private.pem.enc" \
+            -pass env:OTA_KEY_ENCRYPTION_PASSPHRASE
+
+          python3 - <<'PY' "${out}/public.pem" "${out}/astrolabe_faculty175_ota_key.h"
+          import pathlib
+          import sys
+
+          public_pem = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8").splitlines()
+          header = [
+              "#pragma once",
+              "",
+              "/* Production OTA manifest verification key. */",
+              "#define ASTROLABE_FACULTY175_OTA_PUBKEY_PEM \\",
+          ]
+          for idx, line in enumerate(public_pem):
+              suffix = " \\" if idx + 1 < len(public_pem) else ""
+              header.append(f'    "{line}\\n"{suffix}')
+          header.extend([
+              "",
+              '#define ASTROLABE_FACULTY175_OTA_SIG_ALG "ecdsa-p256-sha256"',
+              "",
+          ])
+          pathlib.Path(sys.argv[2]).write_text("\n".join(header), encoding="utf-8")
+          PY
+
+          rm -f "${out}/private.pem"
+          {
+            echo "key_name=${KEY_NAME}"
+            echo "public_key_sha256=$(cat "${out}/public-key-sha256.txt")"
+            echo "private_key=private.pem.enc"
+            echo "decrypt=openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 -in private.pem.enc -out private.pem -pass env:OTA_KEY_ENCRYPTION_PASSPHRASE"
+          } > "${out}/README.txt"
+
+      - name: Upload encrypted private key
+        uses: actions/upload-artifact@v4
+        with:
+          name: ota-release-private-key-${{ inputs.key_name }}
+          path: ota-release-key-*/private.pem.enc
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Upload public key bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: ota-release-public-key-${{ inputs.key_name }}
+          path: |
+            ota-release-key-*/public.pem
+            ota-release-key-*/public-key-sha256.txt
+            ota-release-key-*/astrolabe_faculty175_ota_key.h
+            ota-release-key-*/README.txt
+          retention-days: 90
+          if-no-files-found: error
