@@ -50,6 +50,10 @@ static atom_faculty_ui_notify_fn s_ui_notify;
 static bool s_bust_cache_ready;
 static bool s_bust_cache_checked;
 
+#ifndef ASTROLABE_FACULTY_PREFETCH_ROSTER
+#define ASTROLABE_FACULTY_PREFETCH_ROSTER 0
+#endif
+
 static void compute_bust_content_center(const uint8_t *opaque, int w, int h, int *out_cx, int *out_cy)
 {
     if (out_cx == NULL || out_cy == NULL || opaque == NULL || w <= 0 || h <= 0) {
@@ -675,22 +679,6 @@ static bool bust_cache_path(const char *slug, char *path, size_t cap)
     return n > 0 && (size_t)n < cap;
 }
 
-static bool bust_flash_cached(const char *slug)
-{
-    char path[80];
-    if (!bust_cache_path(slug, path, sizeof(path)) || !bust_cache_init()) {
-        return false;
-    }
-    FILE *f = fopen(path, "rb");
-    if (f == NULL) {
-        return false;
-    }
-    fseek(f, 0, SEEK_END);
-    const long sz = ftell(f);
-    fclose(f);
-    return sz > 0 && (size_t)sz <= BUST_IMAGE_MAX_BYTES;
-}
-
 static bool bust_load_from_flash(const char *slug, uint8_t **bytes, size_t *len)
 {
     if (bytes == NULL || len == NULL || slug == NULL || slug[0] == '\0') {
@@ -743,6 +731,24 @@ static bool bust_load_from_flash(const char *slug, uint8_t **bytes, size_t *len)
     ESP_LOGI(TAG, "bust flash hit %s (%u B)", slug, (unsigned)*len);
     return true;
 }
+
+#if ASTROLABE_FACULTY_PREFETCH_ROSTER
+static bool bust_flash_cached(const char *slug)
+{
+    char path[80];
+    if (!bust_cache_path(slug, path, sizeof(path)) || !bust_cache_init()) {
+        return false;
+    }
+    FILE *f = fopen(path, "rb");
+    if (f == NULL) {
+        return false;
+    }
+    fseek(f, 0, SEEK_END);
+    const long sz = ftell(f);
+    fclose(f);
+    return sz > 0 && (size_t)sz <= BUST_IMAGE_MAX_BYTES;
+}
+#endif
 
 static bool bust_save_to_flash(const char *slug, const uint8_t *bytes, size_t len)
 {
@@ -839,17 +845,6 @@ static bool fetch_bust_bytes_network(const char *slug, uint8_t **bytes, size_t *
     return false;
 }
 
-static bool fetch_bust_bytes(const char *slug, uint8_t **bytes, size_t *len, const char **source_out)
-{
-    if (bust_load_from_flash(slug, bytes, len)) {
-        if (source_out != NULL) {
-            *source_out = "flash";
-        }
-        return true;
-    }
-    return fetch_bust_bytes_network(slug, bytes, len, source_out);
-}
-
 static bool fetch_and_decode_bust(const char *slug)
 {
     if (slug == NULL || slug[0] == '\0') {
@@ -917,19 +912,22 @@ static void bust_worker_task(void *arg)
     char slug[64];
     while (true) {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-        strncpy(slug, s_req_slug, sizeof(slug) - 1);
-        slug[sizeof(slug) - 1] = '\0';
-        if (slug[0] == '\0') {
-            continue;
-        }
-
         if (xSemaphoreTake(s_bust_lock, pdMS_TO_TICKS(1000)) == pdTRUE) {
+            strncpy(slug, s_req_slug, sizeof(slug) - 1);
+            slug[sizeof(slug) - 1] = '\0';
+            if (slug[0] == '\0') {
+                xSemaphoreGive(s_bust_lock);
+                continue;
+            }
             if (s_status == ATOM_FACULTY_BUST_READY && strcmp(s_loaded_slug, slug) == 0) {
                 xSemaphoreGive(s_bust_lock);
                 continue;
             }
             s_status = ATOM_FACULTY_BUST_LOADING;
             xSemaphoreGive(s_bust_lock);
+        } else {
+            vTaskDelay(pdMS_TO_TICKS(50));
+            continue;
         }
 
         ATOM_LOG_STAGE(TAG, "faculty", "bust loading %s", slug);
@@ -954,6 +952,7 @@ static void bust_worker_task(void *arg)
     }
 }
 
+#if ASTROLABE_FACULTY_PREFETCH_ROSTER
 static void prefetch_roster_task(void *arg)
 {
     (void)arg;
@@ -988,10 +987,13 @@ static void prefetch_roster_task(void *arg)
     ESP_LOGI(TAG, "roster prefetch done");
     vTaskDelete(NULL);
 }
+#endif
 
 void atom_faculty_prefetch_roster(void)
 {
-    (void)xTaskCreate(prefetch_roster_task, "fac_prefetch", 12288, NULL, 2, NULL);
+#if ASTROLABE_FACULTY_PREFETCH_ROSTER
+    (void)xTaskCreate(prefetch_roster_task, "fac_prefetch", 8192, NULL, 2, NULL);
+#endif
 }
 
 esp_err_t atom_faculty_init(void)
@@ -1015,7 +1017,7 @@ esp_err_t atom_faculty_init(void)
     s_req_slug[0] = '\0';
     s_bust_draw_w = 0;
     s_bust_draw_h = 0;
-    if (xTaskCreate(bust_worker_task, "fac_bust", 24576, NULL, 3, &s_bust_task) != pdPASS) {
+    if (xTaskCreate(bust_worker_task, "fac_bust", 16384, NULL, 3, &s_bust_task) != pdPASS) {
         return ESP_FAIL;
     }
     (void)bust_cache_init();
@@ -1029,7 +1031,7 @@ void atom_faculty_set_ui_notify(atom_faculty_ui_notify_fn fn)
 
 void atom_faculty_request_bust(const char *slug)
 {
-    if (slug == NULL || slug[0] == '\0' || s_bust_task == NULL) {
+    if (slug == NULL || slug[0] == '\0') {
         return;
     }
     if (xSemaphoreTake(s_bust_lock, pdMS_TO_TICKS(200)) == pdTRUE) {
@@ -1045,7 +1047,9 @@ void atom_faculty_request_bust(const char *slug)
         s_req_slug[sizeof(s_req_slug) - 1] = '\0';
         xSemaphoreGive(s_bust_lock);
     }
-    xTaskNotifyGive(s_bust_task);
+    if (s_bust_task != NULL) {
+        xTaskNotifyGive(s_bust_task);
+    }
 }
 
 atom_faculty_bust_status_t atom_faculty_bust_status(void)

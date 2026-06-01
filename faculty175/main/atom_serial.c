@@ -160,5 +160,5 @@ void atom_serial_init(void)
     if (flags >= 0) {
         (void)fcntl(STDIN_FILENO, F_SETFL, flags | O_NONBLOCK);
     }
-    xTaskCreate(serial_task, "serial", 8192, NULL, 3, NULL);
+    xTaskCreate(serial_task, "serial", 4096, NULL, 3, NULL);
 }

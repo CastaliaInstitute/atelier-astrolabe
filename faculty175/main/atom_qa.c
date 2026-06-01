@@ -65,7 +65,7 @@ void atom_qa_bind(const atom_qa_bind_t *bind)
 static void qa_print_help(void)
 {
     printf("qa commands:\n");
-    printf("  qa status   heap, audio, lcd, wifi rssi\n");
+    printf("  qa status   heap, internal heap, audio, lcd, wifi rssi\n");
     printf("  qa ui       current UI state + faculty\n");
     printf("  qa listen   VAD + waveform ring (passive)\n");
     printf("  qa audio    mic probe ~400ms (active read)\n");
@@ -86,14 +86,20 @@ static void qa_emit_status(void)
         ch = ap.primary;
     }
 
-    printf("qa: face=faculty lcd=%dx%d audio=%s pi4ioe=%s mic_probe_peak=%ld heap=%u psram=%u wifi_rssi=%d ch=%u\n",
+    const uint32_t internal = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    const uint32_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    const uint32_t psram = heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+
+    printf("qa: face=faculty lcd=%dx%d audio=%s pi4ioe=%s mic_probe_peak=%ld heap=%u internal=%lu largest=%lu psram=%lu wifi_rssi=%d ch=%u\n",
            FACULTY175_LCD_W,
            FACULTY175_LCD_H,
            faculty175_board_audio_ready() ? "ok" : "off",
            faculty175_board_pi4ioe_ok() ? "ok" : "fail",
            (long)faculty175_board_mic_probe_peak(),
            (unsigned)esp_get_free_heap_size(),
-           (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
+           (unsigned long)internal,
+           (unsigned long)largest,
+           (unsigned long)psram,
            rssi,
            (unsigned)ch);
     fflush(stdout);

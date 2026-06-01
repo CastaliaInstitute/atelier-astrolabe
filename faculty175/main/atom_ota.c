@@ -773,7 +773,7 @@ static esp_err_t start_install_job(const ota_job_t *src)
     }
     *job = *src;
     s_ota_state = OTA_STATE_RUNNING;
-    if (xTaskCreate(ota_task, "ota", 8192, job, 6, NULL) != pdPASS) {
+    if (xTaskCreate(ota_task, "ota", 6144, job, 6, NULL) != pdPASS) {
         s_ota_state = OTA_STATE_ERROR;
         free(job);
         return ESP_ERR_NO_MEM;

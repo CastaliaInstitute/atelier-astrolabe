@@ -508,7 +508,7 @@ void app_main(void)
     ESP_ERROR_CHECK(atom_faculty_init());
     atom_faculty_set_ui_notify(bust_ui_refresh);
     s_ui_queue = xQueueCreate(1, sizeof(atom_ui_msg_t));
-    xTaskCreate(ui_task, "ui", 10240, NULL, 4, NULL);
+    xTaskCreate(ui_task, "ui", 8192, NULL, 4, NULL);
     ui_set(FACULTY175_UI_BOOT, ASTROLABE_FACULTY_OTA_CHANNEL);
     atom_faculty_request_bust(s_faculty_slug);
 
@@ -537,8 +537,8 @@ void app_main(void)
         .faculty_name = s_faculty_name,
         .ui_detail = s_detail,
     });
-    xTaskCreate(listen_task, "listen", 6144, NULL, 5, NULL);
-    xTaskCreate(voice_worker_task, "voice", 14336, NULL, 4, NULL);
+    xTaskCreate(listen_task, "listen", 4096, NULL, 5, NULL);
+    xTaskCreate(voice_worker_task, "voice", 12288, NULL, 4, NULL);
     ui_set(FACULTY175_UI_LISTEN, NULL);
     faculty_log_ready();
 
