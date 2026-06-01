@@ -7,10 +7,6 @@ on:
         description: Short key name used in artifact filenames
         required: true
         default: faculty175-prod-v1
-      environment:
-        description: GitHub Environment containing OTA_KEY_ENCRYPTION_PASSPHRASE
-        required: true
-        default: production
 
 permissions:
   contents: read
@@ -19,7 +15,7 @@ jobs:
   generate:
     name: Generate encrypted OTA signing key
     runs-on: ubuntu-latest
-    environment: ${{ inputs.environment }}
+    environment: production
     steps:
       - name: Generate encrypted key bundle
         env:
@@ -47,27 +43,27 @@ jobs:
             -out "${out}/private.pem.enc" \
             -pass env:OTA_KEY_ENCRYPTION_PASSPHRASE
 
-          python3 - <<'PY' "${out}/public.pem" "${out}/astrolabe_faculty175_ota_key.h"
-          import pathlib
-          import sys
+          python3 - "${out}/public.pem" "${out}/astrolabe_faculty175_ota_key.h" <<'PY'
+import pathlib
+import sys
 
-          public_pem = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8").splitlines()
-          header = [
-              "#pragma once",
-              "",
-              "/* Production OTA manifest verification key. */",
-              "#define ASTROLABE_FACULTY175_OTA_PUBKEY_PEM \\",
-          ]
-          for idx, line in enumerate(public_pem):
-              suffix = " \\" if idx + 1 < len(public_pem) else ""
-              header.append(f'    "{line}\\n"{suffix}')
-          header.extend([
-              "",
-              '#define ASTROLABE_FACULTY175_OTA_SIG_ALG "ecdsa-p256-sha256"',
-              "",
-          ])
-          pathlib.Path(sys.argv[2]).write_text("\n".join(header), encoding="utf-8")
-          PY
+public_pem = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8").splitlines()
+header = [
+    "#pragma once",
+    "",
+    "/* Production OTA manifest verification key. */",
+    "#define ASTROLABE_FACULTY175_OTA_PUBKEY_PEM \\",
+]
+for idx, line in enumerate(public_pem):
+    suffix = " \\" if idx + 1 < len(public_pem) else ""
+    header.append(f'    "{line}\\n"{suffix}')
+header.extend([
+    "",
+    '#define ASTROLABE_FACULTY175_OTA_SIG_ALG "ecdsa-p256-sha256"',
+    "",
+])
+pathlib.Path(sys.argv[2]).write_text("\n".join(header), encoding="utf-8")
+PY
 
           rm -f "${out}/private.pem"
           {
