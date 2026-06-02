@@ -2,6 +2,21 @@ export type AskFacultyRoute =
   | { kind: "none" }
   | { kind: "ask-faculty"; facultyMessage: string; selectFaculty?: boolean };
 
+export type FacultySelection = {
+  slug: string;
+  name: string;
+};
+
+/** Dedicated faculty pendants (`face=faculty` / `face=wand`) with an active faculty slug. */
+export function isDedicatedFacultyFace(face: string): boolean {
+  const f = face.trim().toLowerCase();
+  return f === "faculty" || f === "wand";
+}
+
+export function normalizeFacultySlug(raw: unknown): string {
+  return typeof raw === "string" ? raw.trim().replace(/-/g, ".") : "";
+}
+
 /**
  * Detects faculty-directed asks after STT / typed input so `voice-pipeline` can forward to `ask-faculty`.
  *

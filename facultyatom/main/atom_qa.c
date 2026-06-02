@@ -62,7 +62,7 @@ static void qa_print_help(void)
     printf("qa commands:\n");
     printf("  qa status   heap, audio, lcd, wifi rssi\n");
     printf("  qa ui       current UI state + faculty\n");
-    printf("  qa listen   VAD + waveform ring (passive)\n");
+    printf("  qa listen   pipeline VAD state (passive)\n");
     printf("  qa audio    mic probe ~400ms (active read)\n");
     printf("  qa bust     faculty bust load status\n");
     printf("  qa screen   framebuffer BMP (same as screen)\n");
@@ -110,35 +110,22 @@ static void qa_emit_ui(void)
 
 static void qa_emit_listen(void)
 {
-    atom_listen_t *listen = s_bind.listen;
-    if (listen == NULL) {
-        printf("qa: listen unavailable\n");
+    astrolabe_audio_pipeline_t *pipeline = s_bind.pipeline;
+    if (pipeline == NULL) {
+        printf("qa: pipeline unavailable\n");
         fflush(stdout);
         return;
     }
 
-    uint8_t wave[ATOM_LISTEN_WAVEFORM_LEN];
-    atom_listen_waveform_copy(listen, wave, sizeof(wave));
-    uint8_t wave_max = 0;
-    uint8_t wave_min = 255;
-    uint32_t wave_sum = 0;
-    for (size_t i = 0; i < sizeof(wave); ++i) {
-        if (wave[i] > wave_max) {
-            wave_max = wave[i];
-        }
-        if (wave[i] < wave_min) {
-            wave_min = wave[i];
-        }
-        wave_sum += wave[i];
-    }
-
-    printf("qa: listen speech=%s rms=%u meter=%u wave_min=%u wave_max=%u wave_avg=%u\n",
-           atom_listen_speech_active(listen) ? "yes" : "no",
-           (unsigned)atom_listen_last_rms(listen),
-           (unsigned)atom_listen_meter_level(listen),
-           (unsigned)wave_min,
-           (unsigned)wave_max,
-           (unsigned)(wave_sum / (sizeof(wave) ? sizeof(wave) : 1)));
+    const uint32_t rms = astrolabe_audio_pipeline_last_rms(pipeline);
+    const uint32_t noise = astrolabe_audio_pipeline_noise_rms(pipeline);
+    const uint32_t start = astrolabe_audio_pipeline_start_threshold(pipeline);
+    printf("qa: listen speech=%s rms=%u noise=%u start=%u meter=%u storage=spiffs\n",
+           astrolabe_audio_pipeline_speech_active(pipeline) ? "yes" : "no",
+           (unsigned)rms,
+           (unsigned)noise,
+           (unsigned)start,
+           (unsigned)(rms > 2200 ? 255 : (rms * 255u) / 2200u));
     fflush(stdout);
 }
 
@@ -168,7 +155,7 @@ static void qa_emit_audio(void)
         return;
     }
 
-    int16_t frame[ATOM_LISTEN_FRAME_SAMPLES];
+    int16_t frame[320];
     int32_t peak_max = 0;
     uint32_t rms_max = 0;
     int frames_ok = 0;
@@ -176,7 +163,7 @@ static void qa_emit_audio(void)
 
     for (int i = 0; i < 12; ++i) {
         size_t got = 0;
-        if (atom_audio_read(frame, ATOM_LISTEN_FRAME_SAMPLES, &got, 100) != ESP_OK || got == 0) {
+        if (atom_audio_read(frame, 320, &got, 100) != ESP_OK || got == 0) {
             continue;
         }
         int32_t peak = 0;
@@ -200,12 +187,15 @@ static void qa_emit_audio(void)
            (long)peak_max,
            (unsigned long)rms_max);
 
-    atom_listen_t *listen = s_bind.listen;
-    if (listen != NULL) {
-        printf("qa: audio passive rms=%u meter=%u speech=%s\n",
-               (unsigned)atom_listen_last_rms(listen),
-               (unsigned)atom_listen_meter_level(listen),
-               atom_listen_speech_active(listen) ? "yes" : "no");
+    astrolabe_audio_pipeline_t *pipeline = s_bind.pipeline;
+    if (pipeline != NULL) {
+        const uint32_t passive_rms = astrolabe_audio_pipeline_last_rms(pipeline);
+        printf("qa: audio passive rms=%u noise=%u start=%u meter=%u speech=%s\n",
+               (unsigned)passive_rms,
+               (unsigned)astrolabe_audio_pipeline_noise_rms(pipeline),
+               (unsigned)astrolabe_audio_pipeline_start_threshold(pipeline),
+               (unsigned)(passive_rms > 2200 ? 255 : (passive_rms * 255u) / 2200u),
+               astrolabe_audio_pipeline_speech_active(pipeline) ? "yes" : "no");
     }
     fflush(stdout);
 }

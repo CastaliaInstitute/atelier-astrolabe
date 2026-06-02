@@ -1,7 +1,10 @@
 /**
- * Append Mynah conversation / artifact entries to Commonplace (Directus).
- * Default host: https://commonplace.castalia.institute — set DIRECTUS_URL to override.
+ * Append Mynah conversation / artifact entries to Commonplace.
+ * Prefers Directus when DIRECTUS_STATIC_TOKEN is configured, then falls back
+ * to the Supabase database that Directus fronts.
  */
+
+import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.49.8";
 
 type EdgeRt = { waitUntil: (promise: Promise<unknown>) => void };
 
@@ -183,6 +186,11 @@ function buildContent(
   return { title, content, abstract, workType: "mynah_artifact" };
 }
 
+function toDatabaseWorkType(workType: string): string {
+  if (workType === "journal" || workType.startsWith("mynah_")) return "note";
+  return workType;
+}
+
 async function insertWork(
   directusUrl: string,
   token: string,
@@ -202,22 +210,105 @@ async function insertWork(
   }
 }
 
+async function fetchSupabasePersonBySlug(
+  db: SupabaseClient,
+  slug: string,
+): Promise<{ id: string; name: string; slug: string } | null> {
+  const select = "id,name,slug";
+  const { data, error } = await db.from("persons").select(select).eq("slug", slug).maybeSingle();
+  if (error) {
+    console.warn("mynah commonplace: Supabase author lookup failed", {
+      slug,
+      message: error.message,
+    });
+    return null;
+  }
+  if (data) return data as { id: string; name: string; slug: string };
+
+  const alternateSlug = `a.${slug}`;
+  const alt = await db.from("persons").select(select).eq("slug", alternateSlug).maybeSingle();
+  if (alt.error) {
+    console.warn("mynah commonplace: Supabase alternate author lookup failed", {
+      slug: alternateSlug,
+      message: alt.error.message,
+    });
+    return null;
+  }
+  return (alt.data as { id: string; name: string; slug: string } | null) ?? null;
+}
+
+async function appendViaSupabase(
+  authHeader: string,
+  payload: MynahCommonplacePayload,
+  authorSlug: string,
+): Promise<boolean> {
+  const SUPABASE_URL = Deno.env.get("SUPABASE_URL")?.trim();
+  const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")?.trim();
+  const serviceRole = (
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? Deno.env.get("SERVICE_ROLE_KEY") ?? ""
+  ).trim();
+
+  if (!SUPABASE_URL || !serviceRole) {
+    console.warn("mynah commonplace: Supabase service credentials not set; skip log");
+    return false;
+  }
+
+  const db = createClient(SUPABASE_URL, serviceRole, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+  const actor = await resolveActor(authHeader, SUPABASE_URL, SUPABASE_ANON_KEY);
+  const author = await fetchSupabasePersonBySlug(db, authorSlug);
+  if (!author) {
+    console.warn(`mynah commonplace: author slug not found: ${authorSlug}`);
+    return false;
+  }
+
+  const dateStr = formatDate();
+  const { title, content, abstract, workType } = buildContent(dateStr, actor, payload);
+  const slug = generateSlug(title);
+  const status = Deno.env.get("MYNAH_COMMONPLACE_STATUS")?.trim() || "draft";
+  const visibility = Deno.env.get("MYNAH_COMMONPLACE_VISIBILITY")?.trim() || "private";
+
+  const { error } = await db.from("works").insert({
+    title,
+    slug,
+    abstract,
+    content_md: content,
+    primary_author_id: author.id,
+    work_type: toDatabaseWorkType(workType),
+    status,
+    visibility,
+    publication_date: new Date().toISOString().split("T")[0],
+  });
+
+  if (error) {
+    console.warn("mynah commonplace: Supabase work insert failed", {
+      message: error.message,
+      code: error.code,
+    });
+    return false;
+  }
+
+  console.log("mynah commonplace: work created via supabase", { slug, workType });
+  return true;
+}
+
 export async function appendMynahCommonplaceEntry(
   authHeader: string,
   payload: MynahCommonplacePayload,
-): Promise<void> {
-  if (Deno.env.get("MYNAH_COMMONPLACE_DISABLED") === "true") return;
+): Promise<boolean> {
+  if (Deno.env.get("MYNAH_COMMONPLACE_DISABLED") === "true") return false;
 
   const DIRECTUS_URL = (
     Deno.env.get("DIRECTUS_URL") ?? "https://commonplace.castalia.institute"
   ).replace(/\/+$/, "");
   const DIRECTUS_TOKEN = Deno.env.get("DIRECTUS_STATIC_TOKEN")?.trim();
+  const authorSlug = (Deno.env.get("MYNAH_COMMONPLACE_AUTHOR_SLUG") ?? "custodian").trim();
   if (!DIRECTUS_TOKEN) {
-    console.warn("mynah commonplace: DIRECTUS_STATIC_TOKEN not set; skip log");
-    return;
+    console.warn("mynah commonplace: DIRECTUS_STATIC_TOKEN not set; using Supabase fallback");
+    return await appendViaSupabase(authHeader, payload, authorSlug);
   }
 
-  const authorSlug = (Deno.env.get("MYNAH_COMMONPLACE_AUTHOR_SLUG") ?? "custodian").trim();
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL")?.trim();
   const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")?.trim();
 
@@ -225,7 +316,7 @@ export async function appendMynahCommonplaceEntry(
   const author = await fetchPersonBySlug(DIRECTUS_URL, DIRECTUS_TOKEN, authorSlug);
   if (!author) {
     console.warn(`mynah commonplace: author slug not found: ${authorSlug}`);
-    return;
+    return false;
   }
 
   const dateStr = formatDate();
@@ -240,11 +331,12 @@ export async function appendMynahCommonplaceEntry(
     abstract,
     content_md: content,
     primary_author_id: author.id,
-    work_type: workType,
+    work_type: toDatabaseWorkType(workType),
     status,
     visibility,
     publication_date: new Date().toISOString().split("T")[0],
   });
 
   console.log("mynah commonplace: work created", { slug, workType });
+  return true;
 }

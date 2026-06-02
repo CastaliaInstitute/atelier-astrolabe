@@ -40,7 +40,10 @@ import {
   facultyTtsFromRow,
   type FacultyTtsConfig,
 } from "../_shared/facultyTts.ts";
-import { scheduleMynahCommonplaceLog } from "../_shared/commonplaceDirectus.ts";
+import {
+  appendMynahCommonplaceEntry,
+  scheduleMynahCommonplaceLog,
+} from "../_shared/commonplaceDirectus.ts";
 import { verifyAstrolabeDevice } from "../_shared/deviceAuth.ts";
 import { resolveVoiceUsageUserId } from "../_shared/voiceUsage.ts";
 
@@ -70,6 +73,17 @@ type ReqBody = {
   facultyName?: string;
   /** Device-side turn history; forwarded to ask-faculty (does not replace faculty voice_prompt). */
   conversationHistory?: string;
+  /**
+   * `conversation` (default): STT -> LLM -> TTS/reply.
+   * `transcribe` / `journal`: STT only, optionally log to Commonplace, no immediate reply.
+   */
+  interactionMode?: "conversation" | "transcribe" | "journal";
+  /** Commonplace behavior. Defaults to `conversation` for conversational responses. */
+  commonplaceMode?: "off" | "conversation" | "journal";
+  /** Boolean shorthand for Commonplace logging; false disables, true uses the mode default. */
+  logToCommonplace?: boolean;
+  /** Test/verification mode: wait for the Directus write and report the real result. */
+  commonplaceSync?: boolean;
   /** Direct Google Cloud TTS voice override for tour/device narration. */
   ttsVoiceName?: string;
   ttsVoice?: string | Record<string, unknown>;
@@ -260,6 +274,65 @@ function requestLocalHour(body: ReqBody): number | undefined {
   return Math.floor(hour);
 }
 
+function normalizedInteractionMode(body: ReqBody): "conversation" | "transcribe" | "journal" {
+  const mode = String(body.interactionMode ?? "").trim().toLowerCase();
+  if (mode === "transcribe" || mode === "transcription" || mode === "dictation") return "transcribe";
+  if (mode === "journal" || mode === "commonplace" || mode === "capture" || mode === "note") return "journal";
+  return "conversation";
+}
+
+function normalizedCommonplaceMode(
+  body: ReqBody,
+  defaultMode: "off" | "conversation" | "journal",
+): "off" | "conversation" | "journal" {
+  if (body.logToCommonplace === false) return "off";
+  const raw = String(body.commonplaceMode ?? "").trim().toLowerCase();
+  if (raw === "off" || raw === "none" || raw === "false" || raw === "disabled") return "off";
+  if (raw === "journal" || raw === "note" || raw === "capture" || raw === "commonplace") return "journal";
+  if (raw === "conversation" || raw === "chat" || raw === "turn") return "conversation";
+  if (body.logToCommonplace === true) return defaultMode === "off" ? "journal" : defaultMode;
+  return defaultMode;
+}
+
+async function scheduleCommonplaceForVoice(
+  req: Request,
+  body: ReqBody,
+  payload: {
+    defaultMode: "off" | "conversation" | "journal";
+    route: string;
+    transcript: string;
+    reply?: string;
+    facultySlug?: string | null;
+    deviceLabel?: string;
+  },
+): Promise<boolean> {
+  const mode = normalizedCommonplaceMode(body, payload.defaultMode);
+  if (mode === "off") return false;
+  const authHdr = req.headers.get("Authorization") ?? "";
+  const commonplacePayload = mode === "journal"
+    ? {
+      kind: "journal" as const,
+      transcript: payload.transcript,
+      deviceLabel: payload.deviceLabel ?? "Astrolabe",
+    }
+    : {
+      kind: "conversation" as const,
+      route: payload.route,
+      transcript: payload.transcript,
+      reply: payload.reply ?? "",
+      facultySlug: payload.facultySlug,
+    };
+  if (body.commonplaceSync) {
+    return await appendMynahCommonplaceEntry(authHdr, commonplacePayload);
+  }
+  if (mode === "journal") {
+    scheduleMynahCommonplaceLog(authHdr, commonplacePayload);
+    return true;
+  }
+  scheduleMynahCommonplaceLog(authHdr, commonplacePayload);
+  return true;
+}
+
 function cleanFacultySlug(raw: unknown): string {
   return normalizeFacultySlug(raw);
 }
@@ -406,12 +479,12 @@ async function voicePipelineOk(
     );
   }
 
-  const authHdr = req.headers.get("Authorization") ?? "";
-  scheduleMynahCommonplaceLog(authHdr, {
-    kind: "conversation",
+  await scheduleCommonplaceForVoice(req, body, {
+    defaultMode: "conversation",
     route: payload.route,
     transcript: payload.transcript,
     reply: payload.reply,
+    facultySlug: payload.facultySlug,
   });
 
   const ttsOverride =
@@ -815,6 +888,38 @@ Deno.serve(async (req: Request) => {
         error:
           "Provide audioBase64, message, or face (e.g. clock_agenda, daily_briefing with optional epochSeconds)",
       });
+    }
+
+    const interactionMode = normalizedInteractionMode(body);
+    if (interactionMode !== "conversation") {
+      const route = interactionMode === "journal" ? "voice-journal" : "voice-transcribe";
+      const commonplaceLogged = await scheduleCommonplaceForVoice(req, body, {
+        defaultMode: interactionMode === "journal" ? "journal" : "off",
+        route,
+        transcript,
+        reply: "",
+        facultySlug: body.facultySlug,
+        deviceLabel: "Astrolabe FacultyAtom",
+      });
+      return jsonResponse(
+        200,
+        {
+          transcript,
+          reply: "",
+          audioBase64: "",
+          route,
+          interactionMode,
+          commonplaceLogged,
+          ...(body.facultySlug ? { facultySlug: body.facultySlug } : {}),
+          ...(body.facultyName ? { facultyName: body.facultyName } : {}),
+        },
+        {
+          "x-mynah-route": route,
+          "x-voice-interaction-mode": interactionMode,
+          "x-voice-commonplace-logged": String(commonplaceLogged),
+          ...(face ? { "x-mynah-face": face } : {}),
+        },
+      );
     }
 
     const route = matchAskFacultyRoute(transcript);

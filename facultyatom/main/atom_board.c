@@ -167,15 +167,14 @@ static esp_err_t atom_i2s_read_mono(int16_t *samples, size_t sample_count, size_
     }
 
     const size_t bytes_want = sample_count * 2 * sizeof(int16_t);
-    size_t bytes_read = 0;
-    const esp_err_t err =
-        i2s_channel_read(s_i2s_rx, stereo, bytes_want, &bytes_read, pdMS_TO_TICKS(timeout_ms));
-    if (err != ESP_OK || bytes_read < sizeof(int16_t) * 2) {
+    (void)timeout_ms;
+    const int ret = esp_codec_dev_read(s_codec, stereo, (int)bytes_want);
+    if (ret != ESP_CODEC_DEV_OK) {
         free(stereo);
         return ESP_FAIL;
     }
 
-    const size_t stereo_samples = bytes_read / sizeof(int16_t);
+    const size_t stereo_samples = bytes_want / sizeof(int16_t);
     const size_t frames = stereo_samples / 2;
     const size_t out_frames = frames < sample_count ? frames : sample_count;
     for (size_t i = 0; i < out_frames; ++i) {
@@ -728,13 +727,7 @@ static void draw_rect_outline(int x, int y, int w, int h, uint16_t color)
 
 static void draw_faculty_face_marks(uint16_t color)
 {
-    const int l = 13;
-    const int inset = 3;
-
-    atom_display_fill_rect(inset, ATOM_LCD_H - inset - 1, l, 1, color);
-    atom_display_fill_rect(inset, ATOM_LCD_H - inset - l, 1, l, color);
-    atom_display_fill_rect(ATOM_LCD_W - inset - l, ATOM_LCD_H - inset - 1, l, 1, color);
-    atom_display_fill_rect(ATOM_LCD_W - inset - 1, ATOM_LCD_H - inset - l, 1, l, color);
+    (void)color;
 }
 
 static void draw_centered_text(const char *text, int y, uint16_t color)

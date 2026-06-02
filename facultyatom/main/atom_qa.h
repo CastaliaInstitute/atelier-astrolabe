@@ -1,14 +1,14 @@
 #pragma once
 
 #include "atom_board.h"
-#include "atom_listen.h"
+#include "astrolabe_audio_pipeline.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 typedef struct {
-    atom_listen_t *listen;
+    astrolabe_audio_pipeline_t *pipeline;
     atom_ui_state_t *ui;
     const char *faculty_slug;
     const char *faculty_name;

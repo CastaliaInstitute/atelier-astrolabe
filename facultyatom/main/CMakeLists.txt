@@ -11,8 +11,6 @@ idf_component_register(
         "atom_board.c"
         "atom_serial.c"
         "atom_qa.c"
-        "atom_voice.c"
-        "atom_listen.c"
         "atom_faculty.c"
         "atom_faculty_png.cpp"
         ${PNGDEC_SRCS}
@@ -30,6 +28,7 @@ idf_component_register(
         nvs_flash
         mbedtls
         esp_new_jpeg
+        astrolabe_audio_pipeline
 )
 
 target_compile_definitions(${COMPONENT_LIB} PRIVATE __LINUX__ PNG_MAX_BUFFERED_PIXELS=8194)

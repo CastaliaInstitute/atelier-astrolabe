@@ -11,10 +11,9 @@
 #include "freertos/task.h"
 #include "nvs_flash.h"
 
+#include "astrolabe_audio_pipeline.h"
 #include "astrolabe_faculty_atom_face.h"
 #include "atom_board.h"
-#include "atom_listen.h"
-#include "atom_voice.h"
 #include "atom_faculty.h"
 #include "atom_log.h"
 #include "atom_qa.h"
@@ -38,10 +37,13 @@ static char s_faculty_slug[64] = ASTROLABE_FACULTY_ATOM_DEFAULT_FACULTY_SLUG;
 static char s_faculty_name[96] = ASTROLABE_FACULTY_ATOM_DEFAULT_FACULTY_NAME;
 static char s_history[512];
 static char s_detail[96];
-static atom_listen_t s_listen;
+static astrolabe_audio_pipeline_t *s_pipeline;
 static uint32_t s_voice_turn;
+static char s_voice_pipeline_url[256];
+static char s_voice_stream_url[256];
 
 static void facultyatom_log_ready(void);
+static void make_supabase_ws_url(char *out, size_t out_len, const char *base_url, const char *path);
 
 static void save_faculty_to_nvs(void);
 static QueueHandle_t s_ui_queue;
@@ -86,6 +88,17 @@ static void bust_ui_refresh(void)
     ui_redraw();
 }
 
+static void make_supabase_ws_url(char *out, size_t out_len, const char *base_url, const char *path)
+{
+    if (strncmp(base_url, "https://", 8) == 0) {
+        snprintf(out, out_len, "wss://%s%s", base_url + 8, path);
+    } else if (strncmp(base_url, "http://", 7) == 0) {
+        snprintf(out, out_len, "ws://%s%s", base_url + 7, path);
+    } else {
+        snprintf(out, out_len, "%s%s", base_url, path);
+    }
+}
+
 
 static void ui_task(void *arg)
 {
@@ -94,14 +107,11 @@ static void ui_task(void *arg)
         .state = ATOM_UI_BOOT,
     };
     while (true) {
-        if (xQueueReceive(s_ui_queue, &msg, pdMS_TO_TICKS(50)) == pdTRUE) {
-            s_ui = msg.state;
-            atom_strlcpy(s_detail, msg.detail, sizeof(s_detail));
-        }
+        (void)xQueueReceive(s_ui_queue, &msg, portMAX_DELAY);
+        s_ui = msg.state;
+        atom_strlcpy(s_detail, msg.detail, sizeof(s_detail));
         const uint32_t anim_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
-        uint8_t waveform[ATOM_LISTEN_WAVEFORM_LEN];
-        atom_listen_waveform_copy(&s_listen, waveform, sizeof(waveform));
-        atom_display_draw_status(s_ui, s_faculty_name, s_detail, anim_ms, waveform, sizeof(waveform));
+        atom_display_draw_status(s_ui, s_faculty_name, s_detail, anim_ms, NULL, 0);
     }
 }
 
@@ -118,120 +128,112 @@ static void append_history(const char *user, const char *reply)
     }
 }
 
-static void voice_worker_task(void *arg)
+static esp_err_t pipeline_read(int16_t *samples, size_t sample_count, size_t *out_read, uint32_t timeout_ms, void *user)
 {
-    (void)arg;
-    while (true) {
-        atom_utterance_t utterance = {};
-        if (xQueueReceive(s_listen.utterance_queue, &utterance, portMAX_DELAY) != pdTRUE) {
-            continue;
+    (void)user;
+    if (s_ui == ATOM_UI_THINK || s_ui == ATOM_UI_SPEAK) {
+        if (out_read != NULL) {
+            *out_read = 0;
         }
+        vTaskDelay(pdMS_TO_TICKS(40));
+        return ESP_ERR_TIMEOUT;
+    }
+    if (!atom_board_audio_ready()) {
+        if (out_read != NULL) {
+            *out_read = 0;
+        }
+        vTaskDelay(pdMS_TO_TICKS(100));
+        return ESP_ERR_INVALID_STATE;
+    }
+    return atom_audio_read(samples, sample_count, out_read, timeout_ms);
+}
 
-        const uint32_t turn = ++s_voice_turn;
-        const float dur_s = (float)utterance.sample_count / (float)ATOM_AUDIO_RATE;
-        ATOM_LOG_STAGE(TAG, "turn", "#%u utterance %.2fs (%u samples)", (unsigned)turn, dur_s,
-                       (unsigned)utterance.sample_count);
-        ui_set(ATOM_UI_THINK, "Castalia…");
-        ATOM_LOG_STAGE(TAG, "pipeline", "STT->LLM->TTS via voice-pipeline (face=%s)",
-                       ASTROLABE_FACULTY_ATOM_FACE_NAME);
+static esp_err_t pipeline_write(const int16_t *samples, size_t sample_count, uint32_t timeout_ms, void *user)
+{
+    (void)user;
+    return atom_audio_write_pcm(samples, sample_count, timeout_ms);
+}
 
-        atom_voice_result_t result = {};
-        const uint32_t t0 = atom_log_ms();
-        const esp_err_t err = atom_voice_post_pcm((const uint8_t *)utterance.samples,
-                                                  utterance.sample_count * sizeof(int16_t),
-                                                  s_faculty_slug, s_faculty_name, s_history, &result);
-        free(utterance.samples);
+static esp_err_t pipeline_set_rate(uint32_t sample_rate_hz, void *user)
+{
+    (void)user;
+    return atom_audio_set_sample_rate(sample_rate_hz);
+}
 
-        if (err != ESP_OK) {
-            ATOM_LOG_STAGE_E(TAG, "pipeline", "turn #%u failed after %ums", (unsigned)turn,
-                             (unsigned)(atom_log_ms() - t0));
-            ui_set(ATOM_UI_ERROR, "voice fail");
-            vTaskDelay(pdMS_TO_TICKS(1200));
-            ui_set(ATOM_UI_LISTEN, NULL);
-            ATOM_LOG_STAGE(TAG, "listen", "ready");
-            continue;
-        }
+static void pipeline_mute(bool mute, void *user)
+{
+    (void)user;
+    atom_audio_set_speaker_mute(mute);
+}
 
-        bool faculty_changed = false;
-        if (result.faculty_slug[0] != '\0' && strcmp(s_faculty_slug, result.faculty_slug) != 0) {
-            ATOM_LOG_STAGE(TAG, "faculty", "active %s -> %s", s_faculty_slug, result.faculty_slug);
-            atom_strlcpy(s_faculty_slug, result.faculty_slug, sizeof(s_faculty_slug));
-            faculty_changed = true;
-        }
-        if (result.faculty_name[0] != '\0') {
-            atom_strlcpy(s_faculty_name, result.faculty_name, sizeof(s_faculty_name));
-        }
-        append_history(result.transcript, result.reply);
-        if (faculty_changed) {
-            atom_faculty_request_bust(s_faculty_slug);
-            save_faculty_to_nvs();
-        } else if (result.faculty_slug[0] != '\0' || result.faculty_name[0] != '\0') {
-            save_faculty_to_nvs();
-        }
-        if (atom_faculty_bust_status() != ATOM_FACULTY_BUST_READY ||
-            strcmp(atom_faculty_loaded_slug(), s_faculty_slug) != 0) {
-            atom_faculty_request_bust(s_faculty_slug);
-        }
-
-        if (result.mp3 != NULL && result.mp3_len > 0) {
-            ui_set(ATOM_UI_SPEAK, result.faculty_name[0] ? result.faculty_name : s_faculty_name);
-            const esp_err_t play_err = atom_voice_play_mp3(result.mp3, result.mp3_len);
-            if (play_err != ESP_OK) {
-                ATOM_LOG_STAGE_E(TAG, "tts", "playback failed: %s", esp_err_to_name(play_err));
-            }
-        }
-        atom_voice_result_free(&result);
-        ui_set(ATOM_UI_LISTEN, NULL);
-        ATOM_LOG_STAGE(TAG, "listen", "ready (turn #%u total %ums)", (unsigned)turn,
-                       (unsigned)(atom_log_ms() - t0));
+static void pipeline_result(const char *transcript,
+                            const char *reply,
+                            const char *faculty_slug,
+                            const char *faculty_name,
+                            void *user)
+{
+    (void)user;
+    bool faculty_changed = false;
+    if (faculty_slug != NULL && faculty_slug[0] != '\0' && strcmp(s_faculty_slug, faculty_slug) != 0) {
+        ATOM_LOG_STAGE(TAG, "faculty", "active %s -> %s", s_faculty_slug, faculty_slug);
+        atom_strlcpy(s_faculty_slug, faculty_slug, sizeof(s_faculty_slug));
+        faculty_changed = true;
+    }
+    if (faculty_name != NULL && faculty_name[0] != '\0') {
+        atom_strlcpy(s_faculty_name, faculty_name, sizeof(s_faculty_name));
+    }
+    append_history(transcript, reply);
+    if (faculty_changed || (faculty_slug != NULL && faculty_slug[0] != '\0') ||
+        (faculty_name != NULL && faculty_name[0] != '\0')) {
+        save_faculty_to_nvs();
+    }
+    if (faculty_changed || atom_faculty_bust_status() != ATOM_FACULTY_BUST_READY ||
+        strcmp(atom_faculty_loaded_slug(), s_faculty_slug) != 0) {
+        atom_faculty_request_bust(s_faculty_slug);
     }
 }
 
-static void listen_task(void *arg)
+static void pipeline_event(astrolabe_audio_pipeline_event_t event, const char *detail, void *user)
 {
-    (void)arg;
-    int16_t frame[ATOM_LISTEN_FRAME_SAMPLES];
-    bool was_capturing = false;
-    uint32_t capture_clear_ms = 0;
-    while (true) {
-        if (s_ui == ATOM_UI_SPEAK || s_ui == ATOM_UI_THINK) {
-            was_capturing = false;
-            capture_clear_ms = 0;
-            vTaskDelay(pdMS_TO_TICKS(40));
-            continue;
-        }
-
-        size_t got = 0;
-        if (!atom_board_audio_ready()) {
-            vTaskDelay(pdMS_TO_TICKS(100));
-            continue;
-        }
-        if (atom_audio_read(frame, ATOM_LISTEN_FRAME_SAMPLES, &got, 100) != ESP_OK || got == 0) {
-            vTaskDelay(1);
-            continue;
-        }
-
-        (void)atom_listen_push_frame(&s_listen, frame, got);
-
-        const bool capturing = s_listen.speech_active;
-        const uint32_t now_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
-        if ((s_ui == ATOM_UI_LISTEN || s_ui == ATOM_UI_CAPTURE) && capturing && !was_capturing) {
-            ATOM_LOG_STAGE(TAG, "capture", "speech detected — hearing");
+    (void)user;
+    switch (event) {
+        case ASTROLABE_AUDIO_PIPELINE_EVENT_LISTENING:
+            ui_set(ATOM_UI_LISTEN, NULL);
+            ATOM_LOG_STAGE(TAG, "listen", "ready");
+            break;
+        case ASTROLABE_AUDIO_PIPELINE_EVENT_CAPTURE_START:
             ui_set(ATOM_UI_CAPTURE, NULL);
-            was_capturing = true;
-            capture_clear_ms = 0;
-        } else if ((s_ui == ATOM_UI_LISTEN || s_ui == ATOM_UI_CAPTURE) && !capturing && was_capturing) {
-            if (capture_clear_ms == 0) {
-                capture_clear_ms = now_ms;
-            } else if (now_ms - capture_clear_ms >= 400) {
-                ATOM_LOG_STAGE(TAG, "capture", "silence — back to listening");
-                ui_set(ATOM_UI_LISTEN, NULL);
-                was_capturing = false;
-                capture_clear_ms = 0;
+            ATOM_LOG_STAGE(TAG, "capture", "speech detected — streaming to flash");
+            break;
+        case ASTROLABE_AUDIO_PIPELINE_EVENT_CAPTURE_QUEUED:
+            s_voice_turn++;
+            ATOM_LOG_STAGE(TAG, "capture", "utterance queued from flash (turn #%u)", (unsigned)s_voice_turn);
+            break;
+        case ASTROLABE_AUDIO_PIPELINE_EVENT_THINKING:
+            ui_set(ATOM_UI_THINK, "Castalia...");
+            ATOM_LOG_STAGE(TAG, "pipeline", "streaming flash capture to voice-pipeline (face=%s)",
+                           ASTROLABE_FACULTY_ATOM_FACE_NAME);
+            break;
+        case ASTROLABE_AUDIO_PIPELINE_EVENT_TRANSCRIPT:
+            if (detail != NULL && detail[0] != '\0') {
+                ATOM_LOG_STAGE(TAG, "stt", "%.80s", detail);
             }
-        } else if (capturing) {
-            capture_clear_ms = 0;
-        }
+            break;
+        case ASTROLABE_AUDIO_PIPELINE_EVENT_REPLY:
+            if (detail != NULL && detail[0] != '\0') {
+                ATOM_LOG_STAGE(TAG, "reply", "%.80s", detail);
+            }
+            break;
+        case ASTROLABE_AUDIO_PIPELINE_EVENT_SPEAKING:
+            ui_set(ATOM_UI_SPEAK, detail != NULL && detail[0] != '\0' ? detail : s_faculty_name);
+            break;
+        case ASTROLABE_AUDIO_PIPELINE_EVENT_TURN_DONE:
+            ATOM_LOG_STAGE(TAG, "turn", "done #%u", (unsigned)s_voice_turn);
+            break;
+        case ASTROLABE_AUDIO_PIPELINE_EVENT_ERROR:
+            ATOM_LOG_STAGE_E(TAG, "pipeline", "%s", detail != NULL ? detail : "error");
+            ui_set(ATOM_UI_ERROR, "voice fail");
+            break;
     }
 }
 
@@ -371,16 +373,54 @@ void app_main(void)
     atom_faculty_request_bust(s_faculty_slug);
     ATOM_LOG_STAGE(TAG, "faculty", "bust preload %s", s_faculty_slug);
 
-    ESP_ERROR_CHECK(atom_listen_init(&s_listen));
+    snprintf(s_voice_pipeline_url, sizeof(s_voice_pipeline_url), "%s/functions/v1/voice-pipeline", MYNAH_SUPABASE_URL);
+    make_supabase_ws_url(s_voice_stream_url, sizeof(s_voice_stream_url), MYNAH_SUPABASE_URL,
+                         "/functions/v1/voice-stream");
+    astrolabe_audio_pipeline_config_t pipeline_cfg = {
+        .io = {
+            .read = pipeline_read,
+            .write = pipeline_write,
+            .set_rate = pipeline_set_rate,
+            .mute = pipeline_mute,
+        },
+        .on_event = pipeline_event,
+        .on_result = pipeline_result,
+        .endpoint_url = s_voice_pipeline_url,
+        .stream_url = s_voice_stream_url,
+        .api_key = MYNAH_SUPABASE_ANON_KEY,
+        .face = ASTROLABE_FACULTY_ATOM_FACE_NAME,
+        .faculty_slug = s_faculty_slug,
+        .faculty_name = s_faculty_name,
+        .system_instruction = ASTROLABE_FACULTY_ATOM_SYSTEM_INSTRUCTION,
+        .history = s_history,
+        .capture_mount_path = "/spiffs",
+        .capture_partition_label = "storage",
+        .capture_file_path = "/spiffs/facultyatom_utterance.pcm",
+        .sample_rate_hz = ATOM_AUDIO_RATE,
+        .frame_samples = 320,
+        .rms_start = 550,
+        .rms_end = 280,
+        .start_frames = 3,
+        .silence_frames = 40,
+        .max_seconds = 15,
+        .min_ms = 400,
+        .capture_cooldown_ms = 2500,
+        .capture_ring_slots = 8,
+        .capture_segment_ms = 3000,
+        .listen_priority = 5,
+        .voice_priority = 4,
+        .listen_stack = 6144,
+        .voice_stack = 12288,
+    };
+    ESP_ERROR_CHECK(astrolabe_audio_pipeline_create(&pipeline_cfg, &s_pipeline));
     atom_qa_bind(&(atom_qa_bind_t){
-        .listen = &s_listen,
+        .pipeline = s_pipeline,
         .ui = &s_ui,
         .faculty_slug = s_faculty_slug,
         .faculty_name = s_faculty_name,
         .ui_detail = s_detail,
     });
-    xTaskCreate(listen_task, "listen", 6144, NULL, 5, NULL);
-    xTaskCreate(voice_worker_task, "voice", 12288, NULL, 4, NULL);
+    ESP_ERROR_CHECK(astrolabe_audio_pipeline_start(s_pipeline));
     ui_set(ATOM_UI_LISTEN, NULL);
     facultyatom_log_ready();
 

@@ -14,7 +14,17 @@ supabase secrets set \
 # Optional: CalDAV for clock_agenda face
 supabase secrets set CALDAV_URL=... CALDAV_USER=... CALDAV_PASSWORD=...
 
+# Optional: Commonplace journal logging. Directus is backed by the same
+# Supabase database, so the functions can write with SUPABASE_SERVICE_ROLE_KEY
+# when DIRECTUS_STATIC_TOKEN is not configured.
+supabase secrets set \
+  DIRECTUS_URL=https://commonplace-directus-652016456291.us-central1.run.app \
+  MYNAH_COMMONPLACE_AUTHOR_SLUG=custodian \
+  MYNAH_COMMONPLACE_STATUS=draft \
+  MYNAH_COMMONPLACE_VISIBILITY=private
+
 supabase functions deploy voice-pipeline
+supabase functions deploy voice-stream
 supabase functions deploy ask-faculty-voice
 supabase functions deploy faculty-bust
 ```
@@ -71,6 +81,33 @@ This protects privileged Castalia pipeline access from arbitrary boards with onl
 - **`mp3`**: `Content-Type: audio/mpeg` body; full text in `X-Voice-Transcript` / `X-Voice-Reply` (URI-encoded). ~33% smaller than base64-in-JSON.
 
 Also honored: `Accept: audio/mpeg`.
+
+## `voice-stream` contract
+
+WebSocket endpoint:
+
+```text
+wss://<project-ref>.supabase.co/functions/v1/voice-stream
+```
+
+The socket follows an OpenAI Realtime-style event model:
+
+- client sends `session.update`
+- client streams PCM with `input_audio_buffer.append` or binary PCM frames
+- client/server commits the input buffer
+- server emits transcript, text, audio, completion, and error events
+
+Session flags:
+
+- `interactionMode: "conversation"`: normal STT → LLM/TTS response.
+- `interactionMode: "transcribe"`: STT only; no immediate reply.
+- `interactionMode: "journal"`: STT only and default Commonplace journal write.
+- `commonplaceMode: "off" | "conversation" | "journal"` and
+  `logToCommonplace: boolean` control Commonplace writes.
+
+Firmware should still write capture audio into a flash circular buffer before or
+while sending over the socket. See
+[`docs/design/streaming-audio-socket.md`](../docs/design/streaming-audio-socket.md).
 
 ## Watch-oriented TTS limits
 
