@@ -36,11 +36,12 @@ sdkconfig.*
 !sdkconfig.uac.defaults
 !idf/sdkconfig.defaults
 !sensecap/sdkconfig.defaults
-!atom/sdkconfig.defaults
+!facultyatom/sdkconfig.defaults
 sdkconfig.old
 compile_commands.json
 build/
 docs/sim/
 .dummy/
+.ota-local/
 dependencies.lock
 !sensecap/dependencies.lock
