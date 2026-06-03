@@ -36,7 +36,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Cache PlatformIO
-        if: github.ref == 'refs/heads/integration'
+        if: github.ref == 'refs/heads/integration' && !contains(github.event.head_commit.message || '', '[pages-only]')
         uses: actions/cache@v4
         with:
           path: ~/.platformio
@@ -44,10 +44,10 @@ jobs:
           restore-keys: |
             pio-${{ runner.os }}-
       - name: Install PlatformIO
-        if: github.ref == 'refs/heads/integration'
+        if: github.ref == 'refs/heads/integration' && !contains(github.event.head_commit.message || '', '[pages-only]')
         run: pip install platformio
       - name: Publish integration firmware
-        if: github.ref == 'refs/heads/integration'
+        if: github.ref == 'refs/heads/integration' && !contains(github.event.head_commit.message || '', '[pages-only]')
         env:
           PLATFORMIO_BUILD_DIR: /tmp/astrolabe-pio-build-${{ github.run_id }}
           ASTROLABE_RELEASE_ARTIFACT_DIR: /tmp/astrolabe-release-artifacts-${{ github.run_id }}
