@@ -9,5 +9,8 @@ verify_jwt = true
 [functions.ask-faculty-voice]
 verify_jwt = true
 
+[functions.faculty-dreams]
+verify_jwt = true
+
 [functions.faculty-bust]
 verify_jwt = true

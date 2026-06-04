@@ -5,6 +5,11 @@
  */
 
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.49.8";
+import {
+  embedRetrievalQuery,
+  embeddingApiKey,
+  vectorLiteral,
+} from "./geminiEmbedding.ts";
 
 type EdgeRt = { waitUntil: (promise: Promise<unknown>) => void };
 
@@ -35,6 +40,17 @@ export type MynahCommonplacePayload =
     transcript: string;
     reply: string;
     facultySlug?: string | null;
+    facultyName?: string | null;
+    memorySummary?: string | null;
+  }
+  | {
+    kind: "faculty_memory";
+    route: string;
+    summary: string;
+    transcript: string;
+    reply: string;
+    facultySlug: string;
+    facultyName?: string | null;
   }
   | {
     kind: "artifact";
@@ -144,17 +160,46 @@ function buildContent(
     const ts = truncate(payload.transcript, 12_000);
     const rep = truncate(payload.reply, 12_000);
     const fac = payload.facultySlug?.trim();
+    const facultyName = payload.facultyName?.trim();
+    const memorySummary = payload.memorySummary?.trim();
     const title = `${dateStr}: Mynah (${route})`;
     let content = `## Mynah conversation\n\n`;
     content += `**When:** ${dateStr}\n\n`;
     content += `${actorLine}\n\n`;
     content += `**Route:** \`${route}\`\n\n`;
     if (fac) content += `**Faculty slug:** \`${fac}\`\n\n`;
+    if (facultyName) content += `**Faculty:** ${facultyName}\n\n`;
+    if (memorySummary) content += `### Memory summary\n\n${memorySummary}\n\n`;
     content += `### User / transcript\n\n${fenceBlock(ts)}\n\n`;
     content += `### Assistant\n\n${fenceBlock(rep)}\n\n`;
     content += `---\n*Logged from Mynah → Commonplace (${route})*\n`;
-    const abstract = truncate(`${route}: ${ts}`, 220);
+    const abstract = truncate(memorySummary || `${route}: ${ts}`, 220);
     return { title, content, abstract, workType: "mynah_conversation" };
+  }
+
+  if (payload.kind === "faculty_memory") {
+    const route = payload.route.trim() || "ask-faculty";
+    const facultySlug = payload.facultySlug.trim();
+    const facultyName = payload.facultyName?.trim();
+    const summary = truncate(payload.summary, 4000);
+    const title = `${dateStr}: Faculty memory — ${facultyName || facultySlug}`;
+    let content = `## Faculty memory\n\n`;
+    content += `**When:** ${dateStr}\n\n`;
+    content += `${actorLine}\n\n`;
+    content += `**Route:** \`${route}\`\n\n`;
+    content += `**Faculty slug:** \`${facultySlug}\`\n\n`;
+    if (facultyName) content += `**Faculty:** ${facultyName}\n\n`;
+    content += `### Memory\n\n${summary}\n\n`;
+    content += `### Source turn\n\n`;
+    content += `**User / transcript**\n\n${fenceBlock(truncate(payload.transcript, 4000))}\n\n`;
+    content += `**Assistant**\n\n${fenceBlock(truncate(payload.reply, 4000))}\n\n`;
+    content += `---\n*Faculty memory generated from Mynah → Commonplace (${route})*\n`;
+    return {
+      title,
+      content,
+      abstract: truncate(summary, 220),
+      workType: "mynah_faculty_memory",
+    };
   }
 
   if (payload.kind === "journal") {
@@ -189,6 +234,49 @@ function buildContent(
 function toDatabaseWorkType(workType: string): string {
   if (workType === "journal" || workType.startsWith("mynah_")) return "note";
   return workType;
+}
+
+function actorNeedle(actor: { email: string | null; label: string }): string {
+  return actor.email ? `**Account:** ${actor.email}` : `**Session:** ${actor.label}`;
+}
+
+function actorMemoryScope(actor: { email: string | null; label: string }): string {
+  return actor.email ? `Account:${actor.email}` : "Session";
+}
+
+function memoryExcerpt(content: string | null | undefined): string {
+  const source = content ?? "";
+  const match = source.match(/### Memory\s+([\s\S]*?)(?:\n### |\n---|$)/);
+  const extracted = match?.[1]?.trim() || source.trim();
+  return truncate(extracted.replace(/\s+/g, " "), 900);
+}
+
+function applyActorMemoryScope(
+  builder: any,
+  actor: { email: string | null; label: string },
+): any {
+  if (actor.email) {
+    return builder.ilike("content_md", `%${actorNeedle(actor)}%`);
+  }
+
+  // Unsigned device calls do not have a stable user id. Treat anonymous session
+  // labels as equivalent, but do not cross into authenticated account memories.
+  return builder.ilike("content_md", "%**Session:**%");
+}
+
+function formatMemoryRows(data: Array<any>, limit: number): string {
+  return data
+    .slice(0, limit)
+    .map((row, index) => {
+      const title = typeof row.title === "string" ? row.title : `Memory ${index + 1}`;
+      const abstract = typeof row.abstract === "string" ? row.abstract.trim() : "";
+      const excerpt = memoryExcerpt(row.content_md);
+      const similarity = typeof row.similarity === "number"
+        ? ` (similarity ${row.similarity.toFixed(2)})`
+        : "";
+      return `- ${title}${similarity}: ${abstract || excerpt}`;
+    })
+    .join("\n");
 }
 
 async function insertWork(
@@ -291,6 +379,99 @@ async function appendViaSupabase(
 
   console.log("mynah commonplace: work created via supabase", { slug, workType });
   return true;
+}
+
+export async function fetchFacultyMemoryContext(
+  authHeader: string,
+  facultySlug: string | null | undefined,
+  query: string,
+  limit = 5,
+): Promise<string> {
+  const slug = facultySlug?.trim();
+  if (!slug || Deno.env.get("MYNAH_COMMONPLACE_MEMORY_DISABLED") === "true") return "";
+
+  const SUPABASE_URL = Deno.env.get("SUPABASE_URL")?.trim();
+  const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")?.trim();
+  const serviceRole = (
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? Deno.env.get("SERVICE_ROLE_KEY") ?? ""
+  ).trim();
+  if (!SUPABASE_URL || !serviceRole) return "";
+
+  const db = createClient(SUPABASE_URL, serviceRole, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+  const actor = await resolveActor(authHeader, SUPABASE_URL, SUPABASE_ANON_KEY);
+  const apiKey = embeddingApiKey();
+
+  if (apiKey && query.trim()) {
+    try {
+      const embedding = await embedRetrievalQuery(apiKey, query);
+      const { data, error } = await db.rpc("search_faculty_memory_embeddings", {
+        query_embedding: vectorLiteral(embedding),
+        filter_actor_scope: actorMemoryScope(actor),
+        filter_faculty_slug: slug,
+        match_count: limit,
+        match_threshold: Number(Deno.env.get("MYNAH_COMMONPLACE_MEMORY_VECTOR_THRESHOLD") ?? 0.35),
+      });
+      if (!error && data?.length) {
+        return formatMemoryRows(data as Array<any>, limit);
+      }
+      if (error) {
+        console.warn("mynah commonplace: faculty vector memory lookup failed", error.message);
+      }
+    } catch (e) {
+      console.warn("mynah commonplace: faculty memory embedding failed", e);
+    }
+  }
+
+  const terms = query
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]+/g, " ")
+    .split(/\s+/)
+    .filter((term) => term.length >= 4)
+    .slice(0, 8);
+
+  try {
+    let builder = db
+      .from("works")
+      .select("title,abstract,content_md,created_at")
+      .eq("work_type", "note")
+      .ilike("content_md", "%## Faculty memory%")
+      .ilike("content_md", `%**Faculty slug:** \`${slug}\`%`)
+      .order("created_at", { ascending: false })
+      .limit(Math.max(1, Math.min(limit * 3, 15)));
+    builder = applyActorMemoryScope(builder, actor);
+
+    if (terms.length) {
+      builder = builder.or(
+        terms
+          .map((term) => `abstract.ilike.%${term}%,content_md.ilike.%${term}%`)
+          .join(","),
+      );
+    }
+
+    let { data, error } = await builder;
+    if (error || !data?.length) {
+      const fallback = db
+        .from("works")
+        .select("title,abstract,content_md,created_at")
+        .eq("work_type", "note")
+        .ilike("content_md", "%## Faculty memory%")
+        .ilike("content_md", `%**Faculty slug:** \`${slug}\`%`)
+        .order("created_at", { ascending: false })
+        .limit(Math.max(1, Math.min(limit, 10)));
+      const scopedFallback = applyActorMemoryScope(fallback, actor);
+      const scopedResult = await scopedFallback;
+      data = scopedResult.data;
+      error = scopedResult.error;
+    }
+    if (error || !data?.length) return "";
+
+    return formatMemoryRows(data as Array<any>, limit);
+  } catch (e) {
+    console.warn("mynah commonplace: faculty memory lookup failed", e);
+    return "";
+  }
 }
 
 export async function appendMynahCommonplaceEntry(

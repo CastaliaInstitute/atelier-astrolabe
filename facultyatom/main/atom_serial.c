@@ -9,7 +9,9 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#include "astrolabe_time.h"
 #include "atom_board.h"
+#include "atom_ota.h"
 #include "atom_qa.h"
 
 static const char *TAG = "atom_serial";
@@ -65,6 +67,63 @@ static void emit_screen_bmp(void)
     esp_log_level_set("*", prev);
 }
 
+static void print_time_status(void)
+{
+    astrolabe_time_status_t status = {};
+    astrolabe_time_status(&status);
+    char utc[32] = {};
+    char local[32] = {};
+    (void)astrolabe_time_format_utc(utc, sizeof(utc));
+    (void)astrolabe_time_format_local(local, sizeof(local));
+    printf("time: valid=%s started=%s synced=%s epoch=%lld utc=%s local=%s tz=%s retries=%lu\n",
+           astrolabe_time_valid() ? "yes" : "no",
+           status.started ? "yes" : "no",
+           status.synced ? "yes" : "no",
+           (long long)status.epoch,
+           utc[0] != '\0' ? utc : "-",
+           local[0] != '\0' ? local : "-",
+           status.tz[0] != '\0' ? status.tz : "-",
+           (unsigned long)status.retry_count);
+    fflush(stdout);
+}
+
+static bool handle_time_command(const char *line)
+{
+    if (line == NULL || (strcasecmp(line, "time") != 0 && strncasecmp(line, "time ", 5) != 0)) {
+        return false;
+    }
+    const char *sub = strchr(line, ' ');
+    sub = sub != NULL ? sub + 1 : "";
+    while (*sub == ' ') {
+        ++sub;
+    }
+    if (*sub == '\0' || strcasecmp(sub, "status") == 0) {
+        print_time_status();
+        return true;
+    }
+    if (strcasecmp(sub, "tz") == 0 || strcasecmp(sub, "timezone") == 0) {
+        printf("time: tz=%s\n", astrolabe_time_timezone());
+        fflush(stdout);
+        return true;
+    }
+    if (strncasecmp(sub, "tz ", 3) == 0 || strncasecmp(sub, "timezone ", 9) == 0) {
+        const char *tz = sub[1] == 'z' || sub[1] == 'Z' ? sub + 3 : sub + 9;
+        while (*tz == ' ') {
+            ++tz;
+        }
+        const esp_err_t err = astrolabe_time_set_timezone(tz);
+        printf("time: set tz=%s %s\n", tz, esp_err_to_name(err));
+        fflush(stdout);
+        return true;
+    }
+    printf("time commands:\n");
+    printf("  time\n");
+    printf("  time tz\n");
+    printf("  time tz <POSIX_TZ>\n");
+    fflush(stdout);
+    return true;
+}
+
 static void handle_line(char *line)
 {
     trim_inplace(line);
@@ -82,12 +141,20 @@ static void handle_line(char *line)
         return;
     }
 
+    if (handle_time_command(line)) {
+        return;
+    }
+
     if (atom_qa_handle(line)) {
         return;
     }
 
+    if (atom_ota_handle(line)) {
+        return;
+    }
+
     if (strcasecmp(line, "help") == 0 || strcasecmp(line, "?") == 0) {
-        printf("serial: screen | screen.bmp | qa help\n");
+        printf("serial: screen | screen.bmp | time | qa help | ota help\n");
         (void)atom_qa_handle("qa help");
         return;
     }

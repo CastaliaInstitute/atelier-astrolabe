@@ -112,6 +112,7 @@ Partner and child birth profiles (up to 8) are editable on the **Settings** face
 |-----|---------|
 | [`docs/BACKLOG.md`](docs/BACKLOG.md) | Roadmap |
 | [`docs/WORKFLOW.md`](docs/WORKFLOW.md) | Issues → PR to **`integration`** → promote to **`main`** (build + flash) |
+| [`docs/design/faculty-guided-astrolabe.md`](docs/design/faculty-guided-astrolabe.md) | Faculty-guided humane-interface contracts from *Inquirer* Volume IV |
 | [`docs/release/variant-plan.md`](docs/release/variant-plan.md) | Release matrix, NVS identity, and OTA size checks for Astrolabe variants |
 
 ```bash

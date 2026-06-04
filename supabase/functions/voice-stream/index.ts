@@ -46,21 +46,32 @@ function concatChunks(chunks: Uint8Array[], totalBytes: number): Uint8Array {
   return out;
 }
 
-function encodeVoicePipelineStreamBody(session: SessionState, pcm: Uint8Array): Uint8Array {
+function encodeVoicePipelineStreamBody(
+  session: SessionState,
+  pcm: Uint8Array,
+  final: boolean,
+): Uint8Array {
   const metadata: Record<string, unknown> = {
     languageCode: session.languageCode,
     sampleRateHertz: session.sampleRateHertz,
-    responseFormat: session.responseFormat,
-    skipLlm: session.skipLlm,
-    interactionMode: session.interactionMode,
-    commonplaceMode: session.commonplaceMode,
+    responseFormat: final ? session.responseFormat : "json",
+    skipLlm: final ? session.skipLlm : true,
+    interactionMode: final ? session.interactionMode : "transcribe",
+    commonplaceMode: final ? session.commonplaceMode : "off",
+    earlyRoute: !final,
   };
-  if (typeof session.logToCommonplace === "boolean") metadata.logToCommonplace = session.logToCommonplace;
+  if (typeof session.logToCommonplace === "boolean") {
+    metadata.logToCommonplace = session.logToCommonplace;
+  }
   if (session.face) metadata.face = session.face;
   if (session.facultySlug) metadata.facultySlug = session.facultySlug;
   if (session.facultyName) metadata.facultyName = session.facultyName;
-  if (session.systemInstruction) metadata.systemInstruction = session.systemInstruction;
-  if (session.conversationHistory) metadata.conversationHistory = session.conversationHistory;
+  if (session.systemInstruction) {
+    metadata.systemInstruction = session.systemInstruction;
+  }
+  if (session.conversationHistory) {
+    metadata.conversationHistory = session.conversationHistory;
+  }
 
   const json = new TextEncoder().encode(JSON.stringify(metadata));
   const out = new Uint8Array(4 + json.byteLength + pcm.byteLength);
@@ -80,13 +91,23 @@ function siblingVoicePipelineUrl(req: Request): string {
 function authHeaders(req: Request): HeadersInit {
   const headers: Record<string, string> = {
     "Content-Type": VOICE_STREAM_CT,
-    "Accept": "application/json,audio/mpeg",
+    "Accept": "application/json",
   };
   const auth = req.headers.get("Authorization");
   const apikey = req.headers.get("apikey");
   if (auth) headers.Authorization = auth;
   if (apikey) headers.apikey = apikey;
   return headers;
+}
+
+function decodedHeader(res: Response, name: string): string | undefined {
+  const raw = res.headers.get(name)?.trim();
+  if (!raw) return undefined;
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
 }
 
 function decodeAudioAppend(value: unknown): Uint8Array | null {
@@ -108,7 +129,9 @@ function decodeBinaryFrame(data: ArrayBuffer): Uint8Array | null {
 Deno.serve(async (req) => {
   const upgrade = req.headers.get("upgrade") ?? "";
   if (upgrade.toLowerCase() !== "websocket") {
-    return new Response("voice-stream expects a WebSocket upgrade", { status: 400 });
+    return new Response("voice-stream expects a WebSocket upgrade", {
+      status: 400,
+    });
   }
 
   const deviceAuthError = await verifyAstrolabeDevice(req);
@@ -151,20 +174,33 @@ Deno.serve(async (req) => {
     frameCounter++;
   }
 
-  async function commit(turnId?: string) {
+  async function commit(turnId?: string, final = true) {
     if (totalBytes === 0) {
-      send(socket, { type: "error", code: "empty_audio_buffer", message: "No audio to commit" });
+      send(socket, {
+        type: "error",
+        code: "empty_audio_buffer",
+        message: "No audio to commit",
+      });
       return;
     }
 
     const id = turnId || `turn-${++turnCounter}`;
-    send(socket, { type: "input_audio_buffer.committed", turnId: id, pcmBytes: totalBytes });
-    console.log("voice-stream commit", { turnId: id, pcmBytes: totalBytes, frames: frameCounter });
+    send(socket, {
+      type: "input_audio_buffer.committed",
+      turnId: id,
+      pcmBytes: totalBytes,
+    });
+    console.log("voice-stream commit", {
+      turnId: id,
+      final,
+      pcmBytes: totalBytes,
+      frames: frameCounter,
+    });
 
     const pcm = concatChunks(chunks, totalBytes);
     clearBuffer();
     frameCounter = 0;
-    const body = encodeVoicePipelineStreamBody(session, pcm);
+    const body = encodeVoicePipelineStreamBody(session, pcm, final);
 
     try {
       const requestBody = new ArrayBuffer(body.byteLength);
@@ -188,17 +224,30 @@ Deno.serve(async (req) => {
 
       if (contentType.includes("audio/mpeg")) {
         const mp3 = new Uint8Array(await res.arrayBuffer());
+        const facultySlug = decodedHeader(res, "X-Faculty-Slug");
+        const facultyName = decodedHeader(res, "X-Faculty-Name");
         send(socket, {
           type: "response.audio.delta",
           turnId: id,
           audio: bytesToBase64(mp3),
           encoding: "mp3",
         });
-        send(socket, { type: "response.done", turnId: id });
+        send(socket, {
+          type: "response.done",
+          turnId: id,
+          ...(facultySlug ? { facultySlug } : {}),
+          ...(facultyName ? { facultyName } : {}),
+        });
         return;
       }
 
       const json = await res.json();
+      if (typeof json.facultySlug === "string" && json.facultySlug.trim()) {
+        session.facultySlug = json.facultySlug.trim();
+      }
+      if (typeof json.facultyName === "string" && json.facultyName.trim()) {
+        session.facultyName = json.facultyName.trim();
+      }
       if (json.transcript) {
         send(socket, {
           type: "conversation.item.input_audio_transcription.completed",
@@ -207,7 +256,11 @@ Deno.serve(async (req) => {
         });
       }
       if (json.reply) {
-        send(socket, { type: "response.text.delta", turnId: id, delta: json.reply });
+        send(socket, {
+          type: "response.text.delta",
+          turnId: id,
+          delta: json.reply,
+        });
       }
       if (json.audioBase64) {
         send(socket, {
@@ -217,7 +270,12 @@ Deno.serve(async (req) => {
           encoding: "mp3",
         });
       }
-      send(socket, { type: "response.done", turnId: id });
+      send(socket, {
+        type: "response.done",
+        turnId: id,
+        ...(json.facultySlug ? { facultySlug: json.facultySlug } : {}),
+        ...(json.facultyName ? { facultyName: json.facultyName } : {}),
+      });
     } catch (e) {
       send(socket, {
         type: "error",
@@ -257,7 +315,11 @@ Deno.serve(async (req) => {
     try {
       message = JSON.parse(event.data) as Record<string, unknown>;
     } catch {
-      send(socket, { type: "error", code: "invalid_json", message: "Invalid JSON event" });
+      send(socket, {
+        type: "error",
+        code: "invalid_json",
+        message: "Invalid JSON event",
+      });
       return;
     }
 
@@ -285,7 +347,9 @@ Deno.serve(async (req) => {
         : typeof next.history === "string"
         ? next.history
         : session.conversationHistory;
-      session.languageCode = typeof next.languageCode === "string" ? next.languageCode : session.languageCode;
+      session.languageCode = typeof next.languageCode === "string"
+        ? next.languageCode
+        : session.languageCode;
       session.sampleRateHertz = typeof next.sampleRateHertz === "number"
         ? next.sampleRateHertz
         : typeof next.sample_rate_hz === "number"
@@ -298,7 +362,8 @@ Deno.serve(async (req) => {
         ? next.interaction_mode
         : undefined;
       if (
-        interactionMode === "conversation" || interactionMode === "transcribe" ||
+        interactionMode === "conversation" ||
+        interactionMode === "transcribe" ||
         interactionMode === "journal"
       ) {
         session.interactionMode = interactionMode;
@@ -314,7 +379,9 @@ Deno.serve(async (req) => {
       ) {
         session.commonplaceMode = commonplaceMode;
       }
-      session.skipLlm = typeof next.skipLlm === "boolean" ? next.skipLlm : session.skipLlm;
+      session.skipLlm = typeof next.skipLlm === "boolean"
+        ? next.skipLlm
+        : session.skipLlm;
       session.logToCommonplace = typeof next.logToCommonplace === "boolean"
         ? next.logToCommonplace
         : typeof next.log_to_commonplace === "boolean"
@@ -327,7 +394,11 @@ Deno.serve(async (req) => {
     if (type === "input_audio_buffer.append") {
       const chunk = decodeAudioAppend(message.audio);
       if (!chunk) {
-        send(socket, { type: "error", code: "invalid_audio", message: "Missing base64 audio" });
+        send(socket, {
+          type: "error",
+          code: "invalid_audio",
+          message: "Missing base64 audio",
+        });
         return;
       }
       appendChunk(chunk);
@@ -335,8 +406,10 @@ Deno.serve(async (req) => {
     }
 
     if (type === "input_audio_buffer.commit") {
-      const turnId = typeof message.turnId === "string" ? message.turnId : undefined;
-      void commit(turnId);
+      const turnId = typeof message.turnId === "string"
+        ? message.turnId
+        : undefined;
+      void commit(turnId, message.final !== false);
       return;
     }
 
@@ -346,15 +419,25 @@ Deno.serve(async (req) => {
       return;
     }
 
-    send(socket, { type: "error", code: "unknown_event", message: `Unknown event: ${String(type)}` });
+    send(socket, {
+      type: "error",
+      code: "unknown_event",
+      message: `Unknown event: ${String(type)}`,
+    });
   };
 
   socket.onerror = (event) => {
-    console.error("voice-stream socket error", event instanceof ErrorEvent ? event.message : event.type);
+    console.error(
+      "voice-stream socket error",
+      event instanceof ErrorEvent ? event.message : event.type,
+    );
   };
 
   socket.onclose = () => {
-    console.log("voice-stream close", { bufferedBytes: totalBytes, frames: frameCounter });
+    console.log("voice-stream close", {
+      bufferedBytes: totalBytes,
+      frames: frameCounter,
+    });
     clearBuffer();
     frameCounter = 0;
   };

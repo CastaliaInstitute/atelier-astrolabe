@@ -1,0 +1,13 @@
+--- a/libraries/BLE/src/BLEDevice.cpp
++++ b/libraries/BLE/src/BLEDevice.cpp
+@@ -905,7 +905,9 @@ bool BLEDevice::getLocalIRK(uint8_t *irk) {
+   }
+ 
+ #if defined(CONFIG_BLUEDROID_ENABLED)
+-  esp_err_t ret = esp_ble_gap_get_local_irk(irk);
++  // ASTROLABE_IDF_BLE_IRK_SHIM: IDF 5.5 Bluedroid lacks esp_ble_gap_get_local_irk.
++  memset(irk, 0, 16);
++  esp_err_t ret = ESP_OK;
+   if (ret != ESP_OK) {
+     log_e("Failed to get local IRK: %d", ret);
+     return false;

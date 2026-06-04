@@ -45,12 +45,19 @@ file(GLOB_RECURSE ASTROLABE_LIB_CPP
      "${ASTROLABE_ARDUINO_LIBDEPS}/PNGdec/src/*.cpp"
      "${ASTROLABE_ARDUINO_LIBDEPS}/SensorLib/src/*.cpp"
      "${ASTROLABE_ARDUINO_LIBDEPS}/XPowersLib/src/*.cpp")
+# Watch display uses Arduino_ESP32QSPI; skip legacy SPI/RGB databus (arduino-esp32 3.3 API drift).
+list(FILTER ASTROLABE_LIB_CPP EXCLUDE REGEX ".*/databus/Arduino_ESP32RGBPanel\\.cpp$")
+list(FILTER ASTROLABE_LIB_CPP EXCLUDE REGEX ".*/databus/Arduino_ESP32SPI\\.cpp$")
+list(FILTER ASTROLABE_LIB_CPP EXCLUDE REGEX ".*/databus/Arduino_ESP32SPIDMA\\.cpp$")
 file(GLOB_RECURSE ASTROLABE_LIB_C
      "${ASTROLABE_ARDUINO_LIBDEPS}/GFX_Library_for_Arduino/src/*.c"
      "${ASTROLABE_ARDUINO_LIBDEPS}/JPEGDEC/src/*.c"
      "${ASTROLABE_ARDUINO_LIBDEPS}/PNGdec/src/*.c"
      "${ASTROLABE_ARDUINO_LIBDEPS}/SensorLib/src/*.c"
      "${ASTROLABE_ARDUINO_LIBDEPS}/XPowersLib/src/*.c")
+file(GLOB_RECURSE ASTROLABE_LIB_ASM
+     "${ASTROLABE_ARDUINO_LIBDEPS}/JPEGDEC/src/*.S"
+     "${ASTROLABE_ARDUINO_LIBDEPS}/PNGdec/src/*.S")
 
 idf_component_register(
     SRCS
@@ -60,6 +67,7 @@ idf_component_register(
       ${ASTROLABE_C}
       ${ASTROLABE_LIB_CPP}
       ${ASTROLABE_LIB_C}
+      ${ASTROLABE_LIB_ASM}
     INCLUDE_DIRS
       "${ASTROLABE_SKETCH_DIR}"
       "${ASTROLABE_SKETCH_DIR}/faces"
@@ -68,14 +76,15 @@ idf_component_register(
       ${ASTROLABE_ARDUINO_LIB_INCLUDES}
     REQUIRES
       espressif__arduino-esp32
+      espressif__esp-dsp
       bt
       esp_lcd
+      astrolabe_audio_pipeline
+      astrolabe_time
       minimp3
       waveshare_board_audio)
 
 target_compile_definitions(${COMPONENT_LIB} PRIVATE
-    ARDUINO_USB_CDC_ON_BOOT=1
-    ARDUINO_USB_MODE=1
     BOARD_HAS_PSRAM
     ASTROLABE_UAC_DISABLED=1
     CONFIG_TINYUSB_AUDIO_ENABLED=0
@@ -86,6 +95,7 @@ target_compile_definitions(${COMPONENT_LIB} PRIVATE
 
 target_compile_options(${COMPONENT_LIB} PRIVATE
     "-Wno-error=format-truncation"
-    "-include${CMAKE_CURRENT_LIST_DIR}/astrolabe_idf_compat.h"
+    "$<$<COMPILE_LANGUAGE:C>:-include${CMAKE_CURRENT_LIST_DIR}/astrolabe_idf_compat.h>"
+    "$<$<COMPILE_LANGUAGE:CXX>:-include${CMAKE_CURRENT_LIST_DIR}/astrolabe_idf_compat.h>"
     "-DU8G2_FONT_SECTION(name)="
     "-DU8X8_FONT_SECTION(name)=")

@@ -23,6 +23,13 @@ typedef enum {
     ASTROLABE_AUDIO_PIPELINE_EVENT_ERROR,
 } astrolabe_audio_pipeline_event_t;
 
+typedef enum {
+    /** VAD writes the whole turn to flash, then posts the PCM file to voice-pipeline. */
+    ASTROLABE_AUDIO_PIPELINE_TRANSPORT_FLASH_POST = 0,
+    /** VAD writes rolling flash segments and sends each segment over voice-stream WebSocket. */
+    ASTROLABE_AUDIO_PIPELINE_TRANSPORT_ROLLING_WEBSOCKET = 1,
+} astrolabe_audio_pipeline_transport_t;
+
 typedef esp_err_t (*astrolabe_audio_read_fn)(int16_t *samples,
                                              size_t sample_count,
                                              size_t *out_read,
@@ -42,6 +49,7 @@ typedef void (*astrolabe_audio_result_fn)(const char *transcript,
                                           const char *faculty_slug,
                                           const char *faculty_name,
                                           void *user);
+typedef void (*astrolabe_audio_prepare_context_fn)(void *user);
 
 typedef struct {
     astrolabe_audio_read_fn read;
@@ -55,6 +63,7 @@ typedef struct {
     astrolabe_audio_io_t io;
     astrolabe_audio_event_fn on_event;
     astrolabe_audio_result_fn on_result;
+    astrolabe_audio_prepare_context_fn prepare_context;
     void *event_user;
 
     const char *endpoint_url;
@@ -65,12 +74,19 @@ typedef struct {
     const char *system_instruction;
     const char *history;
     const char *stream_url;
+    const char *interaction_mode;
+    const char *commonplace_mode;
+    const char *response_format;
+    bool skip_llm;
+    bool log_to_commonplace;
+    astrolabe_audio_pipeline_transport_t transport;
     const char *capture_mount_path;
     const char *capture_partition_label;
     const char *capture_file_path;
     bool capture_skip_spiffs_mount;
 
     uint32_t sample_rate_hz;
+    uint32_t stt_sample_rate_hz;
     size_t frame_samples;
     uint32_t rms_start;
     uint32_t rms_end;
@@ -89,16 +105,23 @@ typedef struct {
 
 typedef struct astrolabe_audio_pipeline astrolabe_audio_pipeline_t;
 
+#define ASTROLABE_AUDIO_PIPELINE_WAVEFORM_LEN 128
+
 esp_err_t astrolabe_audio_pipeline_create(const astrolabe_audio_pipeline_config_t *config,
                                           astrolabe_audio_pipeline_t **out_pipeline);
 esp_err_t astrolabe_audio_pipeline_start(astrolabe_audio_pipeline_t *pipeline);
 void astrolabe_audio_pipeline_stop(astrolabe_audio_pipeline_t *pipeline);
 void astrolabe_audio_pipeline_destroy(astrolabe_audio_pipeline_t *pipeline);
+esp_err_t astrolabe_audio_pipeline_trigger_capture(astrolabe_audio_pipeline_t *pipeline);
 
 bool astrolabe_audio_pipeline_speech_active(const astrolabe_audio_pipeline_t *pipeline);
 uint32_t astrolabe_audio_pipeline_last_rms(const astrolabe_audio_pipeline_t *pipeline);
 uint32_t astrolabe_audio_pipeline_noise_rms(const astrolabe_audio_pipeline_t *pipeline);
 uint32_t astrolabe_audio_pipeline_start_threshold(const astrolabe_audio_pipeline_t *pipeline);
+void astrolabe_audio_pipeline_waveform_copy(const astrolabe_audio_pipeline_t *pipeline, uint8_t *out, size_t len);
+void astrolabe_audio_pipeline_waveform_stream_copy(const astrolabe_audio_pipeline_t *pipeline,
+                                                   uint8_t *out,
+                                                   size_t len);
 
 #ifdef __cplusplus
 }

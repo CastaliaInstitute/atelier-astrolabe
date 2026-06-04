@@ -12,6 +12,7 @@
 #include "esp_err.h"
 #include "esp_heap_caps.h"
 #include "esp_http_client.h"
+#include "esp_image_format.h"
 #include "esp_log.h"
 #include "esp_mac.h"
 #include "esp_ota_ops.h"
@@ -36,6 +37,7 @@ static const char *TAG = "faculty175_ota";
 #define OTA_NVS_URL "url"
 #define OTA_NVS_PENDING "pending"
 #define OTA_NVS_LAST_SHA "last_sha256"
+#define OTA_NVS_BOOT_PRODUCT "boot_product"
 #define OTA_URL_MAX 256
 #define OTA_SHA256_HEX_LEN 64
 #define OTA_DEVICE_MAC_LEN 17
@@ -420,6 +422,41 @@ static esp_err_t nvs_set_last_sha(const char *sha)
     return err;
 }
 
+static esp_err_t nvs_get_boot_product(bool *enabled)
+{
+    if (enabled == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    *enabled = false;
+    nvs_handle_t nvs;
+    esp_err_t err = nvs_open(OTA_NVS_NS, NVS_READONLY, &nvs);
+    if (err != ESP_OK) {
+        return err;
+    }
+    uint8_t value = 0;
+    err = nvs_get_u8(nvs, OTA_NVS_BOOT_PRODUCT, &value);
+    nvs_close(nvs);
+    if (err == ESP_OK) {
+        *enabled = value != 0;
+    }
+    return err;
+}
+
+static esp_err_t nvs_set_boot_product(bool enabled)
+{
+    nvs_handle_t nvs;
+    esp_err_t err = nvs_open(OTA_NVS_NS, NVS_READWRITE, &nvs);
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = nvs_set_u8(nvs, OTA_NVS_BOOT_PRODUCT, enabled ? 1 : 0);
+    if (err == ESP_OK) {
+        err = nvs_commit(nvs);
+    }
+    nvs_close(nvs);
+    return err;
+}
+
 static esp_err_t reboot_to_factory(void)
 {
     const esp_partition_t *factory =
@@ -430,6 +467,41 @@ static esp_err_t reboot_to_factory(void)
     return esp_ota_set_boot_partition(factory);
 }
 
+static bool is_valid_app_image(const esp_partition_t *part)
+{
+    if (part == NULL) {
+        return false;
+    }
+    const esp_partition_pos_t pos = {
+        .offset = part->address,
+        .size = part->size,
+    };
+    esp_image_metadata_t metadata = {};
+    return esp_image_verify(ESP_IMAGE_VERIFY, &pos, &metadata) == ESP_OK;
+}
+
+static const esp_partition_t *find_valid_product_partition(void)
+{
+    const esp_partition_t *configured = esp_ota_get_boot_partition();
+    if (configured != NULL && configured->type == ESP_PARTITION_TYPE_APP &&
+        (configured->subtype == ESP_PARTITION_SUBTYPE_APP_OTA_0 ||
+         configured->subtype == ESP_PARTITION_SUBTYPE_APP_OTA_1) &&
+        is_valid_app_image(configured)) {
+        return configured;
+    }
+
+    const esp_partition_t *slots[] = {
+        esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_OTA_0, NULL),
+        esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_OTA_1, NULL),
+    };
+    for (size_t i = 0; i < sizeof(slots) / sizeof(slots[0]); ++i) {
+        if (is_valid_app_image(slots[i])) {
+            return slots[i];
+        }
+    }
+    return NULL;
+}
+
 static void print_status(void)
 {
     const esp_partition_t *running = esp_ota_get_running_partition();
@@ -437,15 +509,18 @@ static void print_status(void)
     const esp_partition_t *next = esp_ota_get_next_update_partition(NULL);
     char pending_url[OTA_URL_MAX];
     bool pending = false;
+    bool boot_product = false;
     (void)nvs_get_pending_url(pending_url, sizeof(pending_url), &pending);
+    (void)nvs_get_boot_product(&boot_product);
     const esp_app_desc_t *desc = esp_app_get_description();
-    printf("ota: status state=%d running=%s boot=%s next=%s version=%s pending=%s\n",
+    printf("ota: status state=%d running=%s boot=%s next=%s version=%s pending=%s boot_product=%s\n",
            (int)s_ota_state,
            part_label(running),
            part_label(boot),
            part_label(next),
            desc != NULL ? desc->version : "-",
-           pending ? "yes" : "no");
+           pending ? "yes" : "no",
+           boot_product ? "yes" : "no");
     if (pending) {
         printf("ota: pending url=%s\n", pending_url);
     }
@@ -916,6 +991,33 @@ void faculty175_ota_init(void)
     set_last("boot running=%s boot=%s", part_label(running), part_label(boot));
 }
 
+void faculty175_ota_maybe_boot_product(void)
+{
+    const esp_partition_t *running = esp_ota_get_running_partition();
+    if (!is_factory_partition(running)) {
+        return;
+    }
+    bool boot_product = false;
+    if (nvs_get_boot_product(&boot_product) != ESP_OK || !boot_product) {
+        return;
+    }
+    const esp_partition_t *product = find_valid_product_partition();
+    if (product == NULL) {
+        set_last("boot_product set but no valid OTA slot");
+        FACULTY175_LOG_STAGE_W(TAG, "ota", "%s", s_ota_last);
+        return;
+    }
+    esp_err_t err = esp_ota_set_boot_partition(product);
+    if (err != ESP_OK) {
+        set_last("boot_product set boot failed: %s", esp_err_to_name(err));
+        FACULTY175_LOG_STAGE_E(TAG, "ota", "%s", s_ota_last);
+        return;
+    }
+    FACULTY175_LOG_STAGE(TAG, "ota", "boot_product -> %s; rebooting", part_label(product));
+    vTaskDelay(pdMS_TO_TICKS(250));
+    esp_restart();
+}
+
 bool faculty175_ota_active(void)
 {
     return s_ota_state == OTA_STATE_RUNNING;
@@ -969,6 +1071,7 @@ bool faculty175_ota_handle(const char *line)
         printf("  ota fetch <https-url> [sha256]\n");
         printf("  ota manifest <https-manifest-url>\n");
         printf("  ota recovery <https-url>\n");
+        printf("  ota boot ota|factory|status\n");
         printf("  ota factory\n");
         fflush(stdout);
         return true;
@@ -985,6 +1088,45 @@ bool faculty175_ota_handle(const char *line)
             vTaskDelay(pdMS_TO_TICKS(250));
             esp_restart();
         }
+        return true;
+    }
+    if (strncasecmp(sub, "boot ", 5) == 0) {
+        const char *mode = skip_spaces(sub + 5);
+        if (strcasecmp(mode, "status") == 0) {
+            bool boot_product = false;
+            (void)nvs_get_boot_product(&boot_product);
+            printf("ota: boot product=%s\n", boot_product ? "yes" : "no");
+            fflush(stdout);
+            return true;
+        }
+        if (strcasecmp(mode, "ota") == 0 || strcasecmp(mode, "product") == 0) {
+            esp_err_t err = nvs_set_boot_product(true);
+            if (err == ESP_OK) {
+                err = reboot_to_factory();
+            }
+            printf("ota: boot ota %s\n", esp_err_to_name(err));
+            fflush(stdout);
+            if (err == ESP_OK) {
+                vTaskDelay(pdMS_TO_TICKS(250));
+                esp_restart();
+            }
+            return true;
+        }
+        if (strcasecmp(mode, "factory") == 0 || strcasecmp(mode, "recovery") == 0) {
+            esp_err_t err = nvs_set_boot_product(false);
+            if (err == ESP_OK) {
+                err = reboot_to_factory();
+            }
+            printf("ota: boot factory %s\n", esp_err_to_name(err));
+            fflush(stdout);
+            if (err == ESP_OK) {
+                vTaskDelay(pdMS_TO_TICKS(250));
+                esp_restart();
+            }
+            return true;
+        }
+        printf("ota: boot expects ota|factory|status\n");
+        fflush(stdout);
         return true;
     }
     if (strncasecmp(sub, "fetch ", 6) == 0) {

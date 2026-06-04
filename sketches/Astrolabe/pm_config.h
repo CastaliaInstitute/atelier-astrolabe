@@ -137,6 +137,9 @@
 #ifndef MYNAH_FACULTY_MIN_FETCH_HEAP
 #define MYNAH_FACULTY_MIN_FETCH_HEAP 24000u
 #endif
+#ifndef MYNAH_FACULTY_MIN_LARGEST
+#define MYNAH_FACULTY_MIN_LARGEST 16000u
+#endif
 #ifndef MYNAH_FACULTY_BUST_WIDTH
 #define MYNAH_FACULTY_BUST_WIDTH 192
 #endif
@@ -173,6 +176,17 @@
 /** TLS is fragile when internal heap is fragmented even if total free looks okay. */
 #ifndef MYNAH_TLS_MIN_LARGEST_INTERNAL
 #define MYNAH_TLS_MIN_LARGEST_INTERNAL 36000u
+#endif
+
+/** Daily briefing is optional and must never compete with boot/QA/OTA for scarce internal heap. */
+#ifndef MYNAH_DAILY_BRIEFING_BOOT_GRACE_MS
+#define MYNAH_DAILY_BRIEFING_BOOT_GRACE_MS 30000u
+#endif
+#ifndef MYNAH_BRIEFING_MIN_HEAP
+#define MYNAH_BRIEFING_MIN_HEAP 70000u
+#endif
+#ifndef MYNAH_BRIEFING_MIN_LARGEST
+#define MYNAH_BRIEFING_MIN_LARGEST 28000u
 #endif
 
 /** Skip BLE/Radar host startup when another face has left too little internal heap. */

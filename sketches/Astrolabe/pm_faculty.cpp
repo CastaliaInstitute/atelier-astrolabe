@@ -24,20 +24,21 @@
 #include "pm_heap.h"
 #include "pm_display.h"
 #include "pm_faculty_assets.h"
+#include "pm_speaker.h"
 #include "pm_wifi_ntp.h"
 
 static const char *TAG = "pm_faculty";
 
 static constexpr const char *kNvsNs = "mynah";
 static constexpr const char *kKeyActive = "fac_active";
-static constexpr size_t kBustMaxBytes = 128u * 1024u;
-static constexpr size_t kBustFlashMaxBytes = 160u * 1024u;
+static constexpr size_t kBustMaxBytes = 256u * 1024u;
+static constexpr size_t kBustFlashMaxBytes = 256u * 1024u;
 static constexpr uint32_t kBustTaskStack = 12288;
 static constexpr uint32_t kBustPreloadMinIntervalMs = 60000u;
 
 #ifndef ASTROLABE_DEFAULT_FACULTY_SLUG
 #if defined(ASTROLABE_DEFAULT_FACULTY_TOM_ROBBINS) && ASTROLABE_DEFAULT_FACULTY_TOM_ROBBINS
-#define ASTROLABE_DEFAULT_FACULTY_SLUG "tom-robbins"
+#define ASTROLABE_DEFAULT_FACULTY_SLUG "a.tomrobbins"
 #else
 #define ASTROLABE_DEFAULT_FACULTY_SLUG "a.einstein"
 #endif
@@ -55,6 +56,7 @@ static TaskHandle_t s_bust_task = nullptr;
 static volatile PmFacultyBustStatus s_bust_status = PmFacultyBustStatus::Idle;
 static volatile bool s_bust_done = false;
 static char s_bust_req_slug[32] = "";
+static volatile bool s_bust_req_flash_only = false;
 static char s_bust_slug[32] = "";
 static uint8_t *s_bust_bytes = nullptr;
 static size_t s_bust_len = 0;
@@ -66,8 +68,11 @@ static constexpr int kBustFullMaxDrawH = LCD_HEIGHT - 28;
 static constexpr int kBustRestBottom = kBustFooterTop - 6;
 static constexpr uint32_t kBustRiseMs = 420u;
 static constexpr int kBustJpegMaxDim = 512;
+static constexpr int kBustPngMaxSrcDim = 1200;
+static constexpr int kBustPngMaxLineW = 1024;
 
 static uint16_t *s_decoded_fb = nullptr;
+static uint8_t *s_decoded_opaque = nullptr;
 static int s_decoded_w = 0;
 static int s_decoded_h = 0;
 static char s_decoded_slug[32] = "";
@@ -80,6 +85,9 @@ static uint32_t s_last_preload_ms = 0;
 static int s_preload_slot = -1;
 static bool s_bust_fs_checked = false;
 static bool s_bust_fs_available = false;
+static uint32_t s_bust_fetch_retry_ms = 0;
+static uint32_t s_bust_low_mem_log_ms = 0;
+static char s_flash_miss_slug[32] = "";
 
 static void key_for_slot(char *out, size_t cap, int slot, const char *suffix) {
   snprintf(out, cap, "fac%d_%s", slot, suffix);
@@ -331,6 +339,87 @@ bool pm_faculty_cycle_active(int delta, PmFacultyProfile *out) {
   return out ? pm_faculty_get_slot(next_slot, out) : true;
 }
 
+int pm_faculty_active_index(void) {
+  PmFacultyProfile active = {};
+  if (!pm_faculty_active(&active)) {
+    return -1;
+  }
+  int idx = 0;
+  for (int i = 0; i < kPmFacultySlots; ++i) {
+    PmFacultyProfile f = {};
+    if (!pm_faculty_get_slot(i, &f)) {
+      continue;
+    }
+    if (strcasecmp(f.slug, active.slug) == 0) {
+      return idx;
+    }
+    ++idx;
+  }
+  return -1;
+}
+
+static void pm_faculty_clear_nvs_slots(Preferences &pref) {
+  for (int i = 0; i < kPmFacultySlots; ++i) {
+    char key[16];
+    key_for_slot(key, sizeof(key), i, "slug");
+    pref.remove(key);
+    key_for_slot(key, sizeof(key), i, "name");
+    pref.remove(key);
+    key_for_slot(key, sizeof(key), i, "q");
+    pref.remove(key);
+    key_for_slot(key, sizeof(key), i, "a");
+    pref.remove(key);
+  }
+}
+
+static bool pm_faculty_write_roster(const PmFacultyProfile *entries, int count, int active_index) {
+  if (!entries || count <= 0 || active_index < 0 || active_index >= count || active_index >= kPmFacultySlots) {
+    return false;
+  }
+  Preferences pref;
+  if (!pref.begin(kNvsNs, false)) {
+    return false;
+  }
+  pm_faculty_clear_nvs_slots(pref);
+  for (int i = 0; i < count && i < kPmFacultySlots; ++i) {
+    if (entries[i].valid) {
+      (void)save_slot(pref, i, &entries[i]);
+    }
+  }
+  pref.putInt(kKeyActive, active_index);
+  pref.end();
+  return true;
+}
+
+#if defined(ASTROLABE_DEFAULT_FACULTY_TOM_ROBBINS) && ASTROLABE_DEFAULT_FACULTY_TOM_ROBBINS
+static void pm_faculty_ensure_cameo_roster(void) {
+  static const PmFacultyProfile kCameoRoster[] = {
+      {ASTROLABE_DEFAULT_FACULTY_SLUG, ASTROLABE_DEFAULT_FACULTY_NAME, "", "", true},
+      {"a.einstein", "Einstein", "", "", true},
+      {"marie-curie", "Marie Curie", "", "", true},
+      {"hypatia", "Hypatia", "", "", true},
+      {"socrates", "Socrates", "", "", true},
+  };
+  constexpr int kRosterCount = static_cast<int>(sizeof(kCameoRoster) / sizeof(kCameoRoster[0]));
+
+  int count = 0;
+  bool has_default = false;
+  for (int i = 0; i < kPmFacultySlots; ++i) {
+    PmFacultyProfile f = {};
+    if (pm_faculty_get_slot(i, &f)) {
+      ++count;
+      if (strcasecmp(f.slug, ASTROLABE_DEFAULT_FACULTY_SLUG) == 0) {
+        has_default = true;
+      }
+    }
+  }
+  if (has_default && count >= kRosterCount - 1) {
+    return;
+  }
+  (void)pm_faculty_write_roster(kCameoRoster, kRosterCount, 0);
+}
+#endif
+
 bool pm_faculty_remember(const char *slug_in, const char *name_in) {
   char slug[32];
   pm_faculty_normalize_slug(slug_in, slug, sizeof(slug));
@@ -480,6 +569,9 @@ void pm_faculty_ensure_seed(void) {
 
 void pm_faculty_ensure_demo_seed(void) {
   pm_faculty_ensure_seed();
+#if defined(ASTROLABE_DEFAULT_FACULTY_TOM_ROBBINS) && ASTROLABE_DEFAULT_FACULTY_TOM_ROBBINS
+  pm_faculty_ensure_cameo_roster();
+#endif
   for (int i = 0; i < kPmFacultySlots; ++i) {
     PmFacultyProfile legacy = {};
     if (pm_faculty_get_slot(i, &legacy) && strcmp(legacy.slug, "einstein") == 0) {
@@ -586,12 +678,20 @@ static bool bust_flash_cached(const char *slug) {
 }
 
 static bool load_flash_bust(const char *slug) {
+  if (!slug_sane(slug)) {
+    return false;
+  }
+  if (strcmp(s_flash_miss_slug, slug) == 0) {
+    return false;
+  }
   char path[64];
   if (!bust_cache_path(slug, path, sizeof(path)) || !bust_cache_fs_begin()) {
     return false;
   }
   File f = LittleFS.open(path, "r");
   if (!f) {
+    strncpy(s_flash_miss_slug, slug, sizeof(s_flash_miss_slug) - 1);
+    s_flash_miss_slug[sizeof(s_flash_miss_slug) - 1] = '\0';
     return false;
   }
   const size_t sz = f.size();
@@ -613,12 +713,21 @@ static bool load_flash_bust(const char *slug) {
     bust_set_error("short cached bust");
     return false;
   }
+  const bool png = buf[0] == 0x89 && buf[1] == 'P' && buf[2] == 'N' && buf[3] == 'G';
+  const bool jpg = buf[0] == 0xFF && buf[1] == 0xD8;
+  if (!png && !jpg) {
+    free(buf);
+    (void)LittleFS.remove(path);
+    bust_set_error("bad cached bust");
+    return false;
+  }
   free(s_bust_bytes);
   s_bust_bytes = buf;
   s_bust_len = sz;
   strncpy(s_bust_slug, slug, sizeof(s_bust_slug) - 1);
   s_bust_slug[sizeof(s_bust_slug) - 1] = '\0';
   bust_set_error(nullptr);
+  s_flash_miss_slug[0] = '\0';
   Serial.printf("pm_faculty: flash bust %s (%u B)\n", s_bust_slug, static_cast<unsigned>(s_bust_len));
   return true;
 }
@@ -642,6 +751,9 @@ static bool save_flash_bust(const char *slug, const uint8_t *bytes, size_t len) 
     return false;
   }
   Serial.printf("pm_faculty: flash cached bust %s (%u B)\n", slug, static_cast<unsigned>(len));
+  if (slug_sane(slug) && strcmp(s_flash_miss_slug, slug) == 0) {
+    s_flash_miss_slug[0] = '\0';
+  }
   return true;
 }
 
@@ -744,9 +856,80 @@ static bool build_supabase_bust_url(const char *slug, char *url, size_t cap) {
   strncpy(base, MYNAH_SUPABASE_URL, sizeof(base) - 1);
   base[sizeof(base) - 1] = '\0';
   trim_base_url(base, sizeof(base));
-  const int n = snprintf(url, cap, "%s/functions/v1/faculty-bust?faculty=%s&w=%d&h=%d&q=%d", base, slug,
+  const int n = snprintf(url, cap, "%s/functions/v1/faculty-bust?faculty=%s&w=%d&h=%d&q=%d&view=right", base, slug,
                          MYNAH_FACULTY_BUST_WIDTH, MYNAH_FACULTY_BUST_HEIGHT, MYNAH_FACULTY_BUST_QUALITY);
   return n > 0 && static_cast<size_t>(n) < cap;
+}
+
+static void bust_slug_token(const char *slug, char *out, size_t cap) {
+  if (!out || cap == 0) {
+    return;
+  }
+  out[0] = '\0';
+  if (!slug || slug[0] == '\0') {
+    return;
+  }
+  size_t o = 0;
+  for (const char *p = slug; *p && o + 1 < cap; ++p) {
+    char c = *p;
+    if (c == '.' || c == '_') {
+      c = '-';
+    }
+    out[o++] = static_cast<char>(tolower(static_cast<unsigned char>(c)));
+  }
+  out[o] = '\0';
+}
+
+static int bust_storage_slug_candidates(const char *slug, char out[][32], int max_n) {
+  if (!slug || slug[0] == '\0' || !out || max_n <= 0) {
+    return 0;
+  }
+  int n = 0;
+  auto add = [&](const char *s) {
+    if (!s || s[0] == '\0' || n >= max_n) {
+      return;
+    }
+    for (int i = 0; i < n; ++i) {
+      if (strcmp(out[i], s) == 0) {
+        return;
+      }
+    }
+    strncpy(out[n], s, 31);
+    out[n][31] = '\0';
+    ++n;
+  };
+
+  char token[32];
+  bust_slug_token(slug, token, sizeof(token));
+  add(token);
+  add(slug);
+  if (strncmp(slug, "a.", 2) == 0) {
+    add(slug + 2);
+    char prefixed[32];
+    snprintf(prefixed, sizeof(prefixed), "a-%s", slug + 2);
+    bust_slug_token(prefixed, prefixed, sizeof(prefixed));
+    add(prefixed);
+  } else if (strncmp(slug, "a-", 2) == 0) {
+    add(slug + 2);
+  }
+  return n;
+}
+
+static bool build_supabase_storage_bust_url(const char *object_path, char *url, size_t cap) {
+  if (!object_path || object_path[0] == '\0' || !url || cap == 0 || strlen(MYNAH_SUPABASE_URL) == 0) {
+    return false;
+  }
+  char base[160];
+  strncpy(base, MYNAH_SUPABASE_URL, sizeof(base) - 1);
+  base[sizeof(base) - 1] = '\0';
+  trim_base_url(base, sizeof(base));
+  const int n = snprintf(url, cap, "%s/storage/v1/object/public/busts/%s", base, object_path);
+  return n > 0 && static_cast<size_t>(n) < cap;
+}
+
+static bool bust_network_fetch_enabled(void) {
+  return strlen(MYNAH_SUPABASE_URL) > 0 || strlen(MYNAH_FACULTY_BUST_ORIGIN) > 0 ||
+         strlen(MYNAH_CASTALIA_WEB_ORIGIN) > 0;
 }
 
 static bool url_is_https(const char *url) {
@@ -773,7 +956,7 @@ static bool fetch_bust_url(const char *url, const char *label, uint8_t **bytes, 
     return false;
   }
   pm_castalia_auth_apply_headers(&http);
-  http.addHeader("Accept", "image/jpeg,image/*;q=0.8,*/*;q=0.1");
+  http.addHeader("Accept", "image/png,image/jpeg,image/*;q=0.8,*/*;q=0.1");
   const int code = http.GET();
   if (code != 200) {
     ESP_LOGW(TAG, "faculty-bust %s HTTP %d", label ? label : "url", code);
@@ -806,6 +989,33 @@ static bool fetch_bust_url(const char *url, const char *label, uint8_t **bytes, 
   return ok;
 }
 
+static bool fetch_supabase_storage_bust(const char *slug, uint8_t **bytes, size_t *len) {
+  if (!slug_sane(slug) || !bytes || !len || strlen(MYNAH_SUPABASE_URL) == 0) {
+    return false;
+  }
+  char slug_candidates[6][32];
+  const int slug_n = bust_storage_slug_candidates(slug, slug_candidates, 6);
+  static const char *kLeafNames[] = {"bust.png", "bust.webp", "bust.jpg", "bust.jpeg", "bust_frontal.png", "bust_frontal.webp"};
+  char object_path[72];
+  char url[280];
+  for (int si = 0; si < slug_n; ++si) {
+    for (const char *leaf : kLeafNames) {
+      const int pn = snprintf(object_path, sizeof(object_path), "%s/%s", slug_candidates[si], leaf);
+      if (pn <= 0 || static_cast<size_t>(pn) >= sizeof(object_path)) {
+        continue;
+      }
+      if (!build_supabase_storage_bust_url(object_path, url, sizeof(url))) {
+        continue;
+      }
+      bust_set_error(nullptr);
+      if (fetch_bust_url(url, "storage", bytes, len)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 static bool cache_embedded_bust(const char *slug) {
   const uint8_t *embedded = nullptr;
   size_t embedded_len = 0;
@@ -834,6 +1044,83 @@ static bool has_embedded_bust(const char *slug) {
   return pm_faculty_embedded_bust(slug, &embedded, &embedded_len) && embedded_len > 0;
 }
 
+static bool fetch_bust_network_bytes(const char *slug, uint8_t **bytes, size_t *len) {
+  if (!slug_sane(slug) || !bytes || !len) {
+    return false;
+  }
+  if (!pm_wifi_connected()) {
+    bust_set_error("no wifi");
+    return false;
+  }
+  if (!bust_network_fetch_enabled()) {
+    bust_set_error("no bust host");
+    return false;
+  }
+  (void)pm_speaker_release_idle_task();
+  pm_heap_prepare_tls();
+  (void)pm_castalia_auth_prepare_for_voice();
+
+  char url[240];
+  if (fetch_supabase_storage_bust(slug, bytes, len)) {
+    return true;
+  }
+  if (build_static_avatar_url(slug, url, sizeof(url)) && fetch_bust_url(url, "avatar", bytes, len)) {
+    return true;
+  }
+  if (build_castalia_bust_url(slug, url, sizeof(url)) && fetch_bust_url(url, "castalia", bytes, len)) {
+    return true;
+  }
+  if (build_supabase_bust_url(slug, url, sizeof(url)) && fetch_bust_url(url, "supabase", bytes, len)) {
+    return true;
+  }
+  return false;
+}
+
+static void bust_release_bytes(void) {
+  free(s_bust_bytes);
+  s_bust_bytes = nullptr;
+  s_bust_len = 0;
+  s_bust_slug[0] = '\0';
+  s_bust_status = PmFacultyBustStatus::Idle;
+  s_bust_done = false;
+}
+
+static bool cache_bust_to_flash_inner(const char *slug) {
+  if (!slug_sane(slug)) {
+    bust_set_error("bad slug");
+    return false;
+  }
+  if (has_embedded_bust(slug) || bust_flash_cached(slug)) {
+    return true;
+  }
+  uint8_t *bytes = nullptr;
+  size_t len = 0;
+  if (!fetch_bust_network_bytes(slug, &bytes, &len)) {
+    return false;
+  }
+  if (!save_flash_bust(slug, bytes, len)) {
+    free(bytes);
+    bust_set_error("flash write");
+    return false;
+  }
+  PmFacultyProfile active = {};
+  if (pm_faculty_active(&active) && strcasecmp(active.slug, slug) == 0) {
+    free(s_bust_bytes);
+    s_bust_bytes = bytes;
+    s_bust_len = len;
+    strncpy(s_bust_slug, slug, sizeof(s_bust_slug) - 1);
+    s_bust_slug[sizeof(s_bust_slug) - 1] = '\0';
+    bust_set_error(nullptr);
+  } else {
+    free(bytes);
+  }
+  Serial.printf("pm_faculty: roster flash cached %s (%u B)\n", slug, static_cast<unsigned>(len));
+  return true;
+}
+
+static bool cache_bust_to_flash_inner(const char *slug);
+static void bust_task_ensure(void);
+
 static bool fetch_bust_inner(const char *slug) {
   if (!slug_sane(slug)) {
     bust_set_error("bad slug");
@@ -845,26 +1132,9 @@ static bool fetch_bust_inner(const char *slug) {
   if (load_flash_bust(slug)) {
     return true;
   }
-  if (!pm_wifi_connected()) {
-    bust_set_error("no wifi");
-    return false;
-  }
-  if (strlen(MYNAH_FACULTY_BUST_ORIGIN) == 0) {
-    bust_set_error("no bust host");
-    return false;
-  }
-  (void)pm_castalia_auth_prepare_for_voice();
-
   uint8_t *bytes = nullptr;
   size_t len = 0;
-  char url[240];
-  if (build_static_avatar_url(slug, url, sizeof(url)) && fetch_bust_url(url, "avatar", &bytes, &len)) {
-    /* ok */
-  } else if (build_castalia_bust_url(slug, url, sizeof(url)) && fetch_bust_url(url, "castalia", &bytes, &len)) {
-    /* ok */
-  } else if (build_supabase_bust_url(slug, url, sizeof(url)) && fetch_bust_url(url, "supabase", &bytes, &len)) {
-    /* ok */
-  } else {
+  if (!fetch_bust_network_bytes(slug, &bytes, &len)) {
     return false;
   }
 
@@ -879,12 +1149,51 @@ static bool fetch_bust_inner(const char *slug) {
   return true;
 }
 
+static bool pm_faculty_request_bust_cache(const char *slug) {
+  if (!slug_sane(slug)) {
+    return false;
+  }
+  if (s_bust_status == PmFacultyBustStatus::Working) {
+    return false;
+  }
+  if (millis() < s_bust_fetch_retry_ms) {
+    return false;
+  }
+  if (has_embedded_bust(slug) || bust_flash_cached(slug)) {
+    return false;
+  }
+  if (!pm_wifi_connected()) {
+    return false;
+  }
+  if (!pm_heap_bust_fetch_ready(nullptr)) {
+    s_bust_fetch_retry_ms = millis() + 8000u;
+    return false;
+  }
+  bust_task_ensure();
+  if (!s_bust_task) {
+    return false;
+  }
+  strncpy(s_bust_req_slug, slug, sizeof(s_bust_req_slug) - 1);
+  s_bust_req_slug[sizeof(s_bust_req_slug) - 1] = '\0';
+  s_bust_req_flash_only = true;
+  s_bust_done = false;
+  s_bust_status = PmFacultyBustStatus::Working;
+  xTaskNotify(s_bust_task, 1, eSetBits);
+  return true;
+}
+
 static void bust_task(void *arg) {
   (void)arg;
   for (;;) {
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-    const bool ok = fetch_bust_inner(s_bust_req_slug);
-    s_bust_status = ok ? PmFacultyBustStatus::DoneOk : PmFacultyBustStatus::DoneFail;
+    const bool flash_only = s_bust_req_flash_only;
+    s_bust_req_flash_only = false;
+    const bool ok = flash_only ? cache_bust_to_flash_inner(s_bust_req_slug) : fetch_bust_inner(s_bust_req_slug);
+    if (flash_only) {
+      s_bust_status = PmFacultyBustStatus::Idle;
+    } else {
+      s_bust_status = ok ? PmFacultyBustStatus::DoneOk : PmFacultyBustStatus::DoneFail;
+    }
     s_bust_done = true;
   }
 }
@@ -932,14 +1241,22 @@ bool pm_faculty_request_bust(const char *slug) {
   if (!pm_wifi_connected()) {
     return false;
   }
-  const uint32_t free_i = pm_heap_internal_free();
-  const uint32_t largest_i = pm_heap_internal_largest();
-  if (free_i < MYNAH_FACULTY_MIN_FETCH_HEAP || largest_i < 16000u) {
-    bust_set_error("low memory");
-    Serial.printf("pm_faculty: bust skipped low memory heap=%u largest=%u\n",
-                  static_cast<unsigned>(free_i), static_cast<unsigned>(largest_i));
+  if (millis() < s_bust_fetch_retry_ms) {
     return false;
   }
+  if (!pm_heap_bust_fetch_ready(nullptr)) {
+    bust_set_error("low memory");
+    s_bust_fetch_retry_ms = millis() + 8000u;
+    const uint32_t now = millis();
+    if (s_bust_low_mem_log_ms == 0 || now - s_bust_low_mem_log_ms >= 8000u) {
+      s_bust_low_mem_log_ms = now;
+      Serial.printf("pm_faculty: bust deferred low memory heap=%u largest=%u\n",
+                    static_cast<unsigned>(pm_heap_internal_free()),
+                    static_cast<unsigned>(pm_heap_internal_largest()));
+    }
+    return false;
+  }
+  s_bust_fetch_retry_ms = 0;
   bust_task_ensure();
   if (!s_bust_task) {
     return false;
@@ -965,7 +1282,7 @@ bool pm_faculty_preload_busts(const char *quote_slug) {
   }
 
   if (slug_sane(quote_slug) && !has_embedded_bust(quote_slug) && !bust_flash_cached(quote_slug)) {
-    return pm_faculty_request_bust(quote_slug);
+    return pm_faculty_request_bust_cache(quote_slug);
   }
 
   constexpr int n = kPmFacultySlots;
@@ -975,17 +1292,21 @@ bool pm_faculty_preload_busts(const char *quote_slug) {
     if (!pm_faculty_get_slot(s_preload_slot, &f)) {
       continue;
     }
+    if (strstr(f.slug, "missing") != nullptr) {
+      continue;
+    }
     if (has_embedded_bust(f.slug)) {
       continue;
     }
     if (bust_flash_cached(f.slug)) {
       continue;
     }
-    return pm_faculty_request_bust(f.slug);
+    return pm_faculty_request_bust_cache(f.slug);
   }
 
   PmFacultyProfile active = {};
-  if (pm_faculty_active(&active) && s_bust_len == 0 && !has_embedded_bust(active.slug)) {
+  if (pm_faculty_active(&active) &&
+      (s_bust_len == 0 || strcasecmp(s_bust_slug, active.slug) != 0)) {
     return pm_faculty_request_bust(active.slug);
   }
   return false;
@@ -1018,9 +1339,91 @@ static void bust_free_decoded(void) {
     free(s_decoded_fb);
     s_decoded_fb = nullptr;
   }
+  if (s_decoded_opaque) {
+    free(s_decoded_opaque);
+    s_decoded_opaque = nullptr;
+  }
   s_decoded_w = 0;
   s_decoded_h = 0;
   s_decoded_slug[0] = '\0';
+}
+
+static void bust_compute_decode_size(int src_w, int src_h, int *out_w, int *out_h) {
+  if (!out_w || !out_h || src_w <= 0 || src_h <= 0) {
+    return;
+  }
+  int w = src_w;
+  int h = src_h;
+  if (w > kBustJpegMaxDim) {
+    h = h * kBustJpegMaxDim / w;
+    w = kBustJpegMaxDim;
+  }
+  if (h > kBustJpegMaxDim) {
+    w = w * kBustJpegMaxDim / h;
+    h = kBustJpegMaxDim;
+  }
+  *out_w = w;
+  *out_h = h;
+}
+
+static bool bust_pixel_visible(uint16_t col, uint8_t opaque) {
+  if (opaque < 128) {
+    return false;
+  }
+  if (col == 0x0000) {
+    return false;
+  }
+  const uint8_t r = static_cast<uint8_t>((col >> 11) << 3);
+  const uint8_t g = static_cast<uint8_t>(((col >> 5) & 0x3f) << 2);
+  const uint8_t b = static_cast<uint8_t>((col & 0x1f) << 3);
+  if (r < 12 && g < 12 && b < 12) {
+    return false;
+  }
+  // Transparent palette spill from indexed PNGs (e.g. a-tomrobbins uses ~#47704c at alpha 0).
+  if (g > r + 24 && g > b + 24 && g > 72) {
+    return false;
+  }
+  return true;
+}
+
+struct BustPngCtx {
+  int src_w;
+  int src_h;
+  int out_w;
+  int out_h;
+  uint16_t *out;
+  uint8_t *opaque;
+};
+
+static int bust_png_draw(PNGDRAW *pDraw) {
+  if (!pDraw || !pDraw->pUser) {
+    return 0;
+  }
+  auto *ctx = static_cast<BustPngCtx *>(pDraw->pUser);
+  if (!ctx->out || !ctx->opaque || ctx->out_w <= 0 || ctx->out_h <= 0) {
+    return 0;
+  }
+  const int dst_y =
+      (ctx->out_h <= 1 || ctx->src_h <= 1) ? 0 : (pDraw->y * (ctx->out_h - 1)) / (ctx->src_h - 1);
+  if (dst_y < 0 || dst_y >= ctx->out_h) {
+    return 1;
+  }
+  if (pDraw->iWidth <= 0 || pDraw->iWidth > kBustPngMaxLineW) {
+    return 0;
+  }
+
+  static uint16_t line[kBustPngMaxLineW];
+  static uint8_t alpha[kBustPngMaxLineW];
+  s_bust_png.getLineAsRGB565(pDraw, line, PNG_RGB565_BIG_ENDIAN, 0x000000);
+  s_bust_png.getAlphaMask(pDraw, alpha, 128);
+
+  for (int dx = 0; dx < ctx->out_w; ++dx) {
+    const int sx = (ctx->out_w <= 1) ? 0 : (dx * (pDraw->iWidth - 1)) / (ctx->out_w - 1);
+    const int i = dst_y * ctx->out_w + dx;
+    ctx->out[i] = line[sx];
+    ctx->opaque[i] = alpha[sx];
+  }
+  return 1;
 }
 
 void pm_faculty_release_bust_cache(void) {
@@ -1043,15 +1446,6 @@ static int bust_jpeg_draw(JPEGDRAW *pDraw) {
   return 1;
 }
 
-static int bust_png_draw(PNGDRAW *pDraw) {
-  if (!s_decoded_fb || s_decoded_w <= 0 || s_decoded_h <= 0 || !pDraw || pDraw->y < 0 || pDraw->y >= s_decoded_h) {
-    return 0;
-  }
-  uint16_t *dst = s_decoded_fb + pDraw->y * s_decoded_w;
-  s_bust_png.getLineAsRGB565(pDraw, dst, PNG_RGB565_BIG_ENDIAN, 0xffffffff);
-  return 1;
-}
-
 static bool bust_decode_jpeg_locked(const char *slug) {
   JPEGDEC jpg;
   if (jpg.openRAM(s_bust_bytes, static_cast<int>(s_bust_len), bust_jpeg_draw) != 1) {
@@ -1067,12 +1461,14 @@ static bool bust_decode_jpeg_locked(const char *slug) {
   s_decoded_h = h;
   const size_t px = static_cast<size_t>(w) * static_cast<size_t>(h);
   s_decoded_fb = static_cast<uint16_t *>(pm_heap_alloc_response(px * sizeof(uint16_t)));
-  if (!s_decoded_fb) {
+  s_decoded_opaque = static_cast<uint8_t *>(pm_heap_alloc_response(px));
+  if (!s_decoded_fb || !s_decoded_opaque) {
     jpg.close();
     bust_free_decoded();
     return false;
   }
   memset(s_decoded_fb, 0, px * sizeof(uint16_t));
+  memset(s_decoded_opaque, 0, px);
   jpg.setPixelType(RGB565_BIG_ENDIAN);
   if (jpg.decode(0, 0, 0) != 1) {
     jpg.close();
@@ -1080,6 +1476,9 @@ static bool bust_decode_jpeg_locked(const char *slug) {
     return false;
   }
   jpg.close();
+  for (size_t i = 0; i < px; ++i) {
+    s_decoded_opaque[i] = bust_pixel_visible(s_decoded_fb[i], 255) ? 255 : 0;
+  }
   strncpy(s_decoded_slug, slug, sizeof(s_decoded_slug) - 1);
   s_decoded_slug[sizeof(s_decoded_slug) - 1] = '\0';
   return true;
@@ -1089,27 +1488,52 @@ static bool bust_decode_png_locked(const char *slug) {
   if (s_bust_png.openRAM(s_bust_bytes, static_cast<int>(s_bust_len), bust_png_draw) != PNG_SUCCESS) {
     return false;
   }
-  const int w = s_bust_png.getWidth();
-  const int h = s_bust_png.getHeight();
-  if (w <= 0 || h <= 0 || w > kBustJpegMaxDim || h > kBustJpegMaxDim) {
+  const int src_w = s_bust_png.getWidth();
+  const int src_h = s_bust_png.getHeight();
+  if (src_w <= 0 || src_h <= 0 || src_w > kBustPngMaxSrcDim || src_h > kBustPngMaxSrcDim ||
+      src_w > kBustPngMaxLineW) {
     s_bust_png.close();
     return false;
   }
-  s_decoded_w = w;
-  s_decoded_h = h;
-  const size_t px = static_cast<size_t>(w) * static_cast<size_t>(h);
+  int out_w = 0;
+  int out_h = 0;
+  bust_compute_decode_size(src_w, src_h, &out_w, &out_h);
+  if (out_w <= 0 || out_h <= 0) {
+    s_bust_png.close();
+    return false;
+  }
+  s_decoded_w = out_w;
+  s_decoded_h = out_h;
+  const size_t px = static_cast<size_t>(out_w) * static_cast<size_t>(out_h);
   s_decoded_fb = static_cast<uint16_t *>(pm_heap_alloc_response(px * sizeof(uint16_t)));
-  if (!s_decoded_fb) {
+  s_decoded_opaque = static_cast<uint8_t *>(pm_heap_alloc_response(px));
+  if (!s_decoded_fb || !s_decoded_opaque) {
     s_bust_png.close();
     bust_free_decoded();
     return false;
   }
   memset(s_decoded_fb, 0, px * sizeof(uint16_t));
-  const int rc = s_bust_png.decode(nullptr, 0);
+  memset(s_decoded_opaque, 0, px);
+
+  BustPngCtx ctx = {};
+  ctx.src_w = src_w;
+  ctx.src_h = src_h;
+  ctx.out_w = out_w;
+  ctx.out_h = out_h;
+  ctx.out = s_decoded_fb;
+  ctx.opaque = s_decoded_opaque;
+
+  const int rc = s_bust_png.decode(&ctx, 0);
   s_bust_png.close();
   if (rc != PNG_SUCCESS) {
     bust_free_decoded();
     return false;
+  }
+  for (size_t i = 0; i < px; ++i) {
+    if (!bust_pixel_visible(s_decoded_fb[i], s_decoded_opaque[i])) {
+      s_decoded_opaque[i] = 0;
+      s_decoded_fb[i] = 0x0000;
+    }
   }
   strncpy(s_decoded_slug, slug, sizeof(s_decoded_slug) - 1);
   s_decoded_slug[sizeof(s_decoded_slug) - 1] = '\0';
@@ -1184,7 +1608,13 @@ static void bust_draw_scaled_jpeg(int cx, int bottom_y, int draw_w, int draw_h, 
         continue;
       }
       const int sx = dx * s_decoded_w / draw_w;
-      pm_gfx->writePixel(x, y, s_decoded_fb[sy * s_decoded_w + sx]);
+      const int si = sy * s_decoded_w + sx;
+      const uint16_t col = s_decoded_fb[si];
+      const uint8_t opaque = s_decoded_opaque ? s_decoded_opaque[si] : 255;
+      if (!bust_pixel_visible(col, opaque)) {
+        continue;
+      }
+      pm_gfx->writePixel(x, y, col);
     }
   }
 }
@@ -1347,10 +1777,54 @@ bool pm_faculty_tick(uint32_t now_ms) {
       s_rise_active = false;
     }
   }
+
+  PmFacultyProfile active = {};
+  if (pm_faculty_active(&active) && s_bust_status != PmFacultyBustStatus::Working && millis() >= s_bust_fetch_retry_ms &&
+      !pm_faculty_bust_ready_for(active.slug)) {
+    if (pm_faculty_request_bust(active.slug)) {
+      repaint = true;
+    }
+  }
   return repaint;
 }
 
 void pm_faculty_on_active_changed(void) {
   bust_free_decoded();
+  bust_release_bytes();
+  s_flash_miss_slug[0] = '\0';
   pm_faculty_begin_bust_rise();
+  PmFacultyProfile cur = {};
+  if (pm_faculty_active(&cur)) {
+    (void)pm_faculty_request_bust(cur.slug);
+  }
+}
+
+void pm_faculty_draw_name_label(void) {
+  if (!pm_gfx) {
+    return;
+  }
+  const int count = pm_faculty_count();
+  if (count <= 1) {
+    return;
+  }
+  PmFacultyProfile faculty = {};
+  if (!pm_faculty_active(&faculty)) {
+    return;
+  }
+  const int idx = pm_faculty_active_index();
+  char line[48];
+  if (idx >= 0) {
+    snprintf(line, sizeof(line), "%s  %d/%d", faculty.name, idx + 1, count);
+  } else {
+    snprintf(line, sizeof(line), "%s", faculty.name);
+  }
+  pm_gfx->setTextSize(1, 1);
+  pm_gfx->setTextColor(pm_gfx->color565(180, 176, 196));
+  int16_t x1 = 0;
+  int16_t y1 = 0;
+  uint16_t tw = 0;
+  uint16_t th = 0;
+  pm_gfx->getTextBounds(line, 0, 0, &x1, &y1, &tw, &th);
+  pm_gfx->setCursor((LCD_WIDTH - static_cast<int>(tw)) / 2, LCD_HEIGHT - static_cast<int>(th) - 8);
+  pm_gfx->print(line);
 }

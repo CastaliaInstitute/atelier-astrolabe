@@ -17,13 +17,15 @@
 #include "pm_config.h"
 #include "pm_castalia_auth.h"
 #include "pm_daily_briefing.h"
+#include "pm_faculty.h"
 #include "pm_geo_tz.h"
+#include "pm_heap.h"
 #include "pm_speaker.h"
 #include "pm_wifi_ntp.h"
 
 static const char *TAG = "pm_voice";
 
-static constexpr uint32_t kVoiceNetTaskStack = 12288;
+static constexpr uint32_t kVoiceNetTaskStack = 20480;
 /** STT + Gemini + TTS + large chunked JSON (astrology readings). */
 static constexpr uint32_t kVoiceHttpTimeoutMs = 660000;
 /** voice-pipeline JSON + base64 MP3. */
@@ -575,13 +577,14 @@ static bool read_http_json_body(HTTPClient *http, char **out_resp, size_t max_ca
       const uint32_t idle = millis() - last_rx_ms;
       const uint32_t idle_limit = chunked ? (rd > 65536u ? 45000u : 15000u) : 12000u;
       if (idle > idle_limit) {
-        Serial.printf("voice: HTTP idle %u ms at %u B (chunked=%d)\n", idle, static_cast<unsigned>(rd),
-                      chunked ? 1 : 0);
+        Serial.printf("voice: HTTP idle %lu ms at %u B (chunked=%d)\n",
+                      static_cast<unsigned long>(idle), static_cast<unsigned>(rd), chunked ? 1 : 0);
         body_read_set_err("read stalled");
         break;
       }
       if (chunked && idle > 15000u && (millis() - last_stall_log_ms) > 15000u) {
-        Serial.printf("voice: waiting… %u B (%u ms idle)\n", static_cast<unsigned>(rd), idle);
+        Serial.printf("voice: waiting… %u B (%lu ms idle)\n", static_cast<unsigned>(rd),
+                      static_cast<unsigned long>(idle));
         last_stall_log_ms = millis();
       }
     }
@@ -1227,6 +1230,11 @@ static bool voice_post_daily_briefing_inner(PmVoiceResult *r) {
   }
   voice_prepare_mbedtls_psram();
   (void)pm_castalia_auth_prepare_for_voice();
+  pm_faculty_release_bust_cache();
+  if (!pm_heap_briefing_ready("daily_briefing")) {
+    voice_set_error("low heap");
+    return false;
+  }
 
   static constexpr size_t kFactsCap = 8192;
   char *facts = static_cast<char *>(heap_caps_malloc(kFactsCap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));

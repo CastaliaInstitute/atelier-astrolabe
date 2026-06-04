@@ -859,6 +859,18 @@ section {
   font-size: 0.94rem;
 }
 
+.front-note {
+  margin: 1.15rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.front-note a {
+  font-weight: 600;
+  text-decoration-thickness: 0.08em;
+  text-underline-offset: 0.2em;
+}
+
 .hardware-section {
   display: grid;
   grid-template-columns: minmax(0, 0.7fr) minmax(0, 1.3fr);

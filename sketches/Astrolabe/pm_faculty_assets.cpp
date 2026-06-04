@@ -3,8 +3,6 @@
 #include <Arduino.h>
 #include <string.h>
 
-#include "assets/faculty_busts/tom_robbins.inc"
-
 static const uint8_t kFacultyBust_einstein[] PROGMEM = {
   0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
   0x00, 0x00, 0x00, 0xc0, 0x00, 0x00, 0x00, 0xc0, 0x08, 0x02, 0x00, 0x00, 0x00, 0xdd, 0xbe, 0xfb,
@@ -6182,7 +6180,6 @@ struct FacultyBustAsset {
 
 static const FacultyBustAsset kFacultyBustAssets[] = {
     {"a.einstein", kFacultyBust_einstein, sizeof(kFacultyBust_einstein)},
-    {"tom-robbins", kFacultyBust_tom_robbins, sizeof(kFacultyBust_tom_robbins)},
     {"marie-curie", kFacultyBust_curie, sizeof(kFacultyBust_curie)},
     {"hypatia", kFacultyBust_hypatia, sizeof(kFacultyBust_hypatia)},
 };

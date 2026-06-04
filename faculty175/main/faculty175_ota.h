@@ -8,6 +8,7 @@ extern "C" {
 
 void faculty175_ota_init(void);
 bool faculty175_ota_handle(const char *line);
+void faculty175_ota_maybe_boot_product(void);
 void faculty175_ota_maybe_start_recovery_request(void);
 void faculty175_ota_start_auto_update_task(void);
 bool faculty175_ota_active(void);

@@ -196,6 +196,15 @@ static int mp3_scan_sync(const uint8_t *buf, int bytes_left) {
   return -1;
 }
 
+static int16_t *speaker_alloc_mp3_scratch(void) {
+  const size_t bytes = sizeof(int16_t) * MINIMP3_MAX_SAMPLES_PER_FRAME;
+  int16_t *pcm = static_cast<int16_t *>(heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  if (!pcm) {
+    pcm = static_cast<int16_t *>(malloc(bytes));
+  }
+  return pcm;
+}
+
 static void i2s_drain_and_stop(int out_hz, int out_channels) {
   if (out_hz <= 0) {
     return;
@@ -701,8 +710,14 @@ static bool play_mp3_streaming(const uint8_t *mp3, size_t mp3_len) {
   int out_channels = 0;
   uint32_t pcm_frames_at_hz = 0;
 
-  static int16_t pcm[MINIMP3_MAX_SAMPLES_PER_FRAME];
-  static int16_t stereo_up[MINIMP3_MAX_SAMPLES_PER_FRAME];
+  int16_t *pcm = speaker_alloc_mp3_scratch();
+  int16_t *stereo_up = speaker_alloc_mp3_scratch();
+  if (!pcm || !stereo_up) {
+    free(pcm);
+    free(stereo_up);
+    ESP_LOGW(TAG, "mp3 scratch allocation failed");
+    return false;
+  }
 
   while (bytes_left > 0) {
     esp_task_wdt_reset();
@@ -742,11 +757,15 @@ static bool play_mp3_streaming(const uint8_t *mp3, size_t mp3_len) {
       out_channels = info.channels;
       if (es8311_board_init(out_hz) != ESP_OK) {
         ESP_LOGW(TAG, "es8311 init failed");
+        free(pcm);
+        free(stereo_up);
         return false;
       }
       const int i2s_ch = (out_channels == 1) ? 2 : out_channels;
       if (i2s_tx_begin(out_hz, i2s_ch) != ESP_OK) {
         ESP_LOGW(TAG, "i2s begin failed");
+        free(pcm);
+        free(stereo_up);
         return false;
       }
       i2s_ready = true;
@@ -783,6 +802,8 @@ static bool play_mp3_streaming(const uint8_t *mp3, size_t mp3_len) {
       }
       if (i2s_write_all(stereo_up, n * 2) != ESP_OK) {
         i2s_tx_stop();
+        free(pcm);
+        free(stereo_up);
         return false;
       }
     } else {
@@ -793,6 +814,8 @@ static bool play_mp3_streaming(const uint8_t *mp3, size_t mp3_len) {
       }
       if (i2s_write_all(pcm, pcm_s16) != ESP_OK) {
         i2s_tx_stop();
+        free(pcm);
+        free(stereo_up);
         return false;
       }
     }
@@ -810,6 +833,8 @@ static bool play_mp3_streaming(const uint8_t *mp3, size_t mp3_len) {
     i2s_drain_and_stop(out_hz, out_channels);
     ESP_LOGI(TAG, "played ~%u ms (%u PCM frames @ %d Hz)", s_play_est_ms, pcm_frames_at_hz, out_hz);
   }
+  free(pcm);
+  free(stereo_up);
   return i2s_ready;
 }
 
@@ -866,8 +891,21 @@ bool pm_speaker_play_mp3_http_stream(WiFiClient *stream, int content_length, vol
   const uint32_t deadline = millis() + 680000u;
   uint32_t last_rx_ms = millis();
 
-  static int16_t pcm[MINIMP3_MAX_SAMPLES_PER_FRAME];
-  static int16_t stereo_up[MINIMP3_MAX_SAMPLES_PER_FRAME];
+  int16_t *pcm = speaker_alloc_mp3_scratch();
+  int16_t *stereo_up = speaker_alloc_mp3_scratch();
+  if (!pcm || !stereo_up) {
+    free(buf);
+    free(pcm);
+    free(stereo_up);
+    ESP_LOGW(TAG, "HTTP MP3 scratch allocation failed");
+    return false;
+  }
+
+  auto cleanup = [&]() {
+    free(buf);
+    free(pcm);
+    free(stereo_up);
+  };
 
   auto body_complete = [&]() -> bool {
     if (content_length > 0) {
@@ -930,7 +968,7 @@ bool pm_speaker_play_mp3_http_stream(WiFiClient *stream, int content_length, vol
           : kHttpMp3StartBytes;
   while (fill < start_bytes && !body_complete()) {
     if (!refill()) {
-      free(buf);
+      cleanup();
       return false;
     }
   }
@@ -941,7 +979,7 @@ bool pm_speaker_play_mp3_http_stream(WiFiClient *stream, int content_length, vol
   for (;;) {
     esp_task_wdt_reset();
     if (cancel && *cancel) {
-      free(buf);
+      cleanup();
       s_http_mp3_stream_active = false;
       if (i2s_ready) {
         i2s_drain_and_stop(out_hz, out_channels);
@@ -951,7 +989,7 @@ bool pm_speaker_play_mp3_http_stream(WiFiClient *stream, int content_length, vol
 
     if (fill < kHttpMp3RefillLow && !body_complete()) {
       if (!refill()) {
-        free(buf);
+        cleanup();
         if (i2s_ready) {
           i2s_drain_and_stop(out_hz, out_channels);
         }
@@ -964,7 +1002,7 @@ bool pm_speaker_play_mp3_http_stream(WiFiClient *stream, int content_length, vol
         break;
       }
       if (!refill()) {
-        free(buf);
+        cleanup();
         if (i2s_ready) {
           i2s_drain_and_stop(out_hz, out_channels);
         }
@@ -1005,7 +1043,7 @@ bool pm_speaker_play_mp3_http_stream(WiFiClient *stream, int content_length, vol
         break;
       }
       if (!refill()) {
-        free(buf);
+        cleanup();
         if (i2s_ready) {
           i2s_drain_and_stop(out_hz, out_channels);
         }
@@ -1034,13 +1072,13 @@ bool pm_speaker_play_mp3_http_stream(WiFiClient *stream, int content_length, vol
       out_channels = info.channels;
       if (es8311_board_init(out_hz) != ESP_OK) {
         ESP_LOGW(TAG, "es8311 init failed (HTTP stream)");
-        free(buf);
+        cleanup();
         return false;
       }
       const int i2s_ch = (out_channels == 1) ? 2 : out_channels;
       if (i2s_tx_begin(out_hz, i2s_ch) != ESP_OK) {
         ESP_LOGW(TAG, "i2s begin failed (HTTP stream)");
-        free(buf);
+        cleanup();
         return false;
       }
       i2s_ready = true;
@@ -1073,7 +1111,7 @@ bool pm_speaker_play_mp3_http_stream(WiFiClient *stream, int content_length, vol
         stereo_up[2 * i + 1] = s;
       }
       if (i2s_write_all(stereo_up, n * 2) != ESP_OK) {
-        free(buf);
+        cleanup();
         i2s_tx_stop();
         return false;
       }
@@ -1083,14 +1121,14 @@ bool pm_speaker_play_mp3_http_stream(WiFiClient *stream, int content_length, vol
         break;
       }
       if (i2s_write_all(pcm, pcm_s16) != ESP_OK) {
-        free(buf);
+        cleanup();
         i2s_tx_stop();
         return false;
       }
     }
   }
 
-  free(buf);
+  cleanup();
   s_http_mp3_stream_active = false;
 
   if (i2s_ready && out_hz > 0) {

@@ -4,7 +4,7 @@
 
 #include <string.h>
 
-#include "atom_log.h"
+#include "faculty175_log.h"
 #include "driver/i2c_master.h"
 #include "esp_chip_info.h"
 #include "esp_flash.h"
@@ -138,22 +138,22 @@ void faculty175_board_log_identity(void)
              s_id.es8311,
              s_id.cst9217);
 
-    ATOM_LOG_STAGE(TAG,
+    FACULTY175_LOG_STAGE(TAG,
                    "board",
                    "guess=%s project=%s",
                    faculty175_board_guess_name(s_id.guess),
                    faculty175_board_recommended_project());
 
     if (s_id.guess == FACULTY175_GUESS_18_WRONG_FW) {
-        ATOM_LOG_STAGE_E(TAG, "board", "TCA9554 found — this is the 1.8″ board; flash faculty18 not faculty175");
+        FACULTY175_LOG_STAGE_E(TAG, "board", "TCA9554 found — this is the 1.8″ board; flash faculty18 not faculty175");
     } else if (s_id.guess == FACULTY175_GUESS_175) {
-        ATOM_LOG_STAGE_W(TAG, "board", "16 MB flash + ES7210 → 1.75″ (non-C); LCD reset uses GPIO 2");
+        FACULTY175_LOG_STAGE_W(TAG, "board", "16 MB flash + ES7210 → 1.75″ (non-C); LCD reset uses GPIO 2");
     } else if (s_id.guess == FACULTY175_GUESS_175C) {
-        ATOM_LOG_STAGE(TAG, "board", "32 MB flash + ES7210 → 1.75C; LCD reset uses GPIO 1");
+        FACULTY175_LOG_STAGE(TAG, "board", "32 MB flash + ES7210 → 1.75C; LCD reset uses GPIO 1");
     }
 
     if (s_id.flash_config_mismatch) {
-        ATOM_LOG_STAGE_E(TAG,
+        FACULTY175_LOG_STAGE_E(TAG,
                          "board",
                          "sdkconfig flash=%uMB but chip=%uMB — rebuild with matching CONFIG_ESPTOOLPY_FLASHSIZE",
                          (unsigned)cfg_mb,
