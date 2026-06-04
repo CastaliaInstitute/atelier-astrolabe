@@ -971,7 +971,7 @@ static bool fetch_supabase_storage_right_bust(const char *slug, uint8_t **bytes,
 
 static bool fetch_bust_bytes_network(const char *slug, uint8_t **bytes, size_t *len, const char **source_out)
 {
-    char url[256];
+    char url[256] = {0};
 
     /* Resized edge PNG (~450 KiB) before raw storage objects (often >1 MiB). */
     if (build_supabase_bust_url(slug, url, sizeof(url)) && fetch_bust_url(url, "supabase", bytes, len, 0)) {
