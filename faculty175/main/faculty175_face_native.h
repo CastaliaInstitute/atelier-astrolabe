@@ -30,3 +30,5 @@ typedef struct {
 void faculty175_face_native_draw(const faculty175_native_face_t *face, uint32_t anim_ms);
 bool faculty175_face_native_action(faculty175_face_id_t id, uint32_t seed_ms);
 bool faculty175_face_native_audio_busy(void);
+bool faculty175_face_native_chakra_delta(faculty175_face_id_t id, int delta);
+const char *faculty175_face_native_chakra_name(void);

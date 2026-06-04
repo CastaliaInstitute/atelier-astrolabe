@@ -15,6 +15,7 @@
 #include "astrolabe_time.h"
 #include "faculty175_board.h"
 #include "faculty175_almanac.h"
+#include "faculty175_ble.h"
 #include "faculty175_charts.h"
 #include "faculty175_device_auth.h"
 #include "faculty175_face_dispatch.h"
@@ -441,6 +442,10 @@ static void handle_line(char *line)
         return;
     }
 
+    if (faculty175_ble_handle(line)) {
+        return;
+    }
+
     if (handle_touch_command(line)) {
         return;
     }
@@ -450,7 +455,7 @@ static void handle_line(char *line)
     }
 
     if (strcasecmp(line, "help") == 0 || strcasecmp(line, "?") == 0) {
-        printf("serial: screen | face screen | gesture help | button press | time | power | qa help | device help | ota help | faces help | charts help | almanac help | touch status\n");
+        printf("serial: screen | face screen | gesture help | button press | time | power | ble status | qa help | device help | ota help | faces help | charts help | almanac help | touch status\n");
         (void)faculty175_qa_handle("qa help");
         return;
     }

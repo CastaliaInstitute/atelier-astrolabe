@@ -17,6 +17,7 @@ idf_component_register(
         "faculty175_serial.c"
         "faculty175_almanac.c"
         "faculty175_charts.c"
+        "faculty175_ble.c"
         "faculty175_device_auth.c"
         ${FACULTY175_FACE_SRCS}
         "faculty175_faces.c"
@@ -52,6 +53,7 @@ idf_component_register(
         XPowersLib
         astrolabe_audio_pipeline
         astrolabe_time
+        bt
 )
 
 target_compile_definitions(${COMPONENT_LIB} PRIVATE XPOWERS_CHIP_AXP2101)

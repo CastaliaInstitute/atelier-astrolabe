@@ -17,14 +17,52 @@
 static const char *TAG = "faculty175_face_native";
 enum { INSTRUMENT_RATE_HZ = 24000, INSTRUMENT_CHUNK_FRAMES = 192 };
 
+typedef struct {
+    const char *name;
+    float hz;
+    uint8_t r;
+    uint8_t g;
+    uint8_t b;
+} chakra_center_t;
+
+static const chakra_center_t k_chakras[] = {
+    {"ROOT", 396.0f, 180, 40, 45},
+    {"SACRAL", 417.0f, 230, 112, 36},
+    {"SOLAR", 528.0f, 236, 206, 66},
+    {"HEART", 639.0f, 60, 190, 110},
+    {"THROAT", 741.0f, 60, 150, 220},
+    {"BROW", 852.0f, 76, 84, 210},
+    {"CROWN", 963.0f, 170, 86, 210},
+};
+
 static uint32_t s_oracle_nonce;
 static uint32_t s_focus_started_ms;
 static bool s_focus_running;
 static volatile bool s_instrument_audio_busy;
+static uint8_t s_chakra_index;
 
 bool faculty175_face_native_audio_busy(void)
 {
     return s_instrument_audio_busy;
+}
+
+bool faculty175_face_native_chakra_delta(faculty175_face_id_t id, int delta)
+{
+    if (id != FACULTY175_FACE_CHAKRA && id != FACULTY175_FACE_BOWL) {
+        return false;
+    }
+    const int max_index = (int)(sizeof(k_chakras) / sizeof(k_chakras[0])) - 1;
+    const int next = (int)s_chakra_index + (delta >= 0 ? 1 : -1);
+    if (next < 0 || next > max_index) {
+        return false;
+    }
+    s_chakra_index = (uint8_t)next;
+    return true;
+}
+
+const char *faculty175_face_native_chakra_name(void)
+{
+    return k_chakras[s_chakra_index].name;
 }
 
 static uint16_t rgb(uint8_t r, uint8_t g, uint8_t b)
@@ -218,7 +256,6 @@ static bool play_instrument_action(faculty175_face_id_t id, uint32_t seed_ms)
     }
     s_instrument_audio_busy = true;
 
-    static const float chakra_hz[] = {396.0f, 417.0f, 528.0f, 639.0f, 741.0f, 852.0f, 963.0f};
     static const float piano_hz[] = {261.63f, 293.66f, 329.63f, 349.23f, 392.00f, 440.00f, 493.88f, 523.25f};
     static const float ocarina_hz[] = {392.00f, 440.00f, 493.88f, 523.25f, 587.33f, 659.25f};
     static const float pan_hz[] = {220.00f, 246.94f, 261.63f, 293.66f, 329.63f, 392.00f, 440.00f, 493.88f};
@@ -234,8 +271,7 @@ static bool play_instrument_action(faculty175_face_id_t id, uint32_t seed_ms)
 
     switch (id) {
         case FACULTY175_FACE_CHAKRA: {
-            const size_t idx = pick % (sizeof(chakra_hz) / sizeof(chakra_hz[0]));
-            f0 = chakra_hz[idx];
+            f0 = k_chakras[s_chakra_index].hz;
             f1 = f0 * 2.0f;
             f2 = f0 * 1.5f;
             total_ms = 1300;
@@ -244,7 +280,7 @@ static bool play_instrument_action(faculty175_face_id_t id, uint32_t seed_ms)
             break;
         }
         case FACULTY175_FACE_BOWL:
-            f0 = 196.0f + (float)(pick % 4u) * 24.5f;
+            f0 = k_chakras[s_chakra_index].hz * 0.5f;
             f1 = f0 * 2.01f;
             f2 = f0 * 2.98f;
             total_ms = 1700;
@@ -326,7 +362,12 @@ static bool play_instrument_action(faculty175_face_id_t id, uint32_t seed_ms)
     const float step2 = 6.2831853f * f2 / (float)INSTRUMENT_RATE_HZ;
     uint32_t write_fail = 0;
 
-    ESP_LOGI(TAG, "instrument %s note=%.1fHz ms=%d", instrument_name(id), (double)f0, total_ms);
+    if (id == FACULTY175_FACE_CHAKRA || id == FACULTY175_FACE_BOWL) {
+        ESP_LOGI(TAG, "instrument %s chakra=%s note=%.1fHz ms=%d", instrument_name(id),
+                 k_chakras[s_chakra_index].name, (double)f0, total_ms);
+    } else {
+        ESP_LOGI(TAG, "instrument %s note=%.1fHz ms=%d", instrument_name(id), (double)f0, total_ms);
+    }
     for (int base = 0; base < total_frames; base += INSTRUMENT_CHUNK_FRAMES) {
         const int frames =
             (total_frames - base) < INSTRUMENT_CHUNK_FRAMES ? (total_frames - base) : INSTRUMENT_CHUNK_FRAMES;
@@ -624,22 +665,35 @@ static void draw_instrument(const faculty175_native_face_t *face, uint32_t anim_
         return;
     }
     if (face->id == FACULTY175_FACE_CHAKRA) {
-        static const uint8_t cols[7][3] = {{180, 40, 45}, {230, 112, 36}, {236, 206, 66}, {60, 190, 110}, {60, 150, 220}, {76, 84, 210}, {170, 86, 210}};
-        for (int i = 0; i < 7; ++i) {
+        const size_t chakra_count = sizeof(k_chakras) / sizeof(k_chakras[0]);
+        for (size_t i = 0; i < chakra_count; ++i) {
             const int y = 330 - i * 42;
-            faculty175_display_fill_circle(cx, y, 22, rgb(cols[i][0], cols[i][1], cols[i][2]));
-            draw_star(cx, y, 16, rgb(245, 238, 220));
+            const bool selected = i == s_chakra_index;
+            faculty175_display_fill_circle(cx, y, selected ? 28 : 20,
+                                           rgb(k_chakras[i].r, k_chakras[i].g, k_chakras[i].b));
+            draw_star(cx, y, selected ? 21 : 14, rgb(245, 238, 220));
+            if (selected) {
+                faculty175_display_draw_circle(cx, y, 34, rgb(245, 238, 220));
+            }
         }
-        centered_at("SEVEN CENTERS", cx, 372, dim);
+        char line[32];
+        snprintf(line, sizeof(line), "%s %.0fHZ", k_chakras[s_chakra_index].name,
+                 (double)k_chakras[s_chakra_index].hz);
+        centered_at(line, cx, 372, accent);
         return;
     }
     if (face->id == FACULTY175_FACE_BOWL) {
+        const uint16_t chakra_color =
+            rgb(k_chakras[s_chakra_index].r, k_chakras[s_chakra_index].g, k_chakras[s_chakra_index].b);
         faculty175_display_draw_circle(cx, cy, 122 + (int)((anim_ms / 100u) % 16u), dim);
-        faculty175_display_draw_circle(cx, cy, 82 + (int)((anim_ms / 140u) % 14u), accent);
+        faculty175_display_draw_circle(cx, cy, 82 + (int)((anim_ms / 140u) % 14u), chakra_color);
         faculty175_display_fill_rect(cx - 96, cy + 32, 192, 34, rgb(146, 94, 42));
         faculty175_display_fill_circle(cx, cy + 32, 96, rgb(168, 116, 52));
+        faculty175_display_draw_circle(cx, cy + 32, 102, chakra_color);
         faculty175_display_fill_rect(cx - 98, cy - 10, 196, 42, rgb(10, 10, 14));
-        centered_at("RING DECAY", cx, 358, dim);
+        char line[32];
+        snprintf(line, sizeof(line), "%s BOWL", k_chakras[s_chakra_index].name);
+        centered_at(line, cx, 358, chakra_color);
         return;
     }
     for (int i = 0; i < 14; ++i) {

@@ -18,6 +18,7 @@
 #include "astrolabe_time.h"
 #include "faculty175_board.h"
 #include "faculty175_almanac.h"
+#include "faculty175_ble.h"
 #include "faculty175_charts.h"
 #include "faculty175_listen.h"
 #include "faculty175_face_alethiometer.h"
@@ -728,6 +729,10 @@ static void pipeline_start_task(void *arg)
     } else {
         ui_set(FACULTY175_UI_LISTEN, NULL);
         faculty_log_ready();
+        const esp_err_t ble_err = faculty175_ble_init();
+        if (ble_err != ESP_OK) {
+            FACULTY175_LOG_STAGE_E(TAG, "ble", "start failed: %s", esp_err_to_name(ble_err));
+        }
     }
     vTaskDelete(NULL);
 }
@@ -1156,6 +1161,19 @@ static bool change_synastry_profile_for_vertical(int delta, uint32_t now_ms, voi
     return true;
 }
 
+static bool change_chakra_for_vertical(int delta, uint32_t now_ms, void *ctx)
+{
+    (void)now_ms;
+    (void)ctx;
+    const faculty175_face_desc_t *face = faculty175_faces_current();
+    if (face == NULL || !faculty175_face_native_chakra_delta(face->id, delta)) {
+        return false;
+    }
+    FACULTY175_LOG_STAGE(TAG, "faces", "chakra %s -> %s", delta > 0 ? "up" : "down",
+                         faculty175_face_native_chakra_name());
+    return true;
+}
+
 static bool change_face_group_for_vertical(int delta, uint32_t now_ms, void *ctx)
 {
     (void)now_ms;
@@ -1341,6 +1359,12 @@ void app_main(void)
                         gesture.kind == FACULTY175_GESTURE_SWIPE_DOWN)) {
                 const int delta = gesture.kind == FACULTY175_GESTURE_SWIPE_UP ? 1 : -1;
                 animate_face_vertical_change(active_face, delta, now_ms, change_synastry_profile_for_vertical, NULL);
+            } else if (!s_nav_mode && active_face != NULL &&
+                       (active_face->id == FACULTY175_FACE_CHAKRA || active_face->id == FACULTY175_FACE_BOWL) &&
+                       (gesture.kind == FACULTY175_GESTURE_SWIPE_UP ||
+                        gesture.kind == FACULTY175_GESTURE_SWIPE_DOWN)) {
+                const int delta = gesture.kind == FACULTY175_GESTURE_SWIPE_UP ? 1 : -1;
+                animate_face_vertical_change(active_face, delta, now_ms, change_chakra_for_vertical, NULL);
             } else if (!s_nav_mode && active_face != NULL && faculty175_faces_vertical_group(active_face->id) &&
                        (gesture.kind == FACULTY175_GESTURE_SWIPE_UP ||
                         gesture.kind == FACULTY175_GESTURE_SWIPE_DOWN)) {
