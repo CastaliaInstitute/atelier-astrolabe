@@ -29,5 +29,8 @@ void faculty175_gesture_poll(uint32_t now_ms);
 /** Returns true when a gesture is ready; clears the queue slot. */
 bool faculty175_gesture_consume(faculty175_gesture_t *out);
 
+/** Queue a synthetic gesture for serial/QA flows. */
+bool faculty175_gesture_inject(faculty175_gesture_kind_t kind, int16_t x, int16_t y, int16_t value);
+
 /** 100 Hz touch poll (call faculty175_gesture_consume from main loop). */
 void faculty175_gesture_start_task(void);

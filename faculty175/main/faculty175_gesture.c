@@ -365,6 +365,17 @@ bool faculty175_gesture_consume(faculty175_gesture_t *out)
     return true;
 }
 
+bool faculty175_gesture_inject(faculty175_gesture_kind_t kind, int16_t x, int16_t y, int16_t value)
+{
+    if (s_queue == NULL || kind == FACULTY175_GESTURE_NONE) {
+        return false;
+    }
+    queue_gesture(kind, x, y, value);
+    FACULTY175_LOG_STAGE(TAG, "gesture", "inject %s x=%d y=%d value=%d", gesture_name(kind), (int)x, (int)y,
+                         (int)value);
+    return true;
+}
+
 static void gesture_task(void *arg)
 {
     (void)arg;

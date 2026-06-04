@@ -15,6 +15,7 @@
 #include "astrolabe_time.h"
 #include "faculty175_board.h"
 #include "faculty175_almanac.h"
+#include "faculty175_ble.h"
 #include "faculty175_charts.h"
 #include "faculty175_device_auth.h"
 #include "faculty175_face_dispatch.h"
@@ -304,6 +305,27 @@ static bool handle_gesture_command(const char *line)
     return true;
 }
 
+static bool handle_button_command(const char *line)
+{
+    if (line == NULL || (strcasecmp(line, "button") != 0 && strncasecmp(line, "button ", 7) != 0)) {
+        return false;
+    }
+    const char *sub = strchr(line, ' ');
+    sub = sub != NULL ? sub + 1 : "press";
+    while (*sub == ' ') {
+        ++sub;
+    }
+    if (*sub == '\0' || strcasecmp(sub, "press") == 0 || strcasecmp(sub, "tap") == 0) {
+        faculty175_button_inject_press();
+        printf("button: inject ESP_OK\n");
+    } else {
+        printf("button commands:\n");
+        printf("  button press\n");
+    }
+    fflush(stdout);
+    return true;
+}
+
 static void print_time_status(void)
 {
     astrolabe_time_status_t status = {};
@@ -392,6 +414,10 @@ static void handle_line(char *line)
         return;
     }
 
+    if (handle_button_command(line)) {
+        return;
+    }
+
     if (faculty175_qa_handle(line)) {
         return;
     }
@@ -416,6 +442,10 @@ static void handle_line(char *line)
         return;
     }
 
+    if (faculty175_ble_handle(line)) {
+        return;
+    }
+
     if (handle_touch_command(line)) {
         return;
     }
@@ -425,7 +455,7 @@ static void handle_line(char *line)
     }
 
     if (strcasecmp(line, "help") == 0 || strcasecmp(line, "?") == 0) {
-        printf("serial: screen | face screen | gesture help | time | power | qa help | device help | ota help | faces help | charts help | almanac help | touch status\n");
+        printf("serial: screen | face screen | gesture help | button press | time | power | ble status | qa help | device help | ota help | faces help | charts help | almanac help | touch status\n");
         (void)faculty175_qa_handle("qa help");
         return;
     }

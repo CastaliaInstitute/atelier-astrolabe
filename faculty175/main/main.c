@@ -6,6 +6,7 @@
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_netif.h"
+#include "esp_system.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
@@ -18,11 +19,13 @@
 #include "astrolabe_time.h"
 #include "faculty175_board.h"
 #include "faculty175_almanac.h"
+#include "faculty175_ble.h"
 #include "faculty175_charts.h"
 #include "faculty175_listen.h"
 #include "faculty175_face_alethiometer.h"
 #include "faculty175_face_babel.h"
 #include "faculty175_face_dispatch.h"
+#include "faculty175_face_native.h"
 #include "faculty175_faculty.h"
 #include "faculty175_faculty_roster.h"
 #include "faculty175_faces.h"
@@ -59,6 +62,7 @@ static const char *TAG = "faculty175";
 #define BATTERY_SLEEP_IDLE_MS 30000
 #define BATTERY_MONITOR_MS 5000
 #define BATTERY_STT_ARM_MS 20000
+#define BUTTON_RESET_HOLD_MS 4500
 
 static EventGroupHandle_t s_wifi_events;
 static faculty175_ui_state_t s_ui = FACULTY175_UI_BOOT;
@@ -564,8 +568,8 @@ static void append_history(const char *user, const char *reply)
 static esp_err_t pipeline_read(int16_t *samples, size_t sample_count, size_t *out_read, uint32_t timeout_ms, void *user)
 {
     (void)user;
-    if (faculty175_ota_active() || faculty175_qa_audio_busy() || s_ui == FACULTY175_UI_THINK ||
-        s_ui == FACULTY175_UI_SPEAK || s_low_power_asleep ||
+    if (faculty175_ota_active() || faculty175_qa_audio_busy() || faculty175_face_native_audio_busy() ||
+        s_ui == FACULTY175_UI_THINK || s_ui == FACULTY175_UI_SPEAK || s_low_power_asleep ||
         (s_power_on_battery && !s_battery_stt_armed && !astrolabe_audio_pipeline_speech_active(s_pipeline))) {
         if (out_read != NULL) {
             *out_read = 0;
@@ -727,6 +731,10 @@ static void pipeline_start_task(void *arg)
     } else {
         ui_set(FACULTY175_UI_LISTEN, NULL);
         faculty_log_ready();
+        const esp_err_t ble_err = faculty175_ble_init();
+        if (ble_err != ESP_OK) {
+            FACULTY175_LOG_STAGE_E(TAG, "ble", "start failed: %s", esp_err_to_name(ble_err));
+        }
     }
     vTaskDelete(NULL);
 }
@@ -1155,6 +1163,19 @@ static bool change_synastry_profile_for_vertical(int delta, uint32_t now_ms, voi
     return true;
 }
 
+static bool change_chakra_for_vertical(int delta, uint32_t now_ms, void *ctx)
+{
+    (void)now_ms;
+    (void)ctx;
+    const faculty175_face_desc_t *face = faculty175_faces_current();
+    if (face == NULL || !faculty175_face_native_chakra_delta(face->id, delta)) {
+        return false;
+    }
+    FACULTY175_LOG_STAGE(TAG, "faces", "chakra %s -> %s", delta > 0 ? "up" : "down",
+                         faculty175_face_native_chakra_name());
+    return true;
+}
+
 static bool change_face_group_for_vertical(int delta, uint32_t now_ms, void *ctx)
 {
     (void)now_ms;
@@ -1193,17 +1214,24 @@ void app_main(void)
     ui_set(FACULTY175_UI_BOOT, ASTROLABE_FACULTY_OTA_CHANNEL);
     faculty175_faculty_request_bust(s_faculty_slug);
 
-    if (wifi_start() != ESP_OK) {
-        ui_set(FACULTY175_UI_ERROR, "wifi");
-        return;
+    const esp_err_t ble_err = faculty175_ble_init();
+    if (ble_err != ESP_OK) {
+        FACULTY175_LOG_STAGE_E(TAG, "ble", "start failed: %s", esp_err_to_name(ble_err));
     }
-    faculty175_ota_maybe_start_recovery_request();
-    faculty175_ota_start_auto_update_task();
-    faculty175_almanac_start_auto_fetch_task();
 
-    faculty175_faculty_request_bust(s_faculty_slug);
-    faculty175_faculty_prefetch_roster();
-    FACULTY175_LOG_STAGE(TAG, "faculty", "bust preload %s", s_faculty_slug);
+    const esp_err_t wifi_err = wifi_start();
+    if (wifi_err != ESP_OK) {
+        ui_set(FACULTY175_UI_ERROR, "wifi");
+        FACULTY175_LOG_STAGE_W(TAG, "wifi", "continuing offline: %s", esp_err_to_name(wifi_err));
+    } else {
+        faculty175_ota_maybe_start_recovery_request();
+        faculty175_ota_start_auto_update_task();
+        faculty175_almanac_start_auto_fetch_task();
+
+        faculty175_faculty_request_bust(s_faculty_slug);
+        faculty175_faculty_prefetch_roster();
+        FACULTY175_LOG_STAGE(TAG, "faculty", "bust preload %s", s_faculty_slug);
+    }
 
     ESP_ERROR_CHECK(faculty175_listen_init(&s_listen));
     snprintf(s_voice_pipeline_url, sizeof(s_voice_pipeline_url), "%s/functions/v1/voice-pipeline", MYNAH_SUPABASE_URL);
@@ -1269,6 +1297,8 @@ void app_main(void)
     uint32_t last_bust_retry_ms = 0;
     uint32_t last_face_swipe_ms = 0;
     uint32_t last_time_retry_ms = 0;
+    uint32_t button_down_since_ms = 0;
+    bool button_reset_fired = false;
     bool face_save_pending = false;
     s_nav_mode = false;
     s_low_power_last_activity_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
@@ -1276,6 +1306,21 @@ void app_main(void)
     while (true) {
         const uint32_t now_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
         low_power_tick(now_ms);
+
+        if (faculty175_button_pressed()) {
+            if (button_down_since_ms == 0) {
+                button_down_since_ms = now_ms;
+                button_reset_fired = false;
+            } else if (!button_reset_fired && now_ms - button_down_since_ms >= BUTTON_RESET_HOLD_MS) {
+                button_reset_fired = true;
+                FACULTY175_LOG_STAGE_W(TAG, "button", "long hold reset");
+                vTaskDelay(pdMS_TO_TICKS(50));
+                esp_restart();
+            }
+        } else {
+            button_down_since_ms = 0;
+            button_reset_fired = false;
+        }
 
         if (!astrolabe_time_valid() && (last_time_retry_ms == 0 || now_ms - last_time_retry_ms >= 60000)) {
             last_time_retry_ms = now_ms;
@@ -1286,16 +1331,15 @@ void app_main(void)
         if (faculty175_gesture_consume(&gesture)) {
             const bool woke_from_low_power = s_low_power_asleep || s_low_power_dimmed;
             low_power_note_activity(now_ms, "gesture");
-            if (woke_from_low_power) {
-                vTaskDelay(pdMS_TO_TICKS(10));
-                continue;
-            }
             const faculty175_face_desc_t *active_face = faculty175_faces_current();
             if (gesture.kind == FACULTY175_GESTURE_LONG_TAP) {
                 s_nav_mode = true;
                 faculty175_display_nav_mode_set(true);
                 FACULTY175_LOG_STAGE(TAG, "faces", "navigation mode on");
                 ui_redraw();
+            } else if (woke_from_low_power) {
+                vTaskDelay(pdMS_TO_TICKS(10));
+                continue;
             } else if (s_nav_mode && (gesture.kind == FACULTY175_GESTURE_TAP ||
                                     gesture.kind == FACULTY175_GESTURE_BEZEL_TAP)) {
                 s_nav_mode = false;
@@ -1340,6 +1384,21 @@ void app_main(void)
                         gesture.kind == FACULTY175_GESTURE_SWIPE_DOWN)) {
                 const int delta = gesture.kind == FACULTY175_GESTURE_SWIPE_UP ? 1 : -1;
                 animate_face_vertical_change(active_face, delta, now_ms, change_synastry_profile_for_vertical, NULL);
+            } else if (!s_nav_mode && active_face != NULL &&
+                       (active_face->id == FACULTY175_FACE_CHAKRA || active_face->id == FACULTY175_FACE_BOWL) &&
+                       (gesture.kind == FACULTY175_GESTURE_SWIPE_UP ||
+                        gesture.kind == FACULTY175_GESTURE_SWIPE_DOWN)) {
+                const int delta = gesture.kind == FACULTY175_GESTURE_SWIPE_UP ? 1 : -1;
+                animate_face_vertical_change(active_face, delta, now_ms, change_chakra_for_vertical, NULL);
+            } else if (!s_nav_mode && active_face != NULL &&
+                       (active_face->id == FACULTY175_FACE_CHAKRA || active_face->id == FACULTY175_FACE_BOWL) &&
+                       (gesture.kind == FACULTY175_GESTURE_SWIPE_LEFT ||
+                        gesture.kind == FACULTY175_GESTURE_SWIPE_RIGHT)) {
+                const int delta = gesture.kind == FACULTY175_GESTURE_SWIPE_LEFT ? 1 : -1;
+                const faculty175_face_desc_t *face = faculty175_faces_cycle(delta);
+                FACULTY175_LOG_STAGE(TAG, "faces", "chakra nav %s -> %s", delta > 0 ? "next" : "prev",
+                                     face != NULL ? face->slug : "-");
+                animate_face_carousel(active_face, face, delta, now_ms);
             } else if (!s_nav_mode && active_face != NULL && faculty175_faces_vertical_group(active_face->id) &&
                        (gesture.kind == FACULTY175_GESTURE_SWIPE_UP ||
                         gesture.kind == FACULTY175_GESTURE_SWIPE_DOWN)) {

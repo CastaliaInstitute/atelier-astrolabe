@@ -798,7 +798,7 @@ static bool bust_cache_init(void)
         .base_path = BUST_CACHE_BASE,
         .partition_label = "storage",
         .max_files = 12,
-        .format_if_mount_failed = true,
+        .format_if_mount_failed = false,
     };
     const esp_err_t err = esp_vfs_spiffs_register(&conf);
     if (err != ESP_OK) {
