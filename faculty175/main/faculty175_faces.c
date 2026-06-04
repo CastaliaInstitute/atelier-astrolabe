@@ -118,6 +118,23 @@ static bool face_valid(faculty175_face_id_t id)
     return id >= 0 && id < FACULTY175_FACE_COUNT;
 }
 
+static uint32_t primary_face_category(uint32_t categories)
+{
+    static const uint32_t order[] = {
+        FACULTY175_FACE_CAT_HOME,
+        FACULTY175_FACE_CAT_COMMONPLACE,
+        FACULTY175_FACE_CAT_ORACLE,
+        FACULTY175_FACE_CAT_INSTRUMENT,
+        FACULTY175_FACE_CAT_SYSTEM,
+    };
+    for (size_t i = 0; i < sizeof(order) / sizeof(order[0]); ++i) {
+        if ((categories & order[i]) != 0) {
+            return order[i];
+        }
+    }
+    return 0;
+}
+
 static int ordered_compare(const faculty175_face_desc_t *a, const faculty175_face_desc_t *b)
 {
     const uint8_t ao = faculty175_faces_order(a->id);
@@ -135,6 +152,43 @@ static const faculty175_face_desc_t *next_enabled_from(faculty175_face_id_t from
         for (size_t i = 0; i < FACULTY175_FACE_COUNT; ++i) {
             const faculty175_face_desc_t *candidate = &k_faces[i];
             if (!faculty175_faces_enabled(candidate->id)) {
+                continue;
+            }
+            if (delta >= 0) {
+                if (pass == 0 && ordered_compare(candidate, &k_faces[from]) <= 0) {
+                    continue;
+                }
+                if (best == NULL || ordered_compare(candidate, best) < 0) {
+                    best = candidate;
+                }
+            } else {
+                if (pass == 0 && ordered_compare(candidate, &k_faces[from]) >= 0) {
+                    continue;
+                }
+                if (best == NULL || ordered_compare(candidate, best) > 0) {
+                    best = candidate;
+                }
+            }
+        }
+    }
+    return best;
+}
+
+static const faculty175_face_desc_t *next_enabled_in_category_from(faculty175_face_id_t from, int delta)
+{
+    if (!face_valid(from)) {
+        return NULL;
+    }
+    const uint32_t category = primary_face_category(k_faces[from].categories);
+    if (category == 0) {
+        return NULL;
+    }
+    const faculty175_face_desc_t *best = NULL;
+    for (size_t pass = 0; pass < 2 && best == NULL; ++pass) {
+        for (size_t i = 0; i < FACULTY175_FACE_COUNT; ++i) {
+            const faculty175_face_desc_t *candidate = &k_faces[i];
+            if (candidate->id == from || primary_face_category(candidate->categories) != category ||
+                !faculty175_faces_enabled(candidate->id)) {
                 continue;
             }
             if (delta >= 0) {
@@ -350,6 +404,15 @@ const faculty175_face_desc_t *faculty175_faces_cycle_runtime(int delta)
     return faculty175_faces_current();
 }
 
+const faculty175_face_desc_t *faculty175_faces_cycle_vertical_runtime(int delta)
+{
+    const faculty175_face_desc_t *next = next_enabled_in_category_from(s_current, delta);
+    if (next != NULL) {
+        (void)faculty175_faces_set_runtime(next->id);
+    }
+    return faculty175_faces_current();
+}
+
 const faculty175_face_desc_t *faculty175_faces_nav_at(size_t index)
 {
     for (size_t i = 0; i < FACULTY175_FACE_COUNT; ++i) {
@@ -410,6 +473,14 @@ bool faculty175_faces_nav_position(size_t *out_index, size_t *out_count)
     *out_index = index < count ? index : 0;
     *out_count = count;
     return count > 0;
+}
+
+bool faculty175_faces_vertical_group(faculty175_face_id_t id)
+{
+    if (!face_valid(id)) {
+        return false;
+    }
+    return next_enabled_in_category_from(id, 1) != NULL;
 }
 
 static void print_face_line(const faculty175_face_desc_t *face)

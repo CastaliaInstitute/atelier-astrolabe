@@ -99,6 +99,7 @@ int faculty175_display_write_bmp(FILE *out);
 
 bool faculty175_button_pressed(void);
 bool faculty175_button_just_pressed(void);
+void faculty175_button_inject_press(void);
 
 #ifdef __cplusplus
 }

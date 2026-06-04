@@ -120,6 +120,7 @@ static SemaphoreHandle_t s_flush_done;
 static SemaphoreHandle_t s_display_lock;
 static uint16_t *s_fb;
 static bool s_button_prev;
+static volatile uint32_t s_button_injected_presses;
 static uint16_t *s_flush_strip;
 static int16_t s_audio_read_tdm[FACULTY175_AUDIO_MAX_READ_SAMPLES * FACULTY175_ES7210_CHANNELS *
                                 FACULTY175_ES7210_HALFWORD_GROUPS_PER_FRAME];
@@ -2318,8 +2319,17 @@ bool faculty175_button_pressed(void)
 
 bool faculty175_button_just_pressed(void)
 {
+    if (s_button_injected_presses > 0) {
+        --s_button_injected_presses;
+        return true;
+    }
     const bool now = faculty175_button_pressed();
     const bool edge = now && !s_button_prev;
     s_button_prev = now;
     return edge;
+}
+
+void faculty175_button_inject_press(void)
+{
+    ++s_button_injected_presses;
 }

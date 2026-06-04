@@ -5,14 +5,27 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "esp_err.h"
+#include "esp_log.h"
 #include "esp_random.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 #include "astrolabe_round_bezel.h"
 #include "faculty175_board.h"
 
+static const char *TAG = "faculty175_face_native";
+enum { INSTRUMENT_RATE_HZ = 24000, INSTRUMENT_CHUNK_FRAMES = 192 };
+
 static uint32_t s_oracle_nonce;
 static uint32_t s_focus_started_ms;
 static bool s_focus_running;
+static volatile bool s_instrument_audio_busy;
+
+bool faculty175_face_native_audio_busy(void)
+{
+    return s_instrument_audio_busy;
+}
 
 static uint16_t rgb(uint8_t r, uint8_t g, uint8_t b)
 {
@@ -116,6 +129,244 @@ static void draw_staff(int x, int y, int w, uint16_t color)
     for (int i = 0; i < 5; ++i) {
         faculty175_display_draw_line(x, y + i * 12, x + w, y + i * 12, color);
     }
+}
+
+static int16_t clamp_audio_i16(int32_t v)
+{
+    if (v > 32767) {
+        return 32767;
+    }
+    if (v < -32768) {
+        return -32768;
+    }
+    return (int16_t)v;
+}
+
+static const char *instrument_name(faculty175_face_id_t id)
+{
+    switch (id) {
+        case FACULTY175_FACE_CHAKRA: return "chakra";
+        case FACULTY175_FACE_BOWL: return "bowl";
+        case FACULTY175_FACE_OCARINA: return "ocarina";
+        case FACULTY175_FACE_BONGO: return "bongo";
+        case FACULTY175_FACE_PIANO: return "piano";
+        case FACULTY175_FACE_PANDRUM: return "pandrum";
+        case FACULTY175_FACE_KALIMBA: return "kalimba";
+        case FACULTY175_FACE_DRONE: return "drone";
+        case FACULTY175_FACE_CHORD: return "chord";
+        default: return "instrument";
+    }
+}
+
+static bool face_is_sounding_instrument(faculty175_face_id_t id)
+{
+    switch (id) {
+        case FACULTY175_FACE_CHAKRA:
+        case FACULTY175_FACE_BOWL:
+        case FACULTY175_FACE_OCARINA:
+        case FACULTY175_FACE_BONGO:
+        case FACULTY175_FACE_PIANO:
+        case FACULTY175_FACE_PANDRUM:
+        case FACULTY175_FACE_KALIMBA:
+        case FACULTY175_FACE_DRONE:
+        case FACULTY175_FACE_CHORD:
+            return true;
+        default:
+            return false;
+    }
+}
+
+static float instrument_envelope(int frame, int total_frames, float attack_ms, float release_ms)
+{
+    float env = 1.0f;
+    const int attack_frames = (int)((attack_ms * (float)INSTRUMENT_RATE_HZ) / 1000.0f);
+    const int release_frames = (int)((release_ms * (float)INSTRUMENT_RATE_HZ) / 1000.0f);
+    if (attack_frames > 0 && frame < attack_frames) {
+        env *= (float)frame / (float)attack_frames;
+    }
+    if (release_frames > 0 && frame > total_frames - release_frames) {
+        env *= (float)(total_frames - frame) / (float)release_frames;
+    }
+    if (env < 0.0f) {
+        env = 0.0f;
+    }
+    return env;
+}
+
+static float instrument_decay(int frame, float half_life_ms)
+{
+    const float t_ms = ((float)frame * 1000.0f) / (float)INSTRUMENT_RATE_HZ;
+    return expf(-0.69314718f * t_ms / half_life_ms);
+}
+
+static esp_err_t instrument_write_chunk(int16_t *pcm, int frames)
+{
+    if (frames <= 0) {
+        return ESP_OK;
+    }
+    return faculty175_audio_write_pcm(pcm, (size_t)frames * 2u, 500);
+}
+
+static bool play_instrument_action(faculty175_face_id_t id, uint32_t seed_ms)
+{
+    if (!face_is_sounding_instrument(id)) {
+        return false;
+    }
+    if (!faculty175_board_audio_ready()) {
+        ESP_LOGW(TAG, "instrument %s skipped: audio off", instrument_name(id));
+        return true;
+    }
+    s_instrument_audio_busy = true;
+
+    static const float chakra_hz[] = {396.0f, 417.0f, 528.0f, 639.0f, 741.0f, 852.0f, 963.0f};
+    static const float piano_hz[] = {261.63f, 293.66f, 329.63f, 349.23f, 392.00f, 440.00f, 493.88f, 523.25f};
+    static const float ocarina_hz[] = {392.00f, 440.00f, 493.88f, 523.25f, 587.33f, 659.25f};
+    static const float pan_hz[] = {220.00f, 246.94f, 261.63f, 293.66f, 329.63f, 392.00f, 440.00f, 493.88f};
+    static const float kalimba_hz[] = {261.63f, 293.66f, 329.63f, 392.00f, 440.00f, 523.25f};
+
+    float f0 = 440.0f;
+    float f1 = 0.0f;
+    float f2 = 0.0f;
+    int total_ms = 520;
+    int amp = 5200;
+    float half_life_ms = 420.0f;
+    const uint32_t pick = seed_ms ^ esp_random() ^ ((uint32_t)id * 1103515245u);
+
+    switch (id) {
+        case FACULTY175_FACE_CHAKRA: {
+            const size_t idx = pick % (sizeof(chakra_hz) / sizeof(chakra_hz[0]));
+            f0 = chakra_hz[idx];
+            f1 = f0 * 2.0f;
+            f2 = f0 * 1.5f;
+            total_ms = 1300;
+            amp = 4300;
+            half_life_ms = 1050.0f;
+            break;
+        }
+        case FACULTY175_FACE_BOWL:
+            f0 = 196.0f + (float)(pick % 4u) * 24.5f;
+            f1 = f0 * 2.01f;
+            f2 = f0 * 2.98f;
+            total_ms = 1700;
+            amp = 6200;
+            half_life_ms = 1250.0f;
+            break;
+        case FACULTY175_FACE_PIANO:
+            f0 = piano_hz[pick % (sizeof(piano_hz) / sizeof(piano_hz[0]))];
+            f1 = f0 * 2.0f;
+            total_ms = 520;
+            amp = 5600;
+            half_life_ms = 360.0f;
+            break;
+        case FACULTY175_FACE_OCARINA:
+            f0 = ocarina_hz[pick % (sizeof(ocarina_hz) / sizeof(ocarina_hz[0]))];
+            f1 = f0 * 2.0f;
+            total_ms = 620;
+            amp = 4200;
+            half_life_ms = 900.0f;
+            break;
+        case FACULTY175_FACE_BONGO:
+            f0 = (pick & 1u) ? 148.0f : 196.0f;
+            f1 = f0 * 1.58f;
+            total_ms = 320;
+            amp = 7600;
+            half_life_ms = 95.0f;
+            break;
+        case FACULTY175_FACE_PANDRUM:
+            f0 = pan_hz[pick % (sizeof(pan_hz) / sizeof(pan_hz[0]))];
+            f1 = f0 * 2.0f;
+            f2 = f0 * 3.01f;
+            total_ms = 1050;
+            amp = 5000;
+            half_life_ms = 760.0f;
+            break;
+        case FACULTY175_FACE_KALIMBA:
+            f0 = kalimba_hz[pick % (sizeof(kalimba_hz) / sizeof(kalimba_hz[0]))];
+            f1 = f0 * 2.0f;
+            total_ms = 650;
+            amp = 4400;
+            half_life_ms = 300.0f;
+            break;
+        case FACULTY175_FACE_DRONE:
+            f0 = 146.83f;
+            f1 = 220.0f;
+            f2 = 293.66f;
+            total_ms = 1400;
+            amp = 3900;
+            half_life_ms = 1600.0f;
+            break;
+        case FACULTY175_FACE_CHORD:
+            f0 = 261.63f;
+            f1 = 329.63f;
+            f2 = 392.0f;
+            total_ms = 900;
+            amp = 4300;
+            half_life_ms = 700.0f;
+            break;
+        default:
+            break;
+    }
+
+    const esp_err_t rate_err = faculty175_audio_set_sample_rate(INSTRUMENT_RATE_HZ);
+    if (rate_err != ESP_OK) {
+        ESP_LOGW(TAG, "instrument %s sample_rate=%s", instrument_name(id), esp_err_to_name(rate_err));
+        s_instrument_audio_busy = false;
+        return true;
+    }
+    vTaskDelay(pdMS_TO_TICKS(20));
+    faculty175_audio_set_speaker_mute(false);
+
+    const int total_frames = (INSTRUMENT_RATE_HZ * total_ms) / 1000;
+    int16_t pcm[INSTRUMENT_CHUNK_FRAMES * 2];
+    float phase0 = 0.0f;
+    float phase1 = 0.0f;
+    float phase2 = 0.0f;
+    const float step0 = 6.2831853f * f0 / (float)INSTRUMENT_RATE_HZ;
+    const float step1 = 6.2831853f * f1 / (float)INSTRUMENT_RATE_HZ;
+    const float step2 = 6.2831853f * f2 / (float)INSTRUMENT_RATE_HZ;
+    uint32_t write_fail = 0;
+
+    ESP_LOGI(TAG, "instrument %s note=%.1fHz ms=%d", instrument_name(id), (double)f0, total_ms);
+    for (int base = 0; base < total_frames; base += INSTRUMENT_CHUNK_FRAMES) {
+        const int frames =
+            (total_frames - base) < INSTRUMENT_CHUNK_FRAMES ? (total_frames - base) : INSTRUMENT_CHUNK_FRAMES;
+        for (int i = 0; i < frames; ++i) {
+            const int t = base + i;
+            float sample = sinf(phase0);
+            if (f1 > 0.0f) {
+                sample += 0.34f * sinf(phase1);
+            }
+            if (f2 > 0.0f) {
+                sample += 0.18f * sinf(phase2);
+            }
+            if (id == FACULTY175_FACE_BOWL || id == FACULTY175_FACE_PANDRUM || id == FACULTY175_FACE_CHAKRA) {
+                sample *= 1.0f + 0.07f * sinf((float)t * 6.2831853f * 5.3f / (float)INSTRUMENT_RATE_HZ);
+            }
+            if (id == FACULTY175_FACE_BONGO) {
+                sample += 0.22f * sinf((float)t * 6.2831853f * 73.0f / (float)INSTRUMENT_RATE_HZ);
+            }
+            float env = instrument_envelope(t, total_frames, id == FACULTY175_FACE_BONGO ? 3.0f : 18.0f, 90.0f);
+            env *= instrument_decay(t, half_life_ms);
+            const int16_t v = clamp_audio_i16((int32_t)(sample * env * (float)amp));
+            pcm[i * 2] = v;
+            pcm[i * 2 + 1] = v;
+            phase0 += step0;
+            phase1 += step1;
+            phase2 += step2;
+            if (phase0 > 6.2831853f) phase0 -= 6.2831853f;
+            if (phase1 > 6.2831853f) phase1 -= 6.2831853f;
+            if (phase2 > 6.2831853f) phase2 -= 6.2831853f;
+        }
+        if (instrument_write_chunk(pcm, frames) != ESP_OK) {
+            ++write_fail;
+        }
+        vTaskDelay(1);
+    }
+
+    ESP_ERROR_CHECK_WITHOUT_ABORT(faculty175_audio_set_sample_rate(FACULTY175_AUDIO_RATE));
+    ESP_LOGI(TAG, "instrument %s done write_fail=%lu", instrument_name(id), (unsigned long)write_fail);
+    s_instrument_audio_busy = false;
+    return true;
 }
 
 static void draw_frame(const faculty175_native_face_t *face, uint16_t accent, uint16_t dim)
@@ -708,5 +959,8 @@ bool faculty175_face_native_action(faculty175_face_id_t id, uint32_t seed_ms)
         return true;
     }
     s_oracle_nonce = esp_random() ^ seed_ms ^ ((uint32_t)id * 2654435761u);
+    if (play_instrument_action(id, seed_ms)) {
+        return true;
+    }
     return true;
 }

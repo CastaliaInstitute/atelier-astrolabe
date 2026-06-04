@@ -23,6 +23,7 @@
 #include "faculty175_face_alethiometer.h"
 #include "faculty175_face_babel.h"
 #include "faculty175_face_dispatch.h"
+#include "faculty175_face_native.h"
 #include "faculty175_faculty.h"
 #include "faculty175_faculty_roster.h"
 #include "faculty175_faces.h"
@@ -564,8 +565,8 @@ static void append_history(const char *user, const char *reply)
 static esp_err_t pipeline_read(int16_t *samples, size_t sample_count, size_t *out_read, uint32_t timeout_ms, void *user)
 {
     (void)user;
-    if (faculty175_ota_active() || faculty175_qa_audio_busy() || s_ui == FACULTY175_UI_THINK ||
-        s_ui == FACULTY175_UI_SPEAK || s_low_power_asleep ||
+    if (faculty175_ota_active() || faculty175_qa_audio_busy() || faculty175_face_native_audio_busy() ||
+        s_ui == FACULTY175_UI_THINK || s_ui == FACULTY175_UI_SPEAK || s_low_power_asleep ||
         (s_power_on_battery && !s_battery_stt_armed && !astrolabe_audio_pipeline_speech_active(s_pipeline))) {
         if (out_read != NULL) {
             *out_read = 0;
