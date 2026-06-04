@@ -133,6 +133,8 @@ static uint32_t s_aec_ref_write;
 static uint32_t s_aec_ref_rate_hz = FACULTY175_AUDIO_RATE;
 static int64_t s_aec_ref_active_until_us;
 static uint32_t s_aec_frames;
+
+static void draw_pixel_safe(int x, int y, uint16_t color);
 static portMUX_TYPE s_aec_mux = portMUX_INITIALIZER_UNLOCKED;
 static portMUX_TYPE s_touch_visual_mux = portMUX_INITIALIZER_UNLOCKED;
 
@@ -147,6 +149,7 @@ static uint8_t s_touch_trail_count;
 static bool s_touch_visual_down;
 static uint32_t s_touch_visual_last_ms;
 static bool s_nav_mode;
+static bool s_flush_suspended;
 static portMUX_TYPE s_waveform_visual_mux = portMUX_INITIALIZER_UNLOCKED;
 static uint8_t s_bezel_waveform[FACULTY175_BEZEL_WAVEFORM_MAX];
 static uint8_t s_bezel_waveform_stream[FACULTY175_BEZEL_WAVEFORM_MAX];
@@ -317,6 +320,134 @@ uint16_t faculty175_display_rgb888(uint8_t r, uint8_t g, uint8_t b)
 uint32_t faculty175_display_bkgd_u32(void)
 {
     return ((uint32_t)FACULTY175_UI_BG_B << 16) | ((uint32_t)FACULTY175_UI_BG_G << 8) | FACULTY175_UI_BG_R;
+}
+
+size_t faculty175_display_frame_pixel_count(void)
+{
+    return (size_t)FACULTY175_LCD_W * (size_t)FACULTY175_LCD_H;
+}
+
+bool faculty175_display_frame_copy(uint16_t *out, size_t pixel_count)
+{
+    const size_t needed = faculty175_display_frame_pixel_count();
+    if (s_fb == NULL || out == NULL || pixel_count < needed) {
+        return false;
+    }
+    memcpy(out, s_fb, needed * sizeof(uint16_t));
+    return true;
+}
+
+void faculty175_display_frame_compose_carousel(const uint16_t *from, const uint16_t *to, int shift_px)
+{
+    if (s_fb == NULL || from == NULL || to == NULL) {
+        return;
+    }
+    if (shift_px > FACULTY175_LCD_W) {
+        shift_px = FACULTY175_LCD_W;
+    } else if (shift_px < -FACULTY175_LCD_W) {
+        shift_px = -FACULTY175_LCD_W;
+    }
+
+    for (int y = 0; y < FACULTY175_LCD_H; ++y) {
+        const size_t row = (size_t)y * (size_t)FACULTY175_LCD_W;
+        for (int x = 0; x < FACULTY175_LCD_W; ++x) {
+            int src_x = x + shift_px;
+            const uint16_t *src = from;
+            if (src_x >= FACULTY175_LCD_W) {
+                src = to;
+                src_x -= FACULTY175_LCD_W;
+            } else if (src_x < 0) {
+                src = to;
+                src_x += FACULTY175_LCD_W;
+            }
+            s_fb[row + (size_t)x] = src[row + (size_t)src_x];
+        }
+    }
+}
+
+void faculty175_display_frame_compose_vertical(const uint16_t *from, const uint16_t *to, int shift_px)
+{
+    if (s_fb == NULL || from == NULL || to == NULL) {
+        return;
+    }
+    if (shift_px > FACULTY175_LCD_H) {
+        shift_px = FACULTY175_LCD_H;
+    } else if (shift_px < -FACULTY175_LCD_H) {
+        shift_px = -FACULTY175_LCD_H;
+    }
+
+    for (int y = 0; y < FACULTY175_LCD_H; ++y) {
+        int src_y = y + shift_px;
+        const uint16_t *src = from;
+        if (src_y >= FACULTY175_LCD_H) {
+            src = to;
+            src_y -= FACULTY175_LCD_H;
+        } else if (src_y < 0) {
+            src = to;
+            src_y += FACULTY175_LCD_H;
+        }
+        const size_t dst_row = (size_t)y * (size_t)FACULTY175_LCD_W;
+        const size_t src_row = (size_t)src_y * (size_t)FACULTY175_LCD_W;
+        memcpy(&s_fb[dst_row], &src[src_row], (size_t)FACULTY175_LCD_W * sizeof(uint16_t));
+    }
+}
+
+void faculty175_display_frame_compose_nav_preview(const uint16_t *center,
+                                                  const uint16_t *left,
+                                                  const uint16_t *right,
+                                                  const uint16_t *up,
+                                                  const uint16_t *down)
+{
+    if (s_fb == NULL || center == NULL) {
+        return;
+    }
+
+    const int inset_x = (FACULTY175_LCD_W * 5) / 100;
+    const int inset_y = (FACULTY175_LCD_H * 5) / 100;
+    const int center_w = FACULTY175_LCD_W - (inset_x * 2);
+    const int center_h = FACULTY175_LCD_H - (inset_y * 2);
+    const int w = FACULTY175_LCD_W;
+    const int h = FACULTY175_LCD_H;
+    const uint16_t bg = faculty175_ui_bg565();
+
+    for (int y = 0; y < h; ++y) {
+        const size_t row = (size_t)y * (size_t)w;
+        for (int x = 0; x < w; ++x) {
+            const uint16_t *src = NULL;
+            int sx = x;
+            int sy = y;
+
+            if (x >= inset_x && x < inset_x + center_w && y >= inset_y && y < inset_y + center_h) {
+                src = center;
+                sx = ((x - inset_x) * w) / center_w;
+                sy = ((y - inset_y) * h) / center_h;
+            } else if (x < inset_x && left != NULL) {
+                src = left;
+                sx = w - inset_x + x;
+            } else if (x >= inset_x + center_w && right != NULL) {
+                src = right;
+                sx = x - (inset_x + center_w);
+            } else if (y < inset_y && up != NULL) {
+                src = up;
+                sy = h - inset_y + y;
+            } else if (y >= inset_y + center_h && down != NULL) {
+                src = down;
+                sy = y - (inset_y + center_h);
+            }
+
+            s_fb[row + (size_t)x] = src != NULL ? src[(size_t)sy * (size_t)w + (size_t)sx] : bg;
+        }
+    }
+
+    const uint16_t edge = rgb565(92, 232, 255);
+    for (int x = inset_x; x < inset_x + center_w; ++x) {
+        draw_pixel_safe(x, inset_y, edge);
+        draw_pixel_safe(x, inset_y + center_h - 1, edge);
+    }
+    for (int y = inset_y; y < inset_y + center_h; ++y) {
+        draw_pixel_safe(inset_x, y, edge);
+        draw_pixel_safe(inset_x + center_w - 1, y, edge);
+    }
 }
 
 static esp_err_t faculty175_i2c_init(void)
@@ -934,6 +1065,20 @@ void faculty175_board_set_backlight(uint8_t percent)
     (void)esp_lcd_panel_io_tx_param(s_panel_io, lcd_cmd, &brightness, 1);
 }
 
+void faculty175_board_display_on(bool on)
+{
+    if (s_panel == NULL) {
+        return;
+    }
+    if (!on) {
+        faculty175_board_set_backlight(0);
+    }
+    (void)esp_lcd_panel_disp_on_off(s_panel, on);
+    if (on) {
+        faculty175_board_set_backlight(100);
+    }
+}
+
 esp_err_t faculty175_audio_read(int16_t *samples, size_t sample_count, size_t *out_read, uint32_t timeout_ms)
 {
     if (!s_audio_ready || s_mic_codec == NULL || samples == NULL || sample_count == 0) {
@@ -1540,8 +1685,16 @@ void faculty175_display_nav_mode_set(bool enabled)
     s_nav_mode = enabled;
 }
 
+void faculty175_display_flush_suspended_set(bool suspended)
+{
+    s_flush_suspended = suspended;
+}
+
 void faculty175_display_flush(void)
 {
+    if (s_flush_suspended) {
+        return;
+    }
     draw_bezel_nav();
     draw_stored_bezel_waveform();
     draw_touch_visual();

@@ -1,7 +1,9 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "esp_event.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_netif.h"
 #include "esp_wifi.h"
@@ -30,6 +32,7 @@
 #include "faculty175_device_auth.h"
 #include "faculty175_qa.h"
 #include "faculty175_ota.h"
+#include "faculty175_pmu.h"
 #include "faculty175_serial.h"
 #include "faculty175_util.h"
 
@@ -46,6 +49,16 @@ static const char *TAG = "faculty175";
 #define VOICE_WORKER_STACK_BYTES 32768
 #define FACE_SWIPE_SAVE_IDLE_MS 1500
 #define FACE_REDRAW_MS 250
+#define FACE_DEATHSTAR_REDRAW_MS 125
+#define FACE_CAROUSEL_FRAMES 8
+#define FACE_CAROUSEL_FRAME_MS 16
+#define LISTEN_CUE_RATE_HZ 16000
+#define LISTEN_CUE_CHUNK_FRAMES 256
+#define LISTEN_CUE_COOLDOWN_MS 1400
+#define BATTERY_DIM_IDLE_MS 8000
+#define BATTERY_SLEEP_IDLE_MS 30000
+#define BATTERY_MONITOR_MS 5000
+#define BATTERY_STT_ARM_MS 20000
 
 static EventGroupHandle_t s_wifi_events;
 static faculty175_ui_state_t s_ui = FACULTY175_UI_BOOT;
@@ -65,6 +78,19 @@ static char s_voice_response_format[8] = "mp3";
 static char s_voice_system_instruction[2048] = ASTROLABE_FACULTY_SYSTEM_INSTRUCTION;
 static bool s_voice_skip_llm = false;
 static bool s_voice_log_to_commonplace = true;
+static bool s_nav_mode = false;
+static volatile bool s_low_power_dimmed = false;
+static volatile bool s_low_power_asleep = false;
+static bool s_wifi_low_power_paused = false;
+static bool s_power_on_battery = false;
+static bool s_power_have_status = false;
+static volatile bool s_battery_stt_armed = false;
+static volatile bool s_battery_network_active = false;
+static uint32_t s_battery_stt_armed_until_ms;
+static faculty175_pmu_status_t s_power_status = {
+    .battery_percent = -1,
+};
+static uint32_t s_listen_cue_last_ms;
 
 static const char *ALETHIOMETER_SYSTEM_INSTRUCTION =
     "You are the aleithiometer face of a tiny round astrolabe. "
@@ -79,6 +105,41 @@ static const char *ALETHIOMETER_SYSTEM_INSTRUCTION =
     "\"spoken\":\"one or two concise spoken sentences folding the symbols into the answer\"}. "
     "Do not use markdown, prose outside JSON, or symbolic names in the numeric fields.";
 
+static bool ui_state_modal(faculty175_ui_state_t state)
+{
+    return state == FACULTY175_UI_CAPTURE || state == FACULTY175_UI_THINK ||
+           state == FACULTY175_UI_SPEAK || state == FACULTY175_UI_ERROR;
+}
+
+static bool draw_face_or_status(const faculty175_face_desc_t *face,
+                                faculty175_ui_state_t state,
+                                const char *detail,
+                                uint32_t anim_ms,
+                                const uint8_t *waveform,
+                                const uint8_t *waveform_stream,
+                                size_t waveform_len,
+                                bool force_face)
+{
+    const bool babel_overlay = face != NULL && face->id == FACULTY175_FACE_BABEL && faculty175_face_babel_active();
+    const bool selected_face = face != NULL && face->id != FACULTY175_FACE_FACULTY;
+    const bool draw_face = face != NULL &&
+                           (force_face || babel_overlay || (!ui_state_modal(state) && selected_face) ||
+                            state == FACULTY175_UI_LISTEN);
+
+    if (draw_face && faculty175_face_dispatch_draw(face->id, anim_ms)) {
+        return true;
+    }
+
+    faculty175_display_draw_status(state,
+                                   s_faculty_name,
+                                   detail,
+                                   anim_ms,
+                                   waveform,
+                                   waveform_stream,
+                                   waveform_len);
+    return false;
+}
+
 static void faculty_log_ready(void);
 static void make_supabase_ws_url(char *out, size_t out_len, const char *base_url, const char *path);
 
@@ -86,6 +147,81 @@ static void save_faculty_to_nvs(void);
 static void sync_voice_context(void *user);
 
 static void ui_set(faculty175_ui_state_t state, const char *detail);
+static bool render_nav_preview(const faculty175_face_desc_t *face, uint32_t anim_ms, size_t pixel_count);
+static void low_power_note_activity(uint32_t now_ms, const char *reason);
+static void low_power_tick(uint32_t now_ms);
+static void battery_arm_button_stt(uint32_t now_ms);
+
+static int16_t clamp_i16(int32_t v)
+{
+    if (v > 32767) {
+        return 32767;
+    }
+    if (v < -32768) {
+        return -32768;
+    }
+    return (int16_t)v;
+}
+
+static esp_err_t play_listen_cue(void)
+{
+    if (!faculty175_board_audio_ready()) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    const uint32_t now_ms = faculty175_log_ms();
+    if (s_listen_cue_last_ms != 0 && now_ms - s_listen_cue_last_ms < LISTEN_CUE_COOLDOWN_MS) {
+        return ESP_OK;
+    }
+    s_listen_cue_last_ms = now_ms;
+
+    esp_err_t err = faculty175_audio_set_sample_rate(LISTEN_CUE_RATE_HZ);
+    if (err != ESP_OK) {
+        return err;
+    }
+    faculty175_audio_set_speaker_mute(false);
+
+    int16_t pcm[LISTEN_CUE_CHUNK_FRAMES * 2];
+    uint32_t phase_a = 0;
+    uint32_t phase_b = 0;
+    uint32_t phase_c = 0;
+    const uint32_t step_a = (523u * 65536u) / LISTEN_CUE_RATE_HZ;
+    const uint32_t step_b = (659u * 65536u) / LISTEN_CUE_RATE_HZ;
+    const uint32_t step_c = (784u * 65536u) / LISTEN_CUE_RATE_HZ;
+    const int total_frames = LISTEN_CUE_RATE_HZ * 340 / 1000;
+
+    for (int base = 0; base < total_frames; base += LISTEN_CUE_CHUNK_FRAMES) {
+        const int frames =
+            (total_frames - base) < LISTEN_CUE_CHUNK_FRAMES ? (total_frames - base) : LISTEN_CUE_CHUNK_FRAMES;
+        for (int i = 0; i < frames; ++i) {
+            const int t = base + i;
+            int amp = 3600;
+            if (t < 480) {
+                amp = amp * t / 480;
+            } else if (t > total_frames - 960) {
+                amp = amp * (total_frames - t) / 960;
+            }
+            const int32_t s_a = (phase_a & 0x8000u) ? -amp : amp;
+            const int32_t s_b = (phase_b & 0x8000u) ? -(amp / 2) : (amp / 2);
+            const int32_t s_c = (phase_c & 0x8000u) ? -(amp / 3) : (amp / 3);
+            const int32_t wobble = (t % 640) < 320 ? amp / 5 : -(amp / 5);
+            const int16_t sample = clamp_i16(s_a + s_b + s_c + wobble);
+            pcm[i * 2] = sample;
+            pcm[i * 2 + 1] = sample;
+            phase_a += step_a + (uint32_t)(t / 180);
+            phase_b += step_b;
+            phase_c += step_c - (uint32_t)(t / 220);
+        }
+        err = faculty175_audio_write_pcm(pcm, (size_t)frames * 2u, 250);
+        if (err != ESP_OK) {
+            break;
+        }
+        vTaskDelay(1);
+    }
+
+    ESP_ERROR_CHECK_WITHOUT_ABORT(faculty175_audio_set_sample_rate(FACULTY175_AUDIO_RATE));
+    FACULTY175_LOG_STAGE(TAG, "cue", "listen cue %s", esp_err_to_name(err));
+    return err;
+}
 
 static void activate_roster_entry(const faculty175_faculty_roster_entry_t *entry)
 {
@@ -101,12 +237,14 @@ static void activate_roster_entry(const faculty175_faculty_roster_entry_t *entry
     FACULTY175_LOG_STAGE(TAG, "faculty", "roster -> %s (%s)", s_faculty_name, s_faculty_slug);
 }
 
-static void cycle_roster_by_delta(int delta)
+static bool cycle_roster_by_delta(int delta)
 {
     faculty175_faculty_roster_entry_t entry = {};
     if (faculty175_faculty_roster_cycle_delta(delta) >= 0 && faculty175_faculty_roster_active(&entry)) {
         activate_roster_entry(&entry);
+        return true;
     }
+    return false;
 }
 
 static bool qa_set_faculty_active(const char *slug, const char *name)
@@ -175,6 +313,171 @@ static void ui_redraw(void)
     (void)xQueueOverwrite(s_ui_queue, &msg);
 }
 
+static void low_power_wifi_pause(void)
+{
+    if (s_wifi_low_power_paused) {
+        return;
+    }
+    s_wifi_low_power_paused = true;
+    (void)esp_wifi_disconnect();
+    (void)esp_wifi_stop();
+    FACULTY175_LOG_STAGE(TAG, "power", "wifi paused for battery sleep");
+}
+
+static void low_power_wifi_resume(void)
+{
+    if (!s_wifi_low_power_paused) {
+        return;
+    }
+    s_wifi_low_power_paused = false;
+    esp_err_t err = esp_wifi_start();
+    if (err == ESP_ERR_WIFI_NOT_INIT || err == ESP_ERR_WIFI_CONN) {
+        FACULTY175_LOG_STAGE_W(TAG, "power", "wifi resume skipped: %s", esp_err_to_name(err));
+    } else {
+        FACULTY175_LOG_STAGE(TAG, "power", "wifi resume %s", esp_err_to_name(err));
+    }
+}
+
+static bool low_power_wifi_allowed(void)
+{
+    return !s_power_on_battery || s_battery_network_active;
+}
+
+static void low_power_wifi_resume_for_voice(uint32_t wait_ms)
+{
+    s_battery_network_active = true;
+    low_power_wifi_resume();
+    if (s_wifi_events != NULL && wait_ms > 0) {
+        const EventBits_t bits = xEventGroupWaitBits(s_wifi_events,
+                                                     WIFI_CONNECTED_BIT,
+                                                     pdFALSE,
+                                                     pdFALSE,
+                                                     pdMS_TO_TICKS(wait_ms));
+        if ((bits & WIFI_CONNECTED_BIT) == 0) {
+            FACULTY175_LOG_STAGE_W(TAG, "power", "wifi not connected after %u ms voice wait", (unsigned)wait_ms);
+        }
+    }
+}
+
+static bool low_power_on_battery(const faculty175_pmu_status_t *st)
+{
+    return st != NULL && st->present && st->battery_present && !st->vbus_in && !st->charging;
+}
+
+static void low_power_apply_awake(uint32_t now_ms, const char *reason)
+{
+    const bool was_low_power = s_low_power_asleep || s_low_power_dimmed;
+    s_low_power_asleep = false;
+    s_low_power_dimmed = false;
+    faculty175_display_flush_suspended_set(false);
+    faculty175_board_display_on(true);
+    faculty175_board_set_backlight(100);
+    faculty175_audio_set_speaker_mute(false);
+    if (low_power_wifi_allowed()) {
+        low_power_wifi_resume();
+    }
+    if (was_low_power) {
+        FACULTY175_LOG_STAGE(TAG, "power", "wake %s", reason != NULL ? reason : "activity");
+        ui_redraw();
+    }
+    (void)now_ms;
+}
+
+static uint32_t s_low_power_last_activity_ms;
+
+static void low_power_note_activity(uint32_t now_ms, const char *reason)
+{
+    s_low_power_last_activity_ms = now_ms;
+    if (s_low_power_asleep || s_low_power_dimmed) {
+        low_power_apply_awake(now_ms, reason);
+    }
+}
+
+static void low_power_tick(uint32_t now_ms)
+{
+    static uint32_t last_monitor_ms;
+    static bool last_on_battery;
+    static bool last_have_status;
+    static int last_pct = -2;
+    static uint16_t last_mv;
+
+    if (last_monitor_ms == 0 || now_ms - last_monitor_ms >= BATTERY_MONITOR_MS) {
+        last_monitor_ms = now_ms;
+        faculty175_pmu_status_t st = {
+            .battery_percent = -1,
+        };
+        s_power_have_status = faculty175_pmu_status(&st);
+        s_power_status = st;
+        s_power_on_battery = low_power_on_battery(&st);
+        if (s_power_have_status &&
+            (s_power_on_battery != last_on_battery || !last_have_status ||
+             st.battery_percent != last_pct || st.battery_mv != last_mv)) {
+            FACULTY175_LOG_STAGE(TAG,
+                                 "power",
+                                 "%s batt=%d%% %umV vbus=%d charging=%d discharge=%d",
+                                 s_power_on_battery ? "battery" : "usb",
+                                 st.battery_percent,
+                                 (unsigned)st.battery_mv,
+                                 st.vbus_in ? 1 : 0,
+                                 st.charging ? 1 : 0,
+                                 st.discharging ? 1 : 0);
+            last_on_battery = s_power_on_battery;
+            last_have_status = true;
+            last_pct = st.battery_percent;
+            last_mv = st.battery_mv;
+        } else if (!s_power_have_status && last_have_status) {
+            FACULTY175_LOG_STAGE_W(TAG, "power", "PMU unavailable");
+            last_have_status = false;
+        }
+    }
+
+    if (s_battery_stt_armed && (int32_t)(now_ms - s_battery_stt_armed_until_ms) >= 0) {
+        s_battery_stt_armed = false;
+        FACULTY175_LOG_STAGE(TAG, "power", "battery button STT arm expired");
+    }
+
+    if (!s_power_on_battery) {
+        if (s_low_power_asleep || s_low_power_dimmed) {
+            low_power_apply_awake(now_ms, "usb");
+        } else {
+            low_power_wifi_resume();
+        }
+        return;
+    }
+    if (!low_power_wifi_allowed()) {
+        low_power_wifi_pause();
+    }
+    if (ui_state_modal(s_ui) || faculty175_ota_active() || faculty175_qa_audio_busy()) {
+        return;
+    }
+
+    const uint32_t idle_ms = now_ms - s_low_power_last_activity_ms;
+    if (!s_low_power_asleep && idle_ms >= BATTERY_SLEEP_IDLE_MS) {
+        s_low_power_asleep = true;
+        s_low_power_dimmed = true;
+        faculty175_audio_set_speaker_mute(true);
+        faculty175_board_set_backlight(0);
+        faculty175_board_display_on(false);
+        faculty175_display_flush_suspended_set(true);
+        low_power_wifi_pause();
+        FACULTY175_LOG_STAGE(TAG, "power", "battery sleep after %u ms idle", (unsigned)idle_ms);
+        return;
+    }
+    if (!s_low_power_dimmed && idle_ms >= BATTERY_DIM_IDLE_MS) {
+        s_low_power_dimmed = true;
+        faculty175_board_set_backlight(10);
+        FACULTY175_LOG_STAGE(TAG, "power", "battery dim after %u ms idle", (unsigned)idle_ms);
+    }
+}
+
+static void battery_arm_button_stt(uint32_t now_ms)
+{
+    s_battery_stt_armed = true;
+    s_battery_stt_armed_until_ms = now_ms + BATTERY_STT_ARM_MS;
+    s_battery_network_active = false;
+    FACULTY175_LOG_STAGE(TAG, "power", "battery STT armed by button");
+}
+
 static void bust_ui_refresh(void)
 {
     ui_redraw();
@@ -208,6 +511,10 @@ static void ui_task(void *arg)
             force_draw = true;
         }
         const uint32_t anim_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+        if (s_low_power_asleep) {
+            vTaskDelay(pdMS_TO_TICKS(100));
+            continue;
+        }
         uint8_t waveform[ASTROLABE_AUDIO_PIPELINE_WAVEFORM_LEN];
         uint8_t waveform_stream[ASTROLABE_AUDIO_PIPELINE_WAVEFORM_LEN];
         astrolabe_audio_pipeline_waveform_copy(s_pipeline, waveform, sizeof(waveform));
@@ -219,37 +526,24 @@ static void ui_task(void *arg)
             last_face_id = face->id;
             force_draw = true;
         }
-        const bool babel_overlay =
-            face != NULL && face->id == FACULTY175_FACE_BABEL && faculty175_face_babel_active();
-        if ((s_ui == FACULTY175_UI_LISTEN || babel_overlay) && face != NULL) {
-            faculty175_display_lock();
-            if (force_draw || anim_ms - last_face_draw_ms >= FACE_REDRAW_MS) {
-                if (faculty175_face_dispatch_draw(face->id, anim_ms)) {
-                    last_face_draw_ms = anim_ms;
-                    /* Face module rendered and flushed the frame. */
-                } else {
-                    faculty175_display_draw_status(s_ui,
-                                                   s_faculty_name,
-                                                   s_detail,
-                                                   anim_ms,
-                                                   waveform,
-                                                   waveform_stream,
-                                                   sizeof(waveform));
-                    last_face_draw_ms = anim_ms;
-                }
+        faculty175_display_lock();
+        const uint32_t face_redraw_ms =
+            face != NULL && face->id == FACULTY175_FACE_DEATHSTAR ? FACE_DEATHSTAR_REDRAW_MS : FACE_REDRAW_MS;
+        if (force_draw || anim_ms - last_face_draw_ms >= face_redraw_ms) {
+            const size_t pixels = faculty175_display_frame_pixel_count();
+            if (!s_nav_mode || !render_nav_preview(face, anim_ms, pixels)) {
+                (void)draw_face_or_status(face,
+                                          s_ui,
+                                          s_detail,
+                                          anim_ms,
+                                          waveform,
+                                          waveform_stream,
+                                          sizeof(waveform),
+                                          false);
             }
-            faculty175_display_unlock();
-        } else {
-            faculty175_display_lock();
-            faculty175_display_draw_status(s_ui,
-                                           s_faculty_name,
-                                           s_detail,
-                                           anim_ms,
-                                           waveform,
-                                           waveform_stream,
-                                           sizeof(waveform));
-            faculty175_display_unlock();
+            last_face_draw_ms = anim_ms;
         }
+        faculty175_display_unlock();
         vTaskDelay(pdMS_TO_TICKS(20));
     }
 }
@@ -271,7 +565,8 @@ static esp_err_t pipeline_read(int16_t *samples, size_t sample_count, size_t *ou
 {
     (void)user;
     if (faculty175_ota_active() || faculty175_qa_audio_busy() || s_ui == FACULTY175_UI_THINK ||
-        s_ui == FACULTY175_UI_SPEAK) {
+        s_ui == FACULTY175_UI_SPEAK || s_low_power_asleep ||
+        (s_power_on_battery && !s_battery_stt_armed && !astrolabe_audio_pipeline_speech_active(s_pipeline))) {
         if (out_read != NULL) {
             *out_read = 0;
         }
@@ -351,17 +646,28 @@ static void pipeline_event(astrolabe_audio_pipeline_event_t event, const char *d
     switch (event) {
         case ASTROLABE_AUDIO_PIPELINE_EVENT_LISTENING:
             ui_set(FACULTY175_UI_LISTEN, NULL);
+            (void)play_listen_cue();
             FACULTY175_LOG_STAGE(TAG, "listen", "ready");
             break;
         case ASTROLABE_AUDIO_PIPELINE_EVENT_CAPTURE_START:
+            if (s_power_on_battery) {
+                s_battery_stt_armed = true;
+            }
             ui_set(FACULTY175_UI_CAPTURE, NULL);
             FACULTY175_LOG_STAGE(TAG, "capture", "speech detected — streaming to flash");
             break;
         case ASTROLABE_AUDIO_PIPELINE_EVENT_CAPTURE_QUEUED:
+            if (s_power_on_battery) {
+                s_battery_stt_armed = false;
+                low_power_wifi_resume_for_voice(0);
+            }
             s_voice_turn++;
             FACULTY175_LOG_STAGE(TAG, "capture", "utterance queued from flash (turn #%u)", (unsigned)s_voice_turn);
             break;
         case ASTROLABE_AUDIO_PIPELINE_EVENT_THINKING:
+            if (s_power_on_battery) {
+                low_power_wifi_resume_for_voice(10000);
+            }
             ui_set(FACULTY175_UI_THINK, "Castalia...");
             FACULTY175_LOG_STAGE(TAG, "pipeline", "streaming flash capture to voice-stream (face=%s)",
                                   s_voice_face);
@@ -391,10 +697,20 @@ static void pipeline_event(astrolabe_audio_pipeline_event_t event, const char *d
             FACULTY175_LOG_STAGE(TAG, "speak", "%s", detail != NULL && detail[0] != '\0' ? detail : s_faculty_name);
             break;
         case ASTROLABE_AUDIO_PIPELINE_EVENT_TURN_DONE:
+            s_battery_stt_armed = false;
+            s_battery_network_active = false;
+            if (s_power_on_battery) {
+                low_power_wifi_pause();
+            }
             ui_set(FACULTY175_UI_LISTEN, NULL);
             FACULTY175_LOG_STAGE(TAG, "turn", "done #%u", (unsigned)s_voice_turn);
             break;
         case ASTROLABE_AUDIO_PIPELINE_EVENT_ERROR:
+            s_battery_stt_armed = false;
+            s_battery_network_active = false;
+            if (s_power_on_battery) {
+                low_power_wifi_pause();
+            }
             FACULTY175_LOG_STAGE_E(TAG, "pipeline", "%s", detail != NULL ? detail : "error");
             ui_set(FACULTY175_UI_ERROR, "voice fail");
             break;
@@ -420,9 +736,18 @@ static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, voi
     (void)arg;
     (void)base;
     if (id == WIFI_EVENT_STA_START) {
+        if (!low_power_wifi_allowed()) {
+            FACULTY175_LOG_STAGE(TAG, "wifi", "STA start held for battery idle");
+            return;
+        }
         FACULTY175_LOG_STAGE(TAG, "wifi", "STA start — connecting to %s", MYNAH_WIFI_SSID);
         esp_wifi_connect();
     } else if (id == WIFI_EVENT_STA_DISCONNECTED) {
+        if (s_wifi_low_power_paused) {
+            FACULTY175_LOG_STAGE(TAG, "wifi", "disconnected for battery sleep");
+            xEventGroupClearBits(s_wifi_events, WIFI_CONNECTED_BIT);
+            return;
+        }
         const wifi_event_sta_disconnected_t *disc = (const wifi_event_sta_disconnected_t *)data;
         const int reason = disc != NULL ? (int)disc->reason : -1;
         FACULTY175_LOG_STAGE_W(TAG, "wifi", "disconnected reason=%d — retrying", reason);
@@ -461,7 +786,7 @@ static void faculty_log_ready(void)
     FACULTY175_LOG_STAGE(TAG, "ready", "faculty %s (%s)", s_faculty_name, s_faculty_slug);
     FACULTY175_LOG_STAGE(TAG, "ready", "pipeline %s/functions/v1/voice-pipeline face=%s", MYNAH_SUPABASE_URL,
                    ASTROLABE_FACULTY_FACE_NAME);
-    FACULTY175_LOG_STAGE(TAG, "ready", "always-on VAD → voice-stream STT (face=%s)", ASTROLABE_FACULTY_FACE_NAME);
+    FACULTY175_LOG_STAGE(TAG, "ready", "USB VAD always-on; battery STT on button press only");
     FACULTY175_LOG_STAGE(TAG, "ready", "serial: help | qa audio | ota status | screen.bmp");
     FACULTY175_LOG_STAGE(TAG, "ready", "monitor: ./scripts/faculty175_build.sh -p PORT monitor");
 }
@@ -607,6 +932,185 @@ static const faculty175_face_desc_t *nav_category_delta(int delta)
     return NULL;
 }
 
+static uint16_t *alloc_carousel_frame(size_t pixel_count)
+{
+    const size_t bytes = pixel_count * sizeof(uint16_t);
+    uint16_t *frame = heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (frame == NULL) {
+        frame = malloc(bytes);
+    }
+    return frame;
+}
+
+static bool render_face_snapshot(const faculty175_face_desc_t *face, uint32_t anim_ms, uint16_t *out, size_t pixel_count)
+{
+    uint8_t waveform[ASTROLABE_AUDIO_PIPELINE_WAVEFORM_LEN] = {};
+    uint8_t waveform_stream[ASTROLABE_AUDIO_PIPELINE_WAVEFORM_LEN] = {};
+    faculty175_display_flush_suspended_set(true);
+    (void)draw_face_or_status(face,
+                              s_ui,
+                              s_detail,
+                              anim_ms,
+                              waveform,
+                              waveform_stream,
+                              sizeof(waveform),
+                              true);
+    const bool copied = faculty175_display_frame_copy(out, pixel_count);
+    faculty175_display_flush_suspended_set(false);
+    return copied;
+}
+
+static const faculty175_face_desc_t *nav_horizontal_delta(int delta)
+{
+    size_t index = 0;
+    size_t count = 0;
+    if (!faculty175_faces_nav_position(&index, &count) || count <= 1) {
+        return NULL;
+    }
+    const size_t next_index = delta >= 0 ? (index + 1) % count : (index + count - 1) % count;
+    return faculty175_faces_nav_at(next_index);
+}
+
+static bool render_nav_preview(const faculty175_face_desc_t *face, uint32_t anim_ms, size_t pixel_count)
+{
+    if (face == NULL || pixel_count == 0) {
+        return false;
+    }
+
+    uint16_t *center = alloc_carousel_frame(pixel_count);
+    uint16_t *left = alloc_carousel_frame(pixel_count);
+    uint16_t *right = alloc_carousel_frame(pixel_count);
+    uint16_t *up = alloc_carousel_frame(pixel_count);
+    uint16_t *down = alloc_carousel_frame(pixel_count);
+    if (center == NULL || left == NULL || right == NULL || up == NULL || down == NULL) {
+        free(center);
+        free(left);
+        free(right);
+        free(up);
+        free(down);
+        return false;
+    }
+
+    const faculty175_face_desc_t *left_face = nav_horizontal_delta(-1);
+    const faculty175_face_desc_t *right_face = nav_horizontal_delta(1);
+    const faculty175_face_desc_t *up_face = nav_category_delta(-1);
+    const faculty175_face_desc_t *down_face = nav_category_delta(1);
+
+    const bool have_center = render_face_snapshot(face, anim_ms, center, pixel_count);
+    const bool have_left = left_face != NULL && render_face_snapshot(left_face, anim_ms, left, pixel_count);
+    const bool have_right = right_face != NULL && render_face_snapshot(right_face, anim_ms, right, pixel_count);
+    const bool have_up = up_face != NULL && render_face_snapshot(up_face, anim_ms, up, pixel_count);
+    const bool have_down = down_face != NULL && render_face_snapshot(down_face, anim_ms, down, pixel_count);
+
+    if (have_center) {
+        faculty175_display_frame_compose_nav_preview(center,
+                                                     have_left ? left : NULL,
+                                                     have_right ? right : NULL,
+                                                     have_up ? up : NULL,
+                                                     have_down ? down : NULL);
+    }
+
+    free(center);
+    free(left);
+    free(right);
+    free(up);
+    free(down);
+    return have_center;
+}
+
+static bool capture_face_frame(const faculty175_face_desc_t *face, uint32_t anim_ms, uint16_t *out, size_t pixel_count)
+{
+    faculty175_display_lock();
+    const bool ok = render_face_snapshot(face, anim_ms, out, pixel_count);
+    faculty175_display_unlock();
+    return ok;
+}
+
+static void animate_face_carousel(const faculty175_face_desc_t *from_face,
+                                  const faculty175_face_desc_t *to_face,
+                                  int delta,
+                                  uint32_t now_ms)
+{
+    if (from_face == NULL || to_face == NULL || from_face->id == to_face->id || delta == 0) {
+        return;
+    }
+
+    const size_t pixels = faculty175_display_frame_pixel_count();
+    uint16_t *from = alloc_carousel_frame(pixels);
+    uint16_t *to = alloc_carousel_frame(pixels);
+    if (from == NULL || to == NULL) {
+        free(from);
+        free(to);
+        return;
+    }
+
+    faculty175_display_lock();
+    const bool have_from = render_face_snapshot(from_face, now_ms, from, pixels);
+    const bool have_to = render_face_snapshot(to_face, now_ms + FACE_CAROUSEL_FRAME_MS, to, pixels);
+    if (have_from && have_to) {
+        const int direction = delta > 0 ? 1 : -1;
+        for (int frame = 0; frame <= FACE_CAROUSEL_FRAMES; ++frame) {
+            const int shift = direction * ((FACULTY175_LCD_W * frame) / FACE_CAROUSEL_FRAMES);
+            faculty175_display_frame_compose_carousel(from, to, shift);
+            faculty175_display_flush();
+            vTaskDelay(pdMS_TO_TICKS(FACE_CAROUSEL_FRAME_MS));
+        }
+    }
+    faculty175_display_unlock();
+
+    free(from);
+    free(to);
+}
+
+typedef bool (*face_state_change_fn_t)(int delta, uint32_t now_ms, void *ctx);
+
+static void animate_face_vertical_change(const faculty175_face_desc_t *face,
+                                         int delta,
+                                         uint32_t now_ms,
+                                         face_state_change_fn_t change,
+                                         void *ctx)
+{
+    if (face == NULL || delta == 0 || change == NULL) {
+        return;
+    }
+
+    const size_t pixels = faculty175_display_frame_pixel_count();
+    uint16_t *from = alloc_carousel_frame(pixels);
+    uint16_t *to = alloc_carousel_frame(pixels);
+    if (from == NULL || to == NULL) {
+        free(from);
+        free(to);
+        if (change(delta, now_ms, ctx)) {
+            ui_redraw();
+        }
+        return;
+    }
+
+    const bool have_from = capture_face_frame(face, now_ms, from, pixels);
+    const bool changed = change(delta, now_ms, ctx);
+    const faculty175_face_desc_t *to_face = faculty175_faces_current();
+    const bool have_to = changed && capture_face_frame(to_face != NULL ? to_face : face,
+                                                       now_ms + FACE_CAROUSEL_FRAME_MS,
+                                                       to,
+                                                       pixels);
+    if (have_from && have_to) {
+        faculty175_display_lock();
+        const int direction = delta > 0 ? 1 : -1;
+        for (int frame = 0; frame <= FACE_CAROUSEL_FRAMES; ++frame) {
+            const int shift = direction * ((FACULTY175_LCD_H * frame) / FACE_CAROUSEL_FRAMES);
+            faculty175_display_frame_compose_vertical(from, to, shift);
+            faculty175_display_flush();
+            vTaskDelay(pdMS_TO_TICKS(FACE_CAROUSEL_FRAME_MS));
+        }
+        faculty175_display_unlock();
+    } else if (changed) {
+        ui_redraw();
+    }
+
+    free(from);
+    free(to);
+}
+
 static void nav_select_face(const faculty175_face_desc_t *face,
                             uint32_t now_ms,
                             uint32_t *last_nav_ms,
@@ -628,6 +1132,40 @@ static void nav_select_face(const faculty175_face_desc_t *face,
     } else {
         ui_redraw();
     }
+}
+
+static bool change_faculty_roster_for_vertical(int delta, uint32_t now_ms, void *ctx)
+{
+    (void)now_ms;
+    (void)ctx;
+    return cycle_roster_by_delta(delta);
+}
+
+static bool change_synastry_profile_for_vertical(int delta, uint32_t now_ms, void *ctx)
+{
+    (void)now_ms;
+    (void)ctx;
+    int slot = -1;
+    faculty175_birth_chart_t profile = {};
+    if (!faculty175_charts_cycle_active(delta, &slot, &profile)) {
+        return false;
+    }
+    FACULTY175_LOG_STAGE(TAG, "charts", "synastry vertical %s -> %s (%d)",
+                         delta > 0 ? "next" : "prev", profile.name, slot);
+    return true;
+}
+
+static bool change_face_group_for_vertical(int delta, uint32_t now_ms, void *ctx)
+{
+    (void)now_ms;
+    (void)ctx;
+    const faculty175_face_desc_t *face = faculty175_faces_cycle_vertical_runtime(delta);
+    if (face == NULL) {
+        return false;
+    }
+    FACULTY175_LOG_STAGE(TAG, "faces", "vertical %s -> %s", delta > 0 ? "next" : "prev", face->slug);
+    (void)faculty175_faces_save_current();
+    return true;
 }
 
 void app_main(void)
@@ -732,10 +1270,12 @@ void app_main(void)
     uint32_t last_face_swipe_ms = 0;
     uint32_t last_time_retry_ms = 0;
     bool face_save_pending = false;
-    bool nav_mode = false;
+    s_nav_mode = false;
+    s_low_power_last_activity_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
     faculty175_display_nav_mode_set(false);
     while (true) {
         const uint32_t now_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+        low_power_tick(now_ms);
 
         if (!astrolabe_time_valid() && (last_time_retry_ms == 0 || now_ms - last_time_retry_ms >= 60000)) {
             last_time_retry_ms = now_ms;
@@ -744,15 +1284,21 @@ void app_main(void)
 
         faculty175_gesture_t gesture = {};
         if (faculty175_gesture_consume(&gesture)) {
+            const bool woke_from_low_power = s_low_power_asleep || s_low_power_dimmed;
+            low_power_note_activity(now_ms, "gesture");
+            if (woke_from_low_power) {
+                vTaskDelay(pdMS_TO_TICKS(10));
+                continue;
+            }
             const faculty175_face_desc_t *active_face = faculty175_faces_current();
             if (gesture.kind == FACULTY175_GESTURE_LONG_TAP) {
-                nav_mode = true;
+                s_nav_mode = true;
                 faculty175_display_nav_mode_set(true);
                 FACULTY175_LOG_STAGE(TAG, "faces", "navigation mode on");
                 ui_redraw();
-            } else if (nav_mode && (gesture.kind == FACULTY175_GESTURE_TAP ||
+            } else if (s_nav_mode && (gesture.kind == FACULTY175_GESTURE_TAP ||
                                     gesture.kind == FACULTY175_GESTURE_BEZEL_TAP)) {
-                nav_mode = false;
+                s_nav_mode = false;
                 faculty175_display_nav_mode_set(false);
                 if (face_save_pending) {
                     const esp_err_t err = faculty175_faces_save_current();
@@ -763,7 +1309,7 @@ void app_main(void)
                 }
                 FACULTY175_LOG_STAGE(TAG, "faces", "navigation mode off");
                 ui_redraw();
-            } else if (nav_mode && faculty175_faces_enabled_count() > 1) {
+            } else if (s_nav_mode && faculty175_faces_enabled_count() > 1) {
                 if (gesture.kind == FACULTY175_GESTURE_BEZEL_ROTATE_CW ||
                            gesture.kind == FACULTY175_GESTURE_BEZEL_ROTATE_CCW ||
                            gesture.kind == FACULTY175_GESTURE_SWIPE_LEFT ||
@@ -773,6 +1319,7 @@ void app_main(void)
                     const faculty175_face_desc_t *face = faculty175_faces_cycle_runtime(delta);
                     FACULTY175_LOG_STAGE(TAG, "faces", "nav %s -> %s", delta > 0 ? "next" : "prev",
                                          face != NULL ? face->slug : "-");
+                    animate_face_carousel(active_face, face, delta, now_ms);
                     nav_select_face(face, now_ms, &last_face_swipe_ms, &face_save_pending);
                 } else if (gesture.kind == FACULTY175_GESTURE_SWIPE_UP ||
                            gesture.kind == FACULTY175_GESTURE_SWIPE_DOWN) {
@@ -782,25 +1329,23 @@ void app_main(void)
                                          face != NULL ? face->slug : "-");
                     nav_select_face(face, now_ms, &last_face_swipe_ms, &face_save_pending);
                 }
-            } else if (!nav_mode && active_face != NULL && active_face->id == FACULTY175_FACE_FACULTY &&
+            } else if (!s_nav_mode && active_face != NULL && active_face->id == FACULTY175_FACE_FACULTY &&
                        (gesture.kind == FACULTY175_GESTURE_SWIPE_UP ||
                         gesture.kind == FACULTY175_GESTURE_SWIPE_DOWN)) {
-                FACULTY175_LOG_STAGE(TAG, "faculty", "swipe %s roster",
-                                     gesture.kind == FACULTY175_GESTURE_SWIPE_UP ? "up" : "down");
-                cycle_roster_by_delta(gesture.kind == FACULTY175_GESTURE_SWIPE_UP ? 1 : -1);
-            } else if (!nav_mode && active_face != NULL && active_face->id == FACULTY175_FACE_SYNASTRY &&
+                const int delta = gesture.kind == FACULTY175_GESTURE_SWIPE_UP ? 1 : -1;
+                FACULTY175_LOG_STAGE(TAG, "faculty", "swipe %s roster", delta > 0 ? "up" : "down");
+                animate_face_vertical_change(active_face, delta, now_ms, change_faculty_roster_for_vertical, NULL);
+            } else if (!s_nav_mode && active_face != NULL && active_face->id == FACULTY175_FACE_SYNASTRY &&
                        (gesture.kind == FACULTY175_GESTURE_SWIPE_UP ||
                         gesture.kind == FACULTY175_GESTURE_SWIPE_DOWN)) {
-                int slot = -1;
-                faculty175_birth_chart_t profile = {};
-                if (faculty175_charts_cycle_active(gesture.kind == FACULTY175_GESTURE_SWIPE_UP ? 1 : -1, &slot,
-                                                   &profile)) {
-                    FACULTY175_LOG_STAGE(TAG, "charts", "synastry swipe %s -> %s (%d)",
-                                         gesture.kind == FACULTY175_GESTURE_SWIPE_UP ? "up" : "down",
-                                         profile.name, slot);
-                    ui_redraw();
-                }
-            } else if (!nav_mode && gesture.kind == FACULTY175_GESTURE_TAP) {
+                const int delta = gesture.kind == FACULTY175_GESTURE_SWIPE_UP ? 1 : -1;
+                animate_face_vertical_change(active_face, delta, now_ms, change_synastry_profile_for_vertical, NULL);
+            } else if (!s_nav_mode && active_face != NULL && faculty175_faces_vertical_group(active_face->id) &&
+                       (gesture.kind == FACULTY175_GESTURE_SWIPE_UP ||
+                        gesture.kind == FACULTY175_GESTURE_SWIPE_DOWN)) {
+                const int delta = gesture.kind == FACULTY175_GESTURE_SWIPE_UP ? 1 : -1;
+                animate_face_vertical_change(active_face, delta, now_ms, change_face_group_for_vertical, NULL);
+            } else if (!s_nav_mode && gesture.kind == FACULTY175_GESTURE_TAP) {
                 const faculty175_face_desc_t *face = faculty175_faces_current();
                 if (face != NULL && faculty175_face_dispatch_action(face->id, now_ms)) {
                     ui_redraw();
@@ -818,8 +1363,22 @@ void app_main(void)
             }
         }
         if (faculty175_button_just_pressed()) {
+            const bool woke_from_low_power = s_low_power_asleep || s_low_power_dimmed;
+            low_power_note_activity(now_ms, "button");
+            if (woke_from_low_power && !s_power_on_battery) {
+                vTaskDelay(pdMS_TO_TICKS(10));
+                continue;
+            }
             const faculty175_face_desc_t *face = faculty175_faces_current();
-            if (!faculty175_touch_ready() && faculty175_faces_enabled_count() > 1) {
+            if (s_power_on_battery && s_pipeline != NULL) {
+                battery_arm_button_stt(now_ms);
+                sync_voice_context(NULL);
+                const esp_err_t err = astrolabe_audio_pipeline_trigger_capture(s_pipeline);
+                FACULTY175_LOG_STAGE(TAG, "listen", "battery button STT %s", esp_err_to_name(err));
+                if (err == ESP_OK) {
+                    ui_set(FACULTY175_UI_CAPTURE, "ask");
+                }
+            } else if (!faculty175_touch_ready() && faculty175_faces_enabled_count() > 1) {
                 face = faculty175_faces_cycle(1);
                 FACULTY175_LOG_STAGE(TAG, "faces", "button fallback -> %s", face != NULL ? face->slug : "-");
                 ui_redraw();

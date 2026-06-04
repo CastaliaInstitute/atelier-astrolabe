@@ -4,6 +4,7 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include <string.h>
 
 #include "faculty175_board.h"
 
@@ -14,6 +15,7 @@ static const char *TAG = "faculty_pmu";
 
 static XPowersPMU s_pmu;
 static i2c_master_dev_handle_t s_pmu_i2c;
+static bool s_pmu_ready;
 
 static esp_err_t pmu_i2c_dev(void)
 {
@@ -137,5 +139,26 @@ extern "C" esp_err_t faculty175_pmu_init(void)
         ESP_LOGE(TAG, "BLDO1 still low — OLED rail off, display will be dark");
         return ESP_FAIL;
     }
+    s_pmu_ready = true;
     return ESP_OK;
+}
+
+extern "C" bool faculty175_pmu_status(faculty175_pmu_status_t *out)
+{
+    if (out == NULL) {
+        return false;
+    }
+    *out = {};
+    out->battery_percent = -1;
+    if (!s_pmu_ready) {
+        return false;
+    }
+    out->present = true;
+    out->battery_present = s_pmu.isBatteryConnect();
+    out->vbus_in = s_pmu.isVbusIn();
+    out->charging = s_pmu.isCharging();
+    out->discharging = s_pmu.isDischarge();
+    out->battery_percent = s_pmu.getBatteryPercent();
+    out->battery_mv = s_pmu.getBattVoltage();
+    return true;
 }

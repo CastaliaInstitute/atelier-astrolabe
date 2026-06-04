@@ -19,8 +19,10 @@
 #include "faculty175_device_auth.h"
 #include "faculty175_face_dispatch.h"
 #include "faculty175_faces.h"
+#include "faculty175_gesture.h"
 #include "faculty175_qa.h"
 #include "faculty175_ota.h"
+#include "faculty175_pmu.h"
 #include "faculty175_touch.h"
 
 static const char *TAG = "faculty175_serial";
@@ -154,6 +156,154 @@ static bool handle_touch_command(const char *line)
     return true;
 }
 
+static bool handle_power_command(const char *line)
+{
+    if (line == NULL || (strcasecmp(line, "power") != 0 && strncasecmp(line, "power ", 6) != 0 &&
+                         strcasecmp(line, "battery") != 0 && strncasecmp(line, "battery ", 8) != 0)) {
+        return false;
+    }
+
+    faculty175_pmu_status_t st = {
+        .battery_percent = -1,
+    };
+    if (!faculty175_pmu_status(&st)) {
+        printf("power: PMU unavailable\n");
+        fflush(stdout);
+        return true;
+    }
+    const bool on_battery = st.present && st.battery_present && !st.vbus_in && !st.charging;
+    printf("power: source=%s battery=%s percent=%d mv=%u vbus=%s charging=%s discharging=%s\n",
+           on_battery ? "battery" : "usb",
+           st.battery_present ? "present" : "absent",
+           st.battery_percent,
+           (unsigned)st.battery_mv,
+           st.vbus_in ? "yes" : "no",
+           st.charging ? "yes" : "no",
+           st.discharging ? "yes" : "no");
+    fflush(stdout);
+    return true;
+}
+
+static bool parse_gesture_kind(const char *sub, faculty175_gesture_kind_t *out_kind, int16_t *out_value)
+{
+    char a[24] = {};
+    char b[24] = {};
+    int value = 0;
+    (void)sscanf(sub, "%23s %23s %d", a, b, &value);
+    if (a[0] == '\0') {
+        return false;
+    }
+
+    if (strcasecmp(a, "swipe") == 0) {
+        if (strcasecmp(b, "left") == 0) {
+            *out_kind = FACULTY175_GESTURE_SWIPE_LEFT;
+            return true;
+        }
+        if (strcasecmp(b, "right") == 0) {
+            *out_kind = FACULTY175_GESTURE_SWIPE_RIGHT;
+            return true;
+        }
+        if (strcasecmp(b, "up") == 0) {
+            *out_kind = FACULTY175_GESTURE_SWIPE_UP;
+            return true;
+        }
+        if (strcasecmp(b, "down") == 0) {
+            *out_kind = FACULTY175_GESTURE_SWIPE_DOWN;
+            return true;
+        }
+        return false;
+    }
+
+    if (strcasecmp(a, "left") == 0 || strcasecmp(a, "swipe-left") == 0) {
+        *out_kind = FACULTY175_GESTURE_SWIPE_LEFT;
+        return true;
+    }
+    if (strcasecmp(a, "right") == 0 || strcasecmp(a, "swipe-right") == 0) {
+        *out_kind = FACULTY175_GESTURE_SWIPE_RIGHT;
+        return true;
+    }
+    if (strcasecmp(a, "up") == 0 || strcasecmp(a, "swipe-up") == 0) {
+        *out_kind = FACULTY175_GESTURE_SWIPE_UP;
+        return true;
+    }
+    if (strcasecmp(a, "down") == 0 || strcasecmp(a, "swipe-down") == 0) {
+        *out_kind = FACULTY175_GESTURE_SWIPE_DOWN;
+        return true;
+    }
+    if (strcasecmp(a, "tap") == 0) {
+        *out_kind = FACULTY175_GESTURE_TAP;
+        return true;
+    }
+    if (strcasecmp(a, "long") == 0 || strcasecmp(a, "longtap") == 0 ||
+        strcasecmp(a, "long-tap") == 0) {
+        *out_kind = FACULTY175_GESTURE_LONG_TAP;
+        return true;
+    }
+    if (strcasecmp(a, "cw") == 0 || strcasecmp(a, "rotate-cw") == 0) {
+        *out_kind = FACULTY175_GESTURE_BEZEL_ROTATE_CW;
+        *out_value = 1;
+        return true;
+    }
+    if (strcasecmp(a, "ccw") == 0 || strcasecmp(a, "rotate-ccw") == 0) {
+        *out_kind = FACULTY175_GESTURE_BEZEL_ROTATE_CCW;
+        *out_value = -1;
+        return true;
+    }
+    if (strcasecmp(a, "bezel") == 0) {
+        if (strcasecmp(b, "tap") == 0) {
+            *out_kind = FACULTY175_GESTURE_BEZEL_TAP;
+            *out_value = (int16_t)value;
+            return true;
+        }
+        if (strcasecmp(b, "cw") == 0 || strcasecmp(b, "rotate-cw") == 0) {
+            *out_kind = FACULTY175_GESTURE_BEZEL_ROTATE_CW;
+            *out_value = 1;
+            return true;
+        }
+        if (strcasecmp(b, "ccw") == 0 || strcasecmp(b, "rotate-ccw") == 0) {
+            *out_kind = FACULTY175_GESTURE_BEZEL_ROTATE_CCW;
+            *out_value = -1;
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool handle_gesture_command(const char *line)
+{
+    if (line == NULL || (strcasecmp(line, "gesture") != 0 && strncasecmp(line, "gesture ", 8) != 0 &&
+                         strcasecmp(line, "gestures") != 0 && strncasecmp(line, "gestures ", 9) != 0)) {
+        return false;
+    }
+
+    const char *sub = strchr(line, ' ');
+    sub = sub != NULL ? sub + 1 : "help";
+    while (*sub == ' ') {
+        ++sub;
+    }
+
+    if (*sub == '\0' || strcasecmp(sub, "help") == 0) {
+        printf("gesture commands:\n");
+        printf("  gesture tap | long | swipe left|right|up|down\n");
+        printf("  gesture bezel tap [index] | bezel cw | bezel ccw\n");
+        fflush(stdout);
+        return true;
+    }
+
+    faculty175_gesture_kind_t kind = FACULTY175_GESTURE_NONE;
+    int16_t value = 0;
+    if (!parse_gesture_kind(sub, &kind, &value)) {
+        printf("gesture: error unknown '%s'\n", sub);
+        fflush(stdout);
+        return true;
+    }
+
+    const bool ok = faculty175_gesture_inject(kind, FACULTY175_LCD_W / 2, FACULTY175_LCD_H / 2, value);
+    printf("gesture: inject %s\n", ok ? "ESP_OK" : "ESP_FAIL");
+    fflush(stdout);
+    return true;
+}
+
 static void print_time_status(void)
 {
     astrolabe_time_status_t status = {};
@@ -238,6 +388,10 @@ static void handle_line(char *line)
         return;
     }
 
+    if (handle_gesture_command(line)) {
+        return;
+    }
+
     if (faculty175_qa_handle(line)) {
         return;
     }
@@ -266,8 +420,12 @@ static void handle_line(char *line)
         return;
     }
 
+    if (handle_power_command(line)) {
+        return;
+    }
+
     if (strcasecmp(line, "help") == 0 || strcasecmp(line, "?") == 0) {
-        printf("serial: screen | face screen | time | qa help | device help | ota help | faces help | charts help | almanac help | touch status\n");
+        printf("serial: screen | face screen | gesture help | time | power | qa help | device help | ota help | faces help | charts help | almanac help | touch status\n");
         (void)faculty175_qa_handle("qa help");
         return;
     }
