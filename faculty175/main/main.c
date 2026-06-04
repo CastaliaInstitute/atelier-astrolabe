@@ -1214,17 +1214,24 @@ void app_main(void)
     ui_set(FACULTY175_UI_BOOT, ASTROLABE_FACULTY_OTA_CHANNEL);
     faculty175_faculty_request_bust(s_faculty_slug);
 
-    if (wifi_start() != ESP_OK) {
-        ui_set(FACULTY175_UI_ERROR, "wifi");
-        return;
+    const esp_err_t ble_err = faculty175_ble_init();
+    if (ble_err != ESP_OK) {
+        FACULTY175_LOG_STAGE_E(TAG, "ble", "start failed: %s", esp_err_to_name(ble_err));
     }
-    faculty175_ota_maybe_start_recovery_request();
-    faculty175_ota_start_auto_update_task();
-    faculty175_almanac_start_auto_fetch_task();
 
-    faculty175_faculty_request_bust(s_faculty_slug);
-    faculty175_faculty_prefetch_roster();
-    FACULTY175_LOG_STAGE(TAG, "faculty", "bust preload %s", s_faculty_slug);
+    const esp_err_t wifi_err = wifi_start();
+    if (wifi_err != ESP_OK) {
+        ui_set(FACULTY175_UI_ERROR, "wifi");
+        FACULTY175_LOG_STAGE_W(TAG, "wifi", "continuing offline: %s", esp_err_to_name(wifi_err));
+    } else {
+        faculty175_ota_maybe_start_recovery_request();
+        faculty175_ota_start_auto_update_task();
+        faculty175_almanac_start_auto_fetch_task();
+
+        faculty175_faculty_request_bust(s_faculty_slug);
+        faculty175_faculty_prefetch_roster();
+        FACULTY175_LOG_STAGE(TAG, "faculty", "bust preload %s", s_faculty_slug);
+    }
 
     ESP_ERROR_CHECK(faculty175_listen_init(&s_listen));
     snprintf(s_voice_pipeline_url, sizeof(s_voice_pipeline_url), "%s/functions/v1/voice-pipeline", MYNAH_SUPABASE_URL);

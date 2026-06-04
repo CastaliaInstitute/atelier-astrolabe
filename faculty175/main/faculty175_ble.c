@@ -276,8 +276,8 @@ esp_err_t faculty175_ble_init(void)
     ble_hs_cfg.store_status_cb = ble_store_util_status_rr;
     ble_store_config_init();
 
-    nimble_port_freertos_init(ble_host_task);
     s_started = true;
+    nimble_port_freertos_init(ble_host_task);
     return ESP_OK;
 }
 
