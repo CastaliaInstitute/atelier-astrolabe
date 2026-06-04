@@ -14,7 +14,7 @@ static const char *TAG = "faculty175_faces";
 #define FACES_NVS_CURRENT "current"
 #define FACES_NVS_SCHEMA "schema"
 #define FACE_KEY_CAP 16
-#define FACES_SCHEMA_VERSION 8
+#define FACES_SCHEMA_VERSION 9
 
 static const faculty175_face_desc_t k_faces[] = {
     { FACULTY175_FACE_FACULTY, "faculty", "Faculty", FACULTY175_FACE_CAT_HOME, true, true, 0 },
@@ -66,6 +66,7 @@ static const faculty175_face_desc_t k_faces[] = {
     { FACULTY175_FACE_ENOCHIAN, "enochian", "Enochian Angel", FACULTY175_FACE_CAT_ORACLE, true, true, 175 },
     { FACULTY175_FACE_HID, "hid", "HID Touchpad", FACULTY175_FACE_CAT_SYSTEM, true, true, 200 },
     { FACULTY175_FACE_BABEL, "babel", "Babel Fish", FACULTY175_FACE_CAT_COMMONPLACE, true, true, 205 },
+    { FACULTY175_FACE_DEATHSTAR, "deathstar", "Death Star", FACULTY175_FACE_CAT_HOME, true, true, 207 },
     { FACULTY175_FACE_SETTINGS, "settings", "Settings", FACULTY175_FACE_CAT_SYSTEM, true, true, 250 },
 };
 
