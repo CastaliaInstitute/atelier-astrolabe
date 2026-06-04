@@ -9,6 +9,7 @@ on:
       - "lib/astrolabe_audio_pipeline/**"
       - "lib/astrolabe_display_core/**"
       - "lib/astrolabe_time/**"
+      - "lib/PNGdec/**"
       - "lib/XPowersLib/**"
       - "scripts/faculty175_build.sh"
       - "scripts/sign-faculty175-ota-manifest.py"

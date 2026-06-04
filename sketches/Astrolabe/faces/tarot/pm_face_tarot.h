@@ -3,7 +3,7 @@
 #include <cstddef>
 #include <ctime>
 
-/** Major Arcana tarot face. Daily card by default; swipe up/down browses the deck. */
+/** Full tarot deck face. Daily card by default; swipe up/down browses the deck. */
 void pm_face_tarot_draw(const struct tm *tm_local, bool valid_local);
 bool pm_face_tarot_cycle(int delta);
 void pm_face_tarot_reset_daily(void);

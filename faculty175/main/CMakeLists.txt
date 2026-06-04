@@ -1,4 +1,4 @@
-set(ASTROLABE_PNGDEC "${CMAKE_CURRENT_LIST_DIR}/../../.pio/libdeps/waveshare_s3_175/PNGdec/src")
+set(ASTROLABE_PNGDEC "${CMAKE_CURRENT_LIST_DIR}/../../lib/PNGdec/src")
 if(NOT EXISTS "${ASTROLABE_PNGDEC}/PNGdec.cpp")
     message(FATAL_ERROR "Missing PNGdec. Run pio pkg install for waveshare_s3_175 or set ASTROLABE_PNGDEC.")
 endif()
@@ -27,6 +27,7 @@ idf_component_register(
         "faculty175_faculty.c"
         "faculty175_faculty_roster.c"
         "faculty175_faculty_png.cpp"
+        "faculty175_face_tarot_image.cpp"
         ${PNGDEC_SRCS}
     INCLUDE_DIRS "." "../../include" "../../lib/astrolabe_display_core/include" "${ASTROLABE_PNGDEC}"
     REQUIRES

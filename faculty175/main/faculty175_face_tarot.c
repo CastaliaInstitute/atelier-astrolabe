@@ -8,6 +8,7 @@
 
 #include "faculty175_board.h"
 #include "faculty175_face_tarot_assets.h"
+#include "faculty175_face_tarot_image.h"
 
 #define TAROT_NVS_NS "tarot"
 #define TAROT_NVS_CARD "card"
@@ -164,19 +165,34 @@ void faculty175_face_tarot_draw(uint32_t anim_ms)
     const uint16_t dim = c(148, 132, 118);
     const uint16_t accent = card_color(card, 24);
 
+    faculty175_tarot_image_request(s_card, card);
+
     faculty175_display_fill_rgb565(bg);
-    faculty175_display_fill_rect(0, 0, FACULTY175_LCD_W, 54, header);
+    const bool image_drawn = faculty175_tarot_image_draw_cached(s_card);
+
+    faculty175_display_fill_rect(0, 0, FACULTY175_LCD_W, 54, image_drawn ? c(6, 7, 11) : header);
     faculty175_display_draw_centered_text("TAROT", 14, accent);
-    faculty175_display_draw_centered_text("MAJOR ARCANA", 34, dim);
+    faculty175_display_draw_centered_text("FULL DECK", 34, dim);
 
-    draw_round_table(card, s_card, anim_ms);
+    if (!image_drawn) {
+        draw_round_table(card, s_card, anim_ms);
+    }
 
+    faculty175_display_fill_rect(0, 330, FACULTY175_LCD_W, 136, image_drawn ? c(6, 7, 11) : bg);
+    faculty175_display_draw_line(0, 330, FACULTY175_LCD_W, 330, accent);
     char line[80];
     snprintf(line, sizeof(line), "%s  %s", card->roman, card->title);
     faculty175_display_draw_centered_text(line, 344, ink);
     snprintf(line, sizeof(line), "CARD OF THE DAY: %s", card->keyword);
     faculty175_display_draw_centered_text(line, 370, accent);
-    centered_at("BUTTON DRAWS AGAIN", FACULTY175_LCD_W / 2, 400, dim);
+    if (image_drawn) {
+        centered_at("BUTTON DRAWS AGAIN", FACULTY175_LCD_W / 2, 400, dim);
+    } else if (faculty175_tarot_image_busy()) {
+        centered_at("FETCHING CARD ART", FACULTY175_LCD_W / 2, 400, dim);
+    } else {
+        const char *err = faculty175_tarot_image_error();
+        centered_at((err != NULL && err[0] != '\0') ? err : "BUTTON DRAWS AGAIN", FACULTY175_LCD_W / 2, 400, dim);
+    }
 
     faculty175_display_flush();
 }

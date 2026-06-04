@@ -42,7 +42,7 @@ enum class ClockFace : uint8_t {
   Quotes,
   /** Live transits: now + next Moon sign ingress as paired celestial spheres. */
   LiveTransits,
-  /** Daily Major Arcana tarot card; swipe up/down browses deck. */
+  /** Daily tarot card; swipe up/down browses deck. */
   Tarot,
   /** iNQ Card of the Day from cards.castalia.institute. */
   InqCard,

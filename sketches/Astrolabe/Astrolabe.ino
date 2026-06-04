@@ -921,8 +921,8 @@ static const FaceTourInfo k_face_tour[] = {
      "quote refresh can run", "offline demo quote only", true, false},
     {ClockFace::LiveTransits, "transits", "live planetary spheres and next Moon ingress", "live transits and the next Moon ingress",
      "time and ephemeris are ready", "needs time for live transits", false, true},
-    {ClockFace::Tarot, "tarot", "daily Major Arcana card and deck browser", "the active Major Arcana card",
-     "drawing local Major Arcana", "drawing local Major Arcana", false, false},
+    {ClockFace::Tarot, "tarot", "daily tarot card and deck browser", "the active tarot card",
+     "drawing local tarot deck", "drawing local tarot deck", false, false},
     {ClockFace::InqCard, "inq-card", "iNQ Card of the Day image from cards.castalia.institute",
      "today's iNQ Card of the Day", "card image refresh can run", "needs WiFi and time for card image", true, true},
     {ClockFace::Notes, "notes", "offline voice notes queued for Commonplace", "the offline note capture queue",
@@ -1404,7 +1404,7 @@ static bool face_voice_build_prompt(const FaceTourInfo *info, char *msg, size_t 
       }
       const int tarot_idx = pm_face_tarot_index(&local, valid);
       snprintf(msg, msg_cap,
-               "Face: tarot. Active Major Arcana card: %02d %s. Asset manifest: %s. Give a concise tarot "
+               "Face: tarot. Active card: %02d %s. Asset path: %s. Give a concise tarot "
                "reading for the watch face: one omen, one counsel, and one image. Make it reflective, not "
                "deterministic.",
                tarot_idx, pm_face_tarot_title(tarot_idx), pm_face_tarot_manifest_url());

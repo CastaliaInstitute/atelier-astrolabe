@@ -596,7 +596,7 @@
       kicker: "A daily card as inquiry",
       image: "../assets/faces/bench-19-tarot.png",
       summary:
-        "A Major Arcana face for using symbolic ambiguity to ask a better question.",
+        "A full tarot deck face for using symbolic ambiguity to ask a better question.",
       inquiry: "What archetype is speaking to the question today?",
       questions: [
         "What card appears when I stop and ask?",

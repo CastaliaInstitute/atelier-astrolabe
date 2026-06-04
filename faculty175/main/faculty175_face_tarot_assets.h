@@ -2,7 +2,7 @@
 
 #include <stdint.h>
 
-#define FACULTY175_TAROT_CARD_COUNT 22
+#define FACULTY175_TAROT_CARD_COUNT 78
 
 typedef struct {
     const char *title;
@@ -15,4 +15,3 @@ typedef struct {
 } faculty175_tarot_card_t;
 
 const faculty175_tarot_card_t *faculty175_tarot_card_get(int idx);
-
