@@ -27,6 +27,7 @@ idf_component_register(
         "faculty175_faculty.c"
         "faculty175_faculty_roster.c"
         "faculty175_faculty_png.cpp"
+        "faculty175_face_tarot_image.cpp"
         ${PNGDEC_SRCS}
     INCLUDE_DIRS "." "../../include" "../../lib/astrolabe_display_core/include" "${ASTROLABE_PNGDEC}"
     REQUIRES

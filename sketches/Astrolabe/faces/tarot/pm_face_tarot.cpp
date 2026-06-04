@@ -17,14 +17,14 @@
 
 namespace {
 
-constexpr int kCardCount = 22;
+constexpr int kCardCount = 78;
 constexpr int kCx = LCD_WIDTH / 2;
 constexpr int kCy = LCD_HEIGHT / 2;
-constexpr const char *kManifestUrl = "http://tarot.castalia.institute/assets/major/manifest.json";
-constexpr const char *kAssetBaseUrl = "http://tarot.castalia.institute/assets/major/full";
+constexpr const char *kManifestUrl = "http://tarot.castalia.institute/assets/deck/466";
+constexpr const char *kAssetBaseUrl = "http://tarot.castalia.institute/assets/deck/466";
 constexpr uint32_t kTarotFetchTimeoutMs = 30000u;
 constexpr uint32_t kTarotMinFetchHeap = 18000u;
-constexpr int kTarotMaxImageBytes = 390000;
+constexpr int kTarotMaxImageBytes = 560000;
 constexpr int kTarotMaxImageDim = LCD_WIDTH;
 constexpr uint32_t kTarotTaskStack = 12288u;
 
@@ -33,34 +33,91 @@ struct TarotCard {
   const char *glyph;
   const char *theme;
   const char *slug;
+  const char *filename;
   uint8_t r;
   uint8_t g;
   uint8_t b;
 };
 
 const TarotCard kCards[kCardCount] = {
-    {"The Fool", "0", "begin", "fool", 244, 204, 90},
-    {"The Magician", "I", "will", "magician", 220, 70, 64},
-    {"The High Priestess", "II", "veil", "priestess", 78, 116, 210},
-    {"The Empress", "III", "bloom", "empress", 88, 170, 98},
-    {"The Emperor", "IV", "order", "emperor", 196, 82, 54},
-    {"The Hierophant", "V", "rite", "hierophant", 190, 170, 108},
-    {"The Lovers", "VI", "choice", "lovers", 225, 112, 142},
-    {"The Chariot", "VII", "drive", "chariot", 80, 132, 210},
-    {"Strength", "VIII", "gentle", "strength", 238, 170, 76},
-    {"The Hermit", "IX", "lamp", "hermit", 170, 186, 205},
-    {"Wheel of Fortune", "X", "turn", "fortune", 214, 174, 72},
-    {"Justice", "XI", "balance", "justice", 190, 82, 86},
-    {"The Hanged Man", "XII", "pause", "hanged", 92, 166, 190},
-    {"Death", "XIII", "change", "death", 210, 210, 210},
-    {"Temperance", "XIV", "blend", "temperance", 116, 184, 164},
-    {"The Devil", "XV", "chain", "devil", 174, 64, 72},
-    {"The Tower", "XVI", "break", "tower", 230, 144, 64},
-    {"The Star", "XVII", "hope", "star", 116, 174, 226},
-    {"The Moon", "XVIII", "dream", "moon", 150, 150, 218},
-    {"The Sun", "XIX", "joy", "sun", 248, 204, 74},
-    {"Judgement", "XX", "call", "judgement", 214, 130, 92},
-    {"The World", "XXI", "whole", "world", 116, 190, 142},
+    {"The Fool", "0", "begin", "fool", "major-00-fool.png", 244, 204, 90},
+    {"The Magician", "I", "will", "magician", "major-01-magician.png", 220, 70, 64},
+    {"The High Priestess", "II", "veil", "priestess", "major-02-priestess.png", 78, 116, 210},
+    {"The Empress", "III", "bloom", "empress", "major-03-empress.png", 88, 170, 98},
+    {"The Emperor", "IV", "order", "emperor", "major-04-emperor.png", 196, 82, 54},
+    {"The Hierophant", "V", "rite", "hierophant", "major-05-hierophant.png", 190, 170, 108},
+    {"The Lovers", "VI", "choice", "lovers", "major-06-lovers.png", 225, 112, 142},
+    {"The Chariot", "VII", "drive", "chariot", "major-07-chariot.png", 80, 132, 210},
+    {"Strength", "VIII", "gentle", "strength", "major-08-strength.png", 238, 170, 76},
+    {"The Hermit", "IX", "lamp", "hermit", "major-09-hermit.png", 170, 186, 205},
+    {"Wheel of Fortune", "X", "turn", "fortune", "major-10-fortune.png", 214, 174, 72},
+    {"Justice", "XI", "balance", "justice", "major-11-justice.png", 190, 82, 86},
+    {"The Hanged Man", "XII", "pause", "hanged", "major-12-hanged.png", 92, 166, 190},
+    {"Death", "XIII", "change", "death", "major-13-death.png", 210, 210, 210},
+    {"Temperance", "XIV", "blend", "temperance", "major-14-temperance.png", 116, 184, 164},
+    {"The Devil", "XV", "chain", "devil", "major-15-devil.png", 174, 64, 72},
+    {"The Tower", "XVI", "break", "tower", "major-16-tower.png", 230, 144, 64},
+    {"The Star", "XVII", "hope", "star", "major-17-star.png", 116, 174, 226},
+    {"The Moon", "XVIII", "dream", "moon", "major-18-moon.png", 150, 150, 218},
+    {"The Sun", "XIX", "joy", "sun", "major-19-sun.png", 248, 204, 74},
+    {"Judgement", "XX", "call", "judgement", "major-20-judgement.png", 214, 130, 92},
+    {"The World", "XXI", "whole", "world", "major-21-world.png", 116, 190, 142},
+    {"Ace of Cups", "A", "open", "ace-cups", "cups-01-ace-cups.png", 92, 174, 218},
+    {"Two of Cups", "2", "bond", "two-cups", "cups-02-two-cups.png", 92, 174, 218},
+    {"Three of Cups", "3", "circle", "three-cups", "cups-03-three-cups.png", 92, 174, 218},
+    {"Four of Cups", "4", "still", "four-cups", "cups-04-four-cups.png", 92, 174, 218},
+    {"Five of Cups", "5", "grieve", "five-cups", "cups-05-five-cups.png", 92, 174, 218},
+    {"Six of Cups", "6", "memory", "six-cups", "cups-06-six-cups.png", 92, 174, 218},
+    {"Seven of Cups", "7", "vision", "seven-cups", "cups-07-seven-cups.png", 92, 174, 218},
+    {"Eight of Cups", "8", "depart", "eight-cups", "cups-08-eight-cups.png", 92, 174, 218},
+    {"Nine of Cups", "9", "wish", "nine-cups", "cups-09-nine-cups.png", 92, 174, 218},
+    {"Ten of Cups", "10", "home", "ten-cups", "cups-10-ten-cups.png", 92, 174, 218},
+    {"Page of Cups", "P", "message", "page-cups", "cups-11-page-cups.png", 92, 174, 218},
+    {"Knight of Cups", "Kn", "quest", "knight-cups", "cups-12-knight-cups.png", 92, 174, 218},
+    {"Queen of Cups", "Q", "care", "queen-cups", "cups-13-queen-cups.png", 92, 174, 218},
+    {"King of Cups", "K", "steady", "king-cups", "cups-14-king-cups.png", 92, 174, 218},
+    {"Ace of Pentacles", "A", "seed", "ace-pentacles", "pentacles-01-ace-pentacles.png", 106, 184, 118},
+    {"Two of Pentacles", "2", "juggle", "two-pentacles", "pentacles-02-two-pentacles.png", 106, 184, 118},
+    {"Three of Pentacles", "3", "craft", "three-pentacles", "pentacles-03-three-pentacles.png", 106, 184, 118},
+    {"Four of Pentacles", "4", "hold", "four-pentacles", "pentacles-04-four-pentacles.png", 106, 184, 118},
+    {"Five of Pentacles", "5", "need", "five-pentacles", "pentacles-05-five-pentacles.png", 106, 184, 118},
+    {"Six of Pentacles", "6", "share", "six-pentacles", "pentacles-06-six-pentacles.png", 106, 184, 118},
+    {"Seven of Pentacles", "7", "wait", "seven-pentacles", "pentacles-07-seven-pentacles.png", 106, 184, 118},
+    {"Eight of Pentacles", "8", "practice", "eight-pentacles", "pentacles-08-eight-pentacles.png", 106, 184, 118},
+    {"Nine of Pentacles", "9", "garden", "nine-pentacles", "pentacles-09-nine-pentacles.png", 106, 184, 118},
+    {"Ten of Pentacles", "10", "legacy", "ten-pentacles", "pentacles-10-ten-pentacles.png", 106, 184, 118},
+    {"Page of Pentacles", "P", "study", "page-pentacles", "pentacles-11-page-pentacles.png", 106, 184, 118},
+    {"Knight of Pentacles", "Kn", "labor", "knight-pentacles", "pentacles-12-knight-pentacles.png", 106, 184, 118},
+    {"Queen of Pentacles", "Q", "nurture", "queen-pentacles", "pentacles-13-queen-pentacles.png", 106, 184, 118},
+    {"King of Pentacles", "K", "root", "king-pentacles", "pentacles-14-king-pentacles.png", 106, 184, 118},
+    {"Ace of Swords", "A", "clarity", "ace-swords", "swords-01-ace-swords.png", 176, 188, 210},
+    {"Two of Swords", "2", "choice", "two-swords", "swords-02-two-swords.png", 176, 188, 210},
+    {"Three of Swords", "3", "pierce", "three-swords", "swords-03-three-swords.png", 176, 188, 210},
+    {"Four of Swords", "4", "rest", "four-swords", "swords-04-four-swords.png", 176, 188, 210},
+    {"Five of Swords", "5", "cost", "five-swords", "swords-05-five-swords.png", 176, 188, 210},
+    {"Six of Swords", "6", "passage", "six-swords", "swords-06-six-swords.png", 176, 188, 210},
+    {"Seven of Swords", "7", "strategy", "seven-swords", "swords-07-seven-swords.png", 176, 188, 210},
+    {"Eight of Swords", "8", "bind", "eight-swords", "swords-08-eight-swords.png", 176, 188, 210},
+    {"Nine of Swords", "9", "worry", "nine-swords", "swords-09-nine-swords.png", 176, 188, 210},
+    {"Ten of Swords", "10", "ending", "ten-swords", "swords-10-ten-swords.png", 176, 188, 210},
+    {"Page of Swords", "P", "watch", "page-swords", "swords-11-page-swords.png", 176, 188, 210},
+    {"Knight of Swords", "Kn", "charge", "knight-swords", "swords-12-knight-swords.png", 176, 188, 210},
+    {"Queen of Swords", "Q", "discern", "queen-swords", "swords-13-queen-swords.png", 176, 188, 210},
+    {"King of Swords", "K", "reason", "king-swords", "swords-14-king-swords.png", 176, 188, 210},
+    {"Ace of Wands", "A", "spark", "ace-wands", "wands-01-ace-wands.png", 230, 142, 72},
+    {"Two of Wands", "2", "horizon", "two-wands", "wands-02-two-wands.png", 230, 142, 72},
+    {"Three of Wands", "3", "launch", "three-wands", "wands-03-three-wands.png", 230, 142, 72},
+    {"Four of Wands", "4", "welcome", "four-wands", "wands-04-four-wands.png", 230, 142, 72},
+    {"Five of Wands", "5", "friction", "five-wands", "wands-05-five-wands.png", 230, 142, 72},
+    {"Six of Wands", "6", "signal", "six-wands", "wands-06-six-wands.png", 230, 142, 72},
+    {"Seven of Wands", "7", "stand", "seven-wands", "wands-07-seven-wands.png", 230, 142, 72},
+    {"Eight of Wands", "8", "swift", "eight-wands", "wands-08-eight-wands.png", 230, 142, 72},
+    {"Nine of Wands", "9", "guard", "nine-wands", "wands-09-nine-wands.png", 230, 142, 72},
+    {"Ten of Wands", "10", "burden", "ten-wands", "wands-10-ten-wands.png", 230, 142, 72},
+    {"Page of Wands", "P", "explore", "page-wands", "wands-11-page-wands.png", 230, 142, 72},
+    {"Knight of Wands", "Kn", "motion", "knight-wands", "wands-12-knight-wands.png", 230, 142, 72},
+    {"Queen of Wands", "Q", "warmth", "queen-wands", "wands-13-queen-wands.png", 230, 142, 72},
+    {"King of Wands", "K", "vision", "king-wands", "wands-14-king-wands.png", 230, 142, 72},
 };
 
 int s_selected = -1;
@@ -180,7 +237,7 @@ bool build_card_url(int idx, char *url, size_t cap) {
   if (idx < 0 || idx >= kCardCount || !url || cap == 0) {
     return false;
   }
-  const int n = snprintf(url, cap, "%s/%02d-%s.png", kAssetBaseUrl, idx, kCards[idx].slug);
+  const int n = snprintf(url, cap, "%s/%s", kAssetBaseUrl, kCards[idx].filename);
   return n > 0 && static_cast<size_t>(n) < cap;
 }
 
@@ -346,7 +403,7 @@ bool fetch_card_inner(int idx) {
   }
   const bool ok = decode_card_png(png, png_len, idx);
   free(png);
-  Serial.printf("tarot: %s %02d %s (%u B)\n", ok ? "cached" : "decode failed", idx, kCards[idx].slug,
+    Serial.printf("tarot: %s %02d %s (%u B)\n", ok ? "cached" : "decode failed", idx, kCards[idx].filename,
                 static_cast<unsigned>(png_len));
   return ok;
 }
@@ -669,10 +726,10 @@ void pm_face_tarot_draw(const struct tm *tm_local, bool valid_local) {
   pm_face_draw_centered_line(card.title, 340, c_ink, 2, 2);
   pm_face_draw_centered_line(card.theme, 374, c_dim, 1, 1);
 
-  const char *fallback = s_last_error[0] ? s_last_error : "daily major";
+  const char *fallback = s_last_error[0] ? s_last_error : "daily deck";
   const char *deck_hint = s_last_error[0] ? s_last_error : "swipe deck  tap daily";
   if (s_selected < 0) {
-    pm_face_draw_centered_line(image_drawn ? "daily major" : (s_fetch_busy ? "fetching card" : fallback), 408,
+    pm_face_draw_centered_line(image_drawn ? "daily deck" : (s_fetch_busy ? "fetching card" : fallback), 408,
                                c_dim, 1, 1);
   } else {
     pm_face_draw_centered_line(image_drawn ? "swipe deck  tap daily" : (s_fetch_busy ? "fetching card" : deck_hint),
