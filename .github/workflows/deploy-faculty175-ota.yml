@@ -1,0 +1,64 @@
+name: Deploy Faculty175 OTA
+
+on:
+  push:
+    branches: [integration, main]
+    paths:
+      - ".github/workflows/deploy-faculty175-ota.yml"
+      - "faculty175/**"
+      - "lib/astrolabe_audio_pipeline/**"
+      - "lib/astrolabe_display_core/**"
+      - "lib/astrolabe_time/**"
+      - "scripts/faculty175_build.sh"
+      - "scripts/sign-faculty175-ota-manifest.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: faculty175-ota-pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build faculty175 ESP-IDF OTA
+        env:
+          FACULTY175_OTA_PRIVATE_KEY_PEM: ${{ secrets.FACULTY175_OTA_PRIVATE_KEY_PEM }}
+          FACULTY175_OTA_DEVICES: ${{ vars.FACULTY175_OTA_DEVICES || 'a0:f2:62:e3:06:44' }}
+        run: |
+          test -n "$FACULTY175_OTA_PRIVATE_KEY_PEM"
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/project" \
+            -w /project \
+            espressif/idf:v5.5 \
+            bash -lc './scripts/faculty175_build.sh build'
+          channel="astrolabe-faculty-amoled175"
+          out="docs/releases/integration/${channel}"
+          mkdir -p "$out"
+          cp faculty175/build/astrolabe_faculty175.bin "$out/firmware.bin"
+          key="$(mktemp)"
+          devices="$(mktemp)"
+          printf '%s\n' "$FACULTY175_OTA_PRIVATE_KEY_PEM" > "$key"
+          printf '%s\n' "$FACULTY175_OTA_DEVICES" | tr ', ' '\n\n' | sed '/^$/d' > "$devices"
+          python3 ./scripts/sign-faculty175-ota-manifest.py \
+            --image "$out/firmware.bin" \
+            --firmware-url "https://astrolabe.castalia.institute/releases/integration/${channel}/firmware.bin" \
+            --private-key "$key" \
+            --devices-file "$devices" \
+            --out "$out/ota-manifest.json"
+          rm -f "$key" "$devices"
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+      - uses: actions/deploy-pages@v4
+        id: deployment
