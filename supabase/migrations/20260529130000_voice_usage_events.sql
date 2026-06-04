@@ -1,0 +1,3 @@
+-- Canonical migration lives in castalia.institute:
+-- supabase/migrations/20260529130000_voice_usage_events.sql
+-- Apply with: cd ../castalia.institute && supabase db push

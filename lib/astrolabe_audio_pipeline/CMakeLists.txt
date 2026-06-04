@@ -1,0 +1,12 @@
+idf_component_register(
+    SRCS
+      "astrolabe_audio_pipeline.c"
+    INCLUDE_DIRS
+      "include"
+    REQUIRES
+      esp_http_client
+      esp_websocket_client
+      esp-tls
+      mbedtls
+      spiffs
+      minimp3)

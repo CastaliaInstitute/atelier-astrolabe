@@ -23,7 +23,9 @@ bool pm_daily_briefing_should_auto_play(const struct tm *local_tm) {
   }
   const int last = pref.getInt("daily_brief_ymd", 0);
   char stored_sha[48] = "";
-  pref.getString("flash_sha", stored_sha, sizeof(stored_sha));
+  if (pref.isKey("flash_sha")) {
+    pref.getString("flash_sha", stored_sha, sizeof(stored_sha));
+  }
   pref.end();
   if (strcmp(stored_sha, PM_BUILD_GIT_SHA_FULL) != 0) {
     return true;

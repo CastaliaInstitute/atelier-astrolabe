@@ -1,3 +1,6 @@
+import { DEFAULT_CHIRP3_TTS, isChirp3VoiceName } from "./facultyTts.ts";
+import { scheduleVoiceUsageLog, type VoiceUsageContext } from "./voiceUsage.ts";
+
 export const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -11,7 +14,11 @@ export function jsonResponse(
 ): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...corsHeaders, "Content-Type": "application/json", ...extraHeaders },
+    headers: {
+      ...corsHeaders,
+      "Content-Type": "application/json",
+      ...extraHeaders,
+    },
   });
 }
 
@@ -20,19 +27,16 @@ export function envKeys(): {
   gemini: string;
   tts: string;
 } {
-  const speech =
-    Deno.env.get("GOOGLE_SPEECH_API_KEY")?.trim() ||
+  const speech = Deno.env.get("GOOGLE_SPEECH_API_KEY")?.trim() ||
     Deno.env.get("GOOGLE_CLOUD_SPEECH_API_KEY")?.trim() ||
     Deno.env.get("GOOGLE_CLOUD_API_KEY")?.trim() ||
     "";
-  const gemini =
-    Deno.env.get("GOOGLE_GEMINI_API_KEY")?.trim() ||
+  const gemini = Deno.env.get("GOOGLE_GEMINI_API_KEY")?.trim() ||
     Deno.env.get("GOOGLE_AI_API_KEY")?.trim() ||
     Deno.env.get("GEMINI_API_KEY")?.trim() ||
     Deno.env.get("GOOGLE_CLOUD_API_KEY")?.trim() ||
     "";
-  const tts =
-    Deno.env.get("GOOGLE_TTS_API_KEY")?.trim() ||
+  const tts = Deno.env.get("GOOGLE_TTS_API_KEY")?.trim() ||
     Deno.env.get("GOOGLE_CLOUD_TTS_API_KEY")?.trim() ||
     Deno.env.get("GOOGLE_CLOUD_API_KEY")?.trim() ||
     Deno.env.get("GCP_API_KEY")?.trim() ||
@@ -47,8 +51,9 @@ export async function speechRecognize(
   sampleRateHertz: number,
   alternativeLanguageCodes?: string[],
 ): Promise<string> {
-  const url =
-    `https://speech.googleapis.com/v1/speech:recognize?key=${encodeURIComponent(apiKey)}`;
+  const url = `https://speech.googleapis.com/v1/speech:recognize?key=${
+    encodeURIComponent(apiKey)
+  }`;
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -76,7 +81,7 @@ export async function speechRecognize(
   return first;
 }
 
-/** Default ~90s spoken at Neural2 pace (~2.5 words/s, ~15 chars/word). */
+/** Default ~90s spoken at conversational pace (~2.5 words/s, ~15 chars/word). */
 export function watchTtsMaxChars(): number {
   const raw = Deno.env.get("MYNAH_TTS_MAX_CHARS")?.trim();
   const n = raw ? parseInt(raw, 10) : 1400;
@@ -143,9 +148,12 @@ export async function geminiGenerate(params: {
   const { apiKey, model, systemInstruction, userText } = params;
   const maxOutputTokens = geminiMaxOutputTokens(systemInstruction);
   const url =
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
-  const generationConfig =
-    maxOutputTokens != null ? { maxOutputTokens } : undefined;
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${
+      encodeURIComponent(apiKey)
+    }`;
+  const generationConfig = maxOutputTokens != null
+    ? { maxOutputTokens }
+    : undefined;
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -192,6 +200,10 @@ export function stripAsteriskEmotes(text: string): string {
 export type WatchTtsOptions = {
   localHour?: number;
   voice?: WatchTtsVoiceSelection;
+  /** Chirp 3 style / delivery instruction (Google TTS SynthesisInput.prompt). */
+  prompt?: string;
+  /** When set, logs billable characters + estimated USD to voice_usage_events. */
+  usage?: VoiceUsageContext;
 };
 
 export type WatchTtsVoiceSelection = {
@@ -199,47 +211,78 @@ export type WatchTtsVoiceSelection = {
   name: string;
 };
 
-export function watchTtsVoiceSelection(options?: WatchTtsOptions): WatchTtsVoiceSelection {
+export function watchTtsVoiceSelection(
+  options?: WatchTtsOptions,
+): WatchTtsVoiceSelection {
   if (options?.voice?.languageCode && options.voice.name) {
     return options.voice;
   }
-  const languageCode =
-    Deno.env.get("MYNAH_TTS_LANGUAGE_CODE")?.trim() || "en-GB";
-  const name =
-    Deno.env.get("MYNAH_TTS_VOICE_NAME")?.trim() || "en-GB-Neural2-A";
+  const languageCode = Deno.env.get("MYNAH_TTS_LANGUAGE_CODE")?.trim() ||
+    DEFAULT_CHIRP3_TTS.languageCode;
+  const name = Deno.env.get("MYNAH_TTS_VOICE_NAME")?.trim() ||
+    DEFAULT_CHIRP3_TTS.name;
   return { languageCode, name };
 }
 
-function watchTtsAudioConfig(options?: WatchTtsOptions): Record<string, number | string> {
-  const hour = Number.isFinite(options?.localHour) ? Number(options?.localHour) : -1;
+function watchTtsAudioConfig(
+  options?: WatchTtsOptions,
+  voiceName?: string,
+): Record<string, number | string> {
+  const chirp3 = isChirp3VoiceName(
+    voiceName ?? watchTtsVoiceSelection(options).name,
+  );
+  const hour = Number.isFinite(options?.localHour)
+    ? Number(options?.localHour)
+    : -1;
   if (hour < 0 || hour > 23) {
     return {
       audioEncoding: "MP3",
       speakingRate: 1.0,
-      pitch: 0.0,
+      ...(chirp3 ? {} : { pitch: 0.0 }),
     };
   }
   if (hour >= 22 || (hour >= 0 && hour < 6)) {
     return {
       audioEncoding: "MP3",
       speakingRate: 0.86,
-      pitch: -2.0,
-      volumeGainDb: -5.0,
+      ...(chirp3
+        ? { volumeGainDb: -5.0 }
+        : { pitch: -2.0, volumeGainDb: -5.0 }),
     };
   }
   if (hour >= 18 || hour < 8) {
     return {
       audioEncoding: "MP3",
       speakingRate: 0.92,
-      pitch: -1.2,
-      volumeGainDb: -3.0,
+      ...(chirp3
+        ? { volumeGainDb: -3.0 }
+        : { pitch: -1.2, volumeGainDb: -3.0 }),
     };
   }
   return {
     audioEncoding: "MP3",
     speakingRate: 1.0,
-    pitch: 0.0,
+    ...(chirp3 ? {} : { pitch: 0.0 }),
   };
+}
+
+function ttsSynthesisInput(
+  spoken: string,
+  options?: WatchTtsOptions,
+  voiceName?: string,
+): Record<string, string> {
+  void options;
+  void voiceName;
+  return { text: spoken };
+}
+
+function ttsSynthesizeUrl(
+  options?: WatchTtsOptions,
+  voiceName?: string,
+): string {
+  void options;
+  void voiceName;
+  return "https://texttospeech.googleapis.com/v1/text:synthesize";
 }
 
 async function ttsMp3BytesInner(
@@ -248,17 +291,21 @@ async function ttsMp3BytesInner(
   options?: WatchTtsOptions,
 ): Promise<Uint8Array> {
   if (!spoken) {
-    throw new Error("Text-to-Speech: no speakable text after stripping stage directions.");
+    throw new Error(
+      "Text-to-Speech: no speakable text after stripping stage directions.",
+    );
   }
-  const url =
-    `https://texttospeech.googleapis.com/v1/text:synthesize?key=${encodeURIComponent(apiKey)}`;
+  const voice = watchTtsVoiceSelection(options);
+  const url = `${ttsSynthesizeUrl(options, voice.name)}?key=${
+    encodeURIComponent(apiKey)
+  }`;
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      input: { text: spoken },
-      voice: watchTtsVoiceSelection(options),
-      audioConfig: watchTtsAudioConfig(options),
+      input: ttsSynthesisInput(spoken, options, voice.name),
+      voice,
+      audioConfig: watchTtsAudioConfig(options, voice.name),
     }),
   });
   const raw = await res.text();
@@ -270,6 +317,20 @@ async function ttsMp3BytesInner(
   if (!b64) throw new Error("Text-to-Speech returned empty audio.");
   const bin = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
   if (bin.length === 0) throw new Error("Text-to-Speech returned empty audio.");
+
+  const usage = options?.usage;
+  if (usage?.route) {
+    const promptChars = options?.prompt?.trim().length ?? 0;
+    scheduleVoiceUsageLog({
+      ...usage,
+      voiceName: voice.name,
+      languageCode: voice.languageCode,
+      spokenChars: spoken.length,
+      promptChars,
+      audioBytes: bin.length,
+    });
+  }
+
   return bin;
 }
 

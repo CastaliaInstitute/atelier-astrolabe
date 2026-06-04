@@ -28,6 +28,7 @@ done
 
 ENV="${PIO_ENV:-waveshare_s3_175}"
 BUILD_DIR="${PLATFORMIO_BUILD_DIR:-/tmp/astrolabe-pio-build}"
+export PLATFORMIO_BUILD_DIR="$BUILD_DIR"
 
 # USB port can re-enumerate during long compiles; optional hub VBUS cycle before upload.
 bash ./scripts/usb-power-cycle-watch.sh || true

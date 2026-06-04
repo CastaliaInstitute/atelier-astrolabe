@@ -99,6 +99,9 @@ uint32_t pm_heap_internal_free(void) { return 128u * 1024u; }
 uint32_t pm_heap_internal_largest(void) { return 96u * 1024u; }
 uint32_t pm_heap_psram_free(void) { return 0; }
 bool pm_heap_tls_ready(uint32_t, const char *) { return true; }
+bool pm_heap_briefing_ready(const char *) { return true; }
+bool pm_heap_bust_fetch_ready(const char *) { return true; }
+void pm_heap_prepare_tls(void) {}
 void *pm_heap_alloc_response(size_t bytes) { return std::malloc(bytes); }
 void pm_heap_log(const char *) {}
 

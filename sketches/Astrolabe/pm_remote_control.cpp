@@ -3,6 +3,7 @@
 #include <ArduinoJson.h>
 #include <WebServer.h>
 #include <cstring>
+#include <string>
 #include <Preferences.h>
 #include <esp_system.h>
 
@@ -10,6 +11,7 @@
 #include "pm_log.h"
 
 #if !defined(ASTROLABE_QEMU) && __has_include(<BLEDevice.h>)
+#include "astrolabe_arduino_api.h"
 #include <BLEDevice.h>
 #include <BLEServer.h>
 #include <BLEUtils.h>
@@ -401,13 +403,13 @@ class RemoteCommandCallbacks : public BLECharacteristicCallbacks {
     if (!characteristic) {
       return;
     }
-    const std::string raw = characteristic->getValue();
-    if (raw.empty() || raw.size() > kRemoteJsonCap) {
+    const PmBleBlob raw = pm_ble_characteristic_value(characteristic);
+    if (pm_ble_blob_empty(raw) || pm_ble_blob_len(raw) > kRemoteJsonCap) {
       characteristic->setValue("{\"ok\":false,\"error\":\"bad body\"}\n");
       return;
     }
     JsonDocument doc;
-    if (deserializeJson(doc, raw.data(), raw.size())) {
+    if (deserializeJson(doc, pm_ble_blob_data(raw), pm_ble_blob_len(raw))) {
       characteristic->setValue("{\"ok\":false,\"error\":\"bad json\"}\n");
       return;
     }

@@ -26,6 +26,8 @@ bool pm_faculty_set_active_slot(int slot);
 bool pm_faculty_cycle_active(int delta, PmFacultyProfile *out);
 bool pm_faculty_remember(const char *slug, const char *name);
 bool pm_faculty_set_active_slug(const char *slug, const char *name);
+/** 0-based index among saved roster entries, or -1. */
+int pm_faculty_active_index(void);
 void pm_faculty_note_turn(const char *slug, const char *name, const char *transcript, const char *reply);
 bool pm_faculty_build_history(char *out, size_t cap);
 void pm_faculty_label_from_slug(const char *slug, char *out, size_t cap);
@@ -49,6 +51,8 @@ void pm_faculty_draw_bust_for_at(const PmFacultyProfile *faculty, int cx, int bo
 /** Draw the active faculty portrait as the primary full-face visual, with no rise animation. */
 void pm_faculty_draw_bust_fullscreen(void);
 /** Call when the active faculty slug changes (cycle / set active). */
+/** Draw active faculty name when multiple roster entries exist. */
+void pm_faculty_draw_name_label(void);
 void pm_faculty_on_active_changed(void);
 /** Release cached portrait bytes/decoded framebuffer when leaving Faculty. */
 void pm_faculty_release_bust_cache(void);
