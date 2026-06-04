@@ -53,8 +53,11 @@ static const char *TAG = "faculty175";
 #define FACE_SWIPE_SAVE_IDLE_MS 1500
 #define FACE_REDRAW_MS 250
 #define FACE_DEATHSTAR_REDRAW_MS 125
+#define FACE_POCKETWATCH_REDRAW_MS 250
 #define FACE_CAROUSEL_FRAMES 8
 #define FACE_CAROUSEL_FRAME_MS 16
+#define NAV_CENTER_LONG_TAP_MAX_R 150
+#define FACULTY175_AUDIO_PIPELINE_AUTOSTART 0
 #define LISTEN_CUE_RATE_HZ 16000
 #define LISTEN_CUE_CHUNK_FRAMES 256
 #define LISTEN_CUE_COOLDOWN_MS 1400
@@ -65,7 +68,7 @@ static const char *TAG = "faculty175";
 #define BUTTON_RESET_HOLD_MS 4500
 
 static EventGroupHandle_t s_wifi_events;
-static faculty175_ui_state_t s_ui = FACULTY175_UI_BOOT;
+static faculty175_ui_state_t s_ui = FACULTY175_UI_LISTEN;
 static char s_faculty_slug[64] = ASTROLABE_FACULTY_DEFAULT_FACULTY_SLUG;
 static char s_faculty_name[96] = ASTROLABE_FACULTY_DEFAULT_FACULTY_NAME;
 static char s_history[512];
@@ -95,6 +98,7 @@ static faculty175_pmu_status_t s_power_status = {
     .battery_percent = -1,
 };
 static uint32_t s_listen_cue_last_ms;
+static volatile bool s_faculty_ready;
 
 static const char *ALETHIOMETER_SYSTEM_INSTRUCTION =
     "You are the aleithiometer face of a tiny round astrolabe. "
@@ -152,6 +156,7 @@ static void sync_voice_context(void *user);
 
 static void ui_set(faculty175_ui_state_t state, const char *detail);
 static bool render_nav_preview(const faculty175_face_desc_t *face, uint32_t anim_ms, size_t pixel_count);
+static void draw_nav_preview_now(const faculty175_face_desc_t *face, uint32_t now_ms);
 static void low_power_note_activity(uint32_t now_ms, const char *reason);
 static void low_power_tick(uint32_t now_ms);
 static void battery_arm_button_stt(uint32_t now_ms);
@@ -165,6 +170,16 @@ static int16_t clamp_i16(int32_t v)
         return -32768;
     }
     return (int16_t)v;
+}
+
+static bool gesture_is_center_touch(const faculty175_gesture_t *gesture)
+{
+    if (gesture == NULL) {
+        return false;
+    }
+    const int32_t dx = (int32_t)gesture->x - (FACULTY175_LCD_W / 2);
+    const int32_t dy = (int32_t)gesture->y - (FACULTY175_LCD_H / 2);
+    return dx * dx + dy * dy <= (int32_t)NAV_CENTER_LONG_TAP_MAX_R * (int32_t)NAV_CENTER_LONG_TAP_MAX_R;
 }
 
 static esp_err_t play_listen_cue(void)
@@ -503,9 +518,10 @@ static void ui_task(void *arg)
 {
     (void)arg;
     faculty175_ui_msg_t msg = {
-        .state = FACULTY175_UI_BOOT,
+        .state = FACULTY175_UI_LISTEN,
     };
     uint32_t last_face_draw_ms = 0;
+    time_t last_pocketwatch_second = (time_t)-1;
     faculty175_face_id_t last_face_id = FACULTY175_FACE_COUNT;
     while (true) {
         bool force_draw = false;
@@ -521,18 +537,34 @@ static void ui_task(void *arg)
         }
         uint8_t waveform[ASTROLABE_AUDIO_PIPELINE_WAVEFORM_LEN];
         uint8_t waveform_stream[ASTROLABE_AUDIO_PIPELINE_WAVEFORM_LEN];
-        astrolabe_audio_pipeline_waveform_copy(s_pipeline, waveform, sizeof(waveform));
-        astrolabe_audio_pipeline_waveform_stream_copy(s_pipeline, waveform_stream, sizeof(waveform_stream));
+        if (s_pipeline != NULL) {
+            astrolabe_audio_pipeline_waveform_copy(s_pipeline, waveform, sizeof(waveform));
+            astrolabe_audio_pipeline_waveform_stream_copy(s_pipeline, waveform_stream, sizeof(waveform_stream));
+        } else {
+            memset(waveform, 0, sizeof(waveform));
+            memset(waveform_stream, 0, sizeof(waveform_stream));
+        }
         const bool show_waveform = s_ui == FACULTY175_UI_LISTEN || s_ui == FACULTY175_UI_CAPTURE;
         faculty175_display_waveform_update(waveform, waveform_stream, sizeof(waveform), show_waveform);
         const faculty175_face_desc_t *face = faculty175_faces_current();
         if (face != NULL && face->id != last_face_id) {
             last_face_id = face->id;
+            last_pocketwatch_second = (time_t)-1;
             force_draw = true;
         }
+        if (face != NULL && face->id == FACULTY175_FACE_POCKETWATCH && astrolabe_time_valid()) {
+            const time_t pocketwatch_second = astrolabe_time_now();
+            if (pocketwatch_second != last_pocketwatch_second) {
+                last_pocketwatch_second = pocketwatch_second;
+                force_draw = true;
+            }
+        }
         faculty175_display_lock();
-        const uint32_t face_redraw_ms =
-            face != NULL && face->id == FACULTY175_FACE_DEATHSTAR ? FACE_DEATHSTAR_REDRAW_MS : FACE_REDRAW_MS;
+        const uint32_t face_redraw_ms = face != NULL && face->id == FACULTY175_FACE_DEATHSTAR
+                                            ? FACE_DEATHSTAR_REDRAW_MS
+                                            : (face != NULL && face->id == FACULTY175_FACE_POCKETWATCH
+                                                   ? FACE_POCKETWATCH_REDRAW_MS
+                                                   : FACE_REDRAW_MS);
         if (force_draw || anim_ms - last_face_draw_ms >= face_redraw_ms) {
             const size_t pixels = faculty175_display_frame_pixel_count();
             if (!s_nav_mode || !render_nav_preview(face, anim_ms, pixels)) {
@@ -1039,35 +1071,14 @@ static void animate_face_carousel(const faculty175_face_desc_t *from_face,
                                   int delta,
                                   uint32_t now_ms)
 {
-    if (from_face == NULL || to_face == NULL || from_face->id == to_face->id || delta == 0) {
+    (void)from_face;
+    (void)delta;
+    (void)now_ms;
+    if (from_face == NULL || to_face == NULL || from_face->id == to_face->id) {
+        ui_redraw();
         return;
     }
-
-    const size_t pixels = faculty175_display_frame_pixel_count();
-    uint16_t *from = alloc_carousel_frame(pixels);
-    uint16_t *to = alloc_carousel_frame(pixels);
-    if (from == NULL || to == NULL) {
-        free(from);
-        free(to);
-        return;
-    }
-
-    faculty175_display_lock();
-    const bool have_from = render_face_snapshot(from_face, now_ms, from, pixels);
-    const bool have_to = render_face_snapshot(to_face, now_ms + FACE_CAROUSEL_FRAME_MS, to, pixels);
-    if (have_from && have_to) {
-        const int direction = delta > 0 ? 1 : -1;
-        for (int frame = 0; frame <= FACE_CAROUSEL_FRAMES; ++frame) {
-            const int shift = direction * ((FACULTY175_LCD_W * frame) / FACE_CAROUSEL_FRAMES);
-            faculty175_display_frame_compose_carousel(from, to, shift);
-            faculty175_display_flush();
-            vTaskDelay(pdMS_TO_TICKS(FACE_CAROUSEL_FRAME_MS));
-        }
-    }
-    faculty175_display_unlock();
-
-    free(from);
-    free(to);
+    ui_redraw();
 }
 
 typedef bool (*face_state_change_fn_t)(int delta, uint32_t now_ms, void *ctx);
@@ -1081,7 +1092,6 @@ static void animate_face_vertical_change(const faculty175_face_desc_t *face,
     if (face == NULL || delta == 0 || change == NULL) {
         return;
     }
-
     const size_t pixels = faculty175_display_frame_pixel_count();
     uint16_t *from = alloc_carousel_frame(pixels);
     uint16_t *to = alloc_carousel_frame(pixels);
@@ -1101,20 +1111,19 @@ static void animate_face_vertical_change(const faculty175_face_desc_t *face,
                                                        now_ms + FACE_CAROUSEL_FRAME_MS,
                                                        to,
                                                        pixels);
-    if (have_from && have_to) {
+    if (changed && have_from && have_to) {
         faculty175_display_lock();
-        const int direction = delta > 0 ? 1 : -1;
+        const int max_r = FACULTY175_LCD_W > FACULTY175_LCD_H ? FACULTY175_LCD_W : FACULTY175_LCD_H;
         for (int frame = 0; frame <= FACE_CAROUSEL_FRAMES; ++frame) {
-            const int shift = direction * ((FACULTY175_LCD_H * frame) / FACE_CAROUSEL_FRAMES);
-            faculty175_display_frame_compose_vertical(from, to, shift);
+            const int r = (max_r * frame) / FACE_CAROUSEL_FRAMES;
+            faculty175_display_frame_compose_radial(from, to, r);
             faculty175_display_flush();
-            vTaskDelay(pdMS_TO_TICKS(FACE_CAROUSEL_FRAME_MS));
+            vTaskDelay(pdMS_TO_TICKS(12));
         }
         faculty175_display_unlock();
     } else if (changed) {
         ui_redraw();
     }
-
     free(from);
     free(to);
 }
@@ -1189,6 +1198,228 @@ static bool change_face_group_for_vertical(int delta, uint32_t now_ms, void *ctx
     return true;
 }
 
+static void draw_current_face_now(uint32_t now_ms)
+{
+    uint8_t waveform[ASTROLABE_AUDIO_PIPELINE_WAVEFORM_LEN] = {};
+    uint8_t waveform_stream[ASTROLABE_AUDIO_PIPELINE_WAVEFORM_LEN] = {};
+    const faculty175_face_desc_t *face = faculty175_faces_current();
+    faculty175_display_lock();
+    (void)draw_face_or_status(face,
+                              s_ui,
+                              s_detail,
+                              now_ms,
+                              waveform,
+                              waveform_stream,
+                              sizeof(waveform),
+                              true);
+    faculty175_display_unlock();
+}
+
+static void draw_nav_preview_now(const faculty175_face_desc_t *face, uint32_t now_ms)
+{
+    if (face == NULL) {
+        ui_redraw();
+        return;
+    }
+
+    const size_t pixels = faculty175_display_frame_pixel_count();
+    faculty175_display_lock();
+    if (render_nav_preview(face, now_ms, pixels)) {
+        faculty175_display_flush();
+    }
+    faculty175_display_unlock();
+}
+
+static void input_task(void *arg)
+{
+    (void)arg;
+    uint32_t last_bust_retry_ms = 0;
+    uint32_t last_face_swipe_ms = 0;
+    uint32_t last_time_retry_ms = 0;
+    uint32_t button_down_since_ms = 0;
+    bool button_reset_fired = false;
+    bool face_save_pending = false;
+    s_nav_mode = false;
+    s_low_power_last_activity_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+    faculty175_display_nav_mode_set(false);
+    FACULTY175_LOG_STAGE(TAG, "input", "gesture/button task ready");
+    draw_current_face_now(s_low_power_last_activity_ms);
+
+    while (true) {
+        const uint32_t now_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+        low_power_tick(now_ms);
+
+        if (faculty175_button_pressed()) {
+            if (button_down_since_ms == 0) {
+                button_down_since_ms = now_ms;
+                button_reset_fired = false;
+            } else if (!button_reset_fired && now_ms - button_down_since_ms >= BUTTON_RESET_HOLD_MS) {
+                button_reset_fired = true;
+                FACULTY175_LOG_STAGE_W(TAG, "button", "long hold reset");
+                vTaskDelay(pdMS_TO_TICKS(50));
+                esp_restart();
+            }
+        } else {
+            button_down_since_ms = 0;
+            button_reset_fired = false;
+        }
+
+        if (!astrolabe_time_valid() && (last_time_retry_ms == 0 || now_ms - last_time_retry_ms >= 60000)) {
+            last_time_retry_ms = now_ms;
+            (void)astrolabe_time_retry_if_stale();
+        }
+
+        faculty175_gesture_t gesture = {};
+        if (faculty175_gesture_consume(&gesture)) {
+            const bool woke_from_low_power = s_low_power_asleep || s_low_power_dimmed;
+            low_power_note_activity(now_ms, "gesture");
+            const faculty175_face_desc_t *active_face = faculty175_faces_current();
+            if (gesture.kind == FACULTY175_GESTURE_LONG_TAP && gesture_is_center_touch(&gesture)) {
+                s_nav_mode = true;
+                faculty175_display_nav_mode_set(true);
+                FACULTY175_LOG_STAGE(TAG,
+                                     "faces",
+                                     "navigation mode on via center long touch face=%s",
+                                     active_face != NULL ? active_face->slug : "-");
+                draw_nav_preview_now(active_face, now_ms);
+            } else if (gesture.kind == FACULTY175_GESTURE_LONG_TAP) {
+                FACULTY175_LOG_STAGE(TAG,
+                                     "faces",
+                                     "ignored non-center long touch x=%d y=%d",
+                                     (int)gesture.x,
+                                     (int)gesture.y);
+            } else if (woke_from_low_power) {
+                vTaskDelay(pdMS_TO_TICKS(10));
+                continue;
+            } else if (s_nav_mode && (gesture.kind == FACULTY175_GESTURE_TAP ||
+                                      gesture.kind == FACULTY175_GESTURE_BEZEL_TAP)) {
+                s_nav_mode = false;
+                faculty175_display_nav_mode_set(false);
+                if (face_save_pending) {
+                    const esp_err_t err = faculty175_faces_save_current();
+                    if (err != ESP_OK) {
+                        FACULTY175_LOG_STAGE(TAG, "faces", "save current failed %s", esp_err_to_name(err));
+                    }
+                    face_save_pending = false;
+                }
+                FACULTY175_LOG_STAGE(TAG, "faces", "navigation mode off");
+                draw_current_face_now(now_ms);
+            } else if (s_nav_mode && faculty175_faces_enabled_count() > 1) {
+                if (gesture.kind == FACULTY175_GESTURE_BEZEL_ROTATE_CW ||
+                    gesture.kind == FACULTY175_GESTURE_BEZEL_ROTATE_CCW ||
+                    gesture.kind == FACULTY175_GESTURE_SWIPE_LEFT ||
+                    gesture.kind == FACULTY175_GESTURE_SWIPE_RIGHT) {
+                    const int delta = (gesture.kind == FACULTY175_GESTURE_BEZEL_ROTATE_CW ||
+                                       gesture.kind == FACULTY175_GESTURE_SWIPE_LEFT) ? 1 : -1;
+                    const faculty175_face_desc_t *face = faculty175_faces_cycle_runtime(delta);
+                    FACULTY175_LOG_STAGE(TAG, "faces", "nav %s -> %s", delta > 0 ? "next" : "prev",
+                                         face != NULL ? face->slug : "-");
+                    animate_face_carousel(active_face, face, delta, now_ms);
+                    nav_select_face(face, now_ms, &last_face_swipe_ms, &face_save_pending);
+                } else if (gesture.kind == FACULTY175_GESTURE_SWIPE_UP ||
+                           gesture.kind == FACULTY175_GESTURE_SWIPE_DOWN) {
+                    const int delta = gesture.kind == FACULTY175_GESTURE_SWIPE_DOWN ? 1 : -1;
+                    const faculty175_face_desc_t *face = nav_category_delta(delta);
+                    FACULTY175_LOG_STAGE(TAG, "faces", "nav category %s -> %s", delta > 0 ? "next" : "prev",
+                                         face != NULL ? face->slug : "-");
+                    nav_select_face(face, now_ms, &last_face_swipe_ms, &face_save_pending);
+                }
+            } else if (!s_nav_mode && active_face != NULL && active_face->id == FACULTY175_FACE_FACULTY &&
+                       (gesture.kind == FACULTY175_GESTURE_SWIPE_UP ||
+                        gesture.kind == FACULTY175_GESTURE_SWIPE_DOWN)) {
+                const int delta = gesture.kind == FACULTY175_GESTURE_SWIPE_UP ? 1 : -1;
+                FACULTY175_LOG_STAGE(TAG, "faculty", "swipe %s roster", delta > 0 ? "up" : "down");
+                animate_face_vertical_change(active_face, delta, now_ms, change_faculty_roster_for_vertical, NULL);
+            } else if (!s_nav_mode && active_face != NULL && active_face->id == FACULTY175_FACE_SYNASTRY &&
+                       (gesture.kind == FACULTY175_GESTURE_SWIPE_UP ||
+                        gesture.kind == FACULTY175_GESTURE_SWIPE_DOWN)) {
+                const int delta = gesture.kind == FACULTY175_GESTURE_SWIPE_UP ? 1 : -1;
+                animate_face_vertical_change(active_face, delta, now_ms, change_synastry_profile_for_vertical, NULL);
+            } else if (!s_nav_mode && active_face != NULL &&
+                       (active_face->id == FACULTY175_FACE_CHAKRA || active_face->id == FACULTY175_FACE_BOWL) &&
+                       (gesture.kind == FACULTY175_GESTURE_SWIPE_UP ||
+                        gesture.kind == FACULTY175_GESTURE_SWIPE_DOWN)) {
+                const int delta = gesture.kind == FACULTY175_GESTURE_SWIPE_UP ? 1 : -1;
+                animate_face_vertical_change(active_face, delta, now_ms, change_chakra_for_vertical, NULL);
+            } else if (!s_nav_mode && active_face != NULL &&
+                       (active_face->id == FACULTY175_FACE_CHAKRA || active_face->id == FACULTY175_FACE_BOWL) &&
+                       (gesture.kind == FACULTY175_GESTURE_SWIPE_LEFT ||
+                        gesture.kind == FACULTY175_GESTURE_SWIPE_RIGHT)) {
+                const int delta = gesture.kind == FACULTY175_GESTURE_SWIPE_LEFT ? 1 : -1;
+                const faculty175_face_desc_t *face = faculty175_faces_cycle(delta);
+                FACULTY175_LOG_STAGE(TAG, "faces", "chakra nav %s -> %s", delta > 0 ? "next" : "prev",
+                                     face != NULL ? face->slug : "-");
+                animate_face_carousel(active_face, face, delta, now_ms);
+            } else if (!s_nav_mode && active_face != NULL && faculty175_faces_vertical_group(active_face->id) &&
+                       (gesture.kind == FACULTY175_GESTURE_SWIPE_UP ||
+                        gesture.kind == FACULTY175_GESTURE_SWIPE_DOWN)) {
+                const int delta = gesture.kind == FACULTY175_GESTURE_SWIPE_UP ? 1 : -1;
+                animate_face_vertical_change(active_face, delta, now_ms, change_face_group_for_vertical, NULL);
+            } else if (!s_nav_mode && gesture.kind == FACULTY175_GESTURE_TAP) {
+                const faculty175_face_desc_t *face = faculty175_faces_current();
+                if (face != NULL && faculty175_face_dispatch_action(face->id, now_ms)) {
+                    ui_redraw();
+                } else {
+                    FACULTY175_LOG_STAGE(TAG, "faces", "tap no action");
+                }
+            }
+        }
+
+        if (s_faculty_ready && faculty175_faculty_bust_status() == FACULTY175_FACULTY_BUST_ERROR) {
+            if (now_ms - last_bust_retry_ms >= 15000) {
+                last_bust_retry_ms = now_ms;
+                faculty175_faculty_request_bust(s_faculty_slug);
+                FACULTY175_LOG_STAGE(TAG, "faculty", "bust retry %s", s_faculty_slug);
+            }
+        }
+        if (faculty175_button_just_pressed()) {
+            const bool woke_from_low_power = s_low_power_asleep || s_low_power_dimmed;
+            low_power_note_activity(now_ms, "button");
+            if (woke_from_low_power && !s_power_on_battery) {
+                vTaskDelay(pdMS_TO_TICKS(10));
+                continue;
+            }
+            const faculty175_face_desc_t *face = faculty175_faces_current();
+            if (s_power_on_battery && s_pipeline != NULL) {
+                battery_arm_button_stt(now_ms);
+                sync_voice_context(NULL);
+                const esp_err_t err = astrolabe_audio_pipeline_trigger_capture(s_pipeline);
+                FACULTY175_LOG_STAGE(TAG, "listen", "battery button STT %s", esp_err_to_name(err));
+                if (err == ESP_OK) {
+                    ui_set(FACULTY175_UI_CAPTURE, "ask");
+                }
+            } else if (!faculty175_touch_ready() && faculty175_faces_enabled_count() > 1) {
+                face = faculty175_faces_cycle(1);
+                FACULTY175_LOG_STAGE(TAG, "faces", "button fallback -> %s", face != NULL ? face->slug : "-");
+                ui_redraw();
+            } else if (face != NULL && face->id == FACULTY175_FACE_ALETHIOMETER && s_pipeline != NULL) {
+                sync_voice_context(NULL);
+                const esp_err_t err = astrolabe_audio_pipeline_trigger_capture(s_pipeline);
+                FACULTY175_LOG_STAGE(TAG, "alethiometer", "button STT %s", esp_err_to_name(err));
+                if (err == ESP_OK) {
+                    ui_set(FACULTY175_UI_CAPTURE, "ask");
+                }
+            } else if (face != NULL && faculty175_face_dispatch_action(face->id, now_ms)) {
+                ui_redraw();
+            } else if (s_faculty_ready) {
+                faculty175_faculty_roster_entry_t entry = {};
+                if (faculty175_faculty_roster_cycle_next() >= 0 && faculty175_faculty_roster_active(&entry)) {
+                    activate_roster_entry(&entry);
+                }
+            }
+        }
+
+        if (face_save_pending && (now_ms - last_face_swipe_ms) >= FACE_SWIPE_SAVE_IDLE_MS) {
+            const esp_err_t err = faculty175_faces_save_current();
+            if (err != ESP_OK) {
+                FACULTY175_LOG_STAGE(TAG, "faces", "save current failed %s", esp_err_to_name(err));
+            }
+            face_save_pending = false;
+        }
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+}
+
 void app_main(void)
 {
     FACULTY175_LOG_STAGE(TAG, "boot", "Astrolabe Faculty — Waveshare ESP32-S3 Touch AMOLED 1.75C");
@@ -1206,12 +1437,15 @@ void app_main(void)
     (void)faculty175_touch_init();
     faculty175_gesture_start_task();
     faculty175_serial_init();
-    FACULTY175_LOG_STAGE(TAG, "boot", "board audio=%s", faculty175_board_audio_ready() ? "ok" : "off");
-    ESP_ERROR_CHECK(faculty175_faculty_init());
-    faculty175_faculty_set_ui_notify(bust_ui_refresh);
     s_ui_queue = xQueueCreate(1, sizeof(faculty175_ui_msg_t));
     xTaskCreate(ui_task, "ui", 8192, NULL, 4, NULL);
-    ui_set(FACULTY175_UI_BOOT, ASTROLABE_FACULTY_OTA_CHANNEL);
+    xTaskCreate(input_task, "input", 8192, NULL, 5, NULL);
+    ui_set(FACULTY175_UI_LISTEN, NULL);
+    FACULTY175_LOG_STAGE(TAG, "boot", "board audio=%s", faculty175_board_audio_ready() ? "ok" : "off");
+
+    ESP_ERROR_CHECK(faculty175_faculty_init());
+    s_faculty_ready = true;
+    faculty175_faculty_set_ui_notify(bust_ui_refresh);
     faculty175_faculty_request_bust(s_faculty_slug);
 
     const esp_err_t ble_err = faculty175_ble_init();
@@ -1221,7 +1455,6 @@ void app_main(void)
 
     const esp_err_t wifi_err = wifi_start();
     if (wifi_err != ESP_OK) {
-        ui_set(FACULTY175_UI_ERROR, "wifi");
         FACULTY175_LOG_STAGE_W(TAG, "wifi", "continuing offline: %s", esp_err_to_name(wifi_err));
     } else {
         faculty175_ota_maybe_start_recovery_request();
@@ -1282,7 +1515,11 @@ void app_main(void)
         .listen_stack = 6144,
         .voice_stack = VOICE_WORKER_STACK_BYTES,
     };
-    ESP_ERROR_CHECK(astrolabe_audio_pipeline_create(&pipeline_cfg, &s_pipeline));
+    if (FACULTY175_AUDIO_PIPELINE_AUTOSTART) {
+        ESP_ERROR_CHECK(astrolabe_audio_pipeline_create(&pipeline_cfg, &s_pipeline));
+    } else {
+        s_pipeline = NULL;
+    }
     faculty175_qa_bind(&(faculty175_qa_bind_t){
         .listen = &s_listen,
         .ui = &s_ui,
@@ -1292,179 +1529,13 @@ void app_main(void)
         .set_faculty = qa_set_faculty_active,
         .fetch_faculty = qa_fetch_faculty_active,
     });
-    xTaskCreate(pipeline_start_task, "audio_pipe", 8192, NULL, 4, NULL);
-
-    uint32_t last_bust_retry_ms = 0;
-    uint32_t last_face_swipe_ms = 0;
-    uint32_t last_time_retry_ms = 0;
-    uint32_t button_down_since_ms = 0;
-    bool button_reset_fired = false;
-    bool face_save_pending = false;
-    s_nav_mode = false;
-    s_low_power_last_activity_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
-    faculty175_display_nav_mode_set(false);
+    if (FACULTY175_AUDIO_PIPELINE_AUTOSTART && s_pipeline != NULL) {
+        xTaskCreate(pipeline_start_task, "audio_pipe", 8192, NULL, 4, NULL);
+    } else {
+        FACULTY175_LOG_STAGE_W(TAG, "pipeline", "audio capture autostart disabled for responsive instrument QA");
+    }
+    ui_set(FACULTY175_UI_LISTEN, NULL);
     while (true) {
-        const uint32_t now_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
-        low_power_tick(now_ms);
-
-        if (faculty175_button_pressed()) {
-            if (button_down_since_ms == 0) {
-                button_down_since_ms = now_ms;
-                button_reset_fired = false;
-            } else if (!button_reset_fired && now_ms - button_down_since_ms >= BUTTON_RESET_HOLD_MS) {
-                button_reset_fired = true;
-                FACULTY175_LOG_STAGE_W(TAG, "button", "long hold reset");
-                vTaskDelay(pdMS_TO_TICKS(50));
-                esp_restart();
-            }
-        } else {
-            button_down_since_ms = 0;
-            button_reset_fired = false;
-        }
-
-        if (!astrolabe_time_valid() && (last_time_retry_ms == 0 || now_ms - last_time_retry_ms >= 60000)) {
-            last_time_retry_ms = now_ms;
-            (void)astrolabe_time_retry_if_stale();
-        }
-
-        faculty175_gesture_t gesture = {};
-        if (faculty175_gesture_consume(&gesture)) {
-            const bool woke_from_low_power = s_low_power_asleep || s_low_power_dimmed;
-            low_power_note_activity(now_ms, "gesture");
-            const faculty175_face_desc_t *active_face = faculty175_faces_current();
-            if (gesture.kind == FACULTY175_GESTURE_LONG_TAP) {
-                s_nav_mode = true;
-                faculty175_display_nav_mode_set(true);
-                FACULTY175_LOG_STAGE(TAG, "faces", "navigation mode on");
-                ui_redraw();
-            } else if (woke_from_low_power) {
-                vTaskDelay(pdMS_TO_TICKS(10));
-                continue;
-            } else if (s_nav_mode && (gesture.kind == FACULTY175_GESTURE_TAP ||
-                                    gesture.kind == FACULTY175_GESTURE_BEZEL_TAP)) {
-                s_nav_mode = false;
-                faculty175_display_nav_mode_set(false);
-                if (face_save_pending) {
-                    const esp_err_t err = faculty175_faces_save_current();
-                    if (err != ESP_OK) {
-                        FACULTY175_LOG_STAGE(TAG, "faces", "save current failed %s", esp_err_to_name(err));
-                    }
-                    face_save_pending = false;
-                }
-                FACULTY175_LOG_STAGE(TAG, "faces", "navigation mode off");
-                ui_redraw();
-            } else if (s_nav_mode && faculty175_faces_enabled_count() > 1) {
-                if (gesture.kind == FACULTY175_GESTURE_BEZEL_ROTATE_CW ||
-                           gesture.kind == FACULTY175_GESTURE_BEZEL_ROTATE_CCW ||
-                           gesture.kind == FACULTY175_GESTURE_SWIPE_LEFT ||
-                           gesture.kind == FACULTY175_GESTURE_SWIPE_RIGHT) {
-                    const int delta = (gesture.kind == FACULTY175_GESTURE_BEZEL_ROTATE_CW ||
-                                       gesture.kind == FACULTY175_GESTURE_SWIPE_LEFT) ? 1 : -1;
-                    const faculty175_face_desc_t *face = faculty175_faces_cycle_runtime(delta);
-                    FACULTY175_LOG_STAGE(TAG, "faces", "nav %s -> %s", delta > 0 ? "next" : "prev",
-                                         face != NULL ? face->slug : "-");
-                    animate_face_carousel(active_face, face, delta, now_ms);
-                    nav_select_face(face, now_ms, &last_face_swipe_ms, &face_save_pending);
-                } else if (gesture.kind == FACULTY175_GESTURE_SWIPE_UP ||
-                           gesture.kind == FACULTY175_GESTURE_SWIPE_DOWN) {
-                    const int delta = gesture.kind == FACULTY175_GESTURE_SWIPE_DOWN ? 1 : -1;
-                    const faculty175_face_desc_t *face = nav_category_delta(delta);
-                    FACULTY175_LOG_STAGE(TAG, "faces", "nav category %s -> %s", delta > 0 ? "next" : "prev",
-                                         face != NULL ? face->slug : "-");
-                    nav_select_face(face, now_ms, &last_face_swipe_ms, &face_save_pending);
-                }
-            } else if (!s_nav_mode && active_face != NULL && active_face->id == FACULTY175_FACE_FACULTY &&
-                       (gesture.kind == FACULTY175_GESTURE_SWIPE_UP ||
-                        gesture.kind == FACULTY175_GESTURE_SWIPE_DOWN)) {
-                const int delta = gesture.kind == FACULTY175_GESTURE_SWIPE_UP ? 1 : -1;
-                FACULTY175_LOG_STAGE(TAG, "faculty", "swipe %s roster", delta > 0 ? "up" : "down");
-                animate_face_vertical_change(active_face, delta, now_ms, change_faculty_roster_for_vertical, NULL);
-            } else if (!s_nav_mode && active_face != NULL && active_face->id == FACULTY175_FACE_SYNASTRY &&
-                       (gesture.kind == FACULTY175_GESTURE_SWIPE_UP ||
-                        gesture.kind == FACULTY175_GESTURE_SWIPE_DOWN)) {
-                const int delta = gesture.kind == FACULTY175_GESTURE_SWIPE_UP ? 1 : -1;
-                animate_face_vertical_change(active_face, delta, now_ms, change_synastry_profile_for_vertical, NULL);
-            } else if (!s_nav_mode && active_face != NULL &&
-                       (active_face->id == FACULTY175_FACE_CHAKRA || active_face->id == FACULTY175_FACE_BOWL) &&
-                       (gesture.kind == FACULTY175_GESTURE_SWIPE_UP ||
-                        gesture.kind == FACULTY175_GESTURE_SWIPE_DOWN)) {
-                const int delta = gesture.kind == FACULTY175_GESTURE_SWIPE_UP ? 1 : -1;
-                animate_face_vertical_change(active_face, delta, now_ms, change_chakra_for_vertical, NULL);
-            } else if (!s_nav_mode && active_face != NULL &&
-                       (active_face->id == FACULTY175_FACE_CHAKRA || active_face->id == FACULTY175_FACE_BOWL) &&
-                       (gesture.kind == FACULTY175_GESTURE_SWIPE_LEFT ||
-                        gesture.kind == FACULTY175_GESTURE_SWIPE_RIGHT)) {
-                const int delta = gesture.kind == FACULTY175_GESTURE_SWIPE_LEFT ? 1 : -1;
-                const faculty175_face_desc_t *face = faculty175_faces_cycle(delta);
-                FACULTY175_LOG_STAGE(TAG, "faces", "chakra nav %s -> %s", delta > 0 ? "next" : "prev",
-                                     face != NULL ? face->slug : "-");
-                animate_face_carousel(active_face, face, delta, now_ms);
-            } else if (!s_nav_mode && active_face != NULL && faculty175_faces_vertical_group(active_face->id) &&
-                       (gesture.kind == FACULTY175_GESTURE_SWIPE_UP ||
-                        gesture.kind == FACULTY175_GESTURE_SWIPE_DOWN)) {
-                const int delta = gesture.kind == FACULTY175_GESTURE_SWIPE_UP ? 1 : -1;
-                animate_face_vertical_change(active_face, delta, now_ms, change_face_group_for_vertical, NULL);
-            } else if (!s_nav_mode && gesture.kind == FACULTY175_GESTURE_TAP) {
-                const faculty175_face_desc_t *face = faculty175_faces_current();
-                if (face != NULL && faculty175_face_dispatch_action(face->id, now_ms)) {
-                    ui_redraw();
-                } else {
-                    FACULTY175_LOG_STAGE(TAG, "faces", "tap no action");
-                }
-            }
-        }
-
-        if (faculty175_faculty_bust_status() == FACULTY175_FACULTY_BUST_ERROR) {
-            if (now_ms - last_bust_retry_ms >= 15000) {
-                last_bust_retry_ms = now_ms;
-                faculty175_faculty_request_bust(s_faculty_slug);
-                FACULTY175_LOG_STAGE(TAG, "faculty", "bust retry %s", s_faculty_slug);
-            }
-        }
-        if (faculty175_button_just_pressed()) {
-            const bool woke_from_low_power = s_low_power_asleep || s_low_power_dimmed;
-            low_power_note_activity(now_ms, "button");
-            if (woke_from_low_power && !s_power_on_battery) {
-                vTaskDelay(pdMS_TO_TICKS(10));
-                continue;
-            }
-            const faculty175_face_desc_t *face = faculty175_faces_current();
-            if (s_power_on_battery && s_pipeline != NULL) {
-                battery_arm_button_stt(now_ms);
-                sync_voice_context(NULL);
-                const esp_err_t err = astrolabe_audio_pipeline_trigger_capture(s_pipeline);
-                FACULTY175_LOG_STAGE(TAG, "listen", "battery button STT %s", esp_err_to_name(err));
-                if (err == ESP_OK) {
-                    ui_set(FACULTY175_UI_CAPTURE, "ask");
-                }
-            } else if (!faculty175_touch_ready() && faculty175_faces_enabled_count() > 1) {
-                face = faculty175_faces_cycle(1);
-                FACULTY175_LOG_STAGE(TAG, "faces", "button fallback -> %s", face != NULL ? face->slug : "-");
-                ui_redraw();
-            } else if (face != NULL && face->id == FACULTY175_FACE_ALETHIOMETER && s_pipeline != NULL) {
-                sync_voice_context(NULL);
-                const esp_err_t err = astrolabe_audio_pipeline_trigger_capture(s_pipeline);
-                FACULTY175_LOG_STAGE(TAG, "alethiometer", "button STT %s", esp_err_to_name(err));
-                if (err == ESP_OK) {
-                    ui_set(FACULTY175_UI_CAPTURE, "ask");
-                }
-            } else if (face != NULL && faculty175_face_dispatch_action(face->id, now_ms)) {
-                ui_redraw();
-            } else {
-                faculty175_faculty_roster_entry_t entry = {};
-                if (faculty175_faculty_roster_cycle_next() >= 0 && faculty175_faculty_roster_active(&entry)) {
-                    activate_roster_entry(&entry);
-                }
-            }
-        }
-
-        if (face_save_pending && (now_ms - last_face_swipe_ms) >= FACE_SWIPE_SAVE_IDLE_MS) {
-            const esp_err_t err = faculty175_faces_save_current();
-            if (err != ESP_OK) {
-                FACULTY175_LOG_STAGE(TAG, "faces", "save current failed %s", esp_err_to_name(err));
-            }
-            face_save_pending = false;
-        }
-        vTaskDelay(pdMS_TO_TICKS(10));
+        vTaskDelay(pdMS_TO_TICKS(1000));
     }
 }

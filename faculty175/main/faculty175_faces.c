@@ -14,10 +14,10 @@ static const char *TAG = "faculty175_faces";
 #define FACES_NVS_CURRENT "current"
 #define FACES_NVS_SCHEMA "schema"
 #define FACE_KEY_CAP 16
-#define FACES_SCHEMA_VERSION 9
+#define FACES_SCHEMA_VERSION 12
 
 static const faculty175_face_desc_t k_faces[] = {
-    { FACULTY175_FACE_FACULTY, "faculty", "Faculty", FACULTY175_FACE_CAT_HOME, true, true, 0 },
+    { FACULTY175_FACE_FACULTY, "faculty", "Faculty", FACULTY175_FACE_CAT_HOME, true, true, 4 },
     { FACULTY175_FACE_CLASSIC, "classic", "Classic Analog", FACULTY175_FACE_CAT_HOME, true, true, 5 },
     { FACULTY175_FACE_APOCALYPSO, "apocalypso", "Apocalypso", FACULTY175_FACE_CAT_HOME, true, true, 6 },
     { FACULTY175_FACE_DIGITAL, "digital", "Digital Local", FACULTY175_FACE_CAT_HOME, true, true, 7 },
@@ -68,9 +68,10 @@ static const faculty175_face_desc_t k_faces[] = {
     { FACULTY175_FACE_BABEL, "babel", "Babel Fish", FACULTY175_FACE_CAT_COMMONPLACE, true, true, 205 },
     { FACULTY175_FACE_DEATHSTAR, "deathstar", "Death Star", FACULTY175_FACE_CAT_HOME, true, true, 207 },
     { FACULTY175_FACE_SETTINGS, "settings", "Settings", FACULTY175_FACE_CAT_SYSTEM, true, true, 250 },
+    { FACULTY175_FACE_POCKETWATCH, "pocketwatch", "Watch", FACULTY175_FACE_CAT_HOME, true, true, 0 },
 };
 
-static faculty175_face_id_t s_current = FACULTY175_FACE_FACULTY;
+static faculty175_face_id_t s_current = FACULTY175_FACE_POCKETWATCH;
 
 static void enabled_key(const faculty175_face_desc_t *face, char *out, size_t cap)
 {
@@ -223,7 +224,7 @@ esp_err_t faculty175_faces_init(void)
     size_t len = sizeof(current);
     err = nvs_get_str(nvs, FACES_NVS_CURRENT, current, &len);
     if (err == ESP_ERR_NVS_NOT_FOUND) {
-        err = nvs_set_str(nvs, FACES_NVS_CURRENT, k_faces[FACULTY175_FACE_FACULTY].slug);
+        err = nvs_set_str(nvs, FACES_NVS_CURRENT, k_faces[FACULTY175_FACE_POCKETWATCH].slug);
         current[0] = '\0';
     }
     uint8_t schema = 0;
@@ -257,6 +258,13 @@ esp_err_t faculty175_faces_init(void)
             }
         }
         if (err == ESP_OK) {
+            err = nvs_set_str(nvs, FACES_NVS_CURRENT, k_faces[FACULTY175_FACE_POCKETWATCH].slug);
+            if (err == ESP_OK) {
+                strncpy(current, k_faces[FACULTY175_FACE_POCKETWATCH].slug, sizeof(current) - 1u);
+                current[sizeof(current) - 1u] = '\0';
+            }
+        }
+        if (err == ESP_OK) {
             err = nvs_set_u8(nvs, FACES_NVS_SCHEMA, FACES_SCHEMA_VERSION);
         }
     }
@@ -268,11 +276,20 @@ esp_err_t faculty175_faces_init(void)
         return err;
     }
 
-    const faculty175_face_desc_t *saved = faculty175_faces_find(current);
-    if (saved != NULL && faculty175_faces_enabled(saved->id)) {
-        s_current = saved->id;
-    } else {
-        s_current = FACULTY175_FACE_FACULTY;
+    s_current = FACULTY175_FACE_POCKETWATCH;
+    if (strcmp(current, k_faces[FACULTY175_FACE_POCKETWATCH].slug) != 0) {
+        nvs = 0;
+        err = nvs_open(FACES_NVS_NS, NVS_READWRITE, &nvs);
+        if (err == ESP_OK) {
+            err = nvs_set_str(nvs, FACES_NVS_CURRENT, k_faces[FACULTY175_FACE_POCKETWATCH].slug);
+            if (err == ESP_OK) {
+                err = nvs_commit(nvs);
+            }
+            nvs_close(nvs);
+        }
+        if (err != ESP_OK) {
+            return err;
+        }
     }
     FACULTY175_LOG_STAGE(TAG, "faces", "current=%s", faculty175_faces_current()->slug);
     return ESP_OK;
@@ -339,7 +356,7 @@ esp_err_t faculty175_faces_set_enabled(faculty175_face_id_t id, bool enabled)
     if (!face_valid(id)) {
         return ESP_ERR_INVALID_ARG;
     }
-    if (id == FACULTY175_FACE_FACULTY && !enabled) {
+    if ((id == FACULTY175_FACE_FACULTY || id == FACULTY175_FACE_POCKETWATCH) && !enabled) {
         return ESP_ERR_INVALID_ARG;
     }
     char key[FACE_KEY_CAP];

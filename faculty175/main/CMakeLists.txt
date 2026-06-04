@@ -5,6 +5,7 @@ endif()
 
 file(GLOB PNGDEC_SRCS "${ASTROLABE_PNGDEC}/*.cpp" "${ASTROLABE_PNGDEC}/*.c")
 file(GLOB FACULTY175_FACE_SRCS "${CMAKE_CURRENT_LIST_DIR}/faculty175_face_*.c")
+list(REMOVE_ITEM FACULTY175_FACE_SRCS "${CMAKE_CURRENT_LIST_DIR}/faculty175_face_pocketwatch.c")
 
 idf_component_register(
     SRCS
@@ -15,6 +16,8 @@ idf_component_register(
         "faculty175_gesture.c"
         "faculty175_pmu.cpp"
         "faculty175_serial.c"
+        "faculty175_face_pocketwatch.c"
+        "faculty175_pocketwatch.c"
         "faculty175_almanac.c"
         "faculty175_charts.c"
         "faculty175_ble.c"
@@ -54,6 +57,8 @@ idf_component_register(
         astrolabe_audio_pipeline
         astrolabe_time
         bt
+    EMBED_FILES
+        "assets/pocketwatch_default.rgb565"
 )
 
 target_compile_definitions(${COMPONENT_LIB} PRIVATE XPOWERS_CHIP_AXP2101)

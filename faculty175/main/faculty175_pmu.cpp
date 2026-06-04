@@ -1,6 +1,5 @@
 #include "faculty175_pmu.h"
 
-#include "driver/i2c_master.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -14,39 +13,22 @@
 static const char *TAG = "faculty_pmu";
 
 static XPowersPMU s_pmu;
-static i2c_master_dev_handle_t s_pmu_i2c;
 static bool s_pmu_ready;
 
-static esp_err_t pmu_i2c_dev(void)
-{
-    if (s_pmu_i2c != NULL) {
-        return ESP_OK;
-    }
-    i2c_master_bus_handle_t bus = faculty175_i2c_bus();
-    if (bus == NULL) {
-        return ESP_ERR_INVALID_STATE;
-    }
-    const i2c_device_config_t cfg = {
-        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
-        .device_address = AXP2101_SLAVE_ADDRESS,
-        .scl_speed_hz = 100000,
-    };
-    return i2c_master_bus_add_device(bus, &cfg, &s_pmu_i2c);
-}
+static constexpr int kPmuI2cTimeoutMs = 1000;
 
 static int pmu_register_read(uint8_t dev_addr, uint8_t reg_addr, uint8_t *data, uint8_t len)
 {
-    (void)dev_addr;
-    if (data == NULL || len == 0 || pmu_i2c_dev() != ESP_OK) {
+    if (data == NULL || len == 0) {
         return -1;
     }
-    return i2c_master_transmit_receive(s_pmu_i2c, &reg_addr, 1, data, len, 1000) == ESP_OK ? 0 : -1;
+    (void)kPmuI2cTimeoutMs;
+    return faculty175_i2c_write_read(dev_addr, &reg_addr, 1, data, len) == ESP_OK ? 0 : -1;
 }
 
 static int pmu_register_write_byte(uint8_t dev_addr, uint8_t reg_addr, uint8_t *data, uint8_t len)
 {
-    (void)dev_addr;
-    if (data == NULL || len == 0 || pmu_i2c_dev() != ESP_OK) {
+    if (data == NULL || len == 0) {
         return -1;
     }
     uint8_t buf[16];
@@ -55,7 +37,8 @@ static int pmu_register_write_byte(uint8_t dev_addr, uint8_t reg_addr, uint8_t *
     }
     buf[0] = reg_addr;
     memcpy(buf + 1, data, len);
-    return i2c_master_transmit(s_pmu_i2c, buf, len + 1, 1000) == ESP_OK ? 0 : -1;
+    (void)kPmuI2cTimeoutMs;
+    return faculty175_i2c_write(dev_addr, buf, len + 1) == ESP_OK ? 0 : -1;
 }
 
 static void faculty175_pmu_apply_rails(void)
@@ -102,6 +85,11 @@ extern "C" esp_err_t faculty175_pmu_init(void)
        hammering it — early transactions otherwise time out and the rails never
        get programmed (BLDO1 stays at 500 mV and the OLED never powers up). */
     vTaskDelay(pdMS_TO_TICKS(200));
+
+    if (!faculty175_i2c_probe(AXP2101_SLAVE_ADDRESS)) {
+        ESP_LOGE(TAG, "AXP2101 not found on I2C probe");
+        return ESP_FAIL;
+    }
 
     bool begun = false;
     for (int attempt = 0; attempt < 10 && !begun; ++attempt) {

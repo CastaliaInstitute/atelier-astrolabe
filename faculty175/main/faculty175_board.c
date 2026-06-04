@@ -19,6 +19,7 @@
 #include "esp_rom_sys.h"
 #include "esp_timer.h"
 #include "es7210_adc.h"
+#include "audio_codec_ctrl_if.h"
 #include "esp_lcd_co5300.h"
 #include "esp_lcd_panel_io.h"
 #include "esp_lcd_panel_ops.h"
@@ -32,7 +33,10 @@
 #include "faculty175_faculty_roster.h"
 #include "faculty175_board_id.h"
 #include "faculty175_faces.h"
+#include "faculty175_pocketwatch.h"
 #include "faculty175_pmu.h"
+#include "faculty175_touch.h"
+#include "astrolabe_time.h"
 
 static const char *TAG = "faculty_board";
 
@@ -54,8 +58,7 @@ static const char *TAG = "faculty_board";
 #define FACULTY175_LCD_PIN_DATA1 GPIO_NUM_5
 #define FACULTY175_LCD_PIN_DATA2 GPIO_NUM_6
 #define FACULTY175_LCD_PIN_DATA3 GPIO_NUM_7
-#define FACULTY175_LCD_PIN_RST_175C GPIO_NUM_1  /* Waveshare ESP-IDF BSP_LCD_RST (1.75C) */
-#define FACULTY175_LCD_PIN_RST_175 GPIO_NUM_2   /* Arduino pin_config LCD_RESET (1.75) */
+#define FACULTY175_LCD_PIN_RST GPIO_NUM_2 /* Arduino pin_config LCD_RESET / shared TP_RST. */
 
 #define FACULTY175_LCD_PANEL_GAP_X 0x06
 #define FACULTY175_LCD_PANEL_GAP_Y 0
@@ -76,6 +79,14 @@ static const char *TAG = "faculty_board";
 #define FACULTY175_ES7210_MODE_CONFIG_REG08 0x08
 #define FACULTY175_ES7210_SDP_INTERFACE2_REG12 0x12
 #define FACULTY175_ES8311_ADDR ES8311_CODEC_DEFAULT_ADDR
+#define FACULTY175_ES8311_SYSTEM_REG0D 0x0D
+#define FACULTY175_ES8311_SDPIN_REG09 0x09
+#define FACULTY175_ES8311_SDPOUT_REG0A 0x0A
+#define FACULTY175_ES8311_SYSTEM_REG12 0x12
+#define FACULTY175_ES8311_SYSTEM_REG13 0x13
+#define FACULTY175_ES8311_DAC_REG31 0x31
+#define FACULTY175_ES8311_DAC_REG32 0x32
+#define FACULTY175_ES8311_DAC_REG37 0x37
 #define FACULTY175_AUDIO_MIN_PROBE_PEAK 1
 #define FACULTY175_AUDIO_WARN_PROBE_PEAK 32
 #define FACULTY175_SPEAKER_VOLUME 100
@@ -110,6 +121,7 @@ static const char *TAG = "faculty_board";
 static bool s_audio_ready;
 static int32_t s_mic_probe_peak;
 static i2c_master_bus_handle_t s_i2c_bus;
+static SemaphoreHandle_t s_i2c_bb_mux;
 static esp_codec_dev_handle_t s_spk_codec;
 static esp_codec_dev_handle_t s_mic_codec;
 static const audio_codec_data_if_t *s_i2s_data_if;
@@ -123,6 +135,9 @@ static uint16_t *s_fb;
 static bool s_button_prev;
 static volatile uint32_t s_button_injected_presses;
 static uint16_t *s_flush_strip;
+static int16_t *s_spk_mono_scratch;
+static size_t s_spk_mono_scratch_count;
+static bool s_speaker_ready;
 static int16_t s_audio_read_tdm[FACULTY175_AUDIO_MAX_READ_SAMPLES * FACULTY175_ES7210_CHANNELS *
                                 FACULTY175_ES7210_HALFWORD_GROUPS_PER_FRAME];
 static uint32_t s_audio_read_frames;
@@ -137,7 +152,6 @@ static int64_t s_aec_ref_active_until_us;
 static uint32_t s_aec_frames;
 
 static void draw_pixel_safe(int x, int y, uint16_t color);
-static void faculty175_display_boot_splash(const char *detail);
 static portMUX_TYPE s_aec_mux = portMUX_INITIALIZER_UNLOCKED;
 static portMUX_TYPE s_touch_visual_mux = portMUX_INITIALIZER_UNLOCKED;
 
@@ -153,6 +167,12 @@ static bool s_touch_visual_down;
 static uint32_t s_touch_visual_last_ms;
 static bool s_nav_mode;
 static bool s_flush_suspended;
+static TaskHandle_t s_boot_watch_task;
+static volatile bool s_boot_watch_active;
+static volatile bool s_boot_watch_progress_active;
+static volatile uint8_t s_boot_watch_step;
+static volatile uint8_t s_boot_watch_total = 12;
+static char s_boot_watch_detail[32] = "INITIALIZING";
 static portMUX_TYPE s_waveform_visual_mux = portMUX_INITIALIZER_UNLOCKED;
 static uint8_t s_bezel_waveform[FACULTY175_BEZEL_WAVEFORM_MAX];
 static uint8_t s_bezel_waveform_stream[FACULTY175_BEZEL_WAVEFORM_MAX];
@@ -162,6 +182,20 @@ static bool s_bezel_waveform_visible;
 static void draw_bezel_nav(void);
 static void draw_touch_visual(void);
 static void draw_stored_bezel_waveform(void);
+static void draw_line_safe(int x0, int y0, int x1, int y1, uint16_t color);
+static void draw_bezel_arc(int cx, int cy, int r, float start, float end, uint16_t color);
+static void boot_watch_task(void *arg);
+static esp_err_t faculty175_play_boot_chime(void);
+static void faculty175_log_i2c_lines(const char *stage);
+static void faculty175_log_i2c_gpio_drive_test(const char *stage);
+static const audio_codec_ctrl_if_t *faculty175_codec_ctrl_new(uint8_t addr_7bit);
+static bool faculty175_i2c_bb_probe(uint8_t addr_7bit);
+static esp_err_t faculty175_i2c_bb_write(uint8_t addr_7bit, const uint8_t *data, size_t len);
+static esp_err_t faculty175_i2c_bb_write_read(uint8_t addr_7bit,
+                                              const uint8_t *wr,
+                                              size_t wr_len,
+                                              uint8_t *rd,
+                                              size_t rd_len);
 
 static const co5300_lcd_init_cmd_t s_co5300_init_cmds[] = {
     {0xFE, (uint8_t[]){0x20}, 1, 0},
@@ -395,6 +429,31 @@ void faculty175_display_frame_compose_vertical(const uint16_t *from, const uint1
     }
 }
 
+void faculty175_display_frame_compose_radial(const uint16_t *from, const uint16_t *to, int radius_px)
+{
+    if (s_fb == NULL || from == NULL || to == NULL) {
+        return;
+    }
+    const int cx = FACULTY175_LCD_W / 2;
+    const int cy = FACULTY175_LCD_H / 2;
+    const int max_r = FACULTY175_LCD_W > FACULTY175_LCD_H ? FACULTY175_LCD_W : FACULTY175_LCD_H;
+    if (radius_px < 0) {
+        radius_px = 0;
+    } else if (radius_px > max_r) {
+        radius_px = max_r;
+    }
+    const int32_t r2 = (int32_t)radius_px * (int32_t)radius_px;
+    for (int y = 0; y < FACULTY175_LCD_H; ++y) {
+        const int32_t dy = (int32_t)y - (int32_t)cy;
+        const size_t row = (size_t)y * (size_t)FACULTY175_LCD_W;
+        for (int x = 0; x < FACULTY175_LCD_W; ++x) {
+            const int32_t dx = (int32_t)x - (int32_t)cx;
+            const size_t idx = row + (size_t)x;
+            s_fb[idx] = (dx * dx + dy * dy <= r2) ? to[idx] : from[idx];
+        }
+    }
+}
+
 void faculty175_display_frame_compose_nav_preview(const uint16_t *center,
                                                   const uint16_t *left,
                                                   const uint16_t *right,
@@ -455,46 +514,266 @@ void faculty175_display_frame_compose_nav_preview(const uint16_t *center,
 
 static esp_err_t faculty175_i2c_init(void)
 {
-    if (s_i2c_bus != NULL) {
+    if (s_i2c_bb_mux != NULL) {
         return ESP_OK;
     }
-    gpio_config_t recover = {
+    faculty175_log_i2c_lines("i2c-pre-recover");
+    const bool bus_idle = gpio_get_level(FACULTY175_AUDIO_I2C_SDA) == 1 &&
+                          gpio_get_level(FACULTY175_AUDIO_I2C_SCL) == 1;
+    if (!bus_idle) {
+        gpio_config_t recover = {
+            .pin_bit_mask = (1ULL << FACULTY175_AUDIO_I2C_SDA) | (1ULL << FACULTY175_AUDIO_I2C_SCL),
+            .mode = GPIO_MODE_OUTPUT_OD,
+            .pull_up_en = GPIO_PULLUP_ENABLE,
+            .pull_down_en = GPIO_PULLDOWN_DISABLE,
+            .intr_type = GPIO_INTR_DISABLE,
+        };
+        ESP_RETURN_ON_ERROR(gpio_config(&recover), TAG, "i2c recover gpio");
+        gpio_set_level(FACULTY175_AUDIO_I2C_SDA, 1);
+        gpio_set_level(FACULTY175_AUDIO_I2C_SCL, 1);
+        esp_rom_delay_us(20);
+        for (int i = 0; i < 18; ++i) {
+            gpio_set_level(FACULTY175_AUDIO_I2C_SCL, 0);
+            esp_rom_delay_us(8);
+            gpio_set_level(FACULTY175_AUDIO_I2C_SCL, 1);
+            esp_rom_delay_us(8);
+            if (gpio_get_level(FACULTY175_AUDIO_I2C_SDA) == 1) {
+                break;
+            }
+        }
+        gpio_set_level(FACULTY175_AUDIO_I2C_SDA, 1);
+        gpio_set_level(FACULTY175_AUDIO_I2C_SCL, 1);
+        esp_rom_delay_us(20);
+    }
+    const gpio_config_t release = {
         .pin_bit_mask = (1ULL << FACULTY175_AUDIO_I2C_SDA) | (1ULL << FACULTY175_AUDIO_I2C_SCL),
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    ESP_RETURN_ON_ERROR(gpio_config(&release), TAG, "i2c release gpio");
+    esp_rom_delay_us(20);
+    faculty175_log_i2c_lines("i2c-post-recover");
+    s_i2c_bb_mux = xSemaphoreCreateMutex();
+    ESP_RETURN_ON_FALSE(s_i2c_bb_mux != NULL, ESP_ERR_NO_MEM, TAG, "i2c mutex");
+    vTaskDelay(pdMS_TO_TICKS(50));
+    faculty175_log_i2c_lines("i2c-ready");
+    return ESP_OK;
+}
+
+static void i2c_bb_delay(void)
+{
+    esp_rom_delay_us(3);
+}
+
+static void i2c_bb_release(gpio_num_t pin)
+{
+    const gpio_config_t cfg = {
+        .pin_bit_mask = 1ULL << pin,
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    (void)gpio_config(&cfg);
+}
+
+static void i2c_bb_drive_low(gpio_num_t pin)
+{
+    const gpio_config_t cfg = {
+        .pin_bit_mask = 1ULL << pin,
         .mode = GPIO_MODE_OUTPUT_OD,
         .pull_up_en = GPIO_PULLUP_ENABLE,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
         .intr_type = GPIO_INTR_DISABLE,
     };
-    ESP_RETURN_ON_ERROR(gpio_config(&recover), TAG, "i2c recover gpio");
-    gpio_set_level(FACULTY175_AUDIO_I2C_SDA, 1);
-    gpio_set_level(FACULTY175_AUDIO_I2C_SCL, 1);
-    esp_rom_delay_us(10);
-    for (int i = 0; i < 9; ++i) {
-        gpio_set_level(FACULTY175_AUDIO_I2C_SCL, 0);
-        esp_rom_delay_us(5);
-        gpio_set_level(FACULTY175_AUDIO_I2C_SCL, 1);
-        esp_rom_delay_us(5);
-    }
-    gpio_set_level(FACULTY175_AUDIO_I2C_SDA, 0);
-    esp_rom_delay_us(5);
-    gpio_set_level(FACULTY175_AUDIO_I2C_SCL, 1);
-    esp_rom_delay_us(5);
-    gpio_set_level(FACULTY175_AUDIO_I2C_SDA, 1);
-    esp_rom_delay_us(10);
+    (void)gpio_config(&cfg);
+    (void)gpio_set_level(pin, 0);
+}
 
-    const i2c_master_bus_config_t cfg = {
-        .i2c_port = FACULTY175_I2C_PORT,
-        .sda_io_num = FACULTY175_AUDIO_I2C_SDA,
-        .scl_io_num = FACULTY175_AUDIO_I2C_SCL,
-        .clk_source = I2C_CLK_SRC_DEFAULT,
-        .glitch_ignore_cnt = 7,
-        .flags = {
-            .enable_internal_pullup = true,
-        },
+static void i2c_bb_sda(bool high)
+{
+    if (high) {
+        i2c_bb_release(FACULTY175_AUDIO_I2C_SDA);
+    } else {
+        i2c_bb_drive_low(FACULTY175_AUDIO_I2C_SDA);
+    }
+    i2c_bb_delay();
+}
+
+static void i2c_bb_scl(bool high)
+{
+    if (high) {
+        i2c_bb_release(FACULTY175_AUDIO_I2C_SCL);
+    } else {
+        i2c_bb_drive_low(FACULTY175_AUDIO_I2C_SCL);
+    }
+    i2c_bb_delay();
+}
+
+static void i2c_bb_start(void)
+{
+    i2c_bb_sda(true);
+    i2c_bb_scl(true);
+    i2c_bb_sda(false);
+    i2c_bb_scl(false);
+}
+
+static void i2c_bb_stop(void)
+{
+    i2c_bb_sda(false);
+    i2c_bb_scl(true);
+    i2c_bb_sda(true);
+}
+
+static bool i2c_bb_write_byte(uint8_t byte)
+{
+    for (int bit = 7; bit >= 0; --bit) {
+        i2c_bb_sda(((byte >> bit) & 1u) != 0);
+        i2c_bb_scl(true);
+        i2c_bb_scl(false);
+    }
+    i2c_bb_sda(true);
+    i2c_bb_scl(true);
+    const bool ack = gpio_get_level(FACULTY175_AUDIO_I2C_SDA) == 0;
+    i2c_bb_scl(false);
+    return ack;
+}
+
+static uint8_t i2c_bb_read_byte(bool ack)
+{
+    uint8_t byte = 0;
+    i2c_bb_sda(true);
+    for (int bit = 7; bit >= 0; --bit) {
+        i2c_bb_scl(true);
+        if (gpio_get_level(FACULTY175_AUDIO_I2C_SDA)) {
+            byte |= (uint8_t)(1u << bit);
+        }
+        i2c_bb_scl(false);
+    }
+    i2c_bb_sda(!ack);
+    i2c_bb_scl(true);
+    i2c_bb_scl(false);
+    i2c_bb_sda(true);
+    return byte;
+}
+
+static esp_err_t faculty175_i2c_bb_lock(void)
+{
+    ESP_RETURN_ON_ERROR(faculty175_i2c_init(), TAG, "i2c bb init");
+    return xSemaphoreTake(s_i2c_bb_mux, pdMS_TO_TICKS(1000)) == pdTRUE ? ESP_OK : ESP_ERR_TIMEOUT;
+}
+
+static bool faculty175_i2c_bb_probe(uint8_t addr_7bit)
+{
+    if (faculty175_i2c_bb_lock() != ESP_OK) {
+        return false;
+    }
+    i2c_bb_start();
+    const bool ok = i2c_bb_write_byte((uint8_t)(addr_7bit << 1));
+    i2c_bb_stop();
+    xSemaphoreGive(s_i2c_bb_mux);
+    return ok;
+}
+
+bool faculty175_i2c_probe(uint8_t addr_7bit)
+{
+    return faculty175_i2c_bb_probe(addr_7bit);
+}
+
+static esp_err_t faculty175_i2c_bb_write(uint8_t addr_7bit, const uint8_t *data, size_t len)
+{
+    if (data == NULL && len != 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    ESP_RETURN_ON_ERROR(faculty175_i2c_bb_lock(), TAG, "i2c write lock");
+    i2c_bb_start();
+    bool ok = i2c_bb_write_byte((uint8_t)(addr_7bit << 1));
+    for (size_t i = 0; ok && i < len; ++i) {
+        ok = i2c_bb_write_byte(data[i]);
+    }
+    i2c_bb_stop();
+    xSemaphoreGive(s_i2c_bb_mux);
+    return ok ? ESP_OK : ESP_FAIL;
+}
+
+esp_err_t faculty175_i2c_write(uint8_t addr_7bit, const uint8_t *data, size_t len)
+{
+    return faculty175_i2c_bb_write(addr_7bit, data, len);
+}
+
+static esp_err_t faculty175_i2c_bb_write_read(uint8_t addr_7bit,
+                                              const uint8_t *wr,
+                                              size_t wr_len,
+                                              uint8_t *rd,
+                                              size_t rd_len)
+{
+    if ((wr == NULL && wr_len != 0) || (rd == NULL && rd_len != 0)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    ESP_RETURN_ON_ERROR(faculty175_i2c_bb_lock(), TAG, "i2c rd lock");
+    i2c_bb_start();
+    bool ok = i2c_bb_write_byte((uint8_t)(addr_7bit << 1));
+    for (size_t i = 0; ok && i < wr_len; ++i) {
+        ok = i2c_bb_write_byte(wr[i]);
+    }
+    if (ok) {
+        i2c_bb_start();
+        ok = i2c_bb_write_byte((uint8_t)((addr_7bit << 1) | 1u));
+    }
+    for (size_t i = 0; ok && i < rd_len; ++i) {
+        rd[i] = i2c_bb_read_byte(i + 1u < rd_len);
+    }
+    i2c_bb_stop();
+    xSemaphoreGive(s_i2c_bb_mux);
+    return ok ? ESP_OK : ESP_FAIL;
+}
+
+esp_err_t faculty175_i2c_write_read(uint8_t addr_7bit,
+                                    const uint8_t *wr,
+                                    size_t wr_len,
+                                    uint8_t *rd,
+                                    size_t rd_len)
+{
+    return faculty175_i2c_bb_write_read(addr_7bit, wr, wr_len, rd, rd_len);
+}
+
+static void faculty175_log_i2c_lines(const char *stage)
+{
+    ESP_LOGI(TAG,
+             "%s SDA%d=%d SCL%d=%d TP_RST2=%d TP_INT11=%d",
+             stage != NULL ? stage : "i2c-lines",
+             (int)FACULTY175_AUDIO_I2C_SDA,
+             gpio_get_level(FACULTY175_AUDIO_I2C_SDA),
+             (int)FACULTY175_AUDIO_I2C_SCL,
+             gpio_get_level(FACULTY175_AUDIO_I2C_SCL),
+             gpio_get_level(GPIO_NUM_2),
+             gpio_get_level(GPIO_NUM_11));
+}
+
+static void faculty175_log_i2c_gpio_drive_test(const char *stage)
+{
+    const gpio_config_t out = {
+        .pin_bit_mask = (1ULL << FACULTY175_AUDIO_I2C_SDA) | (1ULL << FACULTY175_AUDIO_I2C_SCL),
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
     };
-    ESP_RETURN_ON_ERROR(i2c_new_master_bus(&cfg, &s_i2c_bus), TAG, "i2c bus");
-    vTaskDelay(pdMS_TO_TICKS(50));
-    return ESP_OK;
+    if (gpio_config(&out) != ESP_OK) {
+        return;
+    }
+    gpio_set_level(FACULTY175_AUDIO_I2C_SDA, 1);
+    gpio_set_level(FACULTY175_AUDIO_I2C_SCL, 1);
+    esp_rom_delay_us(100);
+    ESP_LOGI(TAG,
+             "%s drive-high SDA%d=%d SCL%d=%d",
+             stage != NULL ? stage : "i2c-drive",
+             (int)FACULTY175_AUDIO_I2C_SDA,
+             gpio_get_level(FACULTY175_AUDIO_I2C_SDA),
+             (int)FACULTY175_AUDIO_I2C_SCL,
+             gpio_get_level(FACULTY175_AUDIO_I2C_SCL));
 }
 
 static int32_t sample_abs(int16_t s)
@@ -692,6 +971,8 @@ static esp_err_t faculty175_i2s_init(uint32_t hz)
             },
         },
     };
+    std_cfg.slot_cfg.slot_bit_width = I2S_SLOT_BIT_WIDTH_16BIT;
+    std_cfg.slot_cfg.ws_width = I2S_SLOT_BIT_WIDTH_16BIT;
     ESP_RETURN_ON_ERROR(i2s_channel_init_std_mode(s_i2s_tx, &std_cfg), TAG, "i2s tx");
 
     i2s_tdm_config_t tdm_cfg = {
@@ -734,12 +1015,7 @@ static esp_err_t faculty175_i2s_init(uint32_t hz)
 static esp_codec_dev_handle_t faculty175_spk_codec_init(void)
 {
     const audio_codec_gpio_if_t *gpio_if = audio_codec_new_gpio();
-    audio_codec_i2c_cfg_t i2c_cfg = {
-        .port = FACULTY175_I2C_PORT,
-        .addr = FACULTY175_ES8311_ADDR,
-        .bus_handle = s_i2c_bus,
-    };
-    const audio_codec_ctrl_if_t *i2c_ctrl_if = audio_codec_new_i2c_ctrl(&i2c_cfg);
+    const audio_codec_ctrl_if_t *i2c_ctrl_if = faculty175_codec_ctrl_new(FACULTY175_ES8311_ADDR >> 1);
     if (i2c_ctrl_if == NULL) {
         return NULL;
     }
@@ -776,12 +1052,7 @@ static esp_codec_dev_handle_t faculty175_spk_codec_init(void)
 
 static esp_codec_dev_handle_t faculty175_mic_codec_init(void)
 {
-    audio_codec_i2c_cfg_t i2c_cfg = {
-        .port = FACULTY175_I2C_PORT,
-        .addr = FACULTY175_ES7210_ADDR,
-        .bus_handle = s_i2c_bus,
-    };
-    const audio_codec_ctrl_if_t *i2c_ctrl_if = audio_codec_new_i2c_ctrl(&i2c_cfg);
+    const audio_codec_ctrl_if_t *i2c_ctrl_if = faculty175_codec_ctrl_new(FACULTY175_ES7210_ADDR_7BIT);
     if (i2c_ctrl_if == NULL) {
         return NULL;
     }
@@ -806,32 +1077,108 @@ static esp_codec_dev_handle_t faculty175_mic_codec_init(void)
 
 static esp_err_t faculty175_es7210_write_reg(uint8_t reg, uint8_t value)
 {
-    if (s_i2c_bus == NULL) {
-        return ESP_ERR_INVALID_STATE;
-    }
-    i2c_master_dev_handle_t dev = NULL;
-    const i2c_device_config_t cfg = {
-        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
-        .device_address = FACULTY175_ES7210_ADDR_7BIT,
-        .scl_speed_hz = 400000,
-    };
-    ESP_RETURN_ON_ERROR(i2c_master_bus_add_device(s_i2c_bus, &cfg, &dev), TAG, "es7210 compat dev");
     uint8_t data[2] = {reg, value};
-    const esp_err_t err = i2c_master_transmit(dev, data, sizeof(data), 100);
-    (void)i2c_master_bus_rm_device(dev);
-    return err;
+    return faculty175_i2c_bb_write(FACULTY175_ES7210_ADDR_7BIT, data, sizeof(data));
 }
 
-static esp_err_t faculty175_i2c_probe_codec(uint8_t addr_7bit, const char *name)
+static bool faculty175_i2c_probe_silent(uint8_t addr_7bit, int timeout_ms)
 {
-    if (s_i2c_bus == NULL) {
-        return ESP_ERR_INVALID_STATE;
+    (void)timeout_ms;
+    return faculty175_i2c_bb_probe(addr_7bit);
+}
+
+typedef struct {
+    audio_codec_ctrl_if_t base;
+    uint8_t addr_7bit;
+    bool open;
+} faculty175_codec_ctrl_t;
+
+static int faculty175_codec_ctrl_open(const audio_codec_ctrl_if_t *ctrl, void *cfg, int cfg_size)
+{
+    (void)cfg;
+    (void)cfg_size;
+    faculty175_codec_ctrl_t *self = (faculty175_codec_ctrl_t *)ctrl;
+    if (self == NULL) {
+        return ESP_CODEC_DEV_INVALID_ARG;
     }
-    const esp_err_t err = i2c_master_probe(s_i2c_bus, addr_7bit, 120);
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "%s not reachable on I2C addr=0x%02x: %s", name, addr_7bit, esp_err_to_name(err));
+    self->open = true;
+    return ESP_CODEC_DEV_OK;
+}
+
+static bool faculty175_codec_ctrl_is_open(const audio_codec_ctrl_if_t *ctrl)
+{
+    const faculty175_codec_ctrl_t *self = (const faculty175_codec_ctrl_t *)ctrl;
+    return self != NULL && self->open;
+}
+
+static int faculty175_codec_ctrl_read(const audio_codec_ctrl_if_t *ctrl,
+                                      int reg,
+                                      int reg_len,
+                                      void *data,
+                                      int data_len)
+{
+    const faculty175_codec_ctrl_t *self = (const faculty175_codec_ctrl_t *)ctrl;
+    if (self == NULL || data == NULL || data_len <= 0 || reg_len <= 0 || reg_len > 2) {
+        return ESP_CODEC_DEV_INVALID_ARG;
     }
-    return err;
+    uint8_t reg_buf[2];
+    for (int i = 0; i < reg_len; ++i) {
+        reg_buf[i] = (uint8_t)(reg >> ((reg_len - i - 1) * 8));
+    }
+    return faculty175_i2c_bb_write_read(self->addr_7bit, reg_buf, (size_t)reg_len, data, (size_t)data_len) == ESP_OK
+               ? ESP_CODEC_DEV_OK
+               : ESP_CODEC_DEV_READ_FAIL;
+}
+
+static int faculty175_codec_ctrl_write(const audio_codec_ctrl_if_t *ctrl,
+                                       int reg,
+                                       int reg_len,
+                                       void *data,
+                                       int data_len)
+{
+    const faculty175_codec_ctrl_t *self = (const faculty175_codec_ctrl_t *)ctrl;
+    if (self == NULL || (data == NULL && data_len > 0) || data_len < 0 || reg_len <= 0 || reg_len > 2) {
+        return ESP_CODEC_DEV_INVALID_ARG;
+    }
+    uint8_t buf[18];
+    if ((size_t)reg_len + (size_t)data_len > sizeof(buf)) {
+        return ESP_CODEC_DEV_INVALID_ARG;
+    }
+    for (int i = 0; i < reg_len; ++i) {
+        buf[i] = (uint8_t)(reg >> ((reg_len - i - 1) * 8));
+    }
+    if (data_len > 0) {
+        memcpy(buf + reg_len, data, (size_t)data_len);
+    }
+    return faculty175_i2c_bb_write(self->addr_7bit, buf, (size_t)reg_len + (size_t)data_len) == ESP_OK
+               ? ESP_CODEC_DEV_OK
+               : ESP_CODEC_DEV_WRITE_FAIL;
+}
+
+static int faculty175_codec_ctrl_close(const audio_codec_ctrl_if_t *ctrl)
+{
+    faculty175_codec_ctrl_t *self = (faculty175_codec_ctrl_t *)ctrl;
+    if (self == NULL) {
+        return ESP_CODEC_DEV_INVALID_ARG;
+    }
+    self->open = false;
+    return ESP_CODEC_DEV_OK;
+}
+
+static const audio_codec_ctrl_if_t *faculty175_codec_ctrl_new(uint8_t addr_7bit)
+{
+    faculty175_codec_ctrl_t *ctrl = heap_caps_calloc(1, sizeof(*ctrl), MALLOC_CAP_DEFAULT);
+    if (ctrl == NULL) {
+        return NULL;
+    }
+    ctrl->base.open = faculty175_codec_ctrl_open;
+    ctrl->base.is_open = faculty175_codec_ctrl_is_open;
+    ctrl->base.read_reg = faculty175_codec_ctrl_read;
+    ctrl->base.write_reg = faculty175_codec_ctrl_write;
+    ctrl->base.close = faculty175_codec_ctrl_close;
+    ctrl->addr_7bit = addr_7bit;
+    ctrl->open = true;
+    return &ctrl->base;
 }
 
 static void faculty175_es7210_apply_arduino_compat(void)
@@ -856,6 +1203,36 @@ static void faculty175_mic_apply_capture_config(void)
     faculty175_es7210_apply_arduino_compat();
 }
 
+static void faculty175_es8311_apply_output_route(void)
+{
+    if (s_spk_codec == NULL) {
+        return;
+    }
+    const struct {
+        int reg;
+        int val;
+    } route[] = {
+        {FACULTY175_ES8311_SYSTEM_REG0D, 0x01},
+        {FACULTY175_ES8311_SDPIN_REG09, 0x0C},
+        {FACULTY175_ES8311_SDPOUT_REG0A, 0x0C},
+        {FACULTY175_ES8311_SYSTEM_REG12, 0x00},
+        {FACULTY175_ES8311_SYSTEM_REG13, 0x10},
+        {FACULTY175_ES8311_DAC_REG37, 0x08},
+        {FACULTY175_ES8311_DAC_REG32, 0xFF},
+        {FACULTY175_ES8311_DAC_REG31, 0x00},
+    };
+    for (size_t i = 0; i < sizeof(route) / sizeof(route[0]); ++i) {
+        const int err = esp_codec_dev_write_reg(s_spk_codec, route[i].reg, route[i].val);
+        if (err != ESP_CODEC_DEV_OK) {
+            ESP_LOGW(TAG,
+                     "ES8311 output route reg 0x%02x <- 0x%02x failed: %d",
+                     route[i].reg,
+                     route[i].val,
+                     err);
+        }
+    }
+}
+
 static esp_err_t faculty175_codec_open(bool out, uint32_t hz)
 {
     esp_codec_dev_handle_t dev = out ? s_spk_codec : s_mic_codec;
@@ -864,11 +1241,84 @@ static esp_err_t faculty175_codec_open(bool out, uint32_t hz)
     }
     esp_codec_dev_sample_info_t fs = {
         .bits_per_sample = 16,
-        .channel = out ? 2 : FACULTY175_ES7210_CHANNELS,
+        .channel = out ? 1 : FACULTY175_ES7210_CHANNELS,
         .channel_mask = out ? 0 : FACULTY175_ES7210_CHANNEL_MASK,
         .sample_rate = hz == 0 ? FACULTY175_AUDIO_RATE : hz,
     };
     return esp_codec_dev_open(dev, &fs);
+}
+
+static esp_err_t faculty175_audio_write_mono_from_stereo(const int16_t *samples, size_t sample_count)
+{
+    if (sample_count < 2 || (sample_count & 1u) != 0u) {
+        const size_t bytes = sample_count * sizeof(int16_t);
+        return esp_codec_dev_write(s_spk_codec, (void *)samples, (int)bytes) == ESP_OK ? ESP_OK : ESP_FAIL;
+    }
+
+    const size_t frames = sample_count / 2u;
+    if (s_spk_mono_scratch_count < frames) {
+        int16_t *next = heap_caps_realloc(s_spk_mono_scratch,
+                                          frames * sizeof(s_spk_mono_scratch[0]),
+                                          MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        if (next == NULL) {
+            next = heap_caps_malloc(frames * sizeof(next[0]), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+            if (next != NULL) {
+                free(s_spk_mono_scratch);
+            }
+        }
+        if (next == NULL) {
+            return ESP_ERR_NO_MEM;
+        }
+        s_spk_mono_scratch = next;
+        s_spk_mono_scratch_count = frames;
+    }
+
+    for (size_t i = 0; i < frames; ++i) {
+        const int32_t l = samples[i * 2u];
+        const int32_t r = samples[i * 2u + 1u];
+        s_spk_mono_scratch[i] = (int16_t)((l + r) / 2);
+    }
+    const size_t bytes = frames * sizeof(s_spk_mono_scratch[0]);
+    return esp_codec_dev_write(s_spk_codec, s_spk_mono_scratch, (int)bytes) == ESP_OK ? ESP_OK : ESP_FAIL;
+}
+
+static esp_err_t faculty175_play_boot_chime(void)
+{
+    static const float notes[] = {523.25f, 659.25f, 783.99f};
+    const uint32_t rate = FACULTY175_AUDIO_RATE;
+    const size_t chunk_frames = 128;
+    int16_t pcm[chunk_frames * 2u];
+    esp_err_t err = ESP_OK;
+
+    for (size_t n = 0; n < sizeof(notes) / sizeof(notes[0]) && err == ESP_OK; ++n) {
+        const size_t frames = rate / 12u;
+        const float step = 6.28318530718f * notes[n] / (float)rate;
+        float phase = 0.0f;
+        for (size_t base = 0; base < frames && err == ESP_OK; base += chunk_frames) {
+            const size_t todo = frames - base < chunk_frames ? frames - base : chunk_frames;
+            for (size_t i = 0; i < todo; ++i) {
+                const size_t t = base + i;
+                int32_t amp = 5200;
+                const size_t tail = frames - t;
+                if (t < rate / 160u) {
+                    amp = amp * (int32_t)t / (int32_t)(rate / 160u);
+                } else if (tail < rate / 80u) {
+                    amp = amp * (int32_t)tail / (int32_t)(rate / 80u);
+                }
+                const int16_t sample = (int16_t)lrintf(sinf(phase) * (float)amp);
+                pcm[i * 2u] = sample;
+                pcm[i * 2u + 1u] = sample;
+                phase += step;
+                if (phase > 6.28318530718f) {
+                    phase -= 6.28318530718f;
+                }
+            }
+            err = faculty175_audio_write_pcm(pcm, todo * 2u, 120);
+        }
+        vTaskDelay(pdMS_TO_TICKS(18));
+    }
+    ESP_LOGI(TAG, "boot chime %s", esp_err_to_name(err));
+    return err;
 }
 
 static int32_t faculty175_audio_probe_peak(void)
@@ -911,6 +1361,19 @@ static int32_t faculty175_audio_probe_peak(void)
 static esp_err_t faculty175_audio_init(void)
 {
     ESP_RETURN_ON_ERROR(faculty175_i2c_init(), TAG, "i2c");
+    const bool spk_present = faculty175_i2c_probe_silent(FACULTY175_ES8311_ADDR >> 1, 25);
+    const bool mic_present = faculty175_i2c_probe_silent(FACULTY175_ES7210_ADDR_7BIT, 25);
+    if (!spk_present) {
+        ESP_LOGW(TAG,
+                 "speaker codec absent on I2C (ES8311=%d ES7210=%d); skipping codec init",
+                 spk_present,
+                 mic_present);
+        return ESP_FAIL;
+    }
+    if (!mic_present) {
+        ESP_LOGW(TAG, "ES7210 mic codec absent on I2C; starting speaker-only audio");
+    }
+
     ESP_RETURN_ON_ERROR(faculty175_i2s_init(FACULTY175_AUDIO_RATE), TAG, "i2s");
     if (s_audio_read_mux == NULL) {
         s_audio_read_mux = xSemaphoreCreateMutex();
@@ -937,13 +1400,13 @@ static esp_err_t faculty175_audio_init(void)
     ESP_RETURN_ON_ERROR(gpio_config(&pa_cfg), TAG, "pa gpio");
     gpio_set_level(FACULTY175_PA_GPIO, 1);
 
-    ESP_ERROR_CHECK_WITHOUT_ABORT(i2c_master_bus_reset(s_i2c_bus));
-    ESP_RETURN_ON_ERROR(faculty175_i2c_probe_codec(FACULTY175_ES8311_ADDR >> 1, "ES8311"), TAG, "spk probe");
-    ESP_RETURN_ON_ERROR(faculty175_i2c_probe_codec(FACULTY175_ES7210_ADDR_7BIT, "ES7210"), TAG, "mic probe");
     s_spk_codec = faculty175_spk_codec_init();
-    ESP_ERROR_CHECK_WITHOUT_ABORT(i2c_master_bus_reset(s_i2c_bus));
-    s_mic_codec = faculty175_mic_codec_init();
-    ESP_RETURN_ON_FALSE(s_spk_codec != NULL && s_mic_codec != NULL, ESP_FAIL, TAG, "codec init");
+    if (mic_present) {
+        s_mic_codec = faculty175_mic_codec_init();
+    } else {
+        s_mic_codec = NULL;
+    }
+    ESP_RETURN_ON_FALSE(s_spk_codec != NULL && (!mic_present || s_mic_codec != NULL), ESP_FAIL, TAG, "codec init");
 
     esp_codec_dev_sample_info_t fs = {
         .bits_per_sample = 16,
@@ -953,14 +1416,21 @@ static esp_err_t faculty175_audio_init(void)
     ESP_RETURN_ON_ERROR(esp_codec_dev_open(s_spk_codec, &fs), TAG, "spk open");
     ESP_RETURN_ON_ERROR(esp_codec_dev_set_out_vol(s_spk_codec, FACULTY175_SPEAKER_VOLUME), TAG, "spk vol");
     ESP_RETURN_ON_ERROR(esp_codec_dev_set_out_mute(s_spk_codec, false), TAG, "spk unmute");
+    faculty175_es8311_apply_output_route();
     ESP_RETURN_ON_ERROR(esp_codec_dev_close(s_spk_codec), TAG, "spk close");
     s_spk_open = false;
     s_spk_rate_hz = FACULTY175_AUDIO_RATE;
+    s_speaker_ready = true;
+    ESP_ERROR_CHECK_WITHOUT_ABORT(faculty175_play_boot_chime());
+
+    if (!mic_present) {
+        return ESP_OK;
+    }
 
     s_mic_probe_peak = faculty175_audio_probe_peak();
     if (s_mic_probe_peak < FACULTY175_AUDIO_MIN_PROBE_PEAK) {
         ESP_LOGE(TAG, "mic probe peak=%ld - ES7210 not capturing", (long)s_mic_probe_peak);
-        return ESP_FAIL;
+        return ESP_OK;
     }
     if (s_mic_probe_peak < FACULTY175_AUDIO_WARN_PROBE_PEAK) {
         ESP_LOGW(TAG, "mic probe peak=%ld below voice-quality threshold; continuing", (long)s_mic_probe_peak);
@@ -973,21 +1443,34 @@ static esp_err_t faculty175_audio_init(void)
 
 static void faculty175_lcd_hardware_reset(void)
 {
-    /* 1.75C BSP uses GPIO1; 1.75 Arduino examples use GPIO2 — pulse both. */
-    const uint64_t mask = (1ULL << FACULTY175_LCD_PIN_RST_175C) | (1ULL << FACULTY175_LCD_PIN_RST_175);
     const gpio_config_t cfg = {
-        .pin_bit_mask = mask,
+        .pin_bit_mask = 1ULL << FACULTY175_LCD_PIN_RST,
         .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
     };
     if (gpio_config(&cfg) != ESP_OK) {
         return;
     }
-    gpio_set_level(FACULTY175_LCD_PIN_RST_175C, 0);
-    gpio_set_level(FACULTY175_LCD_PIN_RST_175, 0);
+    gpio_set_level(FACULTY175_LCD_PIN_RST, 0);
     vTaskDelay(pdMS_TO_TICKS(10));
-    gpio_set_level(FACULTY175_LCD_PIN_RST_175C, 1);
-    gpio_set_level(FACULTY175_LCD_PIN_RST_175, 1);
+    gpio_set_level(FACULTY175_LCD_PIN_RST, 1);
     vTaskDelay(pdMS_TO_TICKS(150));
+}
+
+static void faculty175_lcd_release_shared_reset(void)
+{
+    const gpio_config_t cfg = {
+        .pin_bit_mask = 1ULL << FACULTY175_LCD_PIN_RST,
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    if (gpio_config(&cfg) == ESP_OK) {
+        vTaskDelay(pdMS_TO_TICKS(120));
+    }
 }
 
 static esp_err_t faculty175_lcd_init(void)
@@ -1035,6 +1518,7 @@ static esp_err_t faculty175_lcd_init(void)
     ESP_RETURN_ON_ERROR(esp_lcd_panel_set_gap(s_panel, FACULTY175_LCD_PANEL_GAP_X, FACULTY175_LCD_PANEL_GAP_Y), TAG, "lcd gap");
     ESP_RETURN_ON_ERROR(esp_lcd_panel_init(s_panel), TAG, "lcd init");
     ESP_RETURN_ON_ERROR(esp_lcd_panel_disp_on_off(s_panel, true), TAG, "lcd on");
+    faculty175_lcd_release_shared_reset();
 
     s_fb = heap_caps_malloc(FACULTY175_LCD_W * FACULTY175_LCD_H * sizeof(uint16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (s_fb == NULL) {
@@ -1048,22 +1532,38 @@ static esp_err_t faculty175_lcd_init(void)
     return ESP_OK;
 }
 
-static void faculty175_display_boot_splash(const char *detail)
+void faculty175_display_boot_progress(const char *detail, uint8_t step, uint8_t total, bool active)
 {
-    if (s_panel == NULL || s_fb == NULL) {
+    if (detail != NULL && detail[0] != '\0') {
+        strncpy(s_boot_watch_detail, detail, sizeof(s_boot_watch_detail) - 1u);
+        s_boot_watch_detail[sizeof(s_boot_watch_detail) - 1u] = '\0';
+    }
+    if (total == 0) {
+        total = 1;
+    }
+    if (step > total) {
+        step = total;
+    }
+    s_boot_watch_step = step;
+    s_boot_watch_total = total;
+    s_boot_watch_progress_active = active;
+    s_boot_watch_active = active;
+    if (active && s_panel != NULL && s_fb != NULL && s_boot_watch_task == NULL) {
+        xTaskCreate(boot_watch_task, "boot_watch", 4096, NULL, 3, &s_boot_watch_task);
+    }
+    if (!active || s_panel == NULL || s_fb == NULL) {
         return;
     }
-    faculty175_display_fill_rgb565(rgb565(2, 4, 10));
-    faculty175_display_draw_circle(FACULTY175_PANEL_CX, FACULTY175_PANEL_CY, 216, rgb565(36, 76, 116));
-    faculty175_display_draw_circle(FACULTY175_PANEL_CX, FACULTY175_PANEL_CY, 164, rgb565(18, 42, 70));
-    faculty175_display_draw_centered_text("ASTROLABE", 200, rgb565(224, 232, 244));
-    faculty175_display_draw_centered_text(detail != NULL ? detail : "INITIALIZING", 230, rgb565(102, 190, 226));
-    faculty175_display_flush_fb();
+    faculty175_display_lock();
+    faculty175_display_draw_pocketwatch(s_boot_watch_detail,
+                                        (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS),
+                                        active);
+    faculty175_display_unlock();
 }
 
 bool faculty175_board_audio_ready(void)
 {
-    return s_audio_ready && s_spk_codec != NULL && s_mic_codec != NULL;
+    return s_speaker_ready && s_spk_codec != NULL;
 }
 
 bool faculty175_board_pi4ioe_ok(void)
@@ -1087,23 +1587,33 @@ esp_err_t faculty175_board_init(void)
     };
     ESP_RETURN_ON_ERROR(gpio_config(&btn), TAG, "button gpio");
 
-    ESP_RETURN_ON_ERROR(faculty175_i2c_init(), TAG, "i2c");
+    faculty175_log_i2c_gpio_drive_test("boot-pre-i2c-driver");
+    gpio_config_t i2c_idle = {
+        .pin_bit_mask = (1ULL << FACULTY175_AUDIO_I2C_SDA) | (1ULL << FACULTY175_AUDIO_I2C_SCL),
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    ESP_RETURN_ON_ERROR(gpio_config(&i2c_idle), TAG, "i2c idle gpio");
+    faculty175_log_i2c_lines("boot-pre-lcd");
+    ESP_RETURN_ON_ERROR(faculty175_i2c_init(), TAG, "i2c pre-lcd");
+
+    ESP_RETURN_ON_ERROR(faculty175_lcd_init(), TAG, "lcd");
+    faculty175_log_i2c_lines("boot-post-lcd");
+
+    s_audio_ready = faculty175_audio_init() == ESP_OK;
+    if (!s_audio_ready) {
+        ESP_LOGW(TAG, "ES8311 audio init failed — continuing display-only for now");
+    }
+
     if (faculty175_pmu_init() != ESP_OK) {
         ESP_LOGW(TAG, "AXP2101 PMU init failed — audio/display may be unavailable");
     }
     faculty175_board_log_identity();
     vTaskDelay(pdMS_TO_TICKS(50));
 
-    ESP_RETURN_ON_ERROR(faculty175_lcd_init(), TAG, "lcd");
-    faculty175_display_boot_splash("INITIALIZING");
-    vTaskDelay(pdMS_TO_TICKS(10));
-
-    faculty175_display_boot_splash("AUDIO");
-    s_audio_ready = faculty175_audio_init() == ESP_OK;
-    if (!s_audio_ready) {
-        ESP_LOGW(TAG, "ES7210/ES8311 audio init failed — display-only mode");
-        faculty175_display_boot_splash("DISPLAY ONLY");
-    }
+    (void)faculty175_touch_init();
     ESP_LOGI(TAG, "Faculty175 ready (audio=%s)", s_audio_ready ? "ok" : "off");
     return ESP_OK;
 }
@@ -1369,8 +1879,10 @@ esp_err_t faculty175_audio_read_tdm_raw(int16_t *samples,
 
 esp_err_t faculty175_audio_write_pcm(const int16_t *samples, size_t sample_count, uint32_t timeout_ms)
 {
-    (void)timeout_ms;
-    if (s_spk_codec == NULL || samples == NULL || sample_count == 0) {
+    if (samples == NULL || sample_count == 0) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (s_spk_codec == NULL) {
         return ESP_ERR_INVALID_STATE;
     }
 
@@ -1379,12 +1891,12 @@ esp_err_t faculty175_audio_write_pcm(const int16_t *samples, size_t sample_count
         ESP_RETURN_ON_ERROR(faculty175_codec_open(true, s_spk_rate_hz), TAG, "spk open");
         ESP_RETURN_ON_ERROR(esp_codec_dev_set_out_vol(s_spk_codec, FACULTY175_SPEAKER_VOLUME), TAG, "spk vol");
         ESP_RETURN_ON_ERROR(esp_codec_dev_set_out_mute(s_spk_codec, false), TAG, "spk unmute");
+        faculty175_es8311_apply_output_route();
         s_spk_open = true;
     }
 
-    const size_t bytes = sample_count * sizeof(int16_t);
     faculty175_aec_push_reference(samples, sample_count);
-    return esp_codec_dev_write(s_spk_codec, (void *)samples, (int)bytes) == ESP_OK ? ESP_OK : ESP_FAIL;
+    return faculty175_audio_write_mono_from_stereo(samples, sample_count);
 }
 
 esp_err_t faculty175_audio_set_sample_rate(uint32_t hz)
@@ -1423,6 +1935,9 @@ void faculty175_display_fill_rgb565(uint16_t color)
     }
     for (int i = 0; i < FACULTY175_LCD_W * FACULTY175_LCD_H; ++i) {
         s_fb[i] = color;
+        if ((i & 0x3fff) == 0x3fff) {
+            vTaskDelay(1);
+        }
     }
 }
 
@@ -1448,6 +1963,9 @@ void faculty175_display_fill_rect(int x, int y, int w, int h, uint16_t color)
     for (int row = y; row < y + h; ++row) {
         for (int col = x; col < x + w; ++col) {
             s_fb[row * FACULTY175_LCD_W + col] = color;
+        }
+        if ((row & 0x0f) == 0x0f) {
+            vTaskDelay(1);
         }
     }
 }
@@ -1598,6 +2116,524 @@ static void draw_centered_text(const char *text, int y, uint16_t color)
         x = 0;
     }
     draw_text(text, x, y, color);
+}
+
+static void draw_text_center_at(const char *text, int cx, int y, uint16_t color)
+{
+    if (text == NULL || text[0] == '\0') {
+        return;
+    }
+    const int w = (int)strlen(text) * 6;
+    draw_text(text, cx - w / 2, y, color);
+}
+
+static void draw_thick_line(int x0, int y0, int x1, int y1, uint16_t color)
+{
+    draw_line_safe(x0, y0, x1, y1, color);
+    draw_line_safe(x0 + 1, y0, x1 + 1, y1, color);
+    draw_line_safe(x0, y0 + 1, x1, y1 + 1, color);
+}
+
+static void draw_radial_hand(int cx, int cy, float angle, int inner_r, int outer_r, uint16_t color, bool thick)
+{
+    const int x0 = cx + (int)lrintf(cosf(angle) * (float)inner_r);
+    const int y0 = cy + (int)lrintf(sinf(angle) * (float)inner_r);
+    const int x1 = cx + (int)lrintf(cosf(angle) * (float)outer_r);
+    const int y1 = cy + (int)lrintf(sinf(angle) * (float)outer_r);
+    if (thick) {
+        draw_thick_line(x0, y0, x1, y1, color);
+    } else {
+        draw_line_safe(x0, y0, x1, y1, color);
+    }
+}
+
+static void draw_radial_hand_width(int cx,
+                                   int cy,
+                                   float angle,
+                                   int inner_r,
+                                   int outer_r,
+                                   uint16_t color,
+                                   int width_px)
+{
+    const float ca = cosf(angle);
+    const float sa = sinf(angle);
+    const float nx = -sa;
+    const float ny = ca;
+    const int x0 = cx + (int)lrintf(ca * (float)inner_r);
+    const int y0 = cy + (int)lrintf(sa * (float)inner_r);
+    const int x1 = cx + (int)lrintf(ca * (float)outer_r);
+    const int y1 = cy + (int)lrintf(sa * (float)outer_r);
+    const int half = width_px / 2;
+    for (int o = -half; o <= half; ++o) {
+        const int ox = (int)lrintf(nx * (float)o);
+        const int oy = (int)lrintf(ny * (float)o);
+        draw_line_safe(x0 + ox, y0 + oy, x1 + ox, y1 + oy, color);
+    }
+}
+
+typedef struct {
+    int x;
+    int y;
+} point_i_t;
+
+static int edge_i(point_i_t a, point_i_t b, int x, int y)
+{
+    return (x - a.x) * (b.y - a.y) - (y - a.y) * (b.x - a.x);
+}
+
+static void fill_triangle_points(point_i_t a, point_i_t b, point_i_t c, uint16_t color)
+{
+    int min_x = a.x < b.x ? (a.x < c.x ? a.x : c.x) : (b.x < c.x ? b.x : c.x);
+    int max_x = a.x > b.x ? (a.x > c.x ? a.x : c.x) : (b.x > c.x ? b.x : c.x);
+    int min_y = a.y < b.y ? (a.y < c.y ? a.y : c.y) : (b.y < c.y ? b.y : c.y);
+    int max_y = a.y > b.y ? (a.y > c.y ? a.y : c.y) : (b.y > c.y ? b.y : c.y);
+    if (min_x < 0) {
+        min_x = 0;
+    }
+    if (min_y < 0) {
+        min_y = 0;
+    }
+    if (max_x >= FACULTY175_LCD_W) {
+        max_x = FACULTY175_LCD_W - 1;
+    }
+    if (max_y >= FACULTY175_LCD_H) {
+        max_y = FACULTY175_LCD_H - 1;
+    }
+    const int area = edge_i(a, b, c.x, c.y);
+    if (area == 0) {
+        return;
+    }
+    for (int y = min_y; y <= max_y; ++y) {
+        for (int x = min_x; x <= max_x; ++x) {
+            const int w0 = edge_i(b, c, x, y);
+            const int w1 = edge_i(c, a, x, y);
+            const int w2 = edge_i(a, b, x, y);
+            if ((area > 0 && w0 >= 0 && w1 >= 0 && w2 >= 0) ||
+                (area < 0 && w0 <= 0 && w1 <= 0 && w2 <= 0)) {
+                faculty175_display_draw_pixel(x, y, color);
+            }
+        }
+    }
+}
+
+static point_i_t hand_point(int cx, int cy, float ca, float sa, float nx, float ny, int r, int half_w)
+{
+    return (point_i_t){
+        .x = cx + (int)lrintf(ca * (float)r + nx * (float)half_w),
+        .y = cy + (int)lrintf(sa * (float)r + ny * (float)half_w),
+    };
+}
+
+static void fill_hand_diamond(int cx, int cy, float ca, float sa, int r, int len, int half_w, uint16_t color)
+{
+    const float nx = -sa;
+    const float ny = ca;
+    const point_i_t tip = hand_point(cx, cy, ca, sa, nx, ny, r + len, 0);
+    const point_i_t right = hand_point(cx, cy, ca, sa, nx, ny, r, half_w);
+    const point_i_t tail = hand_point(cx, cy, ca, sa, nx, ny, r - len, 0);
+    const point_i_t left = hand_point(cx, cy, ca, sa, nx, ny, r, -half_w);
+    fill_triangle_points(tip, right, tail, color);
+    fill_triangle_points(tip, tail, left, color);
+}
+
+static void fill_hand_spear(int cx, int cy, float ca, float sa, int outer_r, int len, int half_w, uint16_t color)
+{
+    const float nx = -sa;
+    const float ny = ca;
+    const point_i_t tip = hand_point(cx, cy, ca, sa, nx, ny, outer_r, 0);
+    const point_i_t right = hand_point(cx, cy, ca, sa, nx, ny, outer_r - len, half_w);
+    const point_i_t left = hand_point(cx, cy, ca, sa, nx, ny, outer_r - len, -half_w);
+    fill_triangle_points(tip, right, left, color);
+}
+
+static void draw_ornate_watch_hand(int cx,
+                                   int cy,
+                                   float angle,
+                                   int inner_r,
+                                   int outer_r,
+                                   uint16_t outline,
+                                   uint16_t fill,
+                                   int spine_width,
+                                   int spear_len,
+                                   int spear_half_w,
+                                   bool elaborate)
+{
+    const float ca = cosf(angle);
+    const float sa = sinf(angle);
+    draw_radial_hand_width(cx, cy, angle, inner_r, outer_r - spear_len + 4, outline, spine_width + 4);
+    draw_radial_hand_width(cx, cy, angle, inner_r, outer_r - spear_len + 4, fill, spine_width);
+    fill_hand_spear(cx, cy, ca, sa, outer_r, spear_len + 5, spear_half_w + 3, outline);
+    fill_hand_spear(cx, cy, ca, sa, outer_r - 2, spear_len, spear_half_w, fill);
+    const int span = outer_r - inner_r;
+    const int collar_r = inner_r + span * 58 / 100;
+    fill_hand_diamond(cx, cy, ca, sa, collar_r, elaborate ? 13 : 10, elaborate ? 8 : 6, outline);
+    fill_hand_diamond(cx, cy, ca, sa, collar_r, elaborate ? 10 : 7, elaborate ? 5 : 4, fill);
+    const int loop_r = inner_r < -8 ? inner_r : -24;
+    const int lx = cx + (int)lrintf(ca * (float)loop_r);
+    const int ly = cy + (int)lrintf(sa * (float)loop_r);
+    faculty175_display_fill_circle(lx, ly, elaborate ? 8 : 6, outline);
+    faculty175_display_fill_circle(lx, ly, elaborate ? 5 : 3, fill);
+    faculty175_display_fill_circle(lx, ly, elaborate ? 2 : 1, outline);
+    if (elaborate) {
+        fill_hand_diamond(cx, cy, ca, sa, inner_r + span * 34 / 100, 8, 5, outline);
+        fill_hand_diamond(cx, cy, ca, sa, inner_r + span * 34 / 100, 5, 3, fill);
+    }
+}
+
+static void draw_ornate_second_hand(int cx, int cy, float angle, uint16_t outline, uint16_t fill)
+{
+    draw_radial_hand_width(cx, cy, angle, -34, 158, outline, 3);
+    draw_radial_hand_width(cx, cy, angle, -30, 158, fill, 1);
+    const float ca = cosf(angle);
+    const float sa = sinf(angle);
+    fill_hand_spear(cx, cy, ca, sa, 166, 14, 3, outline);
+    fill_hand_spear(cx, cy, ca, sa, 164, 10, 1, fill);
+    const int bx = cx + (int)lrintf(ca * -40.0f);
+    const int by = cy + (int)lrintf(sa * -40.0f);
+    faculty175_display_fill_circle(bx, by, 5, outline);
+    faculty175_display_fill_circle(bx, by, 3, fill);
+    faculty175_display_fill_circle(bx, by, 1, outline);
+}
+
+static uint8_t blend_u8(uint8_t a, uint8_t b, uint8_t amount)
+{
+    return (uint8_t)(((uint16_t)a * (uint16_t)(255u - amount) + (uint16_t)b * (uint16_t)amount) / 255u);
+}
+
+static uint16_t watch_tint_pixel(uint16_t p, uint8_t tr, uint8_t tg, uint8_t tb, uint8_t tint, uint8_t dim)
+{
+    uint8_t r = (uint8_t)(((p >> 11) & 0x1f) * 255 / 31);
+    uint8_t g = (uint8_t)(((p >> 5) & 0x3f) * 255 / 63);
+    uint8_t b = (uint8_t)((p & 0x1f) * 255 / 31);
+    const uint8_t maxc = r > g ? (r > b ? r : b) : (g > b ? g : b);
+    const uint8_t minc = r < g ? (r < b ? r : b) : (g < b ? g : b);
+    const bool gold_mark = r > 132 && g > 92 && b < 96 && r >= g;
+    if (gold_mark) {
+        tint = (uint8_t)(tint / 4u);
+        dim = (uint8_t)(dim / 2u);
+    } else if (maxc > minc + 24u) {
+        tint = (uint8_t)((uint16_t)tint * 3u / 4u);
+    }
+    r = (uint8_t)(((uint16_t)r * (uint16_t)(255u - dim)) / 255u);
+    g = (uint8_t)(((uint16_t)g * (uint16_t)(255u - dim)) / 255u);
+    b = (uint8_t)(((uint16_t)b * (uint16_t)(255u - dim)) / 255u);
+    return rgb565(blend_u8(r, tr, tint), blend_u8(g, tg, tint), blend_u8(b, tb, tint));
+}
+
+static void blend_pixel_rgb565(int x, int y, uint8_t r, uint8_t g, uint8_t b, uint8_t alpha)
+{
+    if (s_fb == NULL || x < 0 || x >= FACULTY175_LCD_W || y < 0 || y >= FACULTY175_LCD_H || alpha == 0) {
+        return;
+    }
+    const size_t i = (size_t)y * (size_t)FACULTY175_LCD_W + (size_t)x;
+    const uint16_t bg = s_fb[i];
+    if (bg == 0) {
+        return;
+    }
+    const uint8_t br = (uint8_t)(((bg >> 11) & 0x1f) * 255 / 31);
+    const uint8_t bg_g = (uint8_t)(((bg >> 5) & 0x3f) * 255 / 63);
+    const uint8_t bb = (uint8_t)((bg & 0x1f) * 255 / 31);
+    const uint16_t ia = (uint16_t)(255u - alpha);
+    s_fb[i] = rgb565((uint8_t)(((uint16_t)br * ia + (uint16_t)r * alpha) / 255u),
+                     (uint8_t)(((uint16_t)bg_g * ia + (uint16_t)g * alpha) / 255u),
+                     (uint8_t)(((uint16_t)bb * ia + (uint16_t)b * alpha) / 255u));
+}
+
+static void watch_draw_center_quiet_zone(void)
+{
+    const int cx = FACULTY175_PANEL_CX;
+    const int cy = FACULTY175_PANEL_CY;
+    for (int y = cy - 70; y <= cy + 70; ++y) {
+        for (int x = cx - 70; x <= cx + 70; ++x) {
+            const int dx = x - cx;
+            const int dy = y - cy;
+            const int r2 = dx * dx + dy * dy;
+            if (r2 > 70 * 70) {
+                continue;
+            }
+            uint8_t alpha = 0;
+            if (r2 < 44 * 44) {
+                alpha = 216;
+            } else {
+                const int outer = 70 * 70;
+                const int inner = 44 * 44;
+                alpha = (uint8_t)(58 + ((outer - r2) * 148) / (outer - inner));
+            }
+            blend_pixel_rgb565(x, y, 2, 6, 14, alpha);
+        }
+    }
+    faculty175_display_draw_circle(cx, cy, 70, rgb565(44, 40, 30));
+    faculty175_display_draw_circle(cx, cy, 48, rgb565(12, 18, 28));
+}
+
+static void watch_apply_time_of_day_tint(const struct tm *local)
+{
+    if (s_fb == NULL || local == NULL) {
+        return;
+    }
+    const float hour = (float)local->tm_hour + (float)local->tm_min / 60.0f;
+    uint8_t tr = 72;
+    uint8_t tg = 118;
+    uint8_t tb = 190;
+    uint8_t tint = 16;
+    uint8_t dim = 0;
+    bool dusk_reflection = false;
+    if (hour < 5.5f || hour >= 21.0f) {
+        tr = 18;
+        tg = 42;
+        tb = 104;
+        tint = 64;
+        dim = 58;
+    } else if (hour < 8.0f) {
+        tr = 246;
+        tg = 154;
+        tb = 78;
+        tint = 44;
+        dim = 10;
+    } else if (hour < 17.0f) {
+        tr = 96;
+        tg = 148;
+        tb = 220;
+        tint = 12;
+        dim = 0;
+    } else if (hour < 20.0f) {
+        tr = 236;
+        tg = 122;
+        tb = 62;
+        tint = 54;
+        dim = 16;
+        dusk_reflection = true;
+    } else {
+        tr = 34;
+        tg = 62;
+        tb = 132;
+        tint = 54;
+        dim = 36;
+    }
+    for (int y = 0; y < FACULTY175_LCD_H; ++y) {
+        const uint8_t row_tint = (uint8_t)(tint + ((uint16_t)tint * (uint16_t)y) / (uint16_t)(FACULTY175_LCD_H * 4));
+        for (int x = 0; x < FACULTY175_LCD_W; ++x) {
+            const size_t i = (size_t)y * (size_t)FACULTY175_LCD_W + (size_t)x;
+            if (s_fb[i] != 0) {
+                s_fb[i] = watch_tint_pixel(s_fb[i], tr, tg, tb, row_tint, dim);
+                if (dusk_reflection && y > 64 && y < 270) {
+                    const uint16_t p = s_fb[i];
+                    const uint8_t r = (uint8_t)(((p >> 11) & 0x1f) * 255 / 31);
+                    const uint8_t g = (uint8_t)(((p >> 5) & 0x3f) * 255 / 63);
+                    const uint8_t b = (uint8_t)((p & 0x1f) * 255 / 31);
+                    if ((uint16_t)r + (uint16_t)g + (uint16_t)b > 170u && r >= b) {
+                        s_fb[i] = watch_tint_pixel(p, 255, 142, 64, 30, 0);
+                    }
+                }
+            }
+        }
+        if ((y & 0x1f) == 0x1f) {
+            vTaskDelay(1);
+        }
+    }
+}
+
+static const char *watch_complication_label(faculty175_ui_state_t state, const char *detail)
+{
+    if (detail != NULL && detail[0] != '\0') {
+        return detail;
+    }
+    switch (state) {
+        case FACULTY175_UI_WIFI:
+            return "WIFI";
+        case FACULTY175_UI_LISTEN:
+            return "LISTEN";
+        case FACULTY175_UI_CAPTURE:
+            return "CAPTURE";
+        case FACULTY175_UI_THINK:
+            return "THINK";
+        case FACULTY175_UI_SPEAK:
+            return "SPEAK";
+        case FACULTY175_UI_ERROR:
+            return "OFFLINE";
+        case FACULTY175_UI_BOOT:
+        default:
+            return "READY";
+    }
+}
+
+static uint16_t watch_boot_phase_color(uint8_t step, bool lit)
+{
+    uint8_t r = 90;
+    uint8_t g = 72;
+    uint8_t b = 44;
+    if (step <= 3) {
+        r = 70;
+        g = 178;
+        b = 226;
+    } else if (step <= 6) {
+        r = 88;
+        g = 212;
+        b = 146;
+    } else if (step <= 9) {
+        r = 226;
+        g = 170;
+        b = 84;
+    } else {
+        r = 204;
+        g = 118;
+        b = 224;
+    }
+    if (!lit) {
+        r = (uint8_t)(r / 3u);
+        g = (uint8_t)(g / 3u);
+        b = (uint8_t)(b / 3u);
+    }
+    return rgb565(r, g, b);
+}
+
+void faculty175_display_draw_pocketwatch(const char *detail, uint32_t anim_ms, bool boot_mode)
+{
+    const int cx = FACULTY175_PANEL_CX;
+    const int cy = FACULTY175_PANEL_CY;
+    const float tau = 6.28318530718f;
+    const float quarter = 1.57079632679f;
+    const uint16_t bg = rgb565(0, 0, 0);
+    const uint16_t brass = rgb565(214, 170, 84);
+    const uint16_t brass_dim = rgb565(92, 68, 36);
+    const uint16_t hand = rgb565(226, 218, 188);
+    const uint16_t tick = rgb565(174, 184, 194);
+    const uint16_t tick_dim = rgb565(92, 98, 106);
+    const uint8_t boot_total = s_boot_watch_total == 0 ? 1 : s_boot_watch_total;
+    const uint8_t boot_step = s_boot_watch_step > boot_total ? boot_total : s_boot_watch_step;
+    const bool boot_progress = boot_mode || s_boot_watch_progress_active;
+    const uint16_t text = rgb565(188, 170, 122);
+    const char *label = detail != NULL && detail[0] != '\0' ? detail : "READY";
+    if (s_boot_watch_progress_active && s_boot_watch_detail[0] != '\0') {
+        label = s_boot_watch_detail;
+    }
+
+    const bool custom_bg = faculty175_pocketwatch_draw_background();
+    if (!custom_bg) {
+        faculty175_display_fill_rgb565(bg);
+    }
+    const uint16_t second = boot_progress ? rgb565(70, 178, 226) : rgb565(210, 64, 48);
+
+    const int chapter_r = 208;
+    const int major_tick_inner = 184;
+    const int minor_tick_inner = 195;
+    const int hour_hand_r = 88;
+    const int minute_hand_r = 142;
+    const int second_hand_r = 176;
+    const int sub_cy = cy + 96;
+
+    if (!custom_bg) {
+        faculty175_display_draw_circle(cx, cy, chapter_r, brass_dim);
+
+        for (int i = 0; i < 60; ++i) {
+            const float a = ((float)i / 60.0f) * tau - quarter;
+            const bool major = (i % 5) == 0;
+            const int r0 = major ? major_tick_inner : minor_tick_inner;
+            const int r1 = chapter_r;
+            const uint16_t c = major ? tick : tick_dim;
+            draw_radial_hand(cx, cy, a, r0, r1, c, major);
+        }
+    }
+
+    uint32_t tick_second = (anim_ms / 1000u) % 60u;
+    float minute_pos = (float)(anim_ms % 3600000u) / 3600000.0f;
+    float hour_pos = (float)(anim_ms % 43200000u) / 43200000.0f;
+    struct tm local = {};
+    const bool local_time_valid = astrolabe_time_valid();
+    if (local_time_valid) {
+        astrolabe_time_local(&local);
+        tick_second = (uint32_t)local.tm_sec;
+        minute_pos = ((float)local.tm_min + (float)local.tm_sec / 60.0f) / 60.0f;
+        hour_pos = ((float)(local.tm_hour % 12) + (float)local.tm_min / 60.0f +
+                    (float)local.tm_sec / 3600.0f) /
+                   12.0f;
+    }
+    const float sec_angle = ((float)tick_second / 60.0f) * tau - quarter;
+    const float minute_angle = minute_pos * tau - quarter;
+    const float hour_angle = hour_pos * tau - quarter;
+    if (custom_bg) {
+        if (local_time_valid) {
+            watch_apply_time_of_day_tint(&local);
+        }
+        watch_draw_center_quiet_zone();
+        const uint16_t outline = rgb565(1, 3, 7);
+        const uint16_t hour_fill = rgb565(250, 222, 142);
+        const uint16_t minute_fill = rgb565(255, 246, 214);
+        const uint16_t second_fill = rgb565(228, 192, 96);
+        draw_ornate_watch_hand(cx, cy, hour_angle, -24, 104, outline, hour_fill, 8, 28, 12, true);
+        draw_ornate_watch_hand(cx, cy, minute_angle, -30, 160, outline, minute_fill, 6, 32, 10, false);
+        draw_ornate_second_hand(cx, cy, sec_angle, outline, second_fill);
+        faculty175_display_fill_circle(cx, cy, 16, outline);
+        faculty175_display_fill_circle(cx, cy, 11, brass);
+        faculty175_display_fill_circle(cx, cy, 4, minute_fill);
+        faculty175_display_flush();
+        return;
+    }
+    draw_radial_hand(cx, cy, hour_angle, -18, hour_hand_r, hand, true);
+    draw_radial_hand(cx, cy, minute_angle, -22, minute_hand_r, hand, true);
+    draw_radial_hand(cx, cy, sec_angle, -34, second_hand_r, second, false);
+    faculty175_display_fill_circle(cx, cy, 10, brass);
+    faculty175_display_fill_circle(cx, cy, 4, hand);
+
+    const int sub_cx = cx;
+    faculty175_display_draw_circle(sub_cx, sub_cy, 42, brass_dim);
+    faculty175_display_draw_circle(sub_cx, sub_cy, 32, tick_dim);
+    if (boot_step > 0) {
+        const float gap = 0.025f;
+        for (uint8_t i = 0; i < boot_total; ++i) {
+            const float a0 = ((float)i / (float)boot_total) * tau - quarter + gap;
+            const float a1 = ((float)(i + 1u) / (float)boot_total) * tau - quarter - gap;
+            const bool lit = i < boot_step;
+            const uint16_t phase = watch_boot_phase_color((uint8_t)(i + 1u), lit);
+            draw_bezel_arc(sub_cx, sub_cy, 42, a0, a1, phase);
+            draw_bezel_arc(sub_cx, sub_cy, 41, a0, a1, phase);
+        }
+    }
+    for (int i = 0; i < 12; ++i) {
+        const float a = ((float)i / 12.0f) * tau - quarter;
+        draw_radial_hand(sub_cx, sub_cy, a, 34, 39, i == 0 ? tick : tick_dim, false);
+    }
+    float sub_angle;
+    if (boot_progress) {
+        if (!s_boot_watch_progress_active && boot_step >= boot_total) {
+            sub_angle = -quarter;
+        } else {
+            const uint8_t step_index = boot_step == 0 ? 0 : (uint8_t)(boot_step - 1u);
+            const float phase_tick = (float)((anim_ms / 1000u) % 4u) / 4.0f;
+            const float phase_pos = ((float)step_index + phase_tick) / (float)boot_total;
+            sub_angle = phase_pos * tau - quarter;
+        }
+    } else {
+        sub_angle = ((float)tick_second / 60.0f) * tau - quarter;
+    }
+    draw_radial_hand(sub_cx, sub_cy, sub_angle, 0, 28, second, false);
+    draw_text_center_at(label, sub_cx, sub_cy - 4, text);
+    faculty175_display_flush();
+}
+
+static void draw_watch_status(faculty175_ui_state_t state, const char *detail, uint32_t anim_ms)
+{
+    faculty175_display_draw_pocketwatch(watch_complication_label(state, detail),
+                                        anim_ms,
+                                        state == FACULTY175_UI_BOOT || state == FACULTY175_UI_WIFI);
+}
+
+static void boot_watch_task(void *arg)
+{
+    (void)arg;
+    while (s_boot_watch_active) {
+        char detail[sizeof(s_boot_watch_detail)];
+        strncpy(detail, s_boot_watch_detail, sizeof(detail) - 1u);
+        detail[sizeof(detail) - 1u] = '\0';
+        faculty175_display_lock();
+        faculty175_display_draw_pocketwatch(detail,
+                                            (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS),
+                                            true);
+        faculty175_display_unlock();
+        vTaskDelay(pdMS_TO_TICKS(250));
+    }
+    s_boot_watch_task = NULL;
+    vTaskDelete(NULL);
 }
 
 static void faculty_display_name(const char *name, char *out, size_t cap)
@@ -1802,6 +2838,9 @@ void faculty175_display_fill_circle(int cx, int cy, int r, uint16_t color)
                 draw_pixel_safe(cx + x, cy + y, color);
             }
         }
+        if (((y + r) & 0x0f) == 0x0f) {
+            vTaskDelay(1);
+        }
     }
 }
 
@@ -1882,14 +2921,32 @@ static void draw_bezel_nav(void)
     const float step = full / (float)count;
     const float start0 = -0.5f * (float)M_PI - (step * 0.5f);
 
-    draw_bezel_ring(cx, cy, r, FACULTY175_BEZEL_INNER_R, base);
-    for (size_t i = 0; i < count; ++i) {
-        const float a = start0 + (float)i * step;
-        const int x0 = cx + (int)lroundf((float)(r - 4) * cosf(a));
-        const int y0 = cy + (int)lroundf((float)(r - 4) * sinf(a));
-        const int x1 = cx + (int)lroundf((float)r * cosf(a));
-        const int y1 = cy + (int)lroundf((float)r * sinf(a));
-        draw_line_safe(x0, y0, x1, y1, tick);
+    if (s_nav_mode) {
+        const int outer = r;
+        const int inner = r - 10;
+        const float seg_pad = step > 0.09f ? 0.006f : 0.0025f;
+        const uint16_t active_segment = rgb565(32, 166, 205);
+        const uint16_t active_core = rgb565(96, 232, 255);
+
+        draw_bezel_arc(cx, cy, outer, 0.0f, full, base);
+        draw_bezel_arc(cx, cy, inner, 0.0f, full, base);
+        const float active_a0 = start0 + (float)index * step + seg_pad;
+        const float active_a1 = start0 + (float)(index + 1) * step - seg_pad;
+        for (int rr = inner + 1; rr <= outer - 1; rr += 2) {
+            draw_bezel_arc(cx, cy, rr, active_a0, active_a1, active_segment);
+        }
+        draw_bezel_arc(cx, cy, outer - 1, active_a0 + seg_pad, active_a1 - seg_pad, active_core);
+        draw_bezel_arc(cx, cy, inner + 1, active_a0 + seg_pad, active_a1 - seg_pad, active_core);
+    } else {
+        draw_bezel_ring(cx, cy, r, FACULTY175_BEZEL_INNER_R, base);
+        for (size_t i = 0; i < count; ++i) {
+            const float a = start0 + (float)i * step;
+            const int x0 = cx + (int)lroundf((float)(r - 4) * cosf(a));
+            const int y0 = cy + (int)lroundf((float)(r - 4) * sinf(a));
+            const int x1 = cx + (int)lroundf((float)r * cosf(a));
+            const int y1 = cy + (int)lroundf((float)r * sinf(a));
+            draw_line_safe(x0, y0, x1, y1, tick);
+        }
     }
 
     const float pad = step > 0.09f ? 0.018f : 0.006f;
@@ -1897,12 +2954,14 @@ static void draw_bezel_nav(void)
     const float active_end = start0 + (float)(index + 1) * step - pad;
     const faculty175_face_desc_t *face = faculty175_faces_current();
     const bool vertical_nav = s_nav_mode || (face != NULL && face_supports_vertical_nav(face->id));
-    if (vertical_nav) {
+    if (!s_nav_mode && vertical_nav) {
         const float nav_pad = step > 0.09f ? 0.034f : 0.012f;
         draw_bezel_arc(cx, cy, r + 1, active_start + nav_pad, active_end - nav_pad, rgb565(84, 224, 255));
         draw_bezel_arc(cx, cy, r - 1, active_start + nav_pad, active_end - nav_pad, rgb565(178, 150, 255));
     }
-    draw_bezel_arc(cx, cy, r, active_start, active_end, active);
+    if (!s_nav_mode) {
+        draw_bezel_arc(cx, cy, r, active_start, active_end, active);
+    }
 
     if (face != NULL && face->label != NULL && face->label[0] != '\0') {
         faculty175_display_draw_bezel_label(face->label, false, FACULTY175_NAME_ARC_R, 0, rgb565(210, 218, 238));
@@ -2208,37 +3267,6 @@ static void draw_faculty_bottom_label(const char *faculty_slug)
     faculty175_display_draw_bezel_label(handle, true, FACULTY175_NAME_ARC_R, 0, rgb565(214, 224, 246));
 }
 
-static void draw_setup_banner(faculty175_ui_state_t state, const char *detail, uint16_t ring)
-{
-    const char *banner = "FACULTY";
-
-    switch (state) {
-        case FACULTY175_UI_BOOT:
-            banner = "BOOT";
-            break;
-        case FACULTY175_UI_WIFI:
-            banner = "WIFI";
-            break;
-        case FACULTY175_UI_THINK:
-            banner = "THINK";
-            break;
-        case FACULTY175_UI_SPEAK:
-            banner = "SPEAK";
-            break;
-        case FACULTY175_UI_ERROR:
-            banner = "ERROR";
-            break;
-        default:
-            return;
-    }
-
-    faculty175_display_fill_rect(0, 0, FACULTY175_LCD_W, 16, rgb565(10, 12, 20));
-    draw_centered_text(banner, 4, ring);
-    if (detail != NULL && detail[0] != '\0') {
-        draw_centered_text(detail, FACULTY175_LCD_H - 28, rgb565(120, 130, 150));
-    }
-}
-
 void faculty175_display_draw_status(faculty175_ui_state_t state,
                                     const char *faculty_name,
                                     const char *detail,
@@ -2247,6 +3275,16 @@ void faculty175_display_draw_status(faculty175_ui_state_t state,
                                     const uint8_t *waveform_stream,
                                     size_t waveform_len)
 {
+    if (state == FACULTY175_UI_BOOT || state == FACULTY175_UI_WIFI || state == FACULTY175_UI_ERROR ||
+        state == FACULTY175_UI_THINK || state == FACULTY175_UI_SPEAK) {
+        (void)faculty_name;
+        (void)waveform;
+        (void)waveform_stream;
+        (void)waveform_len;
+        draw_watch_status(state, detail, anim_ms);
+        return;
+    }
+
     const uint16_t bg = faculty175_ui_bg565();
     faculty175_display_fill_rgb565(bg);
 
@@ -2288,8 +3326,6 @@ void faculty175_display_draw_status(faculty175_ui_state_t state,
         const uint16_t wave_idle = rgb565(48, 210, 140);
         const uint16_t wave_stream = rgb565(255, 170, 90);
         draw_bezel_waveform(waveform, waveform_stream, waveform_len, wave_idle, wave_stream);
-    } else if (state != FACULTY175_UI_BOOT && state != FACULTY175_UI_LISTEN && state != FACULTY175_UI_CAPTURE) {
-        draw_setup_banner(state, detail, ring);
     }
     draw_faculty_bottom_label(faculty_slug);
 

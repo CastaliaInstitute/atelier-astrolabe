@@ -29,6 +29,13 @@ extern "C" {
 
 /** Shared I2C bus for AXP2101, ES7210, ES8311. */
 i2c_master_bus_handle_t faculty175_i2c_bus(void);
+bool faculty175_i2c_probe(uint8_t addr_7bit);
+esp_err_t faculty175_i2c_write(uint8_t addr_7bit, const uint8_t *data, size_t len);
+esp_err_t faculty175_i2c_write_read(uint8_t addr_7bit,
+                                    const uint8_t *wr,
+                                    size_t wr_len,
+                                    uint8_t *rd,
+                                    size_t rd_len);
 
 esp_err_t faculty175_board_init(void);
 bool faculty175_board_audio_ready(void);
@@ -64,6 +71,7 @@ size_t faculty175_display_frame_pixel_count(void);
 bool faculty175_display_frame_copy(uint16_t *out, size_t pixel_count);
 void faculty175_display_frame_compose_carousel(const uint16_t *from, const uint16_t *to, int shift_px);
 void faculty175_display_frame_compose_vertical(const uint16_t *from, const uint16_t *to, int shift_px);
+void faculty175_display_frame_compose_radial(const uint16_t *from, const uint16_t *to, int radius_px);
 void faculty175_display_frame_compose_nav_preview(const uint16_t *center,
                                                   const uint16_t *left,
                                                   const uint16_t *right,
@@ -86,6 +94,8 @@ void faculty175_display_draw_status(faculty175_ui_state_t state,
                                     const uint8_t *waveform,
                                     const uint8_t *waveform_stream,
                                     size_t waveform_len);
+void faculty175_display_draw_pocketwatch(const char *detail, uint32_t anim_ms, bool boot_mode);
+void faculty175_display_boot_progress(const char *detail, uint8_t step, uint8_t total, bool active);
 void faculty175_display_waveform_update(const uint8_t *waveform,
                                         const uint8_t *waveform_stream,
                                         size_t waveform_len,

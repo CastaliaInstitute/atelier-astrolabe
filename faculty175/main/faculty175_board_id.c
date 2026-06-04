@@ -5,7 +5,6 @@
 #include <string.h>
 
 #include "faculty175_log.h"
-#include "driver/i2c_master.h"
 #include "esp_chip_info.h"
 #include "esp_flash.h"
 #include "esp_log.h"
@@ -21,11 +20,7 @@ static faculty175_board_identity_t s_id;
 
 static bool i2c_has_device(uint8_t addr_7bit)
 {
-    i2c_master_bus_handle_t bus = faculty175_i2c_bus();
-    if (bus == NULL) {
-        return false;
-    }
-    return i2c_master_probe(bus, addr_7bit, 100) == ESP_OK;
+    return faculty175_i2c_probe(addr_7bit);
 }
 
 static uint32_t probe_flash_mb(void)
@@ -113,7 +108,7 @@ void faculty175_board_log_identity(void)
     s_id.tca9554 = i2c_has_device(0x20);
     s_id.es7210 = i2c_has_device(0x40);
     s_id.es8311 = i2c_has_device(0x18);
-    s_id.cst9217 = i2c_has_device(0x15);
+    s_id.cst9217 = i2c_has_device(0x5a);
     s_id.guess = guess_board(&s_id);
 
     const uint32_t cfg_mb = configured_flash_mb();

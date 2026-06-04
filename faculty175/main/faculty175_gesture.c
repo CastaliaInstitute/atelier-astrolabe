@@ -19,6 +19,8 @@ static const char *TAG = "faculty_gesture";
 #define GESTURE_TAP_MAX_PX 12
 #define GESTURE_TAP_MAX_MS 650
 #define GESTURE_LONG_TAP_MS 850
+#define GESTURE_LONG_TAP_MAX_PX 48
+#define GESTURE_CENTER_LONG_TAP_MAX_R 150
 #define GESTURE_POLL_MS 16
 #define GESTURE_QUEUE_DEPTH 8
 #define GESTURE_TASK_PRIO 5
@@ -155,6 +157,12 @@ static bool point_on_bezel(int16_t x, int16_t y)
     return r2 >= (int32_t)BEZEL_MIN_R * BEZEL_MIN_R && r2 <= (int32_t)BEZEL_MAX_R * BEZEL_MAX_R;
 }
 
+static bool point_in_center_long_tap_zone(int16_t x, int16_t y)
+{
+    const int32_t r2 = point_radius_sq(x, y);
+    return r2 <= (int32_t)GESTURE_CENTER_LONG_TAP_MAX_R * GESTURE_CENTER_LONG_TAP_MAX_R;
+}
+
 static float bezel_angle(int16_t x, int16_t y)
 {
     return atan2f((float)y - (float)(FACULTY175_LCD_H / 2), (float)x - (float)(FACULTY175_LCD_W / 2));
@@ -235,6 +243,10 @@ static void try_swipe(uint32_t now_ms, int16_t cx, int16_t cy)
     if (!s_down || s_swipe_fired || s_long_tap_fired) {
         return;
     }
+    if ((now_ms - s_t_down) >= GESTURE_LONG_TAP_MS &&
+        s_madx <= GESTURE_LONG_TAP_MAX_PX && s_mady <= GESTURE_LONG_TAP_MAX_PX) {
+        return;
+    }
     if ((now_ms - s_t_down) > GESTURE_SWIPE_MAX_MS) {
         return;
     }
@@ -246,22 +258,33 @@ static void try_swipe(uint32_t now_ms, int16_t cx, int16_t cy)
 
 static void try_long_tap(uint32_t now_ms, int16_t cx, int16_t cy)
 {
-    if (!s_down || s_swipe_fired || s_long_tap_fired) {
+    if (!s_down || s_long_tap_fired) {
         return;
     }
     if ((now_ms - s_t_down) < GESTURE_LONG_TAP_MS) {
         return;
     }
-    if (s_madx > GESTURE_TAP_MAX_PX || s_mady > GESTURE_TAP_MAX_PX) {
+    if (s_madx > GESTURE_LONG_TAP_MAX_PX || s_mady > GESTURE_LONG_TAP_MAX_PX) {
+        return;
+    }
+    if (!point_in_center_long_tap_zone(s_x0, s_y0)) {
         return;
     }
     queue_gesture(FACULTY175_GESTURE_LONG_TAP, cx, cy, 0);
     s_long_tap_fired = true;
-    FACULTY175_LOG_STAGE(TAG, "gesture", "long tap");
+    FACULTY175_LOG_STAGE(TAG, "gesture", "center long tap");
 }
 
 static void on_release(uint32_t now_ms, int16_t cx, int16_t cy)
 {
+    if (!s_long_tap_fired && (now_ms - s_t_down) >= GESTURE_LONG_TAP_MS &&
+        s_madx <= GESTURE_LONG_TAP_MAX_PX && s_mady <= GESTURE_LONG_TAP_MAX_PX &&
+        point_in_center_long_tap_zone(s_x0, s_y0)) {
+        queue_gesture(FACULTY175_GESTURE_LONG_TAP, cx, cy, 0);
+        s_long_tap_fired = true;
+        FACULTY175_LOG_STAGE(TAG, "gesture", "center long tap release");
+        return;
+    }
     if (s_bezel_down) {
         if (!s_swipe_fired && !s_long_tap_fired && (now_ms - s_t_down) <= BEZEL_TAP_MAX_MS &&
             s_madx <= BEZEL_TAP_MAX_PX && s_mady <= BEZEL_TAP_MAX_PX) {
@@ -391,15 +414,15 @@ void faculty175_gesture_start_task(void)
     if (s_task != NULL) {
         return;
     }
-    if (!faculty175_touch_ready()) {
-        ESP_LOGI(TAG, "touch absent — gesture task skipped");
-        return;
-    }
     if (s_queue == NULL) {
         s_queue = xQueueCreate(GESTURE_QUEUE_DEPTH, sizeof(faculty175_gesture_t));
     }
     if (s_queue == NULL) {
         ESP_LOGE(TAG, "gesture queue alloc failed");
+        return;
+    }
+    if (!faculty175_touch_ready()) {
+        ESP_LOGI(TAG, "touch absent — gesture queue ready for synthetic input");
         return;
     }
     if (xTaskCreatePinnedToCore(gesture_task, "gesture", GESTURE_TASK_STACK, NULL,

@@ -53,6 +53,7 @@ void faculty175_face_hid_draw(uint32_t anim_ms);
 void faculty175_face_babel_draw(uint32_t anim_ms);
 void faculty175_face_deathstar_draw(uint32_t anim_ms);
 void faculty175_face_settings_draw(uint32_t anim_ms);
+void faculty175_face_pocketwatch_draw(uint32_t anim_ms);
 
 bool faculty175_face_dispatch_draw(faculty175_face_id_t id, uint32_t anim_ms)
 {
@@ -107,6 +108,7 @@ bool faculty175_face_dispatch_draw(faculty175_face_id_t id, uint32_t anim_ms)
         case FACULTY175_FACE_BABEL: faculty175_face_babel_draw(anim_ms); return true;
         case FACULTY175_FACE_DEATHSTAR: faculty175_face_deathstar_draw(anim_ms); return true;
         case FACULTY175_FACE_SETTINGS: faculty175_face_settings_draw(anim_ms); return true;
+        case FACULTY175_FACE_POCKETWATCH: faculty175_face_pocketwatch_draw(anim_ms); return true;
         case FACULTY175_FACE_FACULTY:
         case FACULTY175_FACE_COUNT:
         default:

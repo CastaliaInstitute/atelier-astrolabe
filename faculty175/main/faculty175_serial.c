@@ -2,11 +2,14 @@
 
 #include <ctype.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <fcntl.h>
 
 #include "esp_log.h"
+#include "driver/gpio.h"
+#include "driver/i2c_master.h"
 #include "driver/usb_serial_jtag.h"
 #include "driver/usb_serial_jtag_vfs.h"
 #include "freertos/FreeRTOS.h"
@@ -23,6 +26,7 @@
 #include "faculty175_gesture.h"
 #include "faculty175_qa.h"
 #include "faculty175_ota.h"
+#include "faculty175_pocketwatch.h"
 #include "faculty175_pmu.h"
 #include "faculty175_touch.h"
 
@@ -153,6 +157,127 @@ static bool handle_touch_command(const char *line)
     printf("touch commands:\n");
     printf("  touch status\n");
     printf("  touch sample [ms]\n");
+    fflush(stdout);
+    return true;
+}
+
+static bool handle_i2c_command(const char *line)
+{
+    if (line == NULL || (strcasecmp(line, "i2c scan") != 0 && strcasecmp(line, "i2c lines") != 0 &&
+                         strcasecmp(line, "i2c drive") != 0 && strcasecmp(line, "i2c try") != 0)) {
+        return false;
+    }
+
+    if (strcasecmp(line, "i2c lines") == 0) {
+        printf("i2c: lines sda15=%d scl14=%d tp_int11=%d tp_rst2=%d gpio10=%d gpio41=%d gpio42=%d\n",
+               gpio_get_level(GPIO_NUM_15),
+               gpio_get_level(GPIO_NUM_14),
+               gpio_get_level(GPIO_NUM_11),
+               gpio_get_level(GPIO_NUM_2),
+               gpio_get_level(GPIO_NUM_10),
+               gpio_get_level(GPIO_NUM_41),
+               gpio_get_level(GPIO_NUM_42));
+        fflush(stdout);
+        return true;
+    }
+
+    if (strcasecmp(line, "i2c drive") == 0) {
+        printf("i2c: drive input sda15=%d scl14=%d\n", gpio_get_level(GPIO_NUM_15), gpio_get_level(GPIO_NUM_14));
+        const gpio_config_t out = {
+            .pin_bit_mask = (1ULL << GPIO_NUM_15) | (1ULL << GPIO_NUM_14),
+            .mode = GPIO_MODE_OUTPUT,
+            .pull_up_en = GPIO_PULLUP_DISABLE,
+            .pull_down_en = GPIO_PULLDOWN_DISABLE,
+            .intr_type = GPIO_INTR_DISABLE,
+        };
+        (void)gpio_config(&out);
+        (void)gpio_set_level(GPIO_NUM_15, 1);
+        (void)gpio_set_level(GPIO_NUM_14, 1);
+        vTaskDelay(pdMS_TO_TICKS(20));
+        printf("i2c: drive high sda15=%d scl14=%d\n", gpio_get_level(GPIO_NUM_15), gpio_get_level(GPIO_NUM_14));
+        (void)gpio_set_level(GPIO_NUM_15, 0);
+        (void)gpio_set_level(GPIO_NUM_14, 0);
+        vTaskDelay(pdMS_TO_TICKS(20));
+        printf("i2c: drive low sda15=%d scl14=%d\n", gpio_get_level(GPIO_NUM_15), gpio_get_level(GPIO_NUM_14));
+        const gpio_config_t in = {
+            .pin_bit_mask = (1ULL << GPIO_NUM_15) | (1ULL << GPIO_NUM_14),
+            .mode = GPIO_MODE_INPUT,
+            .pull_up_en = GPIO_PULLUP_ENABLE,
+            .pull_down_en = GPIO_PULLDOWN_DISABLE,
+            .intr_type = GPIO_INTR_DISABLE,
+        };
+        (void)gpio_config(&in);
+        vTaskDelay(pdMS_TO_TICKS(20));
+        printf("i2c: drive release sda15=%d scl14=%d\n", gpio_get_level(GPIO_NUM_15), gpio_get_level(GPIO_NUM_14));
+        fflush(stdout);
+        return true;
+    }
+
+    if (strcasecmp(line, "i2c try") == 0) {
+        const struct {
+            gpio_num_t sda;
+            gpio_num_t scl;
+        } pairs[] = {
+            {GPIO_NUM_15, GPIO_NUM_14},
+            {GPIO_NUM_14, GPIO_NUM_15},
+            {GPIO_NUM_10, GPIO_NUM_11},
+            {GPIO_NUM_11, GPIO_NUM_10},
+            {GPIO_NUM_41, GPIO_NUM_42},
+            {GPIO_NUM_42, GPIO_NUM_41},
+            {GPIO_NUM_17, GPIO_NUM_18},
+            {GPIO_NUM_18, GPIO_NUM_17},
+        };
+        printf("i2c: try begin\n");
+        for (size_t i = 0; i < sizeof(pairs) / sizeof(pairs[0]); ++i) {
+            i2c_master_bus_handle_t try_bus = NULL;
+            const i2c_master_bus_config_t cfg = {
+                .i2c_port = I2C_NUM_1,
+                .sda_io_num = pairs[i].sda,
+                .scl_io_num = pairs[i].scl,
+                .clk_source = I2C_CLK_SRC_DEFAULT,
+                .glitch_ignore_cnt = 7,
+                .flags = {
+                    .enable_internal_pullup = true,
+                },
+            };
+            if (i2c_new_master_bus(&cfg, &try_bus) != ESP_OK || try_bus == NULL) {
+                printf("i2c: try sda=%d scl=%d bus-fail\n", (int)pairs[i].sda, (int)pairs[i].scl);
+                continue;
+            }
+            unsigned found = 0;
+            for (uint8_t addr = 0x08; addr < 0x78; ++addr) {
+                if (i2c_master_probe(try_bus, addr, 12) == ESP_OK) {
+                    printf("i2c: try sda=%d scl=%d addr=0x%02x\n", (int)pairs[i].sda, (int)pairs[i].scl, addr);
+                    ++found;
+                }
+                vTaskDelay(pdMS_TO_TICKS(1));
+            }
+            printf("i2c: try sda=%d scl=%d found=%u\n", (int)pairs[i].sda, (int)pairs[i].scl, found);
+            (void)i2c_del_master_bus(try_bus);
+            vTaskDelay(pdMS_TO_TICKS(20));
+        }
+        printf("i2c: try end\n");
+        fflush(stdout);
+        return true;
+    }
+
+    i2c_master_bus_handle_t bus = faculty175_i2c_bus();
+    if (bus == NULL) {
+        printf("i2c: bus unavailable\n");
+        fflush(stdout);
+        return true;
+    }
+
+    printf("i2c: scan begin\n");
+    unsigned found = 0;
+    for (uint8_t addr = 0x08; addr < 0x78; ++addr) {
+        if (i2c_master_probe(bus, addr, 20) == ESP_OK) {
+            printf("i2c: addr=0x%02x\n", addr);
+            ++found;
+        }
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
+    printf("i2c: scan end found=%u\n", found);
     fflush(stdout);
     return true;
 }
@@ -375,8 +500,26 @@ static bool handle_time_command(const char *line)
         fflush(stdout);
         return true;
     }
+    if (strncasecmp(sub, "set ", 4) == 0 || strncasecmp(sub, "epoch ", 6) == 0) {
+        const char *epoch_str = strncasecmp(sub, "set ", 4) == 0 ? sub + 4 : sub + 6;
+        while (*epoch_str == ' ') {
+            ++epoch_str;
+        }
+        char *end = NULL;
+        const long long epoch_ll = strtoll(epoch_str, &end, 10);
+        while (end != NULL && *end == ' ') {
+            ++end;
+        }
+        const esp_err_t err = (epoch_str[0] != '\0' && end != NULL && *end == '\0')
+                                  ? astrolabe_time_set_epoch((time_t)epoch_ll)
+                                  : ESP_ERR_INVALID_ARG;
+        printf("time: set epoch=%lld %s\n", epoch_ll, esp_err_to_name(err));
+        print_time_status();
+        return true;
+    }
     printf("time commands:\n");
     printf("  time\n");
+    printf("  time set <unix_epoch>\n");
     printf("  time tz\n");
     printf("  time tz <POSIX_TZ>\n");
     fflush(stdout);
@@ -434,6 +577,10 @@ static void handle_line(char *line)
         return;
     }
 
+    if (faculty175_pocketwatch_handle(line)) {
+        return;
+    }
+
     if (faculty175_charts_handle(line)) {
         return;
     }
@@ -446,6 +593,10 @@ static void handle_line(char *line)
         return;
     }
 
+    if (handle_i2c_command(line)) {
+        return;
+    }
+
     if (handle_touch_command(line)) {
         return;
     }
@@ -455,7 +606,7 @@ static void handle_line(char *line)
     }
 
     if (strcasecmp(line, "help") == 0 || strcasecmp(line, "?") == 0) {
-        printf("serial: screen | face screen | gesture help | button press | time | power | ble status | qa help | device help | ota help | faces help | charts help | almanac help | touch status\n");
+        printf("serial: screen | face screen | gesture help | button press | time | watch status | power | i2c scan | ble status | qa help | device help | ota help | faces help | charts help | almanac help | touch status\n");
         (void)faculty175_qa_handle("qa help");
         return;
     }
