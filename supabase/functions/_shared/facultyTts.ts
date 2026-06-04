@@ -46,6 +46,18 @@ export const FACULTY_CHIRP3_DEFAULTS: Record<string, FacultyTtsConfig> = {
     prompt:
       "Speak as Alan Turing: thoughtful, precise British intellect. Slightly reserved, logical, concise.",
   },
+  "a.hesse": {
+    languageCode: "en-US",
+    name: "en-US-Chirp3-HD-Orus",
+    prompt:
+      "Speak as Hermann Hesse: contemplative literary mystic. Gentle, inward, warm cadence with quiet spiritual clarity.",
+  },
+  "hermann-hesse": {
+    languageCode: "en-US",
+    name: "en-US-Chirp3-HD-Orus",
+    prompt:
+      "Speak as Hermann Hesse: contemplative literary mystic. Gentle, inward, warm cadence with quiet spiritual clarity.",
+  },
   "a.campbell": {
     languageCode: "en-US",
     name: "en-US-Chirp3-HD-Puck",
@@ -101,7 +113,9 @@ export function languageFromVoiceName(name: string): string {
   return `${m[1].toLowerCase()}-${m[2].toUpperCase()}`;
 }
 
-export function facultyTtsFallback(slugRaw: string): FacultyTtsConfig | undefined {
+export function facultyTtsFallback(
+  slugRaw: string,
+): FacultyTtsConfig | undefined {
   const slug = slugRaw.trim().toLowerCase();
   if (!slug) return undefined;
   if (FACULTY_CHIRP3_DEFAULTS[slug]) return FACULTY_CHIRP3_DEFAULTS[slug];
@@ -121,22 +135,18 @@ export function facultyTtsFromRow(
   row: Record<string, unknown> | null | undefined,
   slugRaw?: string,
 ): FacultyTtsConfig {
-  const slug = stringField(row?.id) || stringField(row?.slug) || stringField(slugRaw);
+  const slug = stringField(row?.id) || stringField(row?.slug) ||
+    stringField(slugRaw);
   const fallback = facultyTtsFallback(slug) ?? DEFAULT_CHIRP3_TTS;
 
-  const name =
-    stringField(row?.google_tts_voice_name) ||
+  const name = stringField(row?.google_tts_voice_name) ||
     stringField(row?.tts_voice_name) ||
     fallback.name;
-  let languageCode =
-    stringField(row?.google_tts_language_code) ||
+  let languageCode = stringField(row?.google_tts_language_code) ||
     stringField(row?.tts_language_code) ||
     fallback.languageCode;
-  if (isChirp3VoiceName(name)) {
-    languageCode = languageFromVoiceName(name);
-  }
-  const prompt =
-    stringField(row?.google_tts_prompt) ||
+  languageCode = languageFromVoiceName(name);
+  const prompt = stringField(row?.google_tts_prompt) ||
     stringField(row?.tts_prompt) ||
     fallback.prompt;
 

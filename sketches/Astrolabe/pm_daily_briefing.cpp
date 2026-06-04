@@ -58,6 +58,7 @@ bool pm_daily_briefing_build_device_facts(char *out, size_t cap) {
     append_section(out, cap, &off, "FLASH UPDATE", flash);
   }
 
+#if !defined(ASTROLABE_FORCE_VARIANT_CAMEO)
   char astro_msg[2200];
   if (pm_face_astrology_build_voice_message(astro_msg, sizeof(astro_msg))) {
     append_section(out, cap, &off, "ASTROLOGY", astro_msg);
@@ -72,6 +73,7 @@ bool pm_daily_briefing_build_device_facts(char *out, size_t cap) {
   if (pm_face_moon_build_fortune_message(moon_msg, sizeof(moon_msg))) {
     append_section(out, cap, &off, "MOON", moon_msg);
   }
+#endif
 
   return off > 0 || out[0] != '\0';
 }

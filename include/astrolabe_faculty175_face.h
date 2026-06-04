@@ -18,7 +18,7 @@
     "Route to ask-faculty when they address a faculty member by name. " \
     "Keep answers concise and spoken aloud (under 25 seconds)."
 
-/* Aliases for shared atom_* sources (same contract as astrolabe_faculty_face.h). */
+/* Aliases for shared faculty face contract names. */
 #define ASTROLABE_FACULTY_FACE_NAME ASTROLABE_FACULTY175_FACE_NAME
 #define ASTROLABE_FACULTY_OTA_CHANNEL ASTROLABE_FACULTY175_OTA_CHANNEL
 #define ASTROLABE_FACULTY_DEFAULT_FACULTY_SLUG ASTROLABE_FACULTY175_DEFAULT_FACULTY_SLUG

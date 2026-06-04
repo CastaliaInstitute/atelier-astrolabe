@@ -177,10 +177,17 @@ static esp_err_t atom_i2s_read_mono(int16_t *samples, size_t sample_count, size_
     const size_t stereo_samples = bytes_want / sizeof(int16_t);
     const size_t frames = stereo_samples / 2;
     const size_t out_frames = frames < sample_count ? frames : sample_count;
+    uint64_t left_energy = 0;
+    uint64_t right_energy = 0;
     for (size_t i = 0; i < out_frames; ++i) {
         const int32_t left = stereo[i * 2];
         const int32_t right = stereo[i * 2 + 1];
-        samples[i] = (int16_t)(sample_abs((int16_t)right) > sample_abs((int16_t)left) ? right : left);
+        left_energy += (uint64_t)(left * left);
+        right_energy += (uint64_t)(right * right);
+    }
+    const size_t slot = right_energy > left_energy ? 1 : 0;
+    for (size_t i = 0; i < out_frames; ++i) {
+        samples[i] = stereo[i * 2 + slot];
     }
     free(stereo);
 

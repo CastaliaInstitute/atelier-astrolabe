@@ -403,6 +403,14 @@ def run_face(
     for ln in status_lines:
         if ln.startswith("qa: face="):
             m = ln
+    if not m:
+        late_status = ser.collect(1.0)
+        absorb(late_status)
+        err = err or ser.check_crashes(late_status)
+        for ln in late_status:
+            if ln.startswith("qa: face="):
+                m = ln
+                break
     if err:
         step("qa_status", False, err)
     elif not m:

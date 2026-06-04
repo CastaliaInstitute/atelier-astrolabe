@@ -39,6 +39,10 @@ int32_t faculty175_board_mic_probe_peak(void);
 void faculty175_board_set_backlight(uint8_t percent);
 
 esp_err_t faculty175_audio_read(int16_t *samples, size_t sample_count, size_t *out_read, uint32_t timeout_ms);
+esp_err_t faculty175_audio_read_tdm_raw(int16_t *samples,
+                                        size_t frame_count,
+                                        size_t *out_frames,
+                                        uint32_t timeout_ms);
 esp_err_t faculty175_audio_write_pcm(const int16_t *samples, size_t sample_count, uint32_t timeout_ms);
 esp_err_t faculty175_audio_set_sample_rate(uint32_t hz);
 void faculty175_audio_set_speaker_mute(bool mute);
@@ -46,6 +50,14 @@ void faculty175_audio_set_speaker_mute(bool mute);
 void faculty175_display_fill_rgb565(uint16_t color);
 void faculty175_display_fill_rect(int x, int y, int w, int h, uint16_t color);
 void faculty175_display_draw_rgb565(const uint16_t *pixels, int x, int y, int w, int h);
+void faculty175_display_draw_pixel(int x, int y, uint16_t color);
+void faculty175_display_draw_line(int x0, int y0, int x1, int y1, uint16_t color);
+void faculty175_display_draw_circle(int cx, int cy, int r, uint16_t color);
+void faculty175_display_fill_circle(int cx, int cy, int r, uint16_t color);
+void faculty175_display_draw_text(const char *text, int x, int y, uint16_t color);
+void faculty175_display_draw_centered_text(const char *text, int y, uint16_t color);
+void faculty175_display_draw_bezel_label(const char *text, bool bottom, int radius, uint32_t scroll_ms, uint16_t color);
+void faculty175_display_flush(void);
 uint16_t faculty175_display_pack_rgb888(uint8_t r, uint8_t g, uint8_t b);
 uint16_t faculty175_display_fb_from_logical565(uint16_t logical565);
 uint16_t faculty175_display_rgb888(uint8_t r, uint8_t g, uint8_t b);
@@ -63,6 +75,14 @@ void faculty175_display_draw_status(faculty175_ui_state_t state,
                                     const uint8_t *waveform,
                                     const uint8_t *waveform_stream,
                                     size_t waveform_len);
+void faculty175_display_waveform_update(const uint8_t *waveform,
+                                        const uint8_t *waveform_stream,
+                                        size_t waveform_len,
+                                        bool visible);
+void faculty175_display_nav_mode_set(bool enabled);
+void faculty175_display_touch_visual_update(int16_t x, int16_t y, bool down, uint32_t now_ms);
+void faculty175_display_lock(void);
+void faculty175_display_unlock(void);
 size_t faculty175_display_bmp_size(void);
 int faculty175_display_write_bmp(FILE *out);
 

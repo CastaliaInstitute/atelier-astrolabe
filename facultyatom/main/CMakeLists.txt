@@ -10,6 +10,7 @@ idf_component_register(
         "main.c"
         "atom_board.c"
         "atom_serial.c"
+        "atom_ota.c"
         "atom_qa.c"
         "atom_faculty.c"
         "atom_faculty_png.cpp"
@@ -24,11 +25,14 @@ idf_component_register(
         esp_netif
         esp-tls
         esp_wifi
+        app_update
+        json
         minimp3
         nvs_flash
         mbedtls
         esp_new_jpeg
         astrolabe_audio_pipeline
+        astrolabe_time
 )
 
 target_compile_definitions(${COMPONENT_LIB} PRIVATE __LINUX__ PNG_MAX_BUFFERED_PIXELS=8194)

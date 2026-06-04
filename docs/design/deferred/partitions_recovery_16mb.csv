@@ -1,0 +1,15 @@
+# Astrolabe recovery OTA draft - 16 MB external flash.
+# Stable ABI: do not resize partitions in OTA; factory reflash required.
+# Factory app is recovery/updater only. Product firmware lives in ota_0/ota_1.
+# Name,        Type, SubType,  Offset,   Size,     Flags
+nvs,           data, nvs,      0x9000,   0x5000,
+otadata,       data, ota,      0xe000,   0x2000,
+phy_init,      data, phy,      0x10000,  0x1000,
+factory,       app,  factory,  0x20000,  0x100000,
+ota_0,         app,  ota_0,    0x120000, 0x330000,
+ota_1,         app,  ota_1,    ,         0x330000,
+faces_a,       data, spiffs,   ,         0x200000,
+faces_b,       data, spiffs,   ,         0x200000,
+assets,        data, spiffs,   ,         0x200000,
+commonplace,   data, fat,      ,         0x100000,
+crashlog,      data, fat,      ,         0x40000,

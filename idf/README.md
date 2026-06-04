@@ -1,9 +1,14 @@
-# Astrolabe ESP-IDF Port
+# Astrolabe ESP-IDF Framework
 
-This directory is the opt-in ESP-IDF build path for the Astrolabe firmware. It
-keeps Arduino as an IDF component for the first migration stage, so the existing
-`sketches/Astrolabe` behavior can be preserved while subsystems move to native
-IDF APIs.
+This directory is the ESP-IDF migration path for the Astrolabe framework. The
+target architecture is IDF centric: partitioning, OTA/recovery, networking,
+storage, audio, USB, task ownership, and heap policy should be native IDF.
+
+Arduino may remain as an IDF component during migration so existing
+`sketches/Astrolabe` behavior can be preserved, but it is a compatibility layer,
+not the architecture. New platform services should be written as IDF components
+with narrow C/C++ interfaces that Arduino-era faces can call while they are
+ported.
 
 ## Build
 
@@ -22,19 +27,43 @@ The IDF CMake project imports Arduino library sources from
 ```
 
 Current status: this path configures, resolves Arduino as an IDF component, and
-gets into app compilation. It is still opt-in; the PlatformIO build remains the
-release/flash baseline while the remaining IDF compile blockers are retired.
+gets into app compilation. The old PlatformIO build remains useful for comparing
+behavior during migration, but recovery OTA and future factory layouts should be
+implemented on native ESP-IDF first.
+
+## Heap Policy
+
+Internal RAM is the scarce resource. Framework components must make allocation
+behavior explicit:
+
+- use `heap_caps_*` directly or through small project wrappers;
+- put framebuffers, decoded assets, response bodies, logs, and audio payloads in
+  PSRAM when available;
+- reserve internal RAM for DMA, TLS, task stacks, interrupt paths, and control
+  structures;
+- expose preflight checks based on both free internal heap and largest free
+  internal block before TLS or image decode;
+- serialize heavy network/TLS operations on low-memory devices;
+- provide explicit teardown for display, audio, BLE, HTTP, and face modules;
+- log heap deferrals with the subsystem name, free internal heap, largest block,
+  and PSRAM free bytes.
+
+The recovery app should be the strictest user of this policy: it should boot
+cleanly, run one bounded update state machine, stream images to flash, and avoid
+optional services while TLS is active.
 
 ## Migration Order
 
-1. Keep `pio run -e waveshare_s3_175` as the release/flash baseline.
-2. Make this IDF build compile with Arduino compatibility enabled.
+1. Make the IDF build compile with Arduino compatibility enabled.
+2. Build the factory recovery app as native IDF with `esp_ota_ops`,
+   `esp_https_ota` / `esp_http_client`, `esp_partition`, and rollback.
 3. Move storage from `Preferences` to `nvs_flash` wrappers.
 4. Move WiFi/HTTP/WebServer clients to `esp_wifi`, `esp_http_client`, and
    `esp_https_server`/`esp_http_server`.
 5. Move audio, I2S, and USB/UAC to native IDF components.
-6. Decide whether display/touch stay on Arduino libraries or move to
-   `esp_lcd`/LVGL after behavior is stable.
+6. Move display/touch toward `esp_lcd`/LVGL or thin native board drivers.
+7. Retire Arduino shims from product apps once the face/runtime surfaces are
+   native IDF.
 
 Device QA remains the gate: boot, display, touch/swipes, WiFi settings, TTS,
 face tour, and USB/JTAG behavior must pass before switching the default build.

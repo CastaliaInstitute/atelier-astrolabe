@@ -140,7 +140,7 @@ static uint8_t g_text_voice_route = k_tv_none;
 static bool g_calcifer_briefing = false;
 /** Home / first-run: full daily LLM+TTS briefing (schedule + sky). */
 static bool g_daily_briefing = false;
-static bool s_daily_brief_auto_armed = false;
+static uint32_t s_daily_brief_next_try_ms = 0;
 static bool s_face_tour_active = false;
 static int s_face_tour_idx = 0;
 static uint32_t s_face_tour_last_ms = 0;
@@ -403,6 +403,11 @@ static bool home_begin_daily_briefing(void) {
     snprintf(g_gesture_banner, sizeof(g_gesture_banner), "brief: need time");
     return false;
   }
+  pm_faculty_release_bust_cache();
+  if (!pm_heap_briefing_ready("briefing")) {
+    snprintf(g_gesture_banner, sizeof(g_gesture_banner), "brief: low heap");
+    return false;
+  }
   if (g_state != AppState::kClock) {
     gesture_end_voice_ui();
   }
@@ -433,6 +438,15 @@ static bool home_begin_daily_briefing(void) {
     pm_face_home_briefing_draw_thinking(0.f);
   }
   return true;
+}
+
+static void daily_briefing_mark_success(void) {
+  if (!pm_time_valid()) {
+    return;
+  }
+  struct tm tm_now = {};
+  pm_time_local(&tm_now);
+  pm_daily_briefing_mark_played(&tm_now);
 }
 
 static bool gesture_cycle_face(int delta) {
@@ -2735,6 +2749,7 @@ void loop() {
   face_tour_tick(now);
   handle_usb_audio_stream_event();
   const uint8_t side_ev = pm_side_buttons_poll(now);
+  const bool qa_boot = (side_ev & PM_SIDE_BTN_BOOT) && pm_qa_consume_injected_boot();
   if (side_ev != 0 || pm_gesture_touch_down()) {
     pm_power_note_activity(now);
   }
@@ -2763,6 +2778,7 @@ void loop() {
 
   PmGestureEvent ge;
   while (pm_gesture_consume(&ge)) {
+    const bool qa_gesture = pm_qa_consume_injected_gesture();
     if (g_state == AppState::kClock && ge.kind == PmGestureKind::DoubleTap) {
       if (pm_faces_navigation_mode()) {
         pm_faces_set_navigation_mode(false);
@@ -2798,6 +2814,11 @@ void loop() {
     }
     if (g_state == AppState::kClock && pm_faces_is_commonplace_home() &&
         ge.kind == PmGestureKind::Tap) {
+      if (qa_gesture) {
+        snprintf(g_gesture_banner, sizeof(g_gesture_banner), "qa tap");
+        g_clock_repaint_pending = true;
+        continue;
+      }
       if (home_begin_daily_briefing()) {
         g_gesture_banner[0] = '\0';
         g_clock_repaint_pending = false;
@@ -2972,6 +2993,11 @@ void loop() {
       continue;
     } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Synastry &&
                ge.kind == PmGestureKind::Tap) {
+      if (qa_gesture) {
+        snprintf(g_gesture_banner, sizeof(g_gesture_banner), "qa tap");
+        g_clock_repaint_pending = true;
+        continue;
+      }
       if (synastry_begin_boot_reading()) {
         g_gesture_banner[0] = '\0';
       }
@@ -3094,7 +3120,6 @@ void loop() {
       PmFacultyProfile faculty = {};
       if (pm_faculty_cycle_active(ge.kind == PmGestureKind::SwipeUp ? 1 : -1, &faculty)) {
         snprintf(g_gesture_banner, sizeof(g_gesture_banner), "faculty: %.25s", faculty.name);
-        (void)pm_faculty_tick_bust_fetch();
       } else {
         snprintf(g_gesture_banner, sizeof(g_gesture_banner), "faculty: no recents");
       }
@@ -3102,18 +3127,33 @@ void loop() {
       continue;
     } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Moon &&
                ge.kind == PmGestureKind::Tap) {
+      if (qa_gesture) {
+        snprintf(g_gesture_banner, sizeof(g_gesture_banner), "qa tap");
+        g_clock_repaint_pending = true;
+        continue;
+      }
       if (moon_begin_fortune()) {
         g_gesture_banner[0] = '\0';
       }
       g_clock_repaint_pending = true;
     } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Runes &&
                ge.kind == PmGestureKind::Tap) {
+      if (qa_gesture) {
+        snprintf(g_gesture_banner, sizeof(g_gesture_banner), "qa tap");
+        g_clock_repaint_pending = true;
+        continue;
+      }
       if (runes_begin_fortune()) {
         g_gesture_banner[0] = '\0';
       }
       g_clock_repaint_pending = true;
     } else if (g_state == AppState::kClock && pm_faces_current() == ClockFace::QuestionOfDay &&
                ge.kind == PmGestureKind::Tap) {
+      if (qa_gesture) {
+        snprintf(g_gesture_banner, sizeof(g_gesture_banner), "qa tap");
+        g_clock_repaint_pending = true;
+        continue;
+      }
       if (question_day_begin_fetch()) {
         g_gesture_banner[0] = '\0';
       }
@@ -3211,7 +3251,10 @@ void loop() {
 
   if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Astrology &&
       (side_ev & PM_SIDE_BTN_BOOT) != 0) {
-    if (!voice_last_play_begin()) {
+    if (qa_boot) {
+      snprintf(g_gesture_banner, sizeof(g_gesture_banner), "qa boot");
+      g_clock_repaint_pending = true;
+    } else if (!voice_last_play_begin()) {
       if (astrology_begin_boot_reading()) {
         g_gesture_banner[0] = '\0';
       }
@@ -3221,7 +3264,10 @@ void loop() {
 
   if (g_state == AppState::kClock && pm_faces_current() == ClockFace::Synastry &&
       (side_ev & PM_SIDE_BTN_BOOT) != 0) {
-    if (!voice_last_play_begin()) {
+    if (qa_boot) {
+      snprintf(g_gesture_banner, sizeof(g_gesture_banner), "qa boot");
+      g_clock_repaint_pending = true;
+    } else if (!voice_last_play_begin()) {
       if (synastry_begin_boot_reading()) {
         g_gesture_banner[0] = '\0';
       }
@@ -3231,7 +3277,9 @@ void loop() {
 
   if (g_state == AppState::kClock && pm_faces_current() == ClockFace::QuestionOfDay &&
       (side_ev & PM_SIDE_BTN_BOOT) != 0) {
-    if (question_day_begin_fetch()) {
+    if (qa_boot) {
+      snprintf(g_gesture_banner, sizeof(g_gesture_banner), "qa boot");
+    } else if (question_day_begin_fetch()) {
       g_gesture_banner[0] = '\0';
     }
     g_clock_repaint_pending = true;
@@ -3261,7 +3309,10 @@ void loop() {
       pm_face_biometrics_reveal();
       g_clock_repaint_pending = true;
     }
-    if (voice_last_play_begin()) {
+    if (qa_boot) {
+      snprintf(g_gesture_banner, sizeof(g_gesture_banner), "qa boot");
+      g_clock_repaint_pending = true;
+    } else if (voice_last_play_begin()) {
       /* BOOT replay last TTS */
     } else {
       if (pm_wifi_connected() && (now - s_last_clock_boot_brief_ms >= 3500u)) {
@@ -3655,11 +3706,19 @@ void loop() {
         }
       }
 
-      if (wifi && valid && !s_face_tour_active && s_clock_paint_inited && !s_daily_brief_auto_armed &&
+      if (wifi && valid && !s_face_tour_active && s_clock_paint_inited && g_state == AppState::kClock &&
+          now >= MYNAH_DAILY_BRIEFING_BOOT_GRACE_MS && now >= s_daily_brief_next_try_ms &&
           pm_daily_briefing_should_auto_play(&tm_now)) {
-        s_daily_brief_auto_armed = true;
+#if defined(ASTROLABE_FORCE_FACULTY_HOME) && ASTROLABE_FORCE_FACULTY_HOME
+        PmFacultyProfile faculty_home = {};
+        if (pm_faculty_active(&faculty_home) && !pm_faculty_bust_ready_for(faculty_home.slug)) {
+          s_daily_brief_next_try_ms = now + 12000u;
+        } else
+#endif
         if (home_begin_daily_briefing()) {
-          pm_daily_briefing_mark_played(&tm_now);
+          s_daily_brief_next_try_ms = now + 120000u;
+        } else {
+          s_daily_brief_next_try_ms = now + 120000u;
         }
       }
 
@@ -4351,6 +4410,9 @@ void loop() {
         g_runes_fortune_active = false;
         g_question_voice_active = false;
         g_question_answer_pcm = false;
+        if (g_daily_briefing) {
+          s_daily_brief_next_try_ms = now + 120000u;
+        }
         g_daily_briefing = false;
         pm_speaker_set_max_play_seconds(180);
         g_state = AppState::kClock;
@@ -4366,6 +4428,7 @@ void loop() {
           gfx->flush();
           delay(1500);
           pm_voice_result_free(&g_voice_result);
+          s_daily_brief_next_try_ms = now + 120000u;
           g_daily_briefing = false;
           pm_speaker_set_max_play_seconds(180);
           g_state = AppState::kClock;
@@ -4500,6 +4563,7 @@ void loop() {
       if (g_daily_briefing && pm_voice_daily_briefing_streamed()) {
         pm_voice_result_free(&g_voice_result);
         g_daily_briefing = false;
+        daily_briefing_mark_success();
         pm_speaker_set_max_play_seconds(180);
         g_state = AppState::kClock;
         g_clock_repaint_pending = true;
@@ -4803,13 +4867,19 @@ void loop() {
             break;
           }
         }
-        if (spk == PmSpeakerStatus::DoneFail) {
+        const bool played_ok = spk != PmSpeakerStatus::DoneFail;
+        if (!played_ok) {
           delay(800);
         }
         pm_voice_result_free(&g_voice_result);
         s_play_armed = false;
         s_play_wait_t0 = 0;
         g_daily_briefing = false;
+        if (played_ok) {
+          daily_briefing_mark_success();
+        } else {
+          s_daily_brief_next_try_ms = now + 120000u;
+        }
         pm_speaker_set_max_play_seconds(180);
         g_state = AppState::kClock;
         g_clock_repaint_pending = true;

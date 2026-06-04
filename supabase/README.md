@@ -26,6 +26,7 @@ supabase secrets set \
 supabase functions deploy voice-pipeline
 supabase functions deploy voice-stream
 supabase functions deploy ask-faculty-voice
+supabase functions deploy faculty-dreams
 supabase functions deploy faculty-bust
 ```
 
@@ -105,6 +106,45 @@ Session flags:
 - `commonplaceMode: "off" | "conversation" | "journal"` and
   `logToCommonplace: boolean` control Commonplace writes.
 
+Faculty conversations write realtime transcript/reply works to Commonplace.
+Later `ask-faculty-voice` turns embed the current request with
+`gemini-embedding-001`, search `faculty_memory_embeddings` by vector similarity
+for the same account/session and faculty slug, then inject the relevant memory
+context into the faculty prompt. If vector search is unavailable, it falls back
+to scoped Commonplace text retrieval. Disable retrieval with
+`MYNAH_COMMONPLACE_MEMORY_DISABLED=true`; tune the vector gate with
+`MYNAH_COMMONPLACE_MEMORY_VECTOR_THRESHOLD` (default `0.35`); disable all
+Commonplace writes with `MYNAH_COMMONPLACE_DISABLED=true`.
+
+Durable memory is formed by `faculty-dreams`, a nightly dream worker that scans
+recent realtime `Mynah conversation` works, groups them by user/session +
+faculty + day, and writes traceable `Faculty memory` notes with source work IDs.
+Each created memory is embedded for vector RAG. Existing memory notes can be
+backfilled with `embedExisting:true`.
+Invoke it with a service-role JWT:
+
+```bash
+curl -X POST "$SUPABASE_URL/functions/v1/faculty-dreams" \
+  -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+  -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+  -H "Content-Type: application/json" \
+  --data '{"windowHours":30}'
+```
+
+```bash
+curl -X POST "$SUPABASE_URL/functions/v1/faculty-dreams" \
+  -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+  -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+  -H "Content-Type: application/json" \
+  --data '{"embedExisting":true,"embedLimit":100}'
+```
+
+`ask-faculty-voice` can also be used for writing and non-speech chat. Send
+`generateTts:false` (or `tts:false`) to return text without `audioBase64`, or
+`responseFormat:"text"` for a plain-text response. Send
+`logToCommonplace:false` or `commonplaceMode:"off"` when a text exchange should
+not be archived.
+
 Firmware should still write capture audio into a flash circular buffer before or
 while sending over the socket. See
 [`docs/design/streaming-audio-socket.md`](../docs/design/streaming-audio-socket.md).
@@ -139,15 +179,37 @@ Migration: `20260529120000_faculty_chirp3_tts.sql`.
 
 Optional env overrides per faculty slug: `FACULTY_TTS_VOICE_<SLUG>`, `FACULTY_TTS_LANGUAGE_<SLUG>`, `FACULTY_TTS_PROMPT_<SLUG>` (slug uppercased, `.` → `_`).
 
-## TTS usage / cost by user
+## Voice usage / cost by user
 
-Each successful Google TTS synthesis logs a row to **`voice_usage_events`** (castalia.institute migration `20260529130000_voice_usage_events.sql`):
+Each successful metered voice service call logs a row to **`voice_usage_events`**
+(castalia.institute migrations `20260529130000_voice_usage_events.sql` and
+`20260602190000_voice_usage_cost_gates.sql`):
 
 | Column | Meaning |
 |--------|---------|
 | `user_id` | Supabase auth user from `Authorization` JWT (null if anon-key only) |
-| `billable_chars` | Spoken + style prompt characters |
-| `estimated_usd` | Chirp 3 default $0.00003/char (override `VOICE_TTS_USD_PER_CHAR`) |
+| `service` | `google_stt`, `google_gemini`, or `google_tts` |
+| `audio_seconds` | STT input duration |
+| `input_tokens` / `output_tokens` | Estimated LLM token counts |
+| `billable_chars` | TTS spoken + style prompt characters |
+| `estimated_usd` | Estimated provider cost for the event |
+
+Cost gates run before STT, Gemini, and TTS calls. Set any of these env vars to
+a positive USD value to enable that gate:
+
+| Env var | Meaning |
+|---------|---------|
+| `VOICE_USAGE_DAILY_USD_LIMIT` | Per-authenticated-user daily cap |
+| `VOICE_USAGE_MONTHLY_USD_LIMIT` | Per-authenticated-user monthly cap |
+| `VOICE_USAGE_UNAUTH_DAILY_USD_LIMIT` | Shared daily cap for anon/device-only calls |
+| `VOICE_USAGE_UNAUTH_MONTHLY_USD_LIMIT` | Shared monthly cap for anon/device-only calls |
+| `VOICE_USAGE_REQUIRE_USER_FOR_METERED=true` | Reject metered calls without a user JWT |
+| `VOICE_USAGE_GATES_DISABLED=true` | Disable gates while still logging usage |
+
+Pricing defaults can be overridden without code changes:
+`VOICE_STT_USD_PER_MINUTE` (default `0.024`), `VOICE_TTS_USD_PER_CHAR`
+(Chirp 3 default `0.00003`), `VOICE_GEMINI_USD_PER_INPUT_TOKEN`, and
+`VOICE_GEMINI_USD_PER_OUTPUT_TOKEN`.
 
 Daily rollup view: **`voice_usage_daily_by_user`**. Disable logging with `VOICE_USAGE_DISABLED=true`.
 
@@ -177,6 +239,7 @@ Query params:
 | `q` | `quality` | JPEG quality when `format=jpeg` (35–90, default 72) |
 | `format` | — | `png` (default, transparent) or `jpeg` (black letterbox) |
 | `resize` | — | `contain` (default), `cover`, or `fill` |
+| `view` | `variant` | `right` (default), `frontal`, or `line` |
 
 **Response:** **`image/png`** with alpha by default (transparent letterbox for AMOLED clients). Pass `format=jpeg` for legacy black-background JPEG.
 
@@ -194,6 +257,17 @@ The function looks in Supabase Storage bucket `faculty` by default, under
 `{slug}/bust.jpeg`, `{slug}/bust.png`, then `{slug}/bust.webp`, plus simple
 aliases like `a.einstein` → `einstein`, and falls back to
 `{FACULTY_DEFAULT_BUST_SLUG:-einstein}/bust.*`.
+
+For color e-paper clients, request `view=line`:
+
+```text
+GET /functions/v1/faculty-bust?faculty=a.einstein&w=320&h=320&resize=cover&format=png&view=line
+```
+
+`view=line` first signs `faculty.line_bust_path`. If the row has no cached
+line bust, the function generates a monochrome line-art PNG from the regular
+bust, uploads it to Storage as `{slug}/line_bust.png`, writes that path back to
+`faculty.line_bust_path`, and serves the cached asset on future requests.
 
 Recommended setup:
 

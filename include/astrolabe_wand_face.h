@@ -1,15 +1,14 @@
 #pragma once
 
 /*
- * Wand face — tiny Astrolabe voice pendant contract.
+ * Wand face — round watch pendant UI (face=wand).
  *
- * Full-time STT + single faculty conversation UI. The round watch uses
- * ClockFace::Wand when built with ASTROLABE_FORCE_VARIANT_WAND; the M5
- * AtomS3R + Atomic Voice Base target lives in atom/ (native ESP-IDF).
+ * Used by ClockFace::Wand in sketches/Astrolabe/. For M5 AtomS3R hardware use
+ * facultyatom/ and astrolabe_faculty_atom_face.h (face=faculty).
  */
 
 #define ASTROLABE_WAND_FACE_NAME "wand"
-#define ASTROLABE_WAND_OTA_CHANNEL "astrolabe-wand-atom"
+#define ASTROLABE_WAND_OTA_CHANNEL "astrolabe-wand"
 #define ASTROLABE_WAND_DEFAULT_FACULTY_SLUG "a.einstein"
 #define ASTROLABE_WAND_DEFAULT_FACULTY_NAME "Einstein"
 

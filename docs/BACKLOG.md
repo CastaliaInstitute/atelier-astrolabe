@@ -32,6 +32,16 @@ Edit this file when you start or finish work. Keep **In progress** to 1–3 item
 
 ## Features
 
+### Faculty-guided humane interface — **P1 priority**
+
+Canonical design: [`design/faculty-guided-astrolabe.md`](design/faculty-guided-astrolabe.md). This translates *Inquirer* Volume IV recommendations into Astrolabe product contracts: stable thresholds, provenance paths, recollection/rest blocks, human-first artifacts, temporal rhythm contracts, commons stewardship, and a Magnificat product audit.
+
+- [ ] **P1** **Mode/provenance envelope** — shared metadata for voice/faculty/question/rhythm routes; expose route, model/prompt version, source IDs, auth mode, generated-at, and handoff flags in responses and logs.
+- [ ] **P1** **Recollection and rest blocks** — NVS-backed protected-time scheduler; suppress unsolicited prompts/cloud refreshes; provide explicit bypass for safety/accessibility/user intent.
+- [ ] **P1** **Human-first artifact gate** — Notes/Commonplace and Faculty flows save an initial observation, question, source card, sketch, or voice note before AI synthesis.
+- [ ] **P1** **Temporal rhythm contracts** — firmware flags for celebration, restraint, rest, seasonal memory, and vigilance; each face declares behavior under those contracts.
+- [ ] **P2** **Commons stewardship charters** — provenance/license/review ownership for embedded KBs, faculty bust assets, prompt templates, face packs, and model routes.
+
 ### Commonplace (Directus journal) — **P0 priority**
 
 - [x] **P0** **Commonplace journal from home face** — **ClassicAnalog** hue home, **PWR hold** → `pm_commonplace` → `mynah-pocket-journal`; banners `saved: …` / `journal: …`. Server deploy + on-device verify still operator tasks (`supabase functions deploy mynah-pocket-journal`, Castalia sign-in).

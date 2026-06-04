@@ -13,9 +13,11 @@
 
 #include "astrolabe_audio_pipeline.h"
 #include "astrolabe_faculty_atom_face.h"
+#include "astrolabe_time.h"
 #include "atom_board.h"
 #include "atom_faculty.h"
 #include "atom_log.h"
+#include "atom_ota.h"
 #include "atom_qa.h"
 #include "atom_serial.h"
 #include "atom_util.h"
@@ -226,6 +228,7 @@ static void pipeline_event(astrolabe_audio_pipeline_event_t event, const char *d
             break;
         case ASTROLABE_AUDIO_PIPELINE_EVENT_SPEAKING:
             ui_set(ATOM_UI_SPEAK, detail != NULL && detail[0] != '\0' ? detail : s_faculty_name);
+            ATOM_LOG_STAGE(TAG, "speak", "%s", detail != NULL && detail[0] != '\0' ? detail : s_faculty_name);
             break;
         case ASTROLABE_AUDIO_PIPELINE_EVENT_TURN_DONE:
             ATOM_LOG_STAGE(TAG, "turn", "done #%u", (unsigned)s_voice_turn);
@@ -258,6 +261,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, voi
         } else {
             ATOM_LOG_STAGE(TAG, "wifi", "connected (got IP)");
         }
+        (void)astrolabe_time_start(NULL);
         xEventGroupSetBits(s_wifi_events, WIFI_CONNECTED_BIT);
     }
 }
@@ -270,6 +274,15 @@ static void facultyatom_log_ready(void)
     } else {
         ATOM_LOG_STAGE(TAG, "ready", "wifi ok");
     }
+    char utc[32] = {};
+    char local[32] = {};
+    (void)astrolabe_time_format_utc(utc, sizeof(utc));
+    (void)astrolabe_time_format_local(local, sizeof(local));
+    ATOM_LOG_STAGE(TAG, "ready", "time %s utc=%s local=%s tz=%s",
+                   astrolabe_time_valid() ? "ok" : "stale",
+                   utc[0] != '\0' ? utc : "-",
+                   local[0] != '\0' ? local : "-",
+                   astrolabe_time_timezone());
     ATOM_LOG_STAGE(TAG, "ready", "faculty %s (%s)", s_faculty_name, s_faculty_slug);
     ATOM_LOG_STAGE(TAG, "ready", "pipeline %s/functions/v1/voice-pipeline face=%s", MYNAH_SUPABASE_URL,
                    ASTROLABE_FACULTY_ATOM_FACE_NAME);
@@ -353,6 +366,7 @@ void app_main(void)
     ATOM_LOG_STAGE(TAG, "boot", "Astrolabe FacultyAtom — M5 AtomS3R + Atomic Voice Base");
 
     ESP_ERROR_CHECK(nvs_flash_init());
+    atom_ota_init();
     load_faculty_from_nvs();
     ATOM_LOG_STAGE(TAG, "boot", "faculty %s (%s)", s_faculty_name, s_faculty_slug);
 
@@ -369,6 +383,7 @@ void app_main(void)
         ui_set(ATOM_UI_ERROR, "wifi");
         return;
     }
+    atom_ota_maybe_start_recovery_request();
 
     atom_faculty_request_bust(s_faculty_slug);
     ATOM_LOG_STAGE(TAG, "faculty", "bust preload %s", s_faculty_slug);
@@ -387,6 +402,7 @@ void app_main(void)
         .on_result = pipeline_result,
         .endpoint_url = s_voice_pipeline_url,
         .stream_url = s_voice_stream_url,
+        .transport = ASTROLABE_AUDIO_PIPELINE_TRANSPORT_FLASH_POST,
         .api_key = MYNAH_SUPABASE_ANON_KEY,
         .face = ASTROLABE_FACULTY_ATOM_FACE_NAME,
         .faculty_slug = s_faculty_slug,
@@ -398,19 +414,19 @@ void app_main(void)
         .capture_file_path = "/spiffs/facultyatom_utterance.pcm",
         .sample_rate_hz = ATOM_AUDIO_RATE,
         .frame_samples = 320,
-        .rms_start = 550,
+        .rms_start = 2800,
         .rms_end = 280,
         .start_frames = 3,
-        .silence_frames = 40,
-        .max_seconds = 15,
+        .silence_frames = 100,
+        .max_seconds = 10,
         .min_ms = 400,
         .capture_cooldown_ms = 2500,
         .capture_ring_slots = 8,
-        .capture_segment_ms = 3000,
+        .capture_segment_ms = 0,
         .listen_priority = 5,
         .voice_priority = 4,
         .listen_stack = 6144,
-        .voice_stack = 12288,
+        .voice_stack = 24576,
     };
     ESP_ERROR_CHECK(astrolabe_audio_pipeline_create(&pipeline_cfg, &s_pipeline));
     atom_qa_bind(&(atom_qa_bind_t){
@@ -425,9 +441,14 @@ void app_main(void)
     facultyatom_log_ready();
 
     uint32_t last_bust_retry_ms = 0;
+    uint32_t last_time_retry_ms = 0;
     while (true) {
+        const uint32_t now_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+        if (!astrolabe_time_valid() && (last_time_retry_ms == 0 || now_ms - last_time_retry_ms >= 60000)) {
+            last_time_retry_ms = now_ms;
+            (void)astrolabe_time_retry_if_stale();
+        }
         if (atom_faculty_bust_status() == ATOM_FACULTY_BUST_ERROR) {
-            const uint32_t now_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
             if (now_ms - last_bust_retry_ms >= 15000) {
                 last_bust_retry_ms = now_ms;
                 atom_faculty_request_bust(s_faculty_slug);

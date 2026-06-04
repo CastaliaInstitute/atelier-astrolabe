@@ -10,6 +10,25 @@
 
 static const char *TAG = "atom_listen";
 
+static uint32_t isqrt_u64(uint64_t value)
+{
+    uint64_t bit = 1ULL << 62;
+    while (bit > value) {
+        bit >>= 2;
+    }
+    uint64_t result = 0;
+    while (bit != 0) {
+        if (value >= result + bit) {
+            value -= result + bit;
+            result = (result >> 1) + bit;
+        } else {
+            result >>= 1;
+        }
+        bit >>= 2;
+    }
+    return (uint32_t)result;
+}
+
 static uint32_t frame_rms(const int16_t *frame, size_t count)
 {
     uint64_t acc = 0;
@@ -20,7 +39,7 @@ static uint32_t frame_rms(const int16_t *frame, size_t count)
     if (count == 0) {
         return 0;
     }
-    return (uint32_t)(acc / count);
+    return isqrt_u64(acc / count);
 }
 
 static uint8_t frame_peak_level(const int16_t *frame, size_t count)

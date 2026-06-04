@@ -32,11 +32,15 @@ export function matchAskFacultyRoute(transcript: string): AskFacultyRoute {
   const t = transcript.trim();
   if (!t) return { kind: "none" };
 
-  const explicit =
-    /^\s*ask\s+the\s+faculty\b/i.exec(t) ?? /^\s*ask\s+faculty\b/i.exec(t);
+  const explicit = /^\s*ask\s+the\s+faculty\b/i.exec(t) ??
+    /^\s*ask\s+faculty\b/i.exec(t);
   if (explicit) {
     const rest = t.slice(explicit[0].length).replace(/^[\s,:.-]+/, "").trim();
-    return { kind: "ask-faculty", facultyMessage: rest || t, selectFaculty: true };
+    return {
+      kind: "ask-faculty",
+      facultyMessage: rest || t,
+      selectFaculty: true,
+    };
   }
 
   const mAsk = /^\s*ask\s+(.+)$/i.exec(t);
@@ -46,8 +50,18 @@ export function matchAskFacultyRoute(transcript: string): AskFacultyRoute {
 
   const restLower = rest.toLowerCase();
 
+  const topical = /^(about|regarding)\b/i.exec(rest);
+  if (topical) {
+    const topic = rest.slice(topical[0].length).trim();
+    return {
+      kind: "ask-faculty",
+      facultyMessage: topic || rest,
+      selectFaculty: true,
+    };
+  }
+
   const stopPrefixes =
-    /^(me\b|you\b|us\b|my\b|your\b|about\b|for\s+help\b|for\s+a\b|for\s+the\b|what\b|when\b|where\b|why\b|how\b|if\b|whether\b|to\b|google\b|alexa\b|siri\b)/i;
+    /^(me\b|you\b|us\b|my\b|your\b|for\s+help\b|for\s+a\b|for\s+the\b|what\b|when\b|where\b|why\b|how\b|if\b|whether\b|to\b|google\b|alexa\b|siri\b)/i;
   if (stopPrefixes.test(rest)) return { kind: "none" };
 
   const triggers = (Deno.env.get("FACULTY_ASK_TRIGGERS") ?? "")
@@ -65,13 +79,12 @@ export function matchAskFacultyRoute(transcript: string): AskFacultyRoute {
   }
 
   const firstWord = rest.split(/\s+/)[0] ?? "";
-  const looksLikeProperName =
-    /^[A-Z][a-zA-Z.'-]+$/.test(firstWord) &&
+  const looksLikeProperName = /^[A-Z][a-zA-Z.'-]+$/.test(firstWord) &&
     !/^(What|When|Where|Why|How|Can|Could|Would|Should|Is|Are|Was|Were|Do|Does|Did|Will|Please|The|A|An|This|That|Someone|Everybody|Everyone)\b/
       .test(firstWord);
 
   if (looksLikeProperName) {
-    return { kind: "ask-faculty", facultyMessage: rest };
+    return { kind: "ask-faculty", facultyMessage: rest, selectFaculty: true };
   }
 
   if (Deno.env.get("ASK_FACULTY_ROUTE_ANY") === "1") {

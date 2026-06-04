@@ -575,7 +575,8 @@ static bool parse_webcast_from_detail_json(const char *json, PmRocketLaunch *out
         ++o;
         continue;
       }
-      out->webcast_url[o++] = p[o];
+      out->webcast_url[o] = p[o];
+      ++o;
     }
     out->webcast_url[o] = '\0';
     return o > 0;

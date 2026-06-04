@@ -6,6 +6,23 @@
 #include "pm_gesture.h"
 #include "pm_side_buttons.h"
 
+static bool s_injected_boot_pending = false;
+static uint8_t s_injected_gesture_pending = 0;
+
+bool pm_qa_consume_injected_boot(void) {
+  const bool pending = s_injected_boot_pending;
+  s_injected_boot_pending = false;
+  return pending;
+}
+
+bool pm_qa_consume_injected_gesture(void) {
+  if (s_injected_gesture_pending == 0) {
+    return false;
+  }
+  --s_injected_gesture_pending;
+  return true;
+}
+
 static const char *gesture_kind_name(PmGestureKind k) {
   switch (k) {
     case PmGestureKind::Tap:
@@ -65,6 +82,7 @@ bool pm_qa_inject_command(const char *args) {
   }
 
   if (strcmp(p, "boot") == 0) {
+    s_injected_boot_pending = true;
     pm_side_buttons_inject(PM_SIDE_BTN_BOOT);
     Serial.println("qa: inject boot");
     return true;
@@ -113,6 +131,9 @@ bool pm_qa_inject_command(const char *args) {
     return true;
   }
 
+  if (s_injected_gesture_pending < 255) {
+    ++s_injected_gesture_pending;
+  }
   pm_gesture_inject(kind, x, y);
   Serial.printf("qa: inject %s @ %d,%d\n", gesture_kind_name(kind), static_cast<int>(x),
                 static_cast<int>(y));

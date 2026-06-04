@@ -1,5 +1,6 @@
 #include "pm_presence.h"
 
+#include "astrolabe_arduino_api.h"
 #include "pm_presence_adv.h"
 #include "pm_presence_graph.h"
 #include "pm_presence_locations.h"
@@ -12,6 +13,7 @@
 #include <ESPmDNS.h>
 #include <cmath>
 #include <cstring>
+#include <string>
 
 #include <esp_mac.h>
 
@@ -155,7 +157,11 @@ void scan_mdns_peers(uint32_t now_ms) {
     upsert_peer(id, -76, now_ms, PmPresenceGraphNodeKind::MobilePeer);
     if (is_new) {
       Serial.printf("presence: mdns peer host=%s id=%08x ip=%s\n", host, static_cast<unsigned>(id),
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+                    MDNS.address(i).toString().c_str());
+#else
                     MDNS.IP(i).toString().c_str());
+#endif
     }
   }
 }
@@ -190,18 +196,18 @@ class PresenceScanCallbacks : public BLEAdvertisedDeviceCallbacks {
     if (!advertisedDevice.haveManufacturerData()) {
       return;
     }
-    const std::string mfg = advertisedDevice.getManufacturerData();
-    if (mfg.size() < 10) {
+    const PmBleBlob mfg = pm_ble_get_manufacturer_data(advertisedDevice);
+    if (pm_ble_blob_len(mfg) < 10) {
       return;
     }
-    const uint8_t *raw = reinterpret_cast<const uint8_t *>(mfg.data());
+    const uint8_t *raw = reinterpret_cast<const uint8_t *>(pm_ble_blob_data(mfg));
     size_t off = 0;
-    if (mfg.size() >= 2 && raw[0] == static_cast<uint8_t>(kPmPresenceAdvCompanyId & 0xFF) &&
+    if (pm_ble_blob_len(mfg) >= 2 && raw[0] == static_cast<uint8_t>(kPmPresenceAdvCompanyId & 0xFF) &&
         raw[1] == static_cast<uint8_t>((kPmPresenceAdvCompanyId >> 8) & 0xFF)) {
       off = 2;
     }
     PmPresenceAdvDecoded adv = {};
-    if (!pm_presence_adv_decode(raw + off, mfg.size() - off, &adv)) {
+    if (!pm_presence_adv_decode(raw + off, pm_ble_blob_len(mfg) - off, &adv)) {
       return;
     }
     const int8_t rssi = static_cast<int8_t>(advertisedDevice.getRSSI());
@@ -261,7 +267,7 @@ void refresh_advertisement(void) {
   memcpy(mfg + 2, payload, len);
   BLEAdvertisementData adv;
   adv.setFlags(0x06);
-  adv.setManufacturerData(std::string(reinterpret_cast<const char *>(mfg), len + 2));
+  pm_ble_set_manufacturer_data(adv, mfg, len + 2);
   BLEAdvertising *const advertising = BLEDevice::getAdvertising();
   advertising->setAdvertisementData(adv);
   advertising->start();
