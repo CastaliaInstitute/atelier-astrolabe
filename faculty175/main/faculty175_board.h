@@ -37,6 +37,7 @@ bool faculty175_board_pi4ioe_ok(void);
 /** Peak abs sample from boot mic probe (0 = likely no capture). */
 int32_t faculty175_board_mic_probe_peak(void);
 void faculty175_board_set_backlight(uint8_t percent);
+void faculty175_board_display_on(bool on);
 
 esp_err_t faculty175_audio_read(int16_t *samples, size_t sample_count, size_t *out_read, uint32_t timeout_ms);
 esp_err_t faculty175_audio_read_tdm_raw(int16_t *samples,
@@ -58,6 +59,16 @@ void faculty175_display_draw_text(const char *text, int x, int y, uint16_t color
 void faculty175_display_draw_centered_text(const char *text, int y, uint16_t color);
 void faculty175_display_draw_bezel_label(const char *text, bool bottom, int radius, uint32_t scroll_ms, uint16_t color);
 void faculty175_display_flush(void);
+void faculty175_display_flush_suspended_set(bool suspended);
+size_t faculty175_display_frame_pixel_count(void);
+bool faculty175_display_frame_copy(uint16_t *out, size_t pixel_count);
+void faculty175_display_frame_compose_carousel(const uint16_t *from, const uint16_t *to, int shift_px);
+void faculty175_display_frame_compose_vertical(const uint16_t *from, const uint16_t *to, int shift_px);
+void faculty175_display_frame_compose_nav_preview(const uint16_t *center,
+                                                  const uint16_t *left,
+                                                  const uint16_t *right,
+                                                  const uint16_t *up,
+                                                  const uint16_t *down);
 uint16_t faculty175_display_pack_rgb888(uint8_t r, uint8_t g, uint8_t b);
 uint16_t faculty175_display_fb_from_logical565(uint16_t logical565);
 uint16_t faculty175_display_rgb888(uint8_t r, uint8_t g, uint8_t b);
