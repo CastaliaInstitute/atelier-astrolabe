@@ -761,6 +761,7 @@ static void qa_emit_speaker_tone(unsigned hz, unsigned ms)
             write_fail++;
         }
         written_frames += chunk;
+        vTaskDelay(1);
     }
 
     printf("qa: speaker end frames=%lu write_fail=%lu\n",

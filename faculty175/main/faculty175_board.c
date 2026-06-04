@@ -16,6 +16,7 @@
 #include "esp_check.h"
 #include "esp_codec_dev.h"
 #include "esp_codec_dev_defaults.h"
+#include "esp_rom_sys.h"
 #include "esp_timer.h"
 #include "es7210_adc.h"
 #include "esp_lcd_co5300.h"
@@ -457,6 +458,30 @@ static esp_err_t faculty175_i2c_init(void)
     if (s_i2c_bus != NULL) {
         return ESP_OK;
     }
+    gpio_config_t recover = {
+        .pin_bit_mask = (1ULL << FACULTY175_AUDIO_I2C_SDA) | (1ULL << FACULTY175_AUDIO_I2C_SCL),
+        .mode = GPIO_MODE_OUTPUT_OD,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    ESP_RETURN_ON_ERROR(gpio_config(&recover), TAG, "i2c recover gpio");
+    gpio_set_level(FACULTY175_AUDIO_I2C_SDA, 1);
+    gpio_set_level(FACULTY175_AUDIO_I2C_SCL, 1);
+    esp_rom_delay_us(10);
+    for (int i = 0; i < 9; ++i) {
+        gpio_set_level(FACULTY175_AUDIO_I2C_SCL, 0);
+        esp_rom_delay_us(5);
+        gpio_set_level(FACULTY175_AUDIO_I2C_SCL, 1);
+        esp_rom_delay_us(5);
+    }
+    gpio_set_level(FACULTY175_AUDIO_I2C_SDA, 0);
+    esp_rom_delay_us(5);
+    gpio_set_level(FACULTY175_AUDIO_I2C_SCL, 1);
+    esp_rom_delay_us(5);
+    gpio_set_level(FACULTY175_AUDIO_I2C_SDA, 1);
+    esp_rom_delay_us(10);
+
     const i2c_master_bus_config_t cfg = {
         .i2c_port = FACULTY175_I2C_PORT,
         .sda_io_num = FACULTY175_AUDIO_I2C_SDA,
@@ -792,7 +817,7 @@ static esp_err_t faculty175_es7210_write_reg(uint8_t reg, uint8_t value)
     };
     ESP_RETURN_ON_ERROR(i2c_master_bus_add_device(s_i2c_bus, &cfg, &dev), TAG, "es7210 compat dev");
     uint8_t data[2] = {reg, value};
-    const esp_err_t err = i2c_master_transmit(dev, data, sizeof(data), pdMS_TO_TICKS(100));
+    const esp_err_t err = i2c_master_transmit(dev, data, sizeof(data), 100);
     (void)i2c_master_bus_rm_device(dev);
     return err;
 }
@@ -802,7 +827,7 @@ static esp_err_t faculty175_i2c_probe_codec(uint8_t addr_7bit, const char *name)
     if (s_i2c_bus == NULL) {
         return ESP_ERR_INVALID_STATE;
     }
-    const esp_err_t err = i2c_master_probe(s_i2c_bus, addr_7bit, pdMS_TO_TICKS(120));
+    const esp_err_t err = i2c_master_probe(s_i2c_bus, addr_7bit, 120);
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "%s not reachable on I2C addr=0x%02x: %s", name, addr_7bit, esp_err_to_name(err));
     }
@@ -927,6 +952,7 @@ static esp_err_t faculty175_audio_init(void)
     };
     ESP_RETURN_ON_ERROR(esp_codec_dev_open(s_spk_codec, &fs), TAG, "spk open");
     ESP_RETURN_ON_ERROR(esp_codec_dev_set_out_vol(s_spk_codec, FACULTY175_SPEAKER_VOLUME), TAG, "spk vol");
+    ESP_RETURN_ON_ERROR(esp_codec_dev_set_out_mute(s_spk_codec, false), TAG, "spk unmute");
     ESP_RETURN_ON_ERROR(esp_codec_dev_close(s_spk_codec), TAG, "spk close");
     s_spk_open = false;
     s_spk_rate_hz = FACULTY175_AUDIO_RATE;
@@ -1352,6 +1378,7 @@ esp_err_t faculty175_audio_write_pcm(const int16_t *samples, size_t sample_count
     if (!s_spk_open) {
         ESP_RETURN_ON_ERROR(faculty175_codec_open(true, s_spk_rate_hz), TAG, "spk open");
         ESP_RETURN_ON_ERROR(esp_codec_dev_set_out_vol(s_spk_codec, FACULTY175_SPEAKER_VOLUME), TAG, "spk vol");
+        ESP_RETURN_ON_ERROR(esp_codec_dev_set_out_mute(s_spk_codec, false), TAG, "spk unmute");
         s_spk_open = true;
     }
 
@@ -1384,6 +1411,9 @@ void faculty175_audio_set_speaker_mute(bool mute)
 {
     gpio_set_direction(FACULTY175_PA_GPIO, GPIO_MODE_OUTPUT);
     gpio_set_level(FACULTY175_PA_GPIO, mute ? 0 : 1);
+    if (s_spk_codec != NULL) {
+        (void)esp_codec_dev_set_out_mute(s_spk_codec, mute);
+    }
 }
 
 void faculty175_display_fill_rgb565(uint16_t color)
