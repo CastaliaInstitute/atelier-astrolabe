@@ -6,6 +6,7 @@
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_netif.h"
+#include "esp_system.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
@@ -61,6 +62,7 @@ static const char *TAG = "faculty175";
 #define BATTERY_SLEEP_IDLE_MS 30000
 #define BATTERY_MONITOR_MS 5000
 #define BATTERY_STT_ARM_MS 20000
+#define BUTTON_RESET_HOLD_MS 4500
 
 static EventGroupHandle_t s_wifi_events;
 static faculty175_ui_state_t s_ui = FACULTY175_UI_BOOT;
@@ -1288,6 +1290,8 @@ void app_main(void)
     uint32_t last_bust_retry_ms = 0;
     uint32_t last_face_swipe_ms = 0;
     uint32_t last_time_retry_ms = 0;
+    uint32_t button_down_since_ms = 0;
+    bool button_reset_fired = false;
     bool face_save_pending = false;
     s_nav_mode = false;
     s_low_power_last_activity_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
@@ -1295,6 +1299,21 @@ void app_main(void)
     while (true) {
         const uint32_t now_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
         low_power_tick(now_ms);
+
+        if (faculty175_button_pressed()) {
+            if (button_down_since_ms == 0) {
+                button_down_since_ms = now_ms;
+                button_reset_fired = false;
+            } else if (!button_reset_fired && now_ms - button_down_since_ms >= BUTTON_RESET_HOLD_MS) {
+                button_reset_fired = true;
+                FACULTY175_LOG_STAGE_W(TAG, "button", "long hold reset");
+                vTaskDelay(pdMS_TO_TICKS(50));
+                esp_restart();
+            }
+        } else {
+            button_down_since_ms = 0;
+            button_reset_fired = false;
+        }
 
         if (!astrolabe_time_valid() && (last_time_retry_ms == 0 || now_ms - last_time_retry_ms >= 60000)) {
             last_time_retry_ms = now_ms;
@@ -1305,16 +1324,15 @@ void app_main(void)
         if (faculty175_gesture_consume(&gesture)) {
             const bool woke_from_low_power = s_low_power_asleep || s_low_power_dimmed;
             low_power_note_activity(now_ms, "gesture");
-            if (woke_from_low_power) {
-                vTaskDelay(pdMS_TO_TICKS(10));
-                continue;
-            }
             const faculty175_face_desc_t *active_face = faculty175_faces_current();
             if (gesture.kind == FACULTY175_GESTURE_LONG_TAP) {
                 s_nav_mode = true;
                 faculty175_display_nav_mode_set(true);
                 FACULTY175_LOG_STAGE(TAG, "faces", "navigation mode on");
                 ui_redraw();
+            } else if (woke_from_low_power) {
+                vTaskDelay(pdMS_TO_TICKS(10));
+                continue;
             } else if (s_nav_mode && (gesture.kind == FACULTY175_GESTURE_TAP ||
                                     gesture.kind == FACULTY175_GESTURE_BEZEL_TAP)) {
                 s_nav_mode = false;
@@ -1365,6 +1383,15 @@ void app_main(void)
                         gesture.kind == FACULTY175_GESTURE_SWIPE_DOWN)) {
                 const int delta = gesture.kind == FACULTY175_GESTURE_SWIPE_UP ? 1 : -1;
                 animate_face_vertical_change(active_face, delta, now_ms, change_chakra_for_vertical, NULL);
+            } else if (!s_nav_mode && active_face != NULL &&
+                       (active_face->id == FACULTY175_FACE_CHAKRA || active_face->id == FACULTY175_FACE_BOWL) &&
+                       (gesture.kind == FACULTY175_GESTURE_SWIPE_LEFT ||
+                        gesture.kind == FACULTY175_GESTURE_SWIPE_RIGHT)) {
+                const int delta = gesture.kind == FACULTY175_GESTURE_SWIPE_LEFT ? 1 : -1;
+                const faculty175_face_desc_t *face = faculty175_faces_cycle(delta);
+                FACULTY175_LOG_STAGE(TAG, "faces", "chakra nav %s -> %s", delta > 0 ? "next" : "prev",
+                                     face != NULL ? face->slug : "-");
+                animate_face_carousel(active_face, face, delta, now_ms);
             } else if (!s_nav_mode && active_face != NULL && faculty175_faces_vertical_group(active_face->id) &&
                        (gesture.kind == FACULTY175_GESTURE_SWIPE_UP ||
                         gesture.kind == FACULTY175_GESTURE_SWIPE_DOWN)) {

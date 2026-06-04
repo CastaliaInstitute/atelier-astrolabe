@@ -51,7 +51,7 @@ static bool storage_mount(void)
         .base_path = "/bust_cache",
         .partition_label = "storage",
         .max_files = 12,
-        .format_if_mount_failed = true,
+        .format_if_mount_failed = false,
     };
     const esp_err_t err = esp_vfs_spiffs_register(&conf);
     return err == ESP_OK || err == ESP_ERR_INVALID_STATE;
@@ -72,6 +72,7 @@ static bool deathstar_open(void)
     }
     if (!storage_mount()) {
         ESP_LOGW(TAG, "storage mount unavailable");
+        s_failed = true;
         return false;
     }
 
@@ -79,6 +80,7 @@ static bool deathstar_open(void)
     s_file = fopen(opened_path, "rb");
     if (s_file == NULL) {
         ESP_LOGW(TAG, "missing %s", A1Z_PATH);
+        s_failed = true;
         if (!s_listed_missing) {
             s_listed_missing = true;
             DIR *dir = opendir("/bust_cache");

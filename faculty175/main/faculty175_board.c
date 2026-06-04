@@ -136,6 +136,7 @@ static int64_t s_aec_ref_active_until_us;
 static uint32_t s_aec_frames;
 
 static void draw_pixel_safe(int x, int y, uint16_t color);
+static void faculty175_display_boot_splash(const char *detail);
 static portMUX_TYPE s_aec_mux = portMUX_INITIALIZER_UNLOCKED;
 static portMUX_TYPE s_touch_visual_mux = portMUX_INITIALIZER_UNLOCKED;
 
@@ -796,6 +797,18 @@ static esp_err_t faculty175_es7210_write_reg(uint8_t reg, uint8_t value)
     return err;
 }
 
+static esp_err_t faculty175_i2c_probe_codec(uint8_t addr_7bit, const char *name)
+{
+    if (s_i2c_bus == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    const esp_err_t err = i2c_master_probe(s_i2c_bus, addr_7bit, pdMS_TO_TICKS(120));
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "%s not reachable on I2C addr=0x%02x: %s", name, addr_7bit, esp_err_to_name(err));
+    }
+    return err;
+}
+
 static void faculty175_es7210_apply_arduino_compat(void)
 {
     esp_err_t err = faculty175_es7210_write_reg(FACULTY175_ES7210_MODE_CONFIG_REG08, 0x20);
@@ -900,6 +913,8 @@ static esp_err_t faculty175_audio_init(void)
     gpio_set_level(FACULTY175_PA_GPIO, 1);
 
     ESP_ERROR_CHECK_WITHOUT_ABORT(i2c_master_bus_reset(s_i2c_bus));
+    ESP_RETURN_ON_ERROR(faculty175_i2c_probe_codec(FACULTY175_ES8311_ADDR >> 1, "ES8311"), TAG, "spk probe");
+    ESP_RETURN_ON_ERROR(faculty175_i2c_probe_codec(FACULTY175_ES7210_ADDR_7BIT, "ES7210"), TAG, "mic probe");
     s_spk_codec = faculty175_spk_codec_init();
     ESP_ERROR_CHECK_WITHOUT_ABORT(i2c_master_bus_reset(s_i2c_bus));
     s_mic_codec = faculty175_mic_codec_init();
@@ -1007,6 +1022,19 @@ static esp_err_t faculty175_lcd_init(void)
     return ESP_OK;
 }
 
+static void faculty175_display_boot_splash(const char *detail)
+{
+    if (s_panel == NULL || s_fb == NULL) {
+        return;
+    }
+    faculty175_display_fill_rgb565(rgb565(2, 4, 10));
+    faculty175_display_draw_circle(FACULTY175_PANEL_CX, FACULTY175_PANEL_CY, 216, rgb565(36, 76, 116));
+    faculty175_display_draw_circle(FACULTY175_PANEL_CX, FACULTY175_PANEL_CY, 164, rgb565(18, 42, 70));
+    faculty175_display_draw_centered_text("ASTROLABE", 200, rgb565(224, 232, 244));
+    faculty175_display_draw_centered_text(detail != NULL ? detail : "INITIALIZING", 230, rgb565(102, 190, 226));
+    faculty175_display_flush_fb();
+}
+
 bool faculty175_board_audio_ready(void)
 {
     return s_audio_ready && s_spk_codec != NULL && s_mic_codec != NULL;
@@ -1041,10 +1069,14 @@ esp_err_t faculty175_board_init(void)
     vTaskDelay(pdMS_TO_TICKS(50));
 
     ESP_RETURN_ON_ERROR(faculty175_lcd_init(), TAG, "lcd");
+    faculty175_display_boot_splash("INITIALIZING");
+    vTaskDelay(pdMS_TO_TICKS(10));
 
+    faculty175_display_boot_splash("AUDIO");
     s_audio_ready = faculty175_audio_init() == ESP_OK;
     if (!s_audio_ready) {
         ESP_LOGW(TAG, "ES7210/ES8311 audio init failed — display-only mode");
+        faculty175_display_boot_splash("DISPLAY ONLY");
     }
     ESP_LOGI(TAG, "Faculty175 ready (audio=%s)", s_audio_ready ? "ok" : "off");
     return ESP_OK;
