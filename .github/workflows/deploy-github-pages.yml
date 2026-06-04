@@ -18,6 +18,7 @@ on:
       - "lib/astrolabe_audio_pipeline/**"
       - "lib/astrolabe_display_core/**"
       - "lib/astrolabe_time/**"
+      - "lib/PNGdec/**"
       - "lib/XPowersLib/**"
       - "sketches/Astrolabe/**"
       - "tools/web-sim/**"
