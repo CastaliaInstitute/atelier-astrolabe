@@ -966,7 +966,7 @@ static esp_err_t stream_pcm_file(astrolabe_audio_pipeline_t *p, const utterance_
         }
     }
     if (err == ESP_OK) {
-        packet = heap_caps_malloc(STREAM_PCM_CHUNK_BYTES + 9, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        packet = heap_caps_malloc(STREAM_PCM_CHUNK_BYTES + 9, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
         if (packet == NULL) {
             packet = malloc(STREAM_PCM_CHUNK_BYTES + 9);
         }
@@ -1437,7 +1437,7 @@ static bool push_frame(astrolabe_audio_pipeline_t *p, const int16_t *frame, size
 static void listen_task(void *arg)
 {
     astrolabe_audio_pipeline_t *p = (astrolabe_audio_pipeline_t *)arg;
-    int16_t *frame = heap_caps_malloc(p->cfg.frame_samples * sizeof(int16_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    int16_t *frame = heap_caps_malloc(p->cfg.frame_samples * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (frame == NULL) {
         frame = malloc(p->cfg.frame_samples * sizeof(int16_t));
     }

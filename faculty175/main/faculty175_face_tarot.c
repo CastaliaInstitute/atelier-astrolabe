@@ -4,14 +4,11 @@
 #include <string.h>
 
 #include "esp_random.h"
-#include "nvs.h"
 
 #include "faculty175_board.h"
+#include "faculty175_face_tarot.h"
 #include "faculty175_face_tarot_assets.h"
 #include "faculty175_face_tarot_image.h"
-
-#define TAROT_NVS_NS "tarot"
-#define TAROT_NVS_CARD "card"
 
 static int s_card = -1;
 static bool s_loaded;
@@ -57,35 +54,13 @@ static uint16_t card_color(const faculty175_tarot_card_t *card, int lift)
              (uint8_t)(b < 0 ? 0 : (b > 255 ? 255 : b)));
 }
 
-static void save_card(void)
-{
-    nvs_handle_t nvs;
-    if (nvs_open(TAROT_NVS_NS, NVS_READWRITE, &nvs) != ESP_OK) {
-        return;
-    }
-    (void)nvs_set_i32(nvs, TAROT_NVS_CARD, s_card);
-    (void)nvs_commit(nvs);
-    nvs_close(nvs);
-}
-
 static void load_card(void)
 {
     if (s_loaded) {
         return;
     }
     s_loaded = true;
-    nvs_handle_t nvs;
-    int32_t v = -1;
-    if (nvs_open(TAROT_NVS_NS, NVS_READONLY, &nvs) == ESP_OK) {
-        (void)nvs_get_i32(nvs, TAROT_NVS_CARD, &v);
-        nvs_close(nvs);
-    }
-    if (v >= 0 && v < FACULTY175_TAROT_CARD_COUNT) {
-        s_card = (int)v;
-        return;
-    }
     s_card = (int)(esp_random() % FACULTY175_TAROT_CARD_COUNT);
-    save_card();
 }
 
 void faculty175_face_tarot_draw_card(uint32_t seed_ms)
@@ -96,7 +71,12 @@ void faculty175_face_tarot_draw_card(uint32_t seed_ms)
     }
     s_card = next;
     s_loaded = true;
-    save_card();
+}
+
+int faculty175_face_tarot_current_card(void)
+{
+    load_card();
+    return s_card;
 }
 
 static void draw_arcana_mark(int idx, int cx, int cy, uint16_t ink, uint16_t shadow)

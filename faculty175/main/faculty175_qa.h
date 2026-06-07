@@ -1,5 +1,7 @@
 #pragma once
 
+#include "esp_err.h"
+
 #include "faculty175_board.h"
 #include "faculty175_listen.h"
 
@@ -15,6 +17,7 @@ typedef struct {
     const char *ui_detail;
     bool (*set_faculty)(const char *slug, const char *name);
     bool (*fetch_faculty)(const char *slug, const char *name);
+    esp_err_t (*trigger_stt)(uint32_t capture_ms);
 } faculty175_qa_bind_t;
 
 /** Register live faculty state for `qa listen` / `qa ui` output. */

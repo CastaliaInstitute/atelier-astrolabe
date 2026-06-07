@@ -38,6 +38,18 @@ bool faculty175_almanac_cached_daily_ex(char *date,
                                         size_t planting_cap,
                                         char *prompt,
                                         size_t prompt_cap);
+bool faculty175_almanac_cached_phenology(char *date,
+                                         size_t date_cap,
+                                         char *subject,
+                                         size_t subject_cap,
+                                         char *action,
+                                         size_t action_cap,
+                                         char *habitat,
+                                         size_t habitat_cap,
+                                         char *prompt,
+                                         size_t prompt_cap,
+                                         char *image_path,
+                                         size_t image_path_cap);
 
 #ifdef __cplusplus
 }

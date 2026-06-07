@@ -1,70 +1,89 @@
 #!/usr/bin/env python3
-"""Generate 466x466 greyscale moon texture for Mynah Astrolabe (LCD size)."""
+"""Generate 466x466 moon texture assets for Mynah Astrolabe (LCD size).
+
+The source texture is NASA Scientific Visualization Studio's public-domain
+global moon texture, mirrored from Wikimedia Commons at 1280px width.  The
+firmware uses the RGB565 output from SPIFFS; the legacy Arduino sketch still
+gets a grayscale PROGMEM texture.
+"""
 
 from __future__ import annotations
 
 import math
-import random
 import struct
+import urllib.request
 import zlib
 from pathlib import Path
 
+from PIL import Image
+
 SIZE = 466
 ROOT = Path(__file__).resolve().parents[1]
+SOURCE_URL = "https://upload.wikimedia.org/wikipedia/commons/thumb/7/74/Moon_texture.jpg/1280px-Moon_texture.jpg"
+SOURCE = ROOT / "sketches" / "Astrolabe" / "assets" / "source_nasa_svs_moon_1280.jpg"
+OUT_SPIFFS_PNG = ROOT / "faculty175" / "storage_seed" / "moon" / "moon_466_gray.png"
+OUT_SPIFFS_RGB565 = ROOT / "faculty175" / "storage_seed" / "moon" / "moon_466_soft.rgb565"
 OUT_PNG = ROOT / "sketches" / "Astrolabe" / "assets" / "moon_466_gray.png"
 OUT_H = ROOT / "sketches" / "Astrolabe" / "pm_moon_tex.h"
 OUT_C = ROOT / "sketches" / "Astrolabe" / "pm_moon_tex.c"
 
 
-def make_texture() -> list[int]:
-    rng = random.Random(0x6D6F6F6E)
-    craters: list[tuple[float, float, float, float]] = []
-    n_craters = 220
-    for _ in range(n_craters):
-        craters.append(
-            (
-                rng.uniform(0.06, 0.94),
-                rng.uniform(0.06, 0.94),
-                rng.uniform(0.008, 0.055),
-                rng.uniform(0.35, 1.0),
-            )
-        )
+def ensure_source() -> None:
+    SOURCE.parent.mkdir(parents=True, exist_ok=True)
+    if SOURCE.exists() and SOURCE.stat().st_size > 100_000:
+        return
+    print(f"Downloading {SOURCE_URL}")
+    request = urllib.request.Request(
+        SOURCE_URL,
+        headers={"User-Agent": "AstrolabeTextureGenerator/1.0 (local build asset generator)"},
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        SOURCE.write_bytes(response.read())
 
+
+def sample_bilinear(src: Image.Image, u: float, v: float) -> int:
+    w, h = src.size
+    x = (u % 1.0) * w
+    y = max(0.0, min(1.0, v)) * (h - 1)
+    x0 = int(math.floor(x)) % w
+    x1 = (x0 + 1) % w
+    y0 = int(math.floor(y))
+    y1 = min(h - 1, y0 + 1)
+    fx = x - math.floor(x)
+    fy = y - y0
+    p00 = src.getpixel((x0, y0))
+    p10 = src.getpixel((x1, y0))
+    p01 = src.getpixel((x0, y1))
+    p11 = src.getpixel((x1, y1))
+    top = p00 * (1.0 - fx) + p10 * fx
+    bot = p01 * (1.0 - fx) + p11 * fx
+    return int(top * (1.0 - fy) + bot * fy + 0.5)
+
+
+def make_texture() -> list[int]:
+    ensure_source()
+    src = Image.open(SOURCE).convert("L")
     px: list[int] = []
+    light = (-0.58, -0.28, 0.76)
+    light_len = math.sqrt(sum(v * v for v in light))
+    lx, ly, lz = (v / light_len for v in light)
+    center_lon = 0.50
     for y in range(SIZE):
         for x in range(SIZE):
-            nx = (x + 0.5) / SIZE - 0.5
-            ny = (y + 0.5) / SIZE - 0.5
-            d = math.hypot(nx, ny)
-            if d > 0.5:
+            sx = 2.0 * (x + 0.5) / SIZE - 1.0
+            sy = 2.0 * (y + 0.5) / SIZE - 1.0
+            r2 = sx * sx + sy * sy
+            if r2 > 1.0:
                 px.append(0)
                 continue
-            z = math.sqrt(max(0.0, 0.25 - d * d))
-            shade = 0.52 + 0.48 * (z / 0.5)
-            g = int(172 * shade + 22)
-            for mx, my, mr, depth in (
-                (0.38, 0.42, 0.18, 0.24),
-                (0.58, 0.55, 0.14, 0.20),
-                (0.22, 0.62, 0.12, 0.17),
-                (0.68, 0.28, 0.10, 0.14),
-                (0.48, 0.72, 0.09, 0.12),
-            ):
-                dd = math.hypot(nx - (mx - 0.5), ny - (my - 0.5))
-                if dd < mr:
-                    f = 1.0 - depth * (1.0 - dd / mr)
-                    g = int(g * f)
-            for cx, cy, rad, depth in craters:
-                dd = math.hypot(nx - (cx - 0.5), ny - (cy - 0.5))
-                if dd < rad:
-                    rim = abs(dd - rad * 0.72) < rad * 0.09
-                    if rim:
-                        lift = 1.0 + 0.14 * depth
-                        g = min(255, int(g * lift))
-                    else:
-                        f = 1.0 - depth * (1.0 - dd / rad) * 0.58
-                        g = int(g * f)
-            n = rng.uniform(-8, 8)
-            g = max(0, min(255, int(g + n)))
+            z = math.sqrt(max(0.0, 1.0 - r2))
+            lon = math.atan2(sx, z) / (2.0 * math.pi) + center_lon
+            lat = math.asin(max(-1.0, min(1.0, -sy))) / math.pi
+            base = sample_bilinear(src, lon, 0.5 - lat)
+            limb = max(0.0, min(1.0, z))
+            shade = 0.58 + 0.42 * max(0.0, sx * lx + sy * ly + z * lz)
+            edge = 0.28 + 0.72 * (limb ** 0.28)
+            g = int(max(0, min(255, (base * 0.94 + 12) * shade * edge)))
             px.append(g)
     return px
 
@@ -88,6 +107,18 @@ def write_png_gray(path: Path, width: int, height: int, gray: list[int]) -> None
     ihdr = struct.pack(">IIBBBBB", width, height, 8, 0, 0, 0, 0)
     png = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IDAT", compressed) + chunk(b"IEND", b"")
     path.write_bytes(png)
+
+
+def write_rgb565(path: Path, gray: list[int]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = bytearray()
+    for g in gray:
+        r5 = g >> 3
+        g6 = g >> 2
+        b5 = g >> 3
+        v = (r5 << 11) | (g6 << 5) | b5
+        data.extend(struct.pack("<H", v))
+    path.write_bytes(bytes(data))
 
 
 def emit_c(gray: list[int]) -> None:
@@ -142,9 +173,13 @@ def emit_h() -> None:
 
 def main() -> None:
     gray = make_texture()
+    write_png_gray(OUT_SPIFFS_PNG, SIZE, SIZE, gray)
+    write_rgb565(OUT_SPIFFS_RGB565, gray)
     write_png_gray(OUT_PNG, SIZE, SIZE, gray)
     emit_h()
     emit_c(gray)
+    print(f"Wrote {OUT_SPIFFS_PNG} ({OUT_SPIFFS_PNG.stat().st_size} bytes)")
+    print(f"Wrote {OUT_SPIFFS_RGB565} ({OUT_SPIFFS_RGB565.stat().st_size} bytes)")
     print(f"Wrote {OUT_PNG} ({OUT_PNG.stat().st_size} bytes)")
     print(f"Wrote {OUT_H}")
     print(f"Wrote {OUT_C} ({len(gray)} bytes PROGMEM)")

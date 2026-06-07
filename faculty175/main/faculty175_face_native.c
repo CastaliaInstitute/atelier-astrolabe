@@ -13,6 +13,7 @@
 
 #include "astrolabe_round_bezel.h"
 #include "faculty175_board.h"
+#include "faculty175_lvgl.h"
 
 static const char *TAG = "faculty175_face_native";
 enum { INSTRUMENT_RATE_HZ = 24000, INSTRUMENT_CHUNK_FRAMES = 192 };
@@ -506,18 +507,6 @@ static void draw_oracle(const faculty175_native_face_t *face, uint32_t anim_ms, 
         centered_at("OMEN TIDE", cx, 366, dim);
         return;
     }
-    if (face->id == FACULTY175_FACE_LUOPAN) {
-        for (int r = 44; r <= 168; r += 22) {
-            faculty175_display_draw_circle(cx, cy, r, (r % 44) == 0 ? accent : rgb(80, 54, 36));
-        }
-        for (int i = 0; i < 24; ++i) {
-            const float a = ((float)i / 24.0f) * 6.2831853f - 1.5707963f;
-            line_polar(cx, cy, a, 78, 168, (i % 3) == 0 ? accent : rgb(86, 58, 40));
-        }
-        line_polar(cx, cy, (float)(anim_ms % 5000u) / 5000.0f * 6.2831853f, -14, 154, rgb(230, 40, 36));
-        centered_at("24 MOUNTAINS", cx, 356, dim);
-        return;
-    }
     if (face->id == FACULTY175_FACE_GEOMANCY) {
         static const uint8_t figures[4] = {0x6, 0x9, 0x3, 0xc};
         for (int f = 0; f < 4; ++f) {
@@ -957,14 +946,14 @@ static void draw_text(const faculty175_native_face_t *face, uint32_t anim_ms, ui
         centered_at("STREAM TRANSLATE SPEAK", cx, 352, dim);
         return;
     }
-    if (face->id == FACULTY175_FACE_PYTHIA || face->id == FACULTY175_FACE_ENOCHIAN) {
+    if (face->id == FACULTY175_FACE_ENOCHIAN) {
         for (int i = 0; i < 12; ++i) {
             const float a = ((float)i / 12.0f) * 6.2831853f;
             dot_polar(cx, 232, a, 116, 6, tone(face->hue + i, 28));
             line_polar(cx, 232, a, 42, 116, rgb(54, 46, 72));
         }
-        draw_star(cx, 232, face->id == FACULTY175_FACE_ENOCHIAN ? 72 : 54, accent);
-        centered_at(face->id == FACULTY175_FACE_ENOCHIAN ? "TABLET SIGIL" : "DELPHIC RESPONSE", cx, 352, dim);
+        draw_star(cx, 232, 72, accent);
+        centered_at("TABLET SIGIL", cx, 352, dim);
         return;
     }
     if (face->id == FACULTY175_FACE_QDAY) {
@@ -986,6 +975,9 @@ static void draw_text(const faculty175_native_face_t *face, uint32_t anim_ms, ui
 void faculty175_face_native_draw(const faculty175_native_face_t *face, uint32_t anim_ms)
 {
     if (face == NULL) {
+        return;
+    }
+    if (faculty175_lvgl_draw_native_face(face, anim_ms)) {
         return;
     }
     const uint16_t accent = tone(face->hue, 42);

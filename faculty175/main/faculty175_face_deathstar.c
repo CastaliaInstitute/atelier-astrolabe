@@ -3,14 +3,17 @@
 #include <string.h>
 #include <dirent.h>
 
+#include "esp_partition.h"
 #include "esp_log.h"
 #include "esp_spiffs.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "miniz.h"
 
 #include "faculty175_board.h"
 #define A1Z_PATH "/bust_cache/deathstar.a1v"
-#define A1Z_MAGIC "A1R1"
+#define A1R1_MAGIC "A1R1"
+#define A1Z1_MAGIC "A1Z1"
 #define A1Z_HEADER_SIZE 32u
 
 static const char *TAG = "deathstar";
@@ -25,10 +28,15 @@ static uint32_t s_frame_count;
 static uint8_t *s_comp;
 static size_t s_comp_cap;
 static size_t s_comp_len;
+static uint8_t *s_bits;
+static size_t s_bits_cap;
+static size_t s_bits_len;
 static uint16_t *s_row;
 static bool s_ready;
 static bool s_failed;
 static bool s_listed_missing;
+static bool s_zipped;
+static bool s_logged_first_draw;
 
 static uint16_t rgb(uint8_t r, uint8_t g, uint8_t b)
 {
@@ -47,6 +55,16 @@ static uint32_t read_le32(const uint8_t *p)
 
 static bool storage_mount(void)
 {
+    const esp_partition_t *part = esp_partition_find_first(ESP_PARTITION_TYPE_DATA,
+                                                           ESP_PARTITION_SUBTYPE_DATA_SPIFFS,
+                                                           "storage");
+    if (part == NULL) {
+        ESP_LOGW(TAG, "storage partition not found");
+    } else {
+        ESP_LOGI(TAG, "storage partition offset=0x%lx size=%lu KiB",
+                 (unsigned long)part->address,
+                 (unsigned long)(part->size / 1024u));
+    }
     esp_vfs_spiffs_conf_t conf = {
         .base_path = "/bust_cache",
         .partition_label = "storage",
@@ -54,7 +72,18 @@ static bool storage_mount(void)
         .format_if_mount_failed = false,
     };
     const esp_err_t err = esp_vfs_spiffs_register(&conf);
-    return err == ESP_OK || err == ESP_ERR_INVALID_STATE;
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGW(TAG, "storage SPIFFS mount failed: %s", esp_err_to_name(err));
+        return false;
+    }
+    size_t total = 0;
+    size_t used = 0;
+    if (esp_spiffs_info("storage", &total, &used) == ESP_OK) {
+        ESP_LOGI(TAG, "storage SPIFFS ok %u/%u KiB",
+                 (unsigned)(used / 1024u),
+                 (unsigned)(total / 1024u));
+    }
+    return true;
 }
 
 static bool read_exact(void *dst, size_t len)
@@ -108,11 +137,13 @@ static bool deathstar_open(void)
     s_file_size = (uint32_t)end;
 
     uint8_t hdr[A1Z_HEADER_SIZE];
-    if (!read_exact(hdr, sizeof(hdr)) || memcmp(hdr, A1Z_MAGIC, 4) != 0) {
+    if (!read_exact(hdr, sizeof(hdr)) ||
+        (memcmp(hdr, A1R1_MAGIC, 4) != 0 && memcmp(hdr, A1Z1_MAGIC, 4) != 0)) {
         ESP_LOGW(TAG, "invalid a1v header");
         s_failed = true;
         return false;
     }
+    s_zipped = memcmp(hdr, A1Z1_MAGIC, 4) == 0;
     s_width = read_le16(&hdr[4]);
     s_height = read_le16(&hdr[6]);
     s_fps = read_le16(&hdr[8]);
@@ -157,7 +188,8 @@ static bool deathstar_open(void)
         }
     }
     s_ready = true;
-    ESP_LOGI(TAG, "a1v ready path=%s frames=%u fps=%u size=%u KiB",
+    ESP_LOGI(TAG, "%s ready path=%s frames=%u fps=%u size=%u KiB",
+             s_zipped ? "a1z" : "a1v",
              opened_path,
              (unsigned)s_frame_count,
              (unsigned)s_fps,
@@ -179,6 +211,20 @@ static bool ensure_comp(size_t len)
     return true;
 }
 
+static bool ensure_bits(size_t len)
+{
+    if (len <= s_bits_cap) {
+        return true;
+    }
+    uint8_t *next = (uint8_t *)realloc(s_bits, len);
+    if (next == NULL) {
+        return false;
+    }
+    s_bits = next;
+    s_bits_cap = len;
+    return true;
+}
+
 static bool load_frame(uint32_t frame)
 {
     const uint32_t start = s_offsets[frame];
@@ -191,6 +237,23 @@ static bool load_frame(uint32_t frame)
     }
     s_comp_len = end - start;
     vTaskDelay(1);
+    if (s_zipped) {
+        const size_t want = ((size_t)FACULTY175_LCD_W * (size_t)FACULTY175_LCD_H + 7u) / 8u;
+        if (!ensure_bits(want)) {
+            return false;
+        }
+        const size_t dest_len = tinfl_decompress_mem_to_mem(s_bits,
+                                                            want,
+                                                            s_comp,
+                                                            s_comp_len,
+                                                            TINFL_FLAG_PARSE_ZLIB_HEADER);
+        if (dest_len != want) {
+            ESP_LOGW(TAG, "a1z inflate failed out=%u want=%u", (unsigned)dest_len, (unsigned)want);
+            return false;
+        }
+        s_bits_len = (size_t)dest_len;
+        vTaskDelay(1);
+    }
     return true;
 }
 
@@ -249,6 +312,29 @@ static bool draw_rle_frame(void)
     return y == FACULTY175_LCD_H && x == 0;
 }
 
+static bool draw_packed_1bpp_frame(void)
+{
+    const size_t want = ((size_t)FACULTY175_LCD_W * (size_t)FACULTY175_LCD_H + 7u) / 8u;
+    if (s_bits_len < want) {
+        return false;
+    }
+    const uint16_t black = rgb(0, 0, 0);
+    const uint16_t white = rgb(245, 248, 244);
+    for (int y = 0; y < FACULTY175_LCD_H; ++y) {
+        const size_t row_bit = (size_t)y * (size_t)FACULTY175_LCD_W;
+        for (int x = 0; x < FACULTY175_LCD_W; ++x) {
+            const size_t bit = row_bit + (size_t)x;
+            const uint8_t packed = s_bits[bit >> 3u];
+            s_row[x] = ((packed >> (7u - (bit & 7u))) & 1u) != 0 ? white : black;
+        }
+        faculty175_display_draw_rgb565(s_row, 0, y, FACULTY175_LCD_W, 1);
+        if ((y & 0x3f) == 0) {
+            vTaskDelay(1);
+        }
+    }
+    return true;
+}
+
 static void draw_missing(uint32_t anim_ms)
 {
     (void)anim_ms;
@@ -269,11 +355,15 @@ void faculty175_face_deathstar_draw(uint32_t anim_ms)
         return;
     }
     const uint32_t frame = (uint32_t)(((uint64_t)anim_ms * (uint64_t)s_fps / 1000u) % s_frame_count);
+    if (!s_logged_first_draw) {
+        s_logged_first_draw = true;
+        ESP_LOGI(TAG, "drawing video frame=%u zipped=%s", (unsigned)frame, s_zipped ? "yes" : "no");
+    }
     if (!load_frame(frame)) {
         draw_missing(anim_ms);
         return;
     }
-    if (!draw_rle_frame()) {
+    if (!(s_zipped ? draw_packed_1bpp_frame() : draw_rle_frame())) {
         draw_missing(anim_ms);
         return;
     }

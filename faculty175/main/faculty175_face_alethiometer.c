@@ -15,22 +15,26 @@
 #define ALETH_NVS_NS "alethi"
 #define ALETH_SYMBOL_COUNT 36
 #define ALETH_NEEDLE_COUNT 4
+#define ALETH_QUESTION_MAX 192
+#define ALETH_SPOKEN_MAX 384
 
 typedef struct {
     const char *name;
 } aleth_symbol_t;
 
 static const aleth_symbol_t k_symbols[ALETH_SYMBOL_COUNT] = {
-    {"ALPHA"},   {"BEE"},    {"SUN"},    {"MOON"},    {"HOUR"},   {"KEY"},
-    {"ANCHOR"},  {"HEART"},  {"CROWN"},  {"SWORD"},   {"TREE"},   {"SERPENT"},
-    {"BRIDGE"},  {"LANTERN"},{"BOOK"},   {"MASK"},    {"SHIP"},   {"THUNDER"},
-    {"EYE"},     {"CLOUD"},  {"MOUNT"},  {"ROAD"},    {"CUP"},    {"BUTTERFLY"},
-    {"WELL"},    {"MIRROR"}, {"SCALES"}, {"FIRE"},    {"FEATHER"},{"GATE"},
-    {"STAR"},    {"WHEEL"},  {"HAND"},   {"LYRE"},    {"ARROW"},  {"OMEGA"},
+    {"RIDER"},     {"CLOVER"}, {"SHIP"},      {"HOUSE"}, {"TREE"},    {"CLOUDS"},
+    {"SNAKE"},     {"COFFIN"}, {"BOUQUET"},   {"SCYTHE"},{"WHIP"},    {"BIRDS"},
+    {"CHILD"},     {"FOX"},    {"BEAR"},      {"STARS"}, {"STORK"},   {"DOG"},
+    {"TOWER"},     {"GARDEN"}, {"MOUNTAIN"},  {"ROADS"}, {"MICE"},    {"HEART"},
+    {"RING"},      {"BOOK"},   {"LETTER"},    {"MAN"},   {"WOMAN"},   {"LILY"},
+    {"SUN"},       {"MOON"},   {"KEY"},       {"FISH"},  {"ANCHOR"},  {"CROSS"},
 };
 
 static int s_target[ALETH_NEEDLE_COUNT] = {0, 5, 17, 30};
 static float s_angle[ALETH_NEEDLE_COUNT] = {-1.5708f, -0.7f, 1.1f, 2.2f};
+static char s_question[ALETH_QUESTION_MAX];
+static char s_spoken[ALETH_SPOKEN_MAX];
 static bool s_loaded;
 
 static uint16_t c(uint8_t r, uint8_t g, uint8_t b)
@@ -82,6 +86,8 @@ static void save_targets(void)
         snprintf(key, sizeof(key), "n%d", i);
         (void)nvs_set_i32(nvs, key, s_target[i]);
     }
+    (void)nvs_set_str(nvs, "question", s_question);
+    (void)nvs_set_str(nvs, "spoken", s_spoken);
     (void)nvs_commit(nvs);
     nvs_close(nvs);
 }
@@ -109,6 +115,14 @@ static void load_targets(void)
         s_target[i] = (int)v;
         s_angle[i] = symbol_angle(s_target[i]);
     }
+    size_t len = sizeof(s_question);
+    if (nvs_get_str(nvs, "question", s_question, &len) != ESP_OK) {
+        s_question[0] = '\0';
+    }
+    len = sizeof(s_spoken);
+    if (nvs_get_str(nvs, "spoken", s_spoken, &len) != ESP_OK) {
+        s_spoken[0] = '\0';
+    }
     nvs_close(nvs);
     if (!ok) {
         faculty175_face_alethiometer_cast(esp_random());
@@ -131,7 +145,51 @@ void faculty175_face_alethiometer_cast(uint32_t seed)
         s_target[i] = idx;
     }
     s_loaded = true;
+    s_question[0] = '\0';
+    s_spoken[0] = '\0';
     save_targets();
+}
+
+static bool parse_json_string_after(const char *json, const char *key, char *out, size_t cap)
+{
+    if (json == NULL || key == NULL || out == NULL || cap == 0) {
+        return false;
+    }
+    out[0] = '\0';
+    const char *p = strstr(json, key);
+    if (p == NULL) {
+        return false;
+    }
+    p = strchr(p, ':');
+    if (p == NULL) {
+        return false;
+    }
+    p++;
+    while (*p == ' ' || *p == '\t') {
+        p++;
+    }
+    if (*p != '"') {
+        return false;
+    }
+    p++;
+    size_t w = 0;
+    while (*p != '\0' && *p != '"' && w + 1 < cap) {
+        if (*p == '\\' && p[1] != '\0') {
+            p++;
+            switch (*p) {
+                case 'n': out[w++] = ' '; break;
+                case 't': out[w++] = ' '; break;
+                case '"': out[w++] = '"'; break;
+                case '\\': out[w++] = '\\'; break;
+                default: out[w++] = *p; break;
+            }
+            p++;
+        } else {
+            out[w++] = *p++;
+        }
+    }
+    out[w] = '\0';
+    return w > 0;
 }
 
 static bool parse_json_int_after(const char *json, const char *key, int *out)
@@ -189,10 +247,11 @@ static bool parse_json_int_array_after(const char *json, const char *key, int *o
     return true;
 }
 
-bool faculty175_face_alethiometer_apply_reply(const char *reply_json)
+bool faculty175_face_alethiometer_apply_reply(const char *question_text, const char *reply_json)
 {
     int question[3] = {};
     int answer = 0;
+    char spoken[ALETH_SPOKEN_MAX] = {};
     if (!parse_json_int_array_after(reply_json, "\"questionSymbols\"", question, 3) ||
         !parse_json_int_after(reply_json, "\"answerSymbol\"", &answer)) {
         return false;
@@ -211,9 +270,50 @@ bool faculty175_face_alethiometer_apply_reply(const char *reply_json)
     s_target[1] = question[1];
     s_target[2] = question[2];
     s_target[3] = answer;
+    if (question_text != NULL) {
+        strlcpy(s_question, question_text, sizeof(s_question));
+    }
+    if (parse_json_string_after(reply_json, "\"spoken\"", spoken, sizeof(spoken))) {
+        strlcpy(s_spoken, spoken, sizeof(s_spoken));
+    }
     s_loaded = true;
     save_targets();
     return true;
+}
+
+bool faculty175_face_alethiometer_current(int out_targets[4])
+{
+    if (out_targets == NULL) {
+        return false;
+    }
+    load_targets();
+    for (int i = 0; i < ALETH_NEEDLE_COUNT; ++i) {
+        out_targets[i] = s_target[i];
+    }
+    return true;
+}
+
+bool faculty175_face_alethiometer_context(int out_targets[4],
+                                          char *question,
+                                          size_t question_cap,
+                                          char *spoken,
+                                          size_t spoken_cap)
+{
+    if (!faculty175_face_alethiometer_current(out_targets)) {
+        return false;
+    }
+    if (question != NULL && question_cap > 0) {
+        strlcpy(question, s_question, question_cap);
+    }
+    if (spoken != NULL && spoken_cap > 0) {
+        strlcpy(spoken, s_spoken, spoken_cap);
+    }
+    return true;
+}
+
+const char *faculty175_face_alethiometer_symbol_name(int idx)
+{
+    return idx >= 0 && idx < ALETH_SYMBOL_COUNT ? k_symbols[idx].name : "";
 }
 
 static void animate_needles(uint32_t anim_ms)
@@ -277,9 +377,7 @@ static void draw_needle(float angle, int len, uint16_t color, bool answer)
     const int cx = FACULTY175_LCD_W / 2;
     const int cy = FACULTY175_LCD_H / 2;
     draw_radial_line(cx, cy, angle, -22, len, color, 1);
-    const int tx = cx + (int)lrintf(cosf(angle) * (float)len);
-    const int ty = cy + (int)lrintf(sinf(angle) * (float)len);
-    faculty175_display_fill_circle(tx, ty, answer ? 5 : 4, color);
+    (void)answer;
 }
 
 void faculty175_face_alethiometer_draw(uint32_t anim_ms)

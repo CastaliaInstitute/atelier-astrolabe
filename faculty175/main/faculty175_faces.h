@@ -31,6 +31,7 @@ typedef enum {
     FACULTY175_FACE_GLOBE,
     FACULTY175_FACE_SCALE,
     FACULTY175_FACE_ALMANAC,
+    FACULTY175_FACE_PHENOLOGY,
     FACULTY175_FACE_SKY,
     FACULTY175_FACE_QUOTES,
     FACULTY175_FACE_TRANSITS,
@@ -56,7 +57,11 @@ typedef enum {
     FACULTY175_FACE_ENOCHIAN,
     FACULTY175_FACE_HID,
     FACULTY175_FACE_BABEL,
+    FACULTY175_FACE_MAZE,
     FACULTY175_FACE_DEATHSTAR,
+    FACULTY175_FACE_SOLAR,
+    FACULTY175_FACE_MAGNETOSPHERE,
+    FACULTY175_FACE_TRON,
     FACULTY175_FACE_SETTINGS,
     FACULTY175_FACE_POCKETWATCH,
     FACULTY175_FACE_COUNT,
@@ -88,8 +93,11 @@ esp_err_t faculty175_faces_set(faculty175_face_id_t id);
 esp_err_t faculty175_faces_set_runtime(faculty175_face_id_t id);
 esp_err_t faculty175_faces_save_current(void);
 esp_err_t faculty175_faces_set_enabled(faculty175_face_id_t id, bool enabled);
+esp_err_t faculty175_faces_set_navigation_enabled(faculty175_face_id_t id, bool enabled);
+esp_err_t faculty175_faces_set_category_navigation_enabled(uint32_t category, bool enabled);
 esp_err_t faculty175_faces_set_order(faculty175_face_id_t id, uint8_t order);
 bool faculty175_faces_enabled(faculty175_face_id_t id);
+bool faculty175_faces_navigation_enabled(faculty175_face_id_t id);
 uint8_t faculty175_faces_order(faculty175_face_id_t id);
 const faculty175_face_desc_t *faculty175_faces_cycle(int delta);
 const faculty175_face_desc_t *faculty175_faces_cycle_runtime(int delta);

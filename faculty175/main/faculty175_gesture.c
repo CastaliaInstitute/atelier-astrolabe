@@ -18,11 +18,13 @@ static const char *TAG = "faculty_gesture";
 #define GESTURE_SWIPE_MAX_MS 1800
 #define GESTURE_TAP_MAX_PX 12
 #define GESTURE_TAP_MAX_MS 650
-#define GESTURE_LONG_TAP_MS 850
+#define GESTURE_LONG_TAP_MS 480
 #define GESTURE_LONG_TAP_MAX_PX 48
 #define GESTURE_CENTER_LONG_TAP_MAX_R 150
 #define GESTURE_POLL_MS 16
 #define GESTURE_QUEUE_DEPTH 8
+#define GESTURE_NAV_MAX_AGE_MS 360
+#define GESTURE_TAP_MAX_AGE_MS 650
 #define GESTURE_TASK_PRIO 5
 #define GESTURE_TASK_STACK 4096
 #define GESTURE_TASK_CORE 1
@@ -31,6 +33,7 @@ static const char *TAG = "faculty_gesture";
 #define BEZEL_TAP_MAX_PX 18
 #define BEZEL_TAP_MAX_MS 900
 #define BEZEL_STEP_FRACTION 0.72f
+#define FACULTY175_ENABLE_BEZEL_TOUCH 0
 
 static QueueHandle_t s_queue;
 static TaskHandle_t s_task;
@@ -107,16 +110,57 @@ static const char *gesture_name(faculty175_gesture_kind_t kind)
     }
 }
 
+static bool gesture_is_navigation_step(faculty175_gesture_kind_t kind)
+{
+    return kind == FACULTY175_GESTURE_SWIPE_LEFT ||
+           kind == FACULTY175_GESTURE_SWIPE_RIGHT ||
+           kind == FACULTY175_GESTURE_SWIPE_UP ||
+           kind == FACULTY175_GESTURE_SWIPE_DOWN ||
+           kind == FACULTY175_GESTURE_BEZEL_ROTATE_CW ||
+           kind == FACULTY175_GESTURE_BEZEL_ROTATE_CCW;
+}
+
+static uint32_t gesture_max_age_ms(faculty175_gesture_kind_t kind)
+{
+    return gesture_is_navigation_step(kind) ? GESTURE_NAV_MAX_AGE_MS : GESTURE_TAP_MAX_AGE_MS;
+}
+
+static void drop_queued_navigation_steps(void)
+{
+    if (s_queue == NULL) {
+        return;
+    }
+
+    faculty175_gesture_t kept[GESTURE_QUEUE_DEPTH];
+    size_t kept_count = 0;
+    faculty175_gesture_t gesture = {};
+    while (xQueueReceive(s_queue, &gesture, 0) == pdTRUE) {
+        if (gesture_is_navigation_step(gesture.kind)) {
+            continue;
+        }
+        if (kept_count < GESTURE_QUEUE_DEPTH) {
+            kept[kept_count++] = gesture;
+        }
+    }
+    for (size_t i = 0; i < kept_count; ++i) {
+        (void)xQueueSend(s_queue, &kept[i], 0);
+    }
+}
+
 static void queue_gesture(faculty175_gesture_kind_t kind, int16_t cx, int16_t cy, int16_t value)
 {
     if (kind == FACULTY175_GESTURE_NONE || s_queue == NULL) {
         return;
+    }
+    if (gesture_is_navigation_step(kind)) {
+        drop_queued_navigation_steps();
     }
     faculty175_gesture_t gesture = {
         .kind = kind,
         .x = cx,
         .y = cy,
         .value = value,
+        .queued_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS),
     };
     if (xQueueSend(s_queue, &gesture, 0) != pdTRUE) {
         faculty175_gesture_t dropped = {};
@@ -243,10 +287,6 @@ static void try_swipe(uint32_t now_ms, int16_t cx, int16_t cy)
     if (!s_down || s_swipe_fired || s_long_tap_fired) {
         return;
     }
-    if ((now_ms - s_t_down) >= GESTURE_LONG_TAP_MS &&
-        s_madx <= GESTURE_LONG_TAP_MAX_PX && s_mady <= GESTURE_LONG_TAP_MAX_PX) {
-        return;
-    }
     if ((now_ms - s_t_down) > GESTURE_SWIPE_MAX_MS) {
         return;
     }
@@ -258,7 +298,7 @@ static void try_swipe(uint32_t now_ms, int16_t cx, int16_t cy)
 
 static void try_long_tap(uint32_t now_ms, int16_t cx, int16_t cy)
 {
-    if (!s_down || s_long_tap_fired) {
+    if (!s_down || s_swipe_fired || s_long_tap_fired) {
         return;
     }
     if ((now_ms - s_t_down) < GESTURE_LONG_TAP_MS) {
@@ -285,7 +325,7 @@ static void on_release(uint32_t now_ms, int16_t cx, int16_t cy)
         FACULTY175_LOG_STAGE(TAG, "gesture", "center long tap release");
         return;
     }
-    if (s_bezel_down) {
+    if (FACULTY175_ENABLE_BEZEL_TOUCH && s_bezel_down) {
         if (!s_swipe_fired && !s_long_tap_fired && (now_ms - s_t_down) <= BEZEL_TAP_MAX_MS &&
             s_madx <= BEZEL_TAP_MAX_PX && s_mady <= BEZEL_TAP_MAX_PX) {
             const int16_t index = bezel_index_for_point(cx, cy);
@@ -331,6 +371,7 @@ void faculty175_gesture_poll(uint32_t now_ms)
             const int16_t cx = s_last_x;
             const int16_t cy = s_last_y;
             s_down = false;
+            faculty175_touch_state_update(false, cx, cy, now_ms);
             faculty175_display_touch_visual_update(cx, cy, false, now_ms);
             on_release(now_ms, cx, cy);
         }
@@ -350,9 +391,10 @@ void faculty175_gesture_poll(uint32_t now_ms)
         s_last_y = cy;
         s_madx = 0;
         s_mady = 0;
-        s_bezel_down = point_on_bezel(cx, cy);
+        s_bezel_down = FACULTY175_ENABLE_BEZEL_TOUCH && point_on_bezel(cx, cy);
         s_bezel_last_angle = s_bezel_down ? bezel_angle(cx, cy) : 0.0f;
         s_bezel_accum_angle = 0.0f;
+        faculty175_touch_state_update(true, cx, cy, now_ms);
         faculty175_display_touch_visual_update(cx, cy, true, now_ms);
         return;
     }
@@ -362,14 +404,13 @@ void faculty175_gesture_poll(uint32_t now_ms)
     s_madx = i16_max(s_madx, i16_abs((int16_t)(cx - s_x0)));
     s_mady = i16_max(s_mady, i16_abs((int16_t)(cy - s_y0)));
     (void)s_y0;
+    faculty175_touch_state_update(true, cx, cy, now_ms);
     faculty175_display_touch_visual_update(cx, cy, true, now_ms);
 
-    if (s_bezel_down) {
+    if (FACULTY175_ENABLE_BEZEL_TOUCH && s_bezel_down) {
         handle_bezel_move(cx, cy);
         try_long_tap(now_ms, cx, cy);
-        return;
     }
-    try_long_tap(now_ms, cx, cy);
     try_swipe(now_ms, cx, cy);
 }
 
@@ -378,14 +419,36 @@ bool faculty175_gesture_consume(faculty175_gesture_t *out)
     if (s_queue == NULL) {
         return false;
     }
-    faculty175_gesture_t gesture = {};
-    if (xQueueReceive(s_queue, &gesture, 0) != pdTRUE) {
-        return false;
+    const uint32_t now_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+    while (true) {
+        faculty175_gesture_t gesture = {};
+        if (xQueueReceive(s_queue, &gesture, 0) != pdTRUE) {
+            return false;
+        }
+        const uint32_t max_age_ms = gesture_max_age_ms(gesture.kind);
+        if (gesture.queued_ms != 0 && (now_ms - gesture.queued_ms) > max_age_ms) {
+            FACULTY175_LOG_STAGE(TAG,
+                                 "gesture",
+                                 "drop stale %s age_ms=%u",
+                                 gesture_name(gesture.kind),
+                                 (unsigned)(now_ms - gesture.queued_ms));
+            continue;
+        }
+        if (out != NULL) {
+            *out = gesture;
+        }
+        return true;
     }
-    if (out != NULL) {
-        *out = gesture;
+}
+
+void faculty175_gesture_flush(void)
+{
+    if (s_queue == NULL) {
+        return;
     }
-    return true;
+    faculty175_gesture_t dropped = {};
+    while (xQueueReceive(s_queue, &dropped, 0) == pdTRUE) {
+    }
 }
 
 bool faculty175_gesture_inject(faculty175_gesture_kind_t kind, int16_t x, int16_t y, int16_t value)

@@ -1,0 +1,24 @@
+{
+  "name": "astrolabe-ios",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc && vite build",
+    "dev": "vite --host 127.0.0.1",
+    "cap:add:ios": "capacitor add ios",
+    "cap:sync": "npm run build && capacitor sync ios",
+    "cap:open": "capacitor open ios"
+  },
+  "dependencies": {
+    "@capacitor-community/bluetooth-le": "8.2.0",
+    "@capacitor/core": "8.4.0",
+    "@capacitor/ios": "8.4.0",
+    "lucide": "0.468.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.4.0",
+    "typescript": "6.0.3",
+    "vite": "8.0.16"
+  }
+}

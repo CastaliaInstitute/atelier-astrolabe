@@ -3,7 +3,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define FACULTY175_FACULTY_ROSTER_MAX 8
+#define FACULTY175_FACULTY_ROSTER_MAX 10
 
 typedef struct {
     char slug[32];

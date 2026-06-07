@@ -31,13 +31,13 @@ generate() {
   echo
 }
 
+generate a.einstein "Einstein"
 generate nabokov "Vladimir Nabokov"
 generate hesse "Hermann Hesse"
 generate a.huxley "Aldous Huxley"
 generate t.leary "Tim Leary"
 generate m.shelley "Mary Shelley"
 generate j.austen "Jane Austen"
-generate a.jung "Carl Jung"
 
 echo "Done. Right 3/4 busts live at busts/{slug}/bust.png (not bust_frontal.png)."
 echo "Verify: curl -I \"$SUPABASE_URL/functions/v1/faculty-bust?faculty=m.shelley&w=466&h=466&view=right\""

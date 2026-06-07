@@ -28,6 +28,9 @@ esp_err_t faculty175_faculty_init(void);
 
 void faculty175_faculty_set_ui_notify(faculty175_faculty_ui_notify_fn fn);
 
+/** Allow network bust fetches once the TCP/IP stack and Wi-Fi path are initialized. */
+void faculty175_faculty_set_network_fetch_enabled(bool enabled);
+
 /** Queue a tiny faculty-bust download for `slug` (no-op if already loaded or in flight). */
 void faculty175_faculty_request_bust(const char *slug);
 
@@ -74,3 +77,11 @@ void faculty175_faculty_bust_blit_origin(int area_x,
 
 /** Draw decoded bust into the framebuffer; returns true when pixels are shown. */
 bool faculty175_faculty_draw_bust(int x, int y);
+
+/** Copy the decoded bust into an LVGL-compatible BGRA/ARGB8888 buffer. */
+bool faculty175_faculty_copy_bust_argb8888(uint8_t *out_bgra,
+                                           size_t out_cap,
+                                           int *out_w,
+                                           int *out_h,
+                                           char *slug_out,
+                                           size_t slug_cap);

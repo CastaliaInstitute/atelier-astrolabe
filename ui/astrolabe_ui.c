@@ -21,46 +21,60 @@ typedef struct {
 } face_meta_t;
 
 static const face_meta_t k_faces[ASTROLABE_UI_FACE_COUNT] = {
-    {"Classic", "commonplace journal home", "hue analog clock", 0x7fcde0},
+    {"Faculty", "ASK FACULTY", "recent conversations", 0xffe08a},
+    {"Classic Analog", "commonplace journal home", "hue analog clock", 0x7fcde0},
     {"Apocalypso", "RISK PROFILE", "impact vector", 0xff6b6b},
-    {"Digital", "", "", 0xffcf66},
+    {"Digital Local", "", "", 0xffcf66},
     {"Spotify", "Vinyl Queue", "demo stream", 0x1ed760},
-    {"Astrology", "transit wheel", "zodiac + planets", 0xb891ff},
+    {"Notes", "NOTES", "hold PWR to dictate", 0xb4c6d8},
     {"Moon", "lunar phase disk", "daily fortune", 0xd7e8ee},
     {"Calcifer", "RIGHT NOW", "Hue Daywheel", 0xff8a3d},
     {"Castalia", "CASTALIA", "scan phone", 0x6cc7ff},
-    {"Settings", "WiFi", "serial: wifi SSID pass", 0x92a4b8},
+    {"Astrology", "transit wheel", "zodiac + planets", 0xb891ff},
     {"Synastry", "synastry", "dual natal wheel", 0xff99cc},
+    {"Tarot", "0  THE FOOL", "daily major", 0xd99a5f},
+    {"iNQ Card", "iNQ card", "daily inquiry card", 0x8ec8ff},
+    {"Runes", "RUNES", "past  present  future", 0xc1d6a4},
+    {"Alethiometer", "ALETHIOMETER", "36 symbols / 4 needles", 0xf0c36a},
     {"Spectrum", "polar audio visualizer", "FFT rings", 0x00d4ff},
     {"Chakra", "ROOT  396 Hz", "solfeggio tone wheel", 0xff5bbd},
-    {"Bowl", "singing bowl", "drag rainbow rim", 0xd6b56d},
+    {"Tibetan Bowl", "singing bowl", "drag rainbow rim", 0xd6b56d},
     {"Rocket", "LAUNCH CLOCK", "14-day dial", 0xff734d},
     {"Radar", "NEARBY", "BLE peer radar", 0x6dff91},
-    {"Faculty", "ASK FACULTY", "recent conversations", 0xffe08a},
     {"Weather", "72 deg", "temp + humidity rings", 0x63b3ff},
     {"Globe", "day / night", "spinning Earth", 0x78d6ff},
+    {"Scale Atlas", "SCALE ATLAS", "earth moon sun gates", 0x88d8ff},
+    {"Almanac", "ALMANAC", "season moon planting", 0x6ec292},
     {"Sky", "constellations", "drag bezel time", 0x9fb6ff},
     {"Quotes", "quote of the day", "tiny faculty bust", 0xd9c7ff},
     {"Transits", "LIVE TRANSITS", "4-day motion + countdown", 0xa4e3ff},
-    {"Tarot", "0  THE FOOL", "daily major", 0xd99a5f},
-    {"Notes", "NOTES", "hold PWR to dictate", 0xb4c6d8},
     {"Ocarina", "Ocarina C", "tap holes", 0x8fd6c8},
+    {"Pitch Pipe", "Pitch Pipe", "reference tone", 0xf1d486},
     {"Bongo", "Bongo", "center low / rim high", 0xd8865b},
     {"Piano", "Circular Piano", "white outer  black inner", 0xf4f7fb},
+    {"Kalimba", "Kalimba", "pentatonic tines", 0xf2c08a},
+    {"Drone", "Drone", "root fifth octave", 0xb1e68b},
+    {"Chord", "Chord", "autoharp pads", 0xc7adff},
     {"Level", "LEVEL", "FORWARD", 0x9dff7f},
     {"Tuning", "TUNING", "listening", 0xffa64d},
     {"PanDrum", "PanDrum", "14-note handpan", 0xb8e0ff},
-    {"Alethiometer", "ALETHIOMETER", "36 symbols / 4 needles", 0xf0c36a},
-    {"Runes", "RUNES", "past  present  future", 0xc1d6a4},
     {"Orientation", "ORIENTATION", "relative heading", 0x9bd4ff},
     {"Luopan", "LUOPAN", "feng-shui dial", 0xf0c36a},
     {"Question", "QUESTION", "daily prompt", 0xe3b6ff},
     {"Focus", "FOCUS", "pomodoro timer", 0x8ff0b8},
     {"Biometrics", "sensor inference", "WiFi BLE IMU audio", 0x5ee0ca},
+    {"Watcher", "WATCHER", "camera presence", 0x90ffc8},
     {"Lenormand", "LENORMAND", "daily 36-card draw", 0xf3c56b},
     {"Pythia", "PYTHIA", "Delphi oracle", 0xd8c3ff},
     {"Geomancy", "GEOMANCY", "daily figure", 0xd9c17a},
     {"Enochian", "ENOCHIAN ANGEL", "tablet oracle", 0x9fe7ff},
+    {"HID", "HID Touchpad", "USB pointer", 0x8ec8ff},
+    {"Babel Fish", "BABEL FISH", "spoken translation", 0xffd46b},
+    {"Death Star", "DEATH STAR", "orbital trench run", 0xa8b2c8},
+    {"Solar Activity", "SOLAR ACTIVITY", "corona flares CME", 0xffbd68},
+    {"Magnetosphere", "MAGNETOSPHERE", "solar wind pressure", 0x72d8ff},
+    {"Settings", "WiFi", "serial: wifi SSID pass", 0x92a4b8},
+    {"Watch", "POCKETWATCH", "mechanical analog", 0xf3d48c},
 };
 
 static int32_t ui_cx(void) { return ASTROLABE_UI_WIDTH / 2; }
@@ -377,6 +391,23 @@ static void draw_device_face_event(lv_event_t *event) {
     for (int32_t i = 0; i < 7; ++i) draw_arc(layer, 110 + i * 9, 210 + i * 19, 272 + i * 17, 0x3cb371, 8);
     draw_arc(layer, 206, 0, (int32_t)(spin * 360.0f), 0x78d6ff, 4);
     break;
+  case ASTROLABE_UI_FACE_SCALE_ATLAS:
+    draw_circle(layer, cx, cy, 188, 0x203852, false, 3);
+    draw_circle(layer, cx, cy, 118, 0x07111e, true, 0);
+    draw_circle(layer, cx, cy, 92, 0x1d83d8, true, 0);
+    draw_circle(layer, cx - 28, cy - 20, 68, 0x79e0ff, false, 3);
+    draw_circle(layer, cx + 148, cy - 72, 18, 0xd2dae8, true, 0);
+    draw_circle(layer, cx - 158, cy + 94, 20, 0xffcc6a, true, 0);
+    for (int32_t i = 0; i < 6; ++i) draw_radial_line(layer, i * 60.0f + 18.0f, 172, 202, 0x88d8ff, 5);
+    break;
+  case ASTROLABE_UI_FACE_ALMANAC:
+    draw_arc(layer, 192, 25, 330, 0x6ec292, 10);
+    draw_circle(layer, cx, cy - 32, 74, 0xded8bf, true, 0);
+    draw_circle(layer, cx + 30, cy - 32, 58, 0x07090d, true, 0);
+    draw_round_rect(layer, 104, 286, 362, 314, 10, 0x153022);
+    draw_round_rect(layer, 128, 328, 338, 350, 8, 0x25301d);
+    draw_orbit_points(layer, 12, 174, 0xdcae5e, 5);
+    break;
   case ASTROLABE_UI_FACE_SKY:
     draw_circle(layer, cx, cy, 178, 0x10182e, true, 0);
     draw_circle(layer, cx, cy, 178, 0x405078, false, 2);
@@ -545,6 +576,39 @@ static void draw_device_face_event(lv_event_t *event) {
     draw_circle(layer, cx + 28, 170, 8, 0xf8fbff, true, 0);
     for (int32_t i = 0; i < 7; ++i) draw_arc(layer, 118 + i * 11, i * 20, 28 + i * 20, 0x70cce8, 3);
     break;
+  case ASTROLABE_UI_FACE_DEATH_STAR:
+    draw_circle(layer, cx, cy, 168, 0x222936, true, 0);
+    draw_circle(layer, cx - 58, cy - 58, 44, 0x4b5364, false, 6);
+    for (int32_t i = 0; i < 8; ++i) draw_radial_line(layer, i * 45.0f, 28, 166, 0x3a4354, 2);
+    draw_line(layer, 74, cy + 28, 392, cy + 28, 0x151a24, 8);
+    draw_arc(layer, 204, 210, 318, 0xa8b2c8, 4);
+    break;
+  case ASTROLABE_UI_FACE_SOLAR_ACTIVITY:
+    for (int32_t r = 202; r >= 128; r -= 24) draw_circle(layer, cx, cy, r, 0xff8a3d, false, 8);
+    draw_circle(layer, cx, cy, 134, 0xffb238, true, 0);
+    draw_circle(layer, cx - 22, cy - 32, 34, 0x4a1b0a, true, 0);
+    draw_circle(layer, cx + 50, cy + 22, 24, 0x321308, true, 0);
+    for (int32_t i = 0; i < 3; ++i) draw_radial_line(layer, 38.0f + i * 38.0f + spin * 60.0f, 144, 218, 0xfff2a0, 5);
+    break;
+  case ASTROLABE_UI_FACE_MAGNETOSPHERE:
+    draw_circle(layer, cx + 76, cy, 100, 0x1d83d8, true, 0);
+    draw_circle(layer, cx + 42, cy - 10, 86, 0x79e0ff, false, 3);
+    draw_circle(layer, cx - 162, cy - 88, 34, 0xffb64a, true, 0);
+    for (int32_t i = 0; i < 5; ++i) {
+      const int32_t y = cy - 112 + i * 54;
+      draw_line(layer, 66, y, cx + 58, cy + (y - cy) / 2, 0x72d8ff, 3);
+      draw_line(layer, cx + 126, cy + (y - cy) / 2, 412, y, 0x72d8ff, 3);
+    }
+    break;
+  case ASTROLABE_UI_FACE_POCKETWATCH:
+    for (int32_t i = 0; i < 12; ++i) draw_radial_line(layer, i * 30.0f, 178, 204, 0xf3d48c, 4);
+    draw_circle(layer, cx, cy, 168, 0x17120d, true, 0);
+    draw_circle(layer, cx, cy, 144, 0x0d1016, true, 0);
+    draw_radial_line(layer, spin * 360.0f, 0, 160, 0xffcf66, 3);
+    draw_radial_line(layer, 92.0f, 0, 118, 0xf8fbff, 8);
+    draw_radial_line(layer, 328.0f, 0, 82, 0xf8fbff, 10);
+    draw_circle(layer, cx, cy, 18, 0xf3d48c, true, 0);
+    break;
   default:
     draw_arc(layer, 188, 0, (int32_t)(spin * 360.0f), k_faces[s_face].accent, 8);
     draw_circle(layer, cx, cy, 94, 0x111820, true, 0);
@@ -624,18 +688,30 @@ static void create_device_face(astrolabe_ui_face_t face) {
     break;
   case ASTROLABE_UI_FACE_BONGO:
   case ASTROLABE_UI_FACE_OCARINA:
+  case ASTROLABE_UI_FACE_PITCH_PIPE:
   case ASTROLABE_UI_FACE_PAN_DRUM:
   case ASTROLABE_UI_FACE_PIANO:
+  case ASTROLABE_UI_FACE_KALIMBA:
+  case ASTROLABE_UI_FACE_DRONE:
+  case ASTROLABE_UI_FACE_CHORD:
     s_face_label = make_label(meta->line1, face == ASTROLABE_UI_FACE_PIANO ? 34 : 52, &lv_font_montserrat_22, 0xf0f6f0);
     s_hint_label = make_label(meta->line2, face == ASTROLABE_UI_FACE_PIANO ? 418 : 392, &lv_font_montserrat_16, meta->accent);
     break;
   case ASTROLABE_UI_FACE_ALETHIOMETER:
   case ASTROLABE_UI_FACE_RUNES:
+  case ASTROLABE_UI_FACE_INQ_CARD:
   case ASTROLABE_UI_FACE_NOTES:
   case ASTROLABE_UI_FACE_LENORMAND:
   case ASTROLABE_UI_FACE_PYTHIA:
   case ASTROLABE_UI_FACE_GEOMANCY:
   case ASTROLABE_UI_FACE_ENOCHIAN_ANGEL:
+  case ASTROLABE_UI_FACE_HID_TOUCHPAD:
+  case ASTROLABE_UI_FACE_BABEL_FISH:
+  case ASTROLABE_UI_FACE_DEATH_STAR:
+  case ASTROLABE_UI_FACE_SOLAR_ACTIVITY:
+  case ASTROLABE_UI_FACE_MAGNETOSPHERE:
+  case ASTROLABE_UI_FACE_SETTINGS:
+  case ASTROLABE_UI_FACE_POCKETWATCH:
     s_face_label = make_label(meta->line1, 30, &lv_font_montserrat_22, meta->accent);
     s_hint_label = make_label(meta->line2, 56, &lv_font_montserrat_16, 0x8e9ba8);
     break;
@@ -643,9 +719,18 @@ static void create_device_face(astrolabe_ui_face_t face) {
     s_face_label = make_label("Moon trine Venus", 30, &lv_font_montserrat_22, meta->accent);
     s_hint_label = make_label("exact in 2h 18m  -  4-day motion", 56, &lv_font_montserrat_16, 0x8e9ba8);
     break;
+  case ASTROLABE_UI_FACE_SCALE_ATLAS:
+  case ASTROLABE_UI_FACE_ALMANAC:
+    s_face_label = make_label(meta->line1, 30, &lv_font_montserrat_22, meta->accent);
+    s_hint_label = make_label(meta->line2, 394, &lv_font_montserrat_16, 0x8e9ba8);
+    break;
   case ASTROLABE_UI_FACE_BIOMETRICS:
     s_face_label = make_label("BIOMETRICS", 36, &lv_font_montserrat_22, meta->accent);
     s_hint_label = make_label("coh 72%  quality 88%", 418, &lv_font_montserrat_16, 0x8e9ba8);
+    break;
+  case ASTROLABE_UI_FACE_WATCHER:
+    s_face_label = make_label("WATCHER", 36, &lv_font_montserrat_22, meta->accent);
+    s_hint_label = make_label("presence ready  -  greeting pipeline", 418, &lv_font_montserrat_16, 0x8e9ba8);
     break;
   default:
     s_face_label = make_label(meta->line1[0] ? meta->line1 : meta->name, 42, &lv_font_montserrat_22, meta->accent);
@@ -693,13 +778,11 @@ static void draw_hand(lv_layer_t *layer, float unit, int32_t length, uint32_t co
 static void classic_draw_event(lv_event_t *event) {
   lv_layer_t *layer = lv_event_get_layer(event);
   const uint32_t day_ms = s_elapsed_ms % 86400000u;
-  const float second = (float)(day_ms % 60000u) / 60000.0f;
+  const uint32_t whole_second = (day_ms / 1000u) % 60u;
+  const float second = (float)whole_second / 60.0f;
   const float minute = (float)(day_ms % 3600000u) / 3600000.0f;
   const float hour = (float)(day_ms % 43200000u) / 43200000.0f;
 
-  for (int32_t i = 0; i < 60; ++i) {
-    draw_tick(layer, i);
-  }
   draw_hand(layer, hour, 88, 0xf8fbff, 10);
   draw_hand(layer, minute, 139, 0x7fcde0, 7);
   draw_hand(layer, second, 166, 0xffcf66, 3);
@@ -747,7 +830,7 @@ static void refresh_time_labels(void) {
 void astrolabe_ui_init(void) {
   s_root = lv_screen_active();
   s_elapsed_ms = 12u * 3600u * 1000u;
-  astrolabe_ui_set_face(ASTROLABE_UI_FACE_CLASSIC_ANALOG);
+  astrolabe_ui_set_face(ASTROLABE_UI_FACE_POCKETWATCH);
 }
 
 void astrolabe_ui_set_face(astrolabe_ui_face_t face) {
@@ -755,7 +838,7 @@ void astrolabe_ui_set_face(astrolabe_ui_face_t face) {
     return;
   }
   if (face < 0 || face >= ASTROLABE_UI_FACE_COUNT) {
-    face = ASTROLABE_UI_FACE_CLASSIC_ANALOG;
+    face = ASTROLABE_UI_FACE_POCKETWATCH;
   }
   s_face = face;
   switch (s_face) {

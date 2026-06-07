@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="icon" href="data:," />
+    <link rel="manifest" href="/manifest.webmanifest" />
     <title>Astrolabe Device Face Simulator</title>
     <style>
       :root {
@@ -90,6 +91,36 @@
         cursor: wait;
         opacity: 0.55;
       }
+
+      .settings {
+        width: min(466px, calc(100vw - 32px));
+        display: grid;
+        gap: 8px;
+        color: #c6d1dc;
+      }
+
+      .settings-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+      }
+
+      .settings input {
+        min-height: 38px;
+        width: 100%;
+        border: 1px solid #384655;
+        border-radius: 7px;
+        background: #111923;
+        color: #eef3f6;
+        padding: 0 10px;
+        font: inherit;
+      }
+
+      .status {
+        min-height: 20px;
+        font-size: 13px;
+        color: #91a7bc;
+      }
     </style>
   </head>
   <body>
@@ -99,50 +130,22 @@
       </div>
       <div class="controls" aria-label="Watch face controls">
         <button type="button" id="prev-face" aria-label="Previous face" disabled>‹</button>
-        <select id="face-select" aria-label="Face" disabled>
-          <option value="0">00 Classic</option>
-          <option value="1">01 Apocalypso</option>
-          <option value="2">02 Digital</option>
-          <option value="3">03 Spotify</option>
-          <option value="4">04 Astrology</option>
-          <option value="5">05 Moon</option>
-          <option value="6">06 CalciferCountdown</option>
-          <option value="7">07 Castalia</option>
-          <option value="8">08 Settings</option>
-          <option value="9">09 Synastry</option>
-          <option value="10">10 Spectrum</option>
-          <option value="11">11 Chakra</option>
-          <option value="12">12 TibetanBowl</option>
-          <option value="13">13 Rocket</option>
-          <option value="14">14 Radar</option>
-          <option value="15">15 Faculty</option>
-          <option value="16">16 Weather</option>
-          <option value="17">17 Globe</option>
-          <option value="18">18 Sky</option>
-          <option value="19">19 Quotes</option>
-          <option value="20">20 LiveTransits</option>
-          <option value="21">21 Tarot</option>
-          <option value="22">22 Notes</option>
-          <option value="23">23 Ocarina</option>
-          <option value="24">24 Bongo</option>
-          <option value="25">25 Piano</option>
-          <option value="26">26 Level</option>
-          <option value="27">27 Tuning</option>
-          <option value="28">28 PanDrum</option>
-          <option value="29">29 Alethiometer</option>
-          <option value="30">30 Runes</option>
-          <option value="31">31 Orientation</option>
-          <option value="32">32 Luopan</option>
-          <option value="33">33 QuestionOfDay</option>
-          <option value="34">34 FocusTimer</option>
-          <option value="35">35 Biometrics</option>
-          <option value="36">36 Lenormand</option>
-          <option value="37">37 Pythia</option>
-          <option value="38">38 Geomancy</option>
-          <option value="39">39 Enochian Angel</option>
-        </select>
+        <select id="face-select" aria-label="Face" disabled></select>
         <button type="button" id="next-face" aria-label="Next face" disabled>›</button>
       </div>
+      <section class="settings" aria-label="Device settings">
+        <input id="device-url" inputmode="url" placeholder="http://astrolabe-e30644.local" autocomplete="off" />
+        <div class="settings-row">
+          <button type="button" id="sync-wifi">Sync via Wi-Fi</button>
+          <button type="button" id="sync-ble">Sync via BLE</button>
+        </div>
+        <div class="settings-row">
+          <input id="wifi-ssid" maxlength="32" placeholder="Wi-Fi SSID or phone hotspot" autocomplete="off" />
+          <input id="wifi-pass" maxlength="64" placeholder="Wi-Fi password" type="password" autocomplete="current-password" />
+        </div>
+        <button type="button" id="send-wifi">Send Wi-Fi Credentials</button>
+        <div class="status" id="device-status"></div>
+      </section>
     </main>
 
     <script>
@@ -150,6 +153,13 @@
         prev: document.querySelector("#prev-face"),
         next: document.querySelector("#next-face"),
         select: document.querySelector("#face-select"),
+        deviceUrl: document.querySelector("#device-url"),
+        syncWifi: document.querySelector("#sync-wifi"),
+        syncBle: document.querySelector("#sync-ble"),
+        ssid: document.querySelector("#wifi-ssid"),
+        pass: document.querySelector("#wifi-pass"),
+        sendWifi: document.querySelector("#send-wifi"),
+        status: document.querySelector("#device-status"),
       };
 
       var Module = {
@@ -157,6 +167,7 @@
           return new URL(path, document.baseURI).href;
         },
         onRuntimeInitialized() {
+          populateFaces();
           controls.prev.disabled = false;
           controls.next.disabled = false;
           controls.select.disabled = false;
@@ -168,10 +179,30 @@
 
     <script>
       const faceSelect = controls.select;
-      const faceCount = faceSelect.options.length;
+      let faceCount = 0;
+      let bleSettingsCharacteristic = null;
+      const BLE_SERVICE_UUID = "01000000-5017-0065-6261-6c6f72747341";
+      const BLE_SETTINGS_UUID = "03000000-5017-0065-6261-6c6f72747341";
+
+      if ("serviceWorker" in navigator) {
+        navigator.serviceWorker.register("/sw.js").catch(() => {});
+      }
+
+      function populateFaces() {
+        faceCount = Module.ccall("astrolabe_web_face_count", "number");
+        faceSelect.replaceChildren();
+        for (let face = 0; face < faceCount; face++) {
+          const namePtr = Module.ccall("astrolabe_web_face_name", "number", ["number"], [face]);
+          const option = document.createElement("option");
+          option.value = String(face);
+          option.textContent = `${String(face).padStart(2, "0")} ${Module.UTF8ToString(namePtr)}`;
+          faceSelect.append(option);
+        }
+        faceSelect.value = String(faceCount - 1);
+      }
 
       function setFace(face) {
-        if (!Module.ccall) {
+        if (!Module.ccall || faceCount <= 0) {
           return;
         }
         const normalized = ((face % faceCount) + faceCount) % faceCount;
@@ -215,6 +246,127 @@
 
       canvas.addEventListener("pointercancel", () => {
         swipeStart = null;
+      });
+
+      function setStatus(text) {
+        controls.status.textContent = text;
+      }
+
+      function fixedPosixTimezone(date = new Date()) {
+        const offsetMinutes = date.getTimezoneOffset();
+        if (offsetMinutes === 0) {
+          return "UTC0";
+        }
+        const hours = Math.trunc(Math.abs(offsetMinutes) / 60);
+        const minutes = Math.abs(offsetMinutes) % 60;
+        const sign = offsetMinutes > 0 ? "" : "-";
+        return `UTC${sign}${hours}${minutes ? `:${String(minutes).padStart(2, "0")}` : ""}`;
+      }
+
+      function currentPosition() {
+        if (!navigator.geolocation) {
+          return Promise.resolve(null);
+        }
+        return new Promise((resolve) => {
+          navigator.geolocation.getCurrentPosition(
+            (pos) => resolve({
+              lat: Number(pos.coords.latitude.toFixed(6)),
+              lon: Number(pos.coords.longitude.toFixed(6)),
+              source: "pwa-geolocation",
+            }),
+            () => resolve(null),
+            { enableHighAccuracy: false, timeout: 9000, maximumAge: 3600000 },
+          );
+        });
+      }
+
+      async function settingsPayload(includeWifi = false) {
+        const location = await currentPosition();
+        const payload = {
+          tz: fixedPosixTimezone(),
+          tz_name: Intl.DateTimeFormat().resolvedOptions().timeZone || "",
+          epoch: Math.floor(Date.now() / 1000),
+        };
+        if (location) {
+          payload.location = location;
+        }
+        if (includeWifi) {
+          payload.wifi = {
+            ssid: controls.ssid.value.trim(),
+            password: controls.pass.value,
+          };
+        }
+        return payload;
+      }
+
+      function normalizedDeviceUrl() {
+        const raw = controls.deviceUrl.value.trim() || window.localStorage.getItem("astrolabeDeviceUrl") || "";
+        if (!raw) {
+          if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
+            throw new Error("Enter the watch URL first, or use BLE");
+          }
+          return window.location.origin;
+        }
+        return raw.startsWith("http://") || raw.startsWith("https://") ? raw.replace(/\/$/, "") : `http://${raw}`;
+      }
+
+      async function postSettingsOverWifi(includeWifi = false) {
+        const base = normalizedDeviceUrl();
+        window.localStorage.setItem("astrolabeDeviceUrl", base);
+        const payload = await settingsPayload(includeWifi);
+        const res = await fetch(`${base}/api/settings`, {
+          method: "POST",
+          headers: { "Content-Type": "text/plain" },
+          body: JSON.stringify(payload),
+        });
+        const json = await res.json();
+        setStatus(json.ok ? `Synced ${json.time?.tz || payload.tz}` : `Sync failed: ${json.err}`);
+      }
+
+      async function connectBle() {
+        if (!navigator.bluetooth) {
+          throw new Error("Web Bluetooth is not available in this browser");
+        }
+        const device = await navigator.bluetooth.requestDevice({
+          filters: [{ services: [BLE_SERVICE_UUID] }],
+          optionalServices: [BLE_SERVICE_UUID],
+        });
+        const server = await device.gatt.connect();
+        const service = await server.getPrimaryService(BLE_SERVICE_UUID);
+        bleSettingsCharacteristic = await service.getCharacteristic(BLE_SETTINGS_UUID);
+        return device;
+      }
+
+      async function writeBleSettings(includeWifi = false) {
+        if (!bleSettingsCharacteristic) {
+          await connectBle();
+        }
+        const bytes = new TextEncoder().encode(JSON.stringify(await settingsPayload(includeWifi)));
+        await bleSettingsCharacteristic.writeValueWithResponse(new TextEncoder().encode("BEGIN"));
+        for (let i = 0; i < bytes.length; i += 18) {
+          await bleSettingsCharacteristic.writeValueWithResponse(bytes.slice(i, i + 18));
+        }
+        await bleSettingsCharacteristic.writeValueWithResponse(new TextEncoder().encode("END"));
+        setStatus("Synced over BLE");
+      }
+
+      controls.syncWifi.addEventListener("click", () => {
+        setStatus("Syncing location and timezone over Wi-Fi...");
+        postSettingsOverWifi(false).catch((err) => setStatus(err.message));
+      });
+      controls.syncBle.addEventListener("click", () => {
+        setStatus("Syncing location and timezone over BLE...");
+        writeBleSettings(false).catch((err) => setStatus(err.message));
+      });
+      controls.sendWifi.addEventListener("click", () => {
+        if (!controls.ssid.value.trim()) {
+          setStatus("Enter an SSID first");
+          return;
+        }
+        setStatus("Sending Wi-Fi credentials...");
+        const hasDeviceUrl = Boolean(controls.deviceUrl.value.trim() || window.localStorage.getItem("astrolabeDeviceUrl"));
+        const viaBle = Boolean(bleSettingsCharacteristic) || (!hasDeviceUrl && navigator.bluetooth);
+        (viaBle ? writeBleSettings(true) : postSettingsOverWifi(true)).catch((err) => setStatus(err.message));
       });
     </script>
   </body>

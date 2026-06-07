@@ -48,6 +48,14 @@ static void put_le16(uint8_t *p, uint16_t v) {
   p[1] = static_cast<uint8_t>((v >> 8) & 0xffu);
 }
 
+static bool arg_truthy(const char *name) {
+  if (!name || !s_server.hasArg(name)) {
+    return false;
+  }
+  const String value = s_server.arg(name);
+  return value.length() == 0 || value == "1" || value == "true" || value == "yes";
+}
+
 static void handle_root() {
   char html[896];
   snprintf(html, sizeof(html),
@@ -57,6 +65,7 @@ static void handle_root() {
            "<p style=\"padding:10px;\">Mynah Astrolabe: <a href=\"http://%s/\" "
            "style=\"color:#8cf\">%s</a> <span style=\"color:#778\">mac %s</span> "
            "| <a href=\"/screen.bmp\" style=\"color:#8cf\">screen.bmp</a> "
+           "| <a href=\"/screen.bmp?rgb888=1\" style=\"color:#8cf\">24-bit</a> "
            "| <a href=\"/logs\" style=\"color:#8cf\">logs</a> "
            "| <a href=\"/control\" style=\"color:#8cf\">control</a> "
            "| <a href=\"/ota\" style=\"color:#8cf\">ota</a></p>"
@@ -391,6 +400,65 @@ static void handle_screen_bmp() {
   const int32_t h = s_canvas->height();
   if (w <= 0 || h <= 0 || w > 1024 || h > 1024) {
     s_server.send(500, "text/plain", "bad size");
+    return;
+  }
+
+  if (!arg_truthy("rgb888") && !arg_truthy("24")) {
+    const uint32_t row_stride = ((static_cast<uint32_t>(w) * 16u + 31u) / 32u) * 4u;
+    const uint32_t pixel_bytes = row_stride * static_cast<uint32_t>(h);
+    const uint32_t file_size = 70u + pixel_bytes;
+    uint8_t header[70] = {};
+    header[0] = 'B';
+    header[1] = 'M';
+    put_le32(header + 2, file_size);
+    put_le32(header + 10, 70u);
+    put_le32(header + 14, 40u);
+    put_le32(header + 18, static_cast<uint32_t>(w));
+    put_le32(header + 22, static_cast<uint32_t>(h));
+    put_le16(header + 26, 1u);
+    put_le16(header + 28, 16u);
+    put_le32(header + 30, 3u);  // BI_BITFIELDS
+    put_le32(header + 34, pixel_bytes);
+    put_le32(header + 54, 0x0000F800u);
+    put_le32(header + 58, 0x000007E0u);
+    put_le32(header + 62, 0x0000001Fu);
+    put_le32(header + 66, 0x00000000u);
+
+    constexpr int32_t kRowsPerChunk = 16;
+    const size_t chunk_bytes = static_cast<size_t>(row_stride) * kRowsPerChunk;
+    uint8_t *chunk = static_cast<uint8_t *>(heap_caps_malloc(chunk_bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+    if (!chunk) {
+      chunk = static_cast<uint8_t *>(malloc(chunk_bytes));
+    }
+    if (!chunk) {
+      s_server.send(500, "text/plain", "chunk alloc failed");
+      return;
+    }
+
+    s_server.setContentLength(file_size);
+    s_server.send(200, "image/bmp", "");
+    s_server.sendContent(reinterpret_cast<const char *>(header), sizeof(header));
+    for (int32_t yi = 0; yi < h;) {
+      const int32_t rows = (h - yi) > kRowsPerChunk ? kRowsPerChunk : (h - yi);
+      uint8_t *out = chunk;
+      for (int32_t r = 0; r < rows; ++r, ++yi) {
+        const int32_t y = h - 1 - yi;
+        const uint16_t *src = fb + static_cast<int32_t>(y) * w;
+        uint8_t *dst = out;
+        for (int32_t x = 0; x < w; ++x) {
+          const uint16_t c = src[x];
+          *dst++ = static_cast<uint8_t>(c & 0xffu);
+          *dst++ = static_cast<uint8_t>(c >> 8);
+        }
+        while (static_cast<uint32_t>(dst - out) < row_stride) {
+          *dst++ = 0;
+        }
+        out += row_stride;
+      }
+      s_server.sendContent(reinterpret_cast<const char *>(chunk), static_cast<size_t>(rows) * row_stride);
+      delay(0);
+    }
+    free(chunk);
     return;
   }
 

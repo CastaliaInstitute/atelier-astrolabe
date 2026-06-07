@@ -11,3 +11,5 @@ include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 add_compile_options(-fdiagnostics-color=always -Wno-error=format= -Wno-format)
 
 project(astrolabe_faculty175)
+
+spiffs_create_partition_image(storage storage_seed FLASH_IN_PROJECT)

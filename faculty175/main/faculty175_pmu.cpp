@@ -77,6 +77,8 @@ static void faculty175_pmu_apply_rails(void)
     s_pmu.disableTSPinMeasure();
     s_pmu.disableIRQ(XPOWERS_AXP2101_ALL_IRQ);
     s_pmu.clearIrqStatus();
+    s_pmu.setPowerKeyPressOffTime(XPOWERS_POWEROFF_4S);
+    s_pmu.enableIRQ(XPOWERS_AXP2101_PKEY_LONG_IRQ);
 }
 
 extern "C" esp_err_t faculty175_pmu_init(void)
@@ -149,4 +151,17 @@ extern "C" bool faculty175_pmu_status(faculty175_pmu_status_t *out)
     out->battery_percent = s_pmu.getBatteryPercent();
     out->battery_mv = s_pmu.getBattVoltage();
     return true;
+}
+
+extern "C" bool faculty175_pmu_pekey_long_press(void)
+{
+    if (!s_pmu_ready) {
+        return false;
+    }
+    const uint64_t irq = s_pmu.getIrqStatus();
+    const bool long_press = irq != 0 && s_pmu.isPekeyLongPressIrq();
+    if (irq != 0) {
+        s_pmu.clearIrqStatus();
+    }
+    return long_press;
 }

@@ -1,9 +1,9 @@
 # Astrolabe LVGL Web Simulator
 
-This is the first LVGL-first simulator scaffold for the ESP-IDF UI migration. It
-does not simulate the current Arduino_GFX rendering path. Instead, it links the
-shared `ui/astrolabe_ui.c` module with LVGL and renders it to a browser canvas
-through Emscripten.
+This simulator builds the ESP-IDF Faculty175 face sources for the browser. It
+links the real `faculty175_lvgl.c`, `faculty175_face_*.c`, and face catalog,
+then renders firmware LVGL flushes and fallback `faculty175_display_*` drawing
+calls into an Emscripten canvas framebuffer.
 
 ## Run
 
@@ -25,18 +25,19 @@ If Emscripten is not installed locally but Docker or Podman is running:
 
 ## Architecture
 
-- `ui/astrolabe_ui.h` is the shared UI boundary intended for both device and
-  browser builds.
-- `ui/astrolabe_ui.c` owns LVGL objects and face state.
-- `tools/web-sim/src/main.c` owns browser display/input drivers, LVGL tick
-  scheduling, and the canvas flush callback.
-- Future ESP-IDF integration should provide a parallel adapter that initializes
-  `esp_lcd`, touch, and LVGL before calling `astrolabe_ui_init()`.
+- `tools/web-sim/CMakeLists.txt` globs and compiles
+  `faculty175/main/faculty175_face_*.c`, `faculty175_lvgl.c`, and
+  `faculty175_faces.c`.
+- `tools/web-sim/src/main.c` owns the Emscripten main loop, current face ID,
+  dispatch call, and exported face catalog hooks used by the browser controls.
+- `tools/web-sim/src/faculty175_websim_stubs.c` provides the browser
+  framebuffer implementation of `faculty175_display_*` and narrow ESP-IDF data
+  stubs for NVS, time, board audio, touch, Wi-Fi settings, charts, almanac,
+  quotes, rockets, faculty busts, and tarot images.
+- `faculty175_face_dispatch_draw()` follows the firmware order: real LVGL faces
+  render first through `faculty175_lvgl_draw_face()`, and unsupported faces fall
+  through to compiled native face drawing functions where those exist.
 
-The simulator exposes every current Astrolabe face ID in the firmware
-`ClockFace` order. Each face has an LVGL sketch of the current on-device visual
-language: clocks, radial risk/profile dials, vinyl queue, astrology wheels,
-moon phase, daywheel, QR/settings states, audio/instrument layouts, weather
-rings, tarot, notes, alethiometer, and runes. These are browser-port previews;
-the detailed Arduino_GFX drawing code should continue moving into the shared
-LVGL UI module one face at a time.
+The simulator exposes the current ESP-IDF Faculty175 face ID catalog from the
+firmware metadata. Device storage and network assets that are not available in
+the browser use deterministic demo data or graceful image fallbacks.

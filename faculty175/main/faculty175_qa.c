@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <ctype.h>
 
 #include "esp_attr.h"
 #include "esp_err.h"
@@ -80,6 +81,7 @@ static void qa_print_help(void)
     printf("  qa status   heap, internal heap, audio, lcd, wifi rssi\n");
     printf("  qa ui       current UI state + faculty\n");
     printf("  qa listen   VAD + waveform ring (passive)\n");
+    printf("  qa stt [ms] trigger one fixed-window STT capture\n");
     printf("  qa audio    mic probe ~400ms (active read)\n");
     printf("  qa pcm [ms]  base64 raw mono s16le mic capture\n");
     printf("  qa pcm4 [ms]  base64 raw 4-slot ES7210 s16le capture\n");
@@ -876,6 +878,17 @@ bool faculty175_qa_handle(const char *line)
     }
     if (strcasecmp(sub, "listen") == 0) {
         qa_emit_listen();
+        return true;
+    }
+    if (strncasecmp(sub, "stt", 3) == 0 || strncasecmp(sub, "capture", 7) == 0) {
+        const char *arg = sub + (tolower((unsigned char)sub[0]) == 's' ? 3 : 7);
+        while (*arg == ' ') {
+            ++arg;
+        }
+        uint32_t capture_ms = (uint32_t)strtoul(arg, NULL, 10);
+        const esp_err_t err = s_bind.trigger_stt != NULL ? s_bind.trigger_stt(capture_ms) : ESP_ERR_INVALID_STATE;
+        printf("qa: stt trigger ms=%lu %s\n", (unsigned long)capture_ms, esp_err_to_name(err));
+        fflush(stdout);
         return true;
     }
     if (strcasecmp(sub, "audio") == 0) {

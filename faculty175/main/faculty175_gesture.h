@@ -21,6 +21,7 @@ typedef struct {
     int16_t x;
     int16_t y;
     int16_t value;
+    uint32_t queued_ms;
 } faculty175_gesture_t;
 
 /** Poll touch and classify swipes (call ~20 Hz from main loop). */
@@ -28,6 +29,9 @@ void faculty175_gesture_poll(uint32_t now_ms);
 
 /** Returns true when a gesture is ready; clears the queue slot. */
 bool faculty175_gesture_consume(faculty175_gesture_t *out);
+
+/** Drop queued gestures that are no longer relevant after a modal transition. */
+void faculty175_gesture_flush(void);
 
 /** Queue a synthetic gesture for serial/QA flows. */
 bool faculty175_gesture_inject(faculty175_gesture_kind_t kind, int16_t x, int16_t y, int16_t value);

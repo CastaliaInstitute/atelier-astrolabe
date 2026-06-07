@@ -25,6 +25,8 @@ static const char *TAG = "faculty_touch";
 static bool s_touch_ok;
 static volatile bool s_touch_irq_latched;
 static bool s_touch_active;
+static portMUX_TYPE s_touch_state_mux = portMUX_INITIALIZER_UNLOCKED;
+static faculty175_touch_state_t s_touch_state;
 
 static void IRAM_ATTR touch_int_isr(void *arg)
 {
@@ -190,4 +192,23 @@ uint8_t faculty175_touch_sample(int16_t *xs, int16_t *ys, uint8_t max_pts)
     }
     s_touch_active = out_n > 0;
     return out_n;
+}
+
+void faculty175_touch_state_update(bool down, int16_t x, int16_t y, uint32_t now_ms)
+{
+    portENTER_CRITICAL(&s_touch_state_mux);
+    s_touch_state.down = down;
+    s_touch_state.x = x;
+    s_touch_state.y = y;
+    s_touch_state.updated_ms = now_ms;
+    portEXIT_CRITICAL(&s_touch_state_mux);
+}
+
+faculty175_touch_state_t faculty175_touch_state_get(void)
+{
+    faculty175_touch_state_t state;
+    portENTER_CRITICAL(&s_touch_state_mux);
+    state = s_touch_state;
+    portEXIT_CRITICAL(&s_touch_state_mux);
+    return state;
 }

@@ -135,6 +135,7 @@ static uint16_t *s_fb;
 static bool s_button_prev;
 static volatile uint32_t s_button_injected_presses;
 static uint16_t *s_flush_strip;
+static int s_flush_strip_h;
 static int16_t *s_spk_mono_scratch;
 static size_t s_spk_mono_scratch_count;
 static bool s_speaker_ready;
@@ -245,7 +246,7 @@ void faculty175_display_unlock(void)
     }
 }
 
-#define FACULTY175_LCD_FLUSH_STRIP_H 16
+#define FACULTY175_LCD_FLUSH_STRIP_H 24
 
 /* CO5300 QSPI (same class as SH8601) wants RGB565 high byte first on the wire. */
 static uint16_t rgb565_panel_wire(uint16_t logical565)
@@ -258,18 +259,28 @@ static bool faculty175_flush_strip_alloc(void)
     if (s_flush_strip != NULL) {
         return true;
     }
-    const size_t strip_bytes =
-        (size_t)FACULTY175_LCD_W * (size_t)FACULTY175_LCD_FLUSH_STRIP_H * sizeof(uint16_t);
-    /* SPI DMA on ESP32-S3 requires DMA-capable memory — non-DMA buffers never reach the panel. */
-    s_flush_strip = heap_caps_malloc(strip_bytes, MALLOC_CAP_DMA | MALLOC_CAP_SPIRAM);
-    if (s_flush_strip == NULL) {
+    const int candidates[] = {
+        FACULTY175_LCD_FLUSH_STRIP_H,
+        16,
+        12,
+        8,
+    };
+    for (size_t i = 0; i < sizeof(candidates) / sizeof(candidates[0]); ++i) {
+        const int h = candidates[i];
+        const size_t strip_bytes = (size_t)FACULTY175_LCD_W * (size_t)h * sizeof(uint16_t);
+        /* Keep the panel strip in internal DMA memory; SPI color queueing rejects some PSRAM-backed buffers. */
         s_flush_strip = heap_caps_malloc(strip_bytes, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+        if (s_flush_strip == NULL) {
+            s_flush_strip = heap_caps_malloc(strip_bytes, MALLOC_CAP_DMA);
+        }
+        if (s_flush_strip != NULL) {
+            s_flush_strip_h = h;
+            ESP_LOGI(TAG, "lcd flush strip DMA alloc rows=%d bytes=%u", h, (unsigned)strip_bytes);
+            return true;
+        }
     }
-    if (s_flush_strip == NULL) {
-        ESP_LOGE(TAG, "lcd flush strip DMA alloc failed (%u bytes)", (unsigned)strip_bytes);
-        return false;
-    }
-    return true;
+    ESP_LOGE(TAG, "lcd flush strip DMA alloc failed");
+    return false;
 }
 
 static void faculty175_display_flush_fb(void)
@@ -281,7 +292,7 @@ static void faculty175_display_flush_fb(void)
         return;
     }
 
-    const int strip_h = FACULTY175_LCD_FLUSH_STRIP_H;
+    const int strip_h = s_flush_strip_h > 0 ? s_flush_strip_h : FACULTY175_LCD_FLUSH_STRIP_H;
     for (int y = 0; y < FACULTY175_LCD_H; y += strip_h) {
         int h = strip_h;
         if (y + h > FACULTY175_LCD_H) {
@@ -299,10 +310,9 @@ static void faculty175_display_flush_fb(void)
             ESP_LOGW(TAG, "lcd flush strip y=%d failed", y);
             break;
         }
-        if (xSemaphoreTake(s_flush_done, pdMS_TO_TICKS(500)) != pdTRUE) {
+        if (xSemaphoreTake(s_flush_done, pdMS_TO_TICKS(20)) != pdTRUE) {
             ESP_LOGW(TAG, "lcd flush strip y=%d timeout", y);
         }
-        vTaskDelay(1);
     }
 }
 
@@ -1495,7 +1505,7 @@ static esp_err_t faculty175_lcd_init(void)
 
     esp_lcd_panel_io_spi_config_t io_cfg = CO5300_PANEL_IO_QSPI_CONFIG(FACULTY175_LCD_PIN_CS, lcd_flush_done_cb, NULL);
     io_cfg.trans_queue_depth = 10;
-    io_cfg.pclk_hz = 40 * 1000 * 1000;
+    io_cfg.pclk_hz = 80 * 1000 * 1000;
     ESP_RETURN_ON_ERROR(
         esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)FACULTY175_LCD_HOST, &io_cfg, &s_panel_io), TAG, "lcd io");
 
@@ -1935,9 +1945,6 @@ void faculty175_display_fill_rgb565(uint16_t color)
     }
     for (int i = 0; i < FACULTY175_LCD_W * FACULTY175_LCD_H; ++i) {
         s_fb[i] = color;
-        if ((i & 0x3fff) == 0x3fff) {
-            vTaskDelay(1);
-        }
     }
 }
 
@@ -1960,11 +1967,12 @@ void faculty175_display_fill_rect(int x, int y, int w, int h, uint16_t color)
     if (y + h > FACULTY175_LCD_H) {
         h = FACULTY175_LCD_H - y;
     }
+    const bool cooperative_fill = (w * h) >= (FACULTY175_LCD_W * 32);
     for (int row = y; row < y + h; ++row) {
         for (int col = x; col < x + w; ++col) {
             s_fb[row * FACULTY175_LCD_W + col] = color;
         }
-        if ((row & 0x0f) == 0x0f) {
+        if (cooperative_fill && (row & 0x0f) == 0x0f) {
             vTaskDelay(1);
         }
     }
@@ -1978,6 +1986,15 @@ void faculty175_display_draw_rgb565(const uint16_t *pixels, int x, int y, int w,
 void faculty175_display_blit_rgb565_masked(const uint16_t *pixels, const uint8_t *opaque, int x, int y, int w, int h)
 {
     if (s_fb == NULL || pixels == NULL) {
+        return;
+    }
+    if (opaque == NULL && x >= 0 && y >= 0 &&
+        x + w <= FACULTY175_LCD_W && y + h <= FACULTY175_LCD_H) {
+        for (int row = 0; row < h; ++row) {
+            memcpy(&s_fb[(y + row) * FACULTY175_LCD_W + x],
+                   &pixels[row * w],
+                   (size_t)w * sizeof(uint16_t));
+        }
         return;
     }
     for (int row = 0; row < h; ++row) {
@@ -2320,52 +2337,6 @@ static uint16_t watch_tint_pixel(uint16_t p, uint8_t tr, uint8_t tg, uint8_t tb,
     return rgb565(blend_u8(r, tr, tint), blend_u8(g, tg, tint), blend_u8(b, tb, tint));
 }
 
-static void blend_pixel_rgb565(int x, int y, uint8_t r, uint8_t g, uint8_t b, uint8_t alpha)
-{
-    if (s_fb == NULL || x < 0 || x >= FACULTY175_LCD_W || y < 0 || y >= FACULTY175_LCD_H || alpha == 0) {
-        return;
-    }
-    const size_t i = (size_t)y * (size_t)FACULTY175_LCD_W + (size_t)x;
-    const uint16_t bg = s_fb[i];
-    if (bg == 0) {
-        return;
-    }
-    const uint8_t br = (uint8_t)(((bg >> 11) & 0x1f) * 255 / 31);
-    const uint8_t bg_g = (uint8_t)(((bg >> 5) & 0x3f) * 255 / 63);
-    const uint8_t bb = (uint8_t)((bg & 0x1f) * 255 / 31);
-    const uint16_t ia = (uint16_t)(255u - alpha);
-    s_fb[i] = rgb565((uint8_t)(((uint16_t)br * ia + (uint16_t)r * alpha) / 255u),
-                     (uint8_t)(((uint16_t)bg_g * ia + (uint16_t)g * alpha) / 255u),
-                     (uint8_t)(((uint16_t)bb * ia + (uint16_t)b * alpha) / 255u));
-}
-
-static void watch_draw_center_quiet_zone(void)
-{
-    const int cx = FACULTY175_PANEL_CX;
-    const int cy = FACULTY175_PANEL_CY;
-    for (int y = cy - 70; y <= cy + 70; ++y) {
-        for (int x = cx - 70; x <= cx + 70; ++x) {
-            const int dx = x - cx;
-            const int dy = y - cy;
-            const int r2 = dx * dx + dy * dy;
-            if (r2 > 70 * 70) {
-                continue;
-            }
-            uint8_t alpha = 0;
-            if (r2 < 44 * 44) {
-                alpha = 216;
-            } else {
-                const int outer = 70 * 70;
-                const int inner = 44 * 44;
-                alpha = (uint8_t)(58 + ((outer - r2) * 148) / (outer - inner));
-            }
-            blend_pixel_rgb565(x, y, 2, 6, 14, alpha);
-        }
-    }
-    faculty175_display_draw_circle(cx, cy, 70, rgb565(44, 40, 30));
-    faculty175_display_draw_circle(cx, cy, 48, rgb565(12, 18, 28));
-}
-
 static void watch_apply_time_of_day_tint(const struct tm *local)
 {
     if (s_fb == NULL || local == NULL) {
@@ -2555,7 +2526,6 @@ void faculty175_display_draw_pocketwatch(const char *detail, uint32_t anim_ms, b
         if (local_time_valid) {
             watch_apply_time_of_day_tint(&local);
         }
-        watch_draw_center_quiet_zone();
         const uint16_t outline = rgb565(1, 3, 7);
         const uint16_t hour_fill = rgb565(250, 222, 142);
         const uint16_t minute_fill = rgb565(255, 246, 214);
@@ -2563,9 +2533,8 @@ void faculty175_display_draw_pocketwatch(const char *detail, uint32_t anim_ms, b
         draw_ornate_watch_hand(cx, cy, hour_angle, -24, 104, outline, hour_fill, 8, 28, 12, true);
         draw_ornate_watch_hand(cx, cy, minute_angle, -30, 160, outline, minute_fill, 6, 32, 10, false);
         draw_ornate_second_hand(cx, cy, sec_angle, outline, second_fill);
-        faculty175_display_fill_circle(cx, cy, 16, outline);
-        faculty175_display_fill_circle(cx, cy, 11, brass);
-        faculty175_display_fill_circle(cx, cy, 4, minute_fill);
+        faculty175_display_fill_circle(cx, cy, 8, brass);
+        faculty175_display_fill_circle(cx, cy, 3, minute_fill);
         faculty175_display_flush();
         return;
     }
@@ -2800,6 +2769,56 @@ void faculty175_display_flush(void)
     faculty175_display_flush_fb();
 }
 
+void faculty175_display_flush_rect(int x, int y, int w, int h)
+{
+    if (s_flush_suspended || s_panel == NULL || s_fb == NULL || s_flush_done == NULL || w <= 0 || h <= 0) {
+        return;
+    }
+    if (!faculty175_flush_strip_alloc()) {
+        return;
+    }
+    if (x < 0) {
+        w += x;
+        x = 0;
+    }
+    if (y < 0) {
+        h += y;
+        y = 0;
+    }
+    if (x >= FACULTY175_LCD_W || y >= FACULTY175_LCD_H || w <= 0 || h <= 0) {
+        return;
+    }
+    if (x + w > FACULTY175_LCD_W) {
+        w = FACULTY175_LCD_W - x;
+    }
+    if (y + h > FACULTY175_LCD_H) {
+        h = FACULTY175_LCD_H - y;
+    }
+
+    const int max_strip_h = s_flush_strip_h > 0 ? s_flush_strip_h : FACULTY175_LCD_FLUSH_STRIP_H;
+    for (int row0 = 0; row0 < h; row0 += max_strip_h) {
+        int strip_h = h - row0;
+        if (strip_h > max_strip_h) {
+            strip_h = max_strip_h;
+        }
+        for (int row = 0; row < strip_h; ++row) {
+            const uint16_t *src = &s_fb[(y + row0 + row) * FACULTY175_LCD_W + x];
+            uint16_t *dst = &s_flush_strip[row * w];
+            for (int col = 0; col < w; ++col) {
+                dst[col] = rgb565_panel_wire(src[col]);
+            }
+        }
+        (void)xSemaphoreTake(s_flush_done, 0);
+        if (esp_lcd_panel_draw_bitmap(s_panel, x, y + row0, x + w, y + row0 + strip_h, s_flush_strip) != ESP_OK) {
+            ESP_LOGW(TAG, "lcd flush rect %d,%d %dx%d failed", x, y + row0, w, strip_h);
+            break;
+        }
+        if (xSemaphoreTake(s_flush_done, pdMS_TO_TICKS(20)) != pdTRUE) {
+            ESP_LOGW(TAG, "lcd flush rect %d,%d %dx%d timeout", x, y + row0, w, strip_h);
+        }
+    }
+}
+
 void faculty175_display_draw_circle(int cx, int cy, int r, uint16_t color)
 {
     if (r <= 0) {
@@ -2914,39 +2933,21 @@ static void draw_bezel_nav(void)
     const int cx = FACULTY175_PANEL_CX;
     const int cy = FACULTY175_PANEL_CY;
     const int r = FACULTY175_BEZEL_OUTER_R;
-    const uint16_t base = s_nav_mode ? rgb565(32, 70, 92) : rgb565(38, 44, 58);
-    const uint16_t tick = s_nav_mode ? rgb565(96, 176, 210) : rgb565(78, 88, 110);
-    const uint16_t active = s_nav_mode ? rgb565(92, 232, 255) : rgb565(255, 214, 112);
+    const uint16_t base = rgb565(38, 44, 58);
+    const uint16_t active = s_nav_mode ? rgb565(78, 204, 224) : rgb565(255, 214, 112);
     const float full = 2.0f * (float)M_PI;
     const float step = full / (float)count;
     const float start0 = -0.5f * (float)M_PI - (step * 0.5f);
 
     if (s_nav_mode) {
-        const int outer = r;
-        const int inner = r - 10;
-        const float seg_pad = step > 0.09f ? 0.006f : 0.0025f;
-        const uint16_t active_segment = rgb565(32, 166, 205);
-        const uint16_t active_core = rgb565(96, 232, 255);
-
-        draw_bezel_arc(cx, cy, outer, 0.0f, full, base);
-        draw_bezel_arc(cx, cy, inner, 0.0f, full, base);
-        const float active_a0 = start0 + (float)index * step + seg_pad;
-        const float active_a1 = start0 + (float)(index + 1) * step - seg_pad;
-        for (int rr = inner + 1; rr <= outer - 1; rr += 2) {
-            draw_bezel_arc(cx, cy, rr, active_a0, active_a1, active_segment);
-        }
-        draw_bezel_arc(cx, cy, outer - 1, active_a0 + seg_pad, active_a1 - seg_pad, active_core);
-        draw_bezel_arc(cx, cy, inner + 1, active_a0 + seg_pad, active_a1 - seg_pad, active_core);
+        const float pad = step > 0.09f ? 0.028f : 0.01f;
+        const float active_start = start0 + (float)index * step + pad;
+        const float active_end = start0 + (float)(index + 1) * step - pad;
+        draw_bezel_arc(cx, cy, r, active_start, active_end, active);
+        draw_bezel_arc(cx, cy, r - 1, active_start, active_end, active);
+        return;
     } else {
-        draw_bezel_ring(cx, cy, r, FACULTY175_BEZEL_INNER_R, base);
-        for (size_t i = 0; i < count; ++i) {
-            const float a = start0 + (float)i * step;
-            const int x0 = cx + (int)lroundf((float)(r - 4) * cosf(a));
-            const int y0 = cy + (int)lroundf((float)(r - 4) * sinf(a));
-            const int x1 = cx + (int)lroundf((float)r * cosf(a));
-            const int y1 = cy + (int)lroundf((float)r * sinf(a));
-            draw_line_safe(x0, y0, x1, y1, tick);
-        }
+        draw_bezel_arc(cx, cy, r, 0.0f, full, base);
     }
 
     const float pad = step > 0.09f ? 0.018f : 0.006f;
@@ -2965,10 +2966,6 @@ static void draw_bezel_nav(void)
 
     if (face != NULL && face->label != NULL && face->label[0] != '\0') {
         faculty175_display_draw_bezel_label(face->label, false, FACULTY175_NAME_ARC_R, 0, rgb565(210, 218, 238));
-    }
-    if (s_nav_mode) {
-        faculty175_display_draw_bezel_label("NAV MODE  TAP EXIT", true, FACULTY175_NAME_ARC_R, 0,
-                                            rgb565(92, 232, 255));
     }
 }
 
@@ -3353,6 +3350,88 @@ size_t faculty175_display_bmp_size(void)
 {
     const uint32_t row_stride = ((FACULTY175_LCD_W * 24u + 31u) / 32u) * 4u;
     return 54u + row_stride * (uint32_t)FACULTY175_LCD_H;
+}
+
+size_t faculty175_display_bmp565_size(void)
+{
+    const uint32_t row_stride = ((FACULTY175_LCD_W * 16u + 31u) / 32u) * 4u;
+    return 70u + row_stride * (uint32_t)FACULTY175_LCD_H;
+}
+
+esp_err_t faculty175_display_write_bmp565(faculty175_display_write_cb_t write_cb, void *ctx)
+{
+    if (s_fb == NULL || write_cb == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    enum {
+        HEADER_BYTES = 70,
+        ROWS_PER_CHUNK = 16,
+    };
+    const int w = FACULTY175_LCD_W;
+    const int h = FACULTY175_LCD_H;
+    const uint32_t row_stride = (((uint32_t)w * 16u + 31u) / 32u) * 4u;
+    const uint32_t pixel_bytes = row_stride * (uint32_t)h;
+    const uint32_t file_size = HEADER_BYTES + pixel_bytes;
+    uint8_t header[HEADER_BYTES] = {};
+
+    header[0] = 'B';
+    header[1] = 'M';
+    put_le32(header + 2, file_size);
+    put_le32(header + 10, HEADER_BYTES);
+    put_le32(header + 14, 40u);
+    put_le32(header + 18, (uint32_t)w);
+    put_le32(header + 22, (uint32_t)h);
+    put_le16(header + 26, 1u);
+    put_le16(header + 28, 16u);
+    put_le32(header + 30, 3u);
+    put_le32(header + 34, pixel_bytes);
+    put_le32(header + 54, 0x0000F800u);
+    put_le32(header + 58, 0x000007E0u);
+    put_le32(header + 62, 0x0000001Fu);
+    put_le32(header + 66, 0x00000000u);
+
+    esp_err_t err = write_cb(ctx, header, sizeof(header));
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    const size_t chunk_bytes = (size_t)row_stride * (size_t)ROWS_PER_CHUNK;
+    uint8_t *chunk = heap_caps_malloc(chunk_bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (chunk == NULL) {
+        chunk = malloc(chunk_bytes);
+    }
+    if (chunk == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    for (int yi = 0; yi < h;) {
+        const int rows = (h - yi) > ROWS_PER_CHUNK ? ROWS_PER_CHUNK : (h - yi);
+        uint8_t *out = chunk;
+        for (int r = 0; r < rows; ++r, ++yi) {
+            const int sy = h - 1 - yi;
+            const uint16_t *src = &s_fb[sy * w];
+            uint8_t *dst = out;
+            for (int sx = 0; sx < w; ++sx) {
+                const uint16_t c = src[sx];
+                *dst++ = (uint8_t)(c & 0xFFu);
+                *dst++ = (uint8_t)(c >> 8);
+            }
+            while ((uint32_t)(dst - out) < row_stride) {
+                *dst++ = 0;
+            }
+            out += row_stride;
+        }
+        err = write_cb(ctx, chunk, (size_t)rows * (size_t)row_stride);
+        if (err != ESP_OK) {
+            free(chunk);
+            return err;
+        }
+        vTaskDelay(0);
+    }
+
+    free(chunk);
+    return ESP_OK;
 }
 
 int faculty175_display_write_bmp(FILE *out)

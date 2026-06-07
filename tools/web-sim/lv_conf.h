@@ -17,6 +17,9 @@
 #define LV_USE_ARC 1
 #define LV_USE_LABEL 1
 #define LV_USE_OBJ 1
+#define LV_USE_IMAGE 1
+#define LV_USE_LINE 1
+#define LV_USE_QRCODE 1
 
 #define LV_FONT_MONTSERRAT_16 1
 #define LV_FONT_MONTSERRAT_18 1

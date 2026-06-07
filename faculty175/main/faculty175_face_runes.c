@@ -176,6 +176,33 @@ void faculty175_face_runes_cast(void)
     spread_save();
 }
 
+bool faculty175_face_runes_current(int out_spread[3])
+{
+    if (out_spread == NULL) {
+        return false;
+    }
+    spread_load();
+    for (int i = 0; i < SPREAD_COUNT; ++i) {
+        out_spread[i] = s_spread[i];
+    }
+    return true;
+}
+
+const char *faculty175_face_rune_name(int idx)
+{
+    return idx >= 0 && idx < RUNE_COUNT ? k_runes[idx].name : "";
+}
+
+const char *faculty175_face_rune_keyword(int idx)
+{
+    return idx >= 0 && idx < RUNE_COUNT ? k_runes[idx].keyword : "";
+}
+
+const char *faculty175_face_rune_slot(int idx)
+{
+    return idx >= 0 && idx < SPREAD_COUNT ? k_slots[idx] : "";
+}
+
 static void draw_token(int x, int y, int rune_idx, const char *slot, uint16_t accent, uint16_t dim)
 {
     faculty175_display_fill_circle(x, y, 58, c(38, 27, 20));

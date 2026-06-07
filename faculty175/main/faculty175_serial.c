@@ -8,6 +8,8 @@
 #include <fcntl.h>
 
 #include "esp_log.h"
+#include "esp_system.h"
+#include "esp_wifi.h"
 #include "driver/gpio.h"
 #include "driver/i2c_master.h"
 #include "driver/usb_serial_jtag.h"
@@ -17,7 +19,6 @@
 
 #include "astrolabe_time.h"
 #include "faculty175_board.h"
-#include "faculty175_almanac.h"
 #include "faculty175_ble.h"
 #include "faculty175_charts.h"
 #include "faculty175_device_auth.h"
@@ -28,7 +29,11 @@
 #include "faculty175_ota.h"
 #include "faculty175_pocketwatch.h"
 #include "faculty175_pmu.h"
+#include "faculty175_quotes.h"
+#include "faculty175_rocket.h"
 #include "faculty175_touch.h"
+#include "faculty175_wifi_monitor.h"
+#include "faculty175_wifi_settings.h"
 
 static const char *TAG = "faculty175_serial";
 static bool s_usb_serial_jtag_rx;
@@ -54,6 +59,326 @@ static void trim_inplace(char *line)
 static bool line_is(const char *line, const char *cmd)
 {
     return line != NULL && cmd != NULL && strcasecmp(line, cmd) == 0;
+}
+
+static const char *parse_serial_arg(const char *p, char *out, size_t cap)
+{
+    if (out == NULL || cap == 0) {
+        return p;
+    }
+    out[0] = '\0';
+    if (p == NULL) {
+        return NULL;
+    }
+    while (*p != '\0' && isspace((unsigned char)*p)) {
+        ++p;
+    }
+    if (*p == '\0') {
+        return p;
+    }
+    size_t w = 0;
+    if (*p == '"') {
+        ++p;
+        while (*p != '\0' && *p != '"' && w + 1 < cap) {
+            if (*p == '\\' && p[1] != '\0') {
+                ++p;
+            }
+            out[w++] = *p++;
+        }
+        if (*p == '"') {
+            ++p;
+        }
+    } else {
+        while (*p != '\0' && !isspace((unsigned char)*p) && w + 1 < cap) {
+            out[w++] = *p++;
+        }
+    }
+    out[w] = '\0';
+    while (*p != '\0' && isspace((unsigned char)*p)) {
+        ++p;
+    }
+    return p;
+}
+
+static const char *wifi_auth_name(wifi_auth_mode_t auth)
+{
+    switch (auth) {
+    case WIFI_AUTH_OPEN:
+        return "open";
+    case WIFI_AUTH_WEP:
+        return "wep";
+    case WIFI_AUTH_WPA_PSK:
+        return "wpa";
+    case WIFI_AUTH_WPA2_PSK:
+        return "wpa2";
+    case WIFI_AUTH_WPA_WPA2_PSK:
+        return "wpa/wpa2";
+    case WIFI_AUTH_WPA2_ENTERPRISE:
+        return "wpa2-ent";
+    case WIFI_AUTH_WPA3_PSK:
+        return "wpa3";
+    case WIFI_AUTH_WPA2_WPA3_PSK:
+        return "wpa2/wpa3";
+    default:
+        return "?";
+    }
+}
+
+static void print_bssid(const uint8_t bssid[6])
+{
+    printf("%02x:%02x:%02x:%02x:%02x:%02x",
+           bssid[0],
+           bssid[1],
+           bssid[2],
+           bssid[3],
+           bssid[4],
+           bssid[5]);
+}
+
+static bool handle_wifi_command(const char *line)
+{
+    if (line == NULL || (strcasecmp(line, "wifi") != 0 && strncasecmp(line, "wifi ", 5) != 0)) {
+        return false;
+    }
+
+    const char *sub = line + 4;
+    while (*sub != '\0' && isspace((unsigned char)*sub)) {
+        ++sub;
+    }
+    if (*sub == '\0' || strcasecmp(sub, "status") == 0) {
+        char saved_ssid[FACULTY175_WIFI_SSID_MAX + 1] = {};
+        char saved_pass[FACULTY175_WIFI_PASS_MAX + 1] = {};
+        const esp_err_t load_err = faculty175_wifi_settings_load(saved_ssid,
+                                                                 sizeof(saved_ssid),
+                                                                 saved_pass,
+                                                                 sizeof(saved_pass));
+        wifi_ap_record_t ap = {};
+        const esp_err_t ap_err = esp_wifi_sta_get_ap_info(&ap);
+        printf("wifi: runtime status=\"%s\" ssid=\"%s\" url=\"%s\" ap_active=%s ap_client=%s\n",
+               faculty175_wifi_settings_status(),
+               faculty175_wifi_settings_ssid(),
+               faculty175_wifi_settings_url(),
+               faculty175_wifi_settings_ap_active() ? "yes" : "no",
+               faculty175_wifi_settings_ap_client_connected() ? "yes" : "no");
+        printf("wifi: travel_router=%s upstream=\"%s\"\n",
+               faculty175_wifi_settings_travel_router_enabled() ? "on" : "off",
+               faculty175_wifi_settings_upstream_ssid());
+        if (ap_err == ESP_OK) {
+            printf("wifi: sta ssid=\"%s\" rssi=%d ch=%u auth=%s\n",
+                   (const char *)ap.ssid,
+                   (int)ap.rssi,
+                   (unsigned)ap.primary,
+                   wifi_auth_name(ap.authmode));
+        } else {
+            printf("wifi: sta disconnected err=%s\n", esp_err_to_name(ap_err));
+        }
+        printf("wifi: saved=%s ssid=\"%s\" pass=%s\n",
+               load_err == ESP_OK ? "yes" : "no",
+               load_err == ESP_OK ? saved_ssid : "",
+               (load_err == ESP_OK && saved_pass[0] != '\0') ? "set" : "empty");
+        faculty175_wifi_known_t known[FACULTY175_WIFI_KNOWN_MAX] = {};
+        const size_t known_count = faculty175_wifi_settings_load_known(known, FACULTY175_WIFI_KNOWN_MAX);
+        printf("wifi: known count=%u\n", (unsigned)known_count);
+        for (size_t i = 0; i < known_count; ++i) {
+            printf("wifi: known %u ssid=\"%s\" pass=%s%s\n",
+                   (unsigned)i,
+                   known[i].ssid,
+                   known[i].pass[0] != '\0' ? "set" : "empty",
+                   i == 0 ? " primary" : "");
+        }
+        fflush(stdout);
+        return true;
+    }
+
+    if (strcasecmp(sub, "list") == 0 || strcasecmp(sub, "known") == 0) {
+        faculty175_wifi_known_t known[FACULTY175_WIFI_KNOWN_MAX] = {};
+        const size_t known_count = faculty175_wifi_settings_load_known(known, FACULTY175_WIFI_KNOWN_MAX);
+        printf("wifi: known count=%u\n", (unsigned)known_count);
+        for (size_t i = 0; i < known_count; ++i) {
+            printf("wifi: known %u ssid=\"%s\" pass=%s%s\n",
+                   (unsigned)i,
+                   known[i].ssid,
+                   known[i].pass[0] != '\0' ? "set" : "empty",
+                   i == 0 ? " primary" : "");
+        }
+        fflush(stdout);
+        return true;
+    }
+
+    if (strcasecmp(sub, "incidents") == 0 || strcasecmp(sub, "events") == 0) {
+        faculty175_wifi_incident_t events[FACULTY175_WIFI_INCIDENT_MAX] = {};
+        const size_t count = faculty175_wifi_monitor_copy(events, FACULTY175_WIFI_INCIDENT_MAX);
+        printf("wifi: incidents count=%u\n", (unsigned)count);
+        for (size_t i = 0; i < count; ++i) {
+            printf("wifi: incident seq=%lu t=%lums type=%s ssid=\"%s\" bssid=",
+                   (unsigned long)events[i].seq,
+                   (unsigned long)events[i].uptime_ms,
+                   events[i].type,
+                   events[i].ssid);
+            print_bssid(events[i].bssid);
+            printf(" reason=%d rssi=%d ch=%u auth=%s detail=\"%s\"\n",
+                   events[i].reason,
+                   events[i].rssi,
+                   (unsigned)events[i].channel,
+                   wifi_auth_name(events[i].authmode),
+                   events[i].detail);
+        }
+        fflush(stdout);
+        return true;
+    }
+
+    if (strcasecmp(sub, "incidents clear") == 0 || strcasecmp(sub, "events clear") == 0) {
+        faculty175_wifi_monitor_clear();
+        printf("wifi: incidents cleared\n");
+        fflush(stdout);
+        return true;
+    }
+
+    if (strncasecmp(sub, "router", 6) == 0) {
+        const char *arg = sub + 6;
+        while (*arg != '\0' && isspace((unsigned char)*arg)) {
+            ++arg;
+        }
+        if (*arg == '\0' || strcasecmp(arg, "status") == 0) {
+            printf("wifi: travel_router=%s upstream=\"%s\"\n",
+                   faculty175_wifi_settings_travel_router_enabled() ? "on" : "off",
+                   faculty175_wifi_settings_upstream_ssid());
+            fflush(stdout);
+            return true;
+        }
+        const bool enable = strcasecmp(arg, "on") == 0 || strcasecmp(arg, "enable") == 0 ||
+                            strcasecmp(arg, "enabled") == 0 || strcmp(arg, "1") == 0;
+        const bool disable = strcasecmp(arg, "off") == 0 || strcasecmp(arg, "disable") == 0 ||
+                             strcasecmp(arg, "disabled") == 0 || strcmp(arg, "0") == 0;
+        if (!enable && !disable) {
+            printf("wifi: router usage: wifi router on|off\n");
+            fflush(stdout);
+            return true;
+        }
+        const esp_err_t err = faculty175_wifi_settings_set_travel_router_enabled(enable);
+        printf("wifi: travel_router=%s err=%s (reboot or wifi set to apply)\n",
+               enable ? "on" : "off",
+               esp_err_to_name(err));
+        fflush(stdout);
+        return true;
+    }
+
+    if (strcasecmp(sub, "scan") == 0) {
+        wifi_mode_t mode = WIFI_MODE_NULL;
+        (void)esp_wifi_get_mode(&mode);
+        faculty175_wifi_settings_set_scan_suppressed(true);
+        if (mode == WIFI_MODE_AP) {
+            (void)esp_wifi_set_mode(WIFI_MODE_APSTA);
+        }
+        (void)esp_wifi_disconnect();
+        vTaskDelay(pdMS_TO_TICKS(250));
+        wifi_scan_config_t scan = {
+            .show_hidden = true,
+        };
+        printf("wifi: scan begin\n");
+        fflush(stdout);
+        esp_err_t err = esp_wifi_scan_start(&scan, true);
+        if (err != ESP_OK) {
+            printf("wifi: scan err=%s\n", esp_err_to_name(err));
+            fflush(stdout);
+            faculty175_wifi_settings_set_scan_suppressed(false);
+            return true;
+        }
+        uint16_t count = 0;
+        err = esp_wifi_scan_get_ap_num(&count);
+        if (err != ESP_OK) {
+            printf("wifi: scan count err=%s\n", esp_err_to_name(err));
+            fflush(stdout);
+            faculty175_wifi_settings_set_scan_suppressed(false);
+            return true;
+        }
+        if (count > 24) {
+            count = 24;
+        }
+        wifi_ap_record_t aps[24] = {};
+        err = esp_wifi_scan_get_ap_records(&count, aps);
+        if (err != ESP_OK) {
+            printf("wifi: scan records err=%s\n", esp_err_to_name(err));
+            fflush(stdout);
+            faculty175_wifi_settings_set_scan_suppressed(false);
+            return true;
+        }
+        for (uint16_t i = 0; i < count; ++i) {
+            printf("wifi: ap %02u ssid=\"%s\" rssi=%d ch=%u auth=%s\n",
+                   (unsigned)i,
+                   (const char *)aps[i].ssid,
+                   (int)aps[i].rssi,
+                   (unsigned)aps[i].primary,
+                   wifi_auth_name(aps[i].authmode));
+        }
+        faculty175_wifi_monitor_record_scan(count);
+        printf("wifi: scan end count=%u\n", (unsigned)count);
+        fflush(stdout);
+        faculty175_wifi_settings_set_scan_suppressed(false);
+        return true;
+    }
+
+    if (strncasecmp(sub, "set ", 4) == 0 || strncasecmp(sub, "save ", 5) == 0 ||
+        strncasecmp(sub, "add ", 4) == 0) {
+        const char *args = strchr(sub, ' ');
+        char ssid[FACULTY175_WIFI_SSID_MAX + 1] = {};
+        char pass[FACULTY175_WIFI_PASS_MAX + 1] = {};
+        const bool make_primary = strncasecmp(sub, "add ", 4) != 0;
+        args = parse_serial_arg(args, ssid, sizeof(ssid));
+        (void)parse_serial_arg(args, pass, sizeof(pass));
+        if (ssid[0] == '\0') {
+            printf("wifi: set usage: wifi set \"SSID\" \"password\" | wifi add \"SSID\" \"password\"\n");
+            fflush(stdout);
+            return true;
+        }
+        const esp_err_t err = faculty175_wifi_settings_add_known(ssid, pass, make_primary);
+        printf("wifi: %s ssid=\"%s\" pass=%s primary=%s err=%s\n",
+               make_primary ? "set" : "add",
+               ssid,
+               pass[0] != '\0' ? "set" : "empty",
+               make_primary ? "yes" : "no",
+               esp_err_to_name(err));
+        fflush(stdout);
+        if (err == ESP_OK && make_primary) {
+            vTaskDelay(pdMS_TO_TICKS(250));
+            esp_restart();
+        }
+        return true;
+    }
+
+    if (strncasecmp(sub, "remove ", 7) == 0 || strncasecmp(sub, "rm ", 3) == 0) {
+        const char *args = strchr(sub, ' ');
+        char ssid[FACULTY175_WIFI_SSID_MAX + 1] = {};
+        (void)parse_serial_arg(args, ssid, sizeof(ssid));
+        const esp_err_t err = ssid[0] != '\0' ? faculty175_wifi_settings_remove_known(ssid) : ESP_ERR_INVALID_ARG;
+        printf("wifi: remove ssid=\"%s\" err=%s\n", ssid, esp_err_to_name(err));
+        fflush(stdout);
+        return true;
+    }
+
+    if (strcasecmp(sub, "clear") == 0) {
+        const esp_err_t err = faculty175_wifi_settings_clear_known();
+        printf("wifi: clear known err=%s\n", esp_err_to_name(err));
+        fflush(stdout);
+        if (err == ESP_OK) {
+            vTaskDelay(pdMS_TO_TICKS(250));
+            esp_restart();
+        }
+        return true;
+    }
+
+    printf("wifi commands:\n");
+    printf("  wifi status\n");
+    printf("  wifi list\n");
+    printf("  wifi scan\n");
+    printf("  wifi incidents | wifi incidents clear\n");
+    printf("  wifi router on|off\n");
+    printf("  wifi set \"SSID\" \"password\"  (save primary and reboot)\n");
+    printf("  wifi add \"SSID\" \"password\"  (save known network)\n");
+    printf("  wifi remove \"SSID\"\n");
+    printf("  wifi clear\n");
+    fflush(stdout);
+    return true;
 }
 
 static void emit_screen_bmp(void)
@@ -561,6 +886,10 @@ static void handle_line(char *line)
         return;
     }
 
+    if (handle_wifi_command(line)) {
+        return;
+    }
+
     if (faculty175_qa_handle(line)) {
         return;
     }
@@ -585,7 +914,11 @@ static void handle_line(char *line)
         return;
     }
 
-    if (faculty175_almanac_handle(line)) {
+    if (faculty175_quotes_handle(line)) {
+        return;
+    }
+
+    if (faculty175_rocket_handle(line)) {
         return;
     }
 
@@ -606,7 +939,7 @@ static void handle_line(char *line)
     }
 
     if (strcasecmp(line, "help") == 0 || strcasecmp(line, "?") == 0) {
-        printf("serial: screen | face screen | gesture help | button press | time | watch status | power | i2c scan | ble status | qa help | device help | ota help | faces help | charts help | almanac help | touch status\n");
+        printf("serial: screen | face screen | gesture help | button press | wifi status|scan|set | time | watch status | power | i2c scan | ble status | qa help | device help | ota help | faces help | charts help | almanac help | quotes help | rocket help | touch status\n");
         (void)faculty175_qa_handle("qa help");
         return;
     }

@@ -5,6 +5,13 @@
 
 #include "esp_err.h"
 
+typedef struct {
+    bool down;
+    int16_t x;
+    int16_t y;
+    uint32_t updated_ms;
+} faculty175_touch_state_t;
+
 /** Init CST9217 on the shared I2C bus (no-op when touch IC absent). */
 esp_err_t faculty175_touch_init(void);
 
@@ -13,3 +20,6 @@ bool faculty175_touch_int_active(void);
 
 /** Sample up to `max_pts` touch points; returns count (0 when none). */
 uint8_t faculty175_touch_sample(int16_t *xs, int16_t *ys, uint8_t max_pts);
+
+void faculty175_touch_state_update(bool down, int16_t x, int16_t y, uint32_t now_ms);
+faculty175_touch_state_t faculty175_touch_state_get(void);

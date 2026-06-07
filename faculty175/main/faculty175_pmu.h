@@ -24,6 +24,9 @@ esp_err_t faculty175_pmu_init(void);
 /** Latest AXP2101 battery/USB snapshot; returns false when PMU init failed. */
 bool faculty175_pmu_status(faculty175_pmu_status_t *out);
 
+/** True once when the AXP2101 PEKEY reports a long press. */
+bool faculty175_pmu_pekey_long_press(void);
+
 #ifdef __cplusplus
 }
 #endif

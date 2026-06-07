@@ -52,6 +52,11 @@ static char s_daily_sun[32];
 static char s_daily_event[64];
 static char s_daily_planting[72];
 static char s_daily_prompt[144];
+static char s_daily_phenology_subject[64];
+static char s_daily_phenology_action[96];
+static char s_daily_phenology_habitat[64];
+static char s_daily_phenology_prompt[160];
+static char s_daily_phenology_image[96];
 
 static void set_last(const char *fmt, ...)
 {
@@ -569,6 +574,48 @@ bool faculty175_almanac_cached_daily_ex(char *date,
     }
     copy_json_string(cJSON_GetObjectItemCaseSensitive(chosen, "planting"), s_daily_planting, sizeof(s_daily_planting));
     copy_json_string(cJSON_GetObjectItemCaseSensitive(chosen, "prompt"), s_daily_prompt, sizeof(s_daily_prompt));
+    const cJSON *phenology = cJSON_GetObjectItemCaseSensitive(chosen, "phenology");
+    copy_json_string(cJSON_GetObjectItemCaseSensitive(phenology, "subject"),
+                     s_daily_phenology_subject,
+                     sizeof(s_daily_phenology_subject));
+    if (s_daily_phenology_subject[0] == '\0') {
+        copy_json_string(cJSON_GetObjectItemCaseSensitive(phenology, "plant"),
+                         s_daily_phenology_subject,
+                         sizeof(s_daily_phenology_subject));
+    }
+    if (s_daily_phenology_subject[0] == '\0') {
+        copy_json_string(cJSON_GetObjectItemCaseSensitive(phenology, "animal"),
+                         s_daily_phenology_subject,
+                         sizeof(s_daily_phenology_subject));
+    }
+    copy_json_string(cJSON_GetObjectItemCaseSensitive(phenology, "action"),
+                     s_daily_phenology_action,
+                     sizeof(s_daily_phenology_action));
+    copy_json_string(cJSON_GetObjectItemCaseSensitive(phenology, "habitat"),
+                     s_daily_phenology_habitat,
+                     sizeof(s_daily_phenology_habitat));
+    copy_json_string(cJSON_GetObjectItemCaseSensitive(phenology, "prompt"),
+                     s_daily_phenology_prompt,
+                     sizeof(s_daily_phenology_prompt));
+    copy_json_string(cJSON_GetObjectItemCaseSensitive(phenology, "image_cache_path"),
+                     s_daily_phenology_image,
+                     sizeof(s_daily_phenology_image));
+    if (s_daily_phenology_image[0] == '\0') {
+        copy_json_string(cJSON_GetObjectItemCaseSensitive(phenology, "rgb565_cache_path"),
+                         s_daily_phenology_image,
+                         sizeof(s_daily_phenology_image));
+    }
+    if (s_daily_phenology_subject[0] == '\0') {
+        strlcpy(s_daily_phenology_subject, s_daily_season[0] != '\0' ? s_daily_season : "local phenology",
+                sizeof(s_daily_phenology_subject));
+    }
+    if (s_daily_phenology_action[0] == '\0') {
+        strlcpy(s_daily_phenology_action, s_daily_planting[0] != '\0' ? s_daily_planting : "seasonal change",
+                sizeof(s_daily_phenology_action));
+    }
+    if (s_daily_phenology_prompt[0] == '\0') {
+        strlcpy(s_daily_phenology_prompt, s_daily_prompt, sizeof(s_daily_phenology_prompt));
+    }
     cJSON_Delete(root);
     s_daily_cache_valid = s_daily_date[0] != '\0';
     if (!s_daily_cache_valid) {
@@ -601,6 +648,87 @@ bool faculty175_almanac_cached_daily(char *date,
 {
     return faculty175_almanac_cached_daily_ex(date, date_cap, season, season_cap, moon, moon_cap, NULL, 0, NULL, 0,
                                              NULL, 0, prompt, prompt_cap);
+}
+
+bool faculty175_almanac_cached_phenology(char *date,
+                                         size_t date_cap,
+                                         char *subject,
+                                         size_t subject_cap,
+                                         char *action,
+                                         size_t action_cap,
+                                         char *habitat,
+                                         size_t habitat_cap,
+                                         char *prompt,
+                                         size_t prompt_cap,
+                                         char *image_path,
+                                         size_t image_path_cap)
+{
+    char season[40];
+    char moon[40];
+    char sun[32];
+    char event[64];
+    char planting[72];
+    char daily_prompt[144];
+    const bool ok = faculty175_almanac_cached_daily_ex(date,
+                                                       date_cap,
+                                                       season,
+                                                       sizeof(season),
+                                                       moon,
+                                                       sizeof(moon),
+                                                       sun,
+                                                       sizeof(sun),
+                                                       event,
+                                                       sizeof(event),
+                                                       planting,
+                                                       sizeof(planting),
+                                                       daily_prompt,
+                                                       sizeof(daily_prompt));
+    if (!ok) {
+        if (subject != NULL && subject_cap > 0) {
+            subject[0] = '\0';
+        }
+        if (action != NULL && action_cap > 0) {
+            action[0] = '\0';
+        }
+        if (habitat != NULL && habitat_cap > 0) {
+            habitat[0] = '\0';
+        }
+        if (prompt != NULL && prompt_cap > 0) {
+            prompt[0] = '\0';
+        }
+        if (image_path != NULL && image_path_cap > 0) {
+            image_path[0] = '\0';
+        }
+        return false;
+    }
+    if (subject != NULL && subject_cap > 0) {
+        strlcpy(subject,
+                s_daily_phenology_subject[0] != '\0' ? s_daily_phenology_subject : season,
+                subject_cap);
+    }
+    if (action != NULL && action_cap > 0) {
+        strlcpy(action,
+                s_daily_phenology_action[0] != '\0' ? s_daily_phenology_action : planting,
+                action_cap);
+    }
+    if (habitat != NULL && habitat_cap > 0) {
+        strlcpy(habitat,
+                s_daily_phenology_habitat[0] != '\0' ? s_daily_phenology_habitat : moon,
+                habitat_cap);
+    }
+    if (prompt != NULL && prompt_cap > 0) {
+        strlcpy(prompt,
+                s_daily_phenology_prompt[0] != '\0' ? s_daily_phenology_prompt : daily_prompt,
+                prompt_cap);
+    }
+    if (image_path != NULL && image_path_cap > 0) {
+        if (s_daily_phenology_image[0] != '\0') {
+            snprintf(image_path, image_path_cap, ALMANAC_STORAGE_BASE "/%s", s_daily_phenology_image);
+        } else {
+            strlcpy(image_path, ALMANAC_STORAGE_BASE "/alm-phenology.rgb565", image_path_cap);
+        }
+    }
+    return true;
 }
 
 bool faculty175_almanac_handle(const char *line)

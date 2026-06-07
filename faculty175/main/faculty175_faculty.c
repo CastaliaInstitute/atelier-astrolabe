@@ -35,7 +35,7 @@
 #define BUST_IMAGE_MAX_BYTES (768 * 1024)
 #define BUST_PNG_MAX_DIM 1024
 #define BUST_CACHE_BASE "/bust_cache"
-#define BUST_CACHE_VERSION "v4"
+#define BUST_CACHE_VERSION "v5"
 
 static const char *TAG = "faculty175_faculty";
 #define HTTP_TIMEOUT_MS 20000
@@ -54,9 +54,10 @@ static int s_bust_content_cy;
 static faculty175_faculty_ui_notify_fn s_ui_notify;
 static bool s_bust_cache_ready;
 static bool s_bust_cache_checked;
+static volatile bool s_network_fetch_enabled;
 
 #ifndef ASTROLABE_FACULTY_PREFETCH_ROSTER
-#define ASTROLABE_FACULTY_PREFETCH_ROSTER 0
+#define ASTROLABE_FACULTY_PREFETCH_ROSTER 1
 #endif
 
 static void compute_bust_content_center(const uint8_t *opaque, int w, int h, int *out_cx, int *out_cy)
@@ -801,9 +802,12 @@ static bool bust_cache_init(void)
         .format_if_mount_failed = false,
     };
     const esp_err_t err = esp_vfs_spiffs_register(&conf);
-    if (err != ESP_OK) {
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
         ESP_LOGW(TAG, "bust SPIFFS mount failed: %s", esp_err_to_name(err));
         return false;
+    }
+    if (err == ESP_ERR_INVALID_STATE) {
+        ESP_LOGI(TAG, "bust SPIFFS already mounted");
     }
 
     size_t total = 0;
@@ -1013,6 +1017,9 @@ static bool fetch_and_decode_bust(const char *slug)
     const bool from_flash = bust_load_from_flash(slug, &image, &image_len);
     if (from_flash) {
         source = "flash";
+    } else if (!s_network_fetch_enabled) {
+        FACULTY175_LOG_STAGE_W(TAG, "faculty", "bust network deferred for %s", slug);
+        return false;
     } else if (!fetch_bust_bytes_network(slug, &image, &image_len, &source)) {
         return false;
     }
@@ -1147,6 +1154,7 @@ static void prefetch_roster_task(void *arg)
             continue;
         }
         if (bust_flash_cached(entry.slug)) {
+            ESP_LOGI(TAG, "roster prefetch cached %s", entry.slug);
             continue;
         }
         uint8_t *bytes = NULL;
@@ -1154,6 +1162,10 @@ static void prefetch_roster_task(void *arg)
         const char *source = NULL;
         if (fetch_bust_bytes_network(entry.slug, &bytes, &len, &source)) {
             (void)bust_save_to_flash(entry.slug, bytes, len);
+            ESP_LOGI(TAG, "roster prefetch saved %s via %s (%u B)",
+                     entry.slug,
+                     source != NULL ? source : "?",
+                     (unsigned)len);
             free(bytes);
         } else {
             ESP_LOGW(TAG, "roster prefetch miss %s", entry.slug);
@@ -1203,6 +1215,11 @@ esp_err_t faculty175_faculty_init(void)
 void faculty175_faculty_set_ui_notify(faculty175_faculty_ui_notify_fn fn)
 {
     s_ui_notify = fn;
+}
+
+void faculty175_faculty_set_network_fetch_enabled(bool enabled)
+{
+    s_network_fetch_enabled = enabled;
 }
 
 void faculty175_faculty_request_bust(const char *slug)
@@ -1328,4 +1345,45 @@ bool faculty175_faculty_draw_bust(int x, int y)
         xSemaphoreGive(s_bust_lock);
     }
     return drew;
+}
+
+bool faculty175_faculty_copy_bust_argb8888(uint8_t *out_bgra,
+                                           size_t out_cap,
+                                           int *out_w,
+                                           int *out_h,
+                                           char *slug_out,
+                                           size_t slug_cap)
+{
+    if (out_bgra == NULL || out_w == NULL || out_h == NULL || s_bust_lock == NULL ||
+        s_bust_pixels == NULL || s_bust_opaque == NULL) {
+        return false;
+    }
+
+    bool copied = false;
+    if (xSemaphoreTake(s_bust_lock, pdMS_TO_TICKS(100)) == pdTRUE) {
+        if (s_status == FACULTY175_FACULTY_BUST_READY && s_bust_draw_w > 0 && s_bust_draw_h > 0) {
+            const size_t px_count = (size_t)s_bust_draw_w * (size_t)s_bust_draw_h;
+            if (out_cap >= px_count * 4u) {
+                for (size_t i = 0; i < px_count; ++i) {
+                    const uint16_t p = s_bust_pixels[i];
+                    const uint8_t r = (uint8_t)((((p >> 11) & 0x1fu) * 255u) / 31u);
+                    const uint8_t g = (uint8_t)((((p >> 5) & 0x3fu) * 255u) / 63u);
+                    const uint8_t b = (uint8_t)(((p & 0x1fu) * 255u) / 31u);
+                    out_bgra[i * 4u + 0u] = b;
+                    out_bgra[i * 4u + 1u] = g;
+                    out_bgra[i * 4u + 2u] = r;
+                    out_bgra[i * 4u + 3u] = s_bust_opaque[i] >= 128 ? 255 : 0;
+                }
+                *out_w = s_bust_draw_w;
+                *out_h = s_bust_draw_h;
+                if (slug_out != NULL && slug_cap > 0) {
+                    strncpy(slug_out, s_loaded_slug, slug_cap - 1u);
+                    slug_out[slug_cap - 1u] = '\0';
+                }
+                copied = true;
+            }
+        }
+        xSemaphoreGive(s_bust_lock);
+    }
+    return copied;
 }

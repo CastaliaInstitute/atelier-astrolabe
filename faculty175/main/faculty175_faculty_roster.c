@@ -13,13 +13,14 @@ static const char *TAG = "faculty175_roster";
 static const char *kNs = "fac_roster";
 
 static const faculty175_faculty_roster_entry_t kDefaultRoster[] = {
+    {"a.einstein", "Einstein"},
+    {"a.plato", "Plato"},
     {"nabokov", "Nabokov"},
     {"hesse", "Hesse"},
     {"a.huxley", "Huxley"},
     {"t.leary", "Leary"},
     {"m.shelley", "Mary Shelley"},
     {"j.austen", "Jane Austen"},
-    {"a.jung", "Carl Jung"},
 };
 
 static void roster_key_slug(char *out, size_t cap, int index)
@@ -77,11 +78,13 @@ static bool roster_matches_default(nvs_handle_t nvs)
     if (nvs_get_i32(nvs, "count", &count) != ESP_OK || count != expected) {
         return false;
     }
-    faculty175_faculty_roster_entry_t entry = {};
-    if (!roster_read_entry(nvs, 0, &entry)) {
-        return false;
+    for (int i = 0; i < expected; ++i) {
+        faculty175_faculty_roster_entry_t entry = {};
+        if (!roster_read_entry(nvs, i, &entry) || strcmp(entry.slug, kDefaultRoster[i].slug) != 0) {
+            return false;
+        }
     }
-    return strcmp(entry.slug, kDefaultRoster[0].slug) == 0;
+    return true;
 }
 
 void faculty175_faculty_roster_ensure_default(void)

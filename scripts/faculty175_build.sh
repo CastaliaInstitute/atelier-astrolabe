@@ -9,6 +9,21 @@ fi
 # shellcheck disable=SC1090
 source "${IDF_PATH}/export.sh"
 
+faculty175_should_audit_lvgl() {
+  local arg
+  for arg in "$@"; do
+    case "${arg}" in
+      build|all|flash|app-flash|encrypted-flash|encrypted-app-flash)
+        return 0
+        ;;
+    esac
+  done
+  if [[ $# -eq 0 ]]; then
+    return 0
+  fi
+  return 1
+}
+
 faculty175_idf_python() {
   if [[ -n "${FACULTY175_IDF_PYTHON:-}" && -x "${FACULTY175_IDF_PYTHON}" ]]; then
     echo "${FACULTY175_IDF_PYTHON}"
@@ -16,6 +31,7 @@ faculty175_idf_python() {
   fi
   local candidate
   for candidate in \
+    "${HOME}/.espressif/python_env/idf5.5_py3.14_env/bin/python" \
     "${HOME}/.espressif/python_env/idf5.5_py3.13_env/bin/python" \
     "${HOME}/.espressif/python_env/idf5.4_py3.13_env/bin/python" \
     "${HOME}/.espressif/python_env/idf5.3.3_py3.11_env/bin/python"; do
@@ -28,6 +44,10 @@ faculty175_idf_python() {
 }
 
 cd "${ROOT}/faculty175"
+if [[ "${FACULTY175_SKIP_LVGL_AUDIT:-0}" != "1" ]] && faculty175_should_audit_lvgl "$@"; then
+  "${PYTHON:-python3}" "${ROOT}/scripts/audit_lvgl_port.py"
+fi
+
 IDF_PY=(idf.py)
 if resolved_py="$(faculty175_idf_python)"; then
   IDF_PY=("${resolved_py}" "${IDF_PATH}/tools/idf.py")

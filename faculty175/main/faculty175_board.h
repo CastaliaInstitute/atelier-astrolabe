@@ -66,6 +66,7 @@ void faculty175_display_draw_text(const char *text, int x, int y, uint16_t color
 void faculty175_display_draw_centered_text(const char *text, int y, uint16_t color);
 void faculty175_display_draw_bezel_label(const char *text, bool bottom, int radius, uint32_t scroll_ms, uint16_t color);
 void faculty175_display_flush(void);
+void faculty175_display_flush_rect(int x, int y, int w, int h);
 void faculty175_display_flush_suspended_set(bool suspended);
 size_t faculty175_display_frame_pixel_count(void);
 bool faculty175_display_frame_copy(uint16_t *out, size_t pixel_count);
@@ -106,6 +107,9 @@ void faculty175_display_lock(void);
 void faculty175_display_unlock(void);
 size_t faculty175_display_bmp_size(void);
 int faculty175_display_write_bmp(FILE *out);
+typedef esp_err_t (*faculty175_display_write_cb_t)(void *ctx, const uint8_t *data, size_t len);
+size_t faculty175_display_bmp565_size(void);
+esp_err_t faculty175_display_write_bmp565(faculty175_display_write_cb_t write_cb, void *ctx);
 
 bool faculty175_button_pressed(void);
 bool faculty175_button_just_pressed(void);
