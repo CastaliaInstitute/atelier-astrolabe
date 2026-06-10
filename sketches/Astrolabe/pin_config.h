@@ -1,5 +1,37 @@
 #pragma once
 
+#if defined(ASTROLABE_PLATFORM_185B)
+
+#define LCD_SDIO0 46
+#define LCD_SDIO1 45
+#define LCD_SDIO2 42
+#define LCD_SDIO3 41
+#define LCD_SCLK 40
+#define LCD_RESET 3
+#define LCD_CS 21
+#define LCD_BL 5
+#define LCD_WIDTH 360
+#define LCD_HEIGHT 360
+
+#define IIC_SDA 11
+#define IIC_SCL 10
+#define TP_INT 4
+#define TP_RST 1
+
+#define PIN_ES7210_BCLK 48
+#define PIN_ES7210_LRCK 38
+#define PIN_ES7210_DIN 39
+#define PIN_ES7210_MCLK 2
+#define PIN_ES8311_DOUT 47
+
+#define PA 9
+
+#ifndef MYNAH_BOOT_BUTTON_GPIO
+#define MYNAH_BOOT_BUTTON_GPIO 0
+#endif
+
+#else
+
 #define XPOWERS_CHIP_AXP2101
 
 #define LCD_SDIO0 4
@@ -28,4 +60,6 @@
 /** Side BOOT button (strap GPIO); Waveshare 1.75C — see vendor LVGL+AXP examples. */
 #ifndef MYNAH_BOOT_BUTTON_GPIO
 #define MYNAH_BOOT_BUTTON_GPIO 0
+#endif
+
 #endif

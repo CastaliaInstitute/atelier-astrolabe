@@ -204,6 +204,12 @@ async function parseVoiceRequestBody(req: Request): Promise<ReqBody> {
 
 const ASK_FACULTY_SELECTIONS: Array<FacultySelection & { hints: string }> = [
   {
+    slug: "a.darwin",
+    name: "Charles Darwin",
+    hints:
+      "biology, evolution, natural selection, variation, adaptation, natural history, geology, botany, species",
+  },
+  {
     slug: "a.einstein",
     name: "Einstein",
     hints: "physics, time, relativity, pattern, wonder, imagination, systems",
@@ -358,7 +364,13 @@ function fallbackFacultySelection(text: string): FacultySelection {
   ) {
     return { slug: "hypatia", name: "Hypatia" };
   }
-  return { slug: "a.einstein", name: "Einstein" };
+  if (
+    /(biology|evolution|species|selection|adapt|variation|naturalist|geology|botany|beagle|origin)/
+      .test(t)
+  ) {
+    return { slug: "a.darwin", name: "Charles Darwin" };
+  }
+  return { slug: "a.darwin", name: "Charles Darwin" };
 }
 
 async function selectFacultyForAsk(

@@ -2,6 +2,9 @@
 
 #include <Arduino.h>
 #include <Arduino_GFX_Library.h>
+#if defined(ASTROLABE_PLATFORM_185B)
+#include <display/Arduino_ST77916.h>
+#endif
 #include <WiFi.h>
 #include <Wire.h>
 #include <cstdio>
@@ -109,16 +112,34 @@
 Arduino_DataBus *bus = new Arduino_ESP32QSPI(
     LCD_CS, LCD_SCLK, LCD_SDIO0, LCD_SDIO1, LCD_SDIO2, LCD_SDIO3);
 
+#if defined(ASTROLABE_PLATFORM_185B)
+Arduino_ST77916 *tft = new Arduino_ST77916(
+    bus, LCD_RESET, 0, false, LCD_WIDTH, LCD_HEIGHT, 0, 0, 0, 0);
+#else
 Arduino_CO5300 *tft = new Arduino_CO5300(
     bus, LCD_RESET, 0, false, LCD_WIDTH, LCD_HEIGHT, 6, 0, 0, 0);
+#endif
 /** Portable framebuffer facade; flush() pushes pixels to the CO5300 (enables WiFi BMP grab). */
 PmDisplayCanvas *gfx = new PmDisplayCanvas(LCD_WIDTH, LCD_HEIGHT, tft);
 
 static void astrolabe_set_brightness(uint8_t brightness) {
 #ifndef ASTROLABE_QEMU
+#if defined(ASTROLABE_PLATFORM_185B)
+#ifdef LCD_BL
+  static bool bl_ready = false;
+  if (!bl_ready) {
+    pinMode(LCD_BL, OUTPUT);
+    bl_ready = true;
+  }
+  analogWrite(LCD_BL, brightness);
+#else
+  (void)brightness;
+#endif
+#else
   if (tft) {
     tft->setBrightness(brightness);
   }
+#endif
 #else
   (void)brightness;
 #endif
@@ -2652,7 +2673,7 @@ void setup() {
       delay(1000);
     }
   }
-  tft->setBrightness(200);
+  astrolabe_set_brightness(200);
   pm_power_begin(astrolabe_set_brightness);
   gfx->fillScreen(RGB565_BLACK);
   gfx->flush();

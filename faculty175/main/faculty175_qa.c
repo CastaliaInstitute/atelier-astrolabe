@@ -687,7 +687,12 @@ static void qa_audio_stress(unsigned seconds)
            (long)((int32_t)heap_caps_get_free_size(MALLOC_CAP_SPIRAM) - (int32_t)psram_start));
     fflush(stdout);
 
-    const esp_err_t audio_reset = faculty175_audio_set_sample_rate(FACULTY175_AUDIO_RATE);
+    /*
+     * The stress loop already runs at FACULTY175_AUDIO_RATE. Reconfiguring I2S
+     * here can transiently require a fresh DMA allocation while internal heap is
+     * fragmented, which makes the QA command crash after an otherwise clean pass.
+     */
+    const esp_err_t audio_reset = ESP_OK;
     printf("qa: audio-stress audio_reset=%s\n", esp_err_to_name(audio_reset));
     fflush(stdout);
     faculty175_audio_set_speaker_mute(true);

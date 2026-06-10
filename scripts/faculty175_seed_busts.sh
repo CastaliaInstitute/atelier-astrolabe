@@ -31,6 +31,7 @@ generate() {
   echo
 }
 
+generate a.darwin "Charles Darwin"
 generate a.einstein "Einstein"
 generate nabokov "Vladimir Nabokov"
 generate hesse "Hermann Hesse"

@@ -32,11 +32,13 @@ static const char *TAG = "wand-btd";
 #define LCD_SDIO1 GPIO_NUM_45
 #define LCD_SDIO2 GPIO_NUM_42
 #define LCD_SDIO3 GPIO_NUM_41
+#define LCD_RST GPIO_NUM_3
 #define LCD_BL GPIO_NUM_5
 #define BUTTON_BOOT GPIO_NUM_0
 #define IIC_SDA GPIO_NUM_11
 #define IIC_SCL GPIO_NUM_10
 #define TP_INT GPIO_NUM_4
+#define TP_RST GPIO_NUM_1
 #define TCA9554_ADDR 0x20
 #define TCA9554_LCD_RST_PIN 2
 #define TCA9554_TOUCH_RST_PIN 1
@@ -50,6 +52,8 @@ static const char *TAG = "wand-btd";
 #define CST3530_ADDR 0x1A
 #define CST3530_READ_COMMAND 0xD0070000
 #define CST3530_CLEAR_COMMAND 0xD00002AB
+#define ST77916_QSPI_WRITE_COLOR 0x32
+#define ST77916_RAMWR 0x2C
 
 #define RGB565(r, g, b) (uint16_t)((((r) & 0xf8) << 8) | (((g) & 0xfc) << 3) | ((b) >> 3))
 
@@ -121,6 +125,7 @@ static const lcd_init_cmd_t k_st77916_base_init[] = {
     {0x21, {0x00}, 1, 0}, {0x3A, {0x55}, 1, 0}, {0x11, {0x00}, 1, 120}, {0x29, {0x00}, 1, 0},
 };
 
+#if !defined(WAND_BOARD_WAVESHARE_S3_185B)
 static const lcd_init_cmd_t k_waveshare185c_v2_init[] = {
   {0xF0, {0x28}, 1, 0}, {0xF2, {0x28}, 1, 0}, {0x73, {0xF0}, 1, 0}, {0x7C, {0xD1}, 1, 0},
   {0x83, {0xE0}, 1, 0}, {0x84, {0x61}, 1, 0}, {0xF2, {0x82}, 1, 0}, {0xF0, {0x00}, 1, 0},
@@ -171,6 +176,7 @@ static const lcd_init_cmd_t k_waveshare185c_v2_init[] = {
   {0xD8, {0xBB}, 1, 0}, {0xD9, {0xAA}, 1, 0}, {0xF3, {0x01}, 1, 0}, {0xF0, {0x00}, 1, 0},
   {0x21, {0x00}, 1, 0}, {0x11, {0x00}, 1, 120}, {0x29, {0x00}, 1, 0},
 };
+#endif
 
 static const uint8_t UUID_UART_SERVICE[16] = {
     0x9e, 0xca, 0xdc, 0x24, 0x0e, 0xe5, 0xa9, 0xe0,
@@ -397,6 +403,7 @@ static bool i2c_probe(uint8_t addr)
     return err == ESP_OK;
 }
 
+#if !defined(WAND_BOARD_WAVESHARE_S3_185B)
 static void tca9554_write(uint8_t reg, uint8_t value)
 {
     i2c_cmd_handle_t cmd = i2c_cmd_link_create();
@@ -438,6 +445,43 @@ static void tca9554_set_pin(uint8_t pin, bool high)
     out = high ? (uint8_t)(out | mask) : (uint8_t)(out & ~mask);
     tca9554_write(0x01, out);
 }
+#endif
+
+static void direct_reset_pin(gpio_num_t pin, bool high)
+{
+    gpio_set_level(pin, high ? 1 : 0);
+}
+
+#if defined(WAND_BOARD_WAVESHARE_S3_185B)
+esp_err_t esp_ble_gap_set_scan_params(esp_ble_scan_params_t *scan_params)
+{
+    (void)scan_params;
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+esp_err_t esp_ble_gap_start_scanning(uint32_t duration)
+{
+    (void)duration;
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+esp_err_t esp_ble_gap_stop_scanning(void)
+{
+    return ESP_OK;
+}
+
+esp_err_t esp_ble_gattc_open(esp_gatt_if_t gattc_if,
+                             esp_bd_addr_t remote_bda,
+                             esp_ble_addr_type_t remote_addr_type,
+                             bool is_direct)
+{
+    (void)gattc_if;
+    (void)remote_bda;
+    (void)remote_addr_type;
+    (void)is_direct;
+    return ESP_ERR_NOT_SUPPORTED;
+}
+#endif
 
 static void lcd_cs(bool active)
 {
@@ -507,7 +551,8 @@ static void lcd_flush(void)
             s_tx_line[i * 2 + 1] = c & 0xff;
         }
         if (first) {
-            ESP_ERROR_CHECK(lcd_tx(0x32, 0x003c00, s_tx_line, n * 2, SPI_TRANS_MODE_QIO));
+            ESP_ERROR_CHECK(lcd_tx(ST77916_QSPI_WRITE_COLOR, ((uint32_t)ST77916_RAMWR) << 8,
+                                   s_tx_line, n * 2, SPI_TRANS_MODE_QIO));
             first = false;
         } else {
             ESP_ERROR_CHECK(lcd_tx(0, 0, s_tx_line, n * 2,
@@ -1193,6 +1238,29 @@ static void display_begin(void)
     };
     ESP_ERROR_CHECK(i2c_param_config(I2C_NUM_0, &i2c_conf));
     ESP_ERROR_CHECK(i2c_driver_install(I2C_NUM_0, I2C_MODE_MASTER, 0, 0, 0));
+    gpio_config_t out = {
+#if defined(WAND_BOARD_WAVESHARE_S3_185B)
+        .pin_bit_mask = (1ULL << LCD_CS) | (1ULL << LCD_BL) | (1ULL << LCD_RST) | (1ULL << TP_RST),
+#else
+        .pin_bit_mask = (1ULL << LCD_CS) | (1ULL << LCD_BL),
+#endif
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    ESP_ERROR_CHECK(gpio_config(&out));
+
+#if defined(WAND_BOARD_WAVESHARE_S3_185B)
+    direct_reset_pin(TP_RST, false);
+    vTaskDelay(pdMS_TO_TICKS(30));
+    direct_reset_pin(TP_RST, true);
+    vTaskDelay(pdMS_TO_TICKS(120));
+    direct_reset_pin(LCD_RST, false);
+    vTaskDelay(pdMS_TO_TICKS(10));
+    direct_reset_pin(LCD_RST, true);
+    vTaskDelay(pdMS_TO_TICKS(120));
+#else
     tca9554_write(0x03, 0x00);
     tca9554_set_pin(TCA9554_TOUCH_RST_PIN, false);
     vTaskDelay(pdMS_TO_TICKS(30));
@@ -1202,15 +1270,8 @@ static void display_begin(void)
     vTaskDelay(pdMS_TO_TICKS(10));
     tca9554_set_pin(TCA9554_LCD_RST_PIN, true);
     vTaskDelay(pdMS_TO_TICKS(120));
+#endif
 
-    gpio_config_t out = {
-        .pin_bit_mask = (1ULL << LCD_CS) | (1ULL << LCD_BL),
-        .mode = GPIO_MODE_OUTPUT,
-        .pull_up_en = GPIO_PULLUP_DISABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE,
-    };
-    ESP_ERROR_CHECK(gpio_config(&out));
     lcd_cs(false);
     gpio_set_level(LCD_BL, 1);
     gpio_config_t button = {
@@ -1257,8 +1318,10 @@ static void display_begin(void)
     };
     ESP_ERROR_CHECK(spi_bus_add_device(SPI2_HOST, &devcfg, &s_lcd_spi));
     lcd_apply_init_table(k_st77916_base_init, sizeof(k_st77916_base_init) / sizeof(k_st77916_base_init[0]));
+#if !defined(WAND_BOARD_WAVESHARE_S3_185B)
     lcd_apply_init_table(k_waveshare185c_v2_init,
                          sizeof(k_waveshare185c_v2_init) / sizeof(k_waveshare185c_v2_init[0]));
+#endif
     const uint8_t madctl = 0x00;
     lcd_cmd_params(0x36, &madctl, 1);
     s_fb = heap_caps_malloc(LCD_WIDTH * LCD_HEIGHT * sizeof(uint16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);

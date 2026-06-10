@@ -16,7 +16,7 @@ static constexpr int kPmFacultySlots = 6;
 enum class PmFacultyBustStatus : int8_t { Idle = 0, Working = 1, DoneOk = 2, DoneFail = -1 };
 
 void pm_faculty_ensure_seed(void);
-/** Demo recents: ensure Castalia slug `a.einstein` is saved and active on first Faculty visit. */
+/** Demo recents: ensure the default Castalia faculty slug is saved and active on first Faculty visit. */
 void pm_faculty_ensure_demo_seed(void);
 void pm_faculty_prepare_demo_view(void);
 int pm_faculty_count(void);

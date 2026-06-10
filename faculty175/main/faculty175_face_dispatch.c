@@ -1,6 +1,8 @@
 #include "faculty175_face_dispatch.h"
 
 #include "faculty175_face_alethiometer.h"
+#include "faculty175_face_incidents.h"
+#include "faculty175_face_wifilab.h"
 #include "faculty175_lvgl.h"
 #include "faculty175_face_native.h"
 #include "faculty175_face_notes.h"
@@ -77,6 +79,15 @@ bool faculty175_face_dispatch_draw(faculty175_face_id_t id, uint32_t anim_ms)
         case FACULTY175_FACE_MAZE: faculty175_face_maze_draw(anim_ms); return true;
         case FACULTY175_FACE_DEATHSTAR: faculty175_face_deathstar_draw(anim_ms); return true;
         case FACULTY175_FACE_TRON: faculty175_face_tron_draw(anim_ms); return true;
+        case FACULTY175_FACE_WSCAN:
+        case FACULTY175_FACE_DEAUTH:
+        case FACULTY175_FACE_EVILTWIN:
+        case FACULTY175_FACE_HANDSHAKE:
+            faculty175_face_wifilab_draw(id, anim_ms);
+            return true;
+        case FACULTY175_FACE_INCIDENTS:
+            faculty175_face_incidents_draw(anim_ms);
+            return true;
         case FACULTY175_FACE_SETTINGS: faculty175_face_settings_draw(anim_ms); return true;
         case FACULTY175_FACE_POCKETWATCH: faculty175_face_pocketwatch_draw(anim_ms); return true;
         case FACULTY175_FACE_FACULTY:
@@ -101,6 +112,13 @@ bool faculty175_face_dispatch_action(faculty175_face_id_t id, uint32_t seed_ms)
         case FACULTY175_FACE_TRON:
             faculty175_face_tron_reset();
             return true;
+        case FACULTY175_FACE_WSCAN:
+        case FACULTY175_FACE_DEAUTH:
+        case FACULTY175_FACE_EVILTWIN:
+        case FACULTY175_FACE_HANDSHAKE:
+            return faculty175_face_wifilab_action(id, seed_ms);
+        case FACULTY175_FACE_INCIDENTS:
+            return faculty175_face_incidents_action(seed_ms);
         case FACULTY175_FACE_FACULTY:
         case FACULTY175_FACE_NOTES:
         case FACULTY175_FACE_COUNT:

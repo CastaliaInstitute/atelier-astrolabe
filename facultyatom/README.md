@@ -94,7 +94,7 @@ I facultyatom: [ready] listening — speak to run STT->LLM->TTS
 
 ## Runtime behavior
 
-1. Boots with default faculty **Einstein** (`a.einstein`).
+1. Boots with default faculty **Charles Darwin** (`a.darwin`).
 2. **Always listens** — energy VAD captures utterances and posts PCM to Castalia `voice-pipeline` with `face=faculty`.
 3. Infers faculty from speech via STT→LLM routing.
 4. Downloads a **faculty bust** (128×128) and keeps the display on a clean faculty portrait while listening.

@@ -30,13 +30,16 @@
 #include "faculty175_face_alethiometer.h"
 #include "faculty175_face_babel.h"
 #include "faculty175_face_dispatch.h"
+#include "faculty175_face_incidents.h"
 #include "faculty175_face_native.h"
 #include "faculty175_face_runes.h"
+#include "faculty175_face_wifilab.h"
 #include "faculty175_face_tarot.h"
 #include "faculty175_face_tarot_assets.h"
 #include "faculty175_faculty.h"
 #include "faculty175_faculty_roster.h"
 #include "faculty175_faces.h"
+#include "faculty175_face_profile.h"
 #include "faculty175_gesture.h"
 #include "faculty175_touch.h"
 #include "faculty175_log.h"
@@ -44,6 +47,7 @@
 #include "faculty175_qa.h"
 #include "faculty175_ota.h"
 #include "faculty175_pmu.h"
+#include "faculty175_pocketwatch.h"
 #include "faculty175_quotes.h"
 #include "faculty175_rocket.h"
 #include "faculty175_screen_http.h"
@@ -52,6 +56,7 @@
 #include "faculty175_voice.h"
 #include "faculty175_wifi_settings.h"
 #include "faculty175_wifi_monitor.h"
+#include "faculty175_wifi_lab.h"
 
 #if __has_include("secrets.local.h")
 #include "secrets.local.h"
@@ -63,7 +68,7 @@ static const char *TAG = "faculty175";
 
 #define WIFI_CONNECTED_BIT BIT0
 #define WIFI_FAIL_BIT BIT1
-#define VOICE_WORKER_STACK_BYTES 16384
+#define VOICE_WORKER_STACK_BYTES 7168
 #define FACE_SWIPE_SAVE_IDLE_MS 1500
 #define FACE_REDRAW_MS 250
 #define FACE_DEATHSTAR_REDRAW_MS 125
@@ -112,6 +117,7 @@ static volatile bool s_wifi_start_complete = false;
 static esp_netif_t *s_wifi_setup_ap_netif;
 static esp_netif_t *s_wifi_sta_netif;
 static bool s_wifi_driver_started;
+static bool s_wifi_auto_apsta_enabled = false;
 static bool s_power_on_battery = false;
 static bool s_power_have_status = false;
 static volatile bool s_battery_stt_armed = false;
@@ -602,10 +608,19 @@ static void ui_task(void *arg)
         const faculty175_face_desc_t *face = faculty175_faces_current();
         bool face_changed = false;
         if (face != NULL && face->id != last_face_id) {
+            if (faculty175_wifi_lab_is_face(last_face_id)) {
+                faculty175_face_wifilab_leave(last_face_id);
+            }
+            if (face != NULL && faculty175_wifi_lab_is_face(face->id)) {
+                faculty175_face_wifilab_enter(face->id);
+            }
             last_face_id = face->id;
             last_pocketwatch_second = (time_t)-1;
             force_draw = true;
             face_changed = true;
+        }
+        if (face != NULL && faculty175_wifi_lab_is_face(face->id)) {
+            faculty175_face_wifilab_tick(face->id, anim_ms);
         }
         if (face != NULL && face->id == FACULTY175_FACE_POCKETWATCH && astrolabe_time_valid()) {
             const time_t pocketwatch_second = astrolabe_time_now();
@@ -920,12 +935,6 @@ static void face_tts_task(void *arg)
     vTaskDeleteWithCaps(NULL);
 }
 
-static esp_err_t face_tts_stream_chunk(const uint8_t *mp3_chunk, size_t chunk_len, void *user)
-{
-    (void)user;
-    return faculty175_voice_tts_speaker_stream_write(mp3_chunk, chunk_len);
-}
-
 static esp_err_t face_tts_stream_post(const char *prompt,
                                       const char *system,
                                       const char *post_face,
@@ -988,6 +997,18 @@ static bool start_face_tts_read(const faculty175_face_desc_t *face)
         return true;
     }
     return true;
+}
+
+bool faculty175_request_current_face_tts(void)
+{
+    const faculty175_face_desc_t *face = faculty175_faces_current();
+    const bool handled = start_face_tts_read(face);
+    FACULTY175_LOG_STAGE(TAG,
+                         "tts-face",
+                         "serial read %s handled=%s",
+                         face != NULL ? face->slug : "-",
+                         handled ? "yes" : "no");
+    return handled;
 }
 
 static esp_err_t pipeline_read(int16_t *samples, size_t sample_count, size_t *out_read, uint32_t timeout_ms, void *user)
@@ -1258,19 +1279,12 @@ static void qa_stt_task(void *arg)
     if (err == ESP_OK) {
         ui_set(FACULTY175_UI_THINK, "Castalia...");
         const faculty175_voice_tts_stream_t tts_stream = {
-            .on_mp3_chunk = face_tts_stream_chunk,
             .spool_path = "/voice/voice-reply.mp3",
         };
         faculty175_audio_set_speaker_mute(false);
-        err = faculty175_voice_tts_speaker_stream_begin();
-        if (err == ESP_OK) {
-            err = faculty175_voice_stt_stream_commit_streaming(&tts_stream, result);
-            const esp_err_t end_err = faculty175_voice_tts_speaker_stream_end();
-            if (err == ESP_OK) {
-                err = end_err;
-            }
-        } else {
-            faculty175_voice_stream_cancel();
+        err = faculty175_voice_stt_stream_commit_streaming(&tts_stream, result);
+        if (err == ESP_OK && result->mp3_path[0] != '\0') {
+            err = faculty175_voice_play_mp3_file(result->mp3_path, result->mp3_len);
         }
     } else {
         faculty175_voice_stream_cancel();
@@ -1325,6 +1339,11 @@ static esp_err_t qa_trigger_stt(uint32_t capture_ms)
         return ESP_ERR_NO_MEM;
     }
     return ESP_OK;
+}
+
+esp_err_t faculty175_request_qa_stt(uint32_t capture_ms)
+{
+    return qa_trigger_stt(capture_ms);
 }
 
 static void pipeline_start_task(void *arg)
@@ -1419,12 +1438,12 @@ static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, voi
             } else {
                 faculty175_wifi_monitor_record_connected(NULL);
             }
-            if (faculty175_wifi_settings_travel_router_enabled() && faculty175_wifi_settings_ap_active()) {
+            if (faculty175_wifi_settings_ap_active()) {
                 esp_netif_ip_info_t ap_ip = {};
                 if (s_wifi_setup_ap_netif != NULL && esp_netif_get_ip_info(s_wifi_setup_ap_netif, &ap_ip) == ESP_OK) {
                     ip_napt_enable(ap_ip.ip.addr, 1);
                     faculty175_wifi_monitor_record_note("router-napt", "enabled");
-                    FACULTY175_LOG_STAGE(TAG, "wifi", "travel router NAPT enabled ap=" IPSTR, IP2STR(&ap_ip.ip));
+                    FACULTY175_LOG_STAGE(TAG, "wifi", "APSTA NAPT enabled ap=" IPSTR, IP2STR(&ap_ip.ip));
                 }
                 faculty175_wifi_settings_set_router_upstream(s_wifi_ssid, &event->ip_info.ip);
             } else {
@@ -1433,7 +1452,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, voi
             (void)faculty175_screen_http_start(&event->ip_info.ip);
         } else {
             FACULTY175_LOG_STAGE(TAG, "wifi", "connected (got IP)");
-            if (faculty175_wifi_settings_travel_router_enabled() && faculty175_wifi_settings_ap_active()) {
+            if (faculty175_wifi_settings_ap_active()) {
                 faculty175_wifi_settings_set_router_upstream(s_wifi_ssid, NULL);
             } else {
                 faculty175_wifi_settings_set_sta(s_wifi_ssid, NULL);
@@ -1458,11 +1477,13 @@ static esp_err_t wifi_start_setup_ap(const char *reason)
 
     wifi_config_t ap = {};
     faculty175_strlcpy((char *)ap.ap.ssid, ap_ssid, sizeof(ap.ap.ssid));
-    ap.ap.ssid_len = strlen(ap_ssid);
     faculty175_strlcpy((char *)ap.ap.password, ap_pass, sizeof(ap.ap.password));
+    ap.ap.ssid_len = strlen(ap_ssid);
     ap.ap.channel = 6;
-    ap.ap.max_connection = 2;
+    ap.ap.max_connection = 4;
     ap.ap.authmode = WIFI_AUTH_WPA2_PSK;
+    ap.ap.beacon_interval = 100;
+    ap.ap.pmf_cfg.capable = false;
     ap.ap.pmf_cfg.required = false;
 
     esp_err_t err = esp_wifi_set_mode(WIFI_MODE_AP);
@@ -1471,6 +1492,12 @@ static esp_err_t wifi_start_setup_ap(const char *reason)
     }
     if (err == ESP_OK) {
         err = esp_wifi_start();
+    }
+    if (err == ESP_OK) {
+        esp_err_t bw_err = esp_wifi_set_bandwidth(WIFI_IF_AP, WIFI_BW_HT20);
+        if (bw_err != ESP_OK) {
+            FACULTY175_LOG_STAGE_W(TAG, "wifi", "setup AP HT20 failed: %s", esp_err_to_name(bw_err));
+        }
     }
     if (err != ESP_OK) {
         faculty175_wifi_settings_clear_runtime();
@@ -1484,11 +1511,54 @@ static esp_err_t wifi_start_setup_ap(const char *reason)
         (void)esp_netif_get_ip_info(s_wifi_setup_ap_netif, &ip_info);
     }
     faculty175_wifi_settings_set_ap(ap_ssid, ap_pass, &ip_info.ip);
-    (void)faculty175_screen_http_start(&ip_info.ip);
     ui_set(FACULTY175_UI_WIFI, ap_ssid);
     FACULTY175_LOG_STAGE_W(TAG,
                            "wifi",
                            "%s; setup AP %s pass=%s url=%s",
+                           reason != NULL ? reason : "setup AP",
+                           ap_ssid,
+                           ap_pass,
+                           faculty175_wifi_settings_url());
+    return ESP_OK;
+}
+
+static esp_err_t wifi_configure_setup_ap_for_apsta(const char *reason)
+{
+    if (s_wifi_setup_ap_netif == NULL) {
+        s_wifi_setup_ap_netif = esp_netif_create_default_wifi_ap();
+    }
+    uint8_t mac[6] = {};
+    (void)esp_read_mac(mac, ESP_MAC_WIFI_SOFTAP);
+    char ap_ssid[FACULTY175_WIFI_SSID_MAX + 1];
+    snprintf(ap_ssid, sizeof(ap_ssid), "Astrolabe-%02X%02X", mac[4], mac[5]);
+    const char *ap_pass = "astrolabe";
+
+    wifi_config_t ap = {};
+    faculty175_strlcpy((char *)ap.ap.ssid, ap_ssid, sizeof(ap.ap.ssid));
+    faculty175_strlcpy((char *)ap.ap.password, ap_pass, sizeof(ap.ap.password));
+    ap.ap.ssid_len = strlen(ap_ssid);
+    ap.ap.channel = 6;
+    ap.ap.max_connection = 4;
+    ap.ap.authmode = WIFI_AUTH_WPA2_PSK;
+    ap.ap.beacon_interval = 100;
+    ap.ap.pmf_cfg.capable = false;
+    ap.ap.pmf_cfg.required = false;
+
+    esp_err_t err = esp_wifi_set_config(WIFI_IF_AP, &ap);
+    if (err != ESP_OK) {
+        faculty175_wifi_settings_clear_runtime();
+        FACULTY175_LOG_STAGE_E(TAG, "wifi", "setup AP config failed: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    esp_netif_ip_info_t ip_info = {};
+    if (s_wifi_setup_ap_netif != NULL) {
+        (void)esp_netif_get_ip_info(s_wifi_setup_ap_netif, &ip_info);
+    }
+    faculty175_wifi_settings_set_ap(ap_ssid, ap_pass, &ip_info.ip);
+    FACULTY175_LOG_STAGE_W(TAG,
+                           "wifi",
+                           "%s; setup AP configured for APSTA %s pass=%s url=%s",
                            reason != NULL ? reason : "setup AP",
                            ap_ssid,
                            ap_pass,
@@ -1535,13 +1605,23 @@ static esp_err_t wifi_connect_candidate(const wifi_candidate_t *candidate)
     wifi_config_t wifi = {};
     faculty175_strlcpy((char *)wifi.sta.ssid, candidate->ssid, sizeof(wifi.sta.ssid));
     faculty175_strlcpy((char *)wifi.sta.password, candidate->pass, sizeof(wifi.sta.password));
-    const bool router_mode = faculty175_wifi_settings_travel_router_enabled() &&
-                             faculty175_wifi_settings_ap_active();
+    const bool router_mode = s_wifi_auto_apsta_enabled;
+    if (faculty175_wifi_settings_travel_router_enabled() && !s_wifi_auto_apsta_enabled) {
+        faculty175_wifi_monitor_record_note("router-deferred", "auto APSTA disabled");
+    }
     esp_err_t err = esp_wifi_set_mode(router_mode ? WIFI_MODE_APSTA : WIFI_MODE_STA);
     if (err != ESP_OK) {
         FACULTY175_LOG_STAGE_E(TAG, "wifi", "set mode failed ssid=%s err=%s",
                                candidate->ssid, esp_err_to_name(err));
         return err;
+    }
+    if (router_mode && !faculty175_wifi_settings_ap_active()) {
+        err = wifi_configure_setup_ap_for_apsta(faculty175_wifi_settings_travel_router_enabled()
+                                                    ? "travel router enabled"
+                                                    : "APSTA control enabled");
+        if (err != ESP_OK) {
+            return err;
+        }
     }
     if (router_mode && s_wifi_driver_started) {
         (void)esp_wifi_disconnect();
@@ -1568,7 +1648,19 @@ static esp_err_t wifi_connect_candidate(const wifi_candidate_t *candidate)
             return err;
         }
         s_wifi_driver_started = true;
+        if (router_mode && faculty175_wifi_settings_ap_active()) {
+            esp_err_t bw_err = esp_wifi_set_bandwidth(WIFI_IF_AP, WIFI_BW_HT20);
+            if (bw_err != ESP_OK) {
+                FACULTY175_LOG_STAGE_W(TAG, "wifi", "APSTA HT20 failed: %s", esp_err_to_name(bw_err));
+            }
+        }
     } else {
+        if (router_mode && faculty175_wifi_settings_ap_active()) {
+            esp_err_t bw_err = esp_wifi_set_bandwidth(WIFI_IF_AP, WIFI_BW_HT20);
+            if (bw_err != ESP_OK) {
+                FACULTY175_LOG_STAGE_W(TAG, "wifi", "APSTA HT20 failed: %s", esp_err_to_name(bw_err));
+            }
+        }
         err = esp_wifi_connect();
         if (err != ESP_OK && err != ESP_ERR_WIFI_CONN) {
             FACULTY175_LOG_STAGE_E(TAG, "wifi", "connect failed ssid=%s err=%s",
@@ -1651,13 +1743,17 @@ static esp_err_t wifi_start(void)
 
     wifi_candidate_t candidates[WIFI_CANDIDATE_MAX] = {};
     size_t candidate_count = 0;
+    wifi_candidate_add(candidates, &candidate_count, MYNAH_WIFI_SSID, MYNAH_WIFI_PASSWORD, "default");
     faculty175_wifi_known_t known[FACULTY175_WIFI_KNOWN_MAX] = {};
     const size_t known_count = faculty175_wifi_settings_load_known(known, FACULTY175_WIFI_KNOWN_MAX);
     for (size_t i = 0; i < known_count; ++i) {
+        if (strcmp(known[i].ssid, "Hilton Honors") == 0) {
+            continue;
+        }
         wifi_candidate_add(candidates, &candidate_count, known[i].ssid, known[i].pass, "nvs");
     }
     wifi_candidate_add(candidates, &candidate_count, "Syzygyx", "12345678", "built-in");
-    wifi_candidate_add(candidates, &candidate_count, MYNAH_WIFI_SSID, MYNAH_WIFI_PASSWORD, "default");
+    wifi_candidate_add(candidates, &candidate_count, "AstrolabeRouter", "astrolabe", "built-in");
 
     s_wifi_events = xEventGroupCreate();
     ESP_ERROR_CHECK(esp_netif_init());
@@ -1669,6 +1765,10 @@ static esp_err_t wifi_start(void)
         FACULTY175_LOG_STAGE_E(TAG, "wifi", "init failed: %s", esp_err_to_name(err));
         faculty175_wifi_settings_clear_runtime();
         return err;
+    }
+    err = esp_wifi_set_storage(WIFI_STORAGE_RAM);
+    if (err != ESP_OK) {
+        FACULTY175_LOG_STAGE_W(TAG, "wifi", "RAM storage failed: %s", esp_err_to_name(err));
     }
     err = esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, wifi_event_handler, NULL, NULL);
     if (err != ESP_OK) {
@@ -1688,9 +1788,9 @@ static esp_err_t wifi_start(void)
     }
 
     s_wifi_sta_netif = esp_netif_create_default_wifi_sta();
-    const bool router_mode = faculty175_wifi_settings_travel_router_enabled();
-    if (router_mode) {
-        (void)wifi_start_setup_ap("travel router enabled");
+    const bool router_mode = s_wifi_auto_apsta_enabled;
+    if (faculty175_wifi_settings_travel_router_enabled() && !s_wifi_auto_apsta_enabled) {
+        FACULTY175_LOG_STAGE_W(TAG, "wifi", "travel router saved in NVS; auto APSTA deferred to avoid SoftAP boot crash");
     }
     for (size_t i = 0; i < candidate_count; ++i) {
         const esp_err_t connect_err = wifi_connect_candidate(&candidates[i]);
@@ -1707,11 +1807,40 @@ static esp_err_t wifi_start(void)
     }
     if (router_mode && faculty175_wifi_settings_ap_active()) {
         s_wifi_start_complete = true;
+        FACULTY175_LOG_STAGE_W(TAG, "wifi", "STA candidates exhausted; keeping setup AP alive for captive login");
         return ESP_ERR_INVALID_STATE;
+    }
+    if (known_count > 0) {
+        faculty175_wifi_settings_clear_runtime();
+        s_wifi_start_complete = true;
+        FACULTY175_LOG_STAGE_W(TAG, "wifi", "STA candidates exhausted; setup AP deferred until settings request");
+        return ESP_ERR_TIMEOUT;
     }
     const esp_err_t ap_err = wifi_start_setup_ap("STA candidates exhausted");
     s_wifi_start_complete = true;
     return ap_err == ESP_OK ? ESP_ERR_INVALID_STATE : ap_err;
+}
+
+static void wifi_start_task(void *arg)
+{
+    (void)arg;
+    s_wifi_auto_apsta_enabled = false;
+    const esp_err_t wifi_err = wifi_start();
+    if (wifi_err != ESP_OK) {
+        if (s_faculty_ready) {
+            faculty175_faculty_set_network_fetch_enabled(false);
+        }
+        FACULTY175_LOG_STAGE_W(TAG, "wifi", "continuing offline: %s", esp_err_to_name(wifi_err));
+    } else {
+        if (s_faculty_ready) {
+            faculty175_faculty_set_network_fetch_enabled(true);
+            faculty175_faculty_request_bust(s_faculty_slug);
+            faculty175_faculty_prefetch_roster();
+        }
+        faculty175_ota_maybe_start_recovery_request();
+        FACULTY175_LOG_STAGE(TAG, "network", "faculty bust cache enabled");
+    }
+    vTaskDelete(NULL);
 }
 
 static bool wifi_is_connected(void)
@@ -1808,42 +1937,6 @@ static void sync_voice_context(void *user)
     s_voice_log_to_commonplace = true;
 }
 
-static uint32_t primary_face_category(uint32_t categories)
-{
-    static const uint32_t order[] = {
-        FACULTY175_FACE_CAT_HOME,
-        FACULTY175_FACE_CAT_COMMONPLACE,
-        FACULTY175_FACE_CAT_ORACLE,
-        FACULTY175_FACE_CAT_INSTRUMENT,
-        FACULTY175_FACE_CAT_SYSTEM,
-    };
-    for (size_t i = 0; i < sizeof(order) / sizeof(order[0]); ++i) {
-        if ((categories & order[i]) != 0) {
-            return order[i];
-        }
-    }
-    return 0;
-}
-
-static const faculty175_face_desc_t *nav_category_delta(int delta)
-{
-    size_t index = 0;
-    size_t count = 0;
-    if (!faculty175_faces_nav_position(&index, &count) || count <= 1) {
-        return NULL;
-    }
-    const faculty175_face_desc_t *current = faculty175_faces_current();
-    const uint32_t current_cat = current != NULL ? primary_face_category(current->categories) : 0;
-    for (size_t step = 1; step <= count; ++step) {
-        const size_t next_index = delta >= 0 ? (index + step) % count : (index + count - (step % count)) % count;
-        const faculty175_face_desc_t *candidate = faculty175_faces_nav_at(next_index);
-        if (candidate != NULL && primary_face_category(candidate->categories) != current_cat) {
-            return candidate;
-        }
-    }
-    return NULL;
-}
-
 static const faculty175_face_desc_t *nav_relative_delta(int delta)
 {
     size_t index = 0;
@@ -1882,8 +1975,8 @@ static void draw_nav_preview_surface(void)
     const faculty175_face_desc_t *center = faculty175_faces_current();
     const faculty175_face_desc_t *left = nav_relative_delta(-1);
     const faculty175_face_desc_t *right = nav_relative_delta(1);
-    const faculty175_face_desc_t *up = nav_category_delta(-1);
-    const faculty175_face_desc_t *down = nav_category_delta(1);
+    const faculty175_face_desc_t *up = NULL;
+    const faculty175_face_desc_t *down = NULL;
     const uint16_t primary = nav_rgb565(255, 242, 196);
     const uint16_t cyan = nav_rgb565(127, 205, 224);
     const uint16_t amber = nav_rgb565(255, 207, 102);
@@ -1914,8 +2007,8 @@ static uint32_t draw_nav_preview(uint32_t anim_ms)
     if (faculty175_lvgl_draw_nav(center,
                                  nav_relative_delta(-1),
                                  nav_relative_delta(1),
-                                 nav_category_delta(-1),
-                                 nav_category_delta(1),
+                                 NULL,
+                                 NULL,
                                  anim_ms)) {
         return faculty175_log_ms() - start_ms;
     }
@@ -2417,36 +2510,8 @@ static void input_task(void *arg)
                     }
                 } else if (gesture.kind == FACULTY175_GESTURE_SWIPE_UP ||
                            gesture.kind == FACULTY175_GESTURE_SWIPE_DOWN) {
-                    const int delta = gesture.kind == FACULTY175_GESTURE_SWIPE_DOWN ? 1 : -1;
-                    const char *from_slug = active_face != NULL ? active_face->slug : "-";
-                    const uint32_t select_start_ms = faculty175_log_ms();
-                    const faculty175_face_desc_t *face = nav_category_delta(delta);
-                    const uint32_t select_ms = faculty175_log_ms() - select_start_ms;
-                    FACULTY175_LOG_STAGE(TAG, "faces", "nav category %s -> %s", delta > 0 ? "next" : "prev",
-                                         face != NULL ? face->slug : "-");
-                    if (face != NULL) {
-                        (void)faculty175_faces_set_runtime(face->id);
-                        last_face_swipe_ms = now_ms;
-                        face_save_pending = true;
-                        faculty175_display_lock();
-                        const uint32_t preview_start_ms = faculty175_log_ms();
-                        if (!animate_nav_preview_native(true, delta, NAV_TRANSITION_MS)) {
-                            (void)draw_nav_preview(now_ms);
-                        }
-                        const uint32_t preview_ms = faculty175_log_ms() - preview_start_ms;
-                        faculty175_display_unlock();
-                        FACULTY175_LOG_STAGE(TAG,
-                                             "nav-metrics",
-                                             "swipe axis=vertical from=%s to=%s delta=%d queue_age_ms=%u select_ms=%u preview_ms=%u total_ms=%u anim=native-nav-slide",
-                                             from_slug,
-                                             face->slug,
-                                             delta,
-                                             (unsigned)queue_age_ms,
-                                             (unsigned)select_ms,
-                                             (unsigned)preview_ms,
-                                             (unsigned)(faculty175_log_ms() - gesture_ms));
-                        faculty175_gesture_flush();
-                    }
+                    FACULTY175_LOG_STAGE(TAG, "faces", "ignored vertical nav-mode swipe");
+                    faculty175_gesture_flush();
                 }
             } else if (!s_nav_mode && active_face != NULL && active_face->id == FACULTY175_FACE_FACULTY &&
                        (gesture.kind == FACULTY175_GESTURE_SWIPE_UP ||
@@ -2495,11 +2560,9 @@ static void input_task(void *arg)
                 }
             } else if (!s_nav_mode && active_face != NULL &&
                        ((active_face->id == FACULTY175_FACE_POCKETWATCH &&
-                         (gesture.kind == FACULTY175_GESTURE_SWIPE_UP ||
-                          gesture.kind == FACULTY175_GESTURE_SWIPE_DOWN)) ||
+                         gesture.kind == FACULTY175_GESTURE_SWIPE_DOWN) ||
                         (active_face->id == FACULTY175_FACE_SETTINGS &&
-                         (gesture.kind == FACULTY175_GESTURE_SWIPE_UP ||
-                          gesture.kind == FACULTY175_GESTURE_SWIPE_DOWN)))) {
+                         gesture.kind == FACULTY175_GESTURE_SWIPE_UP))) {
                 const faculty175_face_id_t target_id =
                     active_face->id == FACULTY175_FACE_POCKETWATCH ? FACULTY175_FACE_SETTINGS : FACULTY175_FACE_POCKETWATCH;
                 const int delta = active_face->id == FACULTY175_FACE_POCKETWATCH ? -1 : 1;
@@ -2533,7 +2596,24 @@ static void input_task(void *arg)
                                          anim);
                     faculty175_gesture_flush();
                 }
-            } else if (!s_nav_mode && active_face != NULL && faculty175_faces_vertical_group(active_face->id) &&
+            } else if (!s_nav_mode && active_face != NULL &&
+                       faculty175_wifi_lab_is_face(active_face->id) &&
+                       (gesture.kind == FACULTY175_GESTURE_SWIPE_UP ||
+                        gesture.kind == FACULTY175_GESTURE_SWIPE_DOWN)) {
+                const int delta = gesture.kind == FACULTY175_GESTURE_SWIPE_UP ? 1 : -1;
+                if (faculty175_wifi_lab_cycle_target(active_face->id, delta)) {
+                    ui_redraw();
+                }
+                faculty175_gesture_flush();
+            } else if (!s_nav_mode && active_face != NULL && active_face->id == FACULTY175_FACE_INCIDENTS &&
+                       (gesture.kind == FACULTY175_GESTURE_SWIPE_UP ||
+                        gesture.kind == FACULTY175_GESTURE_SWIPE_DOWN)) {
+                const int delta = gesture.kind == FACULTY175_GESTURE_SWIPE_UP ? 1 : -1;
+                if (faculty175_face_incidents_scroll(delta)) {
+                    ui_redraw();
+                }
+                faculty175_gesture_flush();
+            } else if (!s_nav_mode && active_face != NULL && false && faculty175_faces_vertical_group(active_face->id) &&
                        (gesture.kind == FACULTY175_GESTURE_SWIPE_UP ||
                         gesture.kind == FACULTY175_GESTURE_SWIPE_DOWN)) {
                 const int delta = gesture.kind == FACULTY175_GESTURE_SWIPE_UP ? 1 : -1;
@@ -2589,7 +2669,28 @@ static void input_task(void *arg)
                 }
             } else if (!s_nav_mode && gesture.kind == FACULTY175_GESTURE_TAP) {
                 const faculty175_face_desc_t *face = faculty175_faces_current();
-                if (face != NULL && faculty175_face_dispatch_action(face->id, now_ms)) {
+                if (face != NULL && face->id == FACULTY175_FACE_POCKETWATCH) {
+                    char profile_slug[24];
+                    if (faculty175_pocketwatch_profile_tap(gesture.x, gesture.y, now_ms, profile_slug,
+                                                           sizeof(profile_slug))) {
+                        faculty175_face_profile_t profile;
+                        if (faculty175_face_profile_from_slug(profile_slug, &profile)) {
+                            const esp_err_t err = faculty175_face_profile_apply(profile, true);
+                            FACULTY175_LOG_STAGE(TAG,
+                                                 "profile",
+                                                 "dial -> %s (%s)",
+                                                 profile_slug,
+                                                 esp_err_to_name(err));
+                            ui_set(FACULTY175_UI_LISTEN, faculty175_face_profile_label(profile));
+                            ui_redraw();
+                        }
+                        faculty175_gesture_flush();
+                    } else if (face != NULL && faculty175_face_dispatch_action(face->id, now_ms)) {
+                        ui_redraw();
+                    } else {
+                        FACULTY175_LOG_STAGE(TAG, "faces", "tap no action");
+                    }
+                } else if (face != NULL && faculty175_face_dispatch_action(face->id, now_ms)) {
                     ui_redraw();
                 } else {
                     FACULTY175_LOG_STAGE(TAG, "faces", "tap no action");
@@ -2651,7 +2752,13 @@ void app_main(void)
 {
     FACULTY175_LOG_STAGE(TAG, "boot", "Astrolabe Faculty — Waveshare ESP32-S3 Touch AMOLED 1.75C");
 
-    ESP_ERROR_CHECK(nvs_flash_init());
+    esp_err_t nvs_err = nvs_flash_init();
+    if (nvs_err == ESP_ERR_NVS_NO_FREE_PAGES || nvs_err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        FACULTY175_LOG_STAGE_W(TAG, "boot", "NVS init failed %s; erasing NVS", esp_err_to_name(nvs_err));
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        nvs_err = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK(nvs_err);
     ESP_ERROR_CHECK(faculty175_device_auth_init());
     faculty175_ota_init();
     ESP_ERROR_CHECK(faculty175_apocalypso_init());
@@ -2662,33 +2769,40 @@ void app_main(void)
     load_faculty_from_nvs();
     FACULTY175_LOG_STAGE(TAG, "boot", "faculty %s (%s)", s_faculty_name, s_faculty_slug);
 
+    const esp_err_t faculty_init_err = faculty175_faculty_init();
+    if (faculty_init_err != ESP_OK) {
+        FACULTY175_LOG_STAGE_E(TAG, "faculty", "init failed: %s", esp_err_to_name(faculty_init_err));
+    }
+
     ESP_ERROR_CHECK(faculty175_board_init());
     (void)faculty175_touch_init();
     faculty175_gesture_start_task();
     faculty175_serial_init();
     s_ui_queue = xQueueCreate(1, sizeof(faculty175_ui_msg_t));
+    BaseType_t wifi_task_ok = xTaskCreateWithCaps(wifi_start_task,
+                                                  "wifi_start",
+                                                  8192,
+                                                  NULL,
+                                                  6,
+                                                  NULL,
+                                                  MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (wifi_task_ok != pdPASS) {
+        wifi_task_ok = xTaskCreate(wifi_start_task, "wifi_start", 4096, NULL, 6, NULL);
+    }
+    if (wifi_task_ok != pdPASS) {
+        FACULTY175_LOG_STAGE_W(TAG, "wifi", "background start task failed; staying offline");
+    }
     xTaskCreate(ui_task, "ui", 12288, NULL, 4, NULL);
     xTaskCreate(input_task, "input", 8192, NULL, 5, NULL);
     xTaskCreate(button_reboot_task, "button_reboot", 3072, NULL, 7, NULL);
     ui_set(FACULTY175_UI_LISTEN, NULL);
     FACULTY175_LOG_STAGE(TAG, "boot", "board audio=%s", faculty175_board_audio_ready() ? "ok" : "off");
 
-    ESP_ERROR_CHECK(faculty175_faculty_init());
-    s_faculty_ready = true;
-    faculty175_faculty_set_ui_notify(bust_ui_refresh);
-    faculty175_faculty_set_network_fetch_enabled(false);
-    faculty175_faculty_request_bust(s_faculty_slug);
-
-    const esp_err_t wifi_err = wifi_start();
-    if (wifi_err != ESP_OK) {
+    if (faculty_init_err == ESP_OK) {
+        s_faculty_ready = true;
+        faculty175_faculty_set_ui_notify(bust_ui_refresh);
         faculty175_faculty_set_network_fetch_enabled(false);
-        FACULTY175_LOG_STAGE_W(TAG, "wifi", "continuing offline: %s", esp_err_to_name(wifi_err));
-    } else {
-        faculty175_faculty_set_network_fetch_enabled(true);
-        faculty175_ota_maybe_start_recovery_request();
         faculty175_faculty_request_bust(s_faculty_slug);
-        FACULTY175_LOG_STAGE(TAG, "network", "background fetches deferred for voice headroom");
-        FACULTY175_LOG_STAGE(TAG, "faculty", "bust preload %s", s_faculty_slug);
     }
 
     FACULTY175_LOG_STAGE_W(TAG, "ble", "startup disabled to preserve internal RAM");

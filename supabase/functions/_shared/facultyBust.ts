@@ -4,7 +4,7 @@ import {
 } from "npm:@supabase/supabase-js@2.49.8";
 
 function defaultSlug(): string {
-  return Deno.env.get("FACULTY_DEFAULT_BUST_SLUG")?.trim() || "einstein";
+  return Deno.env.get("FACULTY_DEFAULT_BUST_SLUG")?.trim() || "darwin";
 }
 
 function slugifyToken(word: string): string {

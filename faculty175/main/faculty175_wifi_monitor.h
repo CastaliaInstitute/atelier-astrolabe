@@ -34,6 +34,8 @@ void faculty175_wifi_monitor_record_ap_client(bool connected, int aid);
 void faculty175_wifi_monitor_record_scan(uint16_t count);
 void faculty175_wifi_monitor_record_note(const char *type, const char *detail);
 size_t faculty175_wifi_monitor_copy(faculty175_wifi_incident_t *out, size_t cap);
+size_t faculty175_wifi_monitor_count(void);
+bool faculty175_wifi_monitor_get_newest(size_t offset, faculty175_wifi_incident_t *out);
 void faculty175_wifi_monitor_clear(void);
 
 #ifdef __cplusplus

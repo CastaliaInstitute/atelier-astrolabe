@@ -9,8 +9,8 @@
 
 #define ASTROLABE_FACULTY_ATOM_FACE_NAME "faculty"
 #define ASTROLABE_FACULTY_ATOM_OTA_CHANNEL "astrolabe-faculty-atom"
-#define ASTROLABE_FACULTY_ATOM_DEFAULT_FACULTY_SLUG "a.einstein"
-#define ASTROLABE_FACULTY_ATOM_DEFAULT_FACULTY_NAME "Einstein"
+#define ASTROLABE_FACULTY_ATOM_DEFAULT_FACULTY_SLUG "a.darwin"
+#define ASTROLABE_FACULTY_ATOM_DEFAULT_FACULTY_NAME "Charles Darwin"
 
 #define ASTROLABE_FACULTY_ATOM_SYSTEM_INSTRUCTION \
     "You are Castalia faculty on Astrolabe FacultyAtom: a tiny always-listening faculty pendant. " \

@@ -43,6 +43,35 @@ faculty175_idf_python() {
   return 1
 }
 
+faculty175_should_sync_time() {
+  local arg
+  for arg in "$@"; do
+    case "${arg}" in
+      flash|app-flash|encrypted-flash|encrypted-app-flash)
+        return 0
+        ;;
+    esac
+  done
+  return 1
+}
+
+faculty175_arg_port() {
+  local prev=""
+  local arg
+  for arg in "$@"; do
+    if [[ "${prev}" == "-p" || "${prev}" == "--port" ]]; then
+      echo "${arg}"
+      return 0
+    fi
+    case "${arg}" in
+      -p?*) echo "${arg#-p}"; return 0 ;;
+      --port=*) echo "${arg#--port=}"; return 0 ;;
+    esac
+    prev="${arg}"
+  done
+  return 1
+}
+
 cd "${ROOT}/faculty175"
 if [[ "${FACULTY175_SKIP_LVGL_AUDIT:-0}" != "1" ]] && faculty175_should_audit_lvgl "$@"; then
   "${PYTHON:-python3}" "${ROOT}/scripts/audit_lvgl_port.py"
@@ -59,4 +88,13 @@ if [[ ! -f sdkconfig ]]; then
 else
   "${IDF_PY[@]}" -D SDKCONFIG_DEFAULTS=sdkconfig.defaults reconfigure >/dev/null 2>&1 || true
 fi
-exec "${IDF_PY[@]}" "$@"
+"${IDF_PY[@]}" "$@"
+status=$?
+if [[ "${status}" -eq 0 && "${FACULTY175_SKIP_TIME_SYNC:-0}" != "1" ]] && faculty175_should_sync_time "$@"; then
+  port_args=()
+  if port="$(faculty175_arg_port "$@")"; then
+    port_args=(--port "${port}")
+  fi
+  "${PYTHON:-python3}" "${ROOT}/scripts/faculty175_set_time.py" "${port_args[@]}"
+fi
+exit "${status}"

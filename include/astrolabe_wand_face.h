@@ -9,8 +9,8 @@
 
 #define ASTROLABE_WAND_FACE_NAME "wand"
 #define ASTROLABE_WAND_OTA_CHANNEL "astrolabe-wand"
-#define ASTROLABE_WAND_DEFAULT_FACULTY_SLUG "a.einstein"
-#define ASTROLABE_WAND_DEFAULT_FACULTY_NAME "Einstein"
+#define ASTROLABE_WAND_DEFAULT_FACULTY_SLUG "a.darwin"
+#define ASTROLABE_WAND_DEFAULT_FACULTY_NAME "Charles Darwin"
 
 #define ASTROLABE_WAND_SYSTEM_INSTRUCTION \
     "You are Castalia faculty on the Astrolabe Wand: a tiny always-listening voice pendant. " \

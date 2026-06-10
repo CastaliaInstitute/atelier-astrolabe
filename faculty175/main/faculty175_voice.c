@@ -38,12 +38,16 @@ static const char *TAG = "faculty175_voice";
 #define VOICE_SPOOL_PARTITION "voice_spool"
 #define VOICE_SPOOL_PATH VOICE_SPOOL_BASE "/voice-turn.pcm"
 #define VOICE_TTS_PATH VOICE_SPOOL_BASE "/voice-reply.mp3"
-#define VOICE_HEAP_MIN_INTERNAL_FREE (16 * 1024)
-#define VOICE_HEAP_MIN_INTERNAL_FREE_STT_FINISH (10 * 1024)
-#define VOICE_HEAP_MIN_INTERNAL_LARGEST (7 * 1024)
+#define VOICE_HEAP_MIN_INTERNAL_FREE (4 * 1024)
+#define VOICE_HEAP_MIN_INTERNAL_FREE_STT_FINISH (4 * 1024)
+#define VOICE_HEAP_MIN_INTERNAL_LARGEST (4 * 1024)
 #define VOICE_HEAP_MIN_PSRAM_FREE (512 * 1024)
 #define VOICE_STREAM_CHUNK_BYTES 1024
 #define VOICE_MP3_STREAM_BUFFER_BYTES (24 * 1024)
+
+#ifndef MYNAH_VOICE_HTTP_URL
+#define MYNAH_VOICE_HTTP_URL ""
+#endif
 
 EXT_RAM_BSS_ATTR static uint8_t s_voice_mp3_stream_buf[VOICE_MP3_STREAM_BUFFER_BYTES];
 static uint8_t s_voice_http_chunk[VOICE_STREAM_CHUNK_BYTES];
@@ -95,6 +99,47 @@ static void voice_log_heap(const char *stage)
                          (unsigned)voice_internal_free(),
                          (unsigned)voice_internal_largest(),
                          (unsigned)voice_psram_free());
+}
+
+static void voice_pipeline_url_from_base(char *out, size_t cap, const char *base)
+{
+    if (out == NULL || cap == 0) {
+        return;
+    }
+    out[0] = '\0';
+    if (base == NULL || base[0] == '\0') {
+        return;
+    }
+    if (strstr(base, "/functions/v1/voice-pipeline") != NULL) {
+        strlcpy(out, base, cap);
+    } else {
+        snprintf(out, cap, "%s/functions/v1/voice-pipeline", base);
+    }
+}
+
+static bool voice_pipeline_http_fallback_url(char *out, size_t cap, const char *primary_url)
+{
+    if (out == NULL || cap == 0 || primary_url == NULL || primary_url[0] == '\0') {
+        return false;
+    }
+    out[0] = '\0';
+    if (MYNAH_VOICE_HTTP_URL[0] != '\0') {
+        voice_pipeline_url_from_base(out, cap, MYNAH_VOICE_HTTP_URL);
+    } else if (strncmp(primary_url, "https://", 8) == 0) {
+        snprintf(out, cap, "http://%s", primary_url + 8);
+    }
+    return out[0] != '\0' && strcmp(out, primary_url) != 0;
+}
+
+static void voice_pipeline_preferred_url(char *out, size_t cap)
+{
+    const char *base = MYNAH_VOICE_HTTP_URL[0] != '\0' ? MYNAH_VOICE_HTTP_URL : MYNAH_SUPABASE_URL;
+    voice_pipeline_url_from_base(out, cap, base);
+}
+
+static bool voice_should_try_http_fallback(esp_err_t err, int status)
+{
+    return err != ESP_OK && status == 0;
 }
 
 bool faculty175_voice_heap_ready(const char *stage)
@@ -1050,7 +1095,7 @@ esp_err_t faculty175_voice_post_pcm(const uint8_t *pcm,
     }
 
     char url[224];
-    snprintf(url, sizeof(url), "%s/functions/v1/voice-pipeline", MYNAH_SUPABASE_URL);
+    voice_pipeline_preferred_url(url, sizeof(url));
     const uint32_t t0 = faculty175_log_ms();
     FACULTY175_LOG_STAGE(TAG, "pipeline", "POST %s pcm=%uB face=%s faculty=%s (%s)",
                    url, (unsigned)pcm_len, ASTROLABE_FACULTY_FACE_NAME, active_name, active_slug);
@@ -1060,6 +1105,18 @@ esp_err_t faculty175_voice_post_pcm(const uint8_t *pcm,
     size_t response_len = 0;
     esp_err_t ret = post_collect_body(url, "application/json", (const uint8_t *)body, (size_t)body_len,
                                       "application/json,audio/mpeg", &response, &response_len, &status);
+    if (voice_should_try_http_fallback(ret, status)) {
+        char fallback_url[224];
+        if (voice_pipeline_http_fallback_url(fallback_url, sizeof(fallback_url), url)) {
+            FACULTY175_LOG_STAGE_W(TAG, "pipeline", "HTTP fallback POST %s", fallback_url);
+            free(response);
+            response = NULL;
+            response_len = 0;
+            status = 0;
+            ret = post_collect_body(fallback_url, "application/json", (const uint8_t *)body, (size_t)body_len,
+                                    "application/json,audio/mpeg", &response, &response_len, &status);
+        }
+    }
     free(body);
     const uint32_t http_ms = faculty175_log_ms() - t0;
     FACULTY175_LOG_STAGE(TAG, "pipeline", "HTTP %d body=%uB in %ums err=%s", status, (unsigned)response_len, (unsigned)http_ms,
@@ -1156,7 +1213,7 @@ esp_err_t faculty175_voice_post_message_streaming(const char *message,
     }
 
     char url[224];
-    snprintf(url, sizeof(url), "%s/functions/v1/voice-pipeline", MYNAH_SUPABASE_URL);
+    voice_pipeline_preferred_url(url, sizeof(url));
     const uint32_t t0 = faculty175_log_ms();
     FACULTY175_LOG_STAGE(TAG, "voice", "HTTP POST message %uB face=%s faculty=%s (%s)",
                          (unsigned)body_len, active_face, active_name, active_slug);
@@ -1184,6 +1241,27 @@ esp_err_t faculty175_voice_post_message_streaming(const char *message,
                             result,
                             &mp3_len,
                             &status);
+    if (voice_should_try_http_fallback(ret, status)) {
+        char fallback_url[224];
+        if (voice_pipeline_http_fallback_url(fallback_url, sizeof(fallback_url), url)) {
+            FACULTY175_LOG_STAGE_W(TAG, "voice", "HTTP fallback POST message %s", fallback_url);
+            printf("voice: HTTP fallback message\n");
+            fflush(stdout);
+            memset(result, 0, sizeof(*result));
+            status = 0;
+            mp3_len = 0;
+            ret = post_collect_file(fallback_url,
+                                    "application/json",
+                                    (const uint8_t *)body,
+                                    (size_t)body_len,
+                                    "audio/mpeg",
+                                    spool_path,
+                                    stream,
+                                    result,
+                                    &mp3_len,
+                                    &status);
+        }
+    }
     free(body);
 
     const uint32_t http_ms = faculty175_log_ms() - t0;
@@ -1342,7 +1420,7 @@ esp_err_t faculty175_voice_stt_stream_commit_streaming(const faculty175_voice_tt
     }
 
     char url[224];
-    snprintf(url, sizeof(url), "%s/functions/v1/voice-pipeline", MYNAH_SUPABASE_URL);
+    voice_pipeline_preferred_url(url, sizeof(url));
     const uint32_t t0 = faculty175_log_ms();
     FACULTY175_LOG_STAGE(TAG, "stream", "POST %s pcm=%uB from flash faculty=%s (%s) heap=%u/%u psram=%u", url,
                    (unsigned)s_stream.pcm_bytes, active_name, active_slug, (unsigned)voice_internal_free(),
@@ -1351,6 +1429,16 @@ esp_err_t faculty175_voice_stt_stream_commit_streaming(const faculty175_voice_tt
     int status = 0;
     esp_err_t ret = post_collect_voice_file(url, s_stream.meta_json, s_stream.meta_len, s_stream.spool_path,
                                             s_stream.pcm_bytes, tts_stream, &status, result);
+    if (voice_should_try_http_fallback(ret, status)) {
+        char fallback_url[224];
+        if (voice_pipeline_http_fallback_url(fallback_url, sizeof(fallback_url), url)) {
+            FACULTY175_LOG_STAGE_W(TAG, "stream", "HTTP fallback POST %s", fallback_url);
+            memset(result, 0, sizeof(*result));
+            status = 0;
+            ret = post_collect_voice_file(fallback_url, s_stream.meta_json, s_stream.meta_len, s_stream.spool_path,
+                                          s_stream.pcm_bytes, tts_stream, &status, result);
+        }
+    }
     faculty175_voice_stt_stream_close();
 
     const uint32_t http_ms = faculty175_log_ms() - t0;
@@ -1466,7 +1554,7 @@ esp_err_t faculty175_voice_play_mp3(const uint8_t *mp3, size_t mp3_len)
     return ESP_OK;
 }
 
-esp_err_t faculty175_voice_play_mp3_file(const char *path, size_t mp3_len)
+static esp_err_t voice_play_mp3_file_sync(const char *path, size_t mp3_len)
 {
     if (path == NULL || path[0] == '\0' || mp3_len < 64) {
         FACULTY175_LOG_STAGE_W(TAG, "tts", "file play skipped path=%s len=%u", path ? path : "-", (unsigned)mp3_len);
@@ -1550,6 +1638,81 @@ esp_err_t faculty175_voice_play_mp3_file(const char *path, size_t mp3_len)
     fclose(f);
     FACULTY175_LOG_STAGE(TAG, "tts", "play file done in %ums", (unsigned)(faculty175_log_ms() - t0));
     return ESP_OK;
+}
+
+typedef struct {
+    char path[64];
+    uint8_t *mp3;
+    size_t mp3_len;
+    TaskHandle_t waiter;
+    esp_err_t result;
+} voice_play_file_task_args_t;
+
+static void voice_play_mp3_file_task(void *arg)
+{
+    voice_play_file_task_args_t *args = (voice_play_file_task_args_t *)arg;
+    if (args != NULL) {
+        args->result = faculty175_voice_play_mp3(args->mp3, args->mp3_len);
+        free(args->mp3);
+        args->mp3 = NULL;
+        if (args->waiter != NULL) {
+            xTaskNotifyGive(args->waiter);
+        }
+    }
+    vTaskDeleteWithCaps(NULL);
+}
+
+esp_err_t faculty175_voice_play_mp3_file(const char *path, size_t mp3_len)
+{
+    if (path == NULL || path[0] == '\0' || mp3_len < 64 || mp3_len > TTS_MP3_MAX_BYTES) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    voice_play_file_task_args_t *args = heap_caps_calloc(1, sizeof(*args), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (args == NULL) {
+        args = calloc(1, sizeof(*args));
+    }
+    if (args == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+    strlcpy(args->path, path, sizeof(args->path));
+    args->waiter = xTaskGetCurrentTaskHandle();
+    args->result = ESP_FAIL;
+
+    args->mp3 = heap_caps_malloc(mp3_len, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (args->mp3 == NULL) {
+        free(args);
+        return ESP_ERR_NO_MEM;
+    }
+    FILE *f = fopen(path, "rb");
+    if (f == NULL) {
+        free(args->mp3);
+        free(args);
+        return ESP_ERR_NOT_FOUND;
+    }
+    args->mp3_len = fread(args->mp3, 1, mp3_len, f);
+    fclose(f);
+    if (args->mp3_len < 64) {
+        free(args->mp3);
+        free(args);
+        return ESP_ERR_INVALID_SIZE;
+    }
+
+    const BaseType_t ok = xTaskCreateWithCaps(voice_play_mp3_file_task,
+                                              "voice_play",
+                                              24576,
+                                              args,
+                                              4,
+                                              NULL,
+                                              MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (ok != pdPASS) {
+        free(args);
+        return ESP_ERR_NO_MEM;
+    }
+
+    (void)ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    const esp_err_t result = args->result;
+    free(args);
+    return result;
 }
 
 static bool tts_stream_decode_available(bool eof)

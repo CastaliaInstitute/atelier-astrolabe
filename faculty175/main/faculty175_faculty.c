@@ -55,6 +55,12 @@ static faculty175_faculty_ui_notify_fn s_ui_notify;
 static bool s_bust_cache_ready;
 static bool s_bust_cache_checked;
 static volatile bool s_network_fetch_enabled;
+static uint32_t s_bust_task_retry_after_ms;
+
+extern const uint8_t _binary_v5_a_darwin_right_png_start[] asm("_binary_v5_a_darwin_right_png_start");
+extern const uint8_t _binary_v5_a_darwin_right_png_end[] asm("_binary_v5_a_darwin_right_png_end");
+extern const uint8_t _binary_v5_a_plato_right_png_start[] asm("_binary_v5_a_plato_right_png_start");
+extern const uint8_t _binary_v5_a_plato_right_png_end[] asm("_binary_v5_a_plato_right_png_end");
 
 #ifndef ASTROLABE_FACULTY_PREFETCH_ROSTER
 #define ASTROLABE_FACULTY_PREFETCH_ROSTER 1
@@ -271,7 +277,7 @@ static bool build_supabase_bust_url(const char *slug, char *url, size_t cap)
     base[sizeof(base) - 1] = '\0';
     trim_base_url(base);
     const int n = snprintf(url, cap,
-                           "%s/functions/v1/faculty-bust?faculty=%s&w=%d&h=%d&q=60&resize=cover&view=right&format=png&transparent=1",
+                           "%s/functions/v1/faculty-bust?handle=%s&w=%d&h=%d&q=60&resize=cover&view=right&format=png&transparent=1",
                            base, slug, FACULTY175_FACULTY_BUST_W, FACULTY175_FACULTY_BUST_H);
     return n > 0 && (size_t)n < cap;
 }
@@ -892,6 +898,36 @@ static bool bust_load_from_flash(const char *slug, uint8_t **bytes, size_t *len)
     return true;
 }
 
+static bool bust_load_from_embedded(const char *slug, const uint8_t **bytes, size_t *len, const char **source_out)
+{
+    if (slug == NULL || bytes == NULL || len == NULL) {
+        return false;
+    }
+    const uint8_t *start = NULL;
+    const uint8_t *end = NULL;
+    const char *source = NULL;
+
+    if (strcmp(slug, "a.plato") == 0 || strcmp(slug, "plato") == 0) {
+        start = _binary_v5_a_plato_right_png_start;
+        end = _binary_v5_a_plato_right_png_end;
+        source = "embedded-plato";
+    } else {
+        start = _binary_v5_a_darwin_right_png_start;
+        end = _binary_v5_a_darwin_right_png_end;
+        source = strcmp(slug, "a.darwin") == 0 || strcmp(slug, "darwin") == 0 ? "embedded-darwin" : "embedded-darwin-fallback";
+    }
+
+    if (start == NULL || end == NULL || end <= start) {
+        return false;
+    }
+    *bytes = start;
+    *len = (size_t)(end - start);
+    if (source_out != NULL) {
+        *source_out = source;
+    }
+    return true;
+}
+
 #if ASTROLABE_FACULTY_PREFETCH_ROSTER
 static bool bust_flash_cached(const char *slug)
 {
@@ -1012,34 +1048,48 @@ static bool fetch_and_decode_bust(const char *slug)
     }
 
     uint8_t *image = NULL;
+    const uint8_t *embedded_image = NULL;
     size_t image_len = 0;
     const char *source = NULL;
+    bool image_owned = false;
     const bool from_flash = bust_load_from_flash(slug, &image, &image_len);
     if (from_flash) {
         source = "flash";
+        image_owned = true;
     } else if (!s_network_fetch_enabled) {
-        FACULTY175_LOG_STAGE_W(TAG, "faculty", "bust network deferred for %s", slug);
-        return false;
+        if (!bust_load_from_embedded(slug, &embedded_image, &image_len, &source)) {
+            FACULTY175_LOG_STAGE_W(TAG, "faculty", "bust network deferred for %s", slug);
+            return false;
+        }
     } else if (!fetch_bust_bytes_network(slug, &image, &image_len, &source)) {
-        return false;
+        if (!bust_load_from_embedded(slug, &embedded_image, &image_len, &source)) {
+            return false;
+        }
+    } else {
+        image_owned = true;
     }
+    const uint8_t *image_bytes = image_owned ? image : embedded_image;
 
     uint16_t *scratch = s_bust_pixels;
     uint8_t *opaque = s_bust_opaque;
     if (scratch == NULL || opaque == NULL) {
-        free(image);
+        if (image_owned) {
+            free(image);
+        }
         return false;
     }
 
     int draw_w = 0;
     int draw_h = 0;
     const size_t fetched_len = image_len;
-    const bool alpha_bust = bust_bytes_are_png(image, image_len);
-    const bool ok = decode_bust_rgb565(image, image_len, scratch, opaque, &draw_w, &draw_h);
-    if (!from_flash && ok && image != NULL && image_len > 0) {
+    const bool alpha_bust = bust_bytes_are_png(image_bytes, image_len);
+    const bool ok = decode_bust_rgb565(image_bytes, image_len, scratch, opaque, &draw_w, &draw_h);
+    if (!from_flash && image_owned && ok && image != NULL && image_len > 0) {
         (void)bust_save_to_flash(slug, image, image_len);
     }
-    free(image);
+    if (image_owned) {
+        free(image);
+    }
     if (!ok || draw_w <= 0 || draw_h <= 0) {
         return false;
     }
@@ -1180,8 +1230,27 @@ static void prefetch_roster_task(void *arg)
 void faculty175_faculty_prefetch_roster(void)
 {
 #if ASTROLABE_FACULTY_PREFETCH_ROSTER
-    (void)xTaskCreate(prefetch_roster_task, "fac_prefetch", 8192, NULL, 2, NULL);
+    (void)xTaskCreate(prefetch_roster_task, "fac_prefetch", 12288, NULL, 2, NULL);
 #endif
+}
+
+static bool bust_worker_ensure(void)
+{
+    if (s_bust_task != NULL) {
+        return true;
+    }
+    const uint32_t now_ms = faculty175_log_ms();
+    if (s_bust_task_retry_after_ms != 0 && now_ms < s_bust_task_retry_after_ms) {
+        return false;
+    }
+    if (xTaskCreate(bust_worker_task, "fac_bust", 16384, NULL, 3, &s_bust_task) != pdPASS) {
+        s_bust_task = NULL;
+        s_bust_task_retry_after_ms = now_ms + 5000;
+        ESP_LOGW(TAG, "bust worker task create failed");
+        return false;
+    }
+    s_bust_task_retry_after_ms = 0;
+    return true;
 }
 
 esp_err_t faculty175_faculty_init(void)
@@ -1205,9 +1274,6 @@ esp_err_t faculty175_faculty_init(void)
     s_req_slug[0] = '\0';
     s_bust_draw_w = 0;
     s_bust_draw_h = 0;
-    if (xTaskCreate(bust_worker_task, "fac_bust", 16384, NULL, 3, &s_bust_task) != pdPASS) {
-        return ESP_FAIL;
-    }
     (void)bust_cache_init();
     return ESP_OK;
 }
@@ -1240,7 +1306,7 @@ void faculty175_faculty_request_bust(const char *slug)
         s_req_slug[sizeof(s_req_slug) - 1] = '\0';
         xSemaphoreGive(s_bust_lock);
     }
-    if (s_bust_task != NULL) {
+    if (bust_worker_ensure()) {
         xTaskNotifyGive(s_bust_task);
     }
 }
@@ -1262,7 +1328,7 @@ void faculty175_faculty_request_bust_download(const char *slug)
         s_status = FACULTY175_FACULTY_BUST_IDLE;
         xSemaphoreGive(s_bust_lock);
     }
-    if (s_bust_task != NULL) {
+    if (bust_worker_ensure()) {
         xTaskNotifyGive(s_bust_task);
     }
 }

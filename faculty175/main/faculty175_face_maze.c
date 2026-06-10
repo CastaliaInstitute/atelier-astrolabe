@@ -5,142 +5,109 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "esp_heap_caps.h"
 #include "esp_log.h"
-#include "esp_spiffs.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
 #include "faculty175_board.h"
 
-#define MAZE_BG_PATH "/bust_cache/maze/maze_466.gray"
+#define STBI_NO_STDIO
+#include "stb_image.h"
 
 static const char *TAG = "maze";
 
-extern const uint8_t _binary_maze_466_gray_start[] asm("_binary_maze_466_gray_start");
-extern const uint8_t _binary_maze_466_gray_end[] asm("_binary_maze_466_gray_end");
-
-__attribute__((weak)) bool faculty175_motion_pitch_roll(float *pitch_deg, float *roll_deg)
-{
-    (void)pitch_deg;
-    (void)roll_deg;
-    return false;
-}
+extern const uint8_t _binary_maze_466_png_start[] asm("_binary_maze_466_png_start");
+extern const uint8_t _binary_maze_466_png_end[] asm("_binary_maze_466_png_end");
 
 static uint16_t rgb(uint8_t r, uint8_t g, uint8_t b)
 {
     return faculty175_display_rgb888(r, g, b);
 }
 
-static bool storage_mount(void)
+static uint16_t *background_pixels(void)
 {
-    esp_vfs_spiffs_conf_t conf = {
-        .base_path = "/bust_cache",
-        .partition_label = "storage",
-        .max_files = 12,
-        .format_if_mount_failed = false,
-    };
-    const esp_err_t err = esp_vfs_spiffs_register(&conf);
-    return err == ESP_OK || err == ESP_ERR_INVALID_STATE;
+    static uint16_t *pixels;
+    static bool missing_logged;
+    if (pixels != NULL) {
+        return pixels;
+    }
+
+    const size_t png_len = (size_t)(_binary_maze_466_png_end - _binary_maze_466_png_start);
+    if (png_len == 0) {
+        return NULL;
+    }
+
+    int w = 0;
+    int h = 0;
+    int channels = 0;
+    uint8_t *decoded = stbi_load_from_memory(_binary_maze_466_png_start,
+                                             (int)png_len,
+                                             &w,
+                                             &h,
+                                             &channels,
+                                             3);
+    if (decoded == NULL || w <= 0 || h <= 0) {
+        if (!missing_logged) {
+            missing_logged = true;
+            ESP_LOGW(TAG, "maze PNG decode failed len=%u err=%s",
+                     (unsigned)png_len,
+                     stbi_failure_reason());
+        }
+        if (decoded != NULL) {
+            stbi_image_free(decoded);
+        }
+        return NULL;
+    }
+
+    pixels = (uint16_t *)heap_caps_malloc(sizeof(uint16_t) * FACULTY175_LCD_W * FACULTY175_LCD_H,
+                                          MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (pixels == NULL) {
+        pixels = (uint16_t *)malloc(sizeof(uint16_t) * FACULTY175_LCD_W * FACULTY175_LCD_H);
+    }
+    if (pixels == NULL) {
+        stbi_image_free(decoded);
+        if (!missing_logged) {
+            missing_logged = true;
+            ESP_LOGW(TAG, "maze PNG cache allocation failed");
+        }
+        return NULL;
+    }
+
+    for (int y = 0; y < FACULTY175_LCD_H; ++y) {
+        const int src_y = (int)((int64_t)y * h / FACULTY175_LCD_H);
+        for (int x = 0; x < FACULTY175_LCD_W; ++x) {
+            const int src_x = (int)((int64_t)x * w / FACULTY175_LCD_W);
+            const uint8_t *px = decoded + ((size_t)src_y * (size_t)w + (size_t)src_x) * 3u;
+            pixels[(size_t)y * FACULTY175_LCD_W + (size_t)x] = rgb(px[0], px[1], px[2]);
+        }
+    }
+    stbi_image_free(decoded);
+    ESP_LOGI(TAG, "maze PNG cached %dx%d -> %dx%d", w, h, FACULTY175_LCD_W, FACULTY175_LCD_H);
+    return pixels;
 }
 
 static bool draw_background(void)
 {
-    static uint16_t *row;
-    static uint8_t *gray;
-    static bool missing_logged;
-    if (row == NULL) {
-        row = (uint16_t *)malloc(sizeof(uint16_t) * FACULTY175_LCD_W);
-        if (row == NULL) {
-            return false;
-        }
-    }
-    if (gray == NULL) {
-        gray = (uint8_t *)malloc(FACULTY175_LCD_W);
-        if (gray == NULL) {
-            return false;
-        }
-    }
-
-    const size_t embedded_len = (size_t)(_binary_maze_466_gray_end - _binary_maze_466_gray_start);
-    const bool embedded_ok = embedded_len >= (size_t)FACULTY175_LCD_W * (size_t)FACULTY175_LCD_H;
-    FILE *f = NULL;
-    if (!embedded_ok && storage_mount()) {
-        f = fopen(MAZE_BG_PATH, "rb");
-    }
-    if (f == NULL && !embedded_ok) {
-        if (!missing_logged) {
-            missing_logged = true;
-            ESP_LOGW(TAG, "missing %s", MAZE_BG_PATH);
-        }
+    const uint16_t *pixels = background_pixels();
+    if (pixels == NULL) {
         return false;
     }
     for (int y = 0; y < FACULTY175_LCD_H; ++y) {
-        if (f != NULL && fread(gray, 1, FACULTY175_LCD_W, f) != FACULTY175_LCD_W) {
-            fclose(f);
-            return false;
-        } else if (f == NULL) {
-            memcpy(gray,
-                   _binary_maze_466_gray_start + (size_t)y * (size_t)FACULTY175_LCD_W,
-                   FACULTY175_LCD_W);
-        }
-        for (int x = 0; x < FACULTY175_LCD_W; ++x) {
-            const uint8_t v = gray[x];
-            row[x] = rgb(v, v, v);
-        }
-        faculty175_display_draw_rgb565(row, 0, y, FACULTY175_LCD_W, 1);
+        faculty175_display_draw_rgb565(pixels + (size_t)y * FACULTY175_LCD_W, 0, y, FACULTY175_LCD_W, 1);
         if ((y & 0x3f) == 0x3f) {
             vTaskDelay(1);
         }
     }
-    if (f != NULL) {
-        fclose(f);
-    }
     return true;
-}
-
-static void ball_target(uint32_t anim_ms, float *out_x, float *out_y)
-{
-    float pitch = 0.0f;
-    float roll = 0.0f;
-    if (faculty175_motion_pitch_roll(&pitch, &roll)) {
-        *out_x = roll / 38.0f;
-        *out_y = pitch / 38.0f;
-    } else {
-        const float t = (float)anim_ms * 0.001f;
-        *out_x = 0.46f * sinf(t * 0.77f) + 0.19f * sinf(t * 1.53f + 1.4f);
-        *out_y = 0.42f * cosf(t * 0.69f + 0.7f) + 0.17f * sinf(t * 1.18f);
-    }
-    const float d2 = (*out_x * *out_x) + (*out_y * *out_y);
-    if (d2 > 1.0f) {
-        const float inv = 1.0f / sqrtf(d2);
-        *out_x *= inv;
-        *out_y *= inv;
-    }
 }
 
 void faculty175_face_maze_draw(uint32_t anim_ms)
 {
-    static float sx = 0.0f;
-    static float sy = 0.0f;
+    (void)anim_ms;
 
     if (!draw_background()) {
         faculty175_display_fill_rgb565(rgb(224, 222, 214));
     }
-
-    float tx = 0.0f;
-    float ty = 0.0f;
-    ball_target(anim_ms, &tx, &ty);
-    sx += (tx - sx) * 0.28f;
-    sy += (ty - sy) * 0.28f;
-
-    const int cx = FACULTY175_LCD_W / 2;
-    const int cy = FACULTY175_LCD_H / 2;
-    const int bx = cx + (int)lrintf(sx * 150.0f);
-    const int by = cy + (int)lrintf(sy * 150.0f);
-    faculty175_display_fill_circle(bx + 3, by + 4, 12, rgb(48, 38, 26));
-    faculty175_display_fill_circle(bx, by, 12, rgb(238, 182, 76));
-    faculty175_display_fill_circle(bx - 4, by - 5, 4, rgb(255, 236, 158));
-    faculty175_display_draw_circle(bx, by, 12, rgb(16, 17, 18));
-
     faculty175_display_flush();
 }

@@ -61,27 +61,31 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
   candidates=(/dev/cu.usbmodem*)
   native=()
   wch_single=()
-  for dev in "${candidates[@]}"; do
+  candidate_count=0
+  native_count=0
+  wch_single_count=0
+  for dev in "${candidates[@]:-}"; do
+    candidate_count=$((candidate_count + 1))
     case "$dev" in
-      *5A360268091) wch_single+=("$dev") ;;
+      *5A360268091) wch_single+=("$dev"); wch_single_count=$((wch_single_count + 1)) ;;
       *56D5020262*) ;;
-      *) native+=("$dev") ;;
+      *) native+=("$dev"); native_count=$((native_count + 1)) ;;
     esac
   done
   shopt -u nullglob
-  if [[ ${#native[@]} -eq 1 ]]; then
+  if [[ $native_count -eq 1 ]]; then
     echo "${native[0]}"
     exit 0
   fi
-  if [[ ${#native[@]} -gt 1 ]]; then
+  if [[ $native_count -gt 1 ]]; then
     echo "error: multiple native usbmodem devices: ${native[*]}; set ASTROLABE_UPLOAD_PORT" >&2
     exit 1
   fi
-  if [[ ${#wch_single[@]} -eq 1 ]]; then
+  if [[ $wch_single_count -eq 1 ]]; then
     echo "${wch_single[0]}"
     exit 0
   fi
-  if [[ ${#candidates[@]} -gt 1 ]]; then
+  if [[ $candidate_count -gt 1 ]]; then
     echo "error: multiple usbmodem devices: ${candidates[*]}; set ASTROLABE_UPLOAD_PORT" >&2
     exit 1
   fi

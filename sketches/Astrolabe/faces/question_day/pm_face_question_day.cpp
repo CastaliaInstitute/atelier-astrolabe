@@ -465,6 +465,7 @@ bool pm_face_question_day_build_prompt(char *msg, size_t msg_cap, char *sys, siz
   snprintf(sys, sys_cap,
            "You write the Mynah Astrolabe Question of the Day. Choose the Castalia faculty member whose "
            "perspective best fits the question you are asking. Use exactly one of these faculty entries: "
+           "a.darwin / Charles Darwin for biology, evolution, variation, natural history; "
            "a.einstein / Einstein for physics, time, pattern, wonder; marie-curie / Marie Curie for experiment, "
            "care, materials, persistence; hypatia / Hypatia for mathematics, philosophy, civic clarity. Use the "
            "device facts, but do not expose implementation details. Do not repeat or closely paraphrase any prior "

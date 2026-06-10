@@ -7,6 +7,7 @@
 #include "esp_log.h"
 #include "nvs.h"
 
+#include "faculty175_face_profile.h"
 #include "faculty175_log.h"
 
 static const char *TAG = "faculty175_faces";
@@ -17,8 +18,8 @@ static const char *TAG = "faculty175_faces";
 #define FACES_NVS_NAV_COUNT "navcnt"
 #define FACES_NVS_NAV_MAP "navmap"
 #define FACE_KEY_CAP 8
-#define FACES_CONFIG_RESET_SCHEMA_VERSION 32
-#define FACES_SCHEMA_VERSION 32
+#define FACES_CONFIG_RESET_SCHEMA_VERSION 35
+#define FACES_SCHEMA_VERSION 36
 
 static const faculty175_face_desc_t k_faces[] = {
     { FACULTY175_FACE_FACULTY, "faculty", "Faculty", FACULTY175_FACE_CAT_HOME, true, true, 10 },
@@ -75,7 +76,12 @@ static const faculty175_face_desc_t k_faces[] = {
     { FACULTY175_FACE_DEATHSTAR, "deathstar", "Death Star", FACULTY175_FACE_CAT_HOME, true, true, 60 },
     { FACULTY175_FACE_SOLAR, "solar", "Solar Activity", FACULTY175_FACE_CAT_HOME | FACULTY175_FACE_CAT_ORACLE, false, false, 92 },
     { FACULTY175_FACE_MAGNETOSPHERE, "magnetosphere", "Magnetosphere", FACULTY175_FACE_CAT_HOME | FACULTY175_FACE_CAT_ORACLE, true, false, 93 },
-    { FACULTY175_FACE_TRON, "tron", "TRON", FACULTY175_FACE_CAT_HOME, true, true, 65 },
+    { FACULTY175_FACE_TRON, "tron", "TRON", FACULTY175_FACE_CAT_HOME, false, false, 65 },
+    { FACULTY175_FACE_WSCAN, "wscan", "WiFi Scan", FACULTY175_FACE_CAT_SYSTEM, true, false, 201 },
+    { FACULTY175_FACE_DEAUTH, "deauth", "Deauth", FACULTY175_FACE_CAT_SYSTEM, true, false, 202 },
+    { FACULTY175_FACE_EVILTWIN, "eviltwin", "Evil Twin", FACULTY175_FACE_CAT_SYSTEM, true, false, 203 },
+    { FACULTY175_FACE_HANDSHAKE, "handshake", "Handshake", FACULTY175_FACE_CAT_SYSTEM, true, false, 204 },
+    { FACULTY175_FACE_INCIDENTS, "incidents", "Incidents", FACULTY175_FACE_CAT_SYSTEM, true, false, 205 },
     { FACULTY175_FACE_SETTINGS, "settings", "Settings", FACULTY175_FACE_CAT_SYSTEM, true, true, 250 },
     { FACULTY175_FACE_POCKETWATCH, "pocketwatch", "Watch", FACULTY175_FACE_CAT_HOME, true, true, 0 },
 };
@@ -621,6 +627,10 @@ esp_err_t faculty175_faces_init(void)
         }
     }
     FACULTY175_LOG_STAGE(TAG, "faces", "current=%s", faculty175_faces_current()->slug);
+    const esp_err_t profile_err = faculty175_face_profile_init();
+    if (profile_err != ESP_OK) {
+        FACULTY175_LOG_STAGE(TAG, "faces", "profile init: %s", esp_err_to_name(profile_err));
+    }
     return ESP_OK;
 }
 
@@ -986,7 +996,10 @@ bool faculty175_faces_handle(const char *line)
     }
 
     if (*sub == '\0' || strcasecmp(sub, "status") == 0 || strcasecmp(sub, "list") == 0) {
-        printf("faces: current=%s count=%u\n", faculty175_faces_current()->slug, (unsigned)faculty175_faces_count());
+        printf("faces: current=%s profile=%s count=%u\n",
+               faculty175_faces_current()->slug,
+               faculty175_face_profile_slug(faculty175_face_profile_current()),
+               (unsigned)faculty175_faces_count());
         for (size_t i = 0; i < FACULTY175_FACE_COUNT; ++i) {
             if (!face_active_slot(i)) {
                 continue;
@@ -1017,6 +1030,9 @@ bool faculty175_faces_handle(const char *line)
         printf("  faces hide <slug>\n");
         printf("  faces group <home|common|oracle|instrument|system> <0|1>\n");
         printf("  faces order <slug> <0-255>\n");
+        printf("  faces profile status\n");
+        printf("  faces profile default|secops|fortune|castalia|ocarina|lunasay|cameo\n");
+        printf("  pocketwatch dial: 123 fortune, 443 secops, 175 castalia, 145 ocarina, 295 lunasay, 987 cameo, 121110 default\n");
         fflush(stdout);
         return true;
     }
@@ -1033,6 +1049,22 @@ bool faculty175_faces_handle(const char *line)
         const esp_err_t err = value <= 1 ? faculty175_faces_set_category_navigation_enabled(category, value != 0)
                                          : ESP_ERR_INVALID_ARG;
         printf("faces: group %s nav=%u %s\n", slug, value, esp_err_to_name(err));
+        fflush(stdout);
+        return true;
+    }
+
+    if (strcasecmp(cmd, "profile") == 0) {
+        if (slug[0] == '\0' || strcasecmp(slug, "status") == 0) {
+            printf("faces: profile=%s\n", faculty175_face_profile_slug(faculty175_face_profile_current()));
+        } else {
+            faculty175_face_profile_t profile;
+            if (!faculty175_face_profile_from_slug(slug, &profile)) {
+                printf("faces: unknown profile \"%s\" (default|secops|fortune|castalia|ocarina|lunasay|cameo)\n", slug);
+            } else {
+                const esp_err_t err = faculty175_face_profile_apply(profile, true);
+                printf("faces: profile %s %s\n", slug, esp_err_to_name(err));
+            }
+        }
         fflush(stdout);
         return true;
     }

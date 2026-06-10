@@ -43,8 +43,10 @@ idf_component_register(
         "faculty175_screen_http.c"
         "faculty175_wifi_settings.c"
         "faculty175_wifi_monitor.c"
+        "faculty175_wifi_lab.c"
         "faculty175_lvgl.c"
         "faculty175_face_pocketwatch.c"
+        "faculty175_face_incidents.c"
         "faculty175_pocketwatch.c"
         "faculty175_charts.c"
         "faculty175_ble.c"
@@ -53,6 +55,7 @@ idf_component_register(
         "faculty175_device_settings.c"
         ${FACULTY175_FACE_SRCS}
         "faculty175_faces.c"
+        "faculty175_face_profile.c"
         "../../lib/astrolabe_display_core/astrolabe_round_bezel.c"
         "faculty175_ota.c"
         "faculty175_qa.c"
@@ -95,7 +98,9 @@ idf_component_register(
         bt
     EMBED_FILES
         "assets/pocketwatch_default.rgb565"
-        "assets/maze_466.gray"
+        "assets/maze_466.png"
+        "assets/v5-a.darwin-right.png"
+        "assets/v5-a.plato-right.png"
 )
 
 target_compile_definitions(${COMPONENT_LIB} PRIVATE XPOWERS_CHIP_AXP2101)

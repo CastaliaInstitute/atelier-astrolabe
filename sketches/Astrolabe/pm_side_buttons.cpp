@@ -4,9 +4,11 @@
 #include <Wire.h>
 
 #include "pin_config.h"
+#if !defined(ASTROLABE_PLATFORM_185B)
 #include "XPowersLib.h"
 
 static XPowersPMU s_pmu;
+#endif
 static bool s_pmu_ok = false;
 static uint32_t s_last_pmu_scan = 0;
 /** Latched from AXP2101 PEK negative/positive edge IRQs (true while user is holding PWR). */
@@ -16,6 +18,9 @@ static uint8_t s_qa_inject_ev = 0;
 bool pm_side_buttons_begin() {
   pinMode(MYNAH_BOOT_BUTTON_GPIO, INPUT_PULLUP);
 
+#if defined(ASTROLABE_PLATFORM_185B)
+  s_pmu_ok = false;
+#else
   s_pmu_ok = s_pmu.begin(Wire, AXP2101_SLAVE_ADDRESS, IIC_SDA, IIC_SCL);
   if (s_pmu_ok) {
     s_pmu.enableBattDetection();
@@ -27,6 +32,7 @@ bool pm_side_buttons_begin() {
     s_pmu.enableIRQ(XPOWERS_AXP2101_PKEY_SHORT_IRQ | XPOWERS_AXP2101_PKEY_NEGATIVE_IRQ |
                      XPOWERS_AXP2101_PKEY_POSITIVE_IRQ);
   }
+#endif
   return true;
 }
 
@@ -53,6 +59,7 @@ uint8_t pm_side_buttons_poll(uint32_t now_ms) {
     s_boot_armed = true;
   }
 
+#if !defined(ASTROLABE_PLATFORM_185B)
   if (s_pmu_ok && (now_ms - s_last_pmu_scan >= 35)) {
     s_last_pmu_scan = now_ms;
     (void)s_pmu.getIrqStatus();
@@ -73,6 +80,9 @@ uint8_t pm_side_buttons_poll(uint32_t now_ms) {
       s_pmu.clearIrqStatus();
     }
   }
+#else
+  (void)s_last_pmu_scan;
+#endif
 
   static uint32_t s_last_emit = 0;
   if (ev != 0 && (now_ms - s_last_emit < 350)) {
@@ -101,6 +111,9 @@ bool pm_pmu_status(PmPmuStatus *out) {
     out->battery_percent = -1;
     return false;
   }
+#if defined(ASTROLABE_PLATFORM_185B)
+  return false;
+#else
   out->battery_present = s_pmu.isBatteryConnect();
   out->vbus_in = s_pmu.isVbusIn();
   out->charging = s_pmu.isCharging();
@@ -110,4 +123,5 @@ bool pm_pmu_status(PmPmuStatus *out) {
   out->vbus_mv = s_pmu.getVbusVoltage();
   out->system_mv = s_pmu.getSystemVoltage();
   return true;
+#endif
 }

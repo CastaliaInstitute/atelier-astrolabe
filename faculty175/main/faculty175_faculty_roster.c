@@ -13,6 +13,7 @@ static const char *TAG = "faculty175_roster";
 static const char *kNs = "fac_roster";
 
 static const faculty175_faculty_roster_entry_t kDefaultRoster[] = {
+    {"a.darwin", "Charles Darwin"},
     {"a.einstein", "Einstein"},
     {"a.plato", "Plato"},
     {"nabokov", "Nabokov"},

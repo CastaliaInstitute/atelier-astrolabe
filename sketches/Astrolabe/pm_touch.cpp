@@ -4,9 +4,17 @@
 #include <Wire.h>
 
 #include "pin_config.h"
+#if defined(ASTROLABE_PLATFORM_185B)
+#include "touch/TouchDrvCST816.h"
+#else
 #include "touch/TouchDrvCST92xx.h"
+#endif
 
+#if defined(ASTROLABE_PLATFORM_185B)
+static TouchDrvCST816 g_touch;
+#else
 static TouchDrvCST92xx g_touch;
+#endif
 static bool g_touch_ok = false;
 static int16_t g_cache_xs[5] = {};
 static int16_t g_cache_ys[5] = {};
@@ -35,7 +43,11 @@ bool pm_touch_begin() {
   const int touch_rst =
       (TP_RST == LCD_RESET) ? -1 : TP_RST;
   g_touch.setPins(touch_rst, TP_INT);
+#if defined(ASTROLABE_PLATFORM_185B)
+  g_touch_ok = g_touch.begin(Wire, CST816_SLAVE_ADDRESS, IIC_SDA, IIC_SCL);
+#else
   g_touch_ok = g_touch.begin(Wire, CST92XX_SLAVE_ADDRESS, IIC_SDA, IIC_SCL);
+#endif
   pinMode(TP_INT, INPUT);
   return g_touch_ok;
 #endif

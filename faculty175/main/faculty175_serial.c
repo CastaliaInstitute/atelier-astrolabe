@@ -776,6 +776,81 @@ static bool handle_button_command(const char *line)
     return true;
 }
 
+static bool handle_tts_command(const char *line)
+{
+    if (line == NULL || (strcasecmp(line, "tts") != 0 && strncasecmp(line, "tts ", 4) != 0 &&
+                         strcasecmp(line, "voice") != 0 && strncasecmp(line, "voice ", 6) != 0)) {
+        return false;
+    }
+    const char *sub = strchr(line, ' ');
+    sub = sub != NULL ? sub + 1 : "face";
+    while (*sub == ' ') {
+        ++sub;
+    }
+    if (strncasecmp(line, "voice", 5) == 0 && (strcasecmp(sub, "tts") == 0 || strncasecmp(sub, "tts ", 4) == 0)) {
+        sub += 3;
+        while (*sub == ' ') {
+            ++sub;
+        }
+        if (*sub == '\0') {
+            sub = "face";
+        }
+    }
+    if (*sub == '\0' || strcasecmp(sub, "face") == 0 || strcasecmp(sub, "read") == 0) {
+        const bool ok = faculty175_request_current_face_tts();
+        printf("tts: face %s\n", ok ? "ESP_OK" : "ESP_FAIL");
+    } else if (strcasecmp(sub, "stt") == 0 || strncasecmp(sub, "stt ", 4) == 0) {
+        const char *ms_arg = sub + 3;
+        while (*ms_arg == ' ') {
+            ++ms_arg;
+        }
+        unsigned capture_ms = 9000;
+        if (*ms_arg != '\0') {
+            capture_ms = (unsigned)strtoul(ms_arg, NULL, 10);
+        }
+        if (capture_ms < 1000) {
+            capture_ms = 1000;
+        } else if (capture_ms > 30000) {
+            capture_ms = 30000;
+        }
+        const esp_err_t err = faculty175_request_qa_stt(capture_ms);
+        printf("stt: capture_ms=%u %s\n", capture_ms, esp_err_to_name(err));
+    } else {
+        printf("voice commands:\n");
+        printf("  tts face\n");
+        printf("  voice tts\n");
+        printf("  voice stt [ms]\n");
+    }
+    fflush(stdout);
+    return true;
+}
+
+static bool handle_stt_command(const char *line)
+{
+    if (line == NULL || (strcasecmp(line, "stt") != 0 && strncasecmp(line, "stt ", 4) != 0)) {
+        return false;
+    }
+    const char *sub = strchr(line, ' ');
+    unsigned capture_ms = 9000;
+    if (sub != NULL) {
+        while (*sub == ' ') {
+            ++sub;
+        }
+        if (*sub != '\0') {
+            capture_ms = (unsigned)strtoul(sub, NULL, 10);
+        }
+    }
+    if (capture_ms < 1000) {
+        capture_ms = 1000;
+    } else if (capture_ms > 30000) {
+        capture_ms = 30000;
+    }
+    const esp_err_t err = faculty175_request_qa_stt(capture_ms);
+    printf("stt: capture_ms=%u %s\n", capture_ms, esp_err_to_name(err));
+    fflush(stdout);
+    return true;
+}
+
 static void print_time_status(void)
 {
     astrolabe_time_status_t status = {};
@@ -886,6 +961,14 @@ static void handle_line(char *line)
         return;
     }
 
+    if (handle_tts_command(line)) {
+        return;
+    }
+
+    if (handle_stt_command(line)) {
+        return;
+    }
+
     if (handle_wifi_command(line)) {
         return;
     }
@@ -939,7 +1022,7 @@ static void handle_line(char *line)
     }
 
     if (strcasecmp(line, "help") == 0 || strcasecmp(line, "?") == 0) {
-        printf("serial: screen | face screen | gesture help | button press | wifi status|scan|set | time | watch status | power | i2c scan | ble status | qa help | device help | ota help | faces help | charts help | almanac help | quotes help | rocket help | touch status\n");
+        printf("serial: screen | face screen | gesture help | button press | tts face | stt [ms] | voice stt [ms] | wifi status|scan|set | time | watch status | power | i2c scan | ble status | qa help | device help | ota help | faces help | charts help | almanac help | quotes help | rocket help | touch status\n");
         (void)faculty175_qa_handle("qa help");
         return;
     }

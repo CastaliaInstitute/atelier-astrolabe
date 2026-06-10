@@ -40,7 +40,7 @@ static constexpr uint32_t kBustPreloadMinIntervalMs = 60000u;
 #if defined(ASTROLABE_DEFAULT_FACULTY_TOM_ROBBINS) && ASTROLABE_DEFAULT_FACULTY_TOM_ROBBINS
 #define ASTROLABE_DEFAULT_FACULTY_SLUG "a.tomrobbins"
 #else
-#define ASTROLABE_DEFAULT_FACULTY_SLUG "a.einstein"
+#define ASTROLABE_DEFAULT_FACULTY_SLUG "a.darwin"
 #endif
 #endif
 
@@ -48,7 +48,7 @@ static constexpr uint32_t kBustPreloadMinIntervalMs = 60000u;
 #if defined(ASTROLABE_DEFAULT_FACULTY_TOM_ROBBINS) && ASTROLABE_DEFAULT_FACULTY_TOM_ROBBINS
 #define ASTROLABE_DEFAULT_FACULTY_NAME "Tom Robbins"
 #else
-#define ASTROLABE_DEFAULT_FACULTY_NAME "Einstein"
+#define ASTROLABE_DEFAULT_FACULTY_NAME "Charles Darwin"
 #endif
 #endif
 
@@ -155,6 +155,9 @@ static void pm_faculty_normalize_slug(const char *in, char *out, size_t cap) {
   sanitize_slug(in, out, cap);
   if (strcmp(out, "einstein") == 0) {
     strncpy(out, "a.einstein", cap - 1);
+    out[cap - 1] = '\0';
+  } else if (strcmp(out, "darwin") == 0) {
+    strncpy(out, "a.darwin", cap - 1);
     out[cap - 1] = '\0';
   }
 }
@@ -551,10 +554,10 @@ void pm_faculty_ensure_seed(void) {
     return;
   }
   static const PmFacultyProfile kSeeds[] = {
+      {ASTROLABE_DEFAULT_FACULTY_SLUG, ASTROLABE_DEFAULT_FACULTY_NAME, "", "", true},
       {"a.einstein", "Einstein", "", "", true},
       {"marie-curie", "Marie Curie", "", "", true},
       {"hypatia", "Hypatia", "", "", true},
-      {"socrates", "Socrates", "", "", true},
   };
   Preferences pref;
   if (!pref.begin(kNvsNs, false)) {
@@ -580,7 +583,7 @@ void pm_faculty_ensure_demo_seed(void) {
     }
   }
   static const PmFacultyProfile kDemo[] = {
-      {"a.einstein", "Einstein", "", "", true},
+      {ASTROLABE_DEFAULT_FACULTY_SLUG, ASTROLABE_DEFAULT_FACULTY_NAME, "", "", true},
   };
   for (const auto &seed : kDemo) {
     bool found = false;
@@ -607,7 +610,7 @@ void pm_faculty_prepare_demo_view(void) {
     return;
   }
   s_demo_faculty_started = true;
-  (void)pm_faculty_set_active_slug("a.einstein", "Einstein");
+  (void)pm_faculty_set_active_slug(ASTROLABE_DEFAULT_FACULTY_SLUG, ASTROLABE_DEFAULT_FACULTY_NAME);
 }
 
 static void trim_base_url(char *url, size_t cap) {

@@ -256,7 +256,7 @@ The function looks in Supabase Storage bucket `faculty` by default, under
 `{FACULTY_BUST_PREFIX:-busts}`. It tries `{slug}/bust.jpg`,
 `{slug}/bust.jpeg`, `{slug}/bust.png`, then `{slug}/bust.webp`, plus simple
 aliases like `a.einstein` → `einstein`, and falls back to
-`{FACULTY_DEFAULT_BUST_SLUG:-einstein}/bust.*`.
+`{FACULTY_DEFAULT_BUST_SLUG:-darwin}/bust.*`.
 
 For color e-paper clients, request `view=line`:
 
@@ -285,7 +285,7 @@ Optional secrets:
 supabase secrets set \
   FACULTY_BUST_BUCKET=faculty \
   FACULTY_BUST_PREFIX=busts \
-  FACULTY_DEFAULT_BUST_SLUG=einstein \
+  FACULTY_DEFAULT_BUST_SLUG=darwin \
   FACULTY_BUST_EXTENSIONS=jpg,jpeg,png,webp \
   FACULTY_BUST_SIGN_TTL_SEC=3600
 ```
