@@ -8,15 +8,15 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-FACES_H = ROOT / "faculty175" / "main" / "faculty175_faces.h"
-LVGL_C = ROOT / "faculty175" / "main" / "faculty175_lvgl.c"
-MAIN_C = ROOT / "faculty175" / "main" / "main.c"
-GESTURE_C = ROOT / "faculty175" / "main" / "faculty175_gesture.c"
-MAGNET_RGB565 = ROOT / "faculty175" / "storage_seed" / "space" / "magnetosphere_466.rgb565"
+FACES_H = ROOT / "astrolabe175c" / "main" / "faculty175_faces.h"
+LVGL_C = ROOT / "astrolabe175c" / "main" / "faculty175_lvgl.c"
+MAIN_C = ROOT / "astrolabe175c" / "main" / "main.c"
+GESTURE_C = ROOT / "astrolabe175c" / "main" / "faculty175_gesture.c"
+MAGNET_RGB565 = ROOT / "astrolabe175c" / "storage_seed" / "space" / "magnetosphere_466.rgb565"
 MAGNET_REFRESH = ROOT / "scripts" / "refresh_magnetosphere_map.py"
 TAROT_DOCS_466 = ROOT / "docs" / "assets" / "deck" / "466"
-TAROT_SPIFFS_466 = ROOT / "faculty175" / "storage_seed" / "tarot" / "deck" / "466"
-TAROT_SPIFFS_CPP = ROOT / "faculty175" / "main" / "faculty175_face_tarot_spiffs_image.cpp"
+TAROT_SPIFFS_466 = ROOT / "astrolabe175c" / "storage_seed" / "tarot" / "deck" / "466"
+TAROT_SPIFFS_CPP = ROOT / "astrolabe175c" / "main" / "faculty175_face_tarot_spiffs_image.cpp"
 
 
 def face_tokens() -> list[str]:

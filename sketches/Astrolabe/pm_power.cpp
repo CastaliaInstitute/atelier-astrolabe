@@ -10,7 +10,15 @@ static constexpr const char *kSleepKey = "pwr_slp_s";
 static const uint16_t kDimOptions[] = {15, 30, 60, 120, 300};
 static const uint16_t kSleepOptions[] = {0, 60, 120, 300, 600, 900};
 
-static PmPowerSettings s_settings = {true, 60, 300, 200, 24};
+#if defined(ASTROLABE_PLATFORM_185B)
+static constexpr uint8_t kDefaultActiveBrightness = 255;
+static constexpr uint8_t kDefaultDimBrightness = 192;
+#else
+static constexpr uint8_t kDefaultActiveBrightness = 200;
+static constexpr uint8_t kDefaultDimBrightness = 24;
+#endif
+
+static PmPowerSettings s_settings = {true, 60, 300, kDefaultActiveBrightness, kDefaultDimBrightness};
 static PmPowerBrightnessFn s_brightness_fn = nullptr;
 static uint32_t s_last_activity_ms = 0;
 static bool s_dimmed = false;
