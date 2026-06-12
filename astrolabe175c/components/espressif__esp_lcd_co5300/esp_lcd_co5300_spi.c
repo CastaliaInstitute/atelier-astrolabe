@@ -25,6 +25,8 @@
 #define LCD_OPCODE_WRITE_COLOR      (0x32ULL)
 
 static const char *TAG = "co5300_spi";
+extern volatile uint32_t g_faculty175_boot_stage;
+extern volatile int32_t g_faculty175_boot_last_err;
 
 static esp_err_t panel_co5300_del(esp_lcd_panel_t *panel);
 static esp_err_t panel_co5300_reset(esp_lcd_panel_t *panel);
@@ -212,12 +214,17 @@ static esp_err_t panel_co5300_init(esp_lcd_panel_t *panel)
     uint16_t init_cmds_size = 0;
     bool is_cmd_overwritten = false;
 
-    ESP_RETURN_ON_ERROR(tx_param(co5300, io, LCD_CMD_MADCTL, (uint8_t[]) {
+    g_faculty175_boot_stage = 0xce36;
+    g_faculty175_boot_last_err = tx_param(co5300, io, LCD_CMD_MADCTL, (uint8_t[]) {
         co5300->madctl_val,
-    }, 1), TAG, "send command failed");
-    ESP_RETURN_ON_ERROR(tx_param(co5300, io, LCD_CMD_COLMOD, (uint8_t[]) {
+    }, 1);
+    ESP_RETURN_ON_ERROR(g_faculty175_boot_last_err, TAG, "send command failed");
+    g_faculty175_boot_stage = 0xce37;
+    g_faculty175_boot_last_err = tx_param(co5300, io, LCD_CMD_COLMOD, (uint8_t[]) {
         co5300->colmod_val,
-    }, 1), TAG, "send command failed");
+    }, 1);
+    ESP_RETURN_ON_ERROR(g_faculty175_boot_last_err, TAG, "send command failed");
+    g_faculty175_boot_stage = 0xce38;
 
     // vendor specific initialization, it can be different between manufacturers
     // should consult the LCD supplier for initialization sequence code
@@ -249,10 +256,12 @@ static esp_err_t panel_co5300_init(esp_lcd_panel_t *panel)
             ESP_LOGW(TAG, "The %02Xh command has been used and will be overwritten by external initialization sequence", init_cmds[i].cmd);
         }
 
-        ESP_RETURN_ON_ERROR(tx_param(co5300, io, init_cmds[i].cmd, init_cmds[i].data, init_cmds[i].data_bytes), TAG,
-                            "send command failed");
+        g_faculty175_boot_stage = 0xcf00u | ((uint32_t)init_cmds[i].cmd & 0xffu);
+        g_faculty175_boot_last_err = tx_param(co5300, io, init_cmds[i].cmd, init_cmds[i].data, init_cmds[i].data_bytes);
+        ESP_RETURN_ON_ERROR(g_faculty175_boot_last_err, TAG, "send command failed");
         vTaskDelay(pdMS_TO_TICKS(init_cmds[i].delay_ms));
     }
+    g_faculty175_boot_stage = 0xce39;
     ESP_LOGD(TAG, "send init commands success");
 
     return ESP_OK;

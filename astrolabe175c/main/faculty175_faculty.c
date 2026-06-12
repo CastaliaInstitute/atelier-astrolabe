@@ -1339,10 +1339,13 @@ esp_err_t faculty175_faculty_init(void)
     s_req_slug[0] = '\0';
     s_bust_draw_w = 0;
     s_bust_draw_h = 0;
-    (void)bust_cache_init();
-    if (!bust_worker_ensure()) {
-        ESP_LOGW(TAG, "bust worker reserve failed during init; will retry on demand");
-    }
+    s_bust_cache_checked = false;
+    s_bust_cache_ready = false;
+    /*
+     * Keep Faculty startup light: bust cache/media init and worker reservation
+     * can wake flash/FAT machinery early enough to interfere with boot bring-up
+     * on the 1.75C. The bust path already supports on-demand initialization.
+     */
     return ESP_OK;
 }
 

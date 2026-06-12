@@ -184,6 +184,9 @@ static bool s_bezel_waveform_visible;
 
 static void draw_bezel_nav(void);
 static void draw_touch_visual(void);
+
+extern volatile uint32_t g_faculty175_boot_stage;
+extern volatile int32_t g_faculty175_boot_last_err;
 static void draw_stored_bezel_waveform(void);
 static void draw_line_safe(int x0, int y0, int x1, int y1, uint16_t color);
 static void draw_bezel_arc(int cx, int cy, int r, float start, float end, uint16_t color);
@@ -192,23 +195,6 @@ esp_err_t faculty175_board_play_boot_chime(void);
 static void faculty175_log_i2c_lines(const char *stage);
 static void faculty175_log_i2c_gpio_drive_test(const char *stage);
 static const audio_codec_ctrl_if_t *faculty175_codec_ctrl_new(uint8_t addr_7bit);
-
-static const co5300_lcd_init_cmd_t s_co5300_init_cmds[] = {
-    {0xFE, (uint8_t[]){0x20}, 1, 0},
-    {0x19, (uint8_t[]){0x10}, 1, 0},
-    {0x1C, (uint8_t[]){0xA0}, 1, 0},
-    {0xFE, (uint8_t[]){0x00}, 1, 0},
-    {0xC4, (uint8_t[]){0x80}, 1, 0},
-    {0x3A, (uint8_t[]){0x55}, 1, 0},
-    {0x35, (uint8_t[]){0x00}, 1, 0},
-    {0x53, (uint8_t[]){0x20}, 1, 0},
-    {0x51, (uint8_t[]){0xFF}, 1, 0},
-    {0x63, (uint8_t[]){0xFF}, 1, 0},
-    {0x2A, (uint8_t[]){0x00, 0x06, 0x01, 0xD7}, 4, 0},
-    {0x2B, (uint8_t[]){0x00, 0x00, 0x01, 0xD1}, 4, 600},
-    {0x11, NULL, 0, 600},
-    {0x29, NULL, 0, 0},
-};
 
 i2c_master_bus_handle_t faculty175_i2c_bus(void)
 {
@@ -1315,7 +1301,10 @@ static int32_t faculty175_audio_probe_peak(void)
 
 static esp_err_t faculty175_audio_init(void)
 {
-    ESP_RETURN_ON_ERROR(faculty175_i2c_init(), TAG, "i2c");
+    g_faculty175_boot_stage = 0xae41;
+    g_faculty175_boot_last_err = faculty175_i2c_init();
+    ESP_RETURN_ON_ERROR(g_faculty175_boot_last_err, TAG, "i2c");
+    g_faculty175_boot_stage = 0xae42;
     const bool spk_present = faculty175_i2c_probe_silent(FACULTY175_ES8311_ADDR >> 1, 25);
     const bool mic_present = faculty175_i2c_probe_silent(FACULTY175_ES7210_ADDR_7BIT, 25);
     if (!spk_present) {
@@ -1329,11 +1318,14 @@ static esp_err_t faculty175_audio_init(void)
         ESP_LOGW(TAG, "ES7210 mic codec absent on I2C; starting speaker-only audio");
     }
 
-    ESP_RETURN_ON_ERROR(faculty175_i2s_init(FACULTY175_AUDIO_RATE), TAG, "i2s");
+    g_faculty175_boot_stage = 0xae43;
+    g_faculty175_boot_last_err = faculty175_i2s_init(FACULTY175_AUDIO_RATE);
+    ESP_RETURN_ON_ERROR(g_faculty175_boot_last_err, TAG, "i2s");
     if (s_audio_read_mux == NULL) {
         s_audio_read_mux = xSemaphoreCreateMutex();
         ESP_RETURN_ON_FALSE(s_audio_read_mux != NULL, ESP_ERR_NO_MEM, TAG, "audio read mutex");
     }
+    g_faculty175_boot_stage = 0xae44;
     if (s_aec_ref == NULL) {
         s_aec_ref = heap_caps_calloc(FACULTY175_AEC_REF_SAMPLES, sizeof(s_aec_ref[0]),
                                      MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
@@ -1345,6 +1337,7 @@ static esp_err_t faculty175_audio_init(void)
         }
     }
 
+    g_faculty175_boot_stage = 0xae45;
     gpio_config_t pa_cfg = {
         .pin_bit_mask = 1ULL << FACULTY175_PA_GPIO,
         .mode = GPIO_MODE_OUTPUT,
@@ -1352,10 +1345,13 @@ static esp_err_t faculty175_audio_init(void)
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
         .intr_type = GPIO_INTR_DISABLE,
     };
-    ESP_RETURN_ON_ERROR(gpio_config(&pa_cfg), TAG, "pa gpio");
+    g_faculty175_boot_last_err = gpio_config(&pa_cfg);
+    ESP_RETURN_ON_ERROR(g_faculty175_boot_last_err, TAG, "pa gpio");
     gpio_set_level(FACULTY175_PA_GPIO, 1);
 
+    g_faculty175_boot_stage = 0xae46;
     s_spk_codec = faculty175_spk_codec_init();
+    g_faculty175_boot_stage = 0xae47;
     if (mic_present) {
         s_mic_codec = faculty175_mic_codec_init();
     } else {
@@ -1363,35 +1359,20 @@ static esp_err_t faculty175_audio_init(void)
     }
     ESP_RETURN_ON_FALSE(s_spk_codec != NULL && (!mic_present || s_mic_codec != NULL), ESP_FAIL, TAG, "codec init");
 
-    esp_codec_dev_sample_info_t fs = {
-        .bits_per_sample = 16,
-        .channel = 1,
-        .sample_rate = FACULTY175_AUDIO_RATE,
-    };
-    ESP_RETURN_ON_ERROR(esp_codec_dev_open(s_spk_codec, &fs), TAG, "spk open");
-    ESP_RETURN_ON_ERROR(esp_codec_dev_set_out_vol(s_spk_codec, FACULTY175_SPEAKER_VOLUME), TAG, "spk vol");
-    ESP_RETURN_ON_ERROR(esp_codec_dev_set_out_mute(s_spk_codec, false), TAG, "spk unmute");
-    ESP_RETURN_ON_ERROR(esp_codec_dev_close(s_spk_codec), TAG, "spk close");
+    g_faculty175_boot_stage = 0xae48;
     s_spk_open = false;
     s_spk_rate_hz = FACULTY175_AUDIO_RATE;
-    ESP_ERROR_CHECK_WITHOUT_ABORT(faculty175_board_play_boot_chime());
+    g_faculty175_boot_stage = 0xae4c;
     s_speaker_ready = true;
 
     if (!mic_present) {
         return ESP_OK;
     }
 
-    s_mic_probe_peak = faculty175_audio_probe_peak();
-    if (s_mic_probe_peak < FACULTY175_AUDIO_MIN_PROBE_PEAK) {
-        ESP_LOGE(TAG, "mic probe peak=%ld - ES7210 not capturing", (long)s_mic_probe_peak);
-        return ESP_OK;
-    }
-    if (s_mic_probe_peak < FACULTY175_AUDIO_WARN_PROBE_PEAK) {
-        ESP_LOGW(TAG, "mic probe peak=%ld below voice-quality threshold; continuing", (long)s_mic_probe_peak);
-    }
-    ESP_LOGI(TAG, "mic probe peak=%ld", (long)s_mic_probe_peak);
-    ESP_RETURN_ON_ERROR(faculty175_codec_open(false, FACULTY175_AUDIO_RATE), TAG, "mic listen open");
-    faculty175_mic_apply_capture_config();
+    g_faculty175_boot_stage = 0xae4d;
+    s_mic_probe_peak = 0;
+    g_faculty175_boot_stage = 0xae4e;
+    g_faculty175_boot_stage = 0xae50;
     return ESP_OK;
 }
 
@@ -1429,6 +1410,7 @@ static void faculty175_lcd_release_shared_reset(void)
 
 static esp_err_t faculty175_lcd_init(void)
 {
+    g_faculty175_boot_stage = 0xae31;
     const spi_bus_config_t bus_cfg = CO5300_PANEL_BUS_QSPI_CONFIG(
         FACULTY175_LCD_PIN_PCLK,
         FACULTY175_LCD_PIN_DATA0,
@@ -1436,7 +1418,9 @@ static esp_err_t faculty175_lcd_init(void)
         FACULTY175_LCD_PIN_DATA2,
         FACULTY175_LCD_PIN_DATA3,
         FACULTY175_LCD_W * FACULTY175_LCD_H * sizeof(uint16_t));
-    ESP_RETURN_ON_ERROR(spi_bus_initialize(FACULTY175_LCD_HOST, &bus_cfg, SPI_DMA_CH_AUTO), TAG, "spi bus");
+    g_faculty175_boot_last_err = spi_bus_initialize(FACULTY175_LCD_HOST, &bus_cfg, SPI_DMA_CH_AUTO);
+    ESP_RETURN_ON_ERROR(g_faculty175_boot_last_err, TAG, "spi bus");
+    g_faculty175_boot_stage = 0xae32;
 
     if (s_flush_done == NULL) {
         s_flush_done = xSemaphoreCreateBinary();
@@ -1446,42 +1430,64 @@ static esp_err_t faculty175_lcd_init(void)
         s_display_lock = xSemaphoreCreateRecursiveMutex();
         ESP_RETURN_ON_FALSE(s_display_lock != NULL, ESP_ERR_NO_MEM, TAG, "display lock");
     }
+    g_faculty175_boot_stage = 0xae33;
 
     esp_lcd_panel_io_spi_config_t io_cfg = CO5300_PANEL_IO_QSPI_CONFIG(FACULTY175_LCD_PIN_CS, lcd_flush_done_cb, NULL);
     io_cfg.trans_queue_depth = 10;
-    io_cfg.pclk_hz = 80 * 1000 * 1000;
-    ESP_RETURN_ON_ERROR(
-        esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)FACULTY175_LCD_HOST, &io_cfg, &s_panel_io), TAG, "lcd io");
+    io_cfg.pclk_hz = 20 * 1000 * 1000;
+    g_faculty175_boot_last_err =
+        esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)FACULTY175_LCD_HOST, &io_cfg, &s_panel_io);
+    ESP_RETURN_ON_ERROR(g_faculty175_boot_last_err, TAG, "lcd io");
+    g_faculty175_boot_stage = 0xae34;
 
     faculty175_lcd_hardware_reset();
+    g_faculty175_boot_stage = 0xae35;
 
     co5300_vendor_config_t vendor_cfg = {
-        .init_cmds = s_co5300_init_cmds,
-        .init_cmds_size = sizeof(s_co5300_init_cmds) / sizeof(s_co5300_init_cmds[0]),
+        .init_cmds = NULL,
+        .init_cmds_size = 0,
         .flags = {
             .use_qspi_interface = 1,
         },
     };
     const esp_lcd_panel_dev_config_t panel_cfg = {
-        .reset_gpio_num = -1,
+        .reset_gpio_num = FACULTY175_LCD_PIN_RST,
         .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB,
         .bits_per_pixel = 16,
+        .flags = {
+            .reset_active_high = 0,
+        },
         .vendor_config = &vendor_cfg,
     };
-    ESP_RETURN_ON_ERROR(esp_lcd_new_panel_co5300(s_panel_io, &panel_cfg, &s_panel), TAG, "lcd panel");
-    ESP_RETURN_ON_ERROR(esp_lcd_panel_set_gap(s_panel, FACULTY175_LCD_PANEL_GAP_X, FACULTY175_LCD_PANEL_GAP_Y), TAG, "lcd gap");
-    ESP_RETURN_ON_ERROR(esp_lcd_panel_init(s_panel), TAG, "lcd init");
-    ESP_RETURN_ON_ERROR(esp_lcd_panel_disp_on_off(s_panel, true), TAG, "lcd on");
+    g_faculty175_boot_last_err = esp_lcd_new_panel_co5300(s_panel_io, &panel_cfg, &s_panel);
+    ESP_RETURN_ON_ERROR(g_faculty175_boot_last_err, TAG, "lcd panel");
+    g_faculty175_boot_stage = 0xae36;
+    g_faculty175_boot_last_err = esp_lcd_panel_reset(s_panel);
+    ESP_RETURN_ON_ERROR(g_faculty175_boot_last_err, TAG, "lcd reset");
+    g_faculty175_boot_stage = 0xae365;
+    g_faculty175_boot_last_err = esp_lcd_panel_set_gap(s_panel, FACULTY175_LCD_PANEL_GAP_X, FACULTY175_LCD_PANEL_GAP_Y);
+    ESP_RETURN_ON_ERROR(g_faculty175_boot_last_err, TAG, "lcd gap");
+    g_faculty175_boot_stage = 0xae37;
+    g_faculty175_boot_last_err = esp_lcd_panel_init(s_panel);
+    ESP_RETURN_ON_ERROR(g_faculty175_boot_last_err, TAG, "lcd init");
+    g_faculty175_boot_stage = 0xae38;
+    g_faculty175_boot_last_err = esp_lcd_panel_disp_on_off(s_panel, true);
+    ESP_RETURN_ON_ERROR(g_faculty175_boot_last_err, TAG, "lcd on");
+    g_faculty175_boot_stage = 0xae39;
     faculty175_lcd_release_shared_reset();
+    g_faculty175_boot_stage = 0xae3a;
 
     s_fb = heap_caps_malloc(FACULTY175_LCD_W * FACULTY175_LCD_H * sizeof(uint16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (s_fb == NULL) {
         s_fb = heap_caps_malloc(FACULTY175_LCD_W * FACULTY175_LCD_H * sizeof(uint16_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     }
     ESP_RETURN_ON_FALSE(s_fb != NULL, ESP_ERR_NO_MEM, TAG, "framebuffer");
+    g_faculty175_boot_stage = 0xae3b;
     faculty175_display_fill_rgb565(faculty175_ui_bg565());
     faculty175_display_flush_fb();
+    g_faculty175_boot_stage = 0xae3c;
     faculty175_board_set_backlight(100);
+    g_faculty175_boot_stage = 0xae3d;
     ESP_LOGI(TAG, "CO5300 466×466 init ok (1.75C — not SH8601/1.8″)");
     return ESP_OK;
 }
@@ -1532,6 +1538,8 @@ int32_t faculty175_board_mic_probe_peak(void)
 
 esp_err_t faculty175_board_init(void)
 {
+    g_faculty175_boot_stage = 0xae01;
+    g_faculty175_boot_last_err = ESP_OK;
     gpio_config_t btn = {
         .pin_bit_mask = 1ULL << FACULTY175_BUTTON_GPIO,
         .mode = GPIO_MODE_INPUT,
@@ -1539,8 +1547,11 @@ esp_err_t faculty175_board_init(void)
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
         .intr_type = GPIO_INTR_DISABLE,
     };
-    ESP_RETURN_ON_ERROR(gpio_config(&btn), TAG, "button gpio");
+    esp_err_t err = gpio_config(&btn);
+    g_faculty175_boot_last_err = err;
+    ESP_RETURN_ON_ERROR(err, TAG, "button gpio");
 
+    g_faculty175_boot_stage = 0xae02;
     faculty175_log_i2c_gpio_drive_test("boot-pre-i2c-driver");
     gpio_config_t i2c_idle = {
         .pin_bit_mask = (1ULL << FACULTY175_AUDIO_I2C_SDA) | (1ULL << FACULTY175_AUDIO_I2C_SCL),
@@ -1549,25 +1560,37 @@ esp_err_t faculty175_board_init(void)
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
         .intr_type = GPIO_INTR_DISABLE,
     };
-    ESP_RETURN_ON_ERROR(gpio_config(&i2c_idle), TAG, "i2c idle gpio");
+    err = gpio_config(&i2c_idle);
+    g_faculty175_boot_last_err = err;
+    ESP_RETURN_ON_ERROR(err, TAG, "i2c idle gpio");
     faculty175_log_i2c_lines("boot-pre-lcd");
-    ESP_RETURN_ON_ERROR(faculty175_i2c_init(), TAG, "i2c pre-lcd");
+    err = faculty175_i2c_init();
+    g_faculty175_boot_last_err = err;
+    ESP_RETURN_ON_ERROR(err, TAG, "i2c pre-lcd");
 
-    ESP_RETURN_ON_ERROR(faculty175_lcd_init(), TAG, "lcd");
+    g_faculty175_boot_stage = 0xae03;
+    err = faculty175_lcd_init();
+    g_faculty175_boot_last_err = err;
+    ESP_RETURN_ON_ERROR(err, TAG, "lcd");
     faculty175_log_i2c_lines("boot-post-lcd");
 
+    g_faculty175_boot_stage = 0xae04;
     s_audio_ready = faculty175_audio_init() == ESP_OK;
     if (!s_audio_ready) {
         ESP_LOGW(TAG, "ES8311 audio init failed — continuing display-only for now");
     }
 
+    g_faculty175_boot_stage = 0xae05;
     if (faculty175_pmu_init() != ESP_OK) {
         ESP_LOGW(TAG, "AXP2101 PMU init failed — audio/display may be unavailable");
     }
+    g_faculty175_boot_stage = 0xae06;
     faculty175_board_log_identity();
     vTaskDelay(pdMS_TO_TICKS(50));
 
+    g_faculty175_boot_stage = 0xae07;
     (void)faculty175_touch_init();
+    g_faculty175_boot_stage = 0xae08;
     ESP_LOGI(TAG, "Faculty175 ready (audio=%s)", s_audio_ready ? "ok" : "off");
     return ESP_OK;
 }

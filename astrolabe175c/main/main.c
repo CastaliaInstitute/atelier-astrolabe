@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "esp_attr.h"
 #include "esp_event.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -67,6 +68,9 @@
 #endif
 
 static const char *TAG = "faculty175";
+
+volatile uint32_t g_faculty175_boot_stage;
+volatile int32_t g_faculty175_boot_last_err;
 
 #define WIFI_CONNECTED_BIT BIT0
 #define WIFI_FAIL_BIT BIT1
@@ -250,6 +254,16 @@ static void faculty175_usb_ota_demo_boot(void)
 #endif
 }
 static void pipeline_log_heap(const char *stage);
+
+static inline void boot_probe_stage(uint32_t stage)
+{
+    g_faculty175_boot_stage = stage;
+}
+
+static inline void boot_probe_err(esp_err_t err)
+{
+    g_faculty175_boot_last_err = (int32_t)err;
+}
 
 static int16_t clamp_i16(int32_t v)
 {
@@ -2971,9 +2985,12 @@ static void input_task(void *arg)
 
 void app_main(void)
 {
+    boot_probe_stage(0xa0);
+    boot_probe_err(ESP_OK);
     esp_rom_printf("A0 app_main\n");
     FACULTY175_LOG_STAGE(TAG, "boot", "Astrolabe Faculty — Waveshare ESP32-S3 Touch AMOLED 1.75C");
 
+    boot_probe_stage(0xa1);
     esp_rom_printf("A1 nvs_init\n");
     esp_err_t nvs_err = nvs_flash_init();
     if (nvs_err == ESP_ERR_NVS_NO_FREE_PAGES || nvs_err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
@@ -2981,49 +2998,82 @@ void app_main(void)
         ESP_ERROR_CHECK(nvs_flash_erase());
         nvs_err = nvs_flash_init();
     }
+    boot_probe_err(nvs_err);
     ESP_ERROR_CHECK(nvs_err);
 #if FACULTY175_USB_OTA_DEMO_BOOT && FACULTY175_USB_RUNTIME_ENABLED
+    boot_probe_stage(0xa2);
     esp_rom_printf("A2 usb_ota_demo_boot\n");
     faculty175_usb_ota_demo_boot();
     return;
 #endif
+    boot_probe_stage(0xa3);
     esp_rom_printf("A3 storage_deferred\n");
 #if FACULTY175_USB_RUNTIME_ENABLED
+    boot_probe_stage(0xa4);
     esp_rom_printf("A4 usb_init\n");
-    ESP_ERROR_CHECK(faculty175_usb_init());
+    const esp_err_t usb_init_err = faculty175_usb_init();
+    boot_probe_err(usb_init_err);
+    ESP_ERROR_CHECK(usb_init_err);
 #endif
+    boot_probe_stage(0xa5);
     esp_rom_printf("A5 device_auth\n");
-    ESP_ERROR_CHECK(faculty175_device_auth_init());
+    const esp_err_t device_auth_err = faculty175_device_auth_init();
+    boot_probe_err(device_auth_err);
+    ESP_ERROR_CHECK(device_auth_err);
+    boot_probe_stage(0xa6);
     esp_rom_printf("A6 ota_init\n");
     faculty175_ota_init();
+    boot_probe_stage(0xa7);
     esp_rom_printf("A7 apocalypso\n");
-    ESP_ERROR_CHECK(faculty175_apocalypso_init());
+    const esp_err_t apocalypso_err = faculty175_apocalypso_init();
+    boot_probe_err(apocalypso_err);
+    ESP_ERROR_CHECK(apocalypso_err);
+    boot_probe_stage(0xa8);
     esp_rom_printf("A8 quotes\n");
-    ESP_ERROR_CHECK(faculty175_quotes_init());
+    const esp_err_t quotes_err = faculty175_quotes_init();
+    boot_probe_err(quotes_err);
+    ESP_ERROR_CHECK(quotes_err);
+    boot_probe_stage(0xa9);
     esp_rom_printf("A9 rocket\n");
-    ESP_ERROR_CHECK(faculty175_rocket_init());
+    const esp_err_t rocket_err = faculty175_rocket_init();
+    boot_probe_err(rocket_err);
+    ESP_ERROR_CHECK(rocket_err);
+    boot_probe_stage(0xaa);
     esp_rom_printf("A10 maybe_boot_product\n");
     faculty175_ota_maybe_boot_product();
+    boot_probe_stage(0xab);
     esp_rom_printf("A11 faces_init\n");
-    ESP_ERROR_CHECK(faculty175_faces_init());
+    const esp_err_t faces_err = faculty175_faces_init();
+    boot_probe_err(faces_err);
+    ESP_ERROR_CHECK(faces_err);
+    boot_probe_stage(0xac);
     esp_rom_printf("A12 load_faculty\n");
     load_faculty_from_nvs();
     FACULTY175_LOG_STAGE(TAG, "boot", "faculty %s (%s)", s_faculty_name, s_faculty_slug);
 
+    boot_probe_stage(0xad);
     esp_rom_printf("A13 faculty_init\n");
     const esp_err_t faculty_init_err = faculty175_faculty_init();
+    boot_probe_err(faculty_init_err);
     if (faculty_init_err != ESP_OK) {
         FACULTY175_LOG_STAGE_E(TAG, "faculty", "init failed: %s", esp_err_to_name(faculty_init_err));
     }
 
+    boot_probe_stage(0xae);
     esp_rom_printf("A14 board_init\n");
-    ESP_ERROR_CHECK(faculty175_board_init());
+    const esp_err_t board_init_err = faculty175_board_init();
+    boot_probe_err(board_init_err);
+    ESP_ERROR_CHECK(board_init_err);
+    boot_probe_stage(0xaf);
     esp_rom_printf("A15 touch_init\n");
     (void)faculty175_touch_init();
+    boot_probe_stage(0xb0);
     esp_rom_printf("A16 gesture_task\n");
     faculty175_gesture_start_task();
+    boot_probe_stage(0xb1);
     esp_rom_printf("A17 serial_init\n");
     faculty175_serial_init();
+    boot_probe_stage(0xb2);
     esp_rom_printf("A18 ui_queue\n");
     s_ui_queue = xQueueCreate(1, sizeof(faculty175_ui_msg_t));
     BaseType_t wifi_task_ok = xTaskCreateWithCaps(wifi_start_task,
