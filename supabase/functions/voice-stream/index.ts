@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
+import { isDedicatedFacultyFace } from "../_shared/askFacultyRoute.ts";
 import { verifyAstrolabeDevice } from "../_shared/deviceAuth.ts";
 
 type SessionState = {
@@ -20,10 +21,47 @@ type SessionState = {
 const MAX_BUFFER_BYTES = 1024 * 1024;
 const ASTROLABE_BINARY_PCM = 0xa1;
 const VOICE_STREAM_CT = "application/vnd.astrolabe.voice-stream";
+const AUDIO_DELTA_CHARS = 12 * 1024;
+
+type VoicePipelineResponse = {
+  transcript?: string;
+  reply?: string;
+  audioBase64?: string;
+  facultySlug?: string;
+  facultyName?: string;
+  askFacultyRoute?: boolean;
+};
+
+type AskFacultyResponse = {
+  transcript?: string;
+  reply?: string;
+  audioBase64?: string;
+  facultySlug?: string;
+  facultyName?: string;
+};
 
 function send(socket: WebSocket, payload: unknown) {
   if (socket.readyState === WebSocket.OPEN) {
     socket.send(JSON.stringify(payload));
+  }
+}
+
+async function sendAudioDelta(
+  socket: WebSocket,
+  turnId: string,
+  audioBase64: string,
+  encoding = "mp3",
+) {
+  for (let offset = 0; offset < audioBase64.length; offset += AUDIO_DELTA_CHARS) {
+    send(socket, {
+      type: "response.audio.delta",
+      turnId,
+      audio: audioBase64.slice(offset, offset + AUDIO_DELTA_CHARS),
+      encoding,
+    });
+    if (offset + AUDIO_DELTA_CHARS < audioBase64.length) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
   }
 }
 
@@ -50,6 +88,7 @@ function encodeVoicePipelineStreamBody(
   session: SessionState,
   pcm: Uint8Array,
   final: boolean,
+  overrides?: Partial<Record<string, unknown>>,
 ): Uint8Array {
   const metadata: Record<string, unknown> = {
     languageCode: session.languageCode,
@@ -72,6 +111,12 @@ function encodeVoicePipelineStreamBody(
   if (session.conversationHistory) {
     metadata.conversationHistory = session.conversationHistory;
   }
+  if (overrides) {
+    for (const [key, value] of Object.entries(overrides)) {
+      if (value === undefined) continue;
+      metadata[key] = value;
+    }
+  }
 
   const json = new TextEncoder().encode(JSON.stringify(metadata));
   const out = new Uint8Array(4 + json.byteLength + pcm.byteLength);
@@ -86,6 +131,15 @@ function siblingVoicePipelineUrl(req: Request): string {
   if (base) return `${base.replace(/\/+$/, "")}/functions/v1/voice-pipeline`;
   const url = new URL(req.url);
   return `${url.origin}/functions/v1/voice-pipeline`;
+}
+
+function siblingAskFacultyUrl(req: Request): string {
+  const base = Deno.env.get("SUPABASE_URL")?.trim();
+  if (base) {
+    return `${base.replace(/\/+$/, "")}/functions/v1/ask-faculty-voice`;
+  }
+  const url = new URL(req.url);
+  return `${url.origin}/functions/v1/ask-faculty-voice`;
 }
 
 function authHeaders(req: Request): HeadersInit {
@@ -126,6 +180,30 @@ function decodeBinaryFrame(data: ArrayBuffer): Uint8Array | null {
   return bytes.subarray(9);
 }
 
+async function jsonFetch<T>(
+  url: string,
+  init: RequestInit,
+): Promise<{ ok: true; json: T } | { ok: false; status: number; message: string }> {
+  const res = await fetch(url, init);
+  const text = await res.text();
+  if (!res.ok) {
+    return {
+      ok: false,
+      status: res.status,
+      message: text || `HTTP ${res.status}`,
+    };
+  }
+  try {
+    return { ok: true, json: JSON.parse(text) as T };
+  } catch {
+    return {
+      ok: false,
+      status: 502,
+      message: "Invalid JSON response from voice service",
+    };
+  }
+}
+
 Deno.serve(async (req) => {
   const upgrade = req.headers.get("upgrade") ?? "";
   if (upgrade.toLowerCase() !== "websocket") {
@@ -148,14 +226,38 @@ Deno.serve(async (req) => {
   };
   const chunks: Uint8Array[] = [];
   let totalBytes = 0;
+  const pendingTurnChunks: Uint8Array[] = [];
+  let pendingTurnBytes = 0;
   let turnCounter = 0;
   let frameCounter = 0;
   const voicePipelineUrl = siblingVoicePipelineUrl(req);
+  const askFacultyUrl = siblingAskFacultyUrl(req);
   const headers = authHeaders(req);
 
   function clearBuffer() {
     chunks.length = 0;
     totalBytes = 0;
+  }
+
+  function clearPendingTurn() {
+    pendingTurnChunks.length = 0;
+    pendingTurnBytes = 0;
+  }
+
+  function appendPendingTurn(chunk: Uint8Array) {
+    if (chunk.byteLength === 0) return true;
+    if (pendingTurnBytes + chunk.byteLength > MAX_BUFFER_BYTES) {
+      clearPendingTurn();
+      send(socket, {
+        type: "error",
+        code: "audio_turn_overflow",
+        message: `Accumulated turn audio exceeded ${MAX_BUFFER_BYTES} bytes`,
+      });
+      return false;
+    }
+    pendingTurnChunks.push(chunk);
+    pendingTurnBytes += chunk.byteLength;
+    return true;
   }
 
   function appendChunk(chunk: Uint8Array) {
@@ -200,9 +302,211 @@ Deno.serve(async (req) => {
     const pcm = concatChunks(chunks, totalBytes);
     clearBuffer();
     frameCounter = 0;
-    const body = encodeVoicePipelineStreamBody(session, pcm, final);
 
     try {
+      if (!final) {
+        appendPendingTurn(pcm);
+        return;
+      }
+
+      let turnPcm = pcm;
+      if (pendingTurnBytes > 0) {
+        const aggregateParts = [...pendingTurnChunks, pcm];
+        turnPcm = concatChunks(aggregateParts, pendingTurnBytes + pcm.byteLength);
+      }
+      clearPendingTurn();
+
+      const stagedConversation = final &&
+        session.interactionMode === "conversation";
+
+      if (stagedConversation) {
+        const serviceHeaders: HeadersInit = {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          ...(req.headers.get("Authorization")
+            ? { Authorization: req.headers.get("Authorization")! }
+            : {}),
+          ...(req.headers.get("apikey")
+            ? { apikey: req.headers.get("apikey")! }
+            : {}),
+        };
+        const sttBody = encodeVoicePipelineStreamBody(session, turnPcm, false, {
+          interactionMode: "transcribe",
+          commonplaceMode: "off",
+          earlyRoute: true,
+          skipLlm: true,
+          responseFormat: "json",
+          logToCommonplace: false,
+        });
+        const sttRequestBody = new ArrayBuffer(sttBody.byteLength);
+        new Uint8Array(sttRequestBody).set(sttBody);
+        const sttResult = await jsonFetch<VoicePipelineResponse>(voicePipelineUrl, {
+          method: "POST",
+          headers,
+          body: sttRequestBody,
+        });
+        if (!sttResult.ok) {
+          send(socket, {
+            type: "error",
+            turnId: id,
+            code: "voice_pipeline_stt_http",
+            status: sttResult.status,
+            message: sttResult.message,
+          });
+          return;
+        }
+
+        const transcript = (sttResult.json.transcript ?? "").trim();
+        if (typeof sttResult.json.facultySlug === "string" &&
+          sttResult.json.facultySlug.trim()) {
+          session.facultySlug = sttResult.json.facultySlug.trim();
+        }
+        if (typeof sttResult.json.facultyName === "string" &&
+          sttResult.json.facultyName.trim()) {
+          session.facultyName = sttResult.json.facultyName.trim();
+        }
+        if (transcript) {
+          send(socket, {
+            type: "conversation.item.input_audio_transcription.completed",
+            turnId: id,
+            transcript,
+          });
+        }
+
+        const facultyConversation = !!session.facultySlug ||
+          isDedicatedFacultyFace(session.face ?? "") ||
+          sttResult.json.askFacultyRoute === true;
+        const textStage = facultyConversation
+          ? await jsonFetch<AskFacultyResponse>(askFacultyUrl, {
+            method: "POST",
+            headers: serviceHeaders,
+            body: JSON.stringify({
+              message: transcript,
+              rawTranscript: transcript,
+              languageCode: session.languageCode,
+              geminiModel: Deno.env.get("GEMINI_MODEL")?.trim() ??
+                "gemini-2.5-flash",
+              generateTts: false,
+              facultySlug: session.facultySlug,
+              facultyName: session.facultyName,
+              conversationHistory: session.conversationHistory,
+              ...(session.systemInstruction
+                ? { systemInstruction: session.systemInstruction }
+                : {}),
+              skipLlm: session.skipLlm,
+              commonplaceMode: session.commonplaceMode,
+              logToCommonplace: session.logToCommonplace,
+            }),
+          })
+          : await jsonFetch<VoicePipelineResponse>(voicePipelineUrl, {
+            method: "POST",
+            headers: serviceHeaders,
+            body: JSON.stringify({
+              message: transcript,
+              languageCode: session.languageCode,
+              face: session.face,
+              facultySlug: session.facultySlug,
+              facultyName: session.facultyName,
+              conversationHistory: session.conversationHistory,
+              ...(session.systemInstruction
+                ? { systemInstruction: session.systemInstruction }
+                : {}),
+              skipLlm: session.skipLlm,
+              generateTts: false,
+              responseFormat: "json",
+              commonplaceMode: session.commonplaceMode,
+              logToCommonplace: session.logToCommonplace,
+            }),
+          });
+        if (!textStage.ok) {
+          send(socket, {
+            type: "error",
+            turnId: id,
+            code: facultyConversation
+              ? "ask_faculty_text_http"
+              : "voice_pipeline_text_http",
+            status: textStage.status,
+            message: textStage.message,
+          });
+          return;
+        }
+
+        const reply = (textStage.json.reply ?? "").trim();
+        if (typeof textStage.json.facultySlug === "string" &&
+          textStage.json.facultySlug.trim()) {
+          session.facultySlug = textStage.json.facultySlug.trim();
+        }
+        if (typeof textStage.json.facultyName === "string" &&
+          textStage.json.facultyName.trim()) {
+          session.facultyName = textStage.json.facultyName.trim();
+        }
+        if (reply) {
+          send(socket, {
+            type: "response.text.delta",
+            turnId: id,
+            delta: reply,
+          });
+        }
+
+        const ttsStage = facultyConversation
+          ? await jsonFetch<AskFacultyResponse>(askFacultyUrl, {
+            method: "POST",
+            headers: serviceHeaders,
+            body: JSON.stringify({
+              message: reply,
+              rawTranscript: transcript,
+              languageCode: session.languageCode,
+              responseFormat: "json",
+              generateTts: true,
+              skipLlm: true,
+              facultySlug: session.facultySlug,
+              facultyName: session.facultyName,
+              logToCommonplace: false,
+              commonplaceMode: "off",
+            }),
+          })
+          : await jsonFetch<VoicePipelineResponse>(voicePipelineUrl, {
+            method: "POST",
+            headers: serviceHeaders,
+            body: JSON.stringify({
+              ttsText: reply,
+              message: transcript,
+              languageCode: session.languageCode,
+              face: session.face,
+              facultySlug: session.facultySlug,
+              facultyName: session.facultyName,
+              responseFormat: "json",
+              generateTts: true,
+              logToCommonplace: false,
+              commonplaceMode: "off",
+            }),
+          });
+        if (!ttsStage.ok) {
+          send(socket, {
+            type: "error",
+            turnId: id,
+            code: facultyConversation
+              ? "ask_faculty_tts_http"
+              : "voice_pipeline_tts_http",
+            status: ttsStage.status,
+            message: ttsStage.message,
+          });
+          return;
+        }
+
+        if (ttsStage.json.audioBase64) {
+          await sendAudioDelta(socket, id, ttsStage.json.audioBase64, "mp3");
+        }
+        send(socket, {
+          type: "response.done",
+          turnId: id,
+          ...(session.facultySlug ? { facultySlug: session.facultySlug } : {}),
+          ...(session.facultyName ? { facultyName: session.facultyName } : {}),
+        });
+        return;
+      }
+
+      const body = encodeVoicePipelineStreamBody(session, turnPcm, final);
       const requestBody = new ArrayBuffer(body.byteLength);
       new Uint8Array(requestBody).set(body);
       const res = await fetch(voicePipelineUrl, {
@@ -226,12 +530,7 @@ Deno.serve(async (req) => {
         const mp3 = new Uint8Array(await res.arrayBuffer());
         const facultySlug = decodedHeader(res, "X-Faculty-Slug");
         const facultyName = decodedHeader(res, "X-Faculty-Name");
-        send(socket, {
-          type: "response.audio.delta",
-          turnId: id,
-          audio: bytesToBase64(mp3),
-          encoding: "mp3",
-        });
+        await sendAudioDelta(socket, id, bytesToBase64(mp3), "mp3");
         send(socket, {
           type: "response.done",
           turnId: id,
@@ -263,12 +562,7 @@ Deno.serve(async (req) => {
         });
       }
       if (json.audioBase64) {
-        send(socket, {
-          type: "response.audio.delta",
-          turnId: id,
-          audio: json.audioBase64,
-          encoding: "mp3",
-        });
+        await sendAudioDelta(socket, id, json.audioBase64, "mp3");
       }
       send(socket, {
         type: "response.done",
@@ -439,6 +733,7 @@ Deno.serve(async (req) => {
       frames: frameCounter,
     });
     clearBuffer();
+    clearPendingTurn();
     frameCounter = 0;
   };
 

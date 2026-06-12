@@ -59,6 +59,7 @@ import {
 
 type ReqBody = {
   audioBase64?: string;
+  ttsText?: string;
   sampleRateHertz?: number;
   languageCode?: string;
   alternativeLanguageCodes?: string[];
@@ -105,6 +106,8 @@ type ReqBody = {
    * `mp3`: raw MPEG body (~33% smaller download); text in `X-Voice-*` headers.
    */
   responseFormat?: "json" | "mp3";
+  generateTts?: boolean;
+  tts?: boolean;
 };
 
 type AskFacultyResponse = {
@@ -276,6 +279,12 @@ function wantsMp3Response(req: Request, body: ReqBody): boolean {
   if (fmt === "mp3") return true;
   const accept = (req.headers.get("Accept") ?? "").toLowerCase();
   return accept.includes("audio/mpeg") || accept.includes("audio/mp3");
+}
+
+function shouldGenerateTts(req: Request, body: ReqBody): boolean {
+  if (typeof body.generateTts === "boolean") return body.generateTts;
+  if (typeof body.tts === "boolean") return body.tts;
+  return true;
 }
 
 function parseQuestionOfDayReply(reply: string): {
@@ -643,24 +652,6 @@ async function voicePipelineOk(
     spokenReply?: string;
   },
 ): Promise<Response> {
-  const { tts } = envKeys();
-  if (!tts) {
-    return jsonResponse(500, {
-      error: "Server missing GOOGLE_TTS_API_KEY or GOOGLE_CLOUD_API_KEY",
-    });
-  }
-
-  const ttsSource = payload.spokenReply ?? payload.reply;
-  const spoken = capTextForWatchTts(
-    ttsSource,
-    payload.ttsMaxChars ?? watchTtsMaxChars(),
-  );
-  if (spoken.length < ttsSource.trim().length) {
-    console.log(
-      `voice-pipeline: TTS capped ${ttsSource.length} -> ${spoken.length} chars`,
-    );
-  }
-
   await scheduleCommonplaceForVoice(req, body, {
     defaultMode: "conversation",
     route: payload.route,
@@ -682,6 +673,7 @@ async function voicePipelineOk(
       ? { languageCode: facultyTts.languageCode, name: facultyTts.name }
       : undefined);
   const ttsPrompt = facultyTts?.prompt;
+  const generateTts = shouldGenerateTts(req, body);
 
   const usageUserId = await resolveVoiceUsageUserId(req);
   const usageBase = {
@@ -698,6 +690,50 @@ async function voicePipelineOk(
     ...(ttsPrompt ? { prompt: ttsPrompt } : {}),
     usage: usageBase,
   });
+
+  if (!generateTts) {
+    return jsonResponse(
+      200,
+      {
+        transcript: payload.transcript,
+        reply: payload.reply,
+        route: payload.route,
+        ...payload.extraJson,
+        ...(payload.face ? { face: payload.face } : {}),
+        ...(payload.facultySlug ? { facultySlug: payload.facultySlug } : {}),
+        ...(payload.facultyName ? { facultyName: payload.facultyName } : {}),
+      },
+      {
+        "x-mynah-route": payload.route,
+        ...(payload.face ? { "x-mynah-face": payload.face } : {}),
+        ...(payload.facultySlug
+          ? { "x-faculty-slug": headerMetaValue(payload.facultySlug, 80) }
+          : {}),
+        ...(payload.facultyName
+          ? { "x-faculty-name": headerMetaValue(payload.facultyName, 120) }
+          : {}),
+        ...payload.extraHeaders,
+      },
+    );
+  }
+
+  const { tts } = envKeys();
+  if (!tts) {
+    return jsonResponse(500, {
+      error: "Server missing GOOGLE_TTS_API_KEY or GOOGLE_CLOUD_API_KEY",
+    });
+  }
+
+  const ttsSource = payload.spokenReply ?? payload.reply;
+  const spoken = capTextForWatchTts(
+    ttsSource,
+    payload.ttsMaxChars ?? watchTtsMaxChars(),
+  );
+  if (spoken.length < ttsSource.trim().length) {
+    console.log(
+      `voice-pipeline: TTS capped ${ttsSource.length} -> ${spoken.length} chars`,
+    );
+  }
 
   if (wantsMp3Response(req, body)) {
     const localHour = requestLocalHour(body);
@@ -1043,7 +1079,7 @@ Deno.serve(async (req: Request) => {
     return jsonResponse(400, { error: msg || "Invalid request body" });
   }
 
-  const { speech, gemini, tts } = envKeys();
+  const { speech, gemini } = envKeys();
   const languageCode = (body.languageCode ?? "en-US").trim() || "en-US";
   const sampleRateHertz = body.sampleRateHertz ?? 16000;
   const geminiModel =
@@ -1060,8 +1096,25 @@ Deno.serve(async (req: Request) => {
 
   const audio = (body.audioBase64 ?? "").trim();
   const message = (body.message ?? "").trim();
+  const ttsText = (body.ttsText ?? "").trim();
 
   try {
+    if (ttsText) {
+      return await voicePipelineOk(req, body, {
+        transcript: (message || ttsText).trim(),
+        reply: ttsText,
+        spokenReply: ttsText,
+        route: commonplaceRoute(face, "voice-pipeline"),
+        face: face || undefined,
+        facultySlug: body.facultySlug,
+        facultyName: body.facultyName,
+        extraHeaders: {
+          "x-mynah-route": commonplaceRoute(face, "voice-pipeline"),
+          ...(face ? { "x-mynah-face": face } : {}),
+        },
+      });
+    }
+
     if (face === VOICE_FACE_CLOCK_AGENDA) {
       const epochSeconds = typeof body.epochSeconds === "number" &&
           Number.isFinite(body.epochSeconds)
