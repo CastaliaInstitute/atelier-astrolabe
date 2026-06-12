@@ -7,10 +7,12 @@
 #include "esp_check.h"
 #include "esp_log.h"
 #include "faculty175_storage.h"
+#if CONFIG_TINYUSB_CDC_ENABLED || CONFIG_TINYUSB_MSC_ENABLED
 #include "tinyusb.h"
 #include "tusb_cdc_acm.h"
 #include "tusb_console.h"
 #include "tusb_msc_storage.h"
+#endif
 
 static const char *TAG = "faculty175_usb";
 
@@ -29,6 +31,7 @@ static bool path_exists(const char *path)
     return stat(path, &st) == 0 && S_ISREG(st.st_mode);
 }
 
+#if CONFIG_TINYUSB_CDC_ENABLED || CONFIG_TINYUSB_MSC_ENABLED
 static void storage_mount_changed_cb(tinyusb_msc_event_t *event)
 {
     if (event == NULL) {
@@ -37,9 +40,13 @@ static void storage_mount_changed_cb(tinyusb_msc_event_t *event)
     s_storage_mounted = event->mount_changed_data.is_mounted;
     ESP_LOGI(TAG, "usbflash mounted to app: %s", s_storage_mounted ? "yes" : "no");
 }
+#endif
 
 esp_err_t faculty175_usb_init(void)
 {
+#if !(CONFIG_TINYUSB_CDC_ENABLED || CONFIG_TINYUSB_MSC_ENABLED)
+    return ESP_ERR_NOT_SUPPORTED;
+#else
     if (s_usb_ready) {
         return ESP_OK;
     }
@@ -93,6 +100,7 @@ esp_err_t faculty175_usb_init(void)
              s_storage_mounted ? "mounted" : "unmounted",
              tinyusb_msc_storage_in_use_by_usb_host() ? "yes" : "no");
     return ESP_OK;
+#endif
 }
 
 bool faculty175_usb_storage_ready(void)
@@ -102,6 +110,9 @@ bool faculty175_usb_storage_ready(void)
 
 esp_err_t faculty175_usb_storage_claim(void)
 {
+#if !(CONFIG_TINYUSB_MSC_ENABLED)
+    return ESP_ERR_NOT_SUPPORTED;
+#else
     if (!s_storage_ready) {
         return ESP_ERR_INVALID_STATE;
     }
@@ -118,6 +129,7 @@ esp_err_t faculty175_usb_storage_claim(void)
         return ESP_OK;
     }
     return err;
+#endif
 }
 
 bool faculty175_usb_storage_mounted(void)
