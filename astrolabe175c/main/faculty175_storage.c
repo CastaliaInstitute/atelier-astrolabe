@@ -65,7 +65,6 @@ static esp_err_t ensure_media_layout(void)
 
 static esp_err_t mount_usbflash_fat(void)
 {
-    wl_handle_t probe_wl = WL_INVALID_HANDLE;
     const esp_vfs_fat_mount_config_t mount_cfg = {
         .format_if_mount_failed = true,
         .max_files = 4,
@@ -73,19 +72,10 @@ static esp_err_t mount_usbflash_fat(void)
         .use_one_fat = false,
     };
 
-    esp_err_t err = esp_vfs_fat_spiflash_mount_rw_wl(FACULTY175_USBFLASH_BASE_PATH,
-                                                     FACULTY175_USBFLASH_PARTITION,
-                                                     &mount_cfg,
-                                                     &probe_wl);
-    if (err != ESP_OK) {
-        return err;
-    }
-
-    err = esp_vfs_fat_spiflash_unmount_rw_wl(FACULTY175_USBFLASH_BASE_PATH, probe_wl);
-    if (err == ESP_OK) {
-        ESP_LOGI(TAG, "usbflash FAT prepared");
-    }
-    return err;
+    return esp_vfs_fat_spiflash_mount_rw_wl(FACULTY175_USBFLASH_BASE_PATH,
+                                            FACULTY175_USBFLASH_PARTITION,
+                                            &mount_cfg,
+                                            &s_usbflash_wl);
 }
 
 static esp_err_t format_usbflash_fat(void)
@@ -124,12 +114,13 @@ esp_err_t faculty175_storage_init(void)
     ESP_RETURN_ON_ERROR(format_usbflash_fat(), TAG, "format usbflash fat");
 #endif
     ESP_RETURN_ON_ERROR(mount_usbflash_fat(), TAG, "mount usbflash fat");
-    ESP_RETURN_ON_ERROR(wl_mount(partition, &s_usbflash_wl), TAG, "wl mount usbflash");
+    ESP_RETURN_ON_ERROR(ensure_media_layout(), TAG, "usbflash media layout");
     s_usbflash_ready = true;
     ESP_LOGI(TAG,
-             "usbflash wl ready path=%s partition=%s",
+             "usbflash FAT ready path=%s partition=%s wl=%" PRIi32,
              FACULTY175_USBFLASH_BASE_PATH,
-             FACULTY175_USBFLASH_PARTITION);
+             FACULTY175_USBFLASH_PARTITION,
+             (int32_t)s_usbflash_wl);
     return ESP_OK;
 }
 

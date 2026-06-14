@@ -3060,10 +3060,17 @@ void app_main(void)
     }
 
     boot_probe_stage(0xae);
+    esp_rom_printf("A13.5 serial_init_early\n");
+    faculty175_serial_init();
+    boot_probe_stage(0xae0);
     esp_rom_printf("A14 board_init\n");
     const esp_err_t board_init_err = faculty175_board_init();
     boot_probe_err(board_init_err);
-    ESP_ERROR_CHECK(board_init_err);
+    if (board_init_err != ESP_OK) {
+        FACULTY175_LOG_STAGE_E(TAG, "boot", "board init failed: %s", esp_err_to_name(board_init_err));
+        FACULTY175_LOG_STAGE_W(TAG, "boot", "leaving serial recovery shell available");
+        return;
+    }
     boot_probe_stage(0xaf);
     esp_rom_printf("A15 touch_init\n");
     (void)faculty175_touch_init();

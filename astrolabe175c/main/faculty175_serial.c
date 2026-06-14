@@ -1159,6 +1159,9 @@ static void serial_task(void *arg)
 
 void faculty175_serial_init(void)
 {
+    if (s_serial_task != NULL) {
+        return;
+    }
 #if CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG_ENABLED && !CONFIG_TINYUSB_CDC_ENABLED
     usb_serial_jtag_driver_config_t usb_cfg = USB_SERIAL_JTAG_DRIVER_CONFIG_DEFAULT();
     const esp_err_t usb_err = usb_serial_jtag_driver_install(&usb_cfg);

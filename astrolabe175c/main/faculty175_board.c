@@ -1551,6 +1551,9 @@ esp_err_t faculty175_board_init(void)
     g_faculty175_boot_last_err = err;
     ESP_RETURN_ON_ERROR(err, TAG, "button gpio");
 
+    bool i2c_ready = false;
+    bool lcd_ready = false;
+
     g_faculty175_boot_stage = 0xae02;
     faculty175_log_i2c_gpio_drive_test("boot-pre-i2c-driver");
     gpio_config_t i2c_idle = {
@@ -1562,26 +1565,37 @@ esp_err_t faculty175_board_init(void)
     };
     err = gpio_config(&i2c_idle);
     g_faculty175_boot_last_err = err;
-    ESP_RETURN_ON_ERROR(err, TAG, "i2c idle gpio");
-    faculty175_log_i2c_lines("boot-pre-lcd");
-    err = faculty175_i2c_init();
-    g_faculty175_boot_last_err = err;
-    ESP_RETURN_ON_ERROR(err, TAG, "i2c pre-lcd");
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "i2c idle gpio failed: %s", esp_err_to_name(err));
+    } else {
+        faculty175_log_i2c_lines("boot-pre-lcd");
+        err = faculty175_i2c_init();
+        g_faculty175_boot_last_err = err;
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "i2c pre-lcd failed: %s", esp_err_to_name(err));
+        } else {
+            i2c_ready = true;
+        }
+    }
 
     g_faculty175_boot_stage = 0xae03;
     err = faculty175_lcd_init();
     g_faculty175_boot_last_err = err;
-    ESP_RETURN_ON_ERROR(err, TAG, "lcd");
-    faculty175_log_i2c_lines("boot-post-lcd");
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "lcd init failed: %s", esp_err_to_name(err));
+    } else {
+        lcd_ready = true;
+        faculty175_log_i2c_lines("boot-post-lcd");
+    }
 
     g_faculty175_boot_stage = 0xae04;
-    s_audio_ready = faculty175_audio_init() == ESP_OK;
+    s_audio_ready = i2c_ready && faculty175_audio_init() == ESP_OK;
     if (!s_audio_ready) {
-        ESP_LOGW(TAG, "ES8311 audio init failed — continuing display-only for now");
+        ESP_LOGW(TAG, "audio init unavailable — continuing without speaker/mic");
     }
 
     g_faculty175_boot_stage = 0xae05;
-    if (faculty175_pmu_init() != ESP_OK) {
+    if (!i2c_ready || faculty175_pmu_init() != ESP_OK) {
         ESP_LOGW(TAG, "AXP2101 PMU init failed — audio/display may be unavailable");
     }
     g_faculty175_boot_stage = 0xae06;
@@ -1589,9 +1603,17 @@ esp_err_t faculty175_board_init(void)
     vTaskDelay(pdMS_TO_TICKS(50));
 
     g_faculty175_boot_stage = 0xae07;
-    (void)faculty175_touch_init();
+    if (i2c_ready) {
+        (void)faculty175_touch_init();
+    } else {
+        ESP_LOGW(TAG, "touch init skipped: shared I2C unavailable");
+    }
     g_faculty175_boot_stage = 0xae08;
-    ESP_LOGI(TAG, "Faculty175 ready (audio=%s)", s_audio_ready ? "ok" : "off");
+    ESP_LOGI(TAG,
+             "Faculty175 ready (lcd=%s audio=%s i2c=%s)",
+             lcd_ready ? "ok" : "off",
+             s_audio_ready ? "ok" : "off",
+             i2c_ready ? "ok" : "off");
     return ESP_OK;
 }
 
