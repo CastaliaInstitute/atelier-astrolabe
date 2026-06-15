@@ -1518,8 +1518,7 @@ esp_err_t faculty175_voice_play_mp3(const uint8_t *mp3, size_t mp3_len)
     mp3dec_init(dec);
     size_t offset = 0;
     bool configured = false;
-    faculty175_audio_set_speaker_mute(false);
-
+    uint32_t frame_index = 0;
     while (offset < mp3_len) {
         memset(&info, 0, sizeof(info));
         const int samples = mp3dec_decode_frame(dec, mp3 + offset, (int)(mp3_len - offset), pcm, &info);
@@ -1537,16 +1536,38 @@ esp_err_t faculty175_voice_play_mp3(const uint8_t *mp3, size_t mp3_len)
                                   info.channels,
                                   (unsigned)FACULTY175_AUDIO_RATE);
         }
+        ++frame_index;
+        const uint32_t write_start_ms = faculty175_log_ms();
         if (info.channels == 1) {
             int16_t *stereo = pcm + MINIMP3_MAX_SAMPLES_PER_FRAME;
             for (int i = samples - 1; i >= 0; --i) {
                 stereo[i * 2] = pcm[i];
                 stereo[i * 2 + 1] = pcm[i];
             }
+            FACULTY175_LOG_STAGE(TAG,
+                                 "tts",
+                                 "play frame=%u off=%u/%u samples=%d ch=1",
+                                 (unsigned)frame_index,
+                                 (unsigned)offset,
+                                 (unsigned)mp3_len,
+                                 samples);
             ESP_ERROR_CHECK_WITHOUT_ABORT(faculty175_audio_write_pcm(stereo, (size_t)samples * 2, 1000));
         } else {
+            FACULTY175_LOG_STAGE(TAG,
+                                 "tts",
+                                 "play frame=%u off=%u/%u samples=%d ch=%d",
+                                 (unsigned)frame_index,
+                                 (unsigned)offset,
+                                 (unsigned)mp3_len,
+                                 samples,
+                                 info.channels);
             ESP_ERROR_CHECK_WITHOUT_ABORT(faculty175_audio_write_pcm(pcm, (size_t)samples * 2, 1000));
         }
+        FACULTY175_LOG_STAGE(TAG,
+                             "tts",
+                             "play frame=%u write_ms=%u",
+                             (unsigned)frame_index,
+                             (unsigned)(faculty175_log_ms() - write_start_ms));
         vTaskDelay(1);
     }
 
@@ -1578,8 +1599,6 @@ static esp_err_t voice_play_mp3_file_sync(const char *path, size_t mp3_len)
     size_t off = 0;
     bool eof = false;
     bool configured = false;
-    faculty175_audio_set_speaker_mute(false);
-
     while (true) {
         if (!eof && (len - off) < 4096) {
             if (off > 0 && off < len) {
@@ -1662,9 +1681,9 @@ static void voice_play_mp3_file_task(void *arg)
     vTaskDeleteWithCaps(NULL);
 }
 
-esp_err_t faculty175_voice_play_mp3_file(const char *path, size_t mp3_len)
+static esp_err_t voice_play_mp3_async(const uint8_t *mp3, size_t mp3_len)
 {
-    if (path == NULL || path[0] == '\0' || mp3_len < 64 || mp3_len > TTS_MP3_MAX_BYTES) {
+    if (mp3 == NULL || mp3_len < 64 || mp3_len > TTS_MP3_MAX_BYTES) {
         return ESP_ERR_INVALID_ARG;
     }
     voice_play_file_task_args_t *args = heap_caps_calloc(1, sizeof(*args), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
@@ -1674,7 +1693,6 @@ esp_err_t faculty175_voice_play_mp3_file(const char *path, size_t mp3_len)
     if (args == NULL) {
         return ESP_ERR_NO_MEM;
     }
-    strlcpy(args->path, path, sizeof(args->path));
     args->waiter = xTaskGetCurrentTaskHandle();
     args->result = ESP_FAIL;
 
@@ -1683,19 +1701,8 @@ esp_err_t faculty175_voice_play_mp3_file(const char *path, size_t mp3_len)
         free(args);
         return ESP_ERR_NO_MEM;
     }
-    FILE *f = fopen(path, "rb");
-    if (f == NULL) {
-        free(args->mp3);
-        free(args);
-        return ESP_ERR_NOT_FOUND;
-    }
-    args->mp3_len = fread(args->mp3, 1, mp3_len, f);
-    fclose(f);
-    if (args->mp3_len < 64) {
-        free(args->mp3);
-        free(args);
-        return ESP_ERR_INVALID_SIZE;
-    }
+    memcpy(args->mp3, mp3, mp3_len);
+    args->mp3_len = mp3_len;
 
     const BaseType_t ok = xTaskCreateWithCaps(voice_play_mp3_file_task,
                                               "voice_play",
@@ -1713,6 +1720,36 @@ esp_err_t faculty175_voice_play_mp3_file(const char *path, size_t mp3_len)
     (void)ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
     const esp_err_t result = args->result;
     free(args);
+    return result;
+}
+
+esp_err_t faculty175_voice_play_mp3_async(const uint8_t *mp3, size_t mp3_len)
+{
+    return voice_play_mp3_async(mp3, mp3_len);
+}
+
+esp_err_t faculty175_voice_play_mp3_file(const char *path, size_t mp3_len)
+{
+    if (path == NULL || path[0] == '\0' || mp3_len < 64 || mp3_len > TTS_MP3_MAX_BYTES) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    FILE *f = fopen(path, "rb");
+    if (f == NULL) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    uint8_t *mp3 = heap_caps_malloc(mp3_len, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (mp3 == NULL) {
+        fclose(f);
+        return ESP_ERR_NO_MEM;
+    }
+    const size_t got = fread(mp3, 1, mp3_len, f);
+    fclose(f);
+    if (got < 64) {
+        free(mp3);
+        return ESP_ERR_INVALID_SIZE;
+    }
+    const esp_err_t result = voice_play_mp3_async(mp3, got);
+    free(mp3);
     return result;
 }
 

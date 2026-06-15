@@ -25,7 +25,7 @@ import serial.tools.list_ports
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_PHRASE = "Charles Darwin, what are you observing today?"
+DEFAULT_PHRASE = "What are you doing today?"
 DEFAULT_DEVICE_MAC = "44:1b:f6:85:52:20"
 
 STATUS_RE = re.compile(
@@ -166,6 +166,44 @@ def read_until_any(ser: serial.Serial, needles: tuple[str, ...], timeout_s: floa
             if any(needle in text for needle in needles):
                 return ser, text
     return ser, text
+
+
+def turn_needs_completion_wait(turn_log: str) -> bool:
+    if "[turn] done" in turn_log:
+        return False
+    return (
+        "response.done" in turn_log
+        or "[speak] " in turn_log
+        or "play start" in turn_log
+        or "pipeline-speaking" in turn_log
+    )
+
+
+def completion_wait_timeout(turn_log: str, base_timeout_s: float) -> float:
+    if "[speak] " in turn_log or "play start" in turn_log or "pipeline-speaking" in turn_log:
+        return max(20.0, base_timeout_s)
+    return max(8.0, base_timeout_s / 2.0)
+
+
+def turn_has_hard_failure(turn_log: str) -> bool:
+    return (
+        "ESP_ERR_NO_MEM" in turn_log
+        or "TG1WDT_SYS_RST" in turn_log
+        or "Guru Meditation Error" in turn_log
+        or "voice fail" in turn_log
+        or "No speech detected" in turn_log
+    )
+
+
+def turn_needs_recovery_wait(turn_log: str) -> bool:
+    if "[turn] done" in turn_log or turn_has_hard_failure(turn_log):
+        return False
+    return (
+        "voice-stream websocket error" in turn_log
+        or "voice-stream websocket disconnected" in turn_log
+        or "input_audio_buffer.committed" in turn_log
+        or "conversation.item.input_audio_transcription.completed" in turn_log
+    )
 
 
 def parse_status(text: str) -> dict[str, int | str] | None:
@@ -312,11 +350,22 @@ def send_command(
     return ser, ""
 
 
-def render_prompt_audio(outdir: Path, phrase: str, rate: int, gain: float, repeat: int) -> Path:
+def render_prompt_audio(
+    outdir: Path,
+    phrase: str,
+    rate: int,
+    gain: float,
+    repeat: int,
+    voice: str | None,
+) -> Path:
     say_path = outdir / "prompt.aiff"
     boosted_path = outdir / "prompt-boosted.wav"
     repeated_phrase = " ".join([phrase] * max(1, repeat))
-    subprocess.run(["say", "-r", str(rate), "-o", str(say_path), repeated_phrase], check=True)
+    say_cmd = ["say"]
+    if voice:
+        say_cmd.extend(["-v", voice])
+    say_cmd.extend(["-r", str(rate), "-o", str(say_path), repeated_phrase])
+    subprocess.run(say_cmd, check=True)
     subprocess.run(
         [
             "ffmpeg",
@@ -342,13 +391,17 @@ def main() -> int:
     parser.add_argument("--device-mac", default=DEFAULT_DEVICE_MAC,
                         help="preferred watch MAC so the soak follows re-enumerated ports")
     parser.add_argument("--say-rate", type=int, default=165)
+    parser.add_argument("--say-voice", default=None,
+                        help="optional macOS say voice name, for example Samantha or Alex")
     parser.add_argument("--speaker-gain", type=float, default=3.0,
                         help="host playback gain multiplier applied via ffmpeg volume filter")
     parser.add_argument("--phrase-repeat", type=int, default=1,
                         help="number of times to repeat the spoken prompt in the rendered playback file")
-    parser.add_argument("--pipeline-capture-ms", type=int, default=2500,
+    parser.add_argument("--pipeline-capture-ms", type=int, default=3000,
                         help="requested manual hold time for `pipeline capture` on the watch")
-    parser.add_argument("--pre-say-delay", type=float, default=0.75)
+    parser.add_argument("--pre-say-delay", type=float, default=0.5)
+    parser.add_argument("--capture-start-timeout", type=float, default=12.0,
+                        help="seconds to wait for the watch to report `manual capture start` before host playback")
     parser.add_argument("--turn-timeout", type=float, default=30.0)
     parser.add_argument("--settle-s", type=float, default=1.0)
     parser.add_argument("--restart-every", type=int, default=0,
@@ -377,7 +430,14 @@ def main() -> int:
 
     results: list[dict[str, object]] = []
     raw_log: list[str] = []
-    playback_path = render_prompt_audio(outdir, args.phrase, args.say_rate, args.speaker_gain, args.phrase_repeat)
+    playback_path = render_prompt_audio(
+        outdir,
+        args.phrase,
+        args.say_rate,
+        args.speaker_gain,
+        args.phrase_repeat,
+        args.say_voice,
+    )
     play_cmd = ["afplay", str(playback_path)]
 
     with open_serial_quiet(port, 115200, timeout=0.2) as ser:
@@ -423,6 +483,21 @@ def main() -> int:
                 quiet_s=0.2,
                 max_s=12.0,
             )
+            capture_ready_log = ""
+            if "manual capture start" not in trigger_text:
+                ser, capture_ready_log = read_until_any(
+                    ser,
+                    (
+                        "manual capture start",
+                        "voice fail",
+                        "ESP_ERR_NO_MEM",
+                        "Guru Meditation Error",
+                        "TG1WDT_SYS_RST",
+                    ),
+                    timeout_s=args.capture_start_timeout,
+                )
+                if capture_ready_log:
+                    trigger_text += capture_ready_log
             raw_log.append(f"\n=== {turn_label} trigger ===\n{trigger_text}")
             time.sleep(args.pre_say_delay)
             subprocess.run(play_cmd, check=True)
@@ -431,12 +506,44 @@ def main() -> int:
                 ser,
                 (
                     "[turn] done",
-                    "[pipeline] ",
+                    "No speech detected",
+                    "voice-stream websocket error",
                     "voice fail",
                     "ESP_ERR_NO_MEM",
+                    "TG1WDT_SYS_RST",
+                    "Guru Meditation Error",
                 ),
                 timeout_s=args.turn_timeout,
             )
+            if turn_needs_recovery_wait(turn_log):
+                ser, recovery_log = read_until_any(
+                    ser,
+                    (
+                        "[turn] done",
+                        "No speech detected",
+                        "response.done",
+                        "[speak] ",
+                        "TG1WDT_SYS_RST",
+                        "Guru Meditation Error",
+                        "ESP_ERR_NO_MEM",
+                    ),
+                    timeout_s=max(8.0, args.turn_timeout / 2.0),
+                )
+                if recovery_log:
+                    turn_log += recovery_log
+            if turn_needs_completion_wait(turn_log):
+                ser, completion_log = read_until_any(
+                    ser,
+                    (
+                        "[turn] done",
+                        "TG1WDT_SYS_RST",
+                        "Guru Meditation Error",
+                        "ESP_ERR_NO_MEM",
+                    ),
+                    timeout_s=completion_wait_timeout(turn_log, args.turn_timeout),
+                )
+                if completion_log:
+                    turn_log += completion_log
             ser, tail = read_until_quiet(ser, quiet_s=0.5, max_s=2.0)
             turn_log += tail
             raw_log.append(f"\n=== {turn_label} log ===\n{turn_log}")
@@ -454,7 +561,9 @@ def main() -> int:
 
             transcript_match = re.findall(r"\[stt\]\s+(.+)", turn_log)
             reply_match = re.findall(r"\[reply\]\s+(.+)", turn_log)
-            ok = "[turn] done" in turn_log and "ESP_ERR_NO_MEM" not in turn_log and "voice fail" not in turn_log
+            saw_success = "[turn] done" in turn_log
+            saw_failure = turn_has_hard_failure(turn_log)
+            ok = saw_success and not saw_failure
             result = {
                 "turn": measured_turn if not is_warmup else 0,
                 "raw_turn": raw_turn,
@@ -470,6 +579,8 @@ def main() -> int:
                 "transcript_lines": transcript_match[-2:] if transcript_match else [],
                 "reply_lines": reply_match[-2:] if reply_match else [],
                 "saw_turn_done": "[turn] done" in turn_log,
+                "saw_response_done": "response.done" in turn_log,
+                "saw_speaking": "[speak] " in turn_log,
                 "saw_no_mem": "ESP_ERR_NO_MEM" in turn_log,
                 "log_excerpt": turn_log[-1500:],
             }

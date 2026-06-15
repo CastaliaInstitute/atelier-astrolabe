@@ -97,10 +97,12 @@ volatile int32_t g_faculty175_boot_last_err;
 #define WIFI_CONNECT_TIMEOUT_MS 20000
 #define WIFI_CANDIDATE_MAX 3
 #define FACULTY175_WIFI_START_STACK 8192
-#define FACULTY175_PIPELINE_LISTEN_STACK 5120
-#define FACULTY175_PIPELINE_VOICE_STACK 7168
-#define FACULTY175_UI_TASK_STACK 6144
-#define FACULTY175_INPUT_TASK_STACK 6144
+#define FACULTY175_PIPELINE_LISTEN_STACK 3456
+#define FACULTY175_PIPELINE_VOICE_STACK 6144
+#define FACULTY175_UI_TASK_STACK 5376
+#define FACULTY175_INPUT_TASK_STACK 5376
+#define FACULTY175_SERIAL_TASK_STACK 5120
+#define FACULTY175_BUTTON_REBOOT_STACK 3328
 
 static EventGroupHandle_t s_wifi_events;
 static faculty175_ui_state_t s_ui = FACULTY175_UI_LISTEN;
@@ -151,6 +153,8 @@ static TaskHandle_t s_ui_task;
 static TaskHandle_t s_input_task;
 static TaskHandle_t s_button_reboot_task;
 static TaskHandle_t s_pipeline_start_task;
+static void button_reboot_task_stop_for_pipeline(void);
+static void button_reboot_task_start_if_needed(void);
 
 typedef struct {
     char ssid[FACULTY175_WIFI_SSID_MAX + 1];
@@ -222,6 +226,7 @@ static void save_faculty_to_nvs(void);
 static void sync_voice_context(void *user);
 static esp_err_t qa_trigger_stt(uint32_t capture_ms);
 static void qa_emit_tasks(void);
+static void pipeline_log_tasks(const char *stage);
 static esp_err_t pipeline_ensure_ready(void);
 static esp_err_t pipeline_stop_runtime(void);
 
@@ -1137,6 +1142,12 @@ static esp_err_t pipeline_set_rate(uint32_t sample_rate_hz, void *user)
     return faculty175_audio_set_sample_rate(sample_rate_hz);
 }
 
+static esp_err_t pipeline_play_mp3(const uint8_t *mp3, size_t mp3_len, void *user)
+{
+    (void)user;
+    return faculty175_voice_play_mp3_async(mp3, mp3_len);
+}
+
 static void pipeline_mute(bool mute, void *user)
 {
     (void)user;
@@ -1195,8 +1206,9 @@ static void pipeline_event(astrolabe_audio_pipeline_event_t event, const char *d
                 s_battery_stt_armed = true;
             }
             ui_set(FACULTY175_UI_CAPTURE, NULL);
-            FACULTY175_LOG_STAGE(TAG, "capture", "speech detected — streaming to flash");
+            FACULTY175_LOG_STAGE(TAG, "capture", "speech detected — rolling stream active");
             pipeline_log_heap("capture-start");
+            pipeline_log_tasks("capture-start");
             break;
         case ASTROLABE_AUDIO_PIPELINE_EVENT_CAPTURE_QUEUED:
             if (s_power_on_battery) {
@@ -1204,17 +1216,19 @@ static void pipeline_event(astrolabe_audio_pipeline_event_t event, const char *d
                 low_power_wifi_resume_for_voice(0);
             }
             s_voice_turn++;
-            FACULTY175_LOG_STAGE(TAG, "capture", "utterance queued from flash (turn #%u)", (unsigned)s_voice_turn);
+            FACULTY175_LOG_STAGE(TAG, "capture", "utterance queued (turn #%u)", (unsigned)s_voice_turn);
             pipeline_log_heap("capture-queued");
+            pipeline_log_tasks("capture-queued");
             break;
         case ASTROLABE_AUDIO_PIPELINE_EVENT_THINKING:
             if (s_power_on_battery) {
                 low_power_wifi_resume_for_voice(10000);
             }
             ui_set(FACULTY175_UI_THINK, "Castalia...");
-            FACULTY175_LOG_STAGE(TAG, "pipeline", "streaming flash capture to voice-stream (face=%s)",
+            FACULTY175_LOG_STAGE(TAG, "pipeline", "streaming capture to voice-stream (face=%s)",
                                   s_voice_face);
             pipeline_log_heap("thinking");
+            pipeline_log_tasks("thinking");
             break;
         case ASTROLABE_AUDIO_PIPELINE_EVENT_TRANSCRIPT:
             if (detail != NULL && detail[0] != '\0') {
@@ -1240,6 +1254,7 @@ static void pipeline_event(astrolabe_audio_pipeline_event_t event, const char *d
             ui_set(FACULTY175_UI_SPEAK, detail != NULL && detail[0] != '\0' ? detail : s_faculty_name);
             FACULTY175_LOG_STAGE(TAG, "speak", "%s", detail != NULL && detail[0] != '\0' ? detail : s_faculty_name);
             pipeline_log_heap("speaking");
+            pipeline_log_tasks("speaking");
             break;
         case ASTROLABE_AUDIO_PIPELINE_EVENT_TURN_DONE:
             s_battery_stt_armed = false;
@@ -1250,6 +1265,7 @@ static void pipeline_event(astrolabe_audio_pipeline_event_t event, const char *d
             ui_set(FACULTY175_UI_LISTEN, NULL);
             FACULTY175_LOG_STAGE(TAG, "turn", "done #%u", (unsigned)s_voice_turn);
             pipeline_log_heap("turn-done");
+            pipeline_log_tasks("turn-done");
             break;
         case ASTROLABE_AUDIO_PIPELINE_EVENT_ERROR:
             s_battery_stt_armed = false;
@@ -1259,6 +1275,7 @@ static void pipeline_event(astrolabe_audio_pipeline_event_t event, const char *d
             }
             FACULTY175_LOG_STAGE_E(TAG, "pipeline", "%s", detail != NULL ? detail : "error");
             pipeline_log_heap("error");
+            pipeline_log_tasks("error");
             ui_set(FACULTY175_UI_ERROR, "voice fail");
             break;
     }
@@ -1506,6 +1523,7 @@ static esp_err_t pipeline_stop_runtime(void)
     astrolabe_audio_pipeline_destroy(s_pipeline);
     s_pipeline = NULL;
     s_pipeline_started = false;
+    button_reboot_task_start_if_needed();
     pipeline_log_heap("stop-done");
     return ESP_OK;
 }
@@ -1516,6 +1534,10 @@ static esp_err_t pipeline_ensure_ready(void)
         return ESP_ERR_INVALID_STATE;
     }
     pipeline_log_heap("ensure-entry");
+    if (s_pipeline != NULL && astrolabe_audio_pipeline_unhealthy(s_pipeline)) {
+        FACULTY175_LOG_STAGE_W(TAG, "pipeline", "resetting unhealthy pipeline before capture");
+        (void)pipeline_stop_runtime();
+    }
     if (s_pipeline == NULL) {
         sync_voice_context(NULL);
         const esp_err_t create_err = astrolabe_audio_pipeline_create(&s_pipeline_cfg, &s_pipeline);
@@ -1529,12 +1551,14 @@ static esp_err_t pipeline_ensure_ready(void)
     if (s_pipeline_started) {
         return ESP_OK;
     }
+    button_reboot_task_stop_for_pipeline();
     const esp_err_t start_err = astrolabe_audio_pipeline_start(s_pipeline);
     if (start_err != ESP_OK) {
         FACULTY175_LOG_STAGE_E(TAG, "pipeline", "start failed: %s", esp_err_to_name(start_err));
         pipeline_log_heap("start-failed");
         astrolabe_audio_pipeline_destroy(s_pipeline);
         s_pipeline = NULL;
+        button_reboot_task_start_if_needed();
         return start_err;
     }
     s_pipeline_started = true;
@@ -1951,14 +1975,44 @@ static void qa_emit_task_stack_line(const char *name, TaskHandle_t handle, uint3
            (unsigned)used_peak_bytes);
 }
 
+static void pipeline_log_task_stack_line(const char *stage, const char *name, TaskHandle_t handle, uint32_t stack_bytes)
+{
+    if (name == NULL || stage == NULL) {
+        return;
+    }
+    if (handle == NULL) {
+        FACULTY175_LOG_STAGE(TAG, "task", "%s name=%s stack=%u state=off", stage, name, (unsigned)stack_bytes);
+        return;
+    }
+    const UBaseType_t free_words = uxTaskGetStackHighWaterMark(handle);
+    const uint32_t free_bytes = (uint32_t)free_words * (uint32_t)sizeof(StackType_t);
+    const uint32_t used_peak_bytes = stack_bytes > free_bytes ? stack_bytes - free_bytes : 0;
+    FACULTY175_LOG_STAGE(TAG, "task", "%s name=%s stack=%u free=%u used_peak=%u",
+                         stage, name, (unsigned)stack_bytes, (unsigned)free_bytes, (unsigned)used_peak_bytes);
+}
+
+static void pipeline_log_tasks(const char *stage)
+{
+    pipeline_log_task_stack_line(stage, "ui", s_ui_task, FACULTY175_UI_TASK_STACK);
+    pipeline_log_task_stack_line(stage, "input", s_input_task, FACULTY175_INPUT_TASK_STACK);
+    pipeline_log_task_stack_line(stage, "button_reboot", s_button_reboot_task, FACULTY175_BUTTON_REBOOT_STACK);
+    pipeline_log_task_stack_line(stage, "serial", faculty175_serial_task_handle(), FACULTY175_SERIAL_TASK_STACK);
+    pipeline_log_task_stack_line(stage, "ast_audio_listen",
+                                 astrolabe_audio_pipeline_listen_task_handle(s_pipeline),
+                                 astrolabe_audio_pipeline_listen_stack_bytes(s_pipeline));
+    pipeline_log_task_stack_line(stage, "ast_audio_voice",
+                                 astrolabe_audio_pipeline_voice_task_handle(s_pipeline),
+                                 astrolabe_audio_pipeline_voice_stack_bytes(s_pipeline));
+}
+
 static void qa_emit_tasks(void)
 {
     qa_emit_task_stack_line("wifi_start", s_wifi_start_task, FACULTY175_WIFI_START_STACK);
     qa_emit_task_stack_line("ui", s_ui_task, FACULTY175_UI_TASK_STACK);
     qa_emit_task_stack_line("input", s_input_task, FACULTY175_INPUT_TASK_STACK);
-    qa_emit_task_stack_line("button_reboot", s_button_reboot_task, 3072u);
+    qa_emit_task_stack_line("button_reboot", s_button_reboot_task, FACULTY175_BUTTON_REBOOT_STACK);
     qa_emit_task_stack_line("audio_pipe", s_pipeline_start_task, 4096u);
-    qa_emit_task_stack_line("serial", faculty175_serial_task_handle(), 6144u);
+    qa_emit_task_stack_line("serial", faculty175_serial_task_handle(), FACULTY175_SERIAL_TASK_STACK);
     qa_emit_task_stack_line("fac_bust", faculty175_faculty_bust_task_handle(), 12288u);
     qa_emit_task_stack_line("fac_prefetch", faculty175_faculty_prefetch_task_handle(), 8192u);
     qa_emit_task_stack_line("ast_audio_listen",
@@ -2069,7 +2123,6 @@ static void wifi_start_task(void *arg)
     } else {
         if (s_faculty_ready) {
             faculty175_faculty_set_network_fetch_enabled(true);
-            faculty175_faculty_request_bust(s_faculty_slug);
         }
         faculty175_ota_maybe_start_recovery_request();
         FACULTY175_LOG_STAGE(TAG, "network", "faculty bust cache enabled");
@@ -2631,6 +2684,42 @@ static void button_reboot_task(void *arg)
     }
 }
 
+static void button_reboot_task_stop_for_pipeline(void)
+{
+    if (s_button_reboot_task == NULL) {
+        return;
+    }
+    FACULTY175_LOG_STAGE(TAG, "button", "suspending long-press reboot watchdog for pipeline");
+    vTaskDelete(s_button_reboot_task);
+    s_button_reboot_task = NULL;
+}
+
+static void button_reboot_task_start_if_needed(void)
+{
+    if (s_button_reboot_task != NULL) {
+        return;
+    }
+    BaseType_t ok = xTaskCreateWithCaps(button_reboot_task,
+                                        "button_reboot",
+                                        FACULTY175_BUTTON_REBOOT_STACK,
+                                        NULL,
+                                        7,
+                                        &s_button_reboot_task,
+                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (ok != pdPASS) {
+        ok = xTaskCreate(button_reboot_task,
+                         "button_reboot",
+                         FACULTY175_BUTTON_REBOOT_STACK,
+                         NULL,
+                         7,
+                         &s_button_reboot_task);
+    }
+    if (ok != pdPASS) {
+        s_button_reboot_task = NULL;
+        FACULTY175_LOG_STAGE_E(TAG, "button", "long-press watchdog task create failed");
+    }
+}
+
 static void input_task(void *arg)
 {
     (void)arg;
@@ -3007,7 +3096,11 @@ void app_main(void)
     return;
 #endif
     boot_probe_stage(0xa3);
-    esp_rom_printf("A3 storage_deferred\n");
+    esp_rom_printf("A3 storage_init\n");
+    const esp_err_t storage_err = faculty175_storage_init();
+    if (storage_err != ESP_OK) {
+        FACULTY175_LOG_STAGE_W(TAG, "storage", "init failed: %s", esp_err_to_name(storage_err));
+    }
 #if FACULTY175_USB_RUNTIME_ENABLED
     boot_probe_stage(0xa4);
     esp_rom_printf("A4 usb_init\n");
@@ -3104,8 +3197,22 @@ void app_main(void)
         FACULTY175_LOG_STAGE_W(TAG, "wifi", "background start task failed; staying offline");
     }
     xTaskCreate(ui_task, "ui", FACULTY175_UI_TASK_STACK, NULL, 4, &s_ui_task);
-    xTaskCreate(input_task, "input", FACULTY175_INPUT_TASK_STACK, NULL, 5, &s_input_task);
-    xTaskCreate(button_reboot_task, "button_reboot", 3072, NULL, 7, &s_button_reboot_task);
+    BaseType_t input_task_ok = xTaskCreateWithCaps(input_task,
+                                                   "input",
+                                                   FACULTY175_INPUT_TASK_STACK,
+                                                   NULL,
+                                                   5,
+                                                   &s_input_task,
+                                                   MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (input_task_ok != pdPASS) {
+        s_input_task = NULL;
+        input_task_ok = xTaskCreate(input_task, "input", FACULTY175_INPUT_TASK_STACK, NULL, 5, &s_input_task);
+    }
+    if (input_task_ok != pdPASS) {
+        s_input_task = NULL;
+        FACULTY175_LOG_STAGE_E(TAG, "input", "task create failed");
+    }
+    button_reboot_task_start_if_needed();
     ui_set(FACULTY175_UI_LISTEN, NULL);
     FACULTY175_LOG_STAGE(TAG, "boot", "board audio=%s", faculty175_board_audio_ready() ? "ok" : "off");
 
@@ -3113,7 +3220,6 @@ void app_main(void)
         s_faculty_ready = true;
         faculty175_faculty_set_ui_notify(bust_ui_refresh);
         faculty175_faculty_set_network_fetch_enabled(false);
-        faculty175_faculty_request_bust(s_faculty_slug);
     }
 
     FACULTY175_LOG_STAGE_W(TAG, "ble", "startup disabled to preserve internal RAM");
@@ -3133,6 +3239,7 @@ void app_main(void)
         .on_event = pipeline_event,
         .on_result = pipeline_result,
         .prepare_context = sync_voice_context,
+        .play_mp3 = pipeline_play_mp3,
         .endpoint_url = s_voice_pipeline_url,
         .stream_url = s_voice_stream_url,
         .transport = ASTROLABE_AUDIO_PIPELINE_TRANSPORT_ROLLING_WEBSOCKET,
@@ -3161,7 +3268,7 @@ void app_main(void)
         .min_ms = 400,
         .capture_cooldown_ms = 2500,
         .capture_ring_slots = 8,
-        .capture_segment_ms = 250,
+        .capture_segment_ms = 500,
         .listen_priority = 5,
         .voice_priority = 4,
         .listen_stack = FACULTY175_PIPELINE_LISTEN_STACK,
