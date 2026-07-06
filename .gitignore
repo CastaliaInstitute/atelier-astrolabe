@@ -37,6 +37,7 @@ sdkconfig.*
 !idf/sdkconfig.defaults
 !sensecap/sdkconfig.defaults
 !facultyatom/sdkconfig.defaults
+!astrolabe175c/sdkconfig.defaults
 sdkconfig.old
 compile_commands.json
 build/

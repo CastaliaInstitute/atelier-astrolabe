@@ -42,6 +42,9 @@
 #include "faculty175_almanac.h"
 #endif
 
+#define SYNASTRY_ORRERY_MAX_PEOPLE (1 + FACULTY175_CHART_PROFILE_SLOTS)
+#define SYNASTRY_ORRERY_MAX_BONDS ((SYNASTRY_ORRERY_MAX_PEOPLE * (SYNASTRY_ORRERY_MAX_PEOPLE - 1)) / 2)
+
 #define LVGL_DRAW_BUF_ROWS FACULTY175_LCD_H
 
 static const char *TAG = "faculty175_lvgl";
@@ -214,12 +217,10 @@ static lv_obj_t *s_synastry_screen;
 static lv_obj_t *s_synastry_rings[5];
 static lv_obj_t *s_synastry_spokes[12];
 static lv_point_precise_t s_synastry_spoke_points[12][2];
-static lv_obj_t *s_synastry_aspects[8];
-static lv_point_precise_t s_synastry_aspect_points[8][2];
-static lv_obj_t *s_synastry_user_bodies[7];
-static lv_obj_t *s_synastry_target_bodies[7];
-static lv_obj_t *s_synastry_user_labels[7];
-static lv_obj_t *s_synastry_target_labels[7];
+static lv_obj_t *s_synastry_bonds[SYNASTRY_ORRERY_MAX_BONDS];
+static lv_point_precise_t s_synastry_bond_points[SYNASTRY_ORRERY_MAX_BONDS][2];
+static lv_obj_t *s_synastry_people[SYNASTRY_ORRERY_MAX_PEOPLE];
+static lv_obj_t *s_synastry_people_labels[SYNASTRY_ORRERY_MAX_PEOPLE];
 static lv_obj_t *s_synastry_title;
 static lv_obj_t *s_synastry_names;
 static lv_obj_t *s_synastry_line;
@@ -5788,6 +5789,27 @@ typedef struct {
     double orb;
 } lvgl_synastry_aspect_t;
 
+typedef struct {
+    faculty175_birth_chart_t chart;
+    faculty175_chart_positions_t pos;
+    int slot;
+    int age_years;
+    int x;
+    int y;
+    int radius;
+    uint32_t color;
+    bool primary;
+    bool active;
+} lvgl_synastry_person_t;
+
+static float s_synastry_sim_x[SYNASTRY_ORRERY_MAX_PEOPLE];
+static float s_synastry_sim_y[SYNASTRY_ORRERY_MAX_PEOPLE];
+static float s_synastry_sim_vx[SYNASTRY_ORRERY_MAX_PEOPLE];
+static float s_synastry_sim_vy[SYNASTRY_ORRERY_MAX_PEOPLE];
+static uint32_t s_synastry_sim_signature;
+static int s_synastry_sim_count;
+static uint32_t s_synastry_sim_last_ms;
+
 static double synastry_norm360(double v)
 {
     v = fmod(v, 360.0);
@@ -5803,16 +5825,15 @@ static double synastry_aspect_distance(double a, double b)
     return d > 180.0 ? 360.0 - d : d;
 }
 
-static uint32_t synastry_aspect_color(int deg)
+static float synastry_clamp01(float v)
 {
-    switch (deg) {
-        case 0: return 0xffe28e;
-        case 60: return 0x78d2fa;
-        case 90: return 0xf5645c;
-        case 120: return 0x78e29a;
-        case 180: return 0xc68af5;
-        default: return 0x96a0b8;
+    if (v < 0.0f) {
+        return 0.0f;
     }
+    if (v > 1.0f) {
+        return 1.0f;
+    }
+    return v;
 }
 
 static const char *synastry_aspect_word(int deg)
@@ -5825,6 +5846,111 @@ static const char *synastry_aspect_word(int deg)
         case 180: return "opp";
         default: return "asp";
     }
+}
+
+static float synastry_aspect_weight(int deg)
+{
+    switch (deg) {
+        case 0: return 1.0f;
+        case 60: return 0.64f;
+        case 90: return 0.72f;
+        case 120: return 0.88f;
+        case 180: return 0.76f;
+        default: return 0.45f;
+    }
+}
+
+static float synastry_body_weight(int body)
+{
+    switch (body) {
+        case 0:
+        case 1:
+            return 1.0f;
+        case 3:
+        case 4:
+            return 0.92f;
+        case 2:
+            return 0.82f;
+        case 5:
+            return 0.72f;
+        case 6:
+            return 0.78f;
+        default:
+            return 0.7f;
+    }
+}
+
+static float synastry_gravity_between(const faculty175_chart_positions_t *a,
+                                      const faculty175_chart_positions_t *b)
+{
+    if (a == NULL || b == NULL || !a->ok || !b->ok) {
+        return 0.0f;
+    }
+    static const int k_major[] = {0, 60, 90, 120, 180};
+    float score = 0.0f;
+    for (int ai = 0; ai < FACULTY175_CHART_BODY_COUNT; ++ai) {
+        for (int bi = 0; bi < FACULTY175_CHART_BODY_COUNT; ++bi) {
+            const double sep = synastry_aspect_distance(a->lon[ai], b->lon[bi]);
+            for (size_t mi = 0; mi < sizeof(k_major) / sizeof(k_major[0]); ++mi) {
+                const double orb = fabs(sep - (double)k_major[mi]);
+                if (orb > 6.5) {
+                    continue;
+                }
+                const float exact = 1.0f - (float)(orb / 6.5);
+                score += exact * synastry_aspect_weight(k_major[mi]) * synastry_body_weight(ai) *
+                         synastry_body_weight(bi);
+                break;
+            }
+        }
+    }
+    return synastry_clamp01(score / 8.5f);
+}
+
+static int synastry_age_years_for_chart(const faculty175_birth_chart_t *chart)
+{
+    if (chart == NULL || chart->year == 0) {
+        return 0;
+    }
+    struct tm local = {
+        .tm_year = 2026 - 1900,
+        .tm_mon = 7 - 1,
+        .tm_mday = 6,
+    };
+    if (astrolabe_time_valid()) {
+        astrolabe_time_local(&local);
+    }
+    int age = (local.tm_year + 1900) - (int)chart->year;
+    const int month = local.tm_mon + 1;
+    if (month < (int)chart->month || (month == (int)chart->month && local.tm_mday < (int)chart->day)) {
+        --age;
+    }
+    return age < 0 ? 0 : age;
+}
+
+static int synastry_sphere_radius_for_age(int age_years, bool primary)
+{
+    float r = 7.0f + sqrtf((float)(age_years < 0 ? 0 : age_years)) * 1.35f;
+    if (primary) {
+        r += 2.5f;
+    }
+    if (r < 8.0f) {
+        r = 8.0f;
+    }
+    if (r > 22.0f) {
+        r = 22.0f;
+    }
+    return (int)lrintf(r);
+}
+
+static uint32_t synastry_person_color(faculty175_chart_role_t role, bool primary)
+{
+    if (primary || role == FACULTY175_CHART_ROLE_SELF) {
+        return 0x7ad6ff;
+    }
+    if (role == FACULTY175_CHART_ROLE_CHILD) {
+        return 0x94ecb2;
+    }
+    return 0xecccff;
 }
 
 static int synastry_rebuild_aspects(const faculty175_chart_positions_t *user,
@@ -5871,6 +5997,186 @@ static int synastry_rebuild_aspects(const faculty175_chart_positions_t *user,
     return count;
 }
 
+static bool synastry_add_person(lvgl_synastry_person_t *people,
+                                int *count,
+                                int cap,
+                                const faculty175_birth_chart_t *chart,
+                                const faculty175_chart_positions_t *pos,
+                                int slot,
+                                bool primary,
+                                bool active)
+{
+    if (people == NULL || count == NULL || chart == NULL || pos == NULL || *count >= cap || !pos->ok) {
+        return false;
+    }
+    lvgl_synastry_person_t *p = &people[(*count)++];
+    memset(p, 0, sizeof(*p));
+    p->chart = *chart;
+    p->pos = *pos;
+    p->slot = slot;
+    p->primary = primary;
+    p->active = active;
+    p->age_years = synastry_age_years_for_chart(chart);
+    p->radius = synastry_sphere_radius_for_age(p->age_years, primary);
+    p->color = synastry_person_color(chart->role, primary);
+    return true;
+}
+
+static int synastry_build_people(lvgl_synastry_person_t *people,
+                                 int cap,
+                                 const faculty175_birth_chart_t *user,
+                                 const faculty175_chart_positions_t *user_pos)
+{
+    int count = 0;
+    (void)synastry_add_person(people, &count, cap, user, user_pos, -1, true, false);
+    const int active_slot = faculty175_charts_active_slot();
+    for (int slot = 0; slot < FACULTY175_CHART_PROFILE_SLOTS && count < cap; ++slot) {
+        faculty175_birth_chart_t profile = {};
+        faculty175_chart_positions_t pos = {};
+        if (!faculty175_charts_profile_get(slot, &profile) ||
+            !faculty175_charts_birth_positions(&profile, &pos)) {
+            continue;
+        }
+        (void)synastry_add_person(people, &count, cap, &profile, &pos, slot, false, slot == active_slot);
+    }
+    return count;
+}
+
+static uint32_t synastry_orrery_signature(const lvgl_synastry_person_t *people, int count)
+{
+    uint32_t h = 2166136261u;
+    for (int i = 0; i < count; ++i) {
+        const uint8_t *name = (const uint8_t *)people[i].chart.name;
+        for (size_t j = 0; j < sizeof(people[i].chart.name) && name[j] != '\0'; ++j) {
+            h ^= name[j];
+            h *= 16777619u;
+        }
+        h ^= (uint32_t)people[i].chart.year;
+        h *= 16777619u;
+        h ^= (uint32_t)people[i].slot;
+        h *= 16777619u;
+    }
+    return h;
+}
+
+static void synastry_layout_people(lvgl_synastry_person_t *people, int count, int cx, int cy, uint32_t anim_ms)
+{
+    if (people == NULL || count <= 0) {
+        return;
+    }
+    const uint32_t sig = synastry_orrery_signature(people, count);
+    const float primary_sun = people[0].pos.ok ? (float)synastry_norm360(people[0].pos.lon[0]) : 0.0f;
+    const float step = count > 1 ? 6.2831853f / (float)(count - 1) : 6.2831853f;
+
+    if (s_synastry_sim_signature != sig || s_synastry_sim_count != count) {
+        memset(s_synastry_sim_vx, 0, sizeof(s_synastry_sim_vx));
+        memset(s_synastry_sim_vy, 0, sizeof(s_synastry_sim_vy));
+        s_synastry_sim_x[0] = (float)cx;
+        s_synastry_sim_y[0] = (float)cy;
+        for (int i = 1; i < count; ++i) {
+            const float natal_phase = people[i].pos.ok ?
+                (float)synastry_norm360(people[i].pos.lon[0] - primary_sun) * 0.0174532925f : 0.0f;
+            const float a = -1.5707963f + step * (float)(i - 1) + natal_phase * 0.18f;
+            const float gravity = synastry_gravity_between(&people[0].pos, &people[i].pos);
+            const float r = 156.0f - gravity * 54.0f;
+            s_synastry_sim_x[i] = (float)cx + cosf(a) * r;
+            s_synastry_sim_y[i] = (float)cy + sinf(a) * r;
+        }
+        s_synastry_sim_signature = sig;
+        s_synastry_sim_count = count;
+        s_synastry_sim_last_ms = anim_ms;
+    }
+
+    float dt = 0.016f;
+    if (s_synastry_sim_last_ms != 0 && anim_ms > s_synastry_sim_last_ms) {
+        dt = (float)(anim_ms - s_synastry_sim_last_ms) / 1000.0f;
+        if (dt > 0.05f) {
+            dt = 0.05f;
+        }
+    }
+    s_synastry_sim_last_ms = anim_ms;
+
+    float ax[SYNASTRY_ORRERY_MAX_PEOPLE] = {};
+    float ay[SYNASTRY_ORRERY_MAX_PEOPLE] = {};
+    for (int i = 0; i < count; ++i) {
+        for (int j = i + 1; j < count; ++j) {
+            float dx = s_synastry_sim_x[j] - s_synastry_sim_x[i];
+            float dy = s_synastry_sim_y[j] - s_synastry_sim_y[i];
+            float dist2 = dx * dx + dy * dy;
+            if (dist2 < 4.0f) {
+                const float a = -1.5707963f + step * (float)j;
+                dx = cosf(a) * 2.0f;
+                dy = sinf(a) * 2.0f;
+                dist2 = 4.0f;
+            }
+            const float dist = sqrtf(dist2);
+            const float ux = dx / dist;
+            const float uy = dy / dist;
+            const float gravity = synastry_gravity_between(&people[i].pos, &people[j].pos);
+            const float touch = (float)(people[i].radius + people[j].radius) + 14.0f;
+            const float attraction = gravity * (18.0f + dist * 0.035f);
+            float repulsion = 8600.0f / dist2;
+            if (dist < touch) {
+                repulsion += (touch - dist) * 9.0f;
+            }
+            const float force = attraction - repulsion;
+            if (!people[i].primary) {
+                ax[i] += ux * force;
+                ay[i] += uy * force;
+            }
+            if (!people[j].primary) {
+                ax[j] -= ux * force;
+                ay[j] -= uy * force;
+            }
+        }
+    }
+    for (int i = 1; i < count; ++i) {
+        const float dx = s_synastry_sim_x[i] - (float)cx;
+        const float dy = s_synastry_sim_y[i] - (float)cy;
+        const float dist = sqrtf(dx * dx + dy * dy);
+        ax[i] -= dx * 0.42f;
+        ay[i] -= dy * 0.42f;
+        const float max_r = 188.0f - (float)people[i].radius;
+        if (dist > max_r && dist > 1.0f) {
+            ax[i] -= (dx / dist) * (dist - max_r) * 55.0f;
+            ay[i] -= (dy / dist) * (dist - max_r) * 55.0f;
+        }
+    }
+    s_synastry_sim_x[0] = (float)cx;
+    s_synastry_sim_y[0] = (float)cy;
+    s_synastry_sim_vx[0] = 0.0f;
+    s_synastry_sim_vy[0] = 0.0f;
+    for (int i = 1; i < count; ++i) {
+        s_synastry_sim_vx[i] = (s_synastry_sim_vx[i] + ax[i] * dt) * 0.88f;
+        s_synastry_sim_vy[i] = (s_synastry_sim_vy[i] + ay[i] * dt) * 0.88f;
+        s_synastry_sim_x[i] += s_synastry_sim_vx[i] * dt * 36.0f;
+        s_synastry_sim_y[i] += s_synastry_sim_vy[i] * dt * 36.0f;
+    }
+    for (int i = 0; i < count; ++i) {
+        people[i].x = (int)lrintf(s_synastry_sim_x[i]);
+        people[i].y = (int)lrintf(s_synastry_sim_y[i]);
+    }
+}
+
+static uint32_t synastry_bond_color(float gravity)
+{
+    const uint8_t r = (uint8_t)(95.0f + gravity * 140.0f);
+    const uint8_t g = (uint8_t)(125.0f + gravity * 85.0f);
+    const uint8_t b = (uint8_t)(170.0f + gravity * 70.0f);
+    return ((uint32_t)r << 16) | ((uint32_t)g << 8) | (uint32_t)b;
+}
+
+static void synastry_hide_orrery_objects(void)
+{
+    for (int i = 0; i < SYNASTRY_ORRERY_MAX_PEOPLE; ++i) {
+        native_obj_hidden(s_synastry_people[i], true);
+        native_obj_hidden(s_synastry_people_labels[i], true);
+    }
+    for (int i = 0; i < SYNASTRY_ORRERY_MAX_BONDS; ++i) {
+        native_obj_hidden(s_synastry_bonds[i], true);
+    }
+}
+
 static void create_synastry_screen(void)
 {
     s_synastry_screen = lv_obj_create(NULL);
@@ -5880,11 +6186,11 @@ static void create_synastry_screen(void)
     lv_obj_set_style_bg_opa(s_synastry_screen, LV_OPA_COVER, 0);
     lv_obj_clear_flag(s_synastry_screen, LV_OBJ_FLAG_SCROLLABLE);
 
-    const int ring_sizes[] = {432, 408, 344, 244, 144};
+    const int ring_sizes[] = {432, 408, 292, 196, 108};
     for (size_t i = 0; i < sizeof(ring_sizes) / sizeof(ring_sizes[0]); ++i) {
         s_synastry_rings[i] =
             make_arc_ring(s_synastry_screen, ring_sizes[i], i == 4 ? 0x564870 : 0x343a52, i == 0 ? 2 : 1,
-                          i == 4 ? 220 : 170);
+                          i == 4 ? 190 : 150);
         lv_obj_center(s_synastry_rings[i]);
     }
 
@@ -5892,31 +6198,32 @@ static void create_synastry_screen(void)
     const int cy = FACULTY175_LCD_H / 2 + 4;
     for (int i = 0; i < 12; ++i) {
         const float a = -1.5707963f + (float)i * 6.2831853f / 12.0f;
-        s_synastry_spoke_points[i][0].x = cx + (lv_value_precise_t)lrintf(cosf(a) * 72.0f);
-        s_synastry_spoke_points[i][0].y = cy + (lv_value_precise_t)lrintf(sinf(a) * 72.0f);
+        s_synastry_spoke_points[i][0].x = cx + (lv_value_precise_t)lrintf(cosf(a) * 54.0f);
+        s_synastry_spoke_points[i][0].y = cy + (lv_value_precise_t)lrintf(sinf(a) * 54.0f);
         s_synastry_spoke_points[i][1].x = cx + (lv_value_precise_t)lrintf(cosf(a) * 204.0f);
         s_synastry_spoke_points[i][1].y = cy + (lv_value_precise_t)lrintf(sinf(a) * 204.0f);
         s_synastry_spokes[i] = lv_line_create(s_synastry_screen);
-        configure_aleth_line(s_synastry_spokes[i], i % 3 == 0 ? 0x647090 : 0x3e4862, i % 3 == 0 ? 2 : 1, 160);
+        configure_aleth_line(s_synastry_spokes[i], i % 3 == 0 ? 0x647090 : 0x3e4862, i % 3 == 0 ? 2 : 1, 128);
         lv_line_set_points(s_synastry_spokes[i], s_synastry_spoke_points[i], 2);
     }
 
-    for (int i = 0; i < 8; ++i) {
-        s_synastry_aspects[i] = lv_line_create(s_synastry_screen);
-        configure_aleth_line(s_synastry_aspects[i], 0x96a0b8, 2, 190);
-        native_obj_hidden(s_synastry_aspects[i], true);
+    for (int i = 0; i < SYNASTRY_ORRERY_MAX_BONDS; ++i) {
+        s_synastry_bonds[i] = lv_line_create(s_synastry_screen);
+        configure_aleth_line(s_synastry_bonds[i], 0x96a0b8, 2, 180);
+        native_obj_hidden(s_synastry_bonds[i], true);
     }
 
-    for (int i = 0; i < FACULTY175_CHART_BODY_COUNT; ++i) {
-        s_synastry_target_bodies[i] = make_circle(s_synastry_screen, i == 0 ? 16 : 12, 0xecccff, LV_OPA_COVER);
-        s_synastry_user_bodies[i] = make_circle(s_synastry_screen, i == 0 ? 16 : 12, 0x74d0ff, LV_OPA_COVER);
-        s_synastry_target_labels[i] = make_tarot_label(s_synastry_screen, 0, 28, 0xecccff);
-        s_synastry_user_labels[i] = make_tarot_label(s_synastry_screen, 0, 28, 0x74d0ff);
-        lv_label_set_text(s_synastry_target_labels[i], faculty175_charts_body_label(i));
-        lv_label_set_text(s_synastry_user_labels[i], faculty175_charts_body_label(i));
+    for (int i = 0; i < SYNASTRY_ORRERY_MAX_PEOPLE; ++i) {
+        s_synastry_people[i] = make_circle(s_synastry_screen, 44, 0x7ad6ff, LV_OPA_COVER);
+        lv_obj_set_style_border_width(s_synastry_people[i], 1, 0);
+        lv_obj_set_style_border_color(s_synastry_people[i], lv_color_hex(0xe6eeff), 0);
+        native_obj_hidden(s_synastry_people[i], true);
+        s_synastry_people_labels[i] = make_tarot_label(s_synastry_screen, 0, 24, 0x080a12);
+        lv_obj_set_style_text_align(s_synastry_people_labels[i], LV_TEXT_ALIGN_CENTER, 0);
+        native_obj_hidden(s_synastry_people_labels[i], true);
     }
 
-    lv_obj_t *hub = make_circle(s_synastry_screen, 72, 0x090a14, LV_OPA_COVER);
+    lv_obj_t *hub = make_circle(s_synastry_screen, 64, 0x090a14, LV_OPA_COVER);
     lv_obj_center(hub);
 
     s_synastry_title = make_tarot_label(s_synastry_screen, 48, 300, 0xe6e4f6);
@@ -5926,7 +6233,6 @@ static void create_synastry_screen(void)
 
 static bool draw_synastry(uint32_t anim_ms)
 {
-    (void)anim_ms;
     if (s_synastry_screen == NULL) {
         create_synastry_screen();
     }
@@ -5949,15 +6255,7 @@ static bool draw_synastry(uint32_t anim_ms)
         lv_label_set_text(s_synastry_title, "SYNASTRY");
         lv_label_set_text(s_synastry_names, "CHART DATA NEEDED");
         lv_label_set_text(s_synastry_line, "serial: charts seed");
-        for (int i = 0; i < FACULTY175_CHART_BODY_COUNT; ++i) {
-            native_obj_hidden(s_synastry_target_bodies[i], true);
-            native_obj_hidden(s_synastry_user_bodies[i], true);
-            native_obj_hidden(s_synastry_target_labels[i], true);
-            native_obj_hidden(s_synastry_user_labels[i], true);
-        }
-        for (int i = 0; i < 8; ++i) {
-            native_obj_hidden(s_synastry_aspects[i], true);
-        }
+        synastry_hide_orrery_objects();
         lvgl_tick(16);
         lv_timer_handler();
         return true;
@@ -5965,50 +6263,56 @@ static bool draw_synastry(uint32_t anim_ms)
 
     lvgl_synastry_aspect_t aspects[12] = {};
     const int aspect_count = synastry_rebuild_aspects(&user_pos, &target_pos, aspects, 12);
-    const int r_user = 104;
-    const int r_target = 152;
-    for (int i = 0; i < FACULTY175_CHART_BODY_COUNT; ++i) {
-        int x = 0;
-        int y = 0;
-        astrology_xy_for_lon(target_pos.lon[i], r_target, &x, &y);
-        const int target_sz = i == 0 ? 16 : 12;
-        lv_obj_align(s_synastry_target_bodies[i], LV_ALIGN_TOP_LEFT, x - target_sz / 2, y - target_sz / 2);
-        int lx = 0;
-        int ly = 0;
-        astrology_xy_for_lon(target_pos.lon[i], r_target + 19, &lx, &ly);
-        lv_obj_align(s_synastry_target_labels[i], LV_ALIGN_TOP_LEFT, lx - 14, ly - 7);
-        native_obj_hidden(s_synastry_target_bodies[i], false);
-        native_obj_hidden(s_synastry_target_labels[i], false);
 
-        astrology_xy_for_lon(user_pos.lon[i], r_user, &x, &y);
-        const int user_sz = i == 0 ? 16 : 12;
-        lv_obj_align(s_synastry_user_bodies[i], LV_ALIGN_TOP_LEFT, x - user_sz / 2, y - user_sz / 2);
-        astrology_xy_for_lon(user_pos.lon[i], r_user - 24, &lx, &ly);
-        lv_obj_align(s_synastry_user_labels[i], LV_ALIGN_TOP_LEFT, lx - 14, ly - 7);
-        native_obj_hidden(s_synastry_user_bodies[i], false);
-        native_obj_hidden(s_synastry_user_labels[i], false);
+    lvgl_synastry_person_t people[SYNASTRY_ORRERY_MAX_PEOPLE] = {};
+    const int person_count = synastry_build_people(people, SYNASTRY_ORRERY_MAX_PEOPLE, &user, &user_pos);
+    const int cx = FACULTY175_LCD_W / 2;
+    const int cy = FACULTY175_LCD_H / 2 + 4;
+    synastry_layout_people(people, person_count, cx, cy, anim_ms);
+
+    int bond_idx = 0;
+    for (int i = 0; i < person_count; ++i) {
+        for (int j = i + 1; j < person_count && bond_idx < SYNASTRY_ORRERY_MAX_BONDS; ++j) {
+            const float gravity = synastry_gravity_between(&people[i].pos, &people[j].pos);
+            if (gravity < 0.08f) {
+                continue;
+            }
+            s_synastry_bond_points[bond_idx][0].x = people[i].x;
+            s_synastry_bond_points[bond_idx][0].y = people[i].y;
+            s_synastry_bond_points[bond_idx][1].x = people[j].x;
+            s_synastry_bond_points[bond_idx][1].y = people[j].y;
+            lv_line_set_points(s_synastry_bonds[bond_idx], s_synastry_bond_points[bond_idx], 2);
+            lv_obj_set_style_line_color(s_synastry_bonds[bond_idx], lv_color_hex(synastry_bond_color(gravity)), 0);
+            lv_obj_set_style_line_width(s_synastry_bonds[bond_idx], gravity > 0.62f ? 3 : 2, 0);
+            lv_obj_set_style_line_opa(s_synastry_bonds[bond_idx], (lv_opa_t)(105 + gravity * 130.0f), 0);
+            native_obj_hidden(s_synastry_bonds[bond_idx], false);
+            ++bond_idx;
+        }
+    }
+    for (int i = bond_idx; i < SYNASTRY_ORRERY_MAX_BONDS; ++i) {
+        native_obj_hidden(s_synastry_bonds[i], true);
     }
 
-    for (int i = 0; i < 8; ++i) {
-        if (i >= aspect_count) {
-            native_obj_hidden(s_synastry_aspects[i], true);
+    for (int i = 0; i < SYNASTRY_ORRERY_MAX_PEOPLE; ++i) {
+        if (i >= person_count) {
+            native_obj_hidden(s_synastry_people[i], true);
+            native_obj_hidden(s_synastry_people_labels[i], true);
             continue;
         }
-        const lvgl_synastry_aspect_t *a = &aspects[i];
-        int x0 = 0;
-        int y0 = 0;
-        int x1 = 0;
-        int y1 = 0;
-        astrology_xy_for_lon(user_pos.lon[a->user_body], r_user, &x0, &y0);
-        astrology_xy_for_lon(target_pos.lon[a->target_body], r_target, &x1, &y1);
-        s_synastry_aspect_points[i][0].x = x0;
-        s_synastry_aspect_points[i][0].y = y0;
-        s_synastry_aspect_points[i][1].x = x1;
-        s_synastry_aspect_points[i][1].y = y1;
-        lv_line_set_points(s_synastry_aspects[i], s_synastry_aspect_points[i], 2);
-        lv_obj_set_style_line_color(s_synastry_aspects[i], lv_color_hex(synastry_aspect_color(a->aspect_deg)), 0);
-        lv_obj_set_style_line_opa(s_synastry_aspects[i], i < 4 ? 210 : 150, 0);
-        native_obj_hidden(s_synastry_aspects[i], false);
+        const int size = people[i].radius * 2;
+        lv_obj_set_size(s_synastry_people[i], size, size);
+        lv_obj_set_style_bg_color(s_synastry_people[i], lv_color_hex(people[i].color), 0);
+        lv_obj_set_style_border_color(s_synastry_people[i],
+                                      lv_color_hex(people[i].active ? 0xffe696 : 0xe6eeff), 0);
+        lv_obj_set_style_border_width(s_synastry_people[i], people[i].active ? 2 : 1, 0);
+        lv_obj_align(s_synastry_people[i], LV_ALIGN_TOP_LEFT,
+                     people[i].x - people[i].radius,
+                     people[i].y - people[i].radius);
+        char initial[2] = {people[i].chart.name[0] != '\0' ? people[i].chart.name[0] : '?', '\0'};
+        lv_label_set_text(s_synastry_people_labels[i], initial);
+        lv_obj_align(s_synastry_people_labels[i], LV_ALIGN_TOP_LEFT, people[i].x - 12, people[i].y - 7);
+        native_obj_hidden(s_synastry_people[i], false);
+        native_obj_hidden(s_synastry_people_labels[i], false);
     }
 
     lv_label_set_text(s_synastry_title, "SYNASTRY");

@@ -12,6 +12,8 @@
 #define CHARTS_KEY_PRIMARY "primary"
 #define CHARTS_KEY_ACTIVE "active"
 #define CHARTS_KEY_SEEDED "fam_seed"
+#define CHARTS_EPH_MAGIC 0x45504831u
+#define CHARTS_EPH_VERSION 1u
 
 enum {
     BODY_SUN = 0,
@@ -22,6 +24,15 @@ enum {
     BODY_JUPITER,
     BODY_SATURN,
 };
+
+typedef struct {
+    uint32_t magic;
+    uint16_t version;
+    uint16_t body_count;
+    uint32_t birth_fingerprint;
+    double lon[FACULTY175_CHART_BODY_COUNT];
+    bool ok;
+} faculty175_cached_positions_t;
 
 static const faculty175_birth_chart_t k_family_primary = {
     .name = "Daniel McShan",
@@ -40,7 +51,7 @@ static const faculty175_birth_chart_t k_family_primary = {
 
 static const faculty175_birth_chart_t k_family_profiles[] = {
     {
-        .name = "Camille St Martin",
+        .name = "Camille",
         .role = FACULTY175_CHART_ROLE_PARTNER,
         .year = 1983,
         .month = 9,
@@ -51,6 +62,20 @@ static const faculty175_birth_chart_t k_family_profiles[] = {
         .lon_deg = -70.9478f,
         .tz_offset_sec = -4 * 3600,
         .place = "Exeter, NH",
+        .valid = true,
+    },
+    {
+        .name = "Finn",
+        .role = FACULTY175_CHART_ROLE_CHILD,
+        .year = 2024,
+        .month = 4,
+        .day = 30,
+        .hour = 12,
+        .minute = 0,
+        .lat_deg = 39.0917f,
+        .lon_deg = -104.8728f,
+        .tz_offset_sec = -6 * 3600,
+        .place = "Monument, CO",
         .valid = true,
     },
     {
@@ -80,6 +105,120 @@ static bool chart_sane(const faculty175_birth_chart_t *b)
 static void profile_key(int slot, char *out, size_t cap)
 {
     snprintf(out, cap, "profile%d", slot);
+}
+
+static void positions_key_for_profile(int slot, char *out, size_t cap)
+{
+    snprintf(out, cap, "eph%d", slot);
+}
+
+static uint32_t fnv1a_update(uint32_t h, const void *data, size_t len)
+{
+    const uint8_t *p = (const uint8_t *)data;
+    for (size_t i = 0; i < len; ++i) {
+        h ^= p[i];
+        h *= 16777619u;
+    }
+    return h;
+}
+
+static uint32_t birth_fingerprint(const faculty175_birth_chart_t *b)
+{
+    uint32_t h = 2166136261u;
+    const size_t name_len = strnlen(b->name, sizeof(b->name));
+    const size_t place_len = strnlen(b->place, sizeof(b->place));
+    h = fnv1a_update(h, b->name, name_len);
+    h = fnv1a_update(h, &b->role, sizeof(b->role));
+    h = fnv1a_update(h, &b->year, sizeof(b->year));
+    h = fnv1a_update(h, &b->month, sizeof(b->month));
+    h = fnv1a_update(h, &b->day, sizeof(b->day));
+    h = fnv1a_update(h, &b->hour, sizeof(b->hour));
+    h = fnv1a_update(h, &b->minute, sizeof(b->minute));
+    h = fnv1a_update(h, &b->lat_deg, sizeof(b->lat_deg));
+    h = fnv1a_update(h, &b->lon_deg, sizeof(b->lon_deg));
+    h = fnv1a_update(h, &b->tz_offset_sec, sizeof(b->tz_offset_sec));
+    h = fnv1a_update(h, b->place, place_len);
+    return h;
+}
+
+static bool positions_cache_load(const char *key, uint32_t fingerprint, faculty175_chart_positions_t *out)
+{
+    if (key == NULL || out == NULL) {
+        return false;
+    }
+    nvs_handle_t nvs;
+    if (nvs_open(CHARTS_NVS_NS, NVS_READONLY, &nvs) != ESP_OK) {
+        return false;
+    }
+    faculty175_cached_positions_t cached = {};
+    size_t len = sizeof(cached);
+    const esp_err_t err = nvs_get_blob(nvs, key, &cached, &len);
+    nvs_close(nvs);
+    if (err != ESP_OK || len != sizeof(cached) || cached.magic != CHARTS_EPH_MAGIC ||
+        cached.version != CHARTS_EPH_VERSION || cached.body_count != FACULTY175_CHART_BODY_COUNT ||
+        cached.birth_fingerprint != fingerprint || !cached.ok) {
+        return false;
+    }
+    memset(out, 0, sizeof(*out));
+    memcpy(out->lon, cached.lon, sizeof(out->lon));
+    out->ok = true;
+    return true;
+}
+
+static void positions_cache_save(const char *key, uint32_t fingerprint, const faculty175_chart_positions_t *pos)
+{
+    if (key == NULL || pos == NULL || !pos->ok) {
+        return;
+    }
+    nvs_handle_t nvs;
+    if (nvs_open(CHARTS_NVS_NS, NVS_READWRITE, &nvs) != ESP_OK) {
+        return;
+    }
+    faculty175_cached_positions_t cached = {
+        .magic = CHARTS_EPH_MAGIC,
+        .version = CHARTS_EPH_VERSION,
+        .body_count = FACULTY175_CHART_BODY_COUNT,
+        .birth_fingerprint = fingerprint,
+        .ok = true,
+    };
+    memcpy(cached.lon, pos->lon, sizeof(cached.lon));
+    if (nvs_set_blob(nvs, key, &cached, sizeof(cached)) == ESP_OK) {
+        (void)nvs_commit(nvs);
+    }
+    nvs_close(nvs);
+}
+
+static void positions_cache_erase(const char *key)
+{
+    if (key == NULL) {
+        return;
+    }
+    nvs_handle_t nvs;
+    if (nvs_open(CHARTS_NVS_NS, NVS_READWRITE, &nvs) != ESP_OK) {
+        return;
+    }
+    if (nvs_erase_key(nvs, key) == ESP_OK) {
+        (void)nvs_commit(nvs);
+    }
+    nvs_close(nvs);
+}
+
+static bool positions_cache_key_for_birth(const faculty175_birth_chart_t *birth, char *out, size_t cap)
+{
+    faculty175_birth_chart_t primary = {};
+    if (faculty175_charts_primary(&primary) && birth_fingerprint(&primary) == birth_fingerprint(birth)) {
+        snprintf(out, cap, "eph_primary");
+        return true;
+    }
+    for (int i = 0; i < FACULTY175_CHART_PROFILE_SLOTS; ++i) {
+        faculty175_birth_chart_t profile = {};
+        if (faculty175_charts_profile_get(i, &profile) &&
+            birth_fingerprint(&profile) == birth_fingerprint(birth)) {
+            positions_key_for_profile(i, out, cap);
+            return true;
+        }
+    }
+    return false;
 }
 
 static double rev360(double x)
@@ -137,6 +276,9 @@ esp_err_t faculty175_charts_save_primary(const faculty175_birth_chart_t *chart)
         err = nvs_commit(nvs);
     }
     nvs_close(nvs);
+    if (err == ESP_OK) {
+        positions_cache_erase("eph_primary");
+    }
     return err;
 }
 
@@ -173,6 +315,11 @@ esp_err_t faculty175_charts_profile_save(int slot, const faculty175_birth_chart_
         err = nvs_commit(nvs);
     }
     nvs_close(nvs);
+    if (err == ESP_OK) {
+        char eph_key[16];
+        positions_key_for_profile(slot, eph_key, sizeof(eph_key));
+        positions_cache_erase(eph_key);
+    }
     return err;
 }
 
@@ -206,15 +353,45 @@ int faculty175_charts_profile_count(void)
     return count;
 }
 
+static bool profile_name_matches(const char *stored, const char *seed)
+{
+    if (stored == NULL || seed == NULL || stored[0] == '\0' || seed[0] == '\0') {
+        return false;
+    }
+    if (strcasecmp(stored, seed) == 0) {
+        return true;
+    }
+    const size_t seed_len = strlen(seed);
+    return strncasecmp(stored, seed, seed_len) == 0 &&
+           (stored[seed_len] == '\0' || stored[seed_len] == ' ');
+}
+
+static bool profile_seed_exists(const faculty175_birth_chart_t *seed)
+{
+    for (int i = 0; i < FACULTY175_CHART_PROFILE_SLOTS; ++i) {
+        faculty175_birth_chart_t existing = {};
+        if (faculty175_charts_profile_get(i, &existing) && profile_name_matches(existing.name, seed->name)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static int first_free_profile_slot(void)
+{
+    for (int i = 0; i < FACULTY175_CHART_PROFILE_SLOTS; ++i) {
+        faculty175_birth_chart_t existing = {};
+        if (!faculty175_charts_profile_get(i, &existing)) {
+            return i;
+        }
+    }
+    return -1;
+}
+
 void faculty175_charts_ensure_family_seed(void)
 {
     nvs_handle_t nvs;
     if (nvs_open(CHARTS_NVS_NS, NVS_READWRITE, &nvs) != ESP_OK) {
-        return;
-    }
-    uint8_t seeded = 0;
-    if (nvs_get_u8(nvs, CHARTS_KEY_SEEDED, &seeded) == ESP_OK && seeded != 0) {
-        nvs_close(nvs);
         return;
     }
     nvs_close(nvs);
@@ -223,16 +400,28 @@ void faculty175_charts_ensure_family_seed(void)
     if (!faculty175_charts_primary(&primary)) {
         (void)faculty175_charts_save_primary(&k_family_primary);
     }
-    for (size_t i = 0; i < sizeof(k_family_profiles) / sizeof(k_family_profiles[0]) &&
-                       i < FACULTY175_CHART_PROFILE_SLOTS;
-         ++i) {
-        faculty175_birth_chart_t existing = {};
-        if (!faculty175_charts_profile_get((int)i, &existing)) {
-            (void)faculty175_charts_profile_save((int)i, &k_family_profiles[i]);
+    for (size_t i = 0; i < sizeof(k_family_profiles) / sizeof(k_family_profiles[0]); ++i) {
+        if (!profile_seed_exists(&k_family_profiles[i])) {
+            const int slot = first_free_profile_slot();
+            if (slot < 0) {
+                break;
+            }
+            (void)faculty175_charts_profile_save(slot, &k_family_profiles[i]);
         }
     }
     if (faculty175_charts_active_slot() < 0) {
         (void)faculty175_charts_set_active_slot(0);
+    }
+    if (faculty175_charts_primary(&primary)) {
+        faculty175_chart_positions_t pos = {};
+        (void)faculty175_charts_birth_positions(&primary, &pos);
+    }
+    for (int i = 0; i < FACULTY175_CHART_PROFILE_SLOTS; ++i) {
+        faculty175_birth_chart_t profile = {};
+        if (faculty175_charts_profile_get(i, &profile)) {
+            faculty175_chart_positions_t pos = {};
+            (void)faculty175_charts_birth_positions(&profile, &pos);
+        }
     }
 
     if (nvs_open(CHARTS_NVS_NS, NVS_READWRITE, &nvs) == ESP_OK) {
@@ -458,6 +647,12 @@ bool faculty175_charts_birth_positions(const faculty175_birth_chart_t *birth, fa
     if (!chart_sane(birth) || out == NULL) {
         return false;
     }
+    char cache_key[16] = {};
+    const uint32_t fingerprint = birth_fingerprint(birth);
+    const bool cacheable = positions_cache_key_for_birth(birth, cache_key, sizeof(cache_key));
+    if (cacheable && positions_cache_load(cache_key, fingerprint, out)) {
+        return true;
+    }
     time_t epoch = 0;
     if (!faculty175_charts_birth_to_utc(birth, &epoch)) {
         return false;
@@ -465,6 +660,9 @@ bool faculty175_charts_birth_positions(const faculty175_birth_chart_t *birth, fa
     struct tm utc = {};
     gmtime_r(&epoch, &utc);
     compute_utc(&utc, out);
+    if (cacheable && out->ok) {
+        positions_cache_save(cache_key, fingerprint, out);
+    }
     return out->ok;
 }
 
