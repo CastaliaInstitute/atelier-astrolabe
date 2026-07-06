@@ -99,6 +99,7 @@ esp_err_t faculty175_voice_stream_finish(const char *faculty_slug,
 void faculty175_voice_stream_cancel(void);
 
 esp_err_t faculty175_voice_play_mp3(const uint8_t *mp3, size_t mp3_len);
+esp_err_t faculty175_voice_play_mp3_async(const uint8_t *mp3, size_t mp3_len);
 esp_err_t faculty175_voice_play_mp3_file(const char *path, size_t mp3_len);
 
 esp_err_t faculty175_voice_tts_speaker_stream_begin(void);
