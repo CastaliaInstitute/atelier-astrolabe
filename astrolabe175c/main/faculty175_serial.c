@@ -12,7 +12,7 @@
 #include "esp_wifi.h"
 #include "driver/gpio.h"
 #include "driver/i2c_master.h"
-#if CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG_ENABLED && !CONFIG_TINYUSB_CDC_ENABLED
+#if CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG_ENABLED
 #include "driver/usb_serial_jtag.h"
 #include "driver/usb_serial_jtag_vfs.h"
 #endif
@@ -384,9 +384,23 @@ static bool handle_wifi_command(const char *line)
     return true;
 }
 
-static void emit_screen_bmp(void)
+static esp_err_t serial_bmp_write_cb(void *ctx, const uint8_t *data, size_t len)
 {
-    const size_t bytes = faculty175_display_bmp_size();
+    FILE *out = (FILE *)ctx;
+    if (out == NULL || (len > 0 && data == NULL)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (len > 0 && fwrite(data, 1, len, out) != len) {
+        return ESP_FAIL;
+    }
+    fflush(out);
+    vTaskDelay(pdMS_TO_TICKS(1));
+    return ESP_OK;
+}
+
+static void emit_screen_bmp_locked(void)
+{
+    const size_t bytes = faculty175_display_bmp565_size();
     if (bytes == 0) {
         printf("screen: error no framebuffer\n");
         fflush(stdout);
@@ -396,22 +410,33 @@ static void emit_screen_bmp(void)
     const esp_log_level_t prev = esp_log_level_get("*");
     esp_log_level_set("*", ESP_LOG_ERROR);
 
-    faculty175_display_lock();
     printf("screen: BEGIN w=%d h=%d bytes=%u\n", FACULTY175_LCD_W, FACULTY175_LCD_H, (unsigned)bytes);
     fflush(stdout);
 
-    const int wrote = faculty175_display_write_bmp(stdout);
+#if CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG_ENABLED
+    usb_serial_jtag_vfs_set_tx_line_endings(ESP_LINE_ENDINGS_LF);
+#endif
+    const esp_err_t write_err = faculty175_display_write_bmp565(serial_bmp_write_cb, stdout);
     fflush(stdout);
+#if CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG_ENABLED
+    usb_serial_jtag_vfs_set_tx_line_endings(ESP_LINE_ENDINGS_CRLF);
+#endif
 
-    if (wrote < 0 || (size_t)wrote != bytes) {
-        printf("screen: error bmp write failed (%d)\n", wrote);
+    if (write_err != ESP_OK) {
+        printf("screen: error bmp write failed (%s)\n", esp_err_to_name(write_err));
     } else {
         printf("screen: END\n");
     }
     fflush(stdout);
-    faculty175_display_unlock();
 
     esp_log_level_set("*", prev);
+}
+
+static void emit_screen_bmp(void)
+{
+    faculty175_display_lock();
+    emit_screen_bmp_locked();
+    faculty175_display_unlock();
 }
 
 static void emit_face_screen_bmp(void)
@@ -425,7 +450,7 @@ static void emit_face_screen_bmp(void)
         fflush(stdout);
         return;
     }
-    emit_screen_bmp();
+    emit_screen_bmp_locked();
     faculty175_display_unlock();
 }
 
@@ -1129,7 +1154,7 @@ static void serial_task(void *arg)
     for (;;) {
         uint8_t byte = 0;
         ssize_t n = -1;
-#if CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG_ENABLED && !CONFIG_TINYUSB_CDC_ENABLED
+#if CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG_ENABLED
         if (s_usb_serial_jtag_rx) {
             n = usb_serial_jtag_read_bytes(&byte, 1, pdMS_TO_TICKS(20));
         } else
@@ -1162,7 +1187,7 @@ void faculty175_serial_init(void)
     if (s_serial_task != NULL) {
         return;
     }
-#if CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG_ENABLED && !CONFIG_TINYUSB_CDC_ENABLED
+#if CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG_ENABLED
     usb_serial_jtag_driver_config_t usb_cfg = USB_SERIAL_JTAG_DRIVER_CONFIG_DEFAULT();
     const esp_err_t usb_err = usb_serial_jtag_driver_install(&usb_cfg);
     if (usb_err == ESP_OK || usb_err == ESP_ERR_INVALID_STATE) {
@@ -1180,7 +1205,7 @@ void faculty175_serial_init(void)
     if (flags >= 0) {
         (void)fcntl(STDIN_FILENO, F_SETFL, flags | O_NONBLOCK);
     }
-    xTaskCreate(serial_task, "serial", 6144, NULL, 3, &s_serial_task);
+    xTaskCreate(serial_task, "serial", 8192, NULL, 3, &s_serial_task);
 }
 
 TaskHandle_t faculty175_serial_task_handle(void)

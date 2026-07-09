@@ -29,9 +29,8 @@ static const char *TAG = "faculty175_screen_http";
 static httpd_handle_t s_httpd;
 static esp_ip4_addr_t s_ip;
 
-// Voice soak validation is currently more important than screen-over-WiFi.
-// Keep the HTTP server out of the runtime so websocket/TLS gets the RAM first.
-#define FACULTY175_SCREEN_HTTP_RUNTIME_ENABLED 0
+// The 1.75C QA path relies on the lightweight screen/settings HTTP server.
+#define FACULTY175_SCREEN_HTTP_RUNTIME_ENABLED 1
 
 static esp_err_t send_chunk_cb(void *ctx, const uint8_t *data, size_t len)
 {
