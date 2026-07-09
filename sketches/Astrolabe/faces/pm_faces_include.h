@@ -17,6 +17,7 @@
 #include "faces/faculty/pm_face_faculty.h"
 #include "faces/focus/pm_face_focus.h"
 #include "faces/geomancy/pm_face_geomancy.h"
+#include "faces/human_design/pm_face_human_design.h"
 #include "faces/inq_card/pm_face_inq_card.h"
 #include "faces/kalimba/pm_face_kalimba.h"
 #include "faces/level/pm_face_level.h"

@@ -7050,6 +7050,7 @@ static const char *descriptor_subtitle_for_face(const faculty175_face_desc_t *de
         case FACULTY175_FACE_LENORMAND: return "Oracle tableau";
         case FACULTY175_FACE_GEOMANCY: return "Figures";
         case FACULTY175_FACE_ENOCHIAN: return "Angel table";
+        case FACULTY175_FACE_HUMAN_DESIGN: return "Bodygraph";
         case FACULTY175_FACE_HID: return "Touchpad";
         case FACULTY175_FACE_WSCAN: return "Broad network scan";
         case FACULTY175_FACE_DEAUTH: return "802.11 deauth lab";
@@ -7103,7 +7104,8 @@ static bool draw_face_descriptor(faculty175_face_id_t id, uint32_t anim_ms)
 
 bool faculty175_lvgl_draw_face(faculty175_face_id_t id, uint32_t anim_ms)
 {
-    if (id == FACULTY175_FACE_DEATHSTAR || id == FACULTY175_FACE_TRON || id == FACULTY175_FACE_MAZE) {
+    if (id == FACULTY175_FACE_DEATHSTAR || id == FACULTY175_FACE_TRON || id == FACULTY175_FACE_MAZE ||
+        id == FACULTY175_FACE_HUMAN_DESIGN) {
         return false;
     }
 

@@ -96,6 +96,8 @@ enum class ClockFace : uint8_t {
   HidTouchpad,
   /** Babel Fish translator: STT -> LLM translation -> native-language TTS. */
   BabelFish,
+  /** Human Design bodygraph for the saved reference chart. */
+  HumanDesign,
   /** Tiny pendant: faculty bust + always-on listen (M5 AtomS3R target in facultyatom/). */
   Wand,
   kNumFaces,

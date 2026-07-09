@@ -90,6 +90,7 @@ static bool face_is_lunasay(ClockFace face) {
     case ClockFace::LiveTransits:
     case ClockFace::Sky:
     case ClockFace::Synastry:
+    case ClockFace::HumanDesign:
     case ClockFace::Tarot:
     case ClockFace::InqCard:
     case ClockFace::Lenormand:

@@ -34,6 +34,8 @@ void faculty175_face_watcher_draw(uint32_t anim_ms);
 void faculty175_face_lenormand_draw(uint32_t anim_ms);
 void faculty175_face_hid_draw(uint32_t anim_ms);
 void faculty175_face_babel_draw(uint32_t anim_ms);
+void faculty175_face_human_design_draw(uint32_t anim_ms);
+bool faculty175_face_human_design_action(uint32_t seed_ms);
 void faculty175_face_maze_draw(uint32_t anim_ms);
 void faculty175_face_deathstar_draw(uint32_t anim_ms);
 void faculty175_face_tron_draw(uint32_t anim_ms);
@@ -76,6 +78,7 @@ bool faculty175_face_dispatch_draw(faculty175_face_id_t id, uint32_t anim_ms)
         case FACULTY175_FACE_LENORMAND: faculty175_face_lenormand_draw(anim_ms); return true;
         case FACULTY175_FACE_HID: faculty175_face_hid_draw(anim_ms); return true;
         case FACULTY175_FACE_BABEL: faculty175_face_babel_draw(anim_ms); return true;
+        case FACULTY175_FACE_HUMAN_DESIGN: faculty175_face_human_design_draw(anim_ms); return true;
         case FACULTY175_FACE_MAZE: faculty175_face_maze_draw(anim_ms); return true;
         case FACULTY175_FACE_DEATHSTAR: faculty175_face_deathstar_draw(anim_ms); return true;
         case FACULTY175_FACE_TRON: faculty175_face_tron_draw(anim_ms); return true;
@@ -109,6 +112,8 @@ bool faculty175_face_dispatch_action(faculty175_face_id_t id, uint32_t seed_ms)
         case FACULTY175_FACE_TAROT:
             faculty175_face_tarot_draw_card(seed_ms);
             return true;
+        case FACULTY175_FACE_HUMAN_DESIGN:
+            return faculty175_face_human_design_action(seed_ms);
         case FACULTY175_FACE_TRON:
             faculty175_face_tron_reset();
             return true;

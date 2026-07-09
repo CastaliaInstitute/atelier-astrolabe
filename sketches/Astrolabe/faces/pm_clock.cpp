@@ -25,6 +25,7 @@
 #include "faces/geomancy/pm_face_geomancy.h"
 #include "faces/globe/pm_face_globe.h"
 #include "faces/hid/pm_face_hid.h"
+#include "faces/human_design/pm_face_human_design.h"
 #include "faces/inq_card/pm_face_inq_card.h"
 #include "faces/kalimba/pm_face_kalimba.h"
 #include "faces/level/pm_face_level.h"
@@ -87,6 +88,7 @@ static const ClockFace k_face_dial_order[] = {
     ClockFace::Astrology,
     ClockFace::LiveTransits,
     ClockFace::Synastry,
+    ClockFace::HumanDesign,
     ClockFace::Tarot,
     ClockFace::InqCard,
     ClockFace::Lenormand,
@@ -314,6 +316,7 @@ static void pm_faces_on_leave(ClockFace from, ClockFace to) {
     case ClockFace::Astrology:
     case ClockFace::LiveTransits:
     case ClockFace::Synastry:
+    case ClockFace::HumanDesign:
       pm_ephemeris_release_cache();
       break;
     case ClockFace::CalciferCountdown:
@@ -509,6 +512,7 @@ void pm_faces_draw(float thinking_progress) {
       s_clock_face != ClockFace::Spectrum && s_clock_face != ClockFace::Chakra &&
       s_clock_face != ClockFace::TibetanBowl && s_clock_face != ClockFace::Rocket &&
       s_clock_face != ClockFace::Radar && s_clock_face != ClockFace::HidTouchpad &&
+      s_clock_face != ClockFace::HumanDesign &&
       s_clock_face != ClockFace::Biometrics && s_clock_face != ClockFace::Faculty &&
       s_clock_face != ClockFace::Watcher &&
       s_clock_face != ClockFace::Weather && s_clock_face != ClockFace::Quotes &&
@@ -571,6 +575,9 @@ void pm_faces_draw(float thinking_progress) {
       break;
     case ClockFace::Synastry:
       pm_face_synastry_draw(&tm, pm_time_valid());
+      break;
+    case ClockFace::HumanDesign:
+      pm_face_human_design_draw();
       break;
     case ClockFace::Spectrum:
       pm_face_spectrum_draw(bg);
@@ -699,6 +706,7 @@ void pm_faces_draw(float thinking_progress) {
                         s_clock_face == ClockFace::Moon ||
                         s_clock_face == ClockFace::CalciferCountdown || s_clock_face == ClockFace::Castalia ||
                         s_clock_face == ClockFace::Settings || s_clock_face == ClockFace::Synastry ||
+                        s_clock_face == ClockFace::HumanDesign ||
                         s_clock_face == ClockFace::Spectrum || s_clock_face == ClockFace::Chakra ||
                         s_clock_face == ClockFace::TibetanBowl || s_clock_face == ClockFace::Rocket ||
                         s_clock_face == ClockFace::Radar || s_clock_face == ClockFace::HidTouchpad ||
@@ -733,6 +741,7 @@ void pm_faces_draw(float thinking_progress) {
       s_clock_face != ClockFace::CalciferCountdown && s_clock_face != ClockFace::Spectrum &&
       s_clock_face != ClockFace::TibetanBowl && s_clock_face != ClockFace::Rocket &&
       s_clock_face != ClockFace::Radar && s_clock_face != ClockFace::HidTouchpad &&
+      s_clock_face != ClockFace::HumanDesign &&
       s_clock_face != ClockFace::Biometrics && s_clock_face != ClockFace::Faculty &&
       s_clock_face != ClockFace::Watcher &&
       s_clock_face != ClockFace::Weather && s_clock_face != ClockFace::Quotes &&
@@ -786,7 +795,8 @@ bool pm_faces_banner_low(void) {
   const ClockFace f = s_clock_face;
   return f == ClockFace::Apocalypso || f == ClockFace::Spotify || f == ClockFace::Astrology ||
          f == ClockFace::LiveTransits || f == ClockFace::Moon || f == ClockFace::CalciferCountdown || f == ClockFace::Castalia ||
-         f == ClockFace::Settings || f == ClockFace::Synastry || f == ClockFace::Spectrum ||
+         f == ClockFace::Settings || f == ClockFace::Synastry || f == ClockFace::HumanDesign ||
+         f == ClockFace::Spectrum ||
          f == ClockFace::Chakra || f == ClockFace::TibetanBowl || f == ClockFace::Rocket ||
          f == ClockFace::Radar || f == ClockFace::HidTouchpad ||
          f == ClockFace::Biometrics || f == ClockFace::Watcher ||
@@ -807,7 +817,8 @@ uint16_t pm_faces_last_bg565(void) { return s_clock_bg565; }
 
 bool pm_faces_local_hm_changed(int hour, int min) {
   if (s_clock_face == ClockFace::Settings || s_clock_face == ClockFace::Castalia ||
-      s_clock_face == ClockFace::LiveTransits || s_clock_face == ClockFace::Synastry || s_clock_face == ClockFace::Spectrum ||
+      s_clock_face == ClockFace::LiveTransits || s_clock_face == ClockFace::Synastry ||
+      s_clock_face == ClockFace::HumanDesign || s_clock_face == ClockFace::Spectrum ||
       s_clock_face == ClockFace::Chakra || s_clock_face == ClockFace::TibetanBowl ||
       s_clock_face == ClockFace::Rocket || s_clock_face == ClockFace::Radar ||
       s_clock_face == ClockFace::HidTouchpad || s_clock_face == ClockFace::Biometrics ||

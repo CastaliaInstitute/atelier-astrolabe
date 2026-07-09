@@ -9,6 +9,7 @@
 #include "esp_log.h"
 #include "esp_mac.h"
 #include "esp_netif.h"
+#include "esp_ota_ops.h"
 #include "esp_system.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
@@ -72,6 +73,13 @@ static const char *TAG = "faculty175";
 volatile uint32_t g_faculty175_boot_stage;
 volatile int32_t g_faculty175_boot_last_err;
 
+static bool running_from_factory_partition(void)
+{
+    const esp_partition_t *running = esp_ota_get_running_partition();
+    return running != NULL && running->type == ESP_PARTITION_TYPE_APP &&
+           running->subtype == ESP_PARTITION_SUBTYPE_APP_FACTORY;
+}
+
 #define WIFI_CONNECTED_BIT BIT0
 #define WIFI_FAIL_BIT BIT1
 #define VOICE_WORKER_STACK_BYTES 7168
@@ -96,12 +104,12 @@ volatile int32_t g_faculty175_boot_last_err;
 #define BUTTON_REBOOT_GRACE_MS 12000
 #define WIFI_CONNECT_TIMEOUT_MS 20000
 #define WIFI_CANDIDATE_MAX 3
-#define FACULTY175_WIFI_START_STACK 8192
+#define FACULTY175_WIFI_START_STACK 6144
 #define FACULTY175_PIPELINE_LISTEN_STACK 3456
 #define FACULTY175_PIPELINE_VOICE_STACK 6144
-#define FACULTY175_UI_TASK_STACK 5376
+#define FACULTY175_UI_TASK_STACK 12288
 #define FACULTY175_INPUT_TASK_STACK 5376
-#define FACULTY175_SERIAL_TASK_STACK 5120
+#define FACULTY175_SERIAL_TASK_STACK 8192
 #define FACULTY175_BUTTON_REBOOT_STACK 3328
 
 static EventGroupHandle_t s_wifi_events;
@@ -2049,6 +2057,12 @@ static esp_err_t wifi_start(void)
     ESP_ERROR_CHECK(esp_event_loop_create_default());
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    cfg.static_rx_buf_num = 2;
+    cfg.dynamic_rx_buf_num = 8;
+    cfg.dynamic_tx_buf_num = 8;
+    cfg.rx_ba_win = 2;
+    cfg.rx_mgmt_buf_num = 2;
+    cfg.mgmt_sbuf_num = 6;
     esp_err_t err = esp_wifi_init(&cfg);
     if (err != ESP_OK) {
         FACULTY175_LOG_STAGE_E(TAG, "wifi", "init failed: %s", esp_err_to_name(err));
@@ -2124,11 +2138,58 @@ static void wifi_start_task(void *arg)
         if (s_faculty_ready) {
             faculty175_faculty_set_network_fetch_enabled(true);
         }
+        faculty175_ota_start_auto_update_task();
         faculty175_ota_maybe_start_recovery_request();
         FACULTY175_LOG_STAGE(TAG, "network", "faculty bust cache enabled");
     }
     s_wifi_start_task = NULL;
     vTaskDelete(NULL);
+}
+
+static bool wifi_start_task_launch(const char *stage)
+{
+    if (s_wifi_start_complete || s_wifi_start_task != NULL) {
+        return true;
+    }
+    BaseType_t wifi_task_ok = xTaskCreateWithCaps(wifi_start_task,
+                                                  "wifi_start",
+                                                  FACULTY175_WIFI_START_STACK,
+                                                  NULL,
+                                                  6,
+                                                  &s_wifi_start_task,
+                                                  MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (wifi_task_ok != pdPASS) {
+        s_wifi_start_task = NULL;
+        wifi_task_ok = xTaskCreate(wifi_start_task,
+                                   "wifi_start",
+                                   FACULTY175_WIFI_START_STACK,
+                                   NULL,
+                                   6,
+                                   &s_wifi_start_task);
+    }
+    if (wifi_task_ok != pdPASS) {
+        s_wifi_start_task = NULL;
+        FACULTY175_LOG_STAGE_W(TAG, "wifi", "%s start task failed; staying offline",
+                               stage != NULL ? stage : "background");
+        return false;
+    }
+    FACULTY175_LOG_STAGE(TAG, "wifi", "%s start task launched",
+                         stage != NULL ? stage : "background");
+    return true;
+}
+
+static void wifi_wait_for_start_complete(const char *stage, uint32_t timeout_ms)
+{
+    const TickType_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(timeout_ms);
+    while (!s_wifi_start_complete && s_wifi_start_task != NULL) {
+        if ((int32_t)(xTaskGetTickCount() - deadline) >= 0) {
+            FACULTY175_LOG_STAGE_W(TAG, "wifi", "%s start still pending after %u ms",
+                                   stage != NULL ? stage : "background",
+                                   (unsigned)timeout_ms);
+            return;
+        }
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
 }
 
 static bool wifi_is_connected(void)
@@ -3116,6 +3177,18 @@ void app_main(void)
     boot_probe_stage(0xa6);
     esp_rom_printf("A6 ota_init\n");
     faculty175_ota_init();
+    faculty175_ota_maybe_boot_product();
+    faculty175_serial_init();
+    if (running_from_factory_partition()) {
+        FACULTY175_LOG_STAGE(TAG, "boot", "factory recovery OTA mode");
+        (void)wifi_start_task_launch("recovery");
+        while (true) {
+            vTaskDelay(pdMS_TO_TICKS(1000));
+        }
+    }
+    (void)wifi_start_task_launch("early");
+    wifi_wait_for_start_complete("early", 25000);
+
     boot_probe_stage(0xa7);
     esp_rom_printf("A7 apocalypso\n");
     const esp_err_t apocalypso_err = faculty175_apocalypso_init();
@@ -3131,9 +3204,6 @@ void app_main(void)
     const esp_err_t rocket_err = faculty175_rocket_init();
     boot_probe_err(rocket_err);
     ESP_ERROR_CHECK(rocket_err);
-    boot_probe_stage(0xaa);
-    esp_rom_printf("A10 maybe_boot_product\n");
-    faculty175_ota_maybe_boot_product();
     boot_probe_stage(0xab);
     esp_rom_printf("A11 faces_init\n");
     const esp_err_t faces_err = faculty175_faces_init();
@@ -3176,26 +3246,7 @@ void app_main(void)
     boot_probe_stage(0xb2);
     esp_rom_printf("A18 ui_queue\n");
     s_ui_queue = xQueueCreate(1, sizeof(faculty175_ui_msg_t));
-    BaseType_t wifi_task_ok = xTaskCreateWithCaps(wifi_start_task,
-                                                  "wifi_start",
-                                                  FACULTY175_WIFI_START_STACK,
-                                                  NULL,
-                                                  6,
-                                                  &s_wifi_start_task,
-                                                  MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    if (wifi_task_ok != pdPASS) {
-        s_wifi_start_task = NULL;
-        wifi_task_ok = xTaskCreate(wifi_start_task,
-                                   "wifi_start",
-                                   FACULTY175_WIFI_START_STACK,
-                                   NULL,
-                                   6,
-                                   &s_wifi_start_task);
-    }
-    if (wifi_task_ok != pdPASS) {
-        s_wifi_start_task = NULL;
-        FACULTY175_LOG_STAGE_W(TAG, "wifi", "background start task failed; staying offline");
-    }
+    (void)wifi_start_task_launch("background");
     xTaskCreate(ui_task, "ui", FACULTY175_UI_TASK_STACK, NULL, 4, &s_ui_task);
     BaseType_t input_task_ok = xTaskCreateWithCaps(input_task,
                                                    "input",
@@ -3219,7 +3270,7 @@ void app_main(void)
     if (faculty_init_err == ESP_OK) {
         s_faculty_ready = true;
         faculty175_faculty_set_ui_notify(bust_ui_refresh);
-        faculty175_faculty_set_network_fetch_enabled(false);
+        faculty175_faculty_set_network_fetch_enabled(wifi_is_connected());
     }
 
     FACULTY175_LOG_STAGE_W(TAG, "ble", "startup disabled to preserve internal RAM");

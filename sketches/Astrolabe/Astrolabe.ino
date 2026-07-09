@@ -69,6 +69,7 @@
 #include "faces/geomancy/pm_face_geomancy.h"
 #include "faces/globe/pm_face_globe.h"
 #include "faces/hid/pm_face_hid.h"
+#include "faces/human_design/pm_face_human_design.h"
 #include "faces/inq_card/pm_face_inq_card.h"
 #include "faces/spotify/pm_face_spotify.h"
 #include "faces/calcifer/pm_face_calcifer.h"
@@ -861,6 +862,8 @@ static bool face_index_from_name(const char *name, int *out) {
       {"schedule", ClockFace::CalciferCountdown}, {"castalia", ClockFace::Castalia},
       {"settings", ClockFace::Settings}, {"wifi", ClockFace::Settings},
       {"synastry", ClockFace::Synastry}, {"syn", ClockFace::Synastry},
+      {"human_design", ClockFace::HumanDesign}, {"human-design", ClockFace::HumanDesign},
+      {"humandesign", ClockFace::HumanDesign}, {"hd", ClockFace::HumanDesign},
       {"spectrum", ClockFace::Spectrum}, {"fft", ClockFace::Spectrum},
       {"audio", ClockFace::Spectrum}, {"sound", ClockFace::Spectrum},
       {"chakra", ClockFace::Chakra}, {"bowl", ClockFace::TibetanBowl},
@@ -969,6 +972,9 @@ static const FaceTourInfo k_face_tour[] = {
      "settings UI is drawing", "settings UI is drawing", false, false},
     {ClockFace::Synastry, "synastry", "dual natal chart and relationship aspects", "the active synastry relationship highlight",
      "time and WiFi are ready", "needs WiFi and time for voice", true, true},
+    {ClockFace::HumanDesign, "human-design", "bodygraph, centers, channels, and profile from the reference chart",
+     "the active Human Design bodygraph and decision strategy",
+     "drawing local bodygraph", "drawing local bodygraph", false, false},
     {ClockFace::Spectrum, "spectrum", "microphone spectrum visualizer modes", "a sound-check prompt for the audio spectrum face",
      "local audio analyzer is drawing", "audio analyzer is local only", false, false},
     {ClockFace::Chakra, "chakra", "chakra symbols with solfeggio tones", "the current chakra tone and embodied attention",
