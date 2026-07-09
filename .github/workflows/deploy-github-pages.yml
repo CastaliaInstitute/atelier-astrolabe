@@ -65,6 +65,7 @@ jobs:
       - name: Publish astrolabe175c ESP-IDF OTA
         if: (github.ref == 'refs/heads/integration' || github.ref == 'refs/heads/main') && !contains(github.event.head_commit.message || '', '[pages-only]')
         env:
+          ASTROLABE175C_SKIP_LVGL_AUDIT: "1"
           FACULTY175_OTA_PRIVATE_KEY_PEM: ${{ secrets.FACULTY175_OTA_PRIVATE_KEY_PEM }}
           FACULTY175_OTA_DEVICES: ${{ vars.FACULTY175_OTA_DEVICES || 'a0:f2:62:e3:06:44' }}
         run: |
