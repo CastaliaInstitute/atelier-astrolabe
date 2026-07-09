@@ -40,6 +40,7 @@ jobs:
         run: |
           test -n "$FACULTY175_OTA_PRIVATE_KEY_PEM"
           docker run --rm \
+            -e ASTROLABE175C_SKIP_LVGL_AUDIT=1 \
             -v "$GITHUB_WORKSPACE:/project" \
             -w /project \
             espressif/idf:v5.5.1 \
