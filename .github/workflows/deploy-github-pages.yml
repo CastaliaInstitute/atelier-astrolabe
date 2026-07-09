@@ -67,7 +67,7 @@ jobs:
         env:
           ASTROLABE175C_SKIP_LVGL_AUDIT: "1"
           FACULTY175_OTA_PRIVATE_KEY_PEM: ${{ secrets.FACULTY175_OTA_PRIVATE_KEY_PEM }}
-          FACULTY175_OTA_DEVICES: ${{ vars.FACULTY175_OTA_DEVICES || 'a0:f2:62:e3:06:44' }}
+          FACULTY175_OTA_DEVICES: ${{ vars.FACULTY175_OTA_DEVICES || 'a0:f2:62:e3:06:44,44:1b:f6:85:52:74' }}
         run: |
           test -n "$FACULTY175_OTA_PRIVATE_KEY_PEM"
           docker run --rm \
