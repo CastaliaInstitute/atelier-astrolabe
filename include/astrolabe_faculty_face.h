@@ -10,8 +10,8 @@
 
 #define ASTROLABE_FACULTY_FACE_NAME "faculty"
 #define ASTROLABE_FACULTY_OTA_CHANNEL "astrolabe-faculty-amoled18"
-#define ASTROLABE_FACULTY_DEFAULT_FACULTY_SLUG "a.einstein"
-#define ASTROLABE_FACULTY_DEFAULT_FACULTY_NAME "Einstein"
+#define ASTROLABE_FACULTY_DEFAULT_FACULTY_SLUG "a.darwin"
+#define ASTROLABE_FACULTY_DEFAULT_FACULTY_NAME "Charles Darwin"
 
 #define ASTROLABE_FACULTY_SYSTEM_INSTRUCTION \
     "You are Castalia faculty on Astrolabe: a voice conversation with a named faculty member. " \

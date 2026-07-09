@@ -2,6 +2,9 @@
 
 #include <Arduino.h>
 #include <Arduino_GFX_Library.h>
+#if defined(ASTROLABE_PLATFORM_185B)
+#include <display/Arduino_ST77916.h>
+#endif
 #include <WiFi.h>
 #include <Wire.h>
 #include <cstdio>
@@ -66,6 +69,7 @@
 #include "faces/geomancy/pm_face_geomancy.h"
 #include "faces/globe/pm_face_globe.h"
 #include "faces/hid/pm_face_hid.h"
+#include "faces/human_design/pm_face_human_design.h"
 #include "faces/inq_card/pm_face_inq_card.h"
 #include "faces/spotify/pm_face_spotify.h"
 #include "faces/calcifer/pm_face_calcifer.h"
@@ -109,16 +113,87 @@
 Arduino_DataBus *bus = new Arduino_ESP32QSPI(
     LCD_CS, LCD_SCLK, LCD_SDIO0, LCD_SDIO1, LCD_SDIO2, LCD_SDIO3);
 
+#if defined(ASTROLABE_PLATFORM_185B)
+class AstrolabeST77916 : public Arduino_ST77916 {
+ public:
+  using Arduino_ST77916::Arduino_ST77916;
+
+  void force_power_on() {
+    _bus->sendCommand(ST77916_SLPOUT);
+    delay(ST77916_SLPOUT_DELAY);
+    _bus->sendCommand(ST77916_DISPON);
+    delay(40);
+  }
+};
+
+AstrolabeST77916 *tft = new AstrolabeST77916(
+    bus, LCD_RESET, 0, false, LCD_WIDTH, LCD_HEIGHT, 0, 0, 0, 0);
+#else
 Arduino_CO5300 *tft = new Arduino_CO5300(
     bus, LCD_RESET, 0, false, LCD_WIDTH, LCD_HEIGHT, 6, 0, 0, 0);
+#endif
 /** Portable framebuffer facade; flush() pushes pixels to the CO5300 (enables WiFi BMP grab). */
 PmDisplayCanvas *gfx = new PmDisplayCanvas(LCD_WIDTH, LCD_HEIGHT, tft);
 
+#if defined(ASTROLABE_PLATFORM_185B)
+static constexpr uint8_t kBootBrightness = 255;
+#else
+static constexpr uint8_t kBootBrightness = 200;
+#endif
+
+#if defined(ASTROLABE_PLATFORM_185B)
+#ifndef ASTROLABE_PLATFORM_185B_BACKLIGHT_INVERTED
+#define ASTROLABE_PLATFORM_185B_BACKLIGHT_INVERTED 0
+#endif
+#ifndef ASTROLABE_PLATFORM_185B_BACKLIGHT_USE_PWM
+#define ASTROLABE_PLATFORM_185B_BACKLIGHT_USE_PWM 0
+#endif
+
+constexpr uint8_t kBacklightPwmChannel = 7;
+constexpr uint32_t kBacklightPwmFreqHz = 5000;
+constexpr uint8_t kBacklightPwmBits = 8;
+constexpr uint8_t kBacklightPwmMax = (1u << kBacklightPwmBits) - 1u;
+
+static void astrolabe_init_backlight_pwm(void) {
+  static bool backlight_pwm_ready = false;
+  if (backlight_pwm_ready) {
+    return;
+  }
+  pinMode(LCD_BL, OUTPUT);
+  ledcSetup(kBacklightPwmChannel, kBacklightPwmFreqHz, kBacklightPwmBits);
+  ledcAttachPin(LCD_BL, kBacklightPwmChannel);
+  backlight_pwm_ready = true;
+}
+
+static uint8_t astrolabe_to_backlight_duty(uint8_t brightness) {
+  const uint8_t clamped = brightness > kBacklightPwmMax ? kBacklightPwmMax : brightness;
+  return ASTROLABE_PLATFORM_185B_BACKLIGHT_INVERTED ? (kBacklightPwmMax - clamped) : clamped;
+}
+
+static uint8_t astrolabe_backlight_digital_level(uint8_t brightness) {
+  const bool on = brightness != 0u;
+  return ASTROLABE_PLATFORM_185B_BACKLIGHT_INVERTED ? (on ? LOW : HIGH) : (on ? HIGH : LOW);
+}
+#endif
+
 static void astrolabe_set_brightness(uint8_t brightness) {
 #ifndef ASTROLABE_QEMU
+#if defined(ASTROLABE_PLATFORM_185B)
+#ifdef LCD_BL
+  if (ASTROLABE_PLATFORM_185B_BACKLIGHT_USE_PWM) {
+    astrolabe_init_backlight_pwm();
+    ledcWrite(kBacklightPwmChannel, astrolabe_to_backlight_duty(brightness));
+  } else {
+    digitalWrite(LCD_BL, astrolabe_backlight_digital_level(brightness));
+  }
+#else
+  (void)brightness;
+#endif
+#else
   if (tft) {
     tft->setBrightness(brightness);
   }
+#endif
 #else
   (void)brightness;
 #endif
@@ -787,6 +862,8 @@ static bool face_index_from_name(const char *name, int *out) {
       {"schedule", ClockFace::CalciferCountdown}, {"castalia", ClockFace::Castalia},
       {"settings", ClockFace::Settings}, {"wifi", ClockFace::Settings},
       {"synastry", ClockFace::Synastry}, {"syn", ClockFace::Synastry},
+      {"human_design", ClockFace::HumanDesign}, {"human-design", ClockFace::HumanDesign},
+      {"humandesign", ClockFace::HumanDesign}, {"hd", ClockFace::HumanDesign},
       {"spectrum", ClockFace::Spectrum}, {"fft", ClockFace::Spectrum},
       {"audio", ClockFace::Spectrum}, {"sound", ClockFace::Spectrum},
       {"chakra", ClockFace::Chakra}, {"bowl", ClockFace::TibetanBowl},
@@ -895,6 +972,9 @@ static const FaceTourInfo k_face_tour[] = {
      "settings UI is drawing", "settings UI is drawing", false, false},
     {ClockFace::Synastry, "synastry", "dual natal chart and relationship aspects", "the active synastry relationship highlight",
      "time and WiFi are ready", "needs WiFi and time for voice", true, true},
+    {ClockFace::HumanDesign, "human-design", "bodygraph, centers, channels, and profile from the reference chart",
+     "the active Human Design bodygraph and decision strategy",
+     "drawing local bodygraph", "drawing local bodygraph", false, false},
     {ClockFace::Spectrum, "spectrum", "microphone spectrum visualizer modes", "a sound-check prompt for the audio spectrum face",
      "local audio analyzer is drawing", "audio analyzer is local only", false, false},
     {ClockFace::Chakra, "chakra", "chakra symbols with solfeggio tones", "the current chakra tone and embodied attention",
@@ -2652,7 +2732,10 @@ void setup() {
       delay(1000);
     }
   }
-  tft->setBrightness(200);
+#if defined(ASTROLABE_PLATFORM_185B)
+  tft->force_power_on();
+#endif
+  astrolabe_set_brightness(kBootBrightness);
   pm_power_begin(astrolabe_set_brightness);
   gfx->fillScreen(RGB565_BLACK);
   gfx->flush();

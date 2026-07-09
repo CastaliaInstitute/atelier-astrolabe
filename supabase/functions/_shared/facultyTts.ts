@@ -34,6 +34,12 @@ export const FACULTY_CHIRP3_DEFAULTS: Record<string, FacultyTtsConfig> = {
     prompt:
       "Speak as Marie Curie: quiet precision and steadfast warmth. Clear scientific diction, patient and grounded.",
   },
+  "a.darwin": {
+    languageCode: "en-GB",
+    name: "en-GB-Chirp3-HD-Charon",
+    prompt:
+      "Speak as Charles Darwin: patient, observant, modest, and evidence-minded. Clear British naturalist diction, concrete examples, no grandstanding.",
+  },
   "marie-curie": {
     languageCode: "en-US",
     name: "en-US-Chirp3-HD-Kore",

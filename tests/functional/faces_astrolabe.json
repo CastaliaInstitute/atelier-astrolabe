@@ -1,6 +1,6 @@
 {
   "sketch": "Astrolabe",
-  "face_count": 40,
+  "face_count": 50,
   "center": [233, 233],
   "faces": [
     {
@@ -232,6 +232,13 @@
       "source_paths": ["sketches/Astrolabe/faces/enochian_angel"],
       "gestures": ["swipe_left", "swipe_right", "tap:233,233"],
       "buttons": ["boot"]
+    },
+    {
+      "id": 48,
+      "name": "human-design",
+      "source_paths": ["sketches/Astrolabe/faces/human_design"],
+      "gestures": ["swipe_left", "swipe_right", "tap:233,233"],
+      "buttons": []
     }
   ]
 }

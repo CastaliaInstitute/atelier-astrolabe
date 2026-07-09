@@ -25,6 +25,7 @@
 #include "faces/geomancy/pm_face_geomancy.h"
 #include "faces/globe/pm_face_globe.h"
 #include "faces/hid/pm_face_hid.h"
+#include "faces/human_design/pm_face_human_design.h"
 #include "faces/inq_card/pm_face_inq_card.h"
 #include "faces/kalimba/pm_face_kalimba.h"
 #include "faces/level/pm_face_level.h"
@@ -87,6 +88,7 @@ static const ClockFace k_face_dial_order[] = {
     ClockFace::Astrology,
     ClockFace::LiveTransits,
     ClockFace::Synastry,
+    ClockFace::HumanDesign,
     ClockFace::Tarot,
     ClockFace::InqCard,
     ClockFace::Lenormand,
@@ -144,6 +146,112 @@ static uint16_t s_clock_bg565 = 0;
 static int s_analog_saved_local_h = -1;
 static int s_analog_saved_local_m = -1;
 static bool s_navigation_mode = false;
+static bool s_have_drawn_frame = false;
+static uint16_t *s_transition_from = nullptr;
+static uint16_t *s_transition_to = nullptr;
+static uint32_t s_transition_start_ms = 0;
+static int8_t s_transition_dir = 0;
+static bool s_transition_active = false;
+
+static bool pm_faces_ensure_transition_buffers(void) {
+  constexpr size_t kFbPixels = static_cast<size_t>(LCD_WIDTH) * LCD_HEIGHT;
+  if (!s_transition_from) {
+    s_transition_from = static_cast<uint16_t *>(
+        heap_caps_aligned_alloc(16, kFbPixels * sizeof(uint16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!s_transition_from) {
+      s_transition_from = static_cast<uint16_t *>(
+          heap_caps_aligned_alloc(16, kFbPixels * sizeof(uint16_t), MALLOC_CAP_8BIT));
+    }
+  }
+  if (!s_transition_to) {
+    s_transition_to = static_cast<uint16_t *>(
+        heap_caps_aligned_alloc(16, kFbPixels * sizeof(uint16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!s_transition_to) {
+      s_transition_to = static_cast<uint16_t *>(
+          heap_caps_aligned_alloc(16, kFbPixels * sizeof(uint16_t), MALLOC_CAP_8BIT));
+    }
+  }
+  return s_transition_from && s_transition_to;
+}
+
+static uint8_t pm_faces_rgb565_blend_channel(uint8_t a, uint8_t b, uint16_t t) {
+  return static_cast<uint8_t>((static_cast<uint16_t>(a) * (255u - t) + static_cast<uint16_t>(b) * t) / 255u);
+}
+
+static uint16_t pm_faces_rgb565_blend(uint16_t from, uint16_t to, uint16_t t) {
+  const uint8_t fr = static_cast<uint8_t>(((from >> 11) & 0x1f) * 255u / 31u);
+  const uint8_t fg = static_cast<uint8_t>(((from >> 5) & 0x3f) * 255u / 63u);
+  const uint8_t fb = static_cast<uint8_t>((from & 0x1f) * 255u / 31u);
+  const uint8_t tr = static_cast<uint8_t>(((to >> 11) & 0x1f) * 255u / 31u);
+  const uint8_t tg = static_cast<uint8_t>(((to >> 5) & 0x3f) * 255u / 63u);
+  const uint8_t tb = static_cast<uint8_t>((to & 0x1f) * 255u / 31u);
+  const uint8_t r = pm_faces_rgb565_blend_channel(fr, tr, t);
+  const uint8_t g = pm_faces_rgb565_blend_channel(fg, tg, t);
+  const uint8_t b = pm_faces_rgb565_blend_channel(fb, tb, t);
+  return pm_gfx->color565(r, g, b);
+}
+
+static void pm_faces_begin_transition(int direction) {
+  if (!pm_gfx || !s_have_drawn_frame) {
+    s_transition_active = false;
+    return;
+  }
+  uint16_t *fb = pm_gfx->getFramebuffer();
+  if (!fb || !pm_faces_ensure_transition_buffers()) {
+    s_transition_active = false;
+    return;
+  }
+  constexpr size_t kFbPixels = static_cast<size_t>(LCD_WIDTH) * LCD_HEIGHT;
+  memcpy(s_transition_from, fb, kFbPixels * sizeof(uint16_t));
+  s_transition_start_ms = millis();
+  s_transition_dir = direction == 0 ? 1 : (direction > 0 ? 1 : -1);
+  s_transition_active = true;
+}
+
+static void pm_faces_apply_transition(void) {
+  if (!s_transition_active || !pm_gfx || !s_transition_from || !s_transition_to) {
+    return;
+  }
+  uint16_t *fb = pm_gfx->getFramebuffer();
+  if (!fb) {
+    s_transition_active = false;
+    return;
+  }
+  constexpr uint32_t kDurationMs = 260;
+  constexpr size_t kFbPixels = static_cast<size_t>(LCD_WIDTH) * LCD_HEIGHT;
+  const uint32_t elapsed = millis() - s_transition_start_ms;
+  if (elapsed >= kDurationMs) {
+    s_transition_active = false;
+    return;
+  }
+  memcpy(s_transition_to, fb, kFbPixels * sizeof(uint16_t));
+
+  uint32_t t = (elapsed * 255u) / kDurationMs;
+  t = (t * t * (765u - 2u * t)) / 65536u;  // smoothstep, 0..255
+  const int slide = static_cast<int>((static_cast<uint32_t>(LCD_WIDTH) * (255u - t)) / 255u);
+  const int to_x = s_transition_dir > 0 ? slide : -slide;
+  const int from_x = s_transition_dir > 0 ? slide - LCD_WIDTH : LCD_WIDTH - slide;
+  const uint16_t fade = static_cast<uint16_t>(t > 210u ? 255u : (t * 255u) / 210u);
+
+  for (int y = 0; y < LCD_HEIGHT; ++y) {
+    uint16_t *dst = fb + static_cast<int32_t>(y) * LCD_WIDTH;
+    const uint16_t *from_row = s_transition_from + static_cast<int32_t>(y) * LCD_WIDTH;
+    const uint16_t *to_row = s_transition_to + static_cast<int32_t>(y) * LCD_WIDTH;
+    for (int x = 0; x < LCD_WIDTH; ++x) {
+      uint16_t px = 0;
+      const int sx_from = x - from_x;
+      if (sx_from >= 0 && sx_from < LCD_WIDTH) {
+        px = from_row[sx_from];
+      }
+      const int sx_to = x - to_x;
+      if (sx_to >= 0 && sx_to < LCD_WIDTH) {
+        const uint16_t to_px = to_row[sx_to];
+        px = px ? pm_faces_rgb565_blend(px, to_px, fade) : to_px;
+      }
+      dst[x] = px;
+    }
+  }
+}
 
 static void pm_faces_draw_navigation_zoom(void) {
   if (!pm_gfx) {
@@ -208,6 +316,7 @@ static void pm_faces_on_leave(ClockFace from, ClockFace to) {
     case ClockFace::Astrology:
     case ClockFace::LiveTransits:
     case ClockFace::Synastry:
+    case ClockFace::HumanDesign:
       pm_ephemeris_release_cache();
       break;
     case ClockFace::CalciferCountdown:
@@ -321,11 +430,12 @@ static void pm_faces_on_enter(ClockFace face, ClockFace from) {
   }
 }
 
-static void pm_faces_transition_to(ClockFace face) {
+static void pm_faces_transition_to(ClockFace face, int direction = 0) {
   const ClockFace prev = s_clock_face;
   if (prev == face) {
     return;
   }
+  pm_faces_begin_transition(direction);
   pm_faces_on_leave(prev, face);
   s_clock_face = face;
   pm_faces_on_enter(face, prev);
@@ -371,13 +481,13 @@ void pm_faces_cycle(int delta) {
     do {
       v = (v + delta + face_count) % face_count;
     } while (pm_faces_skip_in_dial(static_cast<ClockFace>(v)));
-    pm_faces_transition_to(static_cast<ClockFace>(v));
+    pm_faces_transition_to(static_cast<ClockFace>(v), delta);
     return;
   }
   for (int step = 0; step < n; ++step) {
     idx = (idx + delta + n) % n;
     if (!pm_faces_skip_in_dial(k_face_dial_order[idx])) {
-      pm_faces_transition_to(k_face_dial_order[idx]);
+      pm_faces_transition_to(k_face_dial_order[idx], delta);
       return;
     }
   }
@@ -402,6 +512,7 @@ void pm_faces_draw(float thinking_progress) {
       s_clock_face != ClockFace::Spectrum && s_clock_face != ClockFace::Chakra &&
       s_clock_face != ClockFace::TibetanBowl && s_clock_face != ClockFace::Rocket &&
       s_clock_face != ClockFace::Radar && s_clock_face != ClockFace::HidTouchpad &&
+      s_clock_face != ClockFace::HumanDesign &&
       s_clock_face != ClockFace::Biometrics && s_clock_face != ClockFace::Faculty &&
       s_clock_face != ClockFace::Watcher &&
       s_clock_face != ClockFace::Weather && s_clock_face != ClockFace::Quotes &&
@@ -464,6 +575,9 @@ void pm_faces_draw(float thinking_progress) {
       break;
     case ClockFace::Synastry:
       pm_face_synastry_draw(&tm, pm_time_valid());
+      break;
+    case ClockFace::HumanDesign:
+      pm_face_human_design_draw();
       break;
     case ClockFace::Spectrum:
       pm_face_spectrum_draw(bg);
@@ -592,6 +706,7 @@ void pm_faces_draw(float thinking_progress) {
                         s_clock_face == ClockFace::Moon ||
                         s_clock_face == ClockFace::CalciferCountdown || s_clock_face == ClockFace::Castalia ||
                         s_clock_face == ClockFace::Settings || s_clock_face == ClockFace::Synastry ||
+                        s_clock_face == ClockFace::HumanDesign ||
                         s_clock_face == ClockFace::Spectrum || s_clock_face == ClockFace::Chakra ||
                         s_clock_face == ClockFace::TibetanBowl || s_clock_face == ClockFace::Rocket ||
                         s_clock_face == ClockFace::Radar || s_clock_face == ClockFace::HidTouchpad ||
@@ -626,6 +741,7 @@ void pm_faces_draw(float thinking_progress) {
       s_clock_face != ClockFace::CalciferCountdown && s_clock_face != ClockFace::Spectrum &&
       s_clock_face != ClockFace::TibetanBowl && s_clock_face != ClockFace::Rocket &&
       s_clock_face != ClockFace::Radar && s_clock_face != ClockFace::HidTouchpad &&
+      s_clock_face != ClockFace::HumanDesign &&
       s_clock_face != ClockFace::Biometrics && s_clock_face != ClockFace::Faculty &&
       s_clock_face != ClockFace::Watcher &&
       s_clock_face != ClockFace::Weather && s_clock_face != ClockFace::Quotes &&
@@ -652,11 +768,13 @@ void pm_faces_draw(float thinking_progress) {
   if (s_navigation_mode) {
     pm_faces_draw_navigation_zoom();
   }
+  pm_faces_apply_transition();
   s_clock_bg565 = bg;
   if (pm_time_valid()) {
     s_analog_saved_local_h = tm.tm_hour;
     s_analog_saved_local_m = tm.tm_min;
   }
+  s_have_drawn_frame = true;
   pm_gfx->flush();
 }
 
@@ -677,7 +795,8 @@ bool pm_faces_banner_low(void) {
   const ClockFace f = s_clock_face;
   return f == ClockFace::Apocalypso || f == ClockFace::Spotify || f == ClockFace::Astrology ||
          f == ClockFace::LiveTransits || f == ClockFace::Moon || f == ClockFace::CalciferCountdown || f == ClockFace::Castalia ||
-         f == ClockFace::Settings || f == ClockFace::Synastry || f == ClockFace::Spectrum ||
+         f == ClockFace::Settings || f == ClockFace::Synastry || f == ClockFace::HumanDesign ||
+         f == ClockFace::Spectrum ||
          f == ClockFace::Chakra || f == ClockFace::TibetanBowl || f == ClockFace::Rocket ||
          f == ClockFace::Radar || f == ClockFace::HidTouchpad ||
          f == ClockFace::Biometrics || f == ClockFace::Watcher ||
@@ -698,7 +817,8 @@ uint16_t pm_faces_last_bg565(void) { return s_clock_bg565; }
 
 bool pm_faces_local_hm_changed(int hour, int min) {
   if (s_clock_face == ClockFace::Settings || s_clock_face == ClockFace::Castalia ||
-      s_clock_face == ClockFace::LiveTransits || s_clock_face == ClockFace::Synastry || s_clock_face == ClockFace::Spectrum ||
+      s_clock_face == ClockFace::LiveTransits || s_clock_face == ClockFace::Synastry ||
+      s_clock_face == ClockFace::HumanDesign || s_clock_face == ClockFace::Spectrum ||
       s_clock_face == ClockFace::Chakra || s_clock_face == ClockFace::TibetanBowl ||
       s_clock_face == ClockFace::Rocket || s_clock_face == ClockFace::Radar ||
       s_clock_face == ClockFace::HidTouchpad || s_clock_face == ClockFace::Biometrics ||

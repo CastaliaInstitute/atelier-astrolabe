@@ -411,6 +411,25 @@
       interactions: "Tap the center to focus the relationship view. Swipe left to continue.",
     },
     {
+      slug: "human-design",
+      title: "Human Design",
+      kicker: "Bodygraph as a decision compass",
+      summary:
+        "A compact bodygraph face for the reference chart, showing type, authority, profile, definition, defined centers, channels, and gate rails.",
+      inquiry: "What does the chart suggest about decision timing and available energy?",
+      questions: [
+        "Am I responding from sacral authority or forcing a decision?",
+        "Which defined centers are carrying consistent signal?",
+        "What channel or gate wants attention before I act?",
+      ],
+      use: [
+        "Glance at the bodygraph before a planning or decision moment.",
+        "Read the defined-center colors as stable signal rather than mood.",
+        "Use the conscious and design gate rails as prompts for a more specific question.",
+      ],
+      interactions: "Swipe left or right to continue through Lunasay faces.",
+    },
+    {
       slug: "spectrum",
       title: "Spectrum",
       kicker: "Sound made visible",
@@ -914,6 +933,7 @@
     astro: "lunasay",
     transits: "lunasay",
     synastry: "lunasay",
+    "human-design": "lunasay",
     cycle: "lunasay",
     tarot: "lunasay",
     lenormand: "lunasay",

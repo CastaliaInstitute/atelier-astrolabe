@@ -57,7 +57,7 @@ Commands:
 
 ## Runtime Behavior
 
-1. Boots with default faculty Einstein (`a.einstein`).
+1. Boots with default faculty Charles Darwin (`a.darwin`).
 2. Detects M5PM1 and applies the vendor demo power/GPIO sequence best-effort: I2C sleep disabled, EPD power enabled, SD detect enabled, charge/boost enabled.
 3. Mounts microSD at `/sdcard` for utterance capture; falls back to SPIFFS when no card is present.
 4. Creates `/sdcard/astrolabe/facultypaper` when SD is present.

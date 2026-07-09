@@ -9,8 +9,8 @@
 
 #define ASTROLABE_FACULTY_PAPER_FACE_NAME "faculty"
 #define ASTROLABE_FACULTY_PAPER_OTA_CHANNEL "astrolabe-faculty-papercolor"
-#define ASTROLABE_FACULTY_PAPER_DEFAULT_FACULTY_SLUG "a.einstein"
-#define ASTROLABE_FACULTY_PAPER_DEFAULT_FACULTY_NAME "Einstein"
+#define ASTROLABE_FACULTY_PAPER_DEFAULT_FACULTY_SLUG "a.darwin"
+#define ASTROLABE_FACULTY_PAPER_DEFAULT_FACULTY_NAME "Charles Darwin"
 
 #define ASTROLABE_FACULTY_PAPER_SYSTEM_INSTRUCTION \
     "You are Castalia faculty on Astrolabe FacultyPaper: a color e-paper voice terminal. " \

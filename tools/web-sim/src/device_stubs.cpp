@@ -18,6 +18,8 @@
 #include "pm_display.h"
 #include "pm_faculty.h"
 #include "pm_heap.h"
+#include "pm_mic.h"
+#include "pm_midi.h"
 #include "pm_motion.h"
 #include "pm_power.h"
 #include "pm_presence.h"
@@ -312,7 +314,13 @@ void pm_faculty_draw_bust_for_at(const PmFacultyProfile *profile, int cx, int bo
                                     profile && profile->name[0] ? profile->name : nullptr, cx, bottom_y, max_w,
                                     max_h, clip_top, clip_bottom);
 }
+bool pm_faculty_tick_bust_fetch(void) { return false; }
+bool pm_faculty_request_bust(const char *) { return true; }
+void pm_faculty_draw_name_label(void) {}
+PmFacultyBustStatus pm_faculty_bust_status(void) { return PmFacultyBustStatus::DoneOk; }
 const char *pm_faculty_bust_slug(void) { return "hypatia"; }
+size_t pm_faculty_bust_size(void) { return 0; }
+const char *pm_faculty_bust_last_error(void) { return ""; }
 bool pm_faculty_bust_ready_for(const char *) { return true; }
 
 PmCommonplaceStatus pm_commonplace_status(void) { return PmCommonplaceStatus::Idle; }
@@ -357,6 +365,47 @@ void pm_rtp_midi_tick(void) {}
 bool pm_rtp_midi_enabled(void) { return false; }
 bool pm_rtp_midi_note_on(uint8_t, uint8_t) { return false; }
 bool pm_rtp_midi_note_off(uint8_t) { return false; }
+
+bool pm_mic_begin() { return false; }
+void pm_mic_stop() {}
+int pm_mic_i2s_channels() { return 1; }
+size_t pm_mic_frame_samples() { return 480; }
+bool pm_mic_read_frame(int16_t *out, size_t frame_samples, size_t *bytes_read) {
+  if (out) {
+    std::memset(out, 0, frame_samples * sizeof(int16_t));
+  }
+  if (bytes_read) {
+    *bytes_read = frame_samples * sizeof(int16_t);
+  }
+  return out != nullptr;
+}
+void pm_mic_pick_channel(const int16_t *interleaved, size_t frame_samples, int, int16_t *mono) {
+  if (!mono) {
+    return;
+  }
+  if (interleaved) {
+    std::memcpy(mono, interleaved, frame_samples * sizeof(int16_t));
+  } else {
+    std::memset(mono, 0, frame_samples * sizeof(int16_t));
+  }
+}
+
+uint8_t pm_midi_channel(PmMidiInstrument instrument) { return static_cast<uint8_t>(instrument); }
+const char *pm_midi_instrument_label(PmMidiInstrument instrument) {
+  switch (instrument) {
+    case PmMidiInstrument::Ocarina: return "Ocarina";
+    case PmMidiInstrument::Kalimba: return "Kalimba";
+    case PmMidiInstrument::Drone: return "Drone";
+    case PmMidiInstrument::Chord: return "Chord";
+    case PmMidiInstrument::Piano: return "Piano";
+    case PmMidiInstrument::PanDrum: return "PanDrum";
+    case PmMidiInstrument::Bongo: return "Bongo";
+  }
+  return "MIDI";
+}
+bool pm_midi_has_sink(void) { return false; }
+bool pm_midi_note_on(PmMidiInstrument, uint8_t, uint8_t) { return false; }
+bool pm_midi_note_off(PmMidiInstrument, uint8_t) { return false; }
 
 void pm_screen_http_begin(PmDisplayCanvas *) {}
 void pm_screen_http_loop() {}

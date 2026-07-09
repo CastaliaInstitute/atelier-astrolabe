@@ -50,6 +50,7 @@ typedef void (*astrolabe_audio_result_fn)(const char *transcript,
                                           const char *faculty_name,
                                           void *user);
 typedef void (*astrolabe_audio_prepare_context_fn)(void *user);
+typedef esp_err_t (*astrolabe_audio_play_mp3_fn)(const uint8_t *mp3, size_t mp3_len, void *user);
 
 typedef struct {
     astrolabe_audio_read_fn read;
@@ -64,6 +65,7 @@ typedef struct {
     astrolabe_audio_event_fn on_event;
     astrolabe_audio_result_fn on_result;
     astrolabe_audio_prepare_context_fn prepare_context;
+    astrolabe_audio_play_mp3_fn play_mp3;
     void *event_user;
 
     const char *endpoint_url;
@@ -113,11 +115,17 @@ esp_err_t astrolabe_audio_pipeline_start(astrolabe_audio_pipeline_t *pipeline);
 void astrolabe_audio_pipeline_stop(astrolabe_audio_pipeline_t *pipeline);
 void astrolabe_audio_pipeline_destroy(astrolabe_audio_pipeline_t *pipeline);
 esp_err_t astrolabe_audio_pipeline_trigger_capture(astrolabe_audio_pipeline_t *pipeline);
+esp_err_t astrolabe_audio_pipeline_trigger_capture_for_ms(astrolabe_audio_pipeline_t *pipeline, uint32_t hold_ms);
+bool astrolabe_audio_pipeline_unhealthy(const astrolabe_audio_pipeline_t *pipeline);
 
 bool astrolabe_audio_pipeline_speech_active(const astrolabe_audio_pipeline_t *pipeline);
 uint32_t astrolabe_audio_pipeline_last_rms(const astrolabe_audio_pipeline_t *pipeline);
 uint32_t astrolabe_audio_pipeline_noise_rms(const astrolabe_audio_pipeline_t *pipeline);
 uint32_t astrolabe_audio_pipeline_start_threshold(const astrolabe_audio_pipeline_t *pipeline);
+TaskHandle_t astrolabe_audio_pipeline_listen_task_handle(const astrolabe_audio_pipeline_t *pipeline);
+TaskHandle_t astrolabe_audio_pipeline_voice_task_handle(const astrolabe_audio_pipeline_t *pipeline);
+uint32_t astrolabe_audio_pipeline_listen_stack_bytes(const astrolabe_audio_pipeline_t *pipeline);
+uint32_t astrolabe_audio_pipeline_voice_stack_bytes(const astrolabe_audio_pipeline_t *pipeline);
 void astrolabe_audio_pipeline_waveform_copy(const astrolabe_audio_pipeline_t *pipeline, uint8_t *out, size_t len);
 void astrolabe_audio_pipeline_waveform_stream_copy(const astrolabe_audio_pipeline_t *pipeline,
                                                    uint8_t *out,

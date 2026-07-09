@@ -38,6 +38,7 @@ size_t astrolabe_time_format_utc(char *out, size_t cap);
 size_t astrolabe_time_format_local(char *out, size_t cap);
 const char *astrolabe_time_timezone(void);
 esp_err_t astrolabe_time_set_timezone(const char *tz);
+esp_err_t astrolabe_time_set_epoch(time_t epoch);
 void astrolabe_time_status(astrolabe_time_status_t *out);
 
 #ifdef __cplusplus

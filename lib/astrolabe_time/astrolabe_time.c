@@ -13,6 +13,7 @@ static const char *TAG = "astrolabe_time";
 
 #define TIME_NVS_NS "time"
 #define TIME_NVS_TZ "tz"
+#define TIME_NVS_EPOCH "epoch"
 #define TIME_DEFAULT_TZ "UTC0"
 
 static bool s_started;
@@ -20,6 +21,7 @@ static bool s_synced;
 static int64_t s_last_sync_epoch;
 static uint32_t s_retry_count;
 static bool s_tz_loaded;
+static bool s_epoch_loaded;
 static char s_tz[ASTROLABE_TIME_TZ_MAX_LEN + 1] = TIME_DEFAULT_TZ;
 
 static bool valid_tz(const char *tz)
@@ -62,12 +64,54 @@ static void load_tz_from_nvs(void)
     apply_tz(s_tz);
 }
 
+static void save_epoch_to_nvs(time_t epoch)
+{
+    if (epoch < (time_t)ASTROLABE_TIME_VALID_MIN_EPOCH) {
+        return;
+    }
+    nvs_handle_t nvs;
+    if (nvs_open(TIME_NVS_NS, NVS_READWRITE, &nvs) == ESP_OK) {
+        if (nvs_set_i64(nvs, TIME_NVS_EPOCH, (int64_t)epoch) == ESP_OK) {
+            (void)nvs_commit(nvs);
+        }
+        nvs_close(nvs);
+    }
+}
+
+static void load_epoch_from_nvs(void)
+{
+    if (s_epoch_loaded) {
+        return;
+    }
+    s_epoch_loaded = true;
+    if (time(NULL) >= (time_t)ASTROLABE_TIME_VALID_MIN_EPOCH) {
+        return;
+    }
+    nvs_handle_t nvs;
+    int64_t saved_epoch = 0;
+    if (nvs_open(TIME_NVS_NS, NVS_READONLY, &nvs) == ESP_OK) {
+        (void)nvs_get_i64(nvs, TIME_NVS_EPOCH, &saved_epoch);
+        nvs_close(nvs);
+    }
+    if (saved_epoch >= ASTROLABE_TIME_VALID_MIN_EPOCH) {
+        const struct timeval tv = {
+            .tv_sec = (time_t)saved_epoch,
+            .tv_usec = 0,
+        };
+        if (settimeofday(&tv, NULL) == 0) {
+            s_last_sync_epoch = saved_epoch;
+            ESP_LOGI(TAG, "restored saved epoch=%lld", (long long)saved_epoch);
+        }
+    }
+}
+
 static void time_sync_cb(struct timeval *tv)
 {
     const time_t epoch = tv != NULL ? tv->tv_sec : time(NULL);
     s_synced = epoch >= (time_t)ASTROLABE_TIME_VALID_MIN_EPOCH;
     s_last_sync_epoch = (int64_t)epoch;
     if (s_synced) {
+        save_epoch_to_nvs(epoch);
         char stamp[32];
         (void)astrolabe_time_format_utc(stamp, sizeof(stamp));
         ESP_LOGI(TAG, "synced utc=%s", stamp);
@@ -133,11 +177,13 @@ esp_err_t astrolabe_time_retry_if_stale(void)
 
 bool astrolabe_time_valid(void)
 {
+    load_epoch_from_nvs();
     return time(NULL) >= (time_t)ASTROLABE_TIME_VALID_MIN_EPOCH;
 }
 
 time_t astrolabe_time_now(void)
 {
+    load_epoch_from_nvs();
     return time(NULL);
 }
 
@@ -146,6 +192,7 @@ void astrolabe_time_utc(struct tm *out_tm)
     if (out_tm == NULL) {
         return;
     }
+    load_epoch_from_nvs();
     const time_t now = time(NULL);
     gmtime_r(&now, out_tm);
 }
@@ -155,6 +202,7 @@ void astrolabe_time_local(struct tm *out_tm)
     if (out_tm == NULL) {
         return;
     }
+    load_epoch_from_nvs();
     load_tz_from_nvs();
     const time_t now = time(NULL);
     localtime_r(&now, out_tm);
@@ -209,6 +257,25 @@ esp_err_t astrolabe_time_set_timezone(const char *tz)
         ESP_LOGI(TAG, "timezone set tz=%s", s_tz);
     }
     return err;
+}
+
+esp_err_t astrolabe_time_set_epoch(time_t epoch)
+{
+    if (epoch < (time_t)ASTROLABE_TIME_VALID_MIN_EPOCH) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    const struct timeval tv = {
+        .tv_sec = epoch,
+        .tv_usec = 0,
+    };
+    if (settimeofday(&tv, NULL) != 0) {
+        return ESP_FAIL;
+    }
+    s_synced = true;
+    s_last_sync_epoch = (int64_t)epoch;
+    save_epoch_to_nvs(epoch);
+    ESP_LOGI(TAG, "manual time set epoch=%lld", (long long)epoch);
+    return ESP_OK;
 }
 
 void astrolabe_time_status(astrolabe_time_status_t *out)

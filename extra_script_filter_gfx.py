@@ -1,8 +1,8 @@
-"""Compile only GFX sources used by Astrolabe (QSPI + CO5300 + core drawing)."""
+"""Compile only GFX sources used by Astrolabe (QSPI + display + core drawing)."""
 Import("env")
 
 
-_KEEP = (
+_KEEP = [
     "Arduino_ESP32QSPI.cpp",
     "Arduino_CO5300.cpp",
     "Arduino_DataBus.cpp",
@@ -11,7 +11,19 @@ _KEEP = (
     "Arduino_GFX_Library.cpp",
     "Arduino_TFT.cpp",
     "Arduino_TFT_18bit.cpp",
-)
+]
+
+def _has_define(name):
+    for define in env.get("CPPDEFINES", []):
+        if define == name:
+            return True
+        if isinstance(define, (list, tuple)) and define and define[0] == name:
+            return True
+    return False
+
+
+if _has_define("ASTROLABE_PLATFORM_185B"):
+    _KEEP.append("Arduino_ST77916.cpp")
 
 
 def _filter_gfx(node):

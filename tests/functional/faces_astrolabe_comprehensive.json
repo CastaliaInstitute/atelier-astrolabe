@@ -1,6 +1,6 @@
 {
   "sketch": "Astrolabe",
-  "face_count": 40,
+  "face_count": 50,
   "center": [233, 233],
   "description": "Full swipe matrix (L/R/U/D) + buttons on every face; crash + screenshot gate.",
   "faces": [
@@ -228,6 +228,13 @@
       "id": 26,
       "name": "enochian",
       "source_paths": ["sketches/Astrolabe/faces/enochian_angel"],
+      "gestures": ["swipe_left", "swipe_right", "swipe_up", "swipe_down", "tap:233,233"],
+      "buttons": ["boot"]
+    },
+    {
+      "id": 48,
+      "name": "human-design",
+      "source_paths": ["sketches/Astrolabe/faces/human_design"],
       "gestures": ["swipe_left", "swipe_right", "swipe_up", "swipe_down", "tap:233,233"],
       "buttons": ["boot"]
     }
