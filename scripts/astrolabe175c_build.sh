@@ -152,7 +152,7 @@ if resolved_py="$(astrolabe175c_idf_python)"; then
 fi
 
 if [[ ! -f sdkconfig ]]; then
-  "${IDF_PY[@]}" "${ASTROLABE175C_CMAKE_ARGS[@]+"${ASTROLABE175C_CMAKE_ARGS[@]}"}" set-target esp32s3
+  "${IDF_PY[@]}" "${ASTROLABE175C_CMAKE_ARGS[@]+"${ASTROLABE175C_CMAKE_ARGS[@]}"}" -D SDKCONFIG_DEFAULTS=sdkconfig.defaults set-target esp32s3
 else
   "${IDF_PY[@]}" "${ASTROLABE175C_CMAKE_ARGS[@]+"${ASTROLABE175C_CMAKE_ARGS[@]}"}" -D SDKCONFIG_DEFAULTS=sdkconfig.defaults reconfigure >/dev/null 2>&1 || true
   if [[ "${ASTROLABE175C_FORCE_RECONFIGURE}" == "1" ]]; then
