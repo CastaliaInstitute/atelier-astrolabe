@@ -1,11 +1,11 @@
 {
   "ota_channel": "astrolabe-faculty-amoled175",
-  "firmware_url": "https://astrolabe.castalia.institute/releases/integration/astrolabe-faculty-amoled175/firmware.bin",
+  "firmware_url": "http://astrolabe.castalia.institute/releases/integration/astrolabe-faculty-amoled175/firmware.bin",
   "sha256": "266c8bd1b9e0e75deb1d8e01aacc1fbb5b4e38b6cc4db1d05b15a413b4e15a89",
   "bytes": 2981248,
   "devices": [
     "44:1b:f6:85:52:74"
   ],
   "sig_alg": "ecdsa-p256-sha256",
-  "signature": "MEUCIQCOlxFXwi4/q5boe17ixIW4jQdf5hQcd2LtSjBl3T93CwIgL+icXZwQlLv9Ad4uNRdzZ7meyrO1IshsFIk6XzYWmKE="
+  "signature": "MEUCIQCJnyfTAHOSpf9g6kLKm33ap9UHLa7n7hXGXVpI9yRqIgIgBTkId5ugYd82xbFBHJIcmgxMbruprV7gawHoL3rsDTI="
 }
