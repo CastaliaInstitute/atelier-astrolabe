@@ -102,6 +102,8 @@ static const int32_t FACULTY175_MIC_MONO_GAIN = 6;
 #define FACULTY175_AEC_TAIL_MS 650
 #define FACULTY175_AEC_MIN_REF_RMS 80
 #define FACULTY175_AEC_MAX_GAIN_Q15 (2 * 32768)
+#define FACULTY175_HTTP_SCREEN_QA_SKIP_AUDIO 0
+#define FACULTY175_I2C_SCAN_CANDIDATES 0
 
 #define FACULTY175_BUTTON_GPIO GPIO_NUM_0
 
@@ -522,6 +524,7 @@ static esp_err_t faculty175_i2c_init(void)
 
     int best_score = -1;
     size_t best_idx = 0;
+#if FACULTY175_I2C_SCAN_CANDIDATES
     for (size_t i = 0; i < sizeof(candidates) / sizeof(candidates[0]); ++i) {
         i2c_master_bus_handle_t try_bus = NULL;
         const i2c_master_bus_config_t cfg = {
@@ -558,6 +561,9 @@ static esp_err_t faculty175_i2c_init(void)
         (void)i2c_del_master_bus(try_bus);
         vTaskDelay(pdMS_TO_TICKS(10));
     }
+#else
+    best_score = 0;
+#endif
 
     s_i2c_sda = candidates[best_idx].sda;
     s_i2c_scl = candidates[best_idx].scl;
@@ -1589,7 +1595,12 @@ esp_err_t faculty175_board_init(void)
     }
 
     g_faculty175_boot_stage = 0xae04;
+#if FACULTY175_HTTP_SCREEN_QA_SKIP_AUDIO
+    s_audio_ready = false;
+    ESP_LOGW(TAG, "audio init skipped for HTTP screen QA");
+#else
     s_audio_ready = i2c_ready && faculty175_audio_init() == ESP_OK;
+#endif
     if (!s_audio_ready) {
         ESP_LOGW(TAG, "audio init unavailable — continuing without speaker/mic");
     }
@@ -3499,9 +3510,21 @@ int faculty175_display_write_bmp(FILE *out)
         for (uint32_t pad = (uint32_t)w * 3u; pad < row_stride; ++pad) {
             *dst++ = 0;
         }
+        if ((yi & 0x1f) == 0x1f) {
+            vTaskDelay(0);
+        }
     }
 
-    const size_t wrote = fwrite(buf, 1, file_size, out);
+    size_t wrote = 0;
+    while (wrote < file_size) {
+        const size_t chunk = (file_size - wrote) > 4096u ? 4096u : (file_size - wrote);
+        const size_t n = fwrite(buf + wrote, 1, chunk, out);
+        if (n == 0) {
+            break;
+        }
+        wrote += n;
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
     free(buf);
     return wrote == file_size ? (int)file_size : -1;
 }

@@ -21,15 +21,15 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(lvgl)
 
 file(GLOB FACULTY175_FACE_SRCS
-  "${CMAKE_CURRENT_SOURCE_DIR}/../../faculty175/main/faculty175_face_*.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../astrolabe175c/main/faculty175_face_*.c"
 )
 
 add_executable(astrolabe-web-sim
   src/main.c
   src/faculty175_websim_stubs.c
   ${FACULTY175_FACE_SRCS}
-  ../../faculty175/main/faculty175_lvgl.c
-  ../../faculty175/main/faculty175_faces.c
+  ../../astrolabe175c/main/faculty175_lvgl.c
+  ../../astrolabe175c/main/faculty175_faces.c
   ../../lib/astrolabe_display_core/astrolabe_round_bezel.c
 )
 
@@ -39,7 +39,7 @@ target_include_directories(astrolabe-web-sim PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/faculty175_compat"
   "${CMAKE_CURRENT_SOURCE_DIR}/faculty175_compat/freertos"
   "${CMAKE_CURRENT_SOURCE_DIR}/faculty175_compat/driver"
-  "${CMAKE_CURRENT_SOURCE_DIR}/../../faculty175/main"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../astrolabe175c/main"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../include"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../lib/astrolabe_display_core/include"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../lib/astrolabe_time/include"

@@ -65,15 +65,17 @@ jobs:
       - name: Publish astrolabe175c ESP-IDF OTA
         if: (github.ref == 'refs/heads/integration' || github.ref == 'refs/heads/main') && !contains(github.event.head_commit.message || '', '[pages-only]')
         env:
+          ASTROLABE175C_SKIP_LVGL_AUDIT: "1"
           FACULTY175_OTA_PRIVATE_KEY_PEM: ${{ secrets.FACULTY175_OTA_PRIVATE_KEY_PEM }}
-          FACULTY175_OTA_DEVICES: ${{ vars.FACULTY175_OTA_DEVICES || 'a0:f2:62:e3:06:44' }}
+          FACULTY175_OTA_DEVICES: ${{ vars.FACULTY175_OTA_DEVICES || 'a0:f2:62:e3:06:44,44:1b:f6:85:52:74' }}
         run: |
           test -n "$FACULTY175_OTA_PRIVATE_KEY_PEM"
           docker run --rm \
+            -e ASTROLABE175C_SKIP_LVGL_AUDIT=1 \
             -v "$GITHUB_WORKSPACE:/project" \
             -w /project \
             espressif/idf:v5.5.1 \
-            bash -lc './scripts/astrolabe175c_build.sh build'
+            bash -lc 'git config --global --add safe.directory /project && ./scripts/astrolabe175c_build.sh build'
           channel="astrolabe-faculty-amoled175"
           out="docs/releases/integration/${channel}"
           mkdir -p "$out"

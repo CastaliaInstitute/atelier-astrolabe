@@ -72,6 +72,7 @@ static const faculty175_face_desc_t k_faces[] = {
     { FACULTY175_FACE_ENOCHIAN, "enochian", "Enochian Angel", FACULTY175_FACE_CAT_ORACLE, true, false, 175 },
     { FACULTY175_FACE_HID, "hid", "HID Touchpad", FACULTY175_FACE_CAT_SYSTEM, true, false, 200 },
     { FACULTY175_FACE_BABEL, "babel", "Babel Fish", FACULTY175_FACE_CAT_COMMONPLACE, true, false, 205 },
+    { FACULTY175_FACE_HUMAN_DESIGN, "human-design", "Human Design", FACULTY175_FACE_CAT_ORACLE, true, false, 176 },
     { FACULTY175_FACE_MAZE, "maze", "Maze", FACULTY175_FACE_CAT_HOME, true, true, 50 },
     { FACULTY175_FACE_DEATHSTAR, "deathstar", "Death Star", FACULTY175_FACE_CAT_HOME, true, true, 60 },
     { FACULTY175_FACE_SOLAR, "solar", "Solar Activity", FACULTY175_FACE_CAT_HOME | FACULTY175_FACE_CAT_ORACLE, false, false, 92 },
@@ -612,19 +613,9 @@ esp_err_t faculty175_faces_init(void)
     }
 
     s_current = FACULTY175_FACE_POCKETWATCH;
-    if (strcmp(current, k_faces[FACULTY175_FACE_POCKETWATCH].slug) != 0) {
-        nvs = 0;
-        err = nvs_open(FACES_NVS_NS, NVS_READWRITE, &nvs);
-        if (err == ESP_OK) {
-            err = nvs_set_str(nvs, FACES_NVS_CURRENT, k_faces[FACULTY175_FACE_POCKETWATCH].slug);
-            if (err == ESP_OK) {
-                err = nvs_commit(nvs);
-            }
-            nvs_close(nvs);
-        }
-        if (err != ESP_OK) {
-            return err;
-        }
+    const faculty175_face_desc_t *saved_current = faculty175_faces_find(current);
+    if (saved_current != NULL && saved_current->ported && faculty175_faces_enabled(saved_current->id)) {
+        s_current = saved_current->id;
     }
     FACULTY175_LOG_STAGE(TAG, "faces", "current=%s", faculty175_faces_current()->slug);
     const esp_err_t profile_err = faculty175_face_profile_init();

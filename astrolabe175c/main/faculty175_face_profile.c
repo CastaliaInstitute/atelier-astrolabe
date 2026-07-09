@@ -6,6 +6,7 @@
 #include "nvs.h"
 
 #include "faculty175_log.h"
+#include "faculty175_variant.h"
 
 static const char *TAG = "faculty175_face_profile";
 
@@ -69,6 +70,15 @@ static const faculty175_face_id_t k_lunasay_faces[] = {
     FACULTY175_FACE_SYNASTRY,
     FACULTY175_FACE_TRANSITS,
     FACULTY175_FACE_SKY,
+    FACULTY175_FACE_TAROT,
+    FACULTY175_FACE_RUNES,
+    FACULTY175_FACE_ALETHIOMETER,
+    FACULTY175_FACE_INQ,
+    FACULTY175_FACE_LENORMAND,
+    FACULTY175_FACE_GEOMANCY,
+    FACULTY175_FACE_PYTHIA,
+    FACULTY175_FACE_ENOCHIAN,
+    FACULTY175_FACE_HUMAN_DESIGN,
     FACULTY175_FACE_ALMANAC,
     FACULTY175_FACE_PHENOLOGY,
     FACULTY175_FACE_SOLAR,
@@ -283,30 +293,53 @@ esp_err_t faculty175_face_profile_apply(faculty175_face_profile_t profile, bool 
                          faculty175_face_profile_label(profile));
     if (persist) {
         err = persist_profile(profile);
+        if (err != ESP_OK) {
+            return err;
+        }
     }
-    return err;
+    const esp_err_t variant_err = faculty175_variant_persist_for_profile(profile);
+    if (variant_err != ESP_OK) {
+        FACULTY175_LOG_STAGE(TAG, "profile", "variant sync: %s", esp_err_to_name(variant_err));
+    }
+    return ESP_OK;
 }
 
 esp_err_t faculty175_face_profile_init(void)
 {
     uint8_t stored = (uint8_t)FACULTY175_FACE_PROFILE_DEFAULT;
+    bool stored_found = false;
     nvs_handle_t nvs;
     esp_err_t err = nvs_open(FACES_NVS_NS, NVS_READONLY, &nvs);
     if (err == ESP_OK) {
         const esp_err_t get_err = nvs_get_u8(nvs, FACES_NVS_PROFILE, &stored);
         nvs_close(nvs);
-        if (get_err != ESP_OK && get_err != ESP_ERR_NVS_NOT_FOUND) {
+        if (get_err == ESP_OK) {
+            stored_found = true;
+        } else if (get_err != ESP_ERR_NVS_NOT_FOUND) {
             return get_err;
         }
     } else if (err != ESP_ERR_NVS_NOT_FOUND) {
         return err;
     }
 
+    if (!stored_found) {
+        faculty175_face_profile_t migrated = FACULTY175_FACE_PROFILE_DEFAULT;
+        bool migrated_found = false;
+        if (faculty175_variant_profile_from_nvs(&migrated, &migrated_found) && migrated_found) {
+            stored = (uint8_t)migrated;
+            stored_found = true;
+            FACULTY175_LOG_STAGE(TAG,
+                                 "profile",
+                                 "migrate variant -> %s",
+                                 faculty175_face_profile_slug(migrated));
+        }
+    }
+
     if (stored > (uint8_t)FACULTY175_FACE_PROFILE_CAMEO) {
         stored = (uint8_t)FACULTY175_FACE_PROFILE_DEFAULT;
     }
     s_profile = (faculty175_face_profile_t)stored;
-    return faculty175_face_profile_apply(s_profile, false);
+    return faculty175_face_profile_apply(s_profile, stored_found);
 }
 
 faculty175_face_profile_t faculty175_face_profile_current(void)

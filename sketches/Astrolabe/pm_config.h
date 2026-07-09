@@ -227,6 +227,10 @@
 #define MYNAH_EPHEMERIS_DATA_BASE "https://ephemeris.castalia.institute/data/ephem"
 #endif
 
+#ifndef MYNAH_HUMAN_DESIGN_DATA_BASE
+#define MYNAH_HUMAN_DESIGN_DATA_BASE "https://ephemeris.castalia.institute/data/human-design"
+#endif
+
 #ifndef MYNAH_EPHEMERIS_HTTP_MS
 #define MYNAH_EPHEMERIS_HTTP_MS 8000
 #endif

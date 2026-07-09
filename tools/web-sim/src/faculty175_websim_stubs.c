@@ -655,6 +655,43 @@ bool faculty175_charts_birth_positions(const faculty175_birth_chart_t *birth, fa
 bool faculty175_charts_birth_to_utc(const faculty175_birth_chart_t *birth, time_t *utc_out) { (void)birth; if (utc_out) *utc_out = time(NULL); return true; }
 const char *faculty175_charts_body_label(int body) { static const char *labels[] = {"Su", "Mo", "Me", "Ve", "Ma", "Ju", "Sa"}; return labels[(body >= 0 && body < 7) ? body : 0]; }
 const char *faculty175_charts_zodiac_abbr(double lon) { static const char *z[] = {"AR", "TA", "GE", "CN", "LE", "VI", "LI", "SC", "SG", "CP", "AQ", "PI"}; int i = (int)(lon / 30.0); return z[(i >= 0 && i < 12) ? i : 0]; }
+
+#include "faculty175_ephemeris.h"
+
+bool faculty175_ephemeris_fetch_human_design_epoch(time_t utc_epoch, faculty175_hd_positions_t *out)
+{
+    static const double base[FACULTY175_HD_BODY_COUNT] = {
+        280.5, 100.5, 218.3, 296.1, 334.2, 54.7, 72.0, 312.0, 41.0, 350.0, 298.0, 23.0,
+    };
+    static const double rate[FACULTY175_HD_BODY_COUNT] = {
+        0.985647, 0.985647, 13.176358, 4.092334, 1.602130, 0.524021,
+        0.083085, 0.033444, 0.011728, 0.005981, 0.003964, -0.052953,
+    };
+    if (out == NULL) {
+        return false;
+    }
+    const double days = (double)(utc_epoch - 946728000) / 86400.0;
+    memset(out, 0, sizeof(*out));
+    for (int i = 0; i < FACULTY175_HD_BODY_COUNT; ++i) {
+        double lon = fmod(base[i] + days * rate[i], 360.0);
+        if (lon < 0.0) {
+            lon += 360.0;
+        }
+        out->lon[i] = lon;
+    }
+    out->lon[FACULTY175_HD_BODY_EARTH] = fmod(out->lon[FACULTY175_HD_BODY_SUN] + 180.0, 360.0);
+    out->ok = true;
+    out->from_network = false;
+    return true;
+}
+
+const char *faculty175_ephemeris_hd_body_label(faculty175_hd_body_t body)
+{
+    static const char *const labels[FACULTY175_HD_BODY_COUNT] = {
+        "SUN", "EAR", "MOO", "MER", "VEN", "MAR", "JUP", "SAT", "URA", "NEP", "PLU", "NOD",
+    };
+    return body >= 0 && body < FACULTY175_HD_BODY_COUNT ? labels[body] : "?";
+}
 const char *faculty175_charts_role_label(faculty175_chart_role_t role) { (void)role; return "self"; }
 bool faculty175_charts_handle(const char *line) { (void)line; return false; }
 

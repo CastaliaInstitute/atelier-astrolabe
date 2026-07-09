@@ -1,6 +1,7 @@
 #include "faculty175_ota.h"
 
 #include <ctype.h>
+#include <stdint.h>
 #include <sys/stat.h>
 #include <stdio.h>
 #include <stdarg.h>
@@ -39,8 +40,11 @@ static const char *TAG = "faculty175_ota";
 #define OTA_NVS_NS "ota"
 #define OTA_NVS_URL "url"
 #define OTA_NVS_PENDING "pending"
+#define OTA_NVS_PENDING_SHA "pending_sha256"
+#define OTA_NVS_PENDING_SIZE "pending_size"
 #define OTA_NVS_LAST_SHA "last_sha256"
 #define OTA_NVS_BOOT_PRODUCT "boot_product"
+#define OTA_NVS_AUTO_INTERVAL_S "auto_interval_s"
 #define OTA_URL_MAX 256
 #define OTA_SHA256_HEX_LEN 64
 #define OTA_DEVICE_MAC_LEN 17
@@ -48,14 +52,17 @@ static const char *TAG = "faculty175_ota";
 #define OTA_SIGNATURE_B64_MAX 128
 #define OTA_CANONICAL_MAX 1024
 #define OTA_MANIFEST_MAX_BYTES 4096
-#define OTA_IO_BUFFER_BYTES 4096
-#define OTA_MIN_INTERNAL_FREE (96 * 1024)
-#define OTA_MIN_LARGEST_BLOCK (24 * 1024)
+#define OTA_IO_BUFFER_BYTES 2048
+#define OTA_TASK_STACK_BYTES 6144
+#define OTA_MIN_INTERNAL_FREE (32 * 1024)
+#define OTA_MIN_LARGEST_BLOCK (16 * 1024)
 #define OTA_AUTO_MANIFEST_URL "https://astrolabe.castalia.institute/releases/integration/" ASTROLABE_FACULTY_OTA_CHANNEL "/ota-manifest.json"
 #define OTA_AUTO_INITIAL_DELAY_MS 20000
-#define OTA_AUTO_POLL_MS 30000
+#define OTA_AUTO_DEFAULT_INTERVAL_S (15 * 60)
+#define OTA_AUTO_MIN_INTERVAL_S 60
 #define OTA_LOCAL_PATH_MAX 256
 #define OTA_LOCAL_DEFAULT_RELATIVE "update/astrolabe175c.bin"
+#define OTA_DEV_SKIP_TLS_SERVER_VERIFY 1
 
 typedef enum {
     OTA_STATE_IDLE = 0,
@@ -69,6 +76,15 @@ static char s_ota_last[160];
 static bool s_ota_auto_started;
 
 static void set_last(const char *fmt, ...);
+
+static void *ota_scratch_malloc(size_t size)
+{
+    void *ptr = heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (ptr == NULL) {
+        ptr = heap_caps_malloc(size, MALLOC_CAP_8BIT);
+    }
+    return ptr;
+}
 
 typedef struct {
     char url[OTA_URL_MAX];
@@ -93,6 +109,15 @@ static bool is_factory_partition(const esp_partition_t *part)
 static bool is_http_url(const char *url)
 {
     return url != NULL && (strncmp(url, "https://", 8) == 0 || strncmp(url, "http://", 7) == 0);
+}
+
+static esp_err_t (*ota_crt_bundle_attach(void))(void *)
+{
+#if OTA_DEV_SKIP_TLS_SERVER_VERIFY
+    return NULL;
+#else
+    return esp_crt_bundle_attach;
+#endif
 }
 
 static bool is_absolute_path(const char *path)
@@ -342,7 +367,7 @@ static bool ota_heap_ready(void)
     return true;
 }
 
-static esp_err_t nvs_set_pending_url(const char *url)
+static esp_err_t nvs_set_pending_job(const char *url, const char *sha256, int64_t size)
 {
     nvs_handle_t nvs;
     esp_err_t err = nvs_open(OTA_NVS_NS, NVS_READWRITE, &nvs);
@@ -354,10 +379,29 @@ static esp_err_t nvs_set_pending_url(const char *url)
         err = nvs_set_u8(nvs, OTA_NVS_PENDING, 1);
     }
     if (err == ESP_OK) {
+        if (sha256 != NULL && sha256[0] != '\0') {
+            err = nvs_set_str(nvs, OTA_NVS_PENDING_SHA, sha256);
+        } else {
+            (void)nvs_erase_key(nvs, OTA_NVS_PENDING_SHA);
+        }
+    }
+    if (err == ESP_OK) {
+        if (size > 0) {
+            err = nvs_set_i64(nvs, OTA_NVS_PENDING_SIZE, size);
+        } else {
+            (void)nvs_erase_key(nvs, OTA_NVS_PENDING_SIZE);
+        }
+    }
+    if (err == ESP_OK) {
         err = nvs_commit(nvs);
     }
     nvs_close(nvs);
     return err;
+}
+
+static esp_err_t nvs_set_pending_url(const char *url)
+{
+    return nvs_set_pending_job(url, NULL, 0);
 }
 
 static esp_err_t nvs_get_pending_url(char *url, size_t cap, bool *pending)
@@ -386,6 +430,41 @@ static esp_err_t nvs_get_pending_url(char *url, size_t cap, bool *pending)
     return err;
 }
 
+static esp_err_t nvs_get_pending_job(char *url, size_t url_cap, char *sha256, size_t sha_cap,
+                                     int64_t *size, bool *pending)
+{
+    if (sha256 != NULL && sha_cap > 0) {
+        sha256[0] = '\0';
+    }
+    if (size != NULL) {
+        *size = 0;
+    }
+    esp_err_t err = nvs_get_pending_url(url, url_cap, pending);
+    if (err != ESP_OK || pending == NULL || !*pending) {
+        return err;
+    }
+    nvs_handle_t nvs;
+    err = nvs_open(OTA_NVS_NS, NVS_READONLY, &nvs);
+    if (err != ESP_OK) {
+        return err;
+    }
+    if (sha256 != NULL && sha_cap > 0) {
+        size_t len = sha_cap;
+        const esp_err_t sha_err = nvs_get_str(nvs, OTA_NVS_PENDING_SHA, sha256, &len);
+        if (sha_err != ESP_OK) {
+            sha256[0] = '\0';
+        }
+    }
+    if (size != NULL) {
+        int64_t stored_size = 0;
+        if (nvs_get_i64(nvs, OTA_NVS_PENDING_SIZE, &stored_size) == ESP_OK && stored_size > 0) {
+            *size = stored_size;
+        }
+    }
+    nvs_close(nvs);
+    return ESP_OK;
+}
+
 static void nvs_clear_pending_url(void)
 {
     nvs_handle_t nvs;
@@ -394,6 +473,8 @@ static void nvs_clear_pending_url(void)
     }
     (void)nvs_erase_key(nvs, OTA_NVS_URL);
     (void)nvs_erase_key(nvs, OTA_NVS_PENDING);
+    (void)nvs_erase_key(nvs, OTA_NVS_PENDING_SHA);
+    (void)nvs_erase_key(nvs, OTA_NVS_PENDING_SIZE);
     (void)nvs_commit(nvs);
     nvs_close(nvs);
 }
@@ -468,6 +549,43 @@ static esp_err_t nvs_set_boot_product(bool enabled)
     return err;
 }
 
+static uint32_t nvs_get_auto_interval_s(void)
+{
+    nvs_handle_t nvs;
+    esp_err_t err = nvs_open(OTA_NVS_NS, NVS_READONLY, &nvs);
+    if (err != ESP_OK) {
+        return OTA_AUTO_DEFAULT_INTERVAL_S;
+    }
+    uint32_t interval_s = OTA_AUTO_DEFAULT_INTERVAL_S;
+    err = nvs_get_u32(nvs, OTA_NVS_AUTO_INTERVAL_S, &interval_s);
+    nvs_close(nvs);
+    if (err != ESP_OK) {
+        return OTA_AUTO_DEFAULT_INTERVAL_S;
+    }
+    if (interval_s > 0 && interval_s < OTA_AUTO_MIN_INTERVAL_S) {
+        return OTA_AUTO_MIN_INTERVAL_S;
+    }
+    return interval_s;
+}
+
+static esp_err_t nvs_set_auto_interval_s(uint32_t interval_s)
+{
+    if (interval_s > 0 && interval_s < OTA_AUTO_MIN_INTERVAL_S) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    nvs_handle_t nvs;
+    esp_err_t err = nvs_open(OTA_NVS_NS, NVS_READWRITE, &nvs);
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = nvs_set_u32(nvs, OTA_NVS_AUTO_INTERVAL_S, interval_s);
+    if (err == ESP_OK) {
+        err = nvs_commit(nvs);
+    }
+    nvs_close(nvs);
+    return err;
+}
+
 static esp_err_t reboot_to_factory(void)
 {
     const esp_partition_t *factory =
@@ -523,15 +641,17 @@ static void print_status(void)
     bool boot_product = false;
     (void)nvs_get_pending_url(pending_url, sizeof(pending_url), &pending);
     (void)nvs_get_boot_product(&boot_product);
+    const uint32_t auto_interval_s = nvs_get_auto_interval_s();
     const esp_app_desc_t *desc = esp_app_get_description();
-    printf("ota: status state=%d running=%s boot=%s next=%s version=%s pending=%s boot_product=%s\n",
+    printf("ota: status state=%d running=%s boot=%s next=%s version=%s pending=%s boot_product=%s auto_interval_s=%u\n",
            (int)s_ota_state,
            part_label(running),
            part_label(boot),
            part_label(next),
            desc != NULL ? desc->version : "-",
            pending ? "yes" : "no",
-           boot_product ? "yes" : "no");
+           boot_product ? "yes" : "no",
+           (unsigned)auto_interval_s);
     if (pending) {
         printf("ota: pending url=%s\n", pending_url);
     }
@@ -550,7 +670,7 @@ static esp_err_t fetch_manifest(const char *manifest_url, ota_job_t *job)
         .url = manifest_url,
         .timeout_ms = 12000,
         .buffer_size = 1024,
-        .crt_bundle_attach = esp_crt_bundle_attach,
+        .crt_bundle_attach = ota_crt_bundle_attach(),
         .keep_alive_enable = false,
     };
     esp_http_client_handle_t client = esp_http_client_init(&cfg);
@@ -559,7 +679,7 @@ static esp_err_t fetch_manifest(const char *manifest_url, ota_job_t *job)
         return ESP_ERR_NO_MEM;
     }
 
-    char *body = heap_caps_malloc(OTA_MANIFEST_MAX_BYTES + 1, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    char *body = ota_scratch_malloc(OTA_MANIFEST_MAX_BYTES + 1);
     esp_err_t err = body != NULL ? ESP_OK : ESP_ERR_NO_MEM;
     int64_t content_len = -1;
     int status = 0;
@@ -693,7 +813,7 @@ static esp_err_t stream_install_url(const char *url,
         .url = url,
         .timeout_ms = 15000,
         .buffer_size = OTA_IO_BUFFER_BYTES,
-        .crt_bundle_attach = esp_crt_bundle_attach,
+        .crt_bundle_attach = ota_crt_bundle_attach(),
         .keep_alive_enable = false,
     };
     esp_http_client_handle_t client = esp_http_client_init(&cfg);
@@ -703,7 +823,7 @@ static esp_err_t stream_install_url(const char *url,
     }
 
     esp_ota_handle_t ota = 0;
-    uint8_t *buf = heap_caps_malloc(OTA_IO_BUFFER_BYTES, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    uint8_t *buf = ota_scratch_malloc(OTA_IO_BUFFER_BYTES);
     esp_err_t err = buf != NULL ? ESP_OK : ESP_ERR_NO_MEM;
     if (err == ESP_OK) {
         esp_http_client_set_header(client, "User-Agent", "Astrolabe-Faculty175-OTA/1");
@@ -925,7 +1045,7 @@ static esp_err_t stream_install_file(const char *path,
     }
 
     esp_ota_handle_t ota = 0;
-    uint8_t *buf = heap_caps_malloc(OTA_IO_BUFFER_BYTES, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    uint8_t *buf = ota_scratch_malloc(OTA_IO_BUFFER_BYTES);
     esp_err_t err = buf != NULL ? ESP_OK : ESP_ERR_NO_MEM;
     if (err == ESP_OK) {
         FACULTY175_LOG_STAGE(TAG, "ota", "install file %s %lldB -> %s @0x%lx", path, content_len, target->label,
@@ -1074,6 +1194,26 @@ static void ota_task(void *arg)
             return;
         }
     }
+    const esp_partition_t *running = esp_ota_get_running_partition();
+    if (err == ESP_OK && job->manifest_url && !is_factory_partition(running)) {
+        err = nvs_set_pending_job(install.url, install.expected_sha256, install.expected_size);
+        if (err == ESP_OK && install.expected_sha256[0] != '\0') {
+            ESP_ERROR_CHECK_WITHOUT_ABORT(nvs_set_last_sha(install.expected_sha256));
+        }
+        if (err == ESP_OK) {
+            err = reboot_to_factory();
+        }
+        if (err == ESP_OK) {
+            s_ota_state = OTA_STATE_DONE;
+            set_last("scheduled factory recovery %.12s", install.expected_sha256);
+            FACULTY175_LOG_STAGE(TAG, "ota", "%s", s_ota_last);
+            free(job);
+            vTaskDelay(pdMS_TO_TICKS(250));
+            esp_restart();
+            vTaskDelete(NULL);
+            return;
+        }
+    }
     if (err == ESP_OK) {
         FACULTY175_LOG_STAGE(TAG, "ota", "%s %s", install.local_file ? "file" : "fetch", install.url);
         err = install.local_file ? stream_install_file(install.url, install.expected_sha256, install.expected_size, &target)
@@ -1113,7 +1253,7 @@ static esp_err_t start_install_job(const ota_job_t *src)
     }
     *job = *src;
     s_ota_state = OTA_STATE_RUNNING;
-    if (xTaskCreate(ota_task, "ota", 6144, job, 6, NULL) != pdPASS) {
+    if (xTaskCreate(ota_task, "ota", OTA_TASK_STACK_BYTES, job, 6, NULL) != pdPASS) {
         s_ota_state = OTA_STATE_ERROR;
         free(job);
         return ESP_ERR_NO_MEM;
@@ -1140,7 +1280,8 @@ static void ota_auto_task(void *arg)
     (void)arg;
     vTaskDelay(pdMS_TO_TICKS(OTA_AUTO_INITIAL_DELAY_MS));
     while (true) {
-        if (s_ota_state != OTA_STATE_RUNNING) {
+        const uint32_t interval_s = nvs_get_auto_interval_s();
+        if (interval_s > 0 && s_ota_state != OTA_STATE_RUNNING) {
             ota_job_t job = {
                 .manifest_url = true,
             };
@@ -1151,7 +1292,7 @@ static void ota_auto_task(void *arg)
                 FACULTY175_LOG_STAGE_W(TAG, "ota", "%s", s_ota_last);
             }
         }
-        vTaskDelay(pdMS_TO_TICKS(OTA_AUTO_POLL_MS));
+        vTaskDelay(pdMS_TO_TICKS((interval_s > 0 ? interval_s : OTA_AUTO_DEFAULT_INTERVAL_S) * 1000u));
     }
 }
 
@@ -1252,12 +1393,14 @@ void faculty175_ota_maybe_start_recovery_request(void)
         return;
     }
     char url[OTA_URL_MAX];
+    char sha[OTA_SHA256_HEX_LEN + 1];
+    int64_t size = 0;
     bool pending = false;
-    if (nvs_get_pending_url(url, sizeof(url), &pending) != ESP_OK || !pending) {
+    if (nvs_get_pending_job(url, sizeof(url), sha, sizeof(sha), &size, &pending) != ESP_OK || !pending) {
         return;
     }
     FACULTY175_LOG_STAGE(TAG, "ota", "factory recovery request pending");
-    esp_err_t err = start_install_task(url, NULL, 0, true);
+    esp_err_t err = start_install_task(url, sha[0] != '\0' ? sha : NULL, size, true);
     if (err != ESP_OK) {
         set_last("start failed: %s", esp_err_to_name(err));
         s_ota_state = OTA_STATE_ERROR;
@@ -1271,7 +1414,7 @@ void faculty175_ota_start_auto_update_task(void)
         return;
     }
     s_ota_auto_started = true;
-    if (xTaskCreate(ota_auto_task, "ota_auto", 4096, NULL, 3, NULL) != pdPASS) {
+    if (xTaskCreate(ota_auto_task, "ota_auto", 2048, NULL, 3, NULL) != pdPASS) {
         s_ota_auto_started = false;
         set_last("auto task failed");
         FACULTY175_LOG_STAGE_W(TAG, "ota", "%s", s_ota_last);
@@ -1295,6 +1438,7 @@ bool faculty175_ota_handle(const char *line)
         printf("  ota usb [sha256]   # default: " OTA_LOCAL_DEFAULT_RELATIVE "\n");
         printf("  ota manifest <https-manifest-url>\n");
         printf("  ota recovery <https-url>\n");
+        printf("  ota auto <seconds|off|status>   # default: %u\n", (unsigned)OTA_AUTO_DEFAULT_INTERVAL_S);
         printf("  ota boot ota|factory|status\n");
         printf("  ota factory\n");
         fflush(stdout);
@@ -1350,6 +1494,33 @@ bool faculty175_ota_handle(const char *line)
             return true;
         }
         printf("ota: boot expects ota|factory|status\n");
+        fflush(stdout);
+        return true;
+    }
+    if (strcasecmp(sub, "auto") == 0 || strncasecmp(sub, "auto ", 5) == 0) {
+        const char *value = skip_spaces(sub + 4);
+        if (*value == '\0' || strcasecmp(value, "status") == 0) {
+            printf("ota: auto interval_s=%u\n", (unsigned)nvs_get_auto_interval_s());
+            fflush(stdout);
+            return true;
+        }
+        uint32_t interval_s = 0;
+        esp_err_t err = ESP_OK;
+        if (strcasecmp(value, "off") == 0 || strcasecmp(value, "disable") == 0 || strcmp(value, "0") == 0) {
+            interval_s = 0;
+        } else {
+            char *end = NULL;
+            const unsigned long parsed = strtoul(value, &end, 10);
+            if (end == value || (end != NULL && *skip_spaces(end) != '\0') || parsed > UINT32_MAX) {
+                err = ESP_ERR_INVALID_ARG;
+            } else {
+                interval_s = (uint32_t)parsed;
+            }
+        }
+        if (err == ESP_OK) {
+            err = nvs_set_auto_interval_s(interval_s);
+        }
+        printf("ota: auto %s interval_s=%u\n", esp_err_to_name(err), (unsigned)nvs_get_auto_interval_s());
         fflush(stdout);
         return true;
     }
