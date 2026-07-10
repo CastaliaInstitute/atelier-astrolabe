@@ -1270,10 +1270,49 @@ static esp_err_t faculty175_audio_prepare_capture_locked(void)
     return ESP_OK;
 }
 
-static esp_err_t faculty175_audio_write_mono_from_stereo(const int16_t *samples, size_t sample_count)
+static void faculty175_audio_suspend_capture_locked(void)
+{
+    if (s_mic_open && s_mic_codec != NULL) {
+        (void)esp_codec_dev_close(s_mic_codec);
+        s_mic_open = false;
+    }
+}
+
+static esp_err_t faculty175_audio_restart_tx_locked(void)
+{
+    if (s_i2s_tx == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    esp_err_t err = i2s_channel_disable(s_i2s_tx);
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+        return err;
+    }
+    err = i2s_channel_enable(s_i2s_tx);
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+        return err;
+    }
+    return ESP_OK;
+}
+
+static esp_err_t faculty175_audio_write_mono_from_stereo(const int16_t *samples,
+                                                         size_t sample_count,
+                                                         uint32_t timeout_ms)
 {
     const size_t bytes = sample_count * sizeof(int16_t);
-    return esp_codec_dev_write(s_spk_codec, (void *)samples, (int)bytes) == ESP_OK ? ESP_OK : ESP_FAIL;
+    size_t written = 0;
+    if (s_i2s_tx == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    const TickType_t ticks = pdMS_TO_TICKS(timeout_ms == 0 ? 200 : timeout_ms);
+    esp_err_t err = i2s_channel_write(s_i2s_tx, samples, bytes, &written, ticks);
+    if (err != ESP_OK) {
+        return err;
+    }
+    if (written != bytes) {
+        ESP_LOGW(TAG, "spk i2s short write %u/%u", (unsigned)written, (unsigned)bytes);
+        return ESP_ERR_TIMEOUT;
+    }
+    return ESP_OK;
 }
 
 esp_err_t faculty175_board_play_boot_chime(void)
@@ -2033,7 +2072,9 @@ esp_err_t faculty175_audio_write_pcm(const int16_t *samples, size_t sample_count
     }
 
     esp_err_t err = ESP_OK;
+    bool opened_speaker = false;
     faculty175_audio_set_speaker_pa_level(true);
+    faculty175_audio_suspend_capture_locked();
     if (!s_spk_open) {
         err = faculty175_codec_open(true, s_spk_rate_hz);
         if (err != ESP_OK) {
@@ -2051,10 +2092,18 @@ esp_err_t faculty175_audio_write_pcm(const int16_t *samples, size_t sample_count
             goto out;
         }
         s_spk_open = true;
+        opened_speaker = true;
+    }
+    if (opened_speaker) {
+        err = faculty175_audio_restart_tx_locked();
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "spk tx restart: %s", esp_err_to_name(err));
+            goto out;
+        }
     }
 
     faculty175_aec_push_reference(samples, sample_count);
-    err = faculty175_audio_write_mono_from_stereo(samples, sample_count);
+    err = faculty175_audio_write_mono_from_stereo(samples, sample_count, timeout_ms);
 
 out:
     if (s_audio_read_mux != NULL) {

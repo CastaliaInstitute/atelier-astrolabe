@@ -1217,7 +1217,7 @@ static esp_err_t pipeline_read(int16_t *samples, size_t sample_count, size_t *ou
         s_ui == FACULTY175_UI_THINK || s_ui == FACULTY175_UI_SPEAK;
 #endif
     if (faculty175_ota_active() || faculty175_qa_audio_busy() || faculty175_face_native_audio_busy() ||
-        ui_blocks_read || s_low_power_asleep ||
+        faculty175_voice_tts_playback_busy() || ui_blocks_read || s_low_power_asleep ||
         (s_power_on_battery && !s_battery_stt_armed && !astrolabe_audio_pipeline_speech_active(s_pipeline))) {
         if (out_read != NULL) {
             *out_read = 0;

@@ -78,6 +78,7 @@ typedef struct {
 } faculty175_tts_speaker_stream_state_t;
 
 static faculty175_tts_speaker_stream_state_t s_tts_speaker_stream = {};
+static volatile bool s_tts_playback_busy;
 
 static uint32_t voice_internal_free(void)
 {
@@ -1521,6 +1522,7 @@ esp_err_t faculty175_voice_play_mp3(const uint8_t *mp3, size_t mp3_len)
 
     const uint32_t t0 = faculty175_log_ms();
     FACULTY175_LOG_STAGE(TAG, "tts", "play start mp3=%uB", (unsigned)mp3_len);
+    s_tts_playback_busy = true;
     (void)faculty175_audio_reset_speaker(1000);
 
     mp3dec_frame_info_t info;
@@ -1570,6 +1572,7 @@ esp_err_t faculty175_voice_play_mp3(const uint8_t *mp3, size_t mp3_len)
                                        "play frame=%u write failed: %s",
                                        (unsigned)frame_index,
                                        esp_err_to_name(write_err));
+                s_tts_playback_busy = false;
                 return write_err;
             }
         } else {
@@ -1588,6 +1591,7 @@ esp_err_t faculty175_voice_play_mp3(const uint8_t *mp3, size_t mp3_len)
                                        "play frame=%u write failed: %s",
                                        (unsigned)frame_index,
                                        esp_err_to_name(write_err));
+                s_tts_playback_busy = false;
                 return write_err;
             }
         }
@@ -1601,7 +1605,13 @@ esp_err_t faculty175_voice_play_mp3(const uint8_t *mp3, size_t mp3_len)
 
     (void)faculty175_audio_reset_speaker(1000);
     FACULTY175_LOG_STAGE(TAG, "tts", "play done in %ums", (unsigned)(faculty175_log_ms() - t0));
+    s_tts_playback_busy = false;
     return ESP_OK;
+}
+
+bool faculty175_voice_tts_playback_busy(void)
+{
+    return s_tts_playback_busy;
 }
 
 static esp_err_t voice_play_mp3_file_sync(const char *path, size_t mp3_len)
