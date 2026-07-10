@@ -23,6 +23,7 @@
 #include "faculty175_face_tarot_spiffs_image.h"
 #include "faculty175_faces.h"
 #include "faculty175_faculty.h"
+#include "faculty175_lvgl.h"
 #include "faculty175_quotes.h"
 #include "faculty175_rocket.h"
 #include "faculty175_touch.h"
@@ -336,6 +337,101 @@ size_t faculty175_display_bmp_size(void) { return 0; }
 int faculty175_display_write_bmp(FILE *out) { (void)out; return 0; }
 size_t faculty175_display_bmp565_size(void) { return 0; }
 esp_err_t faculty175_display_write_bmp565(faculty175_display_write_cb_t write_cb, void *ctx) { (void)write_cb; (void)ctx; return ESP_FAIL; }
+
+esp_err_t faculty175_lvgl_init(void) { return ESP_FAIL; }
+bool faculty175_lvgl_ready(void) { return false; }
+void faculty175_lvgl_service(uint32_t now_ms) { (void)now_ms; }
+bool faculty175_lvgl_face_supported(faculty175_face_id_t id) { (void)id; return false; }
+bool faculty175_lvgl_draw_face(faculty175_face_id_t id, uint32_t anim_ms) { (void)id; (void)anim_ms; return false; }
+bool faculty175_lvgl_draw_native_face(const faculty175_native_face_t *face, uint32_t anim_ms) { (void)face; (void)anim_ms; return false; }
+bool faculty175_lvgl_draw_nav(const faculty175_face_desc_t *center,
+                              const faculty175_face_desc_t *left,
+                              const faculty175_face_desc_t *right,
+                              const faculty175_face_desc_t *up,
+                              const faculty175_face_desc_t *down,
+                              uint32_t anim_ms)
+{
+    (void)center;
+    (void)left;
+    (void)right;
+    (void)up;
+    (void)down;
+    (void)anim_ms;
+    return false;
+}
+bool faculty175_lvgl_transition_nav(const faculty175_face_desc_t *center, bool vertical, int delta, uint32_t duration_ms)
+{
+    (void)center;
+    (void)vertical;
+    (void)delta;
+    (void)duration_ms;
+    return false;
+}
+bool faculty175_lvgl_transition_face(faculty175_face_id_t from_id,
+                                     faculty175_face_id_t to_id,
+                                     uint32_t anim_ms,
+                                     bool vertical,
+                                     int delta,
+                                     uint32_t duration_ms,
+                                     bool *animated_out)
+{
+    (void)from_id;
+    (void)to_id;
+    (void)anim_ms;
+    (void)vertical;
+    (void)delta;
+    (void)duration_ms;
+    if (animated_out) {
+        *animated_out = false;
+    }
+    return false;
+}
+bool faculty175_lvgl_faces_share_transition_screen(faculty175_face_id_t a, faculty175_face_id_t b)
+{
+    (void)a;
+    (void)b;
+    return false;
+}
+bool faculty175_lvgl_animate_frames(const uint16_t *from,
+                                    const uint16_t *to,
+                                    bool vertical,
+                                    int delta,
+                                    uint32_t duration_ms)
+{
+    (void)from;
+    (void)to;
+    (void)vertical;
+    (void)delta;
+    (void)duration_ms;
+    return false;
+}
+
+static void websim_placeholder_face(const char *label, uint32_t anim_ms)
+{
+    faculty175_display_draw_status(FACULTY175_UI_LISTEN, label, "websim stub", anim_ms, NULL, NULL, 0);
+}
+
+void faculty175_face_deathstar_draw(uint32_t anim_ms) { websim_placeholder_face("Death Star", anim_ms); }
+void faculty175_face_maze_draw(uint32_t anim_ms) { websim_placeholder_face("Maze", anim_ms); }
+void faculty175_face_watcher_draw(uint32_t anim_ms) { websim_placeholder_face("Watcher", anim_ms); }
+void faculty175_face_wifilab_draw(faculty175_face_id_t id, uint32_t anim_ms)
+{
+    const faculty175_face_desc_t *face = faculty175_faces_get(id);
+    websim_placeholder_face(face != NULL ? face->label : "Wi-Fi Lab", anim_ms);
+}
+bool faculty175_face_wifilab_action(faculty175_face_id_t id, uint32_t seed_ms)
+{
+    (void)id;
+    (void)seed_ms;
+    return false;
+}
+void faculty175_face_wifilab_tick(faculty175_face_id_t id, uint32_t now_ms) { (void)id; (void)now_ms; }
+void faculty175_face_wifilab_enter(faculty175_face_id_t id) { (void)id; }
+void faculty175_face_wifilab_leave(faculty175_face_id_t id) { (void)id; }
+void faculty175_face_incidents_draw(uint32_t anim_ms) { websim_placeholder_face("Incidents", anim_ms); }
+bool faculty175_face_incidents_action(uint32_t seed_ms) { (void)seed_ms; return false; }
+bool faculty175_face_incidents_scroll(int delta) { (void)delta; return false; }
+size_t faculty175_face_incidents_scroll_index(void) { return 0; }
 
 const char *esp_err_to_name(esp_err_t err)
 {

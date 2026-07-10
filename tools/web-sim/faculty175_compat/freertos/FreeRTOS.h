@@ -3,6 +3,7 @@
 #include <stdint.h>
 
 typedef uint32_t TickType_t;
+typedef void *TaskHandle_t;
 typedef int portMUX_TYPE;
 
 #define pdMS_TO_TICKS(ms) ((TickType_t)(ms))

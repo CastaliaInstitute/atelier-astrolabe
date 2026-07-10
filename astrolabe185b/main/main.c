@@ -152,6 +152,19 @@ static const char *ALETHIOMETER_SYSTEM_INSTRUCTION =
     "\"spoken\":\"one or two concise spoken sentences interpreting the chosen symbols as an answer to the user's exact question\"}. "
     "Do not use markdown, prose outside JSON, or symbolic names in the numeric fields.";
 
+static const char *CRYSTAL_BALL_SYSTEM_INSTRUCTION =
+    "You are the crystal ball face of a tiny round astrolabe. "
+    "The user may have asked a question, or may have only pressed TTS for an omen. "
+    "Choose exactly three distinct questionSymbols that reflect the question or present situation, then one distinct answerSymbol that answers it. "
+    "All symbols are integer indices from this table: "
+    "0 RIDER, 1 CLOVER, 2 SHIP, 3 HOUSE, 4 TREE, 5 CLOUDS, 6 SNAKE, 7 COFFIN, 8 BOUQUET, "
+    "9 SCYTHE, 10 WHIP, 11 BIRDS, 12 CHILD, 13 FOX, 14 BEAR, 15 STARS, 16 STORK, 17 DOG, "
+    "18 TOWER, 19 GARDEN, 20 MOUNTAIN, 21 ROADS, 22 MICE, 23 HEART, 24 RING, 25 BOOK, "
+    "26 LETTER, 27 MAN, 28 WOMAN, 29 LILY, 30 SUN, 31 MOON, 32 KEY, 33 FISH, 34 ANCHOR, 35 CROSS. "
+    "Return only strict minified JSON using {\"questionSymbols\":[number,number,number],\"answerSymbol\":number,"
+    "\"spoken\":\"one or two concise spoken sentences paced as three archetypes reflecting the question, then the fourth as the answer\"}. "
+    "Do not use markdown, prose outside JSON, or symbolic names in the numeric fields.";
+
 static bool ui_state_modal(faculty175_ui_state_t state)
 {
     return state == FACULTY175_UI_CAPTURE || state == FACULTY175_UI_THINK ||
@@ -865,24 +878,30 @@ static void build_face_read_prompt(const faculty175_face_desc_t *face, char *out
             break;
         }
         case FACULTY175_FACE_ALETHIOMETER:
+        case FACULTY175_FACE_CRYSTAL_BALL:
         {
             int targets[4] = {};
             char question[192] = {};
             char spoken[384] = {};
             if (faculty175_face_alethiometer_context(targets, question, sizeof(question), spoken, sizeof(spoken))) {
                 prompt_append(out, cap, &off,
-                              "Read the aleithiometer's settled dial positions in relation to the user's question. "
+                              "Read the %s's settled archetypes in relation to the user's question. "
                               "Question: %s. Question needles: %s, %s, %s. Answer needle: %s. "
-                              "Prior interpretation: %s. Do not recast or choose new symbols. ",
+                              "Prior interpretation: %s. %s ",
+                              face->id == FACULTY175_FACE_CRYSTAL_BALL ? "crystal ball" : "aleithiometer",
                               question[0] != '\0' ? question : "(no spoken question has been recorded yet)",
                               faculty175_face_alethiometer_symbol_name(targets[0]),
                               faculty175_face_alethiometer_symbol_name(targets[1]),
                               faculty175_face_alethiometer_symbol_name(targets[2]),
                               faculty175_face_alethiometer_symbol_name(targets[3]),
-                              spoken[0] != '\0' ? spoken : "(none yet)");
+                              spoken[0] != '\0' ? spoken : "(none yet)",
+                              face->id == FACULTY175_FACE_CRYSTAL_BALL
+                                  ? "If there is no recorded question, cast a fresh omen."
+                                  : "Do not recast or choose new symbols.");
             } else {
                 prompt_append(out, cap, &off,
-                              "Read this as a symbolic alethiometer face. No valid dial state is available yet. ");
+                              "Read this as a symbolic %s face. No valid dial state is available yet. ",
+                              face->id == FACULTY175_FACE_CRYSTAL_BALL ? "crystal ball" : "alethiometer");
             }
             break;
         }
@@ -925,15 +944,21 @@ static void face_tts_task(void *arg)
     fflush(stdout);
 
     ui_set(FACULTY175_UI_THINK, "reading face");
-    const char *system =
-        "You are the speaking voice of a tiny round astrolabe. Read the current face from the supplied data. "
-        "Do not perform speech recognition, do not ask a question, and do not mention hidden implementation details.";
+    const char *system = (face != NULL && face->id == FACULTY175_FACE_CRYSTAL_BALL)
+                             ? CRYSTAL_BALL_SYSTEM_INSTRUCTION
+                             : "You are the speaking voice of a tiny round astrolabe. Read the current face from the supplied data. "
+                               "Do not perform speech recognition, do not ask a question, and do not mention hidden implementation details.";
     const char *post_face = (face != NULL && face->id == FACULTY175_FACE_ALETHIOMETER)
                                 ? ASTROLABE_FACULTY_FACE_NAME
                                 : (face != NULL ? face->slug : ASTROLABE_FACULTY_FACE_NAME);
     ui_set(FACULTY175_UI_SPEAK, face != NULL ? face->label : "face");
     esp_err_t err = face_tts_stream_post(prompt, system, post_face, result);
     if (err == ESP_OK) {
+        if (face != NULL && face->id == FACULTY175_FACE_CRYSTAL_BALL &&
+            faculty175_face_alethiometer_apply_reply(prompt, result->reply)) {
+            FACULTY175_LOG_STAGE(TAG, "crystal-ball", "tts reply applied");
+            ui_redraw();
+        }
         if (result->reply[0] != '\0') {
             FACULTY175_LOG_STAGE(TAG, "tts-face", "reply %.96s", result->reply);
             append_history(prompt, result->reply);
@@ -1077,9 +1102,10 @@ static void pipeline_result(const char *transcript,
     (void)user;
     bool faculty_changed = false;
     const faculty175_face_desc_t *face = faculty175_faces_current();
-    if (face != NULL && face->id == FACULTY175_FACE_ALETHIOMETER &&
+    if (face != NULL && (face->id == FACULTY175_FACE_ALETHIOMETER || face->id == FACULTY175_FACE_CRYSTAL_BALL) &&
         faculty175_face_alethiometer_apply_reply(transcript, reply)) {
-        FACULTY175_LOG_STAGE(TAG, "alethiometer", "dial reply applied");
+        FACULTY175_LOG_STAGE(TAG, face->id == FACULTY175_FACE_CRYSTAL_BALL ? "crystal-ball" : "alethiometer",
+                             "dial reply applied");
         ui_redraw();
     }
     if (faculty175_face_babel_update_from_transcript(transcript)) {
@@ -1938,17 +1964,20 @@ static void sync_voice_context(void *user)
     const faculty175_face_desc_t *face = faculty175_faces_current();
     const bool notes_mode = face != NULL && face->id == FACULTY175_FACE_NOTES;
     const bool alethiometer_mode = face != NULL && face->id == FACULTY175_FACE_ALETHIOMETER;
+    const bool crystal_ball_mode = face != NULL && face->id == FACULTY175_FACE_CRYSTAL_BALL;
     faculty175_strlcpy(s_voice_face,
-                       notes_mode ? "notes" : (alethiometer_mode ? "alethiometer" : ASTROLABE_FACULTY_FACE_NAME),
+                       notes_mode ? "notes" : (alethiometer_mode ? "alethiometer" : (crystal_ball_mode ? "crystal-ball" : ASTROLABE_FACULTY_FACE_NAME)),
                        sizeof(s_voice_face));
     faculty175_strlcpy(s_voice_interaction_mode, notes_mode ? "journal" : "conversation",
                        sizeof(s_voice_interaction_mode));
     faculty175_strlcpy(s_voice_commonplace_mode, notes_mode ? "journal" : "conversation",
                        sizeof(s_voice_commonplace_mode));
-    faculty175_strlcpy(s_voice_response_format, (notes_mode || alethiometer_mode) ? "json" : "mp3",
+    faculty175_strlcpy(s_voice_response_format, (notes_mode || alethiometer_mode || crystal_ball_mode) ? "json" : "mp3",
                        sizeof(s_voice_response_format));
     faculty175_strlcpy(s_voice_system_instruction,
-                       alethiometer_mode ? ALETHIOMETER_SYSTEM_INSTRUCTION : ASTROLABE_FACULTY_SYSTEM_INSTRUCTION,
+                       crystal_ball_mode ? CRYSTAL_BALL_SYSTEM_INSTRUCTION
+                                         : (alethiometer_mode ? ALETHIOMETER_SYSTEM_INSTRUCTION
+                                                             : ASTROLABE_FACULTY_SYSTEM_INSTRUCTION),
                        sizeof(s_voice_system_instruction));
     s_voice_skip_llm = notes_mode;
     s_voice_log_to_commonplace = true;

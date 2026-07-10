@@ -1,6 +1,7 @@
 #include "faculty175_face_dispatch.h"
 
 #include "faculty175_face_alethiometer.h"
+#include "faculty175_face_crystal_ball.h"
 #include "faculty175_face_incidents.h"
 #include "faculty175_face_wifilab.h"
 #include "faculty175_lvgl.h"
@@ -53,6 +54,7 @@ bool faculty175_face_dispatch_draw(faculty175_face_id_t id, uint32_t anim_ms)
         case FACULTY175_FACE_NOTES: faculty175_face_notes_draw(anim_ms); return true;
         case FACULTY175_FACE_RUNES: faculty175_face_runes_draw(anim_ms); return true;
         case FACULTY175_FACE_ALETHIOMETER: faculty175_face_alethiometer_draw(anim_ms); return true;
+        case FACULTY175_FACE_CRYSTAL_BALL: faculty175_face_crystal_ball_draw(anim_ms); return true;
         case FACULTY175_FACE_CLASSIC: faculty175_face_classic_draw(anim_ms); return true;
         case FACULTY175_FACE_APOCALYPSO: faculty175_face_apocalypso_draw(anim_ms); return true;
         case FACULTY175_FACE_DIGITAL: faculty175_face_digital_draw(anim_ms); return true;
@@ -108,6 +110,9 @@ bool faculty175_face_dispatch_action(faculty175_face_id_t id, uint32_t seed_ms)
             return true;
         case FACULTY175_FACE_ALETHIOMETER:
             faculty175_face_alethiometer_cast(seed_ms);
+            return true;
+        case FACULTY175_FACE_CRYSTAL_BALL:
+            faculty175_face_crystal_ball_cast(seed_ms);
             return true;
         case FACULTY175_FACE_TAROT:
             faculty175_face_tarot_draw_card(seed_ms);
