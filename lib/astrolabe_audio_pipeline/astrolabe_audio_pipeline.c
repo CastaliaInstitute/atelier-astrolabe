@@ -36,6 +36,7 @@ static const char *TAG = "ast_audio_pipe";
 #define DEFAULT_SEGMENT_MS 3000u
 #define DEFAULT_RING_SLOTS 8u
 #define MAX_RING_SLOTS 8u
+#define MIN_TURN_MIRROR_MAX_BYTES (32 * 1024u)
 #define DEFAULT_MIN_MS 400u
 #define DEFAULT_CAPTURE_COOLDOWN_MS 2500u
 #define DEFAULT_LISTEN_STACK 4096u
@@ -117,6 +118,7 @@ struct astrolabe_audio_pipeline {
     size_t turn_pcm_len;
     size_t turn_pcm_cap;
     bool turn_transport_failed;
+    bool turn_pcm_truncated;
     uint32_t silence_frames;
     uint32_t speech_frames;
     uint32_t last_rms;
@@ -241,6 +243,19 @@ static void turn_pcm_reset(astrolabe_audio_pipeline_t *p)
     }
     p->turn_pcm_len = 0;
     p->turn_transport_failed = false;
+    p->turn_pcm_truncated = false;
+}
+
+static size_t turn_pcm_mirror_max_bytes(const astrolabe_audio_pipeline_t *p)
+{
+    if (p == NULL || !rolling_websocket_enabled(p)) {
+        return p != NULL ? p->capture_cap_bytes : 0;
+    }
+    size_t cap = p->segment_cap_bytes * (size_t)p->capture_ring_slots;
+    if (cap < MIN_TURN_MIRROR_MAX_BYTES) {
+        cap = MIN_TURN_MIRROR_MAX_BYTES;
+    }
+    return cap;
 }
 
 static bool turn_pcm_append(astrolabe_audio_pipeline_t *p, const uint8_t *data, size_t len)
@@ -248,7 +263,17 @@ static bool turn_pcm_append(astrolabe_audio_pipeline_t *p, const uint8_t *data, 
     if (p == NULL || data == NULL || len == 0) {
         return true;
     }
+    const size_t mirror_max = turn_pcm_mirror_max_bytes(p);
+    if (mirror_max == 0 || p->turn_pcm_len >= mirror_max) {
+        p->turn_pcm_truncated = true;
+        return true;
+    }
+    if (len > mirror_max - p->turn_pcm_len) {
+        len = mirror_max - p->turn_pcm_len;
+        p->turn_pcm_truncated = true;
+    }
     if (p->turn_pcm_len > SIZE_MAX - len) {
+        p->turn_pcm_truncated = true;
         return false;
     }
     const size_t need = p->turn_pcm_len + len;
@@ -257,11 +282,15 @@ static bool turn_pcm_append(astrolabe_audio_pipeline_t *p, const uint8_t *data, 
         while (next < need) {
             next *= 2;
         }
+        if (next > mirror_max) {
+            next = mirror_max;
+        }
         uint8_t *grown = heap_caps_realloc(p->turn_pcm, next, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
         if (grown == NULL) {
             grown = realloc(p->turn_pcm, next);
         }
         if (grown == NULL) {
+            p->turn_pcm_truncated = true;
             return false;
         }
         p->turn_pcm = grown;
@@ -1668,11 +1697,12 @@ static esp_err_t stream_pcm_file(astrolabe_audio_pipeline_t *p, const utterance_
     }
     if (err != ESP_OK) {
         if (utt->final_segment && result != NULL &&
-            ((p->turn_pcm != NULL && p->turn_pcm_len > 0) || (utt->pcm_data != NULL && utt->byte_count > 0))) {
+            ((p->turn_pcm != NULL && p->turn_pcm_len > 0 && !p->turn_pcm_truncated) ||
+             (utt->pcm_data != NULL && utt->byte_count > 0))) {
             rolling_stream_session_close(p);
             voice_result_free(result);
             memset(result, 0, sizeof(*result));
-            if (p->turn_pcm != NULL && p->turn_pcm_len > 0) {
+            if (p->turn_pcm != NULL && p->turn_pcm_len > 0 && !p->turn_pcm_truncated) {
                 ESP_LOGW(TAG,
                          "voice-stream session open failed; retrying final turn via HTTP buffer (%uB)",
                          (unsigned)p->turn_pcm_len);
@@ -1808,20 +1838,26 @@ static esp_err_t stream_pcm_file(astrolabe_audio_pipeline_t *p, const utterance_
     if (!utt->final_segment && (err != ESP_OK || transport_bad || (p->rolling_client != NULL && !client_connected))) {
         p->turn_transport_failed = true;
     }
-    if (utt->final_segment && p->turn_transport_failed && p->turn_pcm != NULL && p->turn_pcm_len > 0) {
+    if (utt->final_segment && p->turn_transport_failed && p->turn_pcm != NULL && p->turn_pcm_len > 0 &&
+        !p->turn_pcm_truncated) {
         ESP_LOGW(TAG, "voice-stream turn degraded earlier; retrying final turn via HTTP buffer (%uB)",
                  (unsigned)p->turn_pcm_len);
         rolling_stream_session_close(p);
         voice_result_free(result);
         memset(result, 0, sizeof(*result));
         err = post_pcm_buffer(p, p->turn_pcm, p->turn_pcm_len, result);
-    } else if (utt->final_segment && err != ESP_OK && p->turn_pcm != NULL && p->turn_pcm_len > 0) {
+    } else if (utt->final_segment && err != ESP_OK && p->turn_pcm != NULL && p->turn_pcm_len > 0 &&
+               !p->turn_pcm_truncated) {
         ESP_LOGW(TAG, "voice-stream final segment failed; retrying full turn via HTTP buffer (%uB)",
                  (unsigned)p->turn_pcm_len);
         rolling_stream_session_close(p);
         voice_result_free(result);
         memset(result, 0, sizeof(*result));
         err = post_pcm_buffer(p, p->turn_pcm, p->turn_pcm_len, result);
+    } else if (utt->final_segment && err != ESP_OK && p->turn_pcm_truncated) {
+        ESP_LOGW(TAG,
+                 "voice-stream final segment failed; skipping HTTP whole-turn fallback because PSRAM mirror is truncated (%uB)",
+                 (unsigned)p->turn_pcm_len);
     }
     if ((err != ESP_OK && transport_bad) || (p->rolling_client != NULL && !client_connected)) {
         rolling_stream_session_close(p);
@@ -2807,16 +2843,18 @@ esp_err_t astrolabe_audio_pipeline_create(const astrolabe_audio_pipeline_config_
         size_t spiffs_total = 0;
         size_t spiffs_used = 0;
         if (esp_spiffs_info(p->cfg.capture_partition_label, &spiffs_total, &spiffs_used) == ESP_OK) {
-            ESP_LOGI(TAG, "capture spool spiffs total=%u used=%u free=%u slots=%u segment=%uB",
+            ESP_LOGI(TAG, "capture spool spiffs total=%u used=%u free=%u slots=%u segment=%uB mirror_max=%uB",
                      (unsigned)spiffs_total, (unsigned)spiffs_used, (unsigned)(spiffs_total - spiffs_used),
-                     (unsigned)p->capture_ring_slots, (unsigned)p->segment_cap_bytes);
+                     (unsigned)p->capture_ring_slots, (unsigned)p->segment_cap_bytes,
+                     (unsigned)turn_pcm_mirror_max_bytes(p));
         }
     } else {
         p->capture_slot = 0;
-        ESP_LOGI(TAG, "capture spool ram segment=%uB slots=%u max=%uB",
+        ESP_LOGI(TAG, "capture spool ram segment=%uB slots=%u max=%uB mirror_max=%uB",
                  (unsigned)p->segment_cap_bytes,
                  (unsigned)p->capture_ring_slots,
-                 (unsigned)p->capture_cap_bytes);
+                 (unsigned)p->capture_cap_bytes,
+                 (unsigned)turn_pcm_mirror_max_bytes(p));
     }
     p->utterance_queue = xQueueCreate(p->capture_ring_slots, sizeof(utterance_t));
     if (p->utterance_queue == NULL) {
