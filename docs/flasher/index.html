@@ -67,6 +67,11 @@
             <span>Erase entire flash before writing a <code>0x0</code> recovery image</span>
           </label>
 
+          <label class="check-row">
+            <input type="checkbox" data-include-layout checked />
+            <span>Include bootloader, partition table, and OTA metadata when release artifacts are available</span>
+          </label>
+
           <details class="advanced-flash">
             <summary>Advanced local image</summary>
             <div class="field-group">
@@ -127,6 +132,6 @@
       </section>
     </main>
 
-    <script type="module" src="flasher.js?v=20260710g"></script>
+    <script type="module" src="flasher.js?v=20260710h"></script>
   </body>
 </html>

@@ -17,6 +17,30 @@
       "firmware_url": "releases/integration/astrolabe-faculty-amoled175/firmware.bin",
       "artifacts": [
         {
+          "name": "bootloader.bin",
+          "bytes": 21056,
+          "sha256": "52ce65e71837ac44aafde51d503cd02161a184d475b016d1d88d4d6b680c5e03",
+          "address": "0x0",
+          "url": "releases/integration/astrolabe-faculty-amoled175/bootloader.bin",
+          "role": "bootloader"
+        },
+        {
+          "name": "partitions.bin",
+          "bytes": 3072,
+          "sha256": "6a6cd3e0fc7d2115f3eb4937cf43933400b3fba8fd55fc993d001e4ed1e5002f",
+          "address": "0x8000",
+          "url": "releases/integration/astrolabe-faculty-amoled175/partitions.bin",
+          "role": "partitions"
+        },
+        {
+          "name": "ota_data_initial.bin",
+          "bytes": 8192,
+          "sha256": "7d2c7ac4888bfd75cd5f56e8d61f69595121183afc81556c876732fd3782c62f",
+          "address": "0x1a000",
+          "url": "releases/integration/astrolabe-faculty-amoled175/ota_data_initial.bin",
+          "role": "otadata"
+        },
+        {
           "name": "firmware.bin",
           "bytes": 2981984,
           "sha256": "5fb76edde84ba51e2b7f444312a11c9f5d71ad39ea1b3a6ca4327a7c3205fa6f",

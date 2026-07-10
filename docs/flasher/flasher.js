@@ -13,6 +13,7 @@ const els = {
   baud: document.querySelector("[data-baud]"),
   address: document.querySelector("[data-address]"),
   eraseAll: document.querySelector("[data-erase-all]"),
+  includeLayout: document.querySelector("[data-include-layout]"),
   localFile: document.querySelector("[data-local-file]"),
   connect: document.querySelector("[data-connect]"),
   connectWebUsb: document.querySelector("[data-connect-webusb]"),
@@ -56,6 +57,7 @@ function setBusy(isBusy) {
   els.baud.disabled = isBusy || Boolean(loader);
   els.address.disabled = isBusy;
   els.eraseAll.disabled = isBusy;
+  els.includeLayout.disabled = isBusy;
   els.localFile.disabled = isBusy;
 }
 
@@ -92,6 +94,10 @@ function escapeHtml(value) {
 
 function artifactFor(role) {
   return release?.artifacts?.find((artifact) => artifact.role === role);
+}
+
+function parseArtifactAddress(artifact, fallback = "0x10000") {
+  return Number.parseInt((artifact?.address || fallback).replace(/^0x/i, ""), 16);
 }
 
 function releaseAppSlotBytes() {
@@ -308,24 +314,63 @@ async function releaseImage() {
   const data = new Uint8Array(await response.arrayBuffer());
   return {
     data,
-    address: Number.parseInt((app?.address || "0x10000").replace(/^0x/i, ""), 16),
+    address: parseArtifactAddress(app, "0x10000"),
     name: app?.name || "firmware.bin",
+    role: app?.role || "app",
   };
 }
 
-async function selectedImage() {
+async function fetchReleaseArtifact(artifact) {
+  const url = new URL(artifact.url, new URL("../", window.location.href));
+  log(`Fetching ${artifact.role} ${url}`);
+  const response = await fetch(url, { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error(`${artifact.name} fetch failed: HTTP ${response.status}`);
+  }
+  return {
+    data: new Uint8Array(await response.arrayBuffer()),
+    address: parseArtifactAddress(artifact),
+    name: artifact.name,
+    role: artifact.role,
+  };
+}
+
+async function releaseImages() {
+  const app = artifactFor("app");
+  if (!app && !release?.firmware_url) {
+    throw new Error("No app artifact in release manifest");
+  }
+  const roles = els.includeLayout.checked
+    ? ["bootloader", "partitions", "otadata", "app"]
+    : ["app"];
+  const artifacts = roles
+    .map((role) => artifactFor(role))
+    .filter(Boolean);
+  if (!artifacts.some((artifact) => artifact.role === "app")) {
+    return [await releaseImage()];
+  }
+  setProgress(0, `Fetching ${artifacts.length} release artifact${artifacts.length === 1 ? "" : "s"}...`);
+  const images = [];
+  for (const artifact of artifacts) {
+    images.push(await fetchReleaseArtifact(artifact));
+  }
+  return images.sort((a, b) => a.address - b.address);
+}
+
+async function selectedImages() {
   const file = els.localFile.files?.[0];
   if (file) {
-    return {
+    return [{
       data: new Uint8Array(await file.arrayBuffer()),
       address: parseAddress(els.address.value),
       name: file.name,
-    };
+      role: "local",
+    }];
   }
   if (!release) {
     throw new Error("No release selected");
   }
-  return releaseImage();
+  return releaseImages();
 }
 
 async function flash() {
@@ -337,18 +382,22 @@ async function flash() {
   setBusy(true);
   setProgress(0, "Preparing flash...");
   try {
-    const image = await selectedImage();
+    const images = await selectedImages();
+    const appImage = images.find((image) => image.role === "app") || images[images.length - 1];
     const slotBytes = releaseAppSlotBytes();
-    if (image.address !== 0 && image.data.length > slotBytes) {
-      throw new Error(`Image ${formatBytes(image.data.length)} exceeds app slot ${formatBytes(slotBytes)}.`);
+    if (appImage.address !== 0 && appImage.data.length > slotBytes) {
+      throw new Error(`Image ${formatBytes(appImage.data.length)} exceeds app slot ${formatBytes(slotBytes)}.`);
     }
-    if (els.eraseAll.checked && image.address !== 0) {
-      throw new Error("Erase-all is only allowed when flashing a recovery image at 0x0.");
+    if (els.eraseAll.checked && !images.some((image) => image.address === 0)) {
+      throw new Error("Erase-all is only allowed when flashing a set that includes a 0x0 image.");
     }
-    log(`Writing ${image.name} to 0x${image.address.toString(16)} (${formatBytes(image.data.length)})`);
-    setProgress(0, `Writing ${image.name}: 0%`);
+    const plan = images
+      .map((image) => `${image.name}@0x${image.address.toString(16)} (${formatBytes(image.data.length)})`)
+      .join(", ");
+    log(`Writing ${plan}`);
+    setProgress(0, `Writing ${images.length} file${images.length === 1 ? "" : "s"}: 0%`);
     await loader.writeFlash({
-      fileArray: [{ data: image.data, address: image.address }],
+      fileArray: images.map((image) => ({ data: image.data, address: image.address })),
       flashMode: "keep",
       flashFreq: "keep",
       flashSize: "keep",
@@ -356,7 +405,7 @@ async function flash() {
       compress: true,
       reportProgress: (_fileIndex, written, total) => {
         const percent = total ? Math.round((written / total) * 100) : 0;
-        setProgress(percent, `Writing ${image.name}: ${percent}% (${formatBytes(written)} / ${formatBytes(total)})`);
+        setProgress(percent, `Writing flash: ${percent}% (${formatBytes(written)} / ${formatBytes(total)})`);
       },
     });
     log("Flash complete. Resetting device.");
