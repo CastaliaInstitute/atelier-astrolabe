@@ -8,8 +8,8 @@
  */
 #define ASTROLABE_FACULTY175_OTA_PUBKEY_PEM                    \
     "-----BEGIN PUBLIC KEY-----\n"                             \
-    "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE/UfEPMZODpYfDRObEwUqQ0LLsIiO\n" \
-    "T/Vq4D8tlmuzQHwqYUvD1HnesAiBSdQaPqZ5h134ameXIHt3iB05QTXC5w==\n" \
+    "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE5iCbweO1p7cc5IeocUO+eBKJDlYS\n" \
+    "0y8QFKRwfeEI/GsVIiBrPTZo7H2MPF0TqoJymSWLqw6ouBGFbm09vCzI0w==\n" \
     "-----END PUBLIC KEY-----\n"
 
 #define ASTROLABE_FACULTY175_OTA_SIG_ALG "ecdsa-p256-sha256"

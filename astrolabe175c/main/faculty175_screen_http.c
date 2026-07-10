@@ -1007,7 +1007,7 @@ esp_err_t faculty175_screen_http_start(const esp_ip4_addr_t *ip)
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = 80;
-    config.stack_size = 8192;
+    config.stack_size = 6144;
     config.max_open_sockets = 4;
     config.max_uri_handlers = 16;
     config.lru_purge_enable = true;
