@@ -106,6 +106,23 @@
         gap: 8px;
       }
 
+      .voice-meta {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .voice-meta label {
+        display: inline-grid;
+        grid-template-columns: auto 1fr;
+        align-items: center;
+        gap: 7px;
+        min-height: 38px;
+        color: #c6d1dc;
+        font-size: 13px;
+      }
+
       .settings-row {
         display: grid;
         grid-template-columns: 1fr 1fr;
@@ -129,6 +146,20 @@
         min-height: 72px;
         padding: 10px;
         resize: vertical;
+      }
+
+      .voice-report {
+        min-height: 64px;
+        max-height: 132px;
+        overflow: auto;
+        margin: 0;
+        border: 1px solid #384655;
+        border-radius: 7px;
+        background: #0b1118;
+        color: #adc2d5;
+        padding: 8px 10px;
+        font: 12px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        white-space: pre-wrap;
       }
 
       .voice-row {
@@ -155,6 +186,13 @@
         <button type="button" id="next-face" aria-label="Next face" disabled>›</button>
       </div>
       <section class="voice" aria-label="Voice test controls">
+        <div class="voice-meta">
+          <select id="voice-provider" aria-label="Voice provider">
+            <option value="browser">Browser STT/TTS</option>
+            <option value="manual">Manual transcript + Browser TTS</option>
+          </select>
+          <label><input id="voice-continuous" type="checkbox" /> Continuous</label>
+        </div>
         <textarea id="voice-prompt" autocomplete="off" spellcheck="true">What does this face want to say?</textarea>
         <div class="voice-row">
           <button type="button" id="voice-listen">STT</button>
@@ -168,6 +206,7 @@
           <button type="button" id="voice-clear">Clear</button>
           <button type="button" id="voice-repeat">Repeat</button>
         </div>
+        <pre id="voice-report" class="voice-report" aria-live="polite"></pre>
       </section>
       <section class="settings" aria-label="Device settings">
         <input id="device-url" inputmode="url" placeholder="http://astrolabe-e30644.local" autocomplete="off" />
@@ -197,6 +236,9 @@
         sendWifi: document.querySelector("#send-wifi"),
         status: document.querySelector("#device-status"),
         prompt: document.querySelector("#voice-prompt"),
+        provider: document.querySelector("#voice-provider"),
+        continuous: document.querySelector("#voice-continuous"),
+        report: document.querySelector("#voice-report"),
         listen: document.querySelector("#voice-listen"),
         speak: document.querySelector("#voice-speak"),
         duplex: document.querySelector("#voice-duplex"),
@@ -228,6 +270,8 @@
       let bleSettingsCharacteristic = null;
       let lastSpokenText = "";
       let voiceRecognition = null;
+      let duplexRunning = false;
+      const voiceReport = [];
       const BLE_SERVICE_UUID = "01000000-5017-0065-6261-6c6f72747341";
       const BLE_SETTINGS_UUID = "03000000-5017-0065-6261-6c6f72747341";
 
@@ -317,11 +361,23 @@
         controls.status.textContent = text;
       }
 
+      function appendVoiceReport(event, detail = "") {
+        const line = `${new Date().toLocaleTimeString()} ${event}${detail ? ` ${detail}` : ""}`;
+        voiceReport.push(line);
+        while (voiceReport.length > 18) {
+          voiceReport.shift();
+        }
+        controls.report.textContent = voiceReport.join("\n");
+        controls.report.scrollTop = controls.report.scrollHeight;
+        window.astrolabeVoiceTestReport = voiceReport.slice();
+      }
+
       function speechRecognitionCtor() {
         return window.SpeechRecognition || window.webkitSpeechRecognition || null;
       }
 
       function stopVoice() {
+        duplexRunning = false;
         if (voiceRecognition) {
           voiceRecognition.stop();
           voiceRecognition = null;
@@ -331,13 +387,21 @@
         }
         setVoiceState("listen", "voice stopped", 900);
         setStatus("Voice stopped");
+        appendVoiceReport("stop");
       }
 
-      function listenOnce() {
+      function listenOnce({ continuous = false } = {}) {
+        if (controls.provider.value === "manual") {
+          const text = controls.prompt.value.trim();
+          setVoiceState("think", text ? "manual transcript" : "empty transcript", 900);
+          appendVoiceReport("stt.manual", JSON.stringify(text));
+          return Promise.resolve(text);
+        }
         const Recognition = speechRecognitionCtor();
         if (!Recognition) {
           setVoiceState("listen", "STT unavailable", 1600);
           setStatus("Browser STT is unavailable here; edit the prompt text manually");
+          appendVoiceReport("stt.unavailable");
           return Promise.resolve(controls.prompt.value.trim());
         }
         if (voiceRecognition) {
@@ -347,12 +411,13 @@
           const rec = new Recognition();
           voiceRecognition = rec;
           rec.lang = navigator.language || "en-US";
-          rec.continuous = false;
+          rec.continuous = continuous;
           rec.interimResults = true;
           let finalText = "";
           rec.onstart = () => {
-            setVoiceState("listen", "listening", 12000);
+            setVoiceState("listen", continuous ? "continuous listening" : "listening", 12000);
             setStatus("Listening...");
+            appendVoiceReport("stt.start", rec.lang);
           };
           rec.onresult = (event) => {
             let interim = "";
@@ -369,12 +434,14 @@
           rec.onerror = (event) => {
             voiceRecognition = null;
             setVoiceState("listen", "STT error", 1600);
+            appendVoiceReport("stt.error", event.error || "speech recognition failed");
             reject(new Error(event.error || "speech recognition failed"));
           };
           rec.onend = () => {
             voiceRecognition = null;
             const text = (finalText || controls.prompt.value).trim();
             setVoiceState("think", text ? "transcript ready" : "no speech", 1400);
+            appendVoiceReport("stt.end", JSON.stringify(text));
             resolve(text);
           };
           rec.start();
@@ -388,13 +455,35 @@
 
       function speakText(text, detail = "speaking") {
         lastSpokenText = text;
+        if (typeof window.astrolabeWebsimVoiceSink === "function") {
+          const startMs = performance.now();
+          setVoiceState("speak", detail, 12000);
+          setStatus(detail);
+          appendVoiceReport("tts.start", `${detail} chars=${text.length}`);
+          return Promise.resolve()
+            .then(() => window.astrolabeWebsimVoiceSink(text, detail))
+            .then(() => {
+              setVoiceState("listen", "TTS done", 1200);
+              setStatus("TTS done");
+              appendVoiceReport("tts.end", `ms=${Math.round(performance.now() - startMs)}`);
+              return true;
+            })
+            .catch((err) => {
+              setVoiceState("speak", "TTS error", 1600);
+              setStatus("TTS error");
+              appendVoiceReport("tts.error", err && err.message ? err.message : "voice sink failed");
+              return false;
+            });
+        }
         if (!("speechSynthesis" in window)) {
           setVoiceState("speak", "TTS unavailable", 1600);
           setStatus("Browser TTS is unavailable in this environment");
+          appendVoiceReport("tts.unavailable");
           return Promise.resolve(false);
         }
         return new Promise((resolve) => {
           window.speechSynthesis.cancel();
+          const startMs = performance.now();
           const utterance = new SpeechSynthesisUtterance(text);
           utterance.lang = navigator.language || "en-US";
           utterance.rate = 0.95;
@@ -402,15 +491,18 @@
           utterance.onstart = () => {
             setVoiceState("speak", detail, 12000);
             setStatus(detail);
+            appendVoiceReport("tts.start", `${detail} chars=${text.length}`);
           };
           utterance.onend = () => {
             setVoiceState("listen", "TTS done", 1200);
             setStatus("TTS done");
+            appendVoiceReport("tts.end", `ms=${Math.round(performance.now() - startMs)}`);
             resolve(true);
           };
-          utterance.onerror = () => {
+          utterance.onerror = (event) => {
             setVoiceState("speak", "TTS error", 1600);
             setStatus("TTS error");
+            appendVoiceReport("tts.error", event.error || "speech synthesis failed");
             resolve(false);
           };
           window.speechSynthesis.speak(utterance);
@@ -425,41 +517,70 @@
 
       async function runDuplexOnce() {
         try {
-          const transcript = await listenOnce();
+          const transcript = await listenOnce({ continuous: controls.continuous.checked });
           setVoiceState("think", "preparing reply", 1200);
           await speakText(speechTextForFace(currentFaceMeta(), transcript), "duplex reply");
         } catch (err) {
           setStatus(err.message);
+          appendVoiceReport("duplex.error", err.message);
+        }
+      }
+
+      async function runDuplexLoop() {
+        if (duplexRunning) {
+          stopVoice();
+          return;
+        }
+        duplexRunning = true;
+        controls.duplex.textContent = "Stop Loop";
+        appendVoiceReport("duplex.start");
+        try {
+          do {
+            await runDuplexOnce();
+            if (!controls.continuous.checked) {
+              break;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 250));
+          } while (duplexRunning);
+        } finally {
+          duplexRunning = false;
+          controls.duplex.textContent = "Duplex";
+          appendVoiceReport("duplex.end");
         }
       }
 
       async function testAllFaces() {
         controls.allVoice.disabled = true;
+        appendVoiceReport("tour.start", `faces=${faceCount}`);
         try {
+          let passed = 0;
           for (let face = 0; face < faceCount; face++) {
             setFace(face);
             Module.ccall("astrolabe_web_button_press", null);
             const meta = currentFaceMeta();
             const ok = await speakText(speechTextForFace(meta, "button press TTS test."), `button TTS: ${meta.slug}`);
+            appendVoiceReport(ok ? "tour.pass" : "tour.fail", meta.slug || meta.name);
             if (!ok) {
               break;
             }
+            passed++;
             await new Promise((resolve) => setTimeout(resolve, 250));
           }
+          appendVoiceReport("tour.done", `${passed}/${faceCount}`);
         } finally {
           controls.allVoice.disabled = false;
         }
       }
 
       controls.listen.addEventListener("click", () => {
-        listenOnce().then((text) => {
+        listenOnce({ continuous: controls.continuous.checked }).then((text) => {
           if (text) setStatus(`Transcript: ${text}`);
         }).catch((err) => setStatus(err.message));
       });
       controls.speak.addEventListener("click", () => {
         speakCurrentFace("face TTS");
       });
-      controls.duplex.addEventListener("click", runDuplexOnce);
+      controls.duplex.addEventListener("click", runDuplexLoop);
       controls.stopVoice.addEventListener("click", stopVoice);
       controls.buttonVoice.addEventListener("click", () => {
         Module.ccall("astrolabe_web_button_press", null);
@@ -468,6 +589,8 @@
       controls.allVoice.addEventListener("click", testAllFaces);
       controls.clearVoice.addEventListener("click", () => {
         controls.prompt.value = "";
+        voiceReport.length = 0;
+        controls.report.textContent = "";
         setStatus("Prompt cleared");
       });
       controls.repeatVoice.addEventListener("click", () => {
