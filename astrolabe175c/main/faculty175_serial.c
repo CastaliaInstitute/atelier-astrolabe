@@ -1245,7 +1245,7 @@ void faculty175_serial_init(void)
     if (flags >= 0) {
         (void)fcntl(STDIN_FILENO, F_SETFL, flags | O_NONBLOCK);
     }
-    xTaskCreate(serial_task, "serial", 8192, NULL, 3, &s_serial_task);
+    xTaskCreate(serial_task, "serial", 4608, NULL, 3, &s_serial_task);
 }
 
 TaskHandle_t faculty175_serial_task_handle(void)

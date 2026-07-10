@@ -10,6 +10,7 @@
 #include "esp_heap_caps.h"
 #include "esp_http_client.h"
 #include "esp_log.h"
+#include "esp_rom_sys.h"
 #include "esp_spiffs.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -38,9 +39,9 @@ static const char *TAG = "faculty175_voice";
 #define VOICE_SPOOL_PARTITION "voice_spool"
 #define VOICE_SPOOL_PATH VOICE_SPOOL_BASE "/voice-turn.pcm"
 #define VOICE_TTS_PATH VOICE_SPOOL_BASE "/voice-reply.mp3"
-#define VOICE_HEAP_MIN_INTERNAL_FREE (4 * 1024)
-#define VOICE_HEAP_MIN_INTERNAL_FREE_STT_FINISH (4 * 1024)
-#define VOICE_HEAP_MIN_INTERNAL_LARGEST (2 * 1024)
+#define VOICE_HEAP_MIN_INTERNAL_FREE (1024)
+#define VOICE_HEAP_MIN_INTERNAL_FREE_STT_FINISH (1024)
+#define VOICE_HEAP_MIN_INTERNAL_LARGEST (512)
 #define VOICE_HEAP_MIN_PSRAM_FREE (512 * 1024)
 #define VOICE_STREAM_CHUNK_BYTES 1024
 #define VOICE_MP3_STREAM_BUFFER_BYTES (24 * 1024)
@@ -95,10 +96,15 @@ static uint32_t voice_psram_free(void)
 
 static void voice_log_heap(const char *stage)
 {
+    const uint32_t free_i = voice_internal_free();
+    const uint32_t largest_i = voice_internal_largest();
+    if (free_i < 2048 || largest_i < 1024) {
+        return;
+    }
     FACULTY175_LOG_STAGE(TAG, "heap", "%s internal=%u largest=%u psram=%u",
                          stage != NULL ? stage : "voice",
-                         (unsigned)voice_internal_free(),
-                         (unsigned)voice_internal_largest(),
+                         (unsigned)free_i,
+                         (unsigned)largest_i,
                          (unsigned)voice_psram_free());
 }
 
@@ -154,10 +160,14 @@ bool faculty175_voice_heap_ready(const char *stage)
                                             : VOICE_HEAP_MIN_INTERNAL_FREE;
     if (free_i < need_free_i || largest_i < VOICE_HEAP_MIN_INTERNAL_LARGEST ||
         free_psram < VOICE_HEAP_MIN_PSRAM_FREE) {
-        FACULTY175_LOG_STAGE_W(TAG, "heap", "%s low heap internal=%u largest=%u psram=%u need=%u/%u/%u",
-                         stage != NULL ? stage : "voice", (unsigned)free_i, (unsigned)largest_i,
-                         (unsigned)free_psram, (unsigned)need_free_i,
-                         VOICE_HEAP_MIN_INTERNAL_LARGEST, VOICE_HEAP_MIN_PSRAM_FREE);
+        esp_rom_printf("voice: low heap stage=%s internal=%u largest=%u psram=%u need=%u/%u/%u\n",
+                       stage != NULL ? stage : "voice",
+                       (unsigned)free_i,
+                       (unsigned)largest_i,
+                       (unsigned)free_psram,
+                       (unsigned)need_free_i,
+                       VOICE_HEAP_MIN_INTERNAL_LARGEST,
+                       VOICE_HEAP_MIN_PSRAM_FREE);
         return false;
     }
     return true;
@@ -1742,7 +1752,6 @@ static esp_err_t voice_play_mp3_async(const uint8_t *mp3, size_t mp3_len)
         return ESP_ERR_NO_MEM;
     }
 
-    (void)ulTaskNotifyTake(pdTRUE, 0);
     if (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(VOICE_PLAY_TASK_TIMEOUT_MS)) == 0) {
         args->waiter = NULL;
         args->caller_owns_args = false;

@@ -91,6 +91,7 @@ static bool running_from_factory_partition(void)
 #define WIFI_CONNECTED_BIT BIT0
 #define WIFI_FAIL_BIT BIT1
 #define VOICE_WORKER_STACK_BYTES 7168
+#define FACULTY175_FACE_TTS_STACK 7168
 #define FACE_SWIPE_SAVE_IDLE_MS 1500
 #define FACE_REDRAW_MS 250
 #define FACE_DEATHSTAR_REDRAW_MS 125
@@ -118,9 +119,9 @@ static bool running_from_factory_partition(void)
 #define FACULTY175_WIFI_START_STACK 6144
 #define FACULTY175_PIPELINE_LISTEN_STACK 4096
 #define FACULTY175_PIPELINE_VOICE_STACK 6144
-#define FACULTY175_UI_TASK_STACK 12288
+#define FACULTY175_UI_TASK_STACK 8192
 #define FACULTY175_INPUT_TASK_STACK 5376
-#define FACULTY175_SERIAL_TASK_STACK 8192
+#define FACULTY175_SERIAL_TASK_STACK 4608
 #define FACULTY175_BUTTON_REBOOT_STACK 3328
 #define FACULTY175_FACULTY_SAVE_STACK 2048
 
@@ -174,6 +175,8 @@ static TaskHandle_t s_input_task;
 static TaskHandle_t s_button_reboot_task;
 static TaskHandle_t s_pipeline_start_task;
 static TaskHandle_t s_faculty_save_task;
+static TaskHandle_t s_face_tts_worker_task;
+static QueueHandle_t s_face_tts_queue;
 static void button_reboot_task_stop_for_pipeline(void);
 static void button_reboot_task_start_if_needed(void);
 
@@ -1036,9 +1039,12 @@ static void build_face_read_prompt(const faculty175_face_desc_t *face, char *out
     prompt_append(out, cap, &off, "Keep the spoken answer under forty words.");
 }
 
-static void face_tts_task(void *arg)
+typedef struct {
+    faculty175_face_id_t id;
+} face_tts_request_t;
+
+static void face_tts_run_one(faculty175_face_id_t id)
 {
-    const faculty175_face_id_t id = (faculty175_face_id_t)(uintptr_t)arg;
     const faculty175_face_desc_t *face = faculty175_faces_get(id);
     const char *slug = face != NULL && face->slug != NULL ? face->slug : "-";
     char *prompt = heap_caps_malloc(1536, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
@@ -1057,7 +1063,6 @@ static void face_tts_task(void *arg)
         free(result);
         ui_set(FACULTY175_UI_ERROR, "voice alloc");
         s_face_tts_busy = false;
-        vTaskDeleteWithCaps(NULL);
         return;
     }
     build_face_read_prompt(face, prompt, 1536);
@@ -1091,7 +1096,38 @@ static void face_tts_task(void *arg)
     free(prompt);
     ui_set(FACULTY175_UI_LISTEN, NULL);
     s_face_tts_busy = false;
-    vTaskDeleteWithCaps(NULL);
+}
+
+static void face_tts_worker_task(void *arg)
+{
+    (void)arg;
+    face_tts_request_t req = {};
+    while (true) {
+        if (xQueueReceive(s_face_tts_queue, &req, portMAX_DELAY) == pdTRUE) {
+            face_tts_run_one(req.id);
+        }
+    }
+}
+
+static void face_tts_worker_start(void)
+{
+    if (s_face_tts_queue == NULL) {
+        s_face_tts_queue = xQueueCreate(1, sizeof(face_tts_request_t));
+    }
+    if (s_face_tts_queue == NULL || s_face_tts_worker_task != NULL) {
+        return;
+    }
+    const BaseType_t ok = xTaskCreateWithCaps(face_tts_worker_task,
+                                              "face_tts",
+                                              FACULTY175_FACE_TTS_STACK,
+                                              NULL,
+                                              4,
+                                              &s_face_tts_worker_task,
+                                              MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (ok != pdPASS) {
+        FACULTY175_LOG_STAGE_E(TAG, "tts-face", "worker create failed");
+        s_face_tts_worker_task = NULL;
+    }
 }
 
 static esp_err_t face_tts_stream_post(const char *prompt,
@@ -1136,23 +1172,24 @@ static bool start_face_tts_read(const faculty175_face_desc_t *face)
         fflush(stdout);
         return true;
     }
-    if (!faculty175_voice_heap_ready("face-tts-start")) {
-        FACULTY175_LOG_STAGE_W(TAG, "tts-face", "low heap; ignored %s", face->slug);
-        printf("tts-face: done slug=%s err=ESP_ERR_NO_MEM\n", face->slug);
-        fflush(stdout);
-        ui_set(FACULTY175_UI_ERROR, "voice heap");
-        return true;
-    }
-    s_face_tts_busy = true;
-    BaseType_t ok = xTaskCreateWithCaps(face_tts_task, "face_tts", VOICE_WORKER_STACK_BYTES,
-                                        (void *)(uintptr_t)face->id, 4, NULL,
-                                        MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    if (ok != pdPASS) {
-        s_face_tts_busy = false;
-        FACULTY175_LOG_STAGE_E(TAG, "tts-face", "task create failed");
+    face_tts_worker_start();
+    if (s_face_tts_queue == NULL || s_face_tts_worker_task == NULL) {
+        FACULTY175_LOG_STAGE_E(TAG, "tts-face", "worker unavailable");
         printf("tts-face: done slug=%s err=ESP_ERR_NO_MEM\n", face->slug);
         fflush(stdout);
         ui_set(FACULTY175_UI_ERROR, "voice task");
+        return true;
+    }
+    s_face_tts_busy = true;
+    const face_tts_request_t req = {
+        .id = face->id,
+    };
+    if (xQueueSend(s_face_tts_queue, &req, 0) != pdTRUE) {
+        s_face_tts_busy = false;
+        FACULTY175_LOG_STAGE_E(TAG, "tts-face", "queue send failed");
+        printf("tts-face: done slug=%s err=ESP_ERR_INVALID_STATE\n", face->slug);
+        fflush(stdout);
+        ui_set(FACULTY175_UI_ERROR, "voice queue");
         return true;
     }
     return true;
@@ -2954,7 +2991,6 @@ static void input_task(void *arg)
     s_low_power_last_activity_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
     faculty175_display_nav_mode_set(false);
     FACULTY175_LOG_STAGE(TAG, "input", "gesture/button task ready");
-    draw_current_face_now(s_low_power_last_activity_ms);
 
     while (true) {
         const uint32_t now_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
@@ -3417,13 +3453,14 @@ void app_main(void)
     boot_probe_stage(0xb2);
     esp_rom_printf("A18 ui_queue\n");
     s_ui_queue = xQueueCreate(1, sizeof(faculty175_ui_msg_t));
+    face_tts_worker_start();
     BaseType_t ui_task_ok = xTaskCreateWithCaps(ui_task,
                                                 "ui",
                                                 FACULTY175_UI_TASK_STACK,
                                                 NULL,
                                                 4,
                                                 &s_ui_task,
-                                                MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+                                                MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     if (ui_task_ok != pdPASS) {
         s_ui_task = NULL;
         ui_task_ok = xTaskCreate(ui_task, "ui", FACULTY175_UI_TASK_STACK, NULL, 4, &s_ui_task);

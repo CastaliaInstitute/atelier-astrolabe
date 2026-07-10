@@ -232,7 +232,7 @@ void faculty175_display_unlock(void)
     }
 }
 
-#define FACULTY175_LCD_FLUSH_STRIP_H 24
+#define FACULTY175_LCD_FLUSH_STRIP_H 8
 
 /* CO5300 QSPI (same class as SH8601) wants RGB565 high byte first on the wire. */
 static uint16_t rgb565_panel_wire(uint16_t logical565)
