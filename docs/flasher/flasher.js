@@ -18,6 +18,7 @@ const els = {
   flash: document.querySelector("[data-flash]"),
   disconnect: document.querySelector("[data-disconnect]"),
   progress: document.querySelector("[data-progress]"),
+  progressStatus: document.querySelector("[data-progress-status]"),
   log: document.querySelector("[data-log]"),
   clearLog: document.querySelector("[data-clear-log]"),
   diagnostics: document.querySelector("[data-diagnostics]"),
@@ -73,6 +74,11 @@ function formatBytes(bytes) {
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
   if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${bytes} B`;
+}
+
+function setProgress(value, status) {
+  els.progress.value = Math.max(0, Math.min(100, value));
+  els.progressStatus.textContent = status;
 }
 
 function escapeHtml(value) {
@@ -289,6 +295,7 @@ async function releaseImage() {
   const app = artifactFor("app");
   const url = new URL(app?.url || release.firmware_url, new URL("../", window.location.href));
   log(`Fetching ${url}`);
+  setProgress(0, "Fetching firmware image...");
   const response = await fetch(url, { cache: "no-store" });
   if (!response.ok) {
     throw new Error(`Firmware fetch failed: HTTP ${response.status}`);
@@ -323,13 +330,14 @@ async function flash() {
   }
 
   setBusy(true);
-  els.progress.value = 0;
+  setProgress(0, "Preparing flash...");
   try {
     const image = await selectedImage();
     if (els.eraseAll.checked && image.address !== 0) {
       throw new Error("Erase-all is only allowed when flashing a recovery image at 0x0.");
     }
     log(`Writing ${image.name} to 0x${image.address.toString(16)} (${formatBytes(image.data.length)})`);
+    setProgress(0, `Writing ${image.name}: 0%`);
     await loader.writeFlash({
       fileArray: [{ data: image.data, address: image.address }],
       flashMode: "keep",
@@ -338,14 +346,18 @@ async function flash() {
       eraseAll: els.eraseAll.checked,
       compress: true,
       reportProgress: (_fileIndex, written, total) => {
-        els.progress.value = total ? Math.round((written / total) * 100) : 0;
+        const percent = total ? Math.round((written / total) * 100) : 0;
+        setProgress(percent, `Writing ${image.name}: ${percent}% (${formatBytes(written)} / ${formatBytes(total)})`);
       },
     });
     log("Flash complete. Resetting device.");
+    setProgress(100, "Flash complete. Resetting device...");
     await loader.after("hard_reset");
     log("Reset complete.");
+    setProgress(100, "Reset complete.");
   } catch (error) {
     log(`Flash failed: ${error.message || error}`);
+    setProgress(els.progress.value, `Flash failed: ${error.message || error}`);
   } finally {
     setBusy(false);
   }
