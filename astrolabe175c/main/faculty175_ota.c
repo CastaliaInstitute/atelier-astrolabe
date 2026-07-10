@@ -54,6 +54,7 @@ static const char *TAG = "faculty175_ota";
 #define OTA_MANIFEST_MAX_BYTES 4096
 #define OTA_IO_BUFFER_BYTES 2048
 #define OTA_TASK_STACK_BYTES 6144
+#define OTA_AUTO_TASK_STACK_BYTES 6144
 #define OTA_MIN_INTERNAL_FREE (32 * 1024)
 #define OTA_MIN_LARGEST_BLOCK (16 * 1024)
 #define OTA_AUTO_MANIFEST_URL "https://astrolabe.castalia.institute/releases/integration/" ASTROLABE_FACULTY_OTA_CHANNEL "/ota-manifest.json"
@@ -74,6 +75,7 @@ typedef enum {
 static volatile ota_state_t s_ota_state;
 static char s_ota_last[160];
 static bool s_ota_auto_started;
+static volatile bool s_ota_auto_paused;
 
 static void set_last(const char *fmt, ...);
 
@@ -665,6 +667,9 @@ static esp_err_t fetch_manifest(const char *manifest_url, ota_job_t *job)
 {
     if (!is_http_url(manifest_url) || job == NULL) {
         return ESP_ERR_INVALID_ARG;
+    }
+    if (!ota_heap_ready()) {
+        return ESP_ERR_NO_MEM;
     }
     esp_http_client_config_t cfg = {
         .url = manifest_url,
@@ -1281,7 +1286,7 @@ static void ota_auto_task(void *arg)
     vTaskDelay(pdMS_TO_TICKS(OTA_AUTO_INITIAL_DELAY_MS));
     while (true) {
         const uint32_t interval_s = nvs_get_auto_interval_s();
-        if (interval_s > 0 && s_ota_state != OTA_STATE_RUNNING) {
+        if (interval_s > 0 && !s_ota_auto_paused && s_ota_state != OTA_STATE_RUNNING && ota_heap_ready()) {
             ota_job_t job = {
                 .manifest_url = true,
             };
@@ -1386,6 +1391,11 @@ bool faculty175_ota_active(void)
     return s_ota_state == OTA_STATE_RUNNING;
 }
 
+void faculty175_ota_set_auto_paused(bool paused)
+{
+    s_ota_auto_paused = paused;
+}
+
 void faculty175_ota_maybe_start_recovery_request(void)
 {
     const esp_partition_t *running = esp_ota_get_running_partition();
@@ -1414,7 +1424,7 @@ void faculty175_ota_start_auto_update_task(void)
         return;
     }
     s_ota_auto_started = true;
-    if (xTaskCreate(ota_auto_task, "ota_auto", 2048, NULL, 3, NULL) != pdPASS) {
+    if (xTaskCreate(ota_auto_task, "ota_auto", OTA_AUTO_TASK_STACK_BYTES, NULL, 3, NULL) != pdPASS) {
         s_ota_auto_started = false;
         set_last("auto task failed");
         FACULTY175_LOG_STAGE_W(TAG, "ota", "%s", s_ota_last);

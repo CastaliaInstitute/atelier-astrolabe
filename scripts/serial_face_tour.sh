@@ -27,51 +27,67 @@ CRASH = re.compile(
 
 port = sys.argv[1]
 dwell_ms = int(sys.argv[2])
-face_count = 40
-timeout = max(30.0, (face_count * dwell_ms / 1000.0) + 18.0)
+FACE_RE = re.compile(
+    r"^face:\s+([a-z0-9_-]+)\s+enabled=(yes|no)\s+nav=(yes|no)\s+.*?\bported=(yes|no)\b",
+    re.I,
+)
+ACK_RE = re.compile(r"^faces:\s+set\s+([a-z0-9_-]+)\s+ESP_OK\b", re.I)
 
 ser = serial.Serial(port, 115200, timeout=0.25)
 try:
     time.sleep(0.35)
+
+    def read_lines(duration):
+        deadline = time.monotonic() + duration
+        buf = ""
+        while time.monotonic() < deadline:
+            chunk = ser.read(4096)
+            if not chunk:
+                time.sleep(0.05)
+                continue
+            text = chunk.decode("utf-8", errors="replace")
+            print(text, end="", flush=True)
+            if CRASH.search(text):
+                print("serial_face_tour: crash/reset output detected", file=sys.stderr)
+                sys.exit(1)
+            buf += text
+            while "\n" in buf:
+                line, buf = buf.split("\n", 1)
+                yield line.rstrip("\r")
+        if buf:
+            yield buf.rstrip("\r")
+
     ser.reset_input_buffer()
-    ser.write(f"tour {dwell_ms}\n".encode("utf-8"))
+    ser.write(b"faces\n")
     ser.flush()
-    seen = set()
-    started = False
-    deadline = time.monotonic() + timeout
-    buf = ""
-    while time.monotonic() < deadline:
-        chunk = ser.read(4096)
-        if not chunk:
-            time.sleep(0.05)
-            continue
-        text = chunk.decode("utf-8", errors="replace")
-        print(text, end="", flush=True)
-        buf += text
-        if CRASH.search(text):
-            print("serial_face_tour: crash/reset output detected", file=sys.stderr)
+    faces = []
+    for line in read_lines(3.0):
+        m = FACE_RE.match(line)
+        if m and m.group(2).lower() == "yes" and m.group(3).lower() == "yes" and m.group(4).lower() == "yes":
+            faces.append(m.group(1))
+
+    if not faces:
+        print("serial_face_tour: no enabled/nav/ported faces found", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"tour: start count={len(faces)} dwell_ms={dwell_ms}")
+    for idx, slug in enumerate(faces):
+        print(f"tour: loading {idx} {slug}", flush=True)
+        ser.write(f"faces set {slug}\n".encode("utf-8"))
+        ser.flush()
+        ack = False
+        for line in read_lines(5.0):
+            m = ACK_RE.match(line)
+            if m and m.group(1).lower() == slug.lower():
+                ack = True
+                break
+        if not ack:
+            print(f"serial_face_tour: no ACK for {slug}", file=sys.stderr)
             sys.exit(1)
-        while "\n" in buf:
-            line, buf = buf.split("\n", 1)
-            line = line.rstrip("\r")
-            if line.startswith("tour: start"):
-                started = True
-            m = re.search(r"tour: loading\s+(\d+)\s+([a-z0-9_ -]+)", line)
-            if m:
-                seen.add(int(m.group(1)))
-            if line == "tour: done":
-                missing = [i for i in range(face_count) if i not in seen]
-                if not started:
-                    print("serial_face_tour: tour did not start", file=sys.stderr)
-                    sys.exit(1)
-                if missing:
-                    print(f"serial_face_tour: missing faces {missing}", file=sys.stderr)
-                    sys.exit(1)
-                print("SERIAL_FACE_TOUR PASS")
-                sys.exit(0)
+        time.sleep(max(0, dwell_ms) / 1000.0)
+
+    print("tour: done")
+    print("SERIAL_FACE_TOUR PASS")
 finally:
     ser.close()
-
-print("serial_face_tour: timed out waiting for tour: done", file=sys.stderr)
-sys.exit(1)
 PY

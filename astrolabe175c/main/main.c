@@ -68,6 +68,14 @@
 #include "secrets.example.h"
 #endif
 
+#ifndef MYNAH_VOICE_HTTP_URL
+#define MYNAH_VOICE_HTTP_URL ""
+#endif
+
+#ifndef MYNAH_VOICE_STREAM_URL
+#define MYNAH_VOICE_STREAM_URL ""
+#endif
+
 static const char *TAG = "faculty175";
 
 volatile uint32_t g_faculty175_boot_stage;
@@ -92,6 +100,9 @@ static bool running_from_factory_partition(void)
 #define FACE_CAROUSEL_FRAME_MS 120
 #define NAV_TRANSITION_MS 72
 #define FACULTY175_AUDIO_PIPELINE_AUTOSTART 0
+#define FACULTY175_AUDIO_PIPELINE_DUPLEX 1
+#define FACULTY175_BUTTON_USES_DUPLEX_PIPELINE 1
+#define FACULTY175_DUPLEX_CAPTURE_UNTIL_SILENCE_MS 0
 #define FACULTY175_PIPELINE_START_BLE 0
 #define LISTEN_CUE_RATE_HZ 16000
 #define LISTEN_CUE_CHUNK_FRAMES 256
@@ -105,12 +116,13 @@ static bool running_from_factory_partition(void)
 #define WIFI_CONNECT_TIMEOUT_MS 20000
 #define WIFI_CANDIDATE_MAX 3
 #define FACULTY175_WIFI_START_STACK 6144
-#define FACULTY175_PIPELINE_LISTEN_STACK 3456
+#define FACULTY175_PIPELINE_LISTEN_STACK 4096
 #define FACULTY175_PIPELINE_VOICE_STACK 6144
 #define FACULTY175_UI_TASK_STACK 12288
 #define FACULTY175_INPUT_TASK_STACK 5376
 #define FACULTY175_SERIAL_TASK_STACK 8192
 #define FACULTY175_BUTTON_REBOOT_STACK 3328
+#define FACULTY175_FACULTY_SAVE_STACK 2048
 
 static EventGroupHandle_t s_wifi_events;
 static faculty175_ui_state_t s_ui = FACULTY175_UI_LISTEN;
@@ -161,6 +173,7 @@ static TaskHandle_t s_ui_task;
 static TaskHandle_t s_input_task;
 static TaskHandle_t s_button_reboot_task;
 static TaskHandle_t s_pipeline_start_task;
+static TaskHandle_t s_faculty_save_task;
 static void button_reboot_task_stop_for_pipeline(void);
 static void button_reboot_task_start_if_needed(void);
 
@@ -224,6 +237,8 @@ static bool draw_face_or_status(const faculty175_face_desc_t *face,
 
 static void faculty_log_ready(void);
 static void make_supabase_ws_url(char *out, size_t out_len, const char *base_url, const char *path);
+static void voice_pipeline_url_from_base(char *out, size_t cap, const char *base);
+static void configure_voice_endpoint_urls(void);
 static bool start_face_tts_read(const faculty175_face_desc_t *face);
 static esp_err_t face_tts_stream_post(const char *prompt,
                                       const char *system,
@@ -231,6 +246,7 @@ static esp_err_t face_tts_stream_post(const char *prompt,
                                       faculty175_voice_result_t *result);
 
 static void save_faculty_to_nvs(void);
+static void save_faculty_to_nvs_async(void);
 static void sync_voice_context(void *user);
 static esp_err_t qa_trigger_stt(uint32_t capture_ms);
 static void qa_emit_tasks(void);
@@ -668,12 +684,50 @@ static void bust_ui_refresh(void)
 
 static void make_supabase_ws_url(char *out, size_t out_len, const char *base_url, const char *path)
 {
+    if (out == NULL || out_len == 0) {
+        return;
+    }
+    out[0] = '\0';
+    if (base_url == NULL || base_url[0] == '\0' || path == NULL) {
+        return;
+    }
     if (strncmp(base_url, "https://", 8) == 0) {
         snprintf(out, out_len, "wss://%s%s", base_url + 8, path);
     } else if (strncmp(base_url, "http://", 7) == 0) {
         snprintf(out, out_len, "ws://%s%s", base_url + 7, path);
     } else {
         snprintf(out, out_len, "%s%s", base_url, path);
+    }
+}
+
+static void voice_pipeline_url_from_base(char *out, size_t cap, const char *base)
+{
+    if (out == NULL || cap == 0) {
+        return;
+    }
+    out[0] = '\0';
+    if (base == NULL || base[0] == '\0') {
+        return;
+    }
+    if (strstr(base, "/functions/v1/voice-pipeline") != NULL) {
+        strlcpy(out, base, cap);
+    } else {
+        snprintf(out, cap, "%s/functions/v1/voice-pipeline", base);
+    }
+}
+
+static void configure_voice_endpoint_urls(void)
+{
+    const char *pipeline_base = MYNAH_VOICE_HTTP_URL[0] != '\0' ? MYNAH_VOICE_HTTP_URL : MYNAH_SUPABASE_URL;
+    voice_pipeline_url_from_base(s_voice_pipeline_url, sizeof(s_voice_pipeline_url), pipeline_base);
+
+    if (strcasecmp(MYNAH_VOICE_STREAM_URL, "disabled") == 0 || strcmp(MYNAH_VOICE_STREAM_URL, "-") == 0) {
+        s_voice_stream_url[0] = '\0';
+    } else if (MYNAH_VOICE_STREAM_URL[0] != '\0') {
+        strlcpy(s_voice_stream_url, MYNAH_VOICE_STREAM_URL, sizeof(s_voice_stream_url));
+    } else {
+        make_supabase_ws_url(s_voice_stream_url, sizeof(s_voice_stream_url), MYNAH_SUPABASE_URL,
+                             "/functions/v1/voice-stream");
     }
 }
 
@@ -1119,8 +1173,14 @@ bool faculty175_request_current_face_tts(void)
 static esp_err_t pipeline_read(int16_t *samples, size_t sample_count, size_t *out_read, uint32_t timeout_ms, void *user)
 {
     (void)user;
+    const bool ui_blocks_read =
+#if FACULTY175_AUDIO_PIPELINE_DUPLEX
+        false;
+#else
+        s_ui == FACULTY175_UI_THINK || s_ui == FACULTY175_UI_SPEAK;
+#endif
     if (faculty175_ota_active() || faculty175_qa_audio_busy() || faculty175_face_native_audio_busy() ||
-        s_ui == FACULTY175_UI_THINK || s_ui == FACULTY175_UI_SPEAK || s_low_power_asleep ||
+        ui_blocks_read || s_low_power_asleep ||
         (s_power_on_battery && !s_battery_stt_armed && !astrolabe_audio_pipeline_speech_active(s_pipeline))) {
         if (out_read != NULL) {
             *out_read = 0;
@@ -1170,6 +1230,7 @@ static void pipeline_result(const char *transcript,
 {
     (void)user;
     bool faculty_changed = false;
+    bool faculty_name_changed = false;
     const faculty175_face_desc_t *face = faculty175_faces_current();
     if (face != NULL && face->id == FACULTY175_FACE_ALETHIOMETER &&
         faculty175_face_alethiometer_apply_reply(transcript, reply)) {
@@ -1187,17 +1248,17 @@ static void pipeline_result(const char *transcript,
         faculty175_strlcpy(s_faculty_slug, faculty_slug, sizeof(s_faculty_slug));
         faculty_changed = true;
     }
-    if (faculty_name != NULL && faculty_name[0] != '\0') {
+    if (faculty_name != NULL && faculty_name[0] != '\0' && strcmp(s_faculty_name, faculty_name) != 0) {
         faculty175_strlcpy(s_faculty_name, faculty_name, sizeof(s_faculty_name));
+        faculty_name_changed = true;
     }
     append_history(transcript, reply);
-    if (faculty_changed || (faculty_slug != NULL && faculty_slug[0] != '\0') ||
-        (faculty_name != NULL && faculty_name[0] != '\0')) {
-        save_faculty_to_nvs();
-    }
-    if (faculty_changed || faculty175_faculty_bust_status() != FACULTY175_FACULTY_BUST_READY ||
-        strcmp(faculty175_faculty_loaded_slug(), s_faculty_slug) != 0) {
+    save_faculty_to_nvs_async();
+    if (faculty_changed) {
         faculty175_faculty_request_bust(s_faculty_slug);
+    }
+    if (faculty_changed || faculty_name_changed) {
+        FACULTY175_LOG_STAGE(TAG, "faculty", "save scheduled");
     }
 }
 
@@ -1516,6 +1577,61 @@ void faculty175_streaming_pipeline_status(bool *out_configured,
     }
 }
 
+void faculty175_streaming_pipeline_diag(bool *out_speech_active,
+                                        bool *out_manual_pending,
+                                        bool *out_manual_active,
+                                        uint32_t *out_last_rms,
+                                        uint32_t *out_noise_rms,
+                                        uint32_t *out_start_threshold,
+                                        uint32_t *out_capture_bytes,
+                                        uint32_t *out_queued_segments,
+                                        uint32_t *out_turn_segments,
+                                        uint32_t *out_read_ok,
+                                        uint32_t *out_read_zero,
+                                        uint32_t *out_read_err,
+                                        esp_err_t *out_last_read_err)
+{
+    if (out_speech_active != NULL) {
+        *out_speech_active = astrolabe_audio_pipeline_speech_active(s_pipeline);
+    }
+    if (out_manual_pending != NULL) {
+        *out_manual_pending = astrolabe_audio_pipeline_manual_capture_pending(s_pipeline);
+    }
+    if (out_manual_active != NULL) {
+        *out_manual_active = astrolabe_audio_pipeline_manual_capture_active(s_pipeline);
+    }
+    if (out_last_rms != NULL) {
+        *out_last_rms = astrolabe_audio_pipeline_last_rms(s_pipeline);
+    }
+    if (out_noise_rms != NULL) {
+        *out_noise_rms = astrolabe_audio_pipeline_noise_rms(s_pipeline);
+    }
+    if (out_start_threshold != NULL) {
+        *out_start_threshold = astrolabe_audio_pipeline_start_threshold(s_pipeline);
+    }
+    if (out_capture_bytes != NULL) {
+        *out_capture_bytes = (uint32_t)astrolabe_audio_pipeline_capture_bytes(s_pipeline);
+    }
+    if (out_queued_segments != NULL) {
+        *out_queued_segments = (uint32_t)astrolabe_audio_pipeline_queued_segments(s_pipeline);
+    }
+    if (out_turn_segments != NULL) {
+        *out_turn_segments = astrolabe_audio_pipeline_turn_segments(s_pipeline);
+    }
+    if (out_read_ok != NULL) {
+        *out_read_ok = astrolabe_audio_pipeline_read_ok_count(s_pipeline);
+    }
+    if (out_read_zero != NULL) {
+        *out_read_zero = astrolabe_audio_pipeline_read_zero_count(s_pipeline);
+    }
+    if (out_read_err != NULL) {
+        *out_read_err = astrolabe_audio_pipeline_read_err_count(s_pipeline);
+    }
+    if (out_last_read_err != NULL) {
+        *out_last_read_err = astrolabe_audio_pipeline_last_read_err(s_pipeline);
+    }
+}
+
 static esp_err_t pipeline_stop_runtime(void)
 {
     if (s_pipeline_start_task != NULL) {
@@ -1531,7 +1647,10 @@ static esp_err_t pipeline_stop_runtime(void)
     astrolabe_audio_pipeline_destroy(s_pipeline);
     s_pipeline = NULL;
     s_pipeline_started = false;
+    vTaskDelay(pdMS_TO_TICKS(120));
+    faculty175_ota_set_auto_paused(false);
     button_reboot_task_start_if_needed();
+    (void)faculty175_screen_http_start(NULL);
     pipeline_log_heap("stop-done");
     return ESP_OK;
 }
@@ -1547,11 +1666,18 @@ static esp_err_t pipeline_ensure_ready(void)
         (void)pipeline_stop_runtime();
     }
     if (s_pipeline == NULL) {
+        faculty175_ota_set_auto_paused(true);
+        faculty175_screen_http_stop();
+        button_reboot_task_stop_for_pipeline();
+        vTaskDelay(pdMS_TO_TICKS(120));
         sync_voice_context(NULL);
         const esp_err_t create_err = astrolabe_audio_pipeline_create(&s_pipeline_cfg, &s_pipeline);
         if (create_err != ESP_OK) {
             FACULTY175_LOG_STAGE_E(TAG, "pipeline", "create failed: %s", esp_err_to_name(create_err));
             pipeline_log_heap("create-failed");
+            faculty175_ota_set_auto_paused(false);
+            button_reboot_task_start_if_needed();
+            (void)faculty175_screen_http_start(NULL);
             return create_err;
         }
         pipeline_log_heap("create-ok");
@@ -1559,14 +1685,17 @@ static esp_err_t pipeline_ensure_ready(void)
     if (s_pipeline_started) {
         return ESP_OK;
     }
+    faculty175_screen_http_stop();
     button_reboot_task_stop_for_pipeline();
+    vTaskDelay(pdMS_TO_TICKS(120));
     const esp_err_t start_err = astrolabe_audio_pipeline_start(s_pipeline);
     if (start_err != ESP_OK) {
         FACULTY175_LOG_STAGE_E(TAG, "pipeline", "start failed: %s", esp_err_to_name(start_err));
         pipeline_log_heap("start-failed");
-        astrolabe_audio_pipeline_destroy(s_pipeline);
-        s_pipeline = NULL;
+        s_pipeline_started = false;
+        faculty175_ota_set_auto_paused(false);
         button_reboot_task_start_if_needed();
+        (void)faculty175_screen_http_start(NULL);
         return start_err;
     }
     s_pipeline_started = true;
@@ -1957,8 +2086,10 @@ static void faculty_log_ready(void)
                          local[0] != '\0' ? local : "-",
                          astrolabe_time_timezone());
     FACULTY175_LOG_STAGE(TAG, "ready", "faculty %s (%s)", s_faculty_name, s_faculty_slug);
-    FACULTY175_LOG_STAGE(TAG, "ready", "pipeline %s/functions/v1/voice-pipeline face=%s", MYNAH_SUPABASE_URL,
-                   ASTROLABE_FACULTY_FACE_NAME);
+    FACULTY175_LOG_STAGE(TAG, "ready", "pipeline %s stream=%s face=%s",
+                         s_voice_pipeline_url[0] != '\0' ? s_voice_pipeline_url : "-",
+                         s_voice_stream_url[0] != '\0' ? s_voice_stream_url : "-",
+                         ASTROLABE_FACULTY_FACE_NAME);
     FACULTY175_LOG_STAGE(TAG, "ready", "USB VAD always-on; battery STT on button press only");
     FACULTY175_LOG_STAGE(TAG, "ready", "serial: help | qa audio | ota status | screen.bmp");
     FACULTY175_LOG_STAGE(TAG, "ready", "monitor: ./scripts/astrolabe175c_build.sh -p PORT monitor");
@@ -2262,6 +2393,36 @@ static void save_faculty_to_nvs(void)
     nvs_set_str(nvs, "history", s_history);
     nvs_commit(nvs);
     nvs_close(nvs);
+}
+
+static void faculty_save_task(void *arg)
+{
+    (void)arg;
+    for (;;) {
+        (void)ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        save_faculty_to_nvs();
+    }
+}
+
+static void save_faculty_to_nvs_async(void)
+{
+    if (s_faculty_save_task != NULL) {
+        (void)xTaskNotifyGive(s_faculty_save_task);
+        return;
+    }
+    const BaseType_t ok = xTaskCreateWithCaps(faculty_save_task,
+                                              "faculty_save",
+                                              FACULTY175_FACULTY_SAVE_STACK,
+                                              NULL,
+                                              3,
+                                              &s_faculty_save_task,
+                                              MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (ok != pdPASS) {
+        s_faculty_save_task = NULL;
+        FACULTY175_LOG_STAGE_W(TAG, "faculty", "save task create failed");
+        return;
+    }
+    (void)xTaskNotifyGive(s_faculty_save_task);
 }
 
 static void sync_voice_context(void *user)
@@ -3099,6 +3260,16 @@ static void input_task(void *arg)
                 continue;
             }
             const faculty175_face_desc_t *face = faculty175_faces_current();
+#if FACULTY175_BUTTON_USES_DUPLEX_PIPELINE
+            if (s_pipeline_cfg_ready && s_voice_stream_url[0] != '\0' && faculty175_board_audio_ready()) {
+                const esp_err_t err = faculty175_request_streaming_capture(FACULTY175_DUPLEX_CAPTURE_UNTIL_SILENCE_MS);
+                FACULTY175_LOG_STAGE(TAG, "listen", "button duplex STT %s", esp_err_to_name(err));
+                if (err == ESP_OK) {
+                    ui_set(FACULTY175_UI_CAPTURE, "ask");
+                    continue;
+                }
+            }
+#endif
             if (face != NULL && start_face_tts_read(face)) {
                 FACULTY175_LOG_STAGE(TAG, "tts-face", "button read %s", face->slug);
             } else if (s_power_on_battery && s_pipeline != NULL) {
@@ -3276,9 +3447,7 @@ void app_main(void)
     FACULTY175_LOG_STAGE_W(TAG, "ble", "startup disabled to preserve internal RAM");
 
     ESP_ERROR_CHECK(faculty175_listen_init(&s_listen));
-    snprintf(s_voice_pipeline_url, sizeof(s_voice_pipeline_url), "%s/functions/v1/voice-pipeline", MYNAH_SUPABASE_URL);
-    make_supabase_ws_url(s_voice_stream_url, sizeof(s_voice_stream_url), MYNAH_SUPABASE_URL,
-                         "/functions/v1/voice-stream");
+    configure_voice_endpoint_urls();
     sync_voice_context(NULL);
     s_pipeline_cfg = (astrolabe_audio_pipeline_config_t){
         .io = {
@@ -3305,6 +3474,7 @@ void app_main(void)
         .response_format = s_voice_response_format,
         .skip_llm = s_voice_skip_llm,
         .log_to_commonplace = s_voice_log_to_commonplace,
+        .duplex = FACULTY175_AUDIO_PIPELINE_DUPLEX,
         .capture_mount_path = "/voice",
         .capture_partition_label = "voice_spool",
         .capture_file_path = "/voice/faculty175_utterance.pcm",

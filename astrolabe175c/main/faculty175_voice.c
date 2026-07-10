@@ -40,10 +40,11 @@ static const char *TAG = "faculty175_voice";
 #define VOICE_TTS_PATH VOICE_SPOOL_BASE "/voice-reply.mp3"
 #define VOICE_HEAP_MIN_INTERNAL_FREE (4 * 1024)
 #define VOICE_HEAP_MIN_INTERNAL_FREE_STT_FINISH (4 * 1024)
-#define VOICE_HEAP_MIN_INTERNAL_LARGEST (4 * 1024)
+#define VOICE_HEAP_MIN_INTERNAL_LARGEST (2 * 1024)
 #define VOICE_HEAP_MIN_PSRAM_FREE (512 * 1024)
 #define VOICE_STREAM_CHUNK_BYTES 1024
 #define VOICE_MP3_STREAM_BUFFER_BYTES (24 * 1024)
+#define VOICE_PLAY_TASK_TIMEOUT_MS 30000
 
 #ifndef MYNAH_VOICE_HTTP_URL
 #define MYNAH_VOICE_HTTP_URL ""
@@ -1510,6 +1511,7 @@ esp_err_t faculty175_voice_play_mp3(const uint8_t *mp3, size_t mp3_len)
 
     const uint32_t t0 = faculty175_log_ms();
     FACULTY175_LOG_STAGE(TAG, "tts", "play start mp3=%uB", (unsigned)mp3_len);
+    (void)faculty175_audio_reset_speaker(1000);
 
     mp3dec_frame_info_t info;
     int16_t *pcm = s_voice_mp3_pcm;
@@ -1551,7 +1553,15 @@ esp_err_t faculty175_voice_play_mp3(const uint8_t *mp3, size_t mp3_len)
                                  (unsigned)offset,
                                  (unsigned)mp3_len,
                                  samples);
-            ESP_ERROR_CHECK_WITHOUT_ABORT(faculty175_audio_write_pcm(stereo, (size_t)samples * 2, 1000));
+            const esp_err_t write_err = faculty175_audio_write_pcm(stereo, (size_t)samples * 2, 1000);
+            if (write_err != ESP_OK) {
+                FACULTY175_LOG_STAGE_W(TAG,
+                                       "tts",
+                                       "play frame=%u write failed: %s",
+                                       (unsigned)frame_index,
+                                       esp_err_to_name(write_err));
+                return write_err;
+            }
         } else {
             FACULTY175_LOG_STAGE(TAG,
                                  "tts",
@@ -1561,7 +1571,15 @@ esp_err_t faculty175_voice_play_mp3(const uint8_t *mp3, size_t mp3_len)
                                  (unsigned)mp3_len,
                                  samples,
                                  info.channels);
-            ESP_ERROR_CHECK_WITHOUT_ABORT(faculty175_audio_write_pcm(pcm, (size_t)samples * 2, 1000));
+            const esp_err_t write_err = faculty175_audio_write_pcm(pcm, (size_t)samples * 2, 1000);
+            if (write_err != ESP_OK) {
+                FACULTY175_LOG_STAGE_W(TAG,
+                                       "tts",
+                                       "play frame=%u write failed: %s",
+                                       (unsigned)frame_index,
+                                       esp_err_to_name(write_err));
+                return write_err;
+            }
         }
         FACULTY175_LOG_STAGE(TAG,
                              "tts",
@@ -1571,6 +1589,7 @@ esp_err_t faculty175_voice_play_mp3(const uint8_t *mp3, size_t mp3_len)
         vTaskDelay(1);
     }
 
+    (void)faculty175_audio_reset_speaker(1000);
     FACULTY175_LOG_STAGE(TAG, "tts", "play done in %ums", (unsigned)(faculty175_log_ms() - t0));
     return ESP_OK;
 }
@@ -1663,7 +1682,8 @@ typedef struct {
     char path[64];
     uint8_t *mp3;
     size_t mp3_len;
-    TaskHandle_t waiter;
+    volatile TaskHandle_t waiter;
+    volatile bool caller_owns_args;
     esp_err_t result;
 } voice_play_file_task_args_t;
 
@@ -1674,8 +1694,12 @@ static void voice_play_mp3_file_task(void *arg)
         args->result = faculty175_voice_play_mp3(args->mp3, args->mp3_len);
         free(args->mp3);
         args->mp3 = NULL;
-        if (args->waiter != NULL) {
-            xTaskNotifyGive(args->waiter);
+        TaskHandle_t waiter = args->waiter;
+        if (waiter != NULL) {
+            xTaskNotifyGive(waiter);
+        }
+        if (!args->caller_owns_args) {
+            free(args);
         }
     }
     vTaskDeleteWithCaps(NULL);
@@ -1694,6 +1718,7 @@ static esp_err_t voice_play_mp3_async(const uint8_t *mp3, size_t mp3_len)
         return ESP_ERR_NO_MEM;
     }
     args->waiter = xTaskGetCurrentTaskHandle();
+    args->caller_owns_args = true;
     args->result = ESP_FAIL;
 
     args->mp3 = heap_caps_malloc(mp3_len, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
@@ -1708,7 +1733,7 @@ static esp_err_t voice_play_mp3_async(const uint8_t *mp3, size_t mp3_len)
                                               "voice_play",
                                               24576,
                                               args,
-                                              4,
+                                              6,
                                               NULL,
                                               MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (ok != pdPASS) {
@@ -1717,7 +1742,17 @@ static esp_err_t voice_play_mp3_async(const uint8_t *mp3, size_t mp3_len)
         return ESP_ERR_NO_MEM;
     }
 
-    (void)ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    (void)ulTaskNotifyTake(pdTRUE, 0);
+    if (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(VOICE_PLAY_TASK_TIMEOUT_MS)) == 0) {
+        args->waiter = NULL;
+        args->caller_owns_args = false;
+        FACULTY175_LOG_STAGE_W(TAG,
+                               "tts",
+                               "play timeout after %ums mp3=%uB",
+                               (unsigned)VOICE_PLAY_TASK_TIMEOUT_MS,
+                               (unsigned)mp3_len);
+        return ESP_ERR_TIMEOUT;
+    }
     const esp_err_t result = args->result;
     free(args);
     return result;

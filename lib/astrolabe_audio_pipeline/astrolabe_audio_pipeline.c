@@ -52,12 +52,14 @@ static const char *TAG = "ast_audio_pipe";
 #define STREAM_FRAME_PACE_MS 0
 #define STREAM_RESPONSE_TIMEOUT_MS 120000
 #define STREAM_EARLY_RESPONSE_TIMEOUT_MS 8000
-#define STREAM_WEBSOCKET_TASK_STACK 5120u
+#define STREAM_WEBSOCKET_TASK_STACK 4096u
+#define STREAM_WEBSOCKET_BUFFER_SIZE 16384u
 #define STREAM_OPEN_RETRIES 2u
 #define MANUAL_CAPTURE_MIN_MS 1500u
 #define MANUAL_CAPTURE_DEFAULT_HOLD_MS 2500u
 #define MANUAL_CAPTURE_PRESTART_QUIET_FRAMES 4u
 #define MANUAL_CAPTURE_PRESTART_FORCE_MS 750u
+#define MANUAL_CAPTURE_NO_SPEECH_TIMEOUT_MS 8000u
 #define VAD_WARMUP_FRAMES 25u
 #define VAD_NOISE_ATTACK_SHIFT 6
 #define VAD_NOISE_RELEASE_SHIFT 4
@@ -121,6 +123,10 @@ struct astrolabe_audio_pipeline {
     uint32_t noise_rms;
     uint32_t active_peak_rms;
     uint32_t vad_frames_seen;
+    uint32_t read_ok_count;
+    uint32_t read_zero_count;
+    uint32_t read_err_count;
+    esp_err_t last_read_err;
     uint32_t rearm_quiet_frames;
     uint32_t capture_blocked_until_ms;
     bool capture_needs_quiet;
@@ -146,12 +152,12 @@ struct voice_result {
 };
 
 struct stream_response_ctx {
-    SemaphoreHandle_t done;
-    StaticSemaphore_t done_storage;
     voice_result_t *result;
     char *message;
     size_t message_cap;
     size_t message_len;
+    volatile uint32_t event_count;
+    int websocket_status_code;
     esp_err_t err;
     bool response_done;
     bool transport_failed;
@@ -212,7 +218,8 @@ static bool rolling_websocket_enabled(const astrolabe_audio_pipeline_t *p)
 
 static bool capture_uses_ram(const astrolabe_audio_pipeline_t *p)
 {
-    return rolling_websocket_enabled(p);
+    (void)p;
+    return false;
 }
 
 static bool should_idle_listen_between_turns(const astrolabe_audio_pipeline_t *p)
@@ -300,6 +307,22 @@ static void *pipeline_calloc_prefer_psram(size_t count, size_t size)
     return ptr;
 }
 
+static StackType_t *pipeline_alloc_stack(size_t words, bool prefer_psram)
+{
+    const size_t bytes = words * sizeof(StackType_t);
+    StackType_t *stack = NULL;
+    if (prefer_psram) {
+        stack = heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    }
+    if (stack == NULL) {
+        stack = heap_caps_malloc(bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    }
+    if (stack == NULL && !prefer_psram) {
+        stack = heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    }
+    return stack;
+}
+
 static esp_err_t start_listen_task_if_needed(astrolabe_audio_pipeline_t *p)
 {
     if (p == NULL || !p->running) {
@@ -336,14 +359,6 @@ static esp_err_t start_listen_task_if_needed(astrolabe_audio_pipeline_t *p)
         return ESP_ERR_NO_MEM;
     }
     return ESP_OK;
-}
-
-static esp_err_t prewarm_rolling_session_if_needed(astrolabe_audio_pipeline_t *p)
-{
-    if (p == NULL || !p->running || !rolling_websocket_enabled(p) || p->unhealthy || p->rolling_client != NULL) {
-        return ESP_OK;
-    }
-    return rolling_stream_session_open(p);
 }
 
 static esp_err_t start_voice_task_if_needed(astrolabe_audio_pipeline_t *p)
@@ -1290,9 +1305,7 @@ static void stream_response_handle_json(stream_response_ctx_t *ctx, char *json)
             if (decode_base64_alloc(audio_b64, audio_b64_len, &mp3, &mp3_len)) {
                 if (!append_bytes(&ctx->result->mp3, &ctx->result->mp3_len, mp3, mp3_len)) {
                     ctx->err = ESP_ERR_NO_MEM;
-                    if (ctx->done != NULL) {
-                        xSemaphoreGive(ctx->done);
-                    }
+                    ctx->event_count++;
                 }
                 free(mp3);
             }
@@ -1302,9 +1315,7 @@ static void stream_response_handle_json(stream_response_ctx_t *ctx, char *json)
         json_find_string(json, "facultySlug", ctx->result->faculty_slug, sizeof(ctx->result->faculty_slug));
         json_find_string(json, "facultyName", ctx->result->faculty_name, sizeof(ctx->result->faculty_name));
         ctx->response_done = true;
-        if (ctx->done != NULL) {
-            xSemaphoreGive(ctx->done);
-        }
+        ctx->event_count++;
     } else if (strstr(json, "\"type\":\"error\"") != NULL) {
         char code[96] = "";
         char message[192] = "";
@@ -1314,9 +1325,7 @@ static void stream_response_handle_json(stream_response_ctx_t *ctx, char *json)
                  code[0] != '\0' ? code : "?",
                  message[0] != '\0' ? message : "?");
         ctx->err = ESP_FAIL;
-        if (ctx->done != NULL) {
-            xSemaphoreGive(ctx->done);
-        }
+        ctx->event_count++;
     }
 }
 
@@ -1343,12 +1352,13 @@ static void stream_response_event(void *handler_arg, esp_event_base_t base, int3
         return;
     }
     if (event_id == WEBSOCKET_EVENT_ERROR) {
+        if (data != NULL) {
+            ctx->websocket_status_code = data->error_handle.esp_ws_handshake_status_code;
+        }
         ESP_LOGW(TAG, "voice-stream websocket error");
         ctx->err = ESP_FAIL;
         ctx->transport_failed = true;
-        if (ctx->done != NULL) {
-            xSemaphoreGive(ctx->done);
-        }
+        ctx->event_count++;
         return;
     }
     if (data == NULL) {
@@ -1379,9 +1389,7 @@ static void stream_response_event(void *handler_arg, esp_event_base_t base, int3
     }
     if (ctx->message == NULL || payload_off + (size_t)data->data_len > ctx->message_cap - 1) {
         ctx->err = ESP_ERR_NO_MEM;
-        if (ctx->done != NULL) {
-            xSemaphoreGive(ctx->done);
-        }
+        ctx->event_count++;
         return;
     }
     memcpy(ctx->message + payload_off, data->data_ptr, (size_t)data->data_len);
@@ -1414,12 +1422,21 @@ static void rolling_stream_reset_response(stream_response_ctx_t *ctx)
     if (ctx == NULL) {
         return;
     }
-    while (ctx->done != NULL && xSemaphoreTake(ctx->done, 0) == pdTRUE) {
-    }
+    ctx->event_count = 0;
+    ctx->websocket_status_code = 0;
     ctx->err = ESP_OK;
     ctx->response_done = false;
     ctx->transport_failed = false;
     ctx->message_len = 0;
+}
+
+static bool rolling_stream_wait_event(const stream_response_ctx_t *ctx, uint32_t seen_count, uint32_t timeout_ms)
+{
+    const uint32_t start_ms = ticks_ms();
+    while (ctx != NULL && ctx->event_count == seen_count && ticks_ms() - start_ms < timeout_ms) {
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+    return ctx != NULL && ctx->event_count != seen_count;
 }
 
 static void rolling_stream_session_close(astrolabe_audio_pipeline_t *p)
@@ -1447,10 +1464,6 @@ static void rolling_stream_state_free(astrolabe_audio_pipeline_t *p)
         return;
     }
     if (p->rolling_response != NULL) {
-        if (p->rolling_response->done != NULL) {
-            vSemaphoreDelete(p->rolling_response->done);
-            p->rolling_response->done = NULL;
-        }
         free(p->rolling_response->message);
         p->rolling_response->message = NULL;
         free(p->rolling_response);
@@ -1516,6 +1529,7 @@ static esp_err_t rolling_stream_session_open(astrolabe_audio_pipeline_t *p)
             .task_core_id = 0,
             .task_name = "voice_ws",
             .task_stack = STREAM_WEBSOCKET_TASK_STACK,
+            .buffer_size = STREAM_WEBSOCKET_BUFFER_SIZE,
             .network_timeout_ms = STREAM_SEND_TIMEOUT_MS,
         };
         p->rolling_client = esp_websocket_client_init(&ws_cfg);
@@ -1535,32 +1549,26 @@ static esp_err_t rolling_stream_session_open(astrolabe_audio_pipeline_t *p)
             break;
         }
         p->rolling_response->result = p->rolling_result;
-        if (p->rolling_response->done == NULL) {
-            p->rolling_response->done = xSemaphoreCreateBinaryStatic(&p->rolling_response->done_storage);
-        }
-        if (p->rolling_response->done == NULL) {
-            err = ESP_ERR_NO_MEM;
-            break;
-        }
         rolling_stream_reset_response(p->rolling_response);
         rolling_stream_reset_result(p->rolling_result);
         ESP_LOGI(TAG,
-                 "voice-stream ctx result=%p ext=%d response=%p ext=%d done=%p ext=%d",
+                 "voice-stream ctx result=%p ext=%d response=%p ext=%d",
                  (void *)p->rolling_result,
                  esp_ptr_external_ram(p->rolling_result),
                  (void *)p->rolling_response,
-                 esp_ptr_external_ram(p->rolling_response),
-                 (void *)p->rolling_response->done,
-                 esp_ptr_external_ram(p->rolling_response->done));
+                 esp_ptr_external_ram(p->rolling_response));
         (void)esp_websocket_register_events(p->rolling_client, WEBSOCKET_EVENT_ANY, stream_response_event, p->rolling_response);
 
         const uint32_t t0 = ticks_ms();
         err = esp_websocket_client_start(p->rolling_client);
         while (err == ESP_OK && !esp_websocket_client_is_connected(p->rolling_client) &&
+               !p->rolling_response->transport_failed &&
                ticks_ms() - t0 < STREAM_CONNECT_TIMEOUT_MS) {
             vTaskDelay(pdMS_TO_TICKS(50));
         }
-        if (err == ESP_OK && !esp_websocket_client_is_connected(p->rolling_client)) {
+        if (err == ESP_OK && p->rolling_response->transport_failed) {
+            err = p->rolling_response->err != ESP_OK ? p->rolling_response->err : ESP_FAIL;
+        } else if (err == ESP_OK && !esp_websocket_client_is_connected(p->rolling_client)) {
             err = ESP_ERR_TIMEOUT;
         }
 
@@ -1597,6 +1605,11 @@ static esp_err_t rolling_stream_session_open(astrolabe_audio_pipeline_t *p)
                  (unsigned)(attempt + 1),
                  (unsigned)STREAM_OPEN_RETRIES,
                  esp_err_to_name(err));
+        if (p->rolling_response != NULL && p->rolling_response->websocket_status_code >= 400) {
+            ESP_LOGW(TAG, "voice-stream backend refused websocket handshake status=%d",
+                     p->rolling_response->websocket_status_code);
+            break;
+        }
         vTaskDelay(pdMS_TO_TICKS(100));
     }
 
@@ -1654,6 +1667,22 @@ static esp_err_t stream_pcm_file(astrolabe_audio_pipeline_t *p, const utterance_
         }
     }
     if (err != ESP_OK) {
+        if (utt->final_segment && result != NULL &&
+            ((p->turn_pcm != NULL && p->turn_pcm_len > 0) || (utt->pcm_data != NULL && utt->byte_count > 0))) {
+            rolling_stream_session_close(p);
+            voice_result_free(result);
+            memset(result, 0, sizeof(*result));
+            if (p->turn_pcm != NULL && p->turn_pcm_len > 0) {
+                ESP_LOGW(TAG,
+                         "voice-stream session open failed; retrying final turn via HTTP buffer (%uB)",
+                         (unsigned)p->turn_pcm_len);
+                return post_pcm_buffer(p, p->turn_pcm, p->turn_pcm_len, result);
+            }
+            ESP_LOGW(TAG,
+                     "voice-stream session open failed; retrying final segment mirror via HTTP buffer (%uB)",
+                     (unsigned)utt->byte_count);
+            return post_pcm_buffer(p, utt->pcm_data, utt->byte_count, result);
+        }
         return err;
     }
 
@@ -1730,6 +1759,7 @@ static esp_err_t stream_pcm_file(astrolabe_audio_pipeline_t *p, const utterance_
     if (err == ESP_OK && p->rolling_response != NULL) {
         rolling_stream_reset_response(p->rolling_response);
     }
+    const uint32_t response_seen_count = p->rolling_response != NULL ? p->rolling_response->event_count : 0;
     if (err == ESP_OK) {
         char commit[160];
         snprintf(commit, sizeof(commit),
@@ -1739,7 +1769,7 @@ static esp_err_t stream_pcm_file(astrolabe_audio_pipeline_t *p, const utterance_
     }
     if (err == ESP_OK && p->rolling_response != NULL) {
         if (utt->final_segment) {
-            if (xSemaphoreTake(p->rolling_response->done, pdMS_TO_TICKS(STREAM_RESPONSE_TIMEOUT_MS)) != pdTRUE) {
+            if (!rolling_stream_wait_event(p->rolling_response, response_seen_count, STREAM_RESPONSE_TIMEOUT_MS)) {
                 err = ESP_ERR_TIMEOUT;
             } else if (p->rolling_response->err != ESP_OK) {
                 err = p->rolling_response->err;
@@ -1753,7 +1783,7 @@ static esp_err_t stream_pcm_file(astrolabe_audio_pipeline_t *p, const utterance_
             // Rolling non-final segments should remain fire-and-forget. Waiting
             // for a server-side ack here throttles capture below real time and
             // lets the queue back up behind the final commit.
-            if (xSemaphoreTake(p->rolling_response->done, 0) == pdTRUE && p->rolling_response->err != ESP_OK) {
+            if (p->rolling_response->event_count != response_seen_count && p->rolling_response->err != ESP_OK) {
                 err = p->rolling_response->err;
             }
         }
@@ -1997,6 +2027,30 @@ static uint32_t drain_queued_segments(astrolabe_audio_pipeline_t *p, const char 
     return dropped_count;
 }
 
+static uint32_t drain_queued_segments_keep_files(astrolabe_audio_pipeline_t *p, const char *reason)
+{
+    uint32_t dropped_count = 0;
+    utterance_t dropped = {};
+    if (p == NULL || p->utterance_queue == NULL) {
+        return 0;
+    }
+    while (xQueueReceive(p->utterance_queue, &dropped, 0) == pdTRUE) {
+        if (dropped.pcm_data != NULL) {
+            free(dropped.pcm_data);
+        }
+        if (dropped.slot < p->capture_ring_slots) {
+            p->capture_slot_busy[dropped.slot] = false;
+        }
+        dropped_count++;
+    }
+    if (dropped_count > 0) {
+        ESP_LOGW(TAG, "dropped %u queued segment(s) after %s",
+                 (unsigned)dropped_count,
+                 reason != NULL ? reason : "turn boundary");
+    }
+    return dropped_count;
+}
+
 static bool advance_capture_slot(astrolabe_audio_pipeline_t *p)
 {
     for (uint32_t pass = 0; pass < 2; ++pass) {
@@ -2128,11 +2182,35 @@ static bool queue_utterance(astrolabe_audio_pipeline_t *p, bool final_segment)
         remove(p->capture_path);
     } else {
         snprintf(utt.path, sizeof(utt.path), "%s", p->capture_path);
+        if (final_segment && p->capture_len_bytes > 0) {
+            utt.pcm_data = heap_caps_malloc(p->capture_len_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+            if (utt.pcm_data == NULL) {
+                utt.pcm_data = malloc(p->capture_len_bytes);
+            }
+            if (utt.pcm_data != NULL) {
+                FILE *f = fopen(utt.path, "rb");
+                if (f == NULL) {
+                    free(utt.pcm_data);
+                    utt.pcm_data = NULL;
+                } else {
+                    const size_t got = fread(utt.pcm_data, 1, p->capture_len_bytes, f);
+                    fclose(f);
+                    if (got != p->capture_len_bytes) {
+                        free(utt.pcm_data);
+                        utt.pcm_data = NULL;
+                    }
+                }
+            }
+            if (utt.pcm_data == NULL) {
+                ESP_LOGW(TAG, "final segment PSRAM mirror unavailable len=%u", (unsigned)p->capture_len_bytes);
+            }
+        }
     }
     if (xQueueSend(p->utterance_queue, &utt, 0) != pdTRUE) {
         if (utt.pcm_data != NULL) {
             free(utt.pcm_data);
-        } else {
+        }
+        if (!final_commit_only && !capture_uses_ram(p)) {
             remove(p->capture_path);
         }
         if (!final_commit_only && !capture_uses_ram(p)) {
@@ -2228,9 +2306,9 @@ static bool push_frame(astrolabe_audio_pipeline_t *p, const int16_t *frame, size
         p->manual_capture_active = true;
         p->active_peak_rms = p->last_rms;
         p->silence_frames = 0;
-        const uint32_t manual_hold_ms =
-            p->manual_capture_hold_ms >= MANUAL_CAPTURE_MIN_MS ? p->manual_capture_hold_ms : MANUAL_CAPTURE_MIN_MS;
-        p->manual_capture_deadline_ms = ticks_ms() + manual_hold_ms;
+    const uint32_t manual_hold_ms =
+        p->manual_capture_hold_ms >= MANUAL_CAPTURE_MIN_MS ? p->manual_capture_hold_ms : MANUAL_CAPTURE_MIN_MS;
+    p->manual_capture_deadline_ms = p->manual_capture_hold_ms == 0 ? 0 : ticks_ms() + manual_hold_ms;
         turn_pcm_reset(p);
         ESP_LOGI(TAG, "manual capture start rms=%u noise=%u quiet_frames=%u forced=%d",
                  (unsigned)p->last_rms,
@@ -2305,7 +2383,7 @@ static bool push_frame(astrolabe_audio_pipeline_t *p, const int16_t *frame, size
     }
 
     const size_t frame_bytes = frame_samples * sizeof(int16_t);
-    if (p->capture_len_bytes + frame_bytes > p->capture_cap_bytes) {
+    if (!rolling_websocket_enabled(p) && p->capture_len_bytes + frame_bytes > p->capture_cap_bytes) {
         return queue_utterance(p, true);
     }
     if (rolling_websocket_enabled(p) && p->capture_len_bytes + frame_bytes > p->segment_cap_bytes) {
@@ -2335,7 +2413,8 @@ static bool push_frame(astrolabe_audio_pipeline_t *p, const int16_t *frame, size
     p->capture_len_bytes += frame_bytes;
     const uint32_t manual_hold_ms =
         p->manual_capture_hold_ms >= MANUAL_CAPTURE_MIN_MS ? p->manual_capture_hold_ms : MANUAL_CAPTURE_MIN_MS;
-    if (p->manual_capture_active && ticks_reached(now_ms, p->manual_capture_deadline_ms)) {
+    if (p->manual_capture_active && p->manual_capture_deadline_ms != 0 &&
+        ticks_reached(now_ms, p->manual_capture_deadline_ms)) {
         ESP_LOGI(TAG, "manual end bytes=%u hold_ms=%u rms=%u noise=%u peak=%u",
                  (unsigned)p->capture_len_bytes,
                  (unsigned)manual_hold_ms,
@@ -2353,9 +2432,31 @@ static bool push_frame(astrolabe_audio_pipeline_t *p, const int16_t *frame, size
     } else {
         if (p->manual_capture_active) {
             update_noise_floor(p, p->last_rms);
-            return false;
+            if (p->manual_capture_deadline_ms != 0) {
+                return false;
+            }
         }
         update_noise_floor(p, p->last_rms);
+        if (p->manual_capture_active && p->manual_capture_deadline_ms == 0 &&
+            p->active_peak_rms < dynamic_start_threshold(p)) {
+            if (ticks_reached(now_ms, p->manual_capture_armed_ms + MANUAL_CAPTURE_NO_SPEECH_TIMEOUT_MS)) {
+                ESP_LOGW(TAG, "No speech detected bytes=%u rms=%u threshold=%u noise=%u peak=%u",
+                         (unsigned)p->capture_len_bytes,
+                         (unsigned)p->last_rms,
+                         (unsigned)dynamic_start_threshold(p),
+                         (unsigned)p->noise_rms,
+                         (unsigned)p->active_peak_rms);
+                p->manual_capture = false;
+                p->manual_capture_active = false;
+                p->manual_capture_deadline_ms = 0;
+                p->manual_capture_quiet_frames = 0;
+                p->turn_segment_count = 0;
+                (void)drain_queued_segments(p, "no speech");
+                reset_capture(p);
+                emit(p, ASTROLABE_AUDIO_PIPELINE_EVENT_ERROR, "No speech detected");
+            }
+            return false;
+        }
         if (++p->silence_frames >= p->cfg.silence_frames) {
             ESP_LOGI(TAG, "VAD end bytes=%u rms=%u threshold=%u noise=%u silence=%u peak=%u",
                      (unsigned)p->capture_len_bytes,
@@ -2390,9 +2491,18 @@ static void listen_task(void *arg)
         size_t got = 0;
         esp_err_t err = p->cfg.io.read(frame, p->cfg.frame_samples, &got, 100, p->cfg.io.user);
         if (err != ESP_OK || got == 0) {
-            vTaskDelay(pdMS_TO_TICKS(5));
+            if (err != ESP_OK) {
+                p->read_err_count++;
+                p->last_read_err = err;
+            } else {
+                p->read_zero_count++;
+            }
+            const TickType_t backoff_ticks = pdMS_TO_TICKS(20);
+            vTaskDelay(backoff_ticks > 0 ? backoff_ticks : 1);
             continue;
         }
+        p->read_ok_count++;
+        p->last_read_err = ESP_OK;
         (void)push_frame(p, frame, got);
     }
     free(frame);
@@ -2415,10 +2525,14 @@ static void voice_task(void *arg)
                  utt.final_segment ? "yes" : "no",
                  (unsigned)utt.byte_count,
                  utt.path);
-        if (utt.final_segment) {
+        if (utt.final_segment && !p->cfg.duplex) {
             ESP_LOGI(TAG, "voice stopping listen before final segment #%u", (unsigned)utt.sequence);
             stop_listen_task_if_running(p, 1000);
             ESP_LOGI(TAG, "voice listen stop complete for final segment #%u", (unsigned)utt.sequence);
+        } else if (utt.final_segment) {
+            ESP_LOGI(TAG, "voice keeping listen active for duplex final segment #%u", (unsigned)utt.sequence);
+        }
+        if (utt.final_segment) {
             emit(p, ASTROLABE_AUDIO_PIPELINE_EVENT_THINKING, NULL);
         }
         prepare_context(p);
@@ -2427,9 +2541,11 @@ static void voice_task(void *arg)
                  (unsigned)utt.byte_count, utt.path);
         voice_result_t *result = pipeline_calloc_prefer_psram(1, sizeof(*result));
         if (result == NULL) {
-            if (utt.path[0] != '\0') {
-                remove(utt.path);
-            }
+            // Do not remove SPIFFS spool files from the voice task. In duplex
+            // builds this task may use a PSRAM stack to preserve internal heap
+            // for WebSocket/TLS, while flash metadata updates require an
+            // internal stack during cache-disabled sections. The capture task
+            // truncates/reuses fixed ring slots on an internal stack.
             if (utt.pcm_data != NULL) {
                 free(utt.pcm_data);
             }
@@ -2464,12 +2580,13 @@ static void voice_task(void *arg)
         } else if (!utt.final_segment) {
             ESP_LOGW(TAG, "capture dropped unexpected non-final segment #%u in flash-post mode",
                      (unsigned)utt.sequence);
+        } else if (utt.pcm_data != NULL && utt.byte_count > 0) {
+            err = post_pcm_buffer(p, utt.pcm_data, utt.byte_count, result);
         } else {
             err = post_pcm_file(p, utt.path, utt.byte_count, result);
         }
-        if (utt.path[0] != '\0') {
-            remove(utt.path);
-        }
+        // Keep flash spool files in place; fixed ring slots are truncated on
+        // reuse by the internal-stack capture task.
         if (utt.pcm_data != NULL) {
             free(utt.pcm_data);
         }
@@ -2502,7 +2619,7 @@ static void voice_task(void *arg)
                 // unlikely to succeed.
                 p->unhealthy = (err == ESP_ERR_NO_MEM);
                 rolling_stream_session_close(p);
-                drain_queued_segments(p, "final error");
+                (capture_uses_ram(p) ? drain_queued_segments : drain_queued_segments_keep_files)(p, "final error");
             }
             voice_result_free(result);
             free(result);
@@ -2554,7 +2671,7 @@ static void voice_task(void *arg)
         voice_result_free(result);
         free(result);
         turn_pcm_reset(p);
-        drain_queued_segments(p, "final success");
+        (capture_uses_ram(p) ? drain_queued_segments : drain_queued_segments_keep_files)(p, "final success");
         emit(p, ASTROLABE_AUDIO_PIPELINE_EVENT_TURN_DONE, NULL);
         start_capture_cooldown(p);
         if (should_idle_listen_between_turns(p) && start_listen_task_if_needed(p) == ESP_OK) {
@@ -2578,7 +2695,7 @@ esp_err_t astrolabe_audio_pipeline_create(const astrolabe_audio_pipeline_config_
         config->endpoint_url == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
-    astrolabe_audio_pipeline_t *p = calloc(1, sizeof(*p));
+    astrolabe_audio_pipeline_t *p = pipeline_calloc_prefer_psram(1, sizeof(*p));
     if (p == NULL) {
         return ESP_ERR_NO_MEM;
     }
@@ -2612,20 +2729,25 @@ esp_err_t astrolabe_audio_pipeline_create(const astrolabe_audio_pipeline_config_
     }
     const uint32_t listen_stack_bytes = p->cfg.listen_stack ? p->cfg.listen_stack : DEFAULT_LISTEN_STACK;
     p->listen_task_stack_words = (listen_stack_bytes + sizeof(StackType_t) - 1u) / sizeof(StackType_t);
-    p->listen_task_stack_storage =
-        heap_caps_malloc((size_t)p->listen_task_stack_words * sizeof(StackType_t),
-                         MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    p->listen_task_stack_storage = pipeline_alloc_stack(p->listen_task_stack_words, false);
     p->listen_task_tcb_storage =
         heap_caps_malloc(sizeof(StaticTask_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     const uint32_t voice_stack_bytes = p->cfg.voice_stack ? p->cfg.voice_stack : DEFAULT_VOICE_STACK;
     p->voice_task_stack_words = (voice_stack_bytes + sizeof(StackType_t) - 1u) / sizeof(StackType_t);
-    p->voice_task_stack_storage =
-        heap_caps_malloc((size_t)p->voice_task_stack_words * sizeof(StackType_t),
-                         MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    p->voice_task_stack_storage = pipeline_alloc_stack(p->voice_task_stack_words, p->cfg.duplex);
     p->voice_task_tcb_storage =
         heap_caps_malloc(sizeof(StaticTask_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     if (p->listen_task_stack_storage == NULL || p->listen_task_tcb_storage == NULL ||
         p->voice_task_stack_storage == NULL || p->voice_task_tcb_storage == NULL) {
+        ESP_LOGE(TAG,
+                 "task storage alloc failed listen_stack=%p listen_tcb=%p voice_stack=%p voice_tcb=%p internal=%u largest=%u psram=%u",
+                 (void *)p->listen_task_stack_storage,
+                 (void *)p->listen_task_tcb_storage,
+                 (void *)p->voice_task_stack_storage,
+                 (void *)p->voice_task_tcb_storage,
+                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+                 (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
         free(p->listen_task_stack_storage);
         free(p->listen_task_tcb_storage);
         free(p->voice_task_stack_storage);
@@ -2656,13 +2778,20 @@ esp_err_t astrolabe_audio_pipeline_create(const astrolabe_audio_pipeline_config_
         esp_vfs_spiffs_conf_t spiffs = {
             .base_path = p->cfg.capture_mount_path != NULL ? p->cfg.capture_mount_path : DEFAULT_CAPTURE_MOUNT_PATH,
             .partition_label = p->cfg.capture_partition_label,
-            .max_files = (int)(p->capture_ring_slots + 2),
+            .max_files = 4,
             .format_if_mount_failed = true,
         };
         esp_err_t mount_err = esp_vfs_spiffs_register(&spiffs);
         if (mount_err == ESP_OK) {
             p->spiffs_mounted = true;
         } else if (mount_err != ESP_ERR_INVALID_STATE) {
+            ESP_LOGE(TAG,
+                     "capture spool mount failed partition=%s err=%s internal=%u largest=%u psram=%u",
+                     p->cfg.capture_partition_label != NULL ? p->cfg.capture_partition_label : "-",
+                     esp_err_to_name(mount_err),
+                     (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+                     (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+                     (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
             astrolabe_audio_pipeline_destroy(p);
             return mount_err;
         }
@@ -2691,6 +2820,13 @@ esp_err_t astrolabe_audio_pipeline_create(const astrolabe_audio_pipeline_config_
     }
     p->utterance_queue = xQueueCreate(p->capture_ring_slots, sizeof(utterance_t));
     if (p->utterance_queue == NULL) {
+        ESP_LOGE(TAG,
+                 "utterance queue alloc failed slots=%u item=%u internal=%u largest=%u psram=%u",
+                 (unsigned)p->capture_ring_slots,
+                 (unsigned)sizeof(utterance_t),
+                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+                 (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
         astrolabe_audio_pipeline_destroy(p);
         return ESP_ERR_NO_MEM;
     }
@@ -2708,16 +2844,12 @@ esp_err_t astrolabe_audio_pipeline_start(astrolabe_audio_pipeline_t *p)
     }
     p->running = true;
     p->unhealthy = false;
-    if (rolling_websocket_enabled(p)) {
-        esp_err_t ws_err = rolling_stream_session_open(p);
-        if (ws_err != ESP_OK) {
-            p->running = false;
-            return ws_err;
-        }
-    }
-    // Keep the voice worker stack in internal RAM. This task runs through
-    // websocket/TLS and flash-cache-disabled paths where a PSRAM-backed stack
-    // can trip cache-safety assertions on ESP32-S3.
+    // Rolling duplex capture must be able to start even when the backend is
+    // temporarily unavailable; each queued segment opens/reopens transport on
+    // demand from the voice task.
+    // Duplex mode may place the voice worker stack in PSRAM to leave enough
+    // internal heap for WebSocket/TLS. Non-duplex builds still prefer internal
+    // stack storage for flash-cache-disabled paths.
     esp_err_t voice_err = start_voice_task_if_needed(p);
     if (voice_err != ESP_OK) {
         stop_listen_task_if_running(p, 1000);
@@ -2775,9 +2907,9 @@ void astrolabe_audio_pipeline_destroy(astrolabe_audio_pipeline_t *p)
         }
         remove(p->capture_path);
     }
-    if (p->spiffs_mounted) {
-        esp_vfs_spiffs_unregister(p->cfg.capture_partition_label);
-    }
+    // Keep the flash spool mounted for the firmware lifetime. Re-registering
+    // SPIFFS after Wi-Fi/LVGL/TLS have fragmented internal heap can fail even
+    // though the mounted spool itself is healthy.
     free(p->capture_ram);
     free(p->turn_pcm);
     free(p->listen_task_stack_storage);
@@ -2797,33 +2929,17 @@ esp_err_t astrolabe_audio_pipeline_trigger_capture_for_ms(astrolabe_audio_pipeli
     if (p == NULL || !p->running) {
         return ESP_ERR_INVALID_STATE;
     }
-    if (hold_ms < MANUAL_CAPTURE_MIN_MS) {
+    const bool open_ended_duplex_capture = hold_ms == 0 && p->cfg.duplex && rolling_websocket_enabled(p);
+    if (!open_ended_duplex_capture && hold_ms < MANUAL_CAPTURE_MIN_MS) {
         hold_ms = MANUAL_CAPTURE_MIN_MS;
-    } else if (hold_ms > 15000u) {
+    } else if (!open_ended_duplex_capture && hold_ms > 15000u) {
         hold_ms = 15000u;
     }
     if (rolling_websocket_enabled(p)) {
-        const bool need_prewarm = p->rolling_client == NULL;
-        const bool had_listen_task = p->listen_task != NULL;
-        if (need_prewarm && had_listen_task) {
-            stop_listen_task_if_running(p, 1000);
-        }
-        esp_err_t prewarm_err = prewarm_rolling_session_if_needed(p);
-        if (prewarm_err != ESP_OK) {
-            if (need_prewarm && had_listen_task) {
-                (void)start_listen_task_if_needed(p);
-            }
-            ESP_LOGW(TAG, "voice-stream prewarm before manual capture failed: %s",
-                     esp_err_to_name(prewarm_err));
-            return prewarm_err;
-        }
-        if (need_prewarm) {
-            esp_err_t listen_err = start_listen_task_if_needed(p);
-            if (listen_err != ESP_OK) {
-                rolling_stream_session_close(p);
-                ESP_LOGW(TAG, "listen restart after prewarm failed: %s", esp_err_to_name(listen_err));
-                return listen_err;
-            }
+        esp_err_t listen_err = start_listen_task_if_needed(p);
+        if (listen_err != ESP_OK) {
+            ESP_LOGW(TAG, "listen start before manual capture failed: %s", esp_err_to_name(listen_err));
+            return listen_err;
         }
         esp_err_t voice_err = start_voice_task_if_needed(p);
         if (voice_err != ESP_OK) {
@@ -2854,6 +2970,16 @@ bool astrolabe_audio_pipeline_speech_active(const astrolabe_audio_pipeline_t *p)
     return p != NULL && p->speech_active;
 }
 
+bool astrolabe_audio_pipeline_manual_capture_pending(const astrolabe_audio_pipeline_t *p)
+{
+    return p != NULL && p->manual_capture;
+}
+
+bool astrolabe_audio_pipeline_manual_capture_active(const astrolabe_audio_pipeline_t *p)
+{
+    return p != NULL && p->manual_capture_active;
+}
+
 uint32_t astrolabe_audio_pipeline_last_rms(const astrolabe_audio_pipeline_t *p)
 {
     return p != NULL ? p->last_rms : 0;
@@ -2867,6 +2993,41 @@ uint32_t astrolabe_audio_pipeline_noise_rms(const astrolabe_audio_pipeline_t *p)
 uint32_t astrolabe_audio_pipeline_start_threshold(const astrolabe_audio_pipeline_t *p)
 {
     return p != NULL ? dynamic_start_threshold(p) : 0;
+}
+
+size_t astrolabe_audio_pipeline_capture_bytes(const astrolabe_audio_pipeline_t *p)
+{
+    return p != NULL ? p->capture_len_bytes : 0;
+}
+
+UBaseType_t astrolabe_audio_pipeline_queued_segments(const astrolabe_audio_pipeline_t *p)
+{
+    return p != NULL && p->utterance_queue != NULL ? uxQueueMessagesWaiting(p->utterance_queue) : 0;
+}
+
+uint32_t astrolabe_audio_pipeline_turn_segments(const astrolabe_audio_pipeline_t *p)
+{
+    return p != NULL ? p->turn_segment_count : 0;
+}
+
+uint32_t astrolabe_audio_pipeline_read_ok_count(const astrolabe_audio_pipeline_t *p)
+{
+    return p != NULL ? p->read_ok_count : 0;
+}
+
+uint32_t astrolabe_audio_pipeline_read_zero_count(const astrolabe_audio_pipeline_t *p)
+{
+    return p != NULL ? p->read_zero_count : 0;
+}
+
+uint32_t astrolabe_audio_pipeline_read_err_count(const astrolabe_audio_pipeline_t *p)
+{
+    return p != NULL ? p->read_err_count : 0;
+}
+
+esp_err_t astrolabe_audio_pipeline_last_read_err(const astrolabe_audio_pipeline_t *p)
+{
+    return p != NULL ? p->last_read_err : ESP_ERR_INVALID_STATE;
 }
 
 TaskHandle_t astrolabe_audio_pipeline_listen_task_handle(const astrolabe_audio_pipeline_t *p)

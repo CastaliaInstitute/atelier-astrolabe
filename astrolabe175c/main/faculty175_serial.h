@@ -25,6 +25,19 @@ void faculty175_streaming_pipeline_status(bool *out_configured,
                                           bool *out_created,
                                           bool *out_started,
                                           bool *out_starting);
+void faculty175_streaming_pipeline_diag(bool *out_speech_active,
+                                        bool *out_manual_pending,
+                                        bool *out_manual_active,
+                                        uint32_t *out_last_rms,
+                                        uint32_t *out_noise_rms,
+                                        uint32_t *out_start_threshold,
+                                        uint32_t *out_capture_bytes,
+                                        uint32_t *out_queued_segments,
+                                        uint32_t *out_turn_segments,
+                                        uint32_t *out_read_ok,
+                                        uint32_t *out_read_zero,
+                                        uint32_t *out_read_err,
+                                        esp_err_t *out_last_read_err);
 
 #ifdef __cplusplus
 }

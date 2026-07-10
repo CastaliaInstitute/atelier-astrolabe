@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# DEPRECATED: legacy PlatformIO/Arduino firmware flasher.
+# Use ./scripts/astrolabe175c_build.sh flash-core -p <port> for 1.75C hardware.
+#
 # Build Astrolabe firmware (embeds git commit message) and flash the watch.
 # Commit before flashing so the daily briefing can speak what changed.
 #
@@ -10,6 +13,20 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+
+if [[ "${ASTROLABE_ALLOW_DEPRECATED_PLATFORMIO:-0}" != "1" ]]; then
+  cat >&2 <<'EOF'
+error: scripts/flash_astrolabe.sh is deprecated for Astrolabe hardware.
+
+Use the ESP-IDF 1.75C firmware instead:
+  ./scripts/astrolabe175c_identify.sh /dev/cu.usbmodemXXXX
+  ./scripts/astrolabe175c_build.sh flash-core -p /dev/cu.usbmodemXXXX
+
+If you intentionally need the legacy PlatformIO sketch, rerun with:
+  ASTROLABE_ALLOW_DEPRECATED_PLATFORMIO=1 ./scripts/flash_astrolabe.sh ...
+EOF
+  exit 1
+fi
 
 ALLOW_DIRTY=0
 PORT="${ASTROLABE_UPLOAD_PORT:-}"

@@ -866,7 +866,7 @@ static bool handle_pipeline_command(const char *line)
     }
     if (*sub == '\0' || strcasecmp(sub, "help") == 0) {
         printf("pipeline commands:\n");
-        printf("  pipeline capture [ms]\n");
+        printf("  pipeline capture [ms]  (0 = rolling duplex until silence)\n");
         printf("  pipeline status\n");
         printf("  pipeline stop\n");
         printf("  pipeline restart\n");
@@ -885,6 +885,46 @@ static bool handle_pipeline_command(const char *line)
                created ? "yes" : "no",
                started ? "yes" : "no",
                starting ? "yes" : "no");
+        bool speech_active = false;
+        bool manual_pending = false;
+        bool manual_active = false;
+        uint32_t last_rms = 0;
+        uint32_t noise_rms = 0;
+        uint32_t start_threshold = 0;
+        uint32_t capture_bytes = 0;
+        uint32_t queued_segments = 0;
+        uint32_t turn_segments = 0;
+        uint32_t read_ok = 0;
+        uint32_t read_zero = 0;
+        uint32_t read_err = 0;
+        esp_err_t last_read_err = ESP_OK;
+        faculty175_streaming_pipeline_diag(&speech_active,
+                                           &manual_pending,
+                                           &manual_active,
+                                           &last_rms,
+                                           &noise_rms,
+                                           &start_threshold,
+                                           &capture_bytes,
+                                           &queued_segments,
+                                           &turn_segments,
+                                           &read_ok,
+                                           &read_zero,
+                                           &read_err,
+                                           &last_read_err);
+        printf("pipeline: speech=%s manual_pending=%s manual_active=%s rms=%lu noise=%lu threshold=%lu capture_bytes=%lu queued=%lu turn_segments=%lu read_ok=%lu read_zero=%lu read_err=%lu last_read=%s\n",
+               speech_active ? "yes" : "no",
+               manual_pending ? "yes" : "no",
+               manual_active ? "yes" : "no",
+               (unsigned long)last_rms,
+               (unsigned long)noise_rms,
+               (unsigned long)start_threshold,
+               (unsigned long)capture_bytes,
+               (unsigned long)queued_segments,
+               (unsigned long)turn_segments,
+               (unsigned long)read_ok,
+               (unsigned long)read_zero,
+               (unsigned long)read_err,
+               esp_err_to_name(last_read_err));
         fflush(stdout);
         return true;
     }
@@ -902,7 +942,7 @@ static bool handle_pipeline_command(const char *line)
         if (*ms_arg != '\0') {
             capture_ms = (uint32_t)strtoul(ms_arg, NULL, 10);
         }
-        if (capture_ms < 1500) {
+        if (capture_ms != 0 && capture_ms < 1500) {
             capture_ms = 1500;
         } else if (capture_ms > 15000) {
             capture_ms = 15000;
@@ -925,7 +965,7 @@ static bool handle_pipeline_command(const char *line)
         return true;
     }
     printf("pipeline commands:\n");
-    printf("  pipeline capture [ms]\n");
+    printf("  pipeline capture [ms]  (0 = rolling duplex until silence)\n");
     printf("  pipeline status\n");
     printf("  pipeline stop\n");
     printf("  pipeline restart\n");

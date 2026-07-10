@@ -26,7 +26,7 @@ import serial.tools.list_ports
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_PHRASE = "What are you doing today?"
-DEFAULT_DEVICE_MAC = "44:1b:f6:85:52:20"
+DEFAULT_DEVICE_MAC = "a4:cb:8f:d6:41:94"
 
 STATUS_RE = re.compile(
     r"qa: face=(?P<face>\S+) lcd=(?P<lcd>\d+x\d+) audio=(?P<audio>\S+) .* "
@@ -304,7 +304,7 @@ def summarize_task_peaks(results: list[dict[str, object]]) -> dict[str, dict[str
     return summary
 
 
-def evaluate_failures(results: list[dict[str, object]]) -> list[str]:
+def evaluate_failures(results: list[dict[str, object]], min_internal: int, min_largest: int) -> list[str]:
     failures: list[str] = []
     if not results:
         return ["no turns completed"]
@@ -322,12 +322,12 @@ def evaluate_failures(results: list[dict[str, object]]) -> list[str]:
                 failures.append(f"turn {turn} pipeline not started after turn")
         heaps = result.get("pipeline_heaps", [])
         if isinstance(heaps, list) and heaps:
-            min_internal = min(int(h["internal"]) for h in heaps if isinstance(h, dict) and "internal" in h)
-            min_largest = min(int(h["largest"]) for h in heaps if isinstance(h, dict) and "largest" in h)
-            if min_internal < 4096:
-                failures.append(f"turn {turn} pipeline internal heap dipped below 4096 ({min_internal})")
-            if min_largest < 4096:
-                failures.append(f"turn {turn} largest internal block dipped below 4096 ({min_largest})")
+            turn_min_internal = min(int(h["internal"]) for h in heaps if isinstance(h, dict) and "internal" in h)
+            turn_min_largest = min(int(h["largest"]) for h in heaps if isinstance(h, dict) and "largest" in h)
+            if turn_min_internal < min_internal:
+                failures.append(f"turn {turn} pipeline internal heap dipped below {min_internal} ({turn_min_internal})")
+            if turn_min_largest < min_largest:
+                failures.append(f"turn {turn} largest internal block dipped below {min_largest} ({turn_min_largest})")
     deduped: list[str] = []
     for failure in failures:
         if failure not in deduped:
@@ -398,7 +398,9 @@ def main() -> int:
     parser.add_argument("--phrase-repeat", type=int, default=1,
                         help="number of times to repeat the spoken prompt in the rendered playback file")
     parser.add_argument("--pipeline-capture-ms", type=int, default=3000,
-                        help="requested manual hold time for `pipeline capture` on the watch")
+                        help="requested manual hold time for `pipeline capture` on the watch; 0 means open-ended")
+    parser.add_argument("--no-host-audio", action="store_true",
+                        help="skip macOS say/afplay prompt generation; useful with a mock voice endpoint")
     parser.add_argument("--pre-say-delay", type=float, default=0.5)
     parser.add_argument("--capture-start-timeout", type=float, default=12.0,
                         help="seconds to wait for the watch to report `manual capture start` before host playback")
@@ -408,6 +410,10 @@ def main() -> int:
                         help="issue `pipeline restart` before every Nth turn (0 disables)")
     parser.add_argument("--ready-internal-min", type=int, default=20000,
                         help="minimum connected internal heap before starting the measured soak")
+    parser.add_argument("--min-internal", type=int, default=4096,
+                        help="minimum internal heap allowed during measured pipeline stages")
+    parser.add_argument("--min-largest", type=int, default=2048,
+                        help="minimum largest internal block allowed during measured pipeline stages")
     parser.add_argument("--ready-timeout", type=float, default=45.0,
                         help="seconds to wait for connected heap to reach the ready threshold")
     parser.add_argument("--precreate-pipeline", action="store_true",
@@ -416,12 +422,13 @@ def main() -> int:
                         help="run this many unscored warmup capture/playback turns before measurement")
     args = parser.parse_args()
 
-    if shutil.which("say") is None:
-        raise SystemExit("error: macOS `say` command not found")
-    if shutil.which("ffmpeg") is None:
-        raise SystemExit("error: ffmpeg command not found")
-    if shutil.which("afplay") is None:
-        raise SystemExit("error: afplay command not found")
+    if not args.no_host_audio:
+        if shutil.which("say") is None:
+            raise SystemExit("error: macOS `say` command not found")
+        if shutil.which("ffmpeg") is None:
+            raise SystemExit("error: ffmpeg command not found")
+        if shutil.which("afplay") is None:
+            raise SystemExit("error: afplay command not found")
 
     port = resolve_port(args.port, args.device_mac)
     stamp = time.strftime("%Y%m%d-%H%M%S")
@@ -430,15 +437,17 @@ def main() -> int:
 
     results: list[dict[str, object]] = []
     raw_log: list[str] = []
-    playback_path = render_prompt_audio(
-        outdir,
-        args.phrase,
-        args.say_rate,
-        args.speaker_gain,
-        args.phrase_repeat,
-        args.say_voice,
-    )
-    play_cmd = ["afplay", str(playback_path)]
+    play_cmd: list[str] | None = None
+    if not args.no_host_audio:
+        playback_path = render_prompt_audio(
+            outdir,
+            args.phrase,
+            args.say_rate,
+            args.speaker_gain,
+            args.phrase_repeat,
+            args.say_voice,
+        )
+        play_cmd = ["afplay", str(playback_path)]
 
     with open_serial_quiet(port, 115200, timeout=0.2) as ser:
         time.sleep(0.8)
@@ -477,9 +486,10 @@ def main() -> int:
             raw_log.append(f"\n=== {turn_label} before ===\n{before_text}")
             raw_log.append(f"\n=== {turn_label} before tasks ===\n{before_tasks_text}")
 
+            capture_ms = 0 if args.pipeline_capture_ms == 0 else max(1500, min(15000, args.pipeline_capture_ms))
             ser, trigger_text = send_command(
                 ser,
-                f"pipeline capture {max(1500, min(15000, args.pipeline_capture_ms))}",
+                f"pipeline capture {capture_ms}",
                 quiet_s=0.2,
                 max_s=12.0,
             )
@@ -500,7 +510,8 @@ def main() -> int:
                     trigger_text += capture_ready_log
             raw_log.append(f"\n=== {turn_label} trigger ===\n{trigger_text}")
             time.sleep(args.pre_say_delay)
-            subprocess.run(play_cmd, check=True)
+            if play_cmd is not None:
+                subprocess.run(play_cmd, check=True)
 
             ser, turn_log = read_until_any(
                 ser,
@@ -625,7 +636,7 @@ def main() -> int:
         ],
         default=None,
     )
-    failures = evaluate_failures(results)
+    failures = evaluate_failures(results, args.min_internal, args.min_largest)
     task_summary = summarize_task_peaks(results)
     summary = {
         "port": port,

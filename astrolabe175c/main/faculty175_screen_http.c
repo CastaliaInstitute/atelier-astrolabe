@@ -31,6 +31,9 @@ static esp_ip4_addr_t s_ip;
 
 // The 1.75C QA path relies on the lightweight screen/settings HTTP server.
 #define FACULTY175_SCREEN_HTTP_RUNTIME_ENABLED 1
+#define FACULTY175_SCREEN_HTTP_STACK_SIZE 5120
+#define FACULTY175_SCREEN_HTTP_FALLBACK_STACK_SIZE 4096
+#define FACULTY175_SCREEN_HTTP_START_ATTEMPTS 4
 
 static esp_err_t send_chunk_cb(void *ctx, const uint8_t *data, size_t len)
 {
@@ -969,10 +972,7 @@ static esp_err_t api_voice_post(httpd_req_t *req)
 
 static esp_err_t screen_bmp_get(httpd_req_t *req)
 {
-    char len[24];
-    snprintf(len, sizeof(len), "%u", (unsigned)faculty175_display_bmp565_size());
     httpd_resp_set_type(req, "image/bmp");
-    httpd_resp_set_hdr(req, "Content-Length", len);
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
 
     faculty175_display_lock();
@@ -980,6 +980,9 @@ static esp_err_t screen_bmp_get(httpd_req_t *req)
     faculty175_display_unlock();
     if (err == ESP_OK) {
         err = httpd_resp_send_chunk(req, NULL, 0);
+    }
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "screen bmp failed: %s", esp_err_to_name(err));
     }
     return err;
 }
@@ -1007,12 +1010,31 @@ esp_err_t faculty175_screen_http_start(const esp_ip4_addr_t *ip)
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = 80;
-    config.stack_size = 8192;
+    config.stack_size = FACULTY175_SCREEN_HTTP_STACK_SIZE;
     config.max_open_sockets = 4;
     config.max_uri_handlers = 16;
     config.lru_purge_enable = true;
 
-    esp_err_t err = httpd_start(&s_httpd, &config);
+    esp_err_t err = ESP_FAIL;
+    for (uint32_t attempt = 0; attempt < FACULTY175_SCREEN_HTTP_START_ATTEMPTS; ++attempt) {
+        config.stack_size = attempt == 0 ? FACULTY175_SCREEN_HTTP_STACK_SIZE
+                                         : FACULTY175_SCREEN_HTTP_FALLBACK_STACK_SIZE;
+        err = httpd_start(&s_httpd, &config);
+        if (err == ESP_OK) {
+            break;
+        }
+        ESP_LOGW(TAG,
+                 "start attempt %u failed stack=%u: %s",
+                 (unsigned)(attempt + 1),
+                 (unsigned)config.stack_size,
+                 esp_err_to_name(err));
+        if (s_httpd != NULL) {
+            httpd_handle_t httpd = s_httpd;
+            s_httpd = NULL;
+            (void)httpd_stop(httpd);
+        }
+        vTaskDelay(pdMS_TO_TICKS(120 + (attempt * 120)));
+    }
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "start failed: %s", esp_err_to_name(err));
         return err;

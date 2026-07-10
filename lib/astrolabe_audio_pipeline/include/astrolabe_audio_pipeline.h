@@ -81,6 +81,7 @@ typedef struct {
     const char *response_format;
     bool skip_llm;
     bool log_to_commonplace;
+    bool duplex;
     astrolabe_audio_pipeline_transport_t transport;
     const char *capture_mount_path;
     const char *capture_partition_label;
@@ -119,9 +120,18 @@ esp_err_t astrolabe_audio_pipeline_trigger_capture_for_ms(astrolabe_audio_pipeli
 bool astrolabe_audio_pipeline_unhealthy(const astrolabe_audio_pipeline_t *pipeline);
 
 bool astrolabe_audio_pipeline_speech_active(const astrolabe_audio_pipeline_t *pipeline);
+bool astrolabe_audio_pipeline_manual_capture_pending(const astrolabe_audio_pipeline_t *pipeline);
+bool astrolabe_audio_pipeline_manual_capture_active(const astrolabe_audio_pipeline_t *pipeline);
 uint32_t astrolabe_audio_pipeline_last_rms(const astrolabe_audio_pipeline_t *pipeline);
 uint32_t astrolabe_audio_pipeline_noise_rms(const astrolabe_audio_pipeline_t *pipeline);
 uint32_t astrolabe_audio_pipeline_start_threshold(const astrolabe_audio_pipeline_t *pipeline);
+size_t astrolabe_audio_pipeline_capture_bytes(const astrolabe_audio_pipeline_t *pipeline);
+UBaseType_t astrolabe_audio_pipeline_queued_segments(const astrolabe_audio_pipeline_t *pipeline);
+uint32_t astrolabe_audio_pipeline_turn_segments(const astrolabe_audio_pipeline_t *pipeline);
+uint32_t astrolabe_audio_pipeline_read_ok_count(const astrolabe_audio_pipeline_t *pipeline);
+uint32_t astrolabe_audio_pipeline_read_zero_count(const astrolabe_audio_pipeline_t *pipeline);
+uint32_t astrolabe_audio_pipeline_read_err_count(const astrolabe_audio_pipeline_t *pipeline);
+esp_err_t astrolabe_audio_pipeline_last_read_err(const astrolabe_audio_pipeline_t *pipeline);
 TaskHandle_t astrolabe_audio_pipeline_listen_task_handle(const astrolabe_audio_pipeline_t *pipeline);
 TaskHandle_t astrolabe_audio_pipeline_voice_task_handle(const astrolabe_audio_pipeline_t *pipeline);
 uint32_t astrolabe_audio_pipeline_listen_stack_bytes(const astrolabe_audio_pipeline_t *pipeline);

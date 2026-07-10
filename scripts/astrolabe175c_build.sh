@@ -10,10 +10,19 @@ fi
 source "${IDF_PATH}/export.sh"
 
 ASTROLABE175C_FORCE_RECONFIGURE=0
-ASTROLABE175C_CMAKE_ARGS=()
+ASTROLABE175C_CMAKE_ARGS=(
+  -D "ASTROLABE_VOICE_HTTP_URL=${ASTROLABE175C_VOICE_HTTP_URL:-}"
+  -D "ASTROLABE_VOICE_STREAM_URL=${ASTROLABE175C_VOICE_STREAM_URL:-}"
+)
+if [[ -n "${ASTROLABE175C_VOICE_HTTP_URL:-}" ]]; then
+  ASTROLABE175C_FORCE_RECONFIGURE=1
+fi
+if [[ -n "${ASTROLABE175C_VOICE_STREAM_URL:-}" ]]; then
+  ASTROLABE175C_FORCE_RECONFIGURE=1
+fi
 if [[ "${1:-}" == "usb-demo" ]]; then
   ASTROLABE175C_FORCE_RECONFIGURE=1
-  ASTROLABE175C_CMAKE_ARGS=(-D ASTROLABE_USB_OTA_DEMO_BOOT=1)
+  ASTROLABE175C_CMAKE_ARGS+=(-D ASTROLABE_USB_OTA_DEMO_BOOT=1)
   shift
 fi
 
@@ -107,9 +116,24 @@ PY
   fi
 }
 
+astrolabe175c_reset_stale_sdkconfig() {
+  local sdkconfig_file="$1"
+  local project_dir="$2"
+  if [[ ! -f "${sdkconfig_file}" ]]; then
+    return 0
+  fi
+
+  local partition_file=""
+  partition_file="$(sed -n 's/^CONFIG_PARTITION_TABLE_FILENAME="\(.*\)"$/\1/p' "${sdkconfig_file}" | tail -1)"
+  if [[ -n "${partition_file}" && ! -f "${project_dir}/${partition_file}" ]]; then
+    echo "astrolabe175c_build: removing stale sdkconfig with missing partition table ${partition_file}" >&2
+    rm -f "${sdkconfig_file}"
+  fi
+}
+
 astrolabe175c_flash_core() {
   local port="${1:-}"
-  "${IDF_PY[@]}" "${ASTROLABE175C_CMAKE_ARGS[@]}" build
+  "${IDF_PY[@]}" "${ASTROLABE175C_CMAKE_ARGS[@]+"${ASTROLABE175C_CMAKE_ARGS[@]}"}" build
   if [[ -z "${port}" ]]; then
     echo "error: flash-core requires -p/--port" >&2
     return 1
@@ -135,6 +159,9 @@ if [[ "${ASTROLABE175C_SKIP_LVGL_AUDIT:-0}" != "1" ]] && astrolabe175c_should_au
   "${PYTHON:-python3}" "${ROOT}/scripts/audit_lvgl_port.py"
 fi
 
+astrolabe175c_reset_stale_sdkconfig \
+  "${ROOT}/astrolabe175c/sdkconfig" \
+  "${ROOT}/astrolabe175c"
 astrolabe175c_reset_stale_cmake_cache \
   "${ROOT}/astrolabe175c/build/CMakeCache.txt" \
   "${ROOT}/astrolabe175c" \
