@@ -1,4 +1,4 @@
-import { ESPLoader, Transport } from "https://esm.sh/esptool-js@0.6.0";
+import { ESPLoader, Transport } from "../vendor/esptool-js-0.6.0.bundle.js";
 import { serial as webUsbSerial } from "https://esm.sh/web-serial-polyfill@1.0.15";
 
 const localManifestUrl = new URL("../releases/integration/manifest.json", window.location.href);
