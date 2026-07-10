@@ -58,7 +58,7 @@ target_compile_options(astrolabe-web-sim PRIVATE
 
 target_link_options(astrolabe-web-sim PRIVATE
   "SHELL:-s WASM=1"
-  "SHELL:-s EXPORTED_FUNCTIONS=['_main','_astrolabe_web_set_face','_astrolabe_web_face_count','_astrolabe_web_face_name']"
+  "SHELL:-s EXPORTED_FUNCTIONS=['_main','_astrolabe_web_set_face','_astrolabe_web_face_count','_astrolabe_web_face_name','_astrolabe_web_face_slug','_astrolabe_web_current_face','_astrolabe_web_voice_state','_astrolabe_web_button_press']"
   "SHELL:-s EXPORTED_RUNTIME_METHODS=['ccall','UTF8ToString']"
   "SHELL:-s ALLOW_MEMORY_GROWTH=1"
   "SHELL:--shell-file ${CMAKE_CURRENT_SOURCE_DIR}/public/shell.html"

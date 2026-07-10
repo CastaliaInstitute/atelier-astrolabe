@@ -12,12 +12,15 @@
 #include "esp_err.h"
 #include "esp_heap_caps.h"
 #include "esp_netif_ip_addr.h"
+#include "esp_partition.h"
 #include "esp_random.h"
 #include "esp_spiffs.h"
 #include "esp_timer.h"
 #include "faculty175_almanac.h"
+#include "faculty175_apocalypso.h"
 #include "faculty175_board.h"
 #include "faculty175_charts.h"
+#include "faculty175_device_settings.h"
 #include "faculty175_face_native.h"
 #include "faculty175_face_tarot_image.h"
 #include "faculty175_face_tarot_spiffs_image.h"
@@ -27,6 +30,8 @@
 #include "faculty175_rocket.h"
 #include "faculty175_touch.h"
 #include "faculty175_wifi_settings.h"
+#include "faculty175_wifi_lab.h"
+#include "faculty175_wifi_monitor.h"
 #include "freertos/task.h"
 #include "nvs.h"
 
@@ -35,6 +40,8 @@ static bool s_flush_suspended;
 static uint32_t s_tick_ms;
 
 const uint8_t _binary_pocketwatch_default_rgb565_start[FACULTY175_LCD_W * FACULTY175_LCD_H * sizeof(uint16_t)] = {0};
+const uint8_t _binary_maze_466_png_start[1] = {0};
+const uint8_t _binary_maze_466_png_end[1] = {0};
 
 EM_JS(void, js_canvas_init, (int width, int height), {
   const canvas = document.querySelector('#astrolabe-canvas');
@@ -362,9 +369,21 @@ void *heap_caps_malloc(size_t size, unsigned caps)
     return malloc(size);
 }
 
+void *heap_caps_realloc(void *ptr, size_t size, unsigned caps)
+{
+    (void)caps;
+    return realloc(ptr, size);
+}
+
 void heap_caps_free(void *ptr)
 {
     free(ptr);
+}
+
+size_t heap_caps_get_free_size(unsigned caps)
+{
+    (void)caps;
+    return 8u * 1024u * 1024u;
 }
 
 int64_t esp_timer_get_time(void)
@@ -373,6 +392,24 @@ int64_t esp_timer_get_time(void)
 }
 
 esp_err_t esp_vfs_spiffs_register(const esp_vfs_spiffs_conf_t *conf) { (void)conf; return ESP_FAIL; }
+esp_err_t esp_spiffs_info(const char *partition_label, size_t *total, size_t *used)
+{
+    (void)partition_label;
+    if (total) {
+        *total = 0;
+    }
+    if (used) {
+        *used = 0;
+    }
+    return ESP_FAIL;
+}
+const esp_partition_t *esp_partition_find_first(int type, int subtype, const char *label)
+{
+    (void)type;
+    (void)subtype;
+    (void)label;
+    return NULL;
+}
 void vTaskDelay(TickType_t ticks) { (void)ticks; }
 TickType_t xTaskGetTickCount(void) { return (TickType_t)s_tick_ms; }
 
@@ -442,14 +479,109 @@ esp_err_t faculty175_wifi_settings_load(char *ssid, size_t ssid_cap, char *pass,
     return ESP_OK;
 }
 esp_err_t faculty175_wifi_settings_save(const char *ssid, const char *pass) { (void)ssid; (void)pass; return ESP_OK; }
+size_t faculty175_wifi_settings_load_known(faculty175_wifi_known_t *out, size_t cap)
+{
+    if (out != NULL && cap > 0) {
+        snprintf(out[0].ssid, sizeof(out[0].ssid), "Astrolabe-Websim");
+        snprintf(out[0].pass, sizeof(out[0].pass), "simulated");
+        return 1;
+    }
+    return 0;
+}
+esp_err_t faculty175_wifi_settings_add_known(const char *ssid, const char *pass, bool make_primary)
+{
+    (void)ssid;
+    (void)pass;
+    (void)make_primary;
+    return ESP_OK;
+}
+esp_err_t faculty175_wifi_settings_remove_known(const char *ssid) { (void)ssid; return ESP_OK; }
+esp_err_t faculty175_wifi_settings_clear_known(void) { return ESP_OK; }
+bool faculty175_wifi_settings_travel_router_enabled(void) { return false; }
+esp_err_t faculty175_wifi_settings_set_travel_router_enabled(bool enabled) { (void)enabled; return ESP_OK; }
 void faculty175_wifi_settings_set_sta(const char *ssid, const esp_ip4_addr_t *ip) { (void)ssid; (void)ip; }
 void faculty175_wifi_settings_set_ap(const char *ssid, const char *pass, const esp_ip4_addr_t *ip) { (void)ssid; (void)pass; (void)ip; }
+void faculty175_wifi_settings_set_router_upstream(const char *ssid, const esp_ip4_addr_t *ip) { (void)ssid; (void)ip; }
+void faculty175_wifi_settings_set_ap_client_count(unsigned count) { (void)count; }
 void faculty175_wifi_settings_clear_runtime(void) {}
+void faculty175_wifi_settings_set_scan_suppressed(bool suppressed) { (void)suppressed; }
 bool faculty175_wifi_settings_ap_active(void) { return true; }
+bool faculty175_wifi_settings_ap_client_connected(void) { return false; }
+bool faculty175_wifi_settings_scan_suppressed(void) { return false; }
 const char *faculty175_wifi_settings_ssid(void) { return "Astrolabe-Websim"; }
+const char *faculty175_wifi_settings_upstream_ssid(void) { return ""; }
 const char *faculty175_wifi_settings_url(void) { return "http://localhost:8088"; }
 const char *faculty175_wifi_settings_qr_payload(void) { return "WIFI:T:WPA;S:Astrolabe-Websim;P:simulated;;"; }
+const char *faculty175_wifi_settings_ap_qr_payload(void) { return "WIFI:T:WPA;S:Astrolabe-Websim;P:simulated;;"; }
+const char *faculty175_wifi_settings_page_qr_payload(void) { return "http://localhost:8088/astrolabe-web-sim.html"; }
 const char *faculty175_wifi_settings_status(void) { return "websim access point"; }
+
+void faculty175_wifi_monitor_record_connected(const wifi_ap_record_t *ap) { (void)ap; }
+void faculty175_wifi_monitor_record_disconnected(const char *ssid, const uint8_t bssid[6], int reason, int rssi)
+{
+    (void)ssid;
+    (void)bssid;
+    (void)reason;
+    (void)rssi;
+}
+void faculty175_wifi_monitor_record_ap_client(bool connected, int aid) { (void)connected; (void)aid; }
+void faculty175_wifi_monitor_record_scan(uint16_t count) { (void)count; }
+void faculty175_wifi_monitor_record_note(const char *type, const char *detail) { (void)type; (void)detail; }
+size_t faculty175_wifi_monitor_copy(faculty175_wifi_incident_t *out, size_t cap)
+{
+    if (out != NULL && cap > 0) {
+        memset(out, 0, sizeof(out[0]));
+        out[0].seq = 1;
+        out[0].uptime_ms = s_tick_ms;
+        snprintf(out[0].type, sizeof(out[0].type), "websim");
+        snprintf(out[0].ssid, sizeof(out[0].ssid), "Astrolabe-Websim");
+        snprintf(out[0].detail, sizeof(out[0].detail), "simulated Wi-Fi event");
+        out[0].rssi = -42;
+        out[0].channel = 6;
+        out[0].authmode = WIFI_AUTH_WPA2_PSK;
+        return 1;
+    }
+    return 0;
+}
+size_t faculty175_wifi_monitor_count(void) { return 1; }
+bool faculty175_wifi_monitor_get_newest(size_t offset, faculty175_wifi_incident_t *out)
+{
+    if (offset != 0 || out == NULL) {
+        return false;
+    }
+    return faculty175_wifi_monitor_copy(out, 1) == 1;
+}
+void faculty175_wifi_monitor_clear(void) {}
+
+bool faculty175_wifi_lab_is_face(faculty175_face_id_t id)
+{
+    return id == FACULTY175_FACE_WSCAN || id == FACULTY175_FACE_DEAUTH ||
+           id == FACULTY175_FACE_EVILTWIN || id == FACULTY175_FACE_HANDSHAKE;
+}
+void faculty175_wifi_lab_on_enter(faculty175_face_id_t id) { (void)id; }
+void faculty175_wifi_lab_on_leave(faculty175_face_id_t id) { (void)id; }
+void faculty175_wifi_lab_tick(faculty175_face_id_t id, uint32_t now_ms) { (void)id; (void)now_ms; }
+bool faculty175_wifi_lab_tap(faculty175_face_id_t id) { (void)id; return true; }
+bool faculty175_wifi_lab_cycle_target(faculty175_face_id_t id, int delta) { (void)id; (void)delta; return true; }
+void faculty175_wifi_lab_get_state(faculty175_wifi_lab_state_t *out)
+{
+    if (!out) {
+        return;
+    }
+    memset(out, 0, sizeof(*out));
+    out->active = true;
+    snprintf(out->status, sizeof(out->status), "websim Wi-Fi lab");
+    snprintf(out->detail, sizeof(out->detail), "deterministic demo AP data");
+    out->ap_count = 1;
+    snprintf(out->aps[0].ssid, sizeof(out->aps[0].ssid), "Astrolabe-Websim");
+    out->aps[0].rssi = -42;
+    out->aps[0].channel = 6;
+    out->aps[0].authmode = WIFI_AUTH_WPA2_PSK;
+}
+void faculty175_wifi_lab_record_capture(const char *ssid, const char *pass) { (void)ssid; (void)pass; }
+esp_err_t faculty175_wifi_lab_scan(void) { return ESP_OK; }
+esp_err_t faculty175_wifi_lab_set_target_index(uint8_t index) { (void)index; return ESP_OK; }
+esp_err_t faculty175_wifi_lab_export_pcap(void) { return ESP_OK; }
 
 esp_err_t faculty175_quotes_init(void) { return ESP_OK; }
 void faculty175_quotes_start_auto_fetch_task(void) {}
@@ -581,6 +713,91 @@ void faculty175_faculty_bust_blit_origin(int area_x, int area_y, int area_w, int
     }
 }
 bool faculty175_faculty_draw_bust(int x, int y) { (void)x; (void)y; return false; }
+bool faculty175_faculty_copy_bust_argb8888(uint8_t *out_bgra, size_t out_cap, int *out_w, int *out_h, char *slug_out, size_t slug_cap)
+{
+    (void)out_bgra;
+    (void)out_cap;
+    if (out_w) {
+        *out_w = 0;
+    }
+    if (out_h) {
+        *out_h = 0;
+    }
+    if (slug_out && slug_cap) {
+        slug_out[0] = '\0';
+    }
+    return false;
+}
+
+esp_err_t faculty175_apocalypso_init(void) { return ESP_OK; }
+void faculty175_apocalypso_start_auto_fetch_task(void) {}
+void faculty175_apocalypso_request_refresh(void) {}
+bool faculty175_apocalypso_current(faculty175_apocalypso_status_t *out)
+{
+    if (!out) {
+        return false;
+    }
+    memset(out, 0, sizeof(*out));
+    out->ok = true;
+    out->demo = true;
+    snprintf(out->updated_at, sizeof(out->updated_at), "websim");
+    for (int i = 0; i < FACULTY175_APOCALYPSO_AXIS_COUNT; ++i) {
+        out->value[i] = 0.25f + 0.05f * (float)(i % 8);
+        snprintf(out->quality[i], sizeof(out->quality[i]), "demo");
+    }
+    return true;
+}
+const char *faculty175_apocalypso_state_name(void) { return "demo"; }
+const char *faculty175_apocalypso_last(void) { return "websim apocalypso"; }
+
+esp_err_t faculty175_location_settings_load(faculty175_location_settings_t *out)
+{
+    if (!out) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    memset(out, 0, sizeof(*out));
+    out->valid = true;
+    out->lat_deg = 39.7392;
+    out->lon_deg = -104.9903;
+    out->updated_epoch = (int64_t)astrolabe_time_now();
+    snprintf(out->source, sizeof(out->source), "websim");
+    return ESP_OK;
+}
+esp_err_t faculty175_location_settings_save(double lat_deg, double lon_deg, const char *source)
+{
+    (void)lat_deg;
+    (void)lon_deg;
+    (void)source;
+    return ESP_OK;
+}
+bool faculty175_location_settings_valid(double lat_deg, double lon_deg)
+{
+    return lat_deg >= -90.0 && lat_deg <= 90.0 && lon_deg >= -180.0 && lon_deg <= 180.0;
+}
+
+unsigned char *stbi_load_from_memory(const unsigned char *buffer,
+                                     int len,
+                                     int *x,
+                                     int *y,
+                                     int *channels_in_file,
+                                     int desired_channels)
+{
+    (void)buffer;
+    (void)len;
+    (void)desired_channels;
+    if (x) {
+        *x = 0;
+    }
+    if (y) {
+        *y = 0;
+    }
+    if (channels_in_file) {
+        *channels_in_file = 0;
+    }
+    return NULL;
+}
+const char *stbi_failure_reason(void) { return "websim image stub"; }
+void stbi_image_free(void *retval_from_stbi_load) { free(retval_from_stbi_load); }
 
 esp_err_t faculty175_almanac_init(void) { return ESP_OK; }
 void faculty175_almanac_start_auto_fetch_task(void) {}

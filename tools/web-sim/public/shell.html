@@ -60,7 +60,8 @@
       }
 
       button,
-      select {
+      select,
+      textarea {
         min-height: 38px;
         border: 1px solid #384655;
         border-radius: 7px;
@@ -99,13 +100,21 @@
         color: #c6d1dc;
       }
 
+      .voice {
+        width: min(466px, calc(100vw - 32px));
+        display: grid;
+        gap: 8px;
+      }
+
       .settings-row {
         display: grid;
         grid-template-columns: 1fr 1fr;
         gap: 8px;
       }
 
-      .settings input {
+      .settings input,
+      .voice input,
+      .voice textarea {
         min-height: 38px;
         width: 100%;
         border: 1px solid #384655;
@@ -114,6 +123,18 @@
         color: #eef3f6;
         padding: 0 10px;
         font: inherit;
+      }
+
+      .voice textarea {
+        min-height: 72px;
+        padding: 10px;
+        resize: vertical;
+      }
+
+      .voice-row {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 8px;
       }
 
       .status {
@@ -133,6 +154,21 @@
         <select id="face-select" aria-label="Face" disabled></select>
         <button type="button" id="next-face" aria-label="Next face" disabled>›</button>
       </div>
+      <section class="voice" aria-label="Voice test controls">
+        <textarea id="voice-prompt" autocomplete="off" spellcheck="true">What does this face want to say?</textarea>
+        <div class="voice-row">
+          <button type="button" id="voice-listen">STT</button>
+          <button type="button" id="voice-speak">TTS</button>
+          <button type="button" id="voice-duplex">Duplex</button>
+          <button type="button" id="voice-stop">Stop</button>
+        </div>
+        <div class="voice-row">
+          <button type="button" id="voice-button">Boot/TTS</button>
+          <button type="button" id="voice-all">All Faces</button>
+          <button type="button" id="voice-clear">Clear</button>
+          <button type="button" id="voice-repeat">Repeat</button>
+        </div>
+      </section>
       <section class="settings" aria-label="Device settings">
         <input id="device-url" inputmode="url" placeholder="http://astrolabe-e30644.local" autocomplete="off" />
         <div class="settings-row">
@@ -160,6 +196,15 @@
         pass: document.querySelector("#wifi-pass"),
         sendWifi: document.querySelector("#send-wifi"),
         status: document.querySelector("#device-status"),
+        prompt: document.querySelector("#voice-prompt"),
+        listen: document.querySelector("#voice-listen"),
+        speak: document.querySelector("#voice-speak"),
+        duplex: document.querySelector("#voice-duplex"),
+        stopVoice: document.querySelector("#voice-stop"),
+        buttonVoice: document.querySelector("#voice-button"),
+        allVoice: document.querySelector("#voice-all"),
+        clearVoice: document.querySelector("#voice-clear"),
+        repeatVoice: document.querySelector("#voice-repeat"),
       };
 
       var Module = {
@@ -181,6 +226,8 @@
       const faceSelect = controls.select;
       let faceCount = 0;
       let bleSettingsCharacteristic = null;
+      let lastSpokenText = "";
+      let voiceRecognition = null;
       const BLE_SERVICE_UUID = "01000000-5017-0065-6261-6c6f72747341";
       const BLE_SETTINGS_UUID = "03000000-5017-0065-6261-6c6f72747341";
 
@@ -208,6 +255,24 @@
         const normalized = ((face % faceCount) + faceCount) % faceCount;
         faceSelect.value = String(normalized);
         Module.ccall("astrolabe_web_set_face", null, ["number"], [normalized]);
+      }
+
+      function currentFaceMeta() {
+        const face = Number(faceSelect.value || "0");
+        const namePtr = Module.ccall("astrolabe_web_face_name", "number", ["number"], [face]);
+        const slugPtr = Module.ccall("astrolabe_web_face_slug", "number", ["number"], [face]);
+        return {
+          id: face,
+          name: Module.UTF8ToString(namePtr),
+          slug: Module.UTF8ToString(slugPtr),
+        };
+      }
+
+      function setVoiceState(state, detail, durationMs = 1800) {
+        if (!Module.ccall) {
+          return;
+        }
+        Module.ccall("astrolabe_web_voice_state", null, ["string", "string", "number"], [state, detail, durationMs]);
       }
 
       faceSelect.addEventListener("change", () => setFace(Number(faceSelect.value)));
@@ -251,6 +316,167 @@
       function setStatus(text) {
         controls.status.textContent = text;
       }
+
+      function speechRecognitionCtor() {
+        return window.SpeechRecognition || window.webkitSpeechRecognition || null;
+      }
+
+      function stopVoice() {
+        if (voiceRecognition) {
+          voiceRecognition.stop();
+          voiceRecognition = null;
+        }
+        if ("speechSynthesis" in window) {
+          window.speechSynthesis.cancel();
+        }
+        setVoiceState("listen", "voice stopped", 900);
+        setStatus("Voice stopped");
+      }
+
+      function listenOnce() {
+        const Recognition = speechRecognitionCtor();
+        if (!Recognition) {
+          setVoiceState("listen", "STT unavailable", 1600);
+          setStatus("Browser STT is unavailable here; edit the prompt text manually");
+          return Promise.resolve(controls.prompt.value.trim());
+        }
+        if (voiceRecognition) {
+          voiceRecognition.stop();
+        }
+        return new Promise((resolve, reject) => {
+          const rec = new Recognition();
+          voiceRecognition = rec;
+          rec.lang = navigator.language || "en-US";
+          rec.continuous = false;
+          rec.interimResults = true;
+          let finalText = "";
+          rec.onstart = () => {
+            setVoiceState("listen", "listening", 12000);
+            setStatus("Listening...");
+          };
+          rec.onresult = (event) => {
+            let interim = "";
+            for (let i = event.resultIndex; i < event.results.length; i++) {
+              const text = event.results[i][0].transcript.trim();
+              if (event.results[i].isFinal) {
+                finalText += `${finalText ? " " : ""}${text}`;
+              } else {
+                interim = text;
+              }
+            }
+            controls.prompt.value = finalText || interim || controls.prompt.value;
+          };
+          rec.onerror = (event) => {
+            voiceRecognition = null;
+            setVoiceState("listen", "STT error", 1600);
+            reject(new Error(event.error || "speech recognition failed"));
+          };
+          rec.onend = () => {
+            voiceRecognition = null;
+            const text = (finalText || controls.prompt.value).trim();
+            setVoiceState("think", text ? "transcript ready" : "no speech", 1400);
+            resolve(text);
+          };
+          rec.start();
+        });
+      }
+
+      function speechTextForFace(face, promptText) {
+        const prompt = promptText || controls.prompt.value.trim() || "Voice test.";
+        return `${face.name}. ${prompt}`;
+      }
+
+      function speakText(text, detail = "speaking") {
+        lastSpokenText = text;
+        if (!("speechSynthesis" in window)) {
+          setVoiceState("speak", "TTS unavailable", 1600);
+          setStatus("Browser TTS is unavailable in this environment");
+          return Promise.resolve(false);
+        }
+        return new Promise((resolve) => {
+          window.speechSynthesis.cancel();
+          const utterance = new SpeechSynthesisUtterance(text);
+          utterance.lang = navigator.language || "en-US";
+          utterance.rate = 0.95;
+          utterance.pitch = 1.0;
+          utterance.onstart = () => {
+            setVoiceState("speak", detail, 12000);
+            setStatus(detail);
+          };
+          utterance.onend = () => {
+            setVoiceState("listen", "TTS done", 1200);
+            setStatus("TTS done");
+            resolve(true);
+          };
+          utterance.onerror = () => {
+            setVoiceState("speak", "TTS error", 1600);
+            setStatus("TTS error");
+            resolve(false);
+          };
+          window.speechSynthesis.speak(utterance);
+        });
+      }
+
+      async function speakCurrentFace(reason = "face TTS") {
+        const face = currentFaceMeta();
+        const text = speechTextForFace(face, controls.prompt.value.trim());
+        return speakText(text, `${reason}: ${face.slug || face.name}`);
+      }
+
+      async function runDuplexOnce() {
+        try {
+          const transcript = await listenOnce();
+          setVoiceState("think", "preparing reply", 1200);
+          await speakText(speechTextForFace(currentFaceMeta(), transcript), "duplex reply");
+        } catch (err) {
+          setStatus(err.message);
+        }
+      }
+
+      async function testAllFaces() {
+        controls.allVoice.disabled = true;
+        try {
+          for (let face = 0; face < faceCount; face++) {
+            setFace(face);
+            Module.ccall("astrolabe_web_button_press", null);
+            const meta = currentFaceMeta();
+            const ok = await speakText(speechTextForFace(meta, "button press TTS test."), `button TTS: ${meta.slug}`);
+            if (!ok) {
+              break;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 250));
+          }
+        } finally {
+          controls.allVoice.disabled = false;
+        }
+      }
+
+      controls.listen.addEventListener("click", () => {
+        listenOnce().then((text) => {
+          if (text) setStatus(`Transcript: ${text}`);
+        }).catch((err) => setStatus(err.message));
+      });
+      controls.speak.addEventListener("click", () => {
+        speakCurrentFace("face TTS");
+      });
+      controls.duplex.addEventListener("click", runDuplexOnce);
+      controls.stopVoice.addEventListener("click", stopVoice);
+      controls.buttonVoice.addEventListener("click", () => {
+        Module.ccall("astrolabe_web_button_press", null);
+        speakCurrentFace("button TTS");
+      });
+      controls.allVoice.addEventListener("click", testAllFaces);
+      controls.clearVoice.addEventListener("click", () => {
+        controls.prompt.value = "";
+        setStatus("Prompt cleared");
+      });
+      controls.repeatVoice.addEventListener("click", () => {
+        if (lastSpokenText) {
+          speakText(lastSpokenText, "repeat TTS");
+        } else {
+          speakCurrentFace("repeat TTS");
+        }
+      });
 
       function fixedPosixTimezone(date = new Date()) {
         const offsetMinutes = date.getTimezoneOffset();

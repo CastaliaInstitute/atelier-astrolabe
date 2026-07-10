@@ -1,5 +1,7 @@
 #include "faculty175_face_wifilab.h"
 
+#include <stdio.h>
+
 #include "faculty175_face_native.h"
 #include "faculty175_wifi_lab.h"
 
