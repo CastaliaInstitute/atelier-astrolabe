@@ -22,10 +22,11 @@ import {
 } from "../_shared/googleVoice.ts";
 import {
   SYSTEM_VOICE_FACE_CLOCK_AGENDA,
-  VOICE_FACE_ASTRO,
   VOICE_FACE_ALETHIOMETER,
+  VOICE_FACE_ASTRO,
   VOICE_FACE_BABEL_FISH,
   VOICE_FACE_CLOCK_AGENDA,
+  VOICE_FACE_CRYSTAL_BALL,
   VOICE_FACE_DAILY_BRIEFING,
   VOICE_FACE_SYNASTRY,
 } from "../_shared/mynahVoiceFaces.ts";
@@ -257,6 +258,9 @@ function commonplaceRoute(face: string, fallback: string): string {
       return VOICE_FACE_BABEL_FISH;
     case VOICE_FACE_ALETHIOMETER:
       return VOICE_FACE_ALETHIOMETER;
+    case VOICE_FACE_CRYSTAL_BALL:
+    case "crystal_ball":
+      return VOICE_FACE_CRYSTAL_BALL;
     default:
       return fallback;
   }
@@ -347,8 +351,9 @@ function alethiometerFallback(question: string): AlethiometerReply {
   return {
     questionSymbols: picked.slice(0, 3),
     answerSymbol: picked[3],
-    spoken:
-      `The aleithiometer sets ${names[0]}, ${names[1]}, and ${names[2]} around your question; ${names[3]} answers: move carefully, but move.`,
+    spoken: `The aleithiometer sets ${names[0]}, ${names[1]}, and ${
+      names[2]
+    } around your question; ${names[3]} answers: move carefully, but move.`,
   };
 }
 
@@ -1385,7 +1390,7 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    if (face === VOICE_FACE_ALETHIOMETER) {
+    if (face === VOICE_FACE_ALETHIOMETER || face === VOICE_FACE_CRYSTAL_BALL) {
       if (!gemini) {
         return jsonResponse(500, {
           error:
@@ -1408,7 +1413,7 @@ Deno.serve(async (req: Request) => {
           model: geminiModel,
           systemInstruction: alethPrompt,
           userText: transcript,
-          route: VOICE_FACE_ALETHIOMETER,
+          route: face,
           face,
           facultySlug: body.facultySlug,
         });
@@ -1421,11 +1426,14 @@ Deno.serve(async (req: Request) => {
         reading = alethiometerFallback(transcript);
       }
       const reply = JSON.stringify(reading);
+      const oracleRoute = face === VOICE_FACE_CRYSTAL_BALL
+        ? VOICE_FACE_CRYSTAL_BALL
+        : VOICE_FACE_ALETHIOMETER;
       return await voicePipelineOk(req, body, {
         transcript,
         reply,
         spokenReply: reading.spoken,
-        route: VOICE_FACE_ALETHIOMETER,
+        route: oracleRoute,
         face,
         extraJson: {
           alethiometer: {
@@ -1439,7 +1447,7 @@ Deno.serve(async (req: Request) => {
           },
         },
         extraHeaders: {
-          "x-mynah-route": VOICE_FACE_ALETHIOMETER,
+          "x-mynah-route": oracleRoute,
           "x-alethiometer-question-symbols": reading.questionSymbols.join(","),
           "x-alethiometer-answer-symbol": String(reading.answerSymbol),
         },

@@ -7105,7 +7105,7 @@ static bool draw_face_descriptor(faculty175_face_id_t id, uint32_t anim_ms)
 bool faculty175_lvgl_draw_face(faculty175_face_id_t id, uint32_t anim_ms)
 {
     if (id == FACULTY175_FACE_DEATHSTAR || id == FACULTY175_FACE_TRON || id == FACULTY175_FACE_MAZE ||
-        id == FACULTY175_FACE_HUMAN_DESIGN) {
+        id == FACULTY175_FACE_HUMAN_DESIGN || id == FACULTY175_FACE_CRYSTAL_BALL) {
         return false;
     }
 
@@ -7124,6 +7124,14 @@ bool faculty175_lvgl_draw_face(faculty175_face_id_t id, uint32_t anim_ms)
     }
 
     switch (id) {
+        case FACULTY175_FACE_CRYSTAL_BALL:
+        case FACULTY175_FACE_ALMANAC:
+        case FACULTY175_FACE_PHENOLOGY:
+        case FACULTY175_FACE_LUOPAN:
+        case FACULTY175_FACE_PYTHIA:
+        case FACULTY175_FACE_MAZE:
+        case FACULTY175_FACE_TRON:
+            return false;
         case FACULTY175_FACE_CLASSIC:
         case FACULTY175_FACE_POCKETWATCH:
             return draw_watch(anim_ms);
