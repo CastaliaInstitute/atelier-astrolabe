@@ -1,4 +1,4 @@
-import { ESPLoader, Transport } from "https://unpkg.com/esptool-js@0.6.0/lib/index.js";
+import { ESPLoader, Transport } from "https://esm.sh/esptool-js@0.6.0";
 
 const localManifestUrl = new URL("../releases/integration/manifest.json", window.location.href);
 const publicManifestUrl = new URL(
