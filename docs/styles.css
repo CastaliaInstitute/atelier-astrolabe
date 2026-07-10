@@ -1501,7 +1501,8 @@ body.tool-page {
 }
 
 .flasher-panel,
-.terminal-panel {
+.terminal-panel,
+.diagnostic-panel {
   border: 1px solid var(--line);
   border-radius: 10px;
   background: rgba(16, 22, 34, 0.86);
@@ -1509,7 +1510,8 @@ body.tool-page {
 }
 
 .flasher-panel--notes h2,
-.terminal-panel h2 {
+.terminal-panel h2,
+.diagnostic-panel h2 {
   font-family: "DM Sans", system-ui, sans-serif;
   font-size: 0.95rem;
   font-weight: 700;
@@ -1652,6 +1654,11 @@ body.tool-page {
   overflow: hidden;
 }
 
+.diagnostic-panel {
+  margin-top: 1rem;
+}
+
+.diagnostic-panel__bar,
 .terminal-panel__bar {
   display: flex;
   align-items: center;
@@ -1661,10 +1668,16 @@ body.tool-page {
   padding: 0.75rem 1rem;
 }
 
+.diagnostic-panel__bar {
+  margin: -1.15rem -1.15rem 1rem;
+}
+
+.diagnostic-panel__bar h2,
 .terminal-panel__bar h2 {
   margin: 0;
 }
 
+.diagnostic-panel__bar button,
 .terminal-panel__bar button {
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -1673,6 +1686,43 @@ body.tool-page {
   padding: 0.4rem 0.65rem;
 }
 
+.diagnostic-grid {
+  border: 1px solid rgba(201, 168, 76, 0.18);
+  border-radius: 8px;
+  background: rgba(201, 168, 76, 0.06);
+  padding: 0.95rem;
+}
+
+.diagnostic-grid dl {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0;
+}
+
+.diagnostic-grid div {
+  display: grid;
+  grid-template-columns: 9rem minmax(0, 1fr);
+  gap: 0.6rem;
+}
+
+.diagnostic-grid dt {
+  color: var(--gold);
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.diagnostic-grid dd {
+  margin: 0;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.diagnostic-actions {
+  margin-top: 0.9rem;
+}
+
+.diagnostic-output,
 .terminal-panel pre {
   min-height: 240px;
   max-height: 460px;
@@ -1683,4 +1733,11 @@ body.tool-page {
   font: 0.82rem/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   padding: 1rem;
   white-space: pre-wrap;
+}
+
+.diagnostic-output {
+  min-height: 120px;
+  max-height: 260px;
+  margin-top: 1rem;
+  border-radius: 8px;
 }

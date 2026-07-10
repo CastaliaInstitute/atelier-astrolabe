@@ -103,6 +103,19 @@
         </aside>
       </section>
 
+      <section class="diagnostic-panel" aria-label="USB diagnostics">
+        <div class="diagnostic-panel__bar">
+          <h2>USB Diagnostics</h2>
+          <button type="button" data-refresh-diagnostics>Refresh</button>
+        </div>
+        <div class="diagnostic-grid" data-diagnostics></div>
+        <div class="button-row diagnostic-actions">
+          <button class="btn" type="button" data-webusb-probe>Probe Espressif WebUSB</button>
+          <button class="btn" type="button" data-webserial-probe>Probe WebSerial chooser</button>
+        </div>
+        <pre class="diagnostic-output" data-diagnostic-output></pre>
+      </section>
+
       <section class="terminal-panel" aria-label="Flasher log">
         <div class="terminal-panel__bar">
           <h2>Log</h2>
@@ -112,6 +125,6 @@
       </section>
     </main>
 
-    <script type="module" src="flasher.js?v=20260710b"></script>
+    <script type="module" src="flasher.js?v=20260710c"></script>
   </body>
 </html>

@@ -18,6 +18,11 @@ const els = {
   progress: document.querySelector("[data-progress]"),
   log: document.querySelector("[data-log]"),
   clearLog: document.querySelector("[data-clear-log]"),
+  diagnostics: document.querySelector("[data-diagnostics]"),
+  diagnosticOutput: document.querySelector("[data-diagnostic-output]"),
+  refreshDiagnostics: document.querySelector("[data-refresh-diagnostics]"),
+  webusbProbe: document.querySelector("[data-webusb-probe]"),
+  webserialProbe: document.querySelector("[data-webserial-probe]"),
 };
 
 let manifest = null;
@@ -30,6 +35,12 @@ function log(line = "") {
   const stamp = new Date().toLocaleTimeString();
   els.log.textContent += `[${stamp}] ${line}\n`;
   els.log.scrollTop = els.log.scrollHeight;
+}
+
+function diagnosticLog(line = "") {
+  const stamp = new Date().toLocaleTimeString();
+  els.diagnosticOutput.textContent += `[${stamp}] ${line}\n`;
+  els.diagnosticOutput.scrollTop = els.diagnosticOutput.scrollHeight;
 }
 
 function setBusy(isBusy) {
@@ -71,6 +82,86 @@ function escapeHtml(value) {
 
 function artifactFor(role) {
   return release?.artifacts?.find((artifact) => artifact.role === role);
+}
+
+function boolText(value) {
+  return value ? "Available" : "Unavailable";
+}
+
+function formatHex(value, width = 4) {
+  if (!Number.isFinite(value)) return "-";
+  return `0x${value.toString(16).padStart(width, "0")}`;
+}
+
+function renderDiagnostics() {
+  const serialAvailable = "serial" in navigator;
+  const usbAvailable = "usb" in navigator;
+  const secure = window.isSecureContext;
+  const userAgent = navigator.userAgent || "unknown";
+  const platform = navigator.platform || "unknown";
+
+  els.diagnostics.innerHTML = `
+    <dl>
+      <div><dt>Secure context</dt><dd>${escapeHtml(boolText(secure))}</dd></div>
+      <div><dt>WebSerial API</dt><dd>${escapeHtml(boolText(serialAvailable))}</dd></div>
+      <div><dt>WebUSB API</dt><dd>${escapeHtml(boolText(usbAvailable))}</dd></div>
+      <div><dt>Platform</dt><dd>${escapeHtml(platform)}</dd></div>
+      <div><dt>Browser</dt><dd>${escapeHtml(userAgent)}</dd></div>
+    </dl>
+  `;
+  els.webserialProbe.disabled = !serialAvailable;
+  els.webusbProbe.disabled = !usbAvailable;
+}
+
+async function probeWebSerial() {
+  if (!("serial" in navigator)) {
+    diagnosticLog("WebSerial is not exposed by this browser.");
+    return;
+  }
+  diagnosticLog("Opening WebSerial chooser with no filters.");
+  try {
+    const probePort = await navigator.serial.requestPort();
+    const info = probePort.getInfo?.() || {};
+    diagnosticLog(
+      `WebSerial selected: usbVendorId=${formatHex(info.usbVendorId)} usbProductId=${formatHex(info.usbProductId)}`
+    );
+  } catch (error) {
+    diagnosticLog(`WebSerial probe failed: ${error.name || "Error"}: ${error.message || error}`);
+  }
+}
+
+async function probeWebUSB() {
+  if (!("usb" in navigator)) {
+    diagnosticLog("WebUSB is not exposed by this browser.");
+    return;
+  }
+  diagnosticLog("Opening WebUSB chooser for Espressif VID 0x303a.");
+  try {
+    const device = await navigator.usb.requestDevice({
+      filters: [{ vendorId: 0x303a }],
+    });
+    diagnosticLog(
+      `WebUSB selected: ${device.productName || "unknown product"} ` +
+        `VID=${formatHex(device.vendorId)} PID=${formatHex(device.productId)} ` +
+        `class=${formatHex(device.deviceClass, 2)} subclass=${formatHex(device.deviceSubclass, 2)} ` +
+        `protocol=${formatHex(device.deviceProtocol, 2)}`
+    );
+    for (const config of device.configurations || []) {
+      diagnosticLog(`Configuration ${config.configurationValue}: ${config.configurationName || "unnamed"}`);
+      for (const iface of config.interfaces || []) {
+        for (const alt of iface.alternates || []) {
+          diagnosticLog(
+            `  interface ${iface.interfaceNumber} alt ${alt.alternateSetting}: ` +
+              `class=${formatHex(alt.interfaceClass, 2)} subclass=${formatHex(alt.interfaceSubclass, 2)} ` +
+              `protocol=${formatHex(alt.interfaceProtocol, 2)} endpoints=${alt.endpoints?.length || 0}`
+          );
+        }
+      }
+    }
+    await device.close().catch(() => {});
+  } catch (error) {
+    diagnosticLog(`WebUSB probe failed: ${error.name || "Error"}: ${error.message || error}`);
+  }
 }
 
 function renderReleaseSummary() {
@@ -261,7 +352,11 @@ els.disconnect.addEventListener("click", disconnect);
 els.clearLog.addEventListener("click", () => {
   els.log.textContent = "";
 });
+els.refreshDiagnostics.addEventListener("click", renderDiagnostics);
+els.webusbProbe.addEventListener("click", probeWebUSB);
+els.webserialProbe.addEventListener("click", probeWebSerial);
 
+renderDiagnostics();
 loadManifest().catch((error) => {
   log(`Manifest error: ${error.message || error}`);
   els.summary.textContent = "Could not load the integration release manifest.";
