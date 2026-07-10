@@ -188,6 +188,7 @@
       <section class="voice" aria-label="Voice test controls">
         <div class="voice-meta">
           <select id="voice-provider" aria-label="Voice provider">
+            <option value="simulated">Simulated STT/TTS</option>
             <option value="browser">Browser STT/TTS</option>
             <option value="manual">Manual transcript + Browser TTS</option>
           </select>
@@ -368,7 +369,11 @@
           voiceReport.shift();
         }
         controls.report.textContent = voiceReport.join("\n");
+        controls.report.dataset.voiceReport = JSON.stringify(voiceReport);
         controls.report.scrollTop = controls.report.scrollHeight;
+        if (typeof Module === "object" && Module !== null) {
+          Module.astrolabeVoiceTestReport = voiceReport.slice();
+        }
         window.astrolabeVoiceTestReport = voiceReport.slice();
       }
 
@@ -391,6 +396,13 @@
       }
 
       function listenOnce({ continuous = false } = {}) {
+        if (controls.provider.value === "simulated") {
+          const text = controls.prompt.value.trim() || "simulated voice input";
+          controls.prompt.value = text;
+          setVoiceState("think", "simulated transcript", 900);
+          appendVoiceReport("stt.simulated", JSON.stringify(text));
+          return Promise.resolve(text);
+        }
         if (controls.provider.value === "manual") {
           const text = controls.prompt.value.trim();
           setVoiceState("think", text ? "manual transcript" : "empty transcript", 900);
@@ -455,6 +467,20 @@
 
       function speakText(text, detail = "speaking") {
         lastSpokenText = text;
+        if (controls.provider.value === "simulated") {
+          const startMs = performance.now();
+          setVoiceState("speak", detail, 1200);
+          setStatus(detail);
+          appendVoiceReport("tts.start", `${detail} chars=${text.length}`);
+          return new Promise((resolve) => {
+            window.setTimeout(() => {
+              setVoiceState("listen", "TTS done", 900);
+              setStatus("TTS done");
+              appendVoiceReport("tts.end", `ms=${Math.round(performance.now() - startMs)}`);
+              resolve(true);
+            }, 16);
+          });
+        }
         if (typeof window.astrolabeWebsimVoiceSink === "function") {
           const startMs = performance.now();
           setVoiceState("speak", detail, 12000);

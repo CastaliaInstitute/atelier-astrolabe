@@ -1722,6 +1722,12 @@ static esp_err_t stream_pcm_file(astrolabe_audio_pipeline_t *p, const utterance_
     if (utt->byte_count > 0) {
         if (utt->pcm_data != NULL) {
             pcm_data = utt->pcm_data;
+        } else if (p->cfg.duplex) {
+            ESP_LOGE(TAG,
+                     "voice-stream segment #%u missing PSRAM mirror; refusing SPIFFS read from duplex voice task",
+                     (unsigned)utt->sequence);
+            rolling_stream_session_close(p);
+            return ESP_ERR_NO_MEM;
         } else {
             FILE *file = fopen(utt->path, "rb");
             if (file == NULL) {
@@ -2185,7 +2191,7 @@ static bool queue_utterance(astrolabe_audio_pipeline_t *p, bool final_segment)
         p->capture_fd = -1;
     }
     const size_t min_bytes = (((size_t)p->cfg.min_ms * cfg_stt_sample_rate_hz(p)) / 1000) * sizeof(int16_t);
-    const bool final_commit_only = final_segment && p->capture_len_bytes < min_bytes && p->turn_segment_count > 0;
+    const bool final_commit_only = final_segment && p->capture_len_bytes == 0 && p->turn_segment_count > 0;
     if (final_segment && p->capture_len_bytes < min_bytes && p->turn_segment_count == 0) {
         remove(p->capture_path);
         reset_capture(p);
@@ -2218,7 +2224,7 @@ static bool queue_utterance(astrolabe_audio_pipeline_t *p, bool final_segment)
         remove(p->capture_path);
     } else {
         snprintf(utt.path, sizeof(utt.path), "%s", p->capture_path);
-        if (final_segment && p->capture_len_bytes > 0) {
+        if (p->capture_len_bytes > 0) {
             utt.pcm_data = heap_caps_malloc(p->capture_len_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
             if (utt.pcm_data == NULL) {
                 utt.pcm_data = malloc(p->capture_len_bytes);
@@ -2238,7 +2244,10 @@ static bool queue_utterance(astrolabe_audio_pipeline_t *p, bool final_segment)
                 }
             }
             if (utt.pcm_data == NULL) {
-                ESP_LOGW(TAG, "final segment PSRAM mirror unavailable len=%u", (unsigned)p->capture_len_bytes);
+                ESP_LOGW(TAG,
+                         "capture segment PSRAM mirror unavailable final=%s len=%u",
+                         final_segment ? "yes" : "no",
+                         (unsigned)p->capture_len_bytes);
             }
         }
     }
@@ -2476,6 +2485,18 @@ static bool push_frame(astrolabe_audio_pipeline_t *p, const int16_t *frame, size
         if (p->manual_capture_active && p->manual_capture_deadline_ms == 0 &&
             p->active_peak_rms < dynamic_start_threshold(p)) {
             if (ticks_reached(now_ms, p->manual_capture_armed_ms + MANUAL_CAPTURE_NO_SPEECH_TIMEOUT_MS)) {
+                if (p->turn_segment_count > 0) {
+                    ESP_LOGI(TAG,
+                             "manual quiet final bytes=%u segments=%u rms=%u threshold=%u noise=%u peak=%u",
+                             (unsigned)p->capture_len_bytes,
+                             (unsigned)p->turn_segment_count,
+                             (unsigned)p->last_rms,
+                             (unsigned)dynamic_start_threshold(p),
+                             (unsigned)p->noise_rms,
+                             (unsigned)p->active_peak_rms);
+                    p->manual_capture = false;
+                    return queue_utterance(p, true);
+                }
                 ESP_LOGW(TAG, "No speech detected bytes=%u rms=%u threshold=%u noise=%u peak=%u",
                          (unsigned)p->capture_len_bytes,
                          (unsigned)p->last_rms,

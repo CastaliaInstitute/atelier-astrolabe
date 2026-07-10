@@ -33,12 +33,16 @@ tested without flashing hardware:
   transcript text directly.
 - **TTS** uses `speechSynthesis` and reports `tts.start`, `tts.end`, or
   `tts.error` events in the voice report pane.
+- **Simulated STT/TTS** uses the prompt text as the transcript and completes TTS
+  locally without microphone or speaker access. Use it for automated browser
+  checks and CI-like smoke tests.
 - **Duplex** runs one listen/reply turn. Enable **Continuous** before pressing
   **Duplex** to loop STT then TTS until **Stop** is pressed.
 - **Boot/TTS** simulates the firmware BOOT/TTS button for the selected face.
 - **All Faces** simulates BOOT/TTS for every face and writes pass/fail events
-  to the report pane. The same lines are exposed to browser automation as
-  `window.astrolabeVoiceTestReport`.
+  to the report pane. The same lines are exposed to browser automation through
+  `#voice-report[data-voice-report]`, `Module.astrolabeVoiceTestReport`, and,
+  in browsers that allow it, `window.astrolabeVoiceTestReport`.
 - Browser automation can set `window.astrolabeWebsimVoiceSink(text, detail)` to
   simulate TTS completion in headless environments where native speech output is
   unavailable or not mockable.
