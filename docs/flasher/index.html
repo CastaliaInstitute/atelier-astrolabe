@@ -101,11 +101,13 @@
             <li>Use Chrome or Edge on a secure origin.</li>
             <li>Select the USB Serial/JTAG port for the attached Astrolabe.</li>
             <li>If connect fails, hold BOOT while plugging in, then try again.</li>
-            <li>The default mode flashes only the app image at <code>0x10000</code>.</li>
+            <li>The default mode flashes only the app image at <code>0x20000</code>.</li>
           </ul>
           <p class="muted">
             Full factory flashing also needs bootloader and partition images. Release manifests
-            include those artifacts when the build publisher has them.
+            include those artifacts when the build publisher has them. If the device boots to
+            ROM after a full-layout flash, retry with "Include bootloader, partition table..."
+            unchecked.
           </p>
         </aside>
       </section>
