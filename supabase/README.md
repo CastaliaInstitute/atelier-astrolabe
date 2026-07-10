@@ -149,6 +149,41 @@ Firmware should still write capture audio into a flash circular buffer before or
 while sending over the socket. See
 [`docs/design/streaming-audio-socket.md`](../docs/design/streaming-audio-socket.md).
 
+### Local `voice-stream` Mock QA
+
+For firmware and host-side rolling-buffer tests that should not depend on cloud
+STT/TTS latency, run the local mock WebSocket server:
+
+```bash
+python3 scripts/voice_stream_mock_relay.py --host 0.0.0.0 --port 8788
+```
+
+The mock accepts the same `session.update`, binary PCM frame, and
+`input_audio_buffer.commit` events as `voice-stream`, accumulates non-final
+segments with a configurable high cap, then emits transcript, text, MP3 audio
+delta, and `response.done` on the final commit.
+
+Host-side long-turn validation:
+
+```bash
+node scripts/voice_stream_persistent_validate.mjs \
+  --ws-url ws://127.0.0.1:8788/functions/v1/voice-stream \
+  --synthetic-seconds 70 \
+  --segments 140 \
+  --segment-pause-ms 0
+```
+
+For 1.75C device testing, build with a LAN-reachable URL:
+
+```bash
+ASTROLABE175C_VOICE_STREAM_URL=ws://<host-ip>:8788/functions/v1/voice-stream \
+./scripts/astrolabe175c_build.sh build
+```
+
+Then trigger `pipeline capture 0` over serial. The device should keep listening,
+roll flash-backed 500 ms capture slots, send non-final commits, receive a final
+mock TTS response, and play it without growing a full-turn PSRAM buffer.
+
 ## Watch-oriented TTS limits
 
 Long astro readings were producing multi‑minute MP3s and huge downloads. This tree adds:
