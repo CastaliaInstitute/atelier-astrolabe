@@ -1,4 +1,5 @@
 import { ESPLoader, Transport } from "https://esm.sh/esptool-js@0.6.0";
+import { serial as webUsbSerial } from "https://esm.sh/web-serial-polyfill@1.0.15";
 
 const localManifestUrl = new URL("../releases/integration/manifest.json", window.location.href);
 const publicManifestUrl = new URL(
@@ -13,6 +14,7 @@ const els = {
   eraseAll: document.querySelector("[data-erase-all]"),
   localFile: document.querySelector("[data-local-file]"),
   connect: document.querySelector("[data-connect]"),
+  connectWebUsb: document.querySelector("[data-connect-webusb]"),
   flash: document.querySelector("[data-flash]"),
   disconnect: document.querySelector("[data-disconnect]"),
   progress: document.querySelector("[data-progress]"),
@@ -45,6 +47,7 @@ function diagnosticLog(line = "") {
 
 function setBusy(isBusy) {
   els.connect.disabled = isBusy || Boolean(loader);
+  els.connectWebUsb.disabled = isBusy || Boolean(loader) || !("usb" in navigator);
   els.flash.disabled = isBusy || !loader;
   els.disconnect.disabled = isBusy || !loader;
   els.release.disabled = isBusy;
@@ -111,6 +114,8 @@ function renderDiagnostics() {
   `;
   els.webserialProbe.disabled = !serialAvailable;
   els.webusbProbe.disabled = !usbAvailable;
+  els.connect.disabled = !serialAvailable || Boolean(loader);
+  els.connectWebUsb.disabled = !usbAvailable || Boolean(loader);
 }
 
 async function probeWebSerial() {
@@ -189,11 +194,21 @@ function renderReleaseSummary() {
 }
 
 async function loadManifest() {
-  if (!("serial" in navigator)) {
-    log("WebSerial is not available. Use Chrome or Edge on HTTPS.");
-    els.summary.textContent = "WebSerial is not available in this browser.";
+  if (!("serial" in navigator) && !("usb" in navigator)) {
+    log("Neither WebSerial nor WebUSB is available. Use Chrome or Edge on HTTPS.");
+    els.summary.textContent = "WebSerial/WebUSB is not available in this browser.";
     els.connect.disabled = true;
+    els.connectWebUsb.disabled = true;
     return;
+  }
+
+  if (!("serial" in navigator)) {
+    log("WebSerial is not available; WebUSB fallback may work if the device is visible.");
+    els.connect.disabled = true;
+  }
+  if (!("usb" in navigator)) {
+    log("WebUSB fallback is not available in this browser.");
+    els.connectWebUsb.disabled = true;
   }
 
   log(`Loading ${localManifestUrl}`);
@@ -222,10 +237,11 @@ async function loadManifest() {
   log(`Loaded ${releases.length} releases from ${manifest.git_ref}@${manifest.git_sha?.slice(0, 7)}`);
 }
 
-async function connect() {
+async function connectWithSerialApi(serialApi, resetMode, sourceLabel, requestOptions = {}) {
   setBusy(true);
   try {
-    port = await navigator.serial.requestPort();
+    log(`Opening ${sourceLabel} chooser.`);
+    port = await serialApi.requestPort(requestOptions);
     transport = new Transport(port, true);
     loader = new ESPLoader({
       transport,
@@ -244,8 +260,8 @@ async function connect() {
       },
     });
 
-    const chip = await loader.main("default_reset");
-    log(`Connected: ${chip}`);
+    const chip = await loader.main(resetMode);
+    log(`Connected via ${sourceLabel}: ${chip}`);
   } catch (error) {
     loader = null;
     if (transport) {
@@ -253,10 +269,20 @@ async function connect() {
     }
     transport = null;
     port = null;
-    log(`Connect failed: ${error.message || error}`);
+    log(`${sourceLabel} connect failed: ${error.name || "Error"}: ${error.message || error}`);
   } finally {
     setBusy(false);
   }
+}
+
+async function connect() {
+  await connectWithSerialApi(navigator.serial, "default_reset", "WebSerial");
+}
+
+async function connectWebUsb() {
+  await connectWithSerialApi(webUsbSerial, "default_reset", "WebUSB CDC polyfill", {
+    filters: [{ usbVendorId: 0x303a }],
+  });
 }
 
 async function releaseImage() {
@@ -347,6 +373,7 @@ els.release.addEventListener("change", () => {
   renderReleaseSummary();
 });
 els.connect.addEventListener("click", connect);
+els.connectWebUsb.addEventListener("click", connectWebUsb);
 els.flash.addEventListener("click", flash);
 els.disconnect.addEventListener("click", disconnect);
 els.clearLog.addEventListener("click", () => {
