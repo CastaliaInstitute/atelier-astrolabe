@@ -5,6 +5,7 @@ const localManifestUrl = new URL("../releases/integration/manifest.json", window
 const publicManifestUrl = new URL(
   "https://astrolabe.castalia.institute/releases/integration/manifest.json"
 );
+const defaultAppSlotBytes = 0x300000;
 
 const els = {
   release: document.querySelector("[data-release-select]"),
@@ -91,6 +92,10 @@ function escapeHtml(value) {
 
 function artifactFor(role) {
   return release?.artifacts?.find((artifact) => artifact.role === role);
+}
+
+function releaseAppSlotBytes() {
+  return release?.app_slot_bytes || release?.planned_ota_slot_bytes || defaultAppSlotBytes;
 }
 
 function boolText(value) {
@@ -192,7 +197,7 @@ function renderReleaseSummary() {
       <div><dt>Variant</dt><dd>${escapeHtml(release.product_name)}</dd></div>
       <div><dt>Platform</dt><dd>${escapeHtml(release.device_platform)}</dd></div>
       <div><dt>Channel</dt><dd>${escapeHtml(release.ota_channel)}</dd></div>
-      <div><dt>Size</dt><dd>${formatBytes(app?.bytes || release.firmware_bytes)}</dd></div>
+      <div><dt>Size</dt><dd>${formatBytes(app?.bytes || release.firmware_bytes)} / ${formatBytes(releaseAppSlotBytes())} slot</dd></div>
       <div><dt>Published</dt><dd>${escapeHtml(release.git_sha?.slice(0, 7) || "unknown")}</dd></div>
       <div><dt>Artifacts</dt><dd>${escapeHtml(extraText)}</dd></div>
     </dl>
@@ -333,6 +338,10 @@ async function flash() {
   setProgress(0, "Preparing flash...");
   try {
     const image = await selectedImage();
+    const slotBytes = releaseAppSlotBytes();
+    if (image.address !== 0 && image.data.length > slotBytes) {
+      throw new Error(`Image ${formatBytes(image.data.length)} exceeds app slot ${formatBytes(slotBytes)}.`);
+    }
     if (els.eraseAll.checked && image.address !== 0) {
       throw new Error("Erase-all is only allowed when flashing a recovery image at 0x0.");
     }
@@ -342,7 +351,7 @@ async function flash() {
       fileArray: [{ data: image.data, address: image.address }],
       flashMode: "keep",
       flashFreq: "keep",
-      flashSize: "detect",
+      flashSize: "keep",
       eraseAll: els.eraseAll.checked,
       compress: true,
       reportProgress: (_fileIndex, written, total) => {

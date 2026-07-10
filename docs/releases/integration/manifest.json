@@ -12,6 +12,7 @@
       "git_ref": "integration",
       "git_sha": "a6b6171",
       "firmware_bytes": 2981984,
+      "app_slot_bytes": 3145728,
       "sha256": "5fb76edde84ba51e2b7f444312a11c9f5d71ad39ea1b3a6ca4327a7c3205fa6f",
       "firmware_url": "releases/integration/astrolabe-faculty-amoled175/firmware.bin",
       "artifacts": [
@@ -19,7 +20,7 @@
           "name": "firmware.bin",
           "bytes": 2981984,
           "sha256": "5fb76edde84ba51e2b7f444312a11c9f5d71ad39ea1b3a6ca4327a7c3205fa6f",
-          "address": "0x10000",
+          "address": "0x20000",
           "url": "releases/integration/astrolabe-faculty-amoled175/firmware.bin",
           "role": "app"
         }
