@@ -3417,8 +3417,22 @@ void app_main(void)
     boot_probe_stage(0xb2);
     esp_rom_printf("A18 ui_queue\n");
     s_ui_queue = xQueueCreate(1, sizeof(faculty175_ui_msg_t));
+    BaseType_t ui_task_ok = xTaskCreateWithCaps(ui_task,
+                                                "ui",
+                                                FACULTY175_UI_TASK_STACK,
+                                                NULL,
+                                                4,
+                                                &s_ui_task,
+                                                MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (ui_task_ok != pdPASS) {
+        s_ui_task = NULL;
+        ui_task_ok = xTaskCreate(ui_task, "ui", FACULTY175_UI_TASK_STACK, NULL, 4, &s_ui_task);
+    }
+    if (ui_task_ok != pdPASS) {
+        s_ui_task = NULL;
+        FACULTY175_LOG_STAGE_E(TAG, "ui", "task create failed");
+    }
     (void)wifi_start_task_launch("background");
-    xTaskCreate(ui_task, "ui", FACULTY175_UI_TASK_STACK, NULL, 4, &s_ui_task);
     BaseType_t input_task_ok = xTaskCreateWithCaps(input_task,
                                                    "input",
                                                    FACULTY175_INPUT_TASK_STACK,
