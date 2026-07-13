@@ -40,6 +40,8 @@ typedef struct {
 } faculty175_chart_positions_t;
 
 void faculty175_charts_ensure_family_seed(void);
+bool faculty175_charts_sync_family_repo(void);
+void faculty175_charts_family_repo(char *out, size_t out_cap);
 bool faculty175_charts_primary(faculty175_birth_chart_t *out);
 esp_err_t faculty175_charts_save_primary(const faculty175_birth_chart_t *chart);
 int faculty175_charts_profile_count(void);
