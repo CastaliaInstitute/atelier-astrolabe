@@ -6066,92 +6066,65 @@ static void synastry_layout_people(lvgl_synastry_person_t *people, int count, in
     }
     const uint32_t sig = synastry_orrery_signature(people, count);
     const float primary_sun = people[0].pos.ok ? (float)synastry_norm360(people[0].pos.lon[0]) : 0.0f;
-    const float step = count > 1 ? 6.2831853f / (float)(count - 1) : 6.2831853f;
+    int partner_idx = -1;
+    int child_count = 0;
+    for (int i = 1; i < count; ++i) {
+        if (people[i].chart.role == FACULTY175_CHART_ROLE_CHILD) {
+            ++child_count;
+        } else if (partner_idx < 0) {
+            partner_idx = i;
+        }
+    }
+    if (partner_idx < 0 && count > 1) {
+        partner_idx = 1;
+    }
 
     if (s_synastry_sim_signature != sig || s_synastry_sim_count != count) {
         memset(s_synastry_sim_vx, 0, sizeof(s_synastry_sim_vx));
         memset(s_synastry_sim_vy, 0, sizeof(s_synastry_sim_vy));
-        s_synastry_sim_x[0] = (float)cx;
-        s_synastry_sim_y[0] = (float)cy;
-        for (int i = 1; i < count; ++i) {
-            const float natal_phase = people[i].pos.ok ?
-                (float)synastry_norm360(people[i].pos.lon[0] - primary_sun) * 0.0174532925f : 0.0f;
-            const float a = -1.5707963f + step * (float)(i - 1) + natal_phase * 0.18f;
-            const float gravity = synastry_gravity_between(&people[0].pos, &people[i].pos);
-            const float r = 156.0f - gravity * 54.0f;
-            s_synastry_sim_x[i] = (float)cx + cosf(a) * r;
-            s_synastry_sim_y[i] = (float)cy + sinf(a) * r;
-        }
         s_synastry_sim_signature = sig;
         s_synastry_sim_count = count;
-        s_synastry_sim_last_ms = anim_ms;
-    }
-
-    float dt = 0.016f;
-    if (s_synastry_sim_last_ms != 0 && anim_ms > s_synastry_sim_last_ms) {
-        dt = (float)(anim_ms - s_synastry_sim_last_ms) / 1000.0f;
-        if (dt > 0.05f) {
-            dt = 0.05f;
-        }
     }
     s_synastry_sim_last_ms = anim_ms;
 
-    float ax[SYNASTRY_ORRERY_MAX_PEOPLE] = {};
-    float ay[SYNASTRY_ORRERY_MAX_PEOPLE] = {};
-    for (int i = 0; i < count; ++i) {
-        for (int j = i + 1; j < count; ++j) {
-            float dx = s_synastry_sim_x[j] - s_synastry_sim_x[i];
-            float dy = s_synastry_sim_y[j] - s_synastry_sim_y[i];
-            float dist2 = dx * dx + dy * dy;
-            if (dist2 < 4.0f) {
-                const float a = -1.5707963f + step * (float)j;
-                dx = cosf(a) * 2.0f;
-                dy = sinf(a) * 2.0f;
-                dist2 = 4.0f;
+    const float parent_angle = -1.5707963f + (float)anim_ms * 0.00018f +
+        (people[0].pos.ok ? (float)synastry_norm360(people[0].pos.lon[0]) * 0.0025f : 0.0f);
+    const float parent_r = partner_idx > 0 ? 48.0f : 0.0f;
+    s_synastry_sim_x[0] = (float)cx + cosf(parent_angle) * parent_r;
+    s_synastry_sim_y[0] = (float)cy + sinf(parent_angle) * parent_r;
+    if (partner_idx > 0) {
+        const float partner_angle = parent_angle + 3.1415927f;
+        s_synastry_sim_x[partner_idx] = (float)cx + cosf(partner_angle) * parent_r;
+        s_synastry_sim_y[partner_idx] = (float)cy + sinf(partner_angle) * parent_r;
+    }
+
+    int child_idx = 0;
+    int other_idx = 0;
+    for (int i = 1; i < count; ++i) {
+        if (i == partner_idx) {
+            continue;
+        }
+        if (people[i].chart.role == FACULTY175_CHART_ROLE_CHILD) {
+            const float natal_phase = people[i].pos.ok ?
+                (float)synastry_norm360(people[i].pos.lon[0] - primary_sun) * 0.0174532925f : 0.0f;
+            const float step = child_count > 0 ? 6.2831853f / (float)child_count : 6.2831853f;
+            const float a = parent_angle + 1.5707963f + step * (float)child_idx + natal_phase * 0.16f +
+                (float)anim_ms * (0.00032f + 0.00005f * (float)(child_idx + 1));
+            float parent_gravity = synastry_gravity_between(&people[0].pos, &people[i].pos);
+            if (partner_idx > 0) {
+                parent_gravity = (parent_gravity + synastry_gravity_between(&people[partner_idx].pos, &people[i].pos)) * 0.5f;
             }
-            const float dist = sqrtf(dist2);
-            const float ux = dx / dist;
-            const float uy = dy / dist;
-            const float gravity = synastry_gravity_between(&people[i].pos, &people[j].pos);
-            const float touch = (float)(people[i].radius + people[j].radius) + 14.0f;
-            const float attraction = gravity * (18.0f + dist * 0.035f);
-            float repulsion = 8600.0f / dist2;
-            if (dist < touch) {
-                repulsion += (touch - dist) * 9.0f;
-            }
-            const float force = attraction - repulsion;
-            if (!people[i].primary) {
-                ax[i] += ux * force;
-                ay[i] += uy * force;
-            }
-            if (!people[j].primary) {
-                ax[j] -= ux * force;
-                ay[j] -= uy * force;
-            }
+            const float r = 148.0f - parent_gravity * 48.0f + 10.0f * (float)(child_idx % 2);
+            s_synastry_sim_x[i] = (float)cx + cosf(a) * r;
+            s_synastry_sim_y[i] = (float)cy + sinf(a) * r;
+            ++child_idx;
+        } else {
+            const float a = parent_angle + 2.0943951f * (float)(++other_idx);
+            s_synastry_sim_x[i] = (float)cx + cosf(a) * 148.0f;
+            s_synastry_sim_y[i] = (float)cy + sinf(a) * 148.0f;
         }
     }
-    for (int i = 1; i < count; ++i) {
-        const float dx = s_synastry_sim_x[i] - (float)cx;
-        const float dy = s_synastry_sim_y[i] - (float)cy;
-        const float dist = sqrtf(dx * dx + dy * dy);
-        ax[i] -= dx * 0.42f;
-        ay[i] -= dy * 0.42f;
-        const float max_r = 188.0f - (float)people[i].radius;
-        if (dist > max_r && dist > 1.0f) {
-            ax[i] -= (dx / dist) * (dist - max_r) * 55.0f;
-            ay[i] -= (dy / dist) * (dist - max_r) * 55.0f;
-        }
-    }
-    s_synastry_sim_x[0] = (float)cx;
-    s_synastry_sim_y[0] = (float)cy;
-    s_synastry_sim_vx[0] = 0.0f;
-    s_synastry_sim_vy[0] = 0.0f;
-    for (int i = 1; i < count; ++i) {
-        s_synastry_sim_vx[i] = (s_synastry_sim_vx[i] + ax[i] * dt) * 0.88f;
-        s_synastry_sim_vy[i] = (s_synastry_sim_vy[i] + ay[i] * dt) * 0.88f;
-        s_synastry_sim_x[i] += s_synastry_sim_vx[i] * dt * 36.0f;
-        s_synastry_sim_y[i] += s_synastry_sim_vy[i] * dt * 36.0f;
-    }
+
     for (int i = 0; i < count; ++i) {
         people[i].x = (int)lrintf(s_synastry_sim_x[i]);
         people[i].y = (int)lrintf(s_synastry_sim_y[i]);
@@ -6164,6 +6137,110 @@ static uint32_t synastry_bond_color(float gravity)
     const uint8_t g = (uint8_t)(125.0f + gravity * 85.0f);
     const uint8_t b = (uint8_t)(170.0f + gravity * 70.0f);
     return ((uint32_t)r << 16) | ((uint32_t)g << 8) | (uint32_t)b;
+}
+
+typedef struct {
+    int aspect_deg;
+    double orb;
+    float strength;
+} lvgl_synastry_bond_style_t;
+
+static lvgl_synastry_bond_style_t synastry_bond_style_between(const faculty175_chart_positions_t *a,
+                                                              const faculty175_chart_positions_t *b)
+{
+    static const int k_major[] = {0, 60, 90, 120, 180};
+    lvgl_synastry_bond_style_t best = {
+        .aspect_deg = -1,
+        .orb = 99.0,
+        .strength = 0.0f,
+    };
+    if (a == NULL || b == NULL || !a->ok || !b->ok) {
+        return best;
+    }
+    for (int ai = 0; ai < FACULTY175_CHART_BODY_COUNT; ++ai) {
+        for (int bi = 0; bi < FACULTY175_CHART_BODY_COUNT; ++bi) {
+            const double sep = synastry_aspect_distance(a->lon[ai], b->lon[bi]);
+            for (size_t mi = 0; mi < sizeof(k_major) / sizeof(k_major[0]); ++mi) {
+                const int aspect = k_major[mi];
+                const double orb = fabs(sep - (double)aspect);
+                if (orb > 6.5) {
+                    continue;
+                }
+                const float exact = 1.0f - (float)(orb / 6.5);
+                const float strength = exact * synastry_aspect_weight(aspect) *
+                    synastry_body_weight(ai) * synastry_body_weight(bi);
+                if (strength > best.strength) {
+                    best.aspect_deg = aspect;
+                    best.orb = orb;
+                    best.strength = strength;
+                }
+                break;
+            }
+        }
+    }
+    best.strength = synastry_clamp01(best.strength);
+    return best;
+}
+
+static uint32_t synastry_aspect_line_color(int aspect_deg, float strength)
+{
+    (void)strength;
+    switch (aspect_deg) {
+        case 0: return 0xffd36a;
+        case 60: return 0x79d7ff;
+        case 90: return 0xff7f6e;
+        case 120: return 0x8ff0ae;
+        case 180: return 0xcaa7ff;
+        default: return synastry_bond_color(strength);
+    }
+}
+
+static void synastry_apply_bond_line_style(lv_obj_t *line,
+                                           const lvgl_synastry_bond_style_t *style,
+                                           float gravity,
+                                           bool child_parent_bond)
+{
+    float strength = gravity;
+    int aspect_deg = -1;
+    double orb = 6.5;
+    if (style != NULL && style->aspect_deg >= 0) {
+        strength = style->strength;
+        aspect_deg = style->aspect_deg;
+        orb = style->orb;
+    }
+    if (child_parent_bond && strength < 0.18f) {
+        strength = 0.18f;
+    }
+    const float exact = synastry_clamp01(1.0f - (float)(orb / 6.5));
+    int width = 1 + (int)lrintf(strength * 3.0f);
+    if (child_parent_bond && width < 2) {
+        width = 2;
+    }
+    if ((aspect_deg == 0 || aspect_deg == 120) && exact > 0.72f) {
+        ++width;
+    }
+    lv_obj_set_style_line_color(line, lv_color_hex(synastry_aspect_line_color(aspect_deg, strength)), 0);
+    lv_obj_set_style_line_width(line, width, 0);
+    lv_obj_set_style_line_opa(line, (lv_opa_t)(86 + exact * 140.0f), 0);
+    lv_obj_set_style_line_rounded(line, true, 0);
+    switch (aspect_deg) {
+        case 60:
+            lv_obj_set_style_line_dash_width(line, 10, 0);
+            lv_obj_set_style_line_dash_gap(line, 7, 0);
+            break;
+        case 90:
+            lv_obj_set_style_line_dash_width(line, 4, 0);
+            lv_obj_set_style_line_dash_gap(line, 5, 0);
+            break;
+        case 180:
+            lv_obj_set_style_line_dash_width(line, 15, 0);
+            lv_obj_set_style_line_dash_gap(line, 8, 0);
+            break;
+        default:
+            lv_obj_set_style_line_dash_width(line, 0, 0);
+            lv_obj_set_style_line_dash_gap(line, 0, 0);
+            break;
+    }
 }
 
 static void synastry_hide_orrery_objects(void)
@@ -6273,18 +6350,27 @@ static bool draw_synastry(uint32_t anim_ms)
     int bond_idx = 0;
     for (int i = 0; i < person_count; ++i) {
         for (int j = i + 1; j < person_count && bond_idx < SYNASTRY_ORRERY_MAX_BONDS; ++j) {
-            const float gravity = synastry_gravity_between(&people[i].pos, &people[j].pos);
-            if (gravity < 0.08f) {
+            float gravity = synastry_gravity_between(&people[i].pos, &people[j].pos);
+            const bool child_parent_bond =
+                (people[i].chart.role == FACULTY175_CHART_ROLE_CHILD &&
+                 (people[j].primary || people[j].chart.role == FACULTY175_CHART_ROLE_PARTNER)) ||
+                (people[j].chart.role == FACULTY175_CHART_ROLE_CHILD &&
+                 (people[i].primary || people[i].chart.role == FACULTY175_CHART_ROLE_PARTNER));
+            const bool parent_pair_bond =
+                (people[i].primary && people[j].chart.role == FACULTY175_CHART_ROLE_PARTNER) ||
+                (people[j].primary && people[i].chart.role == FACULTY175_CHART_ROLE_PARTNER);
+            if (!child_parent_bond && !parent_pair_bond && gravity < 0.08f) {
                 continue;
             }
+            const lvgl_synastry_bond_style_t bond_style =
+                synastry_bond_style_between(&people[i].pos, &people[j].pos);
             s_synastry_bond_points[bond_idx][0].x = people[i].x;
             s_synastry_bond_points[bond_idx][0].y = people[i].y;
             s_synastry_bond_points[bond_idx][1].x = people[j].x;
             s_synastry_bond_points[bond_idx][1].y = people[j].y;
             lv_line_set_points(s_synastry_bonds[bond_idx], s_synastry_bond_points[bond_idx], 2);
-            lv_obj_set_style_line_color(s_synastry_bonds[bond_idx], lv_color_hex(synastry_bond_color(gravity)), 0);
-            lv_obj_set_style_line_width(s_synastry_bonds[bond_idx], gravity > 0.62f ? 3 : 2, 0);
-            lv_obj_set_style_line_opa(s_synastry_bonds[bond_idx], (lv_opa_t)(105 + gravity * 130.0f), 0);
+            synastry_apply_bond_line_style(s_synastry_bonds[bond_idx], &bond_style, gravity,
+                                           child_parent_bond || parent_pair_bond);
             native_obj_hidden(s_synastry_bonds[bond_idx], false);
             ++bond_idx;
         }
