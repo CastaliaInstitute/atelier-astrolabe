@@ -17,3 +17,4 @@ static inline size_t tinfl_decompress_mem_to_mem(void *out_buf,
     (void)flags;
     return 0;
 }
+

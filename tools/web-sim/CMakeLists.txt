@@ -35,6 +35,7 @@ add_executable(astrolabe-web-sim
   src/main.c
   src/faculty175_websim_stubs.c
   ${FACULTY175_FACE_SRCS}
+  ../../astrolabe175c/main/faculty175_lvgl.c
   ../../astrolabe175c/main/faculty175_faces.c
   ../../lib/astrolabe_display_core/astrolabe_round_bezel.c
 )
