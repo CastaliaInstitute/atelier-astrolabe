@@ -29,6 +29,8 @@ list(REMOVE_ITEM FACULTY175_FACE_SRCS
   "${CMAKE_CURRENT_SOURCE_DIR}/../../astrolabe175c/main/faculty175_face_maze.c"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../astrolabe175c/main/faculty175_face_watcher.c"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../astrolabe175c/main/faculty175_face_wifilab.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../astrolabe175c/main/faculty175_face_hid.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../astrolabe175c/main/faculty175_face_native.c"
 )
 
 add_executable(astrolabe-web-sim
