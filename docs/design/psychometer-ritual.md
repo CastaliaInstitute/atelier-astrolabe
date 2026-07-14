@@ -25,26 +25,45 @@ The user may rotate through their appearance settings before recording a state:
 These are identity features, not mood controls. They remain unchanged between
 check-ins unless the user deliberately edits them.
 
-### 3. Set arousal
+### 3. Set activation
 
 The user rotates the dial to answer: **How activated is my body right now?**
 
-The scale runs from low to high: sleepy or withdrawn, calm, alert, energized,
-restless, or tense. The scale is continuous, and the center is not treated as a
-default or ideal.
+Activation is a continuous vertical axis running from deactivated to activated.
+It describes energy, readiness, and bodily intensity, not whether the state is
+good or bad. Low activation may feel sleepy, fatigued, or relaxed. High
+activation may feel alert, energized, restless, or tense. The center is not
+treated as a default or ideal.
 
 ### 4. Set valence
 
 The user rotates the dial to answer: **How does this state feel from the inside?**
 
-The scale runs from unpleasant to pleasant, with neutral and mixed states
-available in the middle. The device never labels a state as good or bad.
+Valence is a continuous horizontal axis running from unpleasant to pleasant.
+Neutral and mixed states are available in the middle. The device never labels a
+state as good or bad.
+
+The two coordinates form the Psychometer's affect map:
+
+| Activation | Valence | Optional vocabulary |
+| --- | --- | --- |
+| High | Unpleasant | tense, nervous, stressed, upset |
+| High | Pleasant | alert, excited, elated, happy |
+| Low | Unpleasant | sad, fatigued, lethargic |
+| Low | Pleasant | calm, relaxed, serene, contented |
+| Any | Near center | neutral, mixed, unsettled |
+
+Vocabulary is descriptive and optional. The user records the coordinates, not a
+diagnosis. Clinical or diagnostic terms, including “depressed,” must not be
+selectable state labels.
 
 ### 5. Confirm
 
 The user presses the dial or taps the face to record the reading. The face holds
 the selected expression for several seconds and acknowledges it with a blink,
-breath, or small glow. This is witnessing, not approval.
+breath, or small glow. The Memoji expression updates continuously while the
+coordinates move, so the user can recognize the state before confirming it. This
+is witnessing, not approval.
 
 ### 6. Share with Astrolabe
 
@@ -69,7 +88,7 @@ The mode is metadata attached to the reading, not a separate emotional scale.
 ## Astrolabe response
 
 The Astrolabe Psychometer face presents the latest paired reading as a Memoji
-portrait with a restrained arousal/valence expression. The reading may inform
+portrait with a restrained activation/valence expression. The reading may inform
 personal readings and family synastry only where the user has opted in.
 
 The response should be symbolic rather than diagnostic: a constellation shift,
