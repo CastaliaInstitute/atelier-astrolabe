@@ -127,32 +127,21 @@ static const char *k_mouth_names[PSYCH_STATE_MOUTH_COUNT] = {
 };
 
 static const int16_t k_emoji_cx = FACULTY175_LCD_W / 2;
-static const int16_t k_emoji_cy = 190;
-static const int16_t k_emoji_r = 64;
-static const int16_t k_emoji_eye_y = k_emoji_cy - 12;
-static const int16_t k_emoji_left_x = k_emoji_cx - 28;
-static const int16_t k_emoji_right_x = k_emoji_cx + 28;
-static const int16_t k_emoji_nose_y = k_emoji_cy + 2;
-static const int16_t k_emoji_mouth_y = k_emoji_cy + 28;
-static const int16_t k_emoji_beard_y = k_emoji_cy + 18;
-static const int16_t k_eye_radius = 8;
-static const int16_t k_skin_focus_margin = 8;
+static const int16_t k_emoji_cy = 210;
+static const int16_t k_emoji_r = 104;
+static const int16_t k_emoji_eye_y = k_emoji_cy - 22;
+static const int16_t k_emoji_left_x = k_emoji_cx - 42;
+static const int16_t k_emoji_right_x = k_emoji_cx + 42;
+static const int16_t k_emoji_nose_y = k_emoji_cy + 4;
+static const int16_t k_emoji_mouth_y = k_emoji_cy + 45;
+static const int16_t k_emoji_beard_y = k_emoji_cy + 30;
+static const int16_t k_eye_radius = 12;
+static const int16_t k_skin_focus_margin = 9;
 static uint8_t merged_style_value(psych_state_style_field_t field, const faculty175_rotary_state_t *state);
 
 static uint16_t psych_color(uint8_t r, uint8_t g, uint8_t b)
 {
     return faculty175_display_rgb888(r, g, b);
-}
-
-static void fill_circle_quadrant_shadow(int16_t cx, int16_t cy, int16_t r, uint16_t color)
-{
-    for (int16_t y = -r; y <= r; ++y) {
-        for (int16_t x = -r; x <= r; ++x) {
-            if (x * x + y * y <= r * r && y >= 0) {
-                faculty175_display_draw_pixel(cx + x, cy + y, color);
-            }
-        }
-    }
 }
 
 static uint16_t psych_color_skin(uint8_t idx)
@@ -279,9 +268,7 @@ static void draw_memoji_face(const faculty175_rotary_state_t *state)
     const uint16_t blush = psych_color(237, 120, 132);
 
     faculty175_display_fill_circle(k_emoji_cx, k_emoji_cy, k_emoji_r, skin_color);
-    fill_circle_quadrant_shadow(k_emoji_cx + 1, k_emoji_cy + 1, k_emoji_r, psych_color(0, 0, 0));
-
-    faculty175_display_fill_rect(k_emoji_cx - k_emoji_r, k_emoji_cy - 12, 2 * k_emoji_r, 8, psych_color(120, 90, 40));
+    faculty175_display_draw_circle(k_emoji_cx, k_emoji_cy, k_emoji_r, psych_color(98, 71, 52));
     if (hair > 0) {
         faculty175_display_fill_rect(k_emoji_cx - k_emoji_r + 2, k_emoji_cy - k_emoji_r - 1, 2 * k_emoji_r - 4, 34, hair_color);
         for (int16_t i = 0; i < 6; ++i) {
