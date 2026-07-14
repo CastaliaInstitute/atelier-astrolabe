@@ -33,6 +33,8 @@
 #include "faculty175_wifi_settings.h"
 #include "faculty175_wifi_lab.h"
 #include "faculty175_wifi_monitor.h"
+#include "faculty175_usb_screen.h"
+#include "faculty175_rotary_state.h"
 #include "freertos/task.h"
 #include "nvs.h"
 
@@ -418,6 +420,46 @@ static void websim_placeholder_face(const char *label, uint32_t anim_ms)
     faculty175_display_draw_status(FACULTY175_UI_LISTEN, label, "websim stub", anim_ms, NULL, NULL, 0);
 }
 
+void faculty175_face_native_draw(const faculty175_native_face_t *face, uint32_t anim_ms)
+{
+    const char *label = (face != NULL && face->title != NULL) ? face->title : "Native";
+    websim_placeholder_face(label, anim_ms);
+}
+
+bool faculty175_face_native_action(faculty175_face_id_t id, uint32_t seed_ms)
+{
+    (void)id;
+    (void)seed_ms;
+    return false;
+}
+
+bool faculty175_face_native_audio_busy(void)
+{
+    return false;
+}
+
+bool faculty175_face_native_chakra_delta(faculty175_face_id_t id, int delta)
+{
+    (void)id;
+    (void)delta;
+    return false;
+}
+
+const char *faculty175_face_native_chakra_name(void)
+{
+    return "chakra";
+}
+
+void faculty175_face_hid_draw(uint32_t anim_ms)
+{
+    websim_placeholder_face("HID", anim_ms);
+}
+
+void faculty175_usb_screen_draw_face(uint32_t anim_ms)
+{
+    websim_placeholder_face("USB Screen", anim_ms);
+}
+
 void faculty175_face_deathstar_draw(uint32_t anim_ms) { websim_placeholder_face("Death Star", anim_ms); }
 void faculty175_face_maze_draw(uint32_t anim_ms) { websim_placeholder_face("Maze", anim_ms); }
 void faculty175_face_watcher_draw(uint32_t anim_ms) { websim_placeholder_face("Watcher", anim_ms); }
@@ -648,6 +690,57 @@ bool faculty175_wifi_monitor_get_newest(size_t offset, faculty175_wifi_incident_
     return faculty175_wifi_monitor_copy(out, 1) == 1;
 }
 void faculty175_wifi_monitor_clear(void) {}
+
+bool faculty175_rotary_state_get(faculty175_rotary_state_t *out)
+{
+    if (out == NULL) {
+        return false;
+    }
+    *out = (faculty175_rotary_state_t){
+        .valid = false,
+        .state = 0,
+        .rssi_dbm = -127,
+        .source = "websim",
+        .age_ms = 0,
+        .has_style = false,
+        .facial_hair = 0,
+        .glasses = 0,
+        .skin_tone = 0,
+        .hair_color = 0,
+        .eye_color = 0,
+    };
+    return false;
+}
+
+const char *faculty175_rotary_state_label(uint8_t state)
+{
+    static const char *const k_labels[FACULTY175_ROTARY_STATE_KIND_COUNT] = {
+        "neutral",
+        "calm",
+        "energized",
+        "focused",
+        "hopeful",
+        "frustrated",
+        "anxious",
+        "heavy",
+    };
+    return state < FACULTY175_ROTARY_STATE_KIND_COUNT ? k_labels[state] : "neutral";
+}
+
+const char *faculty175_rotary_state_emoji(uint8_t state)
+{
+    static const char *const k_emojis[FACULTY175_ROTARY_STATE_KIND_COUNT] = {
+        ":-|",
+        ":-)",
+        ":-D",
+        ":-!",
+        ":-)",
+        ">:(",
+        ":-/",
+        ":'(",
+    };
+    return state < FACULTY175_ROTARY_STATE_KIND_COUNT ? k_emojis[state] : ":-|";
+}
 
 bool faculty175_wifi_lab_is_face(faculty175_face_id_t id)
 {
