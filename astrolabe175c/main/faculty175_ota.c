@@ -59,7 +59,10 @@ static const char *TAG = "faculty175_ota";
 #define OTA_MIN_LARGEST_BLOCK (16 * 1024)
 #define OTA_AUTO_MANIFEST_URL "https://astrolabe.castalia.institute/releases/integration/" ASTROLABE_FACULTY_OTA_CHANNEL "/ota-manifest.json"
 #define OTA_AUTO_INITIAL_DELAY_MS 20000
-#define OTA_AUTO_DEFAULT_INTERVAL_S (15 * 60)
+#ifndef ASTROLABE_OTA_AUTO_INTERVAL_S
+#define ASTROLABE_OTA_AUTO_INTERVAL_S 60
+#endif
+#define OTA_AUTO_DEFAULT_INTERVAL_S ASTROLABE_OTA_AUTO_INTERVAL_S
 #define OTA_AUTO_MIN_INTERVAL_S 60
 #define OTA_LOCAL_PATH_MAX 256
 #define OTA_LOCAL_DEFAULT_RELATIVE "update/astrolabe175c.bin"
