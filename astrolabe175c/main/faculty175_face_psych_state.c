@@ -6,7 +6,6 @@
 
 #include "faculty175_board.h"
 #include "faculty175_face_psych_state.h"
-#include "faculty175_rotary_state.h"
 #include "nvs.h"
 
 #define PSYCH_STATE_NVS_NS "psych_state"
@@ -49,6 +48,24 @@ typedef enum {
     PSYCH_STYLE_VALENCE = 8,
     PSYCH_STYLE_COUNT = 9,
 } psych_state_style_field_t;
+
+typedef struct {
+    bool valid;
+    bool has_style;
+    uint8_t skin_tone;
+    uint8_t hair_color;
+    uint8_t eye_color;
+    uint8_t facial_hair;
+    uint8_t glasses;
+} faculty175_rotary_state_t;
+
+static bool faculty175_rotary_state_get(faculty175_rotary_state_t *state)
+{
+    if (state != NULL) {
+        memset(state, 0, sizeof(*state));
+    }
+    return false;
+}
 
 typedef struct {
     const char *name;

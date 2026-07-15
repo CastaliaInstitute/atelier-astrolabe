@@ -15,6 +15,7 @@
 
 #include "esp_heap_caps.h"
 #include <esp_system.h>
+#include <esp_sleep.h>
 #include "esp32-hal-tinyusb.h"
 
 #include "astrolabe_baseline.h"
@@ -109,6 +110,13 @@
 #include "pm_variant.h"
 #include "faces/home/pm_face_home_briefing.h"
 #include "pm_speaker.h"
+
+#ifndef MYNAH_OTA_AUTO_CHECK_INTERVAL_US
+#define MYNAH_OTA_AUTO_CHECK_INTERVAL_US (3ULL * 60ULL * 60ULL * 1000000ULL)
+#endif
+
+static bool s_timer_ota_wake = false;
+static bool s_deep_sleep_entering = false;
 
 Arduino_DataBus *bus = new Arduino_ESP32QSPI(
     LCD_CS, LCD_SCLK, LCD_SDIO0, LCD_SDIO1, LCD_SDIO2, LCD_SDIO3);
@@ -2676,6 +2684,7 @@ static void boot_variant_splash(void) {
 }
 
 void setup() {
+  s_timer_ota_wake = esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER;
   Serial.begin(115200);
   delay(200);
   pm_log_begin();
@@ -2779,6 +2788,17 @@ void setup() {
     pm_castalia_warmup_after_wifi();
   }
   pm_screen_http_begin(gfx);
+  if (s_timer_ota_wake) {
+    pm_log_printf(false, "ota: timer wake check");
+    Serial.println("OTA timer wake: checking release channel");
+    if (pm_screen_http_ota_auto_check()) {
+      delay(200);
+      ESP.restart();
+    }
+    pm_log_printf(false, "power: ota timer wake complete; deep sleep");
+    Serial.println("OTA timer wake: no update; deep sleep");
+    pm_power_enter_deep_sleep(MYNAH_OTA_AUTO_CHECK_INTERVAL_US);
+  }
   pm_faces_draw();
 
   ensure_pcm_buffer();
@@ -2838,6 +2858,12 @@ void loop() {
   }
   if (pm_power_tick(now)) {
     g_clock_repaint_pending = true;
+  }
+  if (!s_deep_sleep_entering && pm_power_should_deep_sleep(now)) {
+    s_deep_sleep_entering = true;
+    pm_log_printf(false, "power: deep sleep idle; next ota check in 3h");
+    Serial.println("power: deep sleep; BOOT wakes, timer checks OTA in 3h");
+    pm_power_enter_deep_sleep(MYNAH_OTA_AUTO_CHECK_INTERVAL_US);
   }
   release_noninstrument_speaker_task(now);
 

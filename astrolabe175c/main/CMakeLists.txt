@@ -52,6 +52,7 @@ idf_component_register(
         "faculty175_pocketwatch.c"
         "faculty175_charts.c"
         "faculty175_ephemeris.c"
+        "faculty175_cycle_arcs.c"
         "faculty175_ble.c"
         "faculty175_apocalypso.c"
         "faculty175_device_auth.c"
@@ -72,6 +73,7 @@ idf_component_register(
         "faculty175_faculty_roster.c"
         "faculty175_faculty_png.cpp"
         "faculty175_face_tarot_image.cpp"
+        "faculty175_face_solar_image.cpp"
         "faculty175_face_tarot_spiffs_image.cpp"
         ${PNGDEC_SRCS}
     INCLUDE_DIRS "." "../../include" "../../lib/astrolabe_display_core/include" "${ASTROLABE_PNGDEC}"

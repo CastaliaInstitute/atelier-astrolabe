@@ -1,6 +1,10 @@
 #include "pm_power.h"
 
 #include <Preferences.h>
+#include <Arduino.h>
+#include <esp_sleep.h>
+
+#include "pin_config.h"
 
 static constexpr const char *kNvsNs = "mynah";
 static constexpr const char *kEnabledKey = "pwr_en";
@@ -157,4 +161,22 @@ void pm_power_toggle_enabled(void) {
     apply_brightness(s_settings.active_brightness);
   }
   save_settings();
+}
+
+bool pm_power_should_deep_sleep(uint32_t now_ms) {
+  const PmPowerState st = pm_power_state(now_ms);
+  return st.settings.enabled && st.sleeping;
+}
+
+void pm_power_enter_deep_sleep(uint64_t sleep_us) {
+  apply_brightness(0);
+  if (sleep_us > 0) {
+    esp_sleep_enable_timer_wakeup(sleep_us);
+  }
+#if !defined(ASTROLABE_QEMU)
+  esp_sleep_enable_ext0_wakeup(static_cast<gpio_num_t>(MYNAH_BOOT_BUTTON_GPIO), 0);
+#endif
+  Serial.flush();
+  delay(50);
+  esp_deep_sleep_start();
 }

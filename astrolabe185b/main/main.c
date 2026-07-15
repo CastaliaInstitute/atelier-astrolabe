@@ -79,7 +79,7 @@ static const char *TAG = "faculty175";
 #define FACE_CAROUSEL_FRAMES 1
 #define FACE_CAROUSEL_FRAME_MS 120
 #define NAV_TRANSITION_MS 72
-#define FACULTY175_AUDIO_PIPELINE_AUTOSTART 0
+#define FACULTY175_AUDIO_PIPELINE_AUTOSTART 1
 #define LISTEN_CUE_RATE_HZ 16000
 #define LISTEN_CUE_CHUNK_FRAMES 256
 #define LISTEN_CUE_COOLDOWN_MS 1400
@@ -208,6 +208,7 @@ static bool draw_face_or_status(const faculty175_face_desc_t *face,
 static void faculty_log_ready(void);
 static void make_supabase_ws_url(char *out, size_t out_len, const char *base_url, const char *path);
 static bool start_face_tts_read(const faculty175_face_desc_t *face);
+static bool start_faculty_voice_capture(uint32_t now_ms, const char *source);
 static esp_err_t face_tts_stream_post(const char *prompt,
                                       const char *system,
                                       const char *post_face,
@@ -1051,6 +1052,27 @@ bool faculty175_request_current_face_tts(void)
                          face != NULL ? face->slug : "-",
                          handled ? "yes" : "no");
     return handled;
+}
+
+static bool start_faculty_voice_capture(uint32_t now_ms, const char *source)
+{
+    if (s_pipeline == NULL) {
+        FACULTY175_LOG_STAGE_W(TAG, "listen", "faculty %s STT unavailable: no pipeline", source != NULL ? source : "face");
+        ui_set(FACULTY175_UI_ERROR, "voice unavailable");
+        return true;
+    }
+    if (s_power_on_battery) {
+        battery_arm_button_stt(now_ms);
+    }
+    sync_voice_context(NULL);
+    const esp_err_t err = astrolabe_audio_pipeline_trigger_capture(s_pipeline);
+    FACULTY175_LOG_STAGE(TAG, "listen", "faculty %s STT %s", source != NULL ? source : "face", esp_err_to_name(err));
+    if (err == ESP_OK) {
+        ui_set(FACULTY175_UI_CAPTURE, "ask");
+    } else {
+        ui_set(FACULTY175_UI_ERROR, "voice fail");
+    }
+    return true;
 }
 
 static esp_err_t pipeline_read(int16_t *samples, size_t sample_count, size_t *out_read, uint32_t timeout_ms, void *user)
@@ -2731,11 +2753,17 @@ static void input_task(void *arg)
                             ui_redraw();
                         }
                         faculty175_gesture_flush();
+                    } else if (face != NULL && face->id == FACULTY175_FACE_FACULTY &&
+                               start_faculty_voice_capture(now_ms, "tap")) {
+                        ui_redraw();
                     } else if (face != NULL && faculty175_face_dispatch_action(face->id, now_ms)) {
                         ui_redraw();
                     } else {
                         FACULTY175_LOG_STAGE(TAG, "faces", "tap no action");
                     }
+                } else if (face != NULL && face->id == FACULTY175_FACE_FACULTY &&
+                           start_faculty_voice_capture(now_ms, "tap")) {
+                    ui_redraw();
                 } else if (face != NULL && faculty175_face_dispatch_action(face->id, now_ms)) {
                     ui_redraw();
                 } else {
@@ -2760,7 +2788,10 @@ static void input_task(void *arg)
                 continue;
             }
             const faculty175_face_desc_t *face = faculty175_faces_current();
-            if (face != NULL && start_face_tts_read(face)) {
+            if (face != NULL && face->id == FACULTY175_FACE_FACULTY &&
+                start_faculty_voice_capture(now_ms, "button")) {
+                FACULTY175_LOG_STAGE(TAG, "listen", "button ask %s", face->slug);
+            } else if (face != NULL && start_face_tts_read(face)) {
                 FACULTY175_LOG_STAGE(TAG, "tts-face", "button read %s", face->slug);
             } else if (s_power_on_battery && s_pipeline != NULL) {
                 battery_arm_button_stt(now_ms);

@@ -255,10 +255,27 @@
           return new URL(path, document.baseURI).href;
         },
         onRuntimeInitialized() {
-          populateFaces();
-          controls.prev.disabled = false;
-          controls.next.disabled = false;
-          controls.select.disabled = false;
+          const ready = () => {
+            if (typeof Module.ccall !== "function") {
+              return false;
+            }
+            try {
+              return Module.ccall("astrolabe_web_face_count", "number") > 0;
+            } catch (_) {
+              return false;
+            }
+          };
+          const enableControls = (attempt = 0) => {
+            if (!ready() && attempt < 50) {
+              window.setTimeout(() => enableControls(attempt + 1), 20);
+              return;
+            }
+            populateFaces();
+            controls.prev.disabled = false;
+            controls.next.disabled = false;
+            controls.select.disabled = false;
+          };
+          enableControls();
         },
       };
     </script>

@@ -13,11 +13,18 @@
 #include "esp_bt.h"
 #include "esp_bt_defs.h"
 #include "esp_bt_main.h"
+#include "esp_event.h"
 #include "esp_gap_ble_api.h"
 #include "esp_gatt_common_api.h"
 #include "esp_gattc_api.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_mac.h"
+#include "esp_netif.h"
+#include "esp_now.h"
+#include "esp_timer.h"
+#include "esp_wifi.h"
+#include "nvs.h"
 #include "nvs_flash.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -54,8 +61,105 @@ static const char *TAG = "wand-btd";
 #define CST3530_CLEAR_COMMAND 0xD00002AB
 #define ST77916_QSPI_WRITE_COLOR 0x32
 #define ST77916_RAMWR 0x2C
+#define ESPNOW_CHANNEL 6
+#define FAMILY_IDENTITY_MAGIC 0x4944454eU
+#define FAMILY_WELLNESS_MAGIC 0x57454c4cU
+#define FAMILY_WELLNESS_VERSION 1
+#define FAMILY_SUBJECT_CAMILLE 1
+#define FAMILY_WELLNESS_FLAG_STRESS_VALID 0x0001
+#define FAMILY_WELLNESS_FLAG_HRV_VALID 0x0002
+#define FAMILY_WELLNESS_FLAG_HR_VALID 0x0004
+#define FAMILY_WELLNESS_FLAG_SPO2_VALID 0x0008
+#define FAMILY_WELLNESS_FLAG_SLEEP_VALID 0x0010
+#define FAMILY_WELLNESS_FLAG_BATTERY_VALID 0x0020
+#define WELLNESS_PUBLISH_MS 15000
+#define WELLNESS_POLL_MS 15000
+#define WELLNESS_HISTORY_POLL_MS 300000
+#define IDENTITY_PUBLISH_MS 60000
+#define IDENTITY_NAME_MAX 24
 
 #define RGB565(r, g, b) (uint16_t)((((r) & 0xf8) << 8) | (((g) & 0xfc) << 3) | ((b) >> 3))
+
+enum {
+    CMD_BATTERY = 0x03,
+    CMD_REALTIME_HEART_RATE = 0x1e,
+    CMD_SYNC_STRESS = 0x37,
+    CMD_SYNC_HRV = 0x39,
+    CMD_MANUAL_REALTIME = 0x69,
+    CMD_BIG_DATA_V2 = 0xbc,
+    BIG_DATA_SLEEP = 0x27,
+    REALTIME_HEART_RATE = 0x01,
+    REALTIME_SPO2 = 0x03,
+    REALTIME_PRESSURE = 0x08,
+    REALTIME_HRV = 0x0a,
+    REALTIME_START = 0x01,
+    REALTIME_STOP = 0x04,
+    SLEEP_LIGHT = 0x02,
+    SLEEP_DEEP = 0x03,
+    SLEEP_REM = 0x04,
+    SLEEP_AWAKE = 0x05,
+};
+
+typedef struct __attribute__((packed)) {
+    uint32_t magic;
+    uint8_t version;
+    uint8_t channel;
+    uint16_t size;
+    uint32_t seq;
+    uint32_t uptime_ms;
+    uint8_t source_mac[6];
+    uint8_t subject_id;
+    uint8_t flags;
+    uint8_t stress;
+    uint8_t hrv_ms;
+    uint8_t heart_rate_bpm;
+    uint8_t spo2_percent;
+    uint16_t sleep_total_min;
+    uint16_t sleep_light_min;
+    uint16_t sleep_deep_min;
+    uint16_t sleep_rem_min;
+    uint16_t sleep_awake_min;
+    uint8_t battery_percent;
+    int8_t stress_trend_30m;
+} family_wellness_packet_t;
+
+typedef struct __attribute__((packed)) {
+    uint32_t magic;
+    uint8_t version;
+    uint8_t channel;
+    uint16_t size;
+    uint32_t seq;
+    uint32_t uptime_ms;
+    uint8_t source_mac[6];
+    uint8_t subject_id;
+    char subject_name[IDENTITY_NAME_MAX];
+} family_identity_packet_t;
+
+typedef struct {
+    bool stress_valid;
+    uint8_t stress;
+    bool hrv_valid;
+    uint8_t hrv_ms;
+    bool heart_rate_valid;
+    uint8_t heart_rate_bpm;
+    bool spo2_valid;
+    uint8_t spo2_percent;
+    bool sleep_valid;
+    uint16_t sleep_total_min;
+    uint16_t sleep_light_min;
+    uint16_t sleep_deep_min;
+    uint16_t sleep_rem_min;
+    uint16_t sleep_awake_min;
+    bool battery_valid;
+    uint8_t battery_percent;
+    bool charging;
+    TickType_t updated_at;
+} wellness_state_t;
+
+typedef struct {
+    uint8_t subject_id;
+    char subject_name[IDENTITY_NAME_MAX];
+} device_identity_t;
 
 typedef struct {
     uint8_t cmd;
@@ -245,6 +349,18 @@ static bool s_sent_enable;
 static uint8_t s_raw_attempt;
 static bool s_tx_busy;
 static TaskHandle_t s_rssi_task;
+static TaskHandle_t s_wellness_task;
+static wellness_state_t s_wellness;
+static device_identity_t s_identity = {
+    .subject_id = FAMILY_SUBJECT_CAMILLE,
+    .subject_name = "LunaSay",
+};
+static bool s_espnow_ready;
+static uint32_t s_wellness_seq;
+static uint32_t s_identity_seq;
+static uint8_t s_realtime_kind = REALTIME_HEART_RATE;
+static int8_t s_stress_anchor = -1;
+static TickType_t s_stress_anchor_tick;
 
 typedef struct {
     uint16_t handle;
@@ -1741,6 +1857,18 @@ static void make_command(uint8_t cmd, uint8_t a, uint8_t b, uint8_t out[16])
     out[15] = checksum(out, 15);
 }
 
+static void make_command_payload(const uint8_t *payload, size_t payload_len, uint8_t out[16])
+{
+    memset(out, 0, 16);
+    if (payload && payload_len > 0) {
+        if (payload_len > 15) {
+            payload_len = 15;
+        }
+        memcpy(out, payload, payload_len);
+    }
+    out[15] = checksum(out, 15);
+}
+
 static int16_t parse_i12(uint8_t hi, uint8_t lo_nibble)
 {
     int16_t v = (int16_t)(((uint16_t)hi << 4) | (lo_nibble & 0x0f));
@@ -1758,6 +1886,71 @@ static int16_t be16_at(const uint8_t *data, uint16_t offset)
 static int16_t le16_at(const uint8_t *data, uint16_t offset)
 {
     return (int16_t)(((uint16_t)data[offset + 1] << 8) | data[offset]);
+}
+
+static uint16_t u16le_bytes(uint8_t lo, uint8_t hi)
+{
+    return (uint16_t)lo | ((uint16_t)hi << 8);
+}
+
+static bool sanitize_identity_name(char *name, size_t size)
+{
+    bool changed = false;
+    if (!name || size == 0) {
+        return true;
+    }
+    name[size - 1] = '\0';
+    for (size_t i = 0; name[i] != '\0'; ++i) {
+        unsigned char c = (unsigned char)name[i];
+        if (c < 0x20 || c > 0x7e) {
+            name[i] = '_';
+            changed = true;
+        }
+    }
+    if (name[0] == '\0') {
+        snprintf(name, size, "LunaSay");
+        changed = true;
+    }
+    return changed;
+}
+
+static void load_identity_from_nvs(void)
+{
+    nvs_handle_t nvs = 0;
+    esp_err_t err = nvs_open("identity", NVS_READWRITE, &nvs);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "identity NVS open failed: %s", esp_err_to_name(err));
+        return;
+    }
+
+    bool commit = false;
+    uint8_t subject_id = s_identity.subject_id;
+    err = nvs_get_u8(nvs, "subject_id", &subject_id);
+    if (err == ESP_OK && subject_id != 0) {
+        s_identity.subject_id = subject_id;
+    } else {
+        ESP_ERROR_CHECK_WITHOUT_ABORT(nvs_set_u8(nvs, "subject_id", s_identity.subject_id));
+        commit = true;
+    }
+
+    size_t name_len = sizeof(s_identity.subject_name);
+    err = nvs_get_str(nvs, "name", s_identity.subject_name, &name_len);
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
+        ESP_ERROR_CHECK_WITHOUT_ABORT(nvs_set_str(nvs, "name", s_identity.subject_name));
+        commit = true;
+    } else if (err != ESP_OK) {
+        ESP_LOGW(TAG, "identity name read failed: %s", esp_err_to_name(err));
+    }
+    if (sanitize_identity_name(s_identity.subject_name, sizeof(s_identity.subject_name))) {
+        ESP_ERROR_CHECK_WITHOUT_ABORT(nvs_set_str(nvs, "name", s_identity.subject_name));
+        commit = true;
+    }
+
+    if (commit) {
+        ESP_ERROR_CHECK_WITHOUT_ABORT(nvs_commit(nvs));
+    }
+    nvs_close(nvs);
+    ESP_LOGI(TAG, "identity name=%s subject_id=%u", s_identity.subject_name, s_identity.subject_id);
 }
 
 static void map_raw_to_wand(float rx, float ry, float rz, float *wx, float *wy, float *wz)
@@ -1785,12 +1978,161 @@ static void map_raw_to_wand(float rx, float ry, float rz, float *wx, float *wy, 
     *wz = -rx;
 }
 
+static void mark_wellness(void)
+{
+    s_wellness.updated_at = xTaskGetTickCount();
+}
+
+static void update_stress_anchor(uint8_t stress)
+{
+    TickType_t now = xTaskGetTickCount();
+    if (s_stress_anchor < 0 || now - s_stress_anchor_tick > pdMS_TO_TICKS(30 * 60 * 1000)) {
+        s_stress_anchor = (int8_t)stress;
+        s_stress_anchor_tick = now;
+    }
+}
+
+static void parse_realtime_value(const uint8_t *data, uint16_t len)
+{
+    if (!data || len < 4 || data[2] != 0x00) {
+        return;
+    }
+    const uint8_t kind = data[1];
+    const uint8_t value = data[3];
+    if (value == 0) {
+        return;
+    }
+    switch (kind) {
+    case REALTIME_HEART_RATE:
+        s_wellness.heart_rate_bpm = value;
+        s_wellness.heart_rate_valid = true;
+        break;
+    case REALTIME_SPO2:
+        s_wellness.spo2_percent = value;
+        s_wellness.spo2_valid = true;
+        break;
+    case REALTIME_PRESSURE:
+        s_wellness.stress = value;
+        s_wellness.stress_valid = true;
+        update_stress_anchor(value);
+        break;
+    case REALTIME_HRV:
+        s_wellness.hrv_ms = value;
+        s_wellness.hrv_valid = true;
+        break;
+    default:
+        return;
+    }
+    mark_wellness();
+}
+
+static void parse_history_series(const uint8_t *data, uint16_t len, bool hrv)
+{
+    if (!data || len < 4 || data[1] == 0xff || data[1] == 0x00) {
+        return;
+    }
+    const uint8_t packet_nr = data[1];
+    const uint16_t start = packet_nr == 1 ? 3 : 2;
+    for (uint16_t i = start; i + 1 < len; ++i) {
+        const uint8_t value = data[i];
+        if (value == 0) {
+            continue;
+        }
+        if (hrv) {
+            s_wellness.hrv_ms = value;
+            s_wellness.hrv_valid = true;
+        } else {
+            s_wellness.stress = value;
+            s_wellness.stress_valid = true;
+            update_stress_anchor(value);
+        }
+        mark_wellness();
+    }
+}
+
+static void parse_sleep_history(const uint8_t *data, uint16_t len)
+{
+    if (!data || len < 8) {
+        return;
+    }
+    const uint16_t packet_len = u16le_bytes(data[2], data[3]);
+    if (packet_len < 2) {
+        return;
+    }
+
+    size_t index = 7;
+    const uint8_t days_in_packet = data[6];
+    wellness_state_t sleep = s_wellness;
+    sleep.sleep_total_min = 0;
+    sleep.sleep_light_min = 0;
+    sleep.sleep_deep_min = 0;
+    sleep.sleep_rem_min = 0;
+    sleep.sleep_awake_min = 0;
+    for (uint8_t day = 0; day < days_in_packet && index + 5 < len; ++day) {
+        const uint8_t days_ago = data[index++];
+        const uint8_t day_bytes = data[index++];
+        const uint16_t sleep_start = u16le_bytes(data[index], data[index + 1]);
+        index += 2;
+        const uint16_t sleep_end = u16le_bytes(data[index], data[index + 1]);
+        index += 2;
+        (void)sleep_start;
+        (void)sleep_end;
+        if (days_ago != 0) {
+            index += day_bytes > 4 ? day_bytes - 4 : 0;
+            continue;
+        }
+        for (uint8_t j = 4; j + 1 < day_bytes && index + 1 < len; j += 2) {
+            const uint8_t stage = data[index++];
+            const uint8_t minutes = data[index++];
+            if (minutes == 0) {
+                continue;
+            }
+            sleep.sleep_total_min += minutes;
+            switch (stage) {
+            case SLEEP_LIGHT:
+                sleep.sleep_light_min += minutes;
+                break;
+            case SLEEP_DEEP:
+                sleep.sleep_deep_min += minutes;
+                break;
+            case SLEEP_REM:
+                sleep.sleep_rem_min += minutes;
+                break;
+            case SLEEP_AWAKE:
+                sleep.sleep_awake_min += minutes;
+                break;
+            default:
+                break;
+            }
+        }
+        sleep.sleep_valid = sleep.sleep_total_min > 0;
+    }
+    if (sleep.sleep_valid) {
+        s_wellness = sleep;
+        mark_wellness();
+    }
+}
+
 static void parse_notify(const uint8_t *data, uint16_t len)
 {
     printf("RX ");
     print_hex(data, len);
     printf("\n");
-    if (len >= 10 && data[1] == 0x03) {
+    if (len >= 4 && data[0] == CMD_BATTERY) {
+        s_wellness.battery_percent = data[1];
+        s_wellness.charging = data[2] == 0x01;
+        s_wellness.battery_valid = true;
+        mark_wellness();
+        ESP_LOGI(TAG, "battery=%u charging=%u", data[1], data[2]);
+    } else if (len >= 4 && (data[0] == CMD_MANUAL_REALTIME || data[0] == CMD_REALTIME_HEART_RATE)) {
+        parse_realtime_value(data, len);
+    } else if (data[0] == CMD_SYNC_STRESS) {
+        parse_history_series(data, len, false);
+    } else if (data[0] == CMD_SYNC_HRV) {
+        parse_history_series(data, len, true);
+    } else if (data[0] == CMD_BIG_DATA_V2 && len >= 7 && data[1] == BIG_DATA_SLEEP) {
+        parse_sleep_history(data, len);
+    } else if (len >= 10 && data[1] == 0x03) {
         int16_t raw_y = parse_i12(data[2], data[3]);
         int16_t raw_z = parse_i12(data[4], data[5]);
         int16_t raw_x = parse_i12(data[6], data[7]);
@@ -1835,8 +2177,6 @@ static void parse_notify(const uint8_t *data, uint16_t len)
         ESP_LOGI(TAG, "IMU cmd=0x%02x rssi=%d raw x=%d y=%d z=%d g x=%.3f y=%.3f z=%.3f",
                  data[0], s_target_rssi, raw_x, raw_y, raw_z,
                  raw_x / 512.0f, raw_y / 512.0f, raw_z / 512.0f);
-    } else if (len >= 3 && (data[0] & 0x7f) == 0x03) {
-        ESP_LOGI(TAG, "battery=%u charging=%u", data[1], data[2]);
     } else if (len >= 2 && data[0] == 0xa1 && data[1] == 0xff) {
         s_ring_status = "raw rejected";
         try_next_raw_mode();
@@ -1921,6 +2261,16 @@ static void send_to_ring(const uint8_t *data, uint16_t len, const char *label)
     send_to_handle_queued(handle, data, len, label);
 }
 
+static void send_to_ring_both(const uint8_t *data, uint16_t len, const char *label)
+{
+    if (s_uart.write_handle) {
+        send_to_handle_queued(s_uart.write_handle, data, len, label);
+    }
+    if (s_main.write_handle && s_main.write_handle != s_uart.write_handle) {
+        send_to_handle_queued(s_main.write_handle, data, len, label);
+    }
+}
+
 static void send_framed_payload(uint8_t cmd, const uint8_t *payload, uint8_t payload_len, const char *label)
 {
     uint8_t packet[16] = {0};
@@ -1931,6 +2281,184 @@ static void send_framed_payload(uint8_t cmd, const uint8_t *payload, uint8_t pay
     memcpy(&packet[1], payload, payload_len);
     packet[15] = checksum(packet, 15);
     send_to_ring(packet, sizeof(packet), label);
+}
+
+static void send_wellness_history_requests(void)
+{
+    uint8_t cmd[16];
+    make_command(CMD_BATTERY, 0x00, 0x00, cmd);
+    send_to_ring_both(cmd, sizeof(cmd), "well-battery");
+
+    make_command(CMD_SYNC_STRESS, 0x00, 0x00, cmd);
+    send_to_ring_both(cmd, sizeof(cmd), "well-stress-history");
+
+    const uint8_t hrv_payload[] = {CMD_SYNC_HRV, 0x00, 0x00, 0x00, 0x00};
+    make_command_payload(hrv_payload, sizeof(hrv_payload), cmd);
+    send_to_ring_both(cmd, sizeof(cmd), "well-hrv-history");
+
+    const uint8_t sleep_payload[] = {CMD_BIG_DATA_V2, BIG_DATA_SLEEP, 0x01, 0x00, 0xff, 0x00, 0xff};
+    if (s_main.write_handle) {
+        send_to_handle_queued(s_main.write_handle, sleep_payload, sizeof(sleep_payload), "well-sleep-history");
+    } else {
+        send_to_ring(sleep_payload, sizeof(sleep_payload), "well-sleep-history");
+    }
+}
+
+static void send_realtime_probe(void)
+{
+    uint8_t cmd[16];
+    const uint8_t payload[] = {CMD_MANUAL_REALTIME, s_realtime_kind, REALTIME_START};
+    make_command_payload(payload, sizeof(payload), cmd);
+    send_to_ring_both(cmd, sizeof(cmd), "well-realtime");
+
+    switch (s_realtime_kind) {
+    case REALTIME_HEART_RATE:
+        s_realtime_kind = REALTIME_SPO2;
+        break;
+    case REALTIME_SPO2:
+        s_realtime_kind = REALTIME_HRV;
+        break;
+    case REALTIME_HRV:
+        s_realtime_kind = REALTIME_PRESSURE;
+        break;
+    default:
+        s_realtime_kind = REALTIME_HEART_RATE;
+        break;
+    }
+}
+
+static bool wellness_has_data(void)
+{
+    return s_wellness.stress_valid || s_wellness.hrv_valid || s_wellness.heart_rate_valid ||
+           s_wellness.spo2_valid || s_wellness.sleep_valid || s_wellness.battery_valid;
+}
+
+static void publish_identity_packet(void)
+{
+    if (!s_espnow_ready) {
+        return;
+    }
+
+    family_identity_packet_t pkt = {
+        .magic = FAMILY_IDENTITY_MAGIC,
+        .version = FAMILY_WELLNESS_VERSION,
+        .channel = ESPNOW_CHANNEL,
+        .size = sizeof(family_identity_packet_t),
+        .seq = ++s_identity_seq,
+        .uptime_ms = (uint32_t)(esp_timer_get_time() / 1000ULL),
+        .subject_id = s_identity.subject_id,
+    };
+    ESP_ERROR_CHECK_WITHOUT_ABORT(esp_read_mac(pkt.source_mac, ESP_MAC_WIFI_STA));
+    snprintf(pkt.subject_name, sizeof(pkt.subject_name), "%s", s_identity.subject_name);
+
+    const uint8_t broadcast[ESP_NOW_ETH_ALEN] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+    esp_err_t err = esp_now_send(broadcast, (const uint8_t *)&pkt, sizeof(pkt));
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "IDEN name=%s subject=%u seq=%" PRIu32,
+                 pkt.subject_name, pkt.subject_id, pkt.seq);
+    } else {
+        ESP_LOGW(TAG, "esp-now IDEN send failed: %s", esp_err_to_name(err));
+    }
+}
+
+static void publish_wellness_packet(void)
+{
+    if (!s_espnow_ready || !wellness_has_data()) {
+        return;
+    }
+
+    family_wellness_packet_t pkt = {
+        .magic = FAMILY_WELLNESS_MAGIC,
+        .version = FAMILY_WELLNESS_VERSION,
+        .channel = ESPNOW_CHANNEL,
+        .size = sizeof(family_wellness_packet_t),
+        .seq = ++s_wellness_seq,
+        .uptime_ms = (uint32_t)(esp_timer_get_time() / 1000ULL),
+        .subject_id = s_identity.subject_id,
+        .stress = s_wellness.stress,
+        .hrv_ms = s_wellness.hrv_ms,
+        .heart_rate_bpm = s_wellness.heart_rate_bpm,
+        .spo2_percent = s_wellness.spo2_percent,
+        .sleep_total_min = s_wellness.sleep_total_min,
+        .sleep_light_min = s_wellness.sleep_light_min,
+        .sleep_deep_min = s_wellness.sleep_deep_min,
+        .sleep_rem_min = s_wellness.sleep_rem_min,
+        .sleep_awake_min = s_wellness.sleep_awake_min,
+        .battery_percent = s_wellness.battery_percent,
+    };
+    ESP_ERROR_CHECK_WITHOUT_ABORT(esp_read_mac(pkt.source_mac, ESP_MAC_WIFI_STA));
+    if (s_wellness.stress_valid) {
+        pkt.flags |= FAMILY_WELLNESS_FLAG_STRESS_VALID;
+        if (s_stress_anchor >= 0) {
+            int trend = (int)s_wellness.stress - (int)s_stress_anchor;
+            if (trend < -127) {
+                trend = -127;
+            } else if (trend > 127) {
+                trend = 127;
+            }
+            pkt.stress_trend_30m = (int8_t)trend;
+        }
+    }
+    if (s_wellness.hrv_valid) {
+        pkt.flags |= FAMILY_WELLNESS_FLAG_HRV_VALID;
+    }
+    if (s_wellness.heart_rate_valid) {
+        pkt.flags |= FAMILY_WELLNESS_FLAG_HR_VALID;
+    }
+    if (s_wellness.spo2_valid) {
+        pkt.flags |= FAMILY_WELLNESS_FLAG_SPO2_VALID;
+    }
+    if (s_wellness.sleep_valid) {
+        pkt.flags |= FAMILY_WELLNESS_FLAG_SLEEP_VALID;
+    }
+    if (s_wellness.battery_valid) {
+        pkt.flags |= FAMILY_WELLNESS_FLAG_BATTERY_VALID;
+    }
+
+    const uint8_t broadcast[ESP_NOW_ETH_ALEN] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+    esp_err_t err = esp_now_send(broadcast, (const uint8_t *)&pkt, sizeof(pkt));
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG,
+                 "WELL name=%s subject=%u seq=%" PRIu32
+                 " flags=0x%02x stress=%u hrv=%u hr=%u spo2=%u sleep=%u batt=%u trend=%d",
+                 s_identity.subject_name, pkt.subject_id, pkt.seq, pkt.flags, pkt.stress, pkt.hrv_ms, pkt.heart_rate_bpm, pkt.spo2_percent,
+                 pkt.sleep_total_min, pkt.battery_percent, pkt.stress_trend_30m);
+    } else {
+        ESP_LOGW(TAG, "esp-now WELL send failed: %s", esp_err_to_name(err));
+    }
+}
+
+static void wellness_task(void *arg)
+{
+    (void)arg;
+    TickType_t last_probe = 0;
+    TickType_t last_history = 0;
+    TickType_t last_publish = 0;
+    TickType_t last_identity = 0;
+    publish_identity_packet();
+    send_wellness_history_requests();
+    while (s_connected) {
+        TickType_t now = xTaskGetTickCount();
+        if (now - last_probe >= pdMS_TO_TICKS(WELLNESS_POLL_MS)) {
+            last_probe = now;
+            send_realtime_probe();
+        }
+        if (now - last_history >= pdMS_TO_TICKS(WELLNESS_HISTORY_POLL_MS)) {
+            last_history = now;
+            send_wellness_history_requests();
+        }
+        if (now - last_publish >= pdMS_TO_TICKS(WELLNESS_PUBLISH_MS)) {
+            last_publish = now;
+            publish_wellness_packet();
+        }
+        if (now - last_identity >= pdMS_TO_TICKS(IDENTITY_PUBLISH_MS)) {
+            last_identity = now;
+            publish_identity_packet();
+        }
+        vTaskDelay(pdMS_TO_TICKS(500));
+    }
+    s_wellness_task = NULL;
+    vTaskDelete(NULL);
 }
 
 static void try_next_raw_mode(void)
@@ -1961,6 +2489,48 @@ static void rssi_task(void *arg)
     vTaskDelete(NULL);
 }
 
+static void espnow_send_cb(const esp_now_send_info_t *tx_info, esp_now_send_status_t status)
+{
+    (void)tx_info;
+    if (status != ESP_NOW_SEND_SUCCESS) {
+        ESP_LOGW(TAG, "esp-now send status=%d", status);
+    }
+}
+
+static void init_espnow_publisher(void)
+{
+    ESP_ERROR_CHECK(esp_netif_init());
+    esp_err_t event_ret = esp_event_loop_create_default();
+    if (event_ret != ESP_OK && event_ret != ESP_ERR_INVALID_STATE) {
+        ESP_ERROR_CHECK(event_ret);
+    }
+
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+    ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+    ESP_ERROR_CHECK(esp_wifi_start());
+    ESP_ERROR_CHECK(esp_wifi_set_channel(ESPNOW_CHANNEL, WIFI_SECOND_CHAN_NONE));
+
+    ESP_ERROR_CHECK(esp_now_init());
+    ESP_ERROR_CHECK(esp_now_register_send_cb(espnow_send_cb));
+
+    esp_now_peer_info_t peer = {0};
+    memset(peer.peer_addr, 0xff, ESP_NOW_ETH_ALEN);
+    peer.channel = ESPNOW_CHANNEL;
+    peer.ifidx = WIFI_IF_STA;
+    peer.encrypt = false;
+    esp_err_t add_ret = esp_now_add_peer(&peer);
+    if (add_ret != ESP_OK && add_ret != ESP_ERR_ESPNOW_EXIST) {
+        ESP_ERROR_CHECK(add_ret);
+    }
+    s_espnow_ready = true;
+    uint8_t sta_mac[6] = {0};
+    ESP_ERROR_CHECK_WITHOUT_ABORT(esp_read_mac(sta_mac, ESP_MAC_WIFI_STA));
+    ESP_LOGI(TAG, "ESP-NOW wellness publisher mac=" MACSTR " channel=%u subject=%s id=%u",
+             MAC2STR(sta_mac), ESPNOW_CHANNEL, s_identity.subject_name, s_identity.subject_id);
+}
+
 static void ring_ready(void)
 {
     if (s_sent_enable) {
@@ -1978,6 +2548,9 @@ static void ring_ready(void)
     send_to_handle_queued(s_uart.write_handle, raw_alt, sizeof(raw_alt), "uart-raw-a10404-first");
     if (!s_rssi_task) {
         xTaskCreate(rssi_task, "ring_rssi", 2048, NULL, 5, &s_rssi_task);
+    }
+    if (!s_wellness_task) {
+        xTaskCreate(wellness_task, "wellness_pub", 4096, NULL, 5, &s_wellness_task);
     }
 }
 
@@ -2300,9 +2873,12 @@ void app_main(void)
         ESP_ERROR_CHECK(ret);
     }
 
-    ESP_LOGI(TAG, "starting Bluedroid Colmi client");
+    load_identity_from_nvs();
+    ESP_LOGI(TAG, "starting Bluedroid Colmi client name=%s subject_id=%u",
+             s_identity.subject_name, s_identity.subject_id);
     log_heap("boot");
     display_begin();
+    init_espnow_publisher();
     ESP_ERROR_CHECK(esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT));
     esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_bt_controller_init(&bt_cfg));

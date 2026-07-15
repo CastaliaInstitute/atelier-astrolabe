@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # m1 bench automation: pull integration → build → flash → comprehensive face/gesture test.
+# Optionally run the all-face STT/TTS voice gate with ASTROLABE_BENCH_VOICE=1.
 #
 #   ./scripts/device-bench.sh
 #   ./scripts/device-bench.sh --no-pull
@@ -28,6 +29,8 @@ Usage: device-bench.sh [--no-pull] [--no-flash]
 Env:
   ASTROLABE_BENCH_BRANCH     default integration
   ASTROLABE_FT_MATRIX        default tests/functional/faces_astrolabe_comprehensive.json
+  ASTROLABE_BENCH_VOICE      default 0; set 1 to run all-face STT/TTS tour
+  ASTROLABE_VOICE_LIMIT      optional face count for voice shakedown
   ASTROLABE_USB_POWER_CYCLE  default 1
   ASTROLABE_UHUBCTL_SEARCH   default Espressif
 EOF
@@ -81,15 +84,48 @@ if [[ ! -x "${VENV}/bin/python" ]]; then
 fi
 
 # ci-flash already uploaded; functional_test only re-flashes with --flash.
+set +e
 "${VENV}/bin/python" "${ROOT}/scripts/functional_test.py" --port "$PORT" --matrix "${ASTROLABE_FT_MATRIX}"
 RC=$?
+set -e
+
+if [[ "$RC" == "0" && "${ASTROLABE_BENCH_VOICE:-0}" == "1" ]]; then
+  echo "→ voice STT/TTS face tour on ${PORT}"
+  "${VENV}/bin/python" "${ROOT}/scripts/stt_tts_face_tour.py" --self-test
+  VOICE_ARGS=(--port "$PORT")
+  if [[ -n "${ASTROLABE_VOICE_LIMIT:-}" ]]; then
+    VOICE_ARGS+=(--limit "${ASTROLABE_VOICE_LIMIT}")
+  fi
+  set +e
+  "${VENV}/bin/python" "${ROOT}/scripts/stt_tts_face_tour.py" "${VOICE_ARGS[@]}"
+  RC=$?
+  set -e
+fi
 
 ln -sf "${STAMP}.log" "${LOG_DIR}/latest.log"
 if [[ -f artifacts/functional/latest/report.json ]]; then
   cp artifacts/functional/latest/report.json "${LOG_DIR}/${STAMP}-report.json"
   ln -sf "${STAMP}-report.json" "${LOG_DIR}/latest-report.json"
 fi
+VOICE_LATEST="$(find artifacts/qa -maxdepth 2 -path '*/summary.json' -path '*stt-tts-face-tour-*' -print 2>/dev/null | sort | tail -1 || true)"
+if [[ -n "$VOICE_LATEST" && -f "$VOICE_LATEST" ]]; then
+  if [[ "${ASTROLABE_BENCH_VOICE:-0}" == "1" && "$RC" == "0" ]]; then
+    VERIFY_ARGS=(--verify-summary "$VOICE_LATEST")
+    if [[ -n "${ASTROLABE_VOICE_LIMIT:-}" ]]; then
+      VERIFY_ARGS+=(--allow-limited)
+    fi
+    set +e
+    "${VENV}/bin/python" "${ROOT}/scripts/stt_tts_face_tour.py" "${VERIFY_ARGS[@]}"
+    RC=$?
+    set -e
+  fi
+  cp "$VOICE_LATEST" "${LOG_DIR}/${STAMP}-voice-summary.json"
+  ln -sf "${STAMP}-voice-summary.json" "${LOG_DIR}/latest-voice-summary.json"
+fi
 
 echo "→ log ${LOG}"
 echo "→ report artifacts/functional/latest/report.json"
+if [[ -n "${VOICE_LATEST:-}" ]]; then
+  echo "→ voice summary ${VOICE_LATEST}"
+fi
 exit "$RC"

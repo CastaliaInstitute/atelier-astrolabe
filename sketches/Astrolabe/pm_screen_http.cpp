@@ -5,7 +5,10 @@
 #include <HTTPClient.h>
 #include <Update.h>
 #include <WiFiClientSecure.h>
+#include <ArduinoJson.h>
+#include <Preferences.h>
 #include <cstring>
+#include <mbedtls/sha256.h>
 
 #include "Arduino_GFX_Library.h"
 #include "esp32-hal-tinyusb.h"
@@ -17,6 +20,7 @@
 #include "pm_remote_control.h"
 #include "pm_variant.h"
 #include "pm_wifi_ntp.h"
+#include "pm_build_info.h"
 
 static WebServer s_server(80);
 static PmDisplayCanvas *s_canvas = nullptr;
@@ -27,6 +31,11 @@ static size_t s_ota_total = 0;
 static bool s_ota_failed = false;
 static char s_ota_status[64] = "idle";
 static char s_ota_integration_url[192] = "";
+static char s_ota_manifest_url[208] = "";
+
+static constexpr const char *kOtaNvsNs = "mynah";
+static constexpr const char *kOtaLastShaKey = "ota_sha";
+static constexpr const char *kOtaLastGitKey = "ota_git";
 
 #ifndef MYNAH_OTA_UPLOAD_KEY
 #define MYNAH_OTA_UPLOAD_KEY MYNAH_REMOTE_CONTROL_KEY
@@ -122,15 +131,73 @@ static void ota_set_status(const char *status) {
   strlcpy(s_ota_status, status ? status : "idle", sizeof(s_ota_status));
 }
 
+static const char *ota_effective_channel(void) {
+  const char *compiled = pm_variant_ota_channel();
+  if (compiled && compiled[0] != '\0' && !secure_equals(compiled, "dev")) {
+    return compiled;
+  }
+  const char *platform = pm_variant_device_platform();
+  if (secure_equals(platform, "1.85B") || secure_equals(platform, "1.85")) {
+    return pm_variant_get() == PmDeviceVariant::SmartSpeaker ? "astrolabe-smart-speaker-185"
+                                                            : "astrolabe-astrolabe-185";
+  }
+  if (secure_equals(platform, "1.45")) {
+    return "astrolabe-cameo-145";
+  }
+  switch (pm_variant_get()) {
+    case PmDeviceVariant::Lunasay:
+      return "astrolabe-lunasay-175";
+    case PmDeviceVariant::Ocarina:
+      return "astrolabe-ocarina-175";
+    case PmDeviceVariant::Cameo:
+      return "astrolabe-cameo-175";
+    case PmDeviceVariant::Luopan:
+      return "astrolabe-luopan-175";
+    case PmDeviceVariant::Enso:
+      return "astrolabe-enso-175";
+    case PmDeviceVariant::BabelFish:
+      return "astrolabe-babel-fish-175";
+    case PmDeviceVariant::Pocket:
+    case PmDeviceVariant::Astrolabe:
+    default:
+      return "astrolabe-astrolabe-175";
+  }
+}
+
 static const char *ota_integration_url(void) {
   if (s_ota_integration_url[0] == '\0') {
     snprintf(s_ota_integration_url, sizeof(s_ota_integration_url), "%s/%s/firmware.bin",
-             MYNAH_OTA_INTEGRATION_BASE_URL, pm_variant_ota_channel());
+             MYNAH_OTA_INTEGRATION_BASE_URL, ota_effective_channel());
   }
   return s_ota_integration_url;
 }
 
-static bool ota_update_from_url(const char *url) {
+static const char *ota_manifest_url(void) {
+  if (s_ota_manifest_url[0] == '\0') {
+    snprintf(s_ota_manifest_url, sizeof(s_ota_manifest_url), "%s/%s/manifest.json",
+             MYNAH_OTA_INTEGRATION_BASE_URL, ota_effective_channel());
+  }
+  return s_ota_manifest_url;
+}
+
+static bool hex_encode_sha256(const uint8_t digest[32], char *out, size_t cap) {
+  if (!out || cap < 65) {
+    return false;
+  }
+  static constexpr char kHex[] = "0123456789abcdef";
+  for (size_t i = 0; i < 32; ++i) {
+    out[i * 2] = kHex[(digest[i] >> 4) & 0x0f];
+    out[i * 2 + 1] = kHex[digest[i] & 0x0f];
+  }
+  out[64] = '\0';
+  return true;
+}
+
+static bool sha256_matches(const char *actual, const char *expected) {
+  return expected && expected[0] != '\0' && actual && secure_equals(actual, expected);
+}
+
+static bool ota_update_from_url(const char *url, const char *expected_sha256 = nullptr) {
 #if MYNAH_DEV_INTEGRATION_OTA
   if (!url || url[0] == '\0') {
     ota_set_status("bad URL");
@@ -172,6 +239,9 @@ static bool ota_update_from_url(const char *url) {
   }
   WiFiClient *stream = http.getStreamPtr();
   uint8_t buf[1024];
+  mbedtls_sha256_context sha_ctx;
+  mbedtls_sha256_init(&sha_ctx);
+  mbedtls_sha256_starts(&sha_ctx, 0);
   while (http.connected() && s_ota_bytes < s_ota_total) {
     const size_t available = stream->available();
     if (available == 0) {
@@ -183,6 +253,7 @@ static bool ota_update_from_url(const char *url) {
     if (got <= 0) {
       continue;
     }
+    mbedtls_sha256_update(&sha_ctx, buf, static_cast<size_t>(got));
     const size_t written = Update.write(buf, static_cast<size_t>(got));
     s_ota_bytes += written;
     if (written != static_cast<size_t>(got)) {
@@ -190,6 +261,7 @@ static bool ota_update_from_url(const char *url) {
       Update.printError(Serial);
       Update.abort();
       http.end();
+      mbedtls_sha256_free(&sha_ctx);
       return false;
     }
     ota_set_status("downloading");
@@ -198,6 +270,18 @@ static bool ota_update_from_url(const char *url) {
   http.end();
   if (s_ota_bytes != s_ota_total) {
     ota_set_status("short read");
+    Update.abort();
+    mbedtls_sha256_free(&sha_ctx);
+    return false;
+  }
+  uint8_t digest[32] = {};
+  char actual_sha[65] = "";
+  mbedtls_sha256_finish(&sha_ctx, digest);
+  mbedtls_sha256_free(&sha_ctx);
+  hex_encode_sha256(digest, actual_sha, sizeof(actual_sha));
+  if (expected_sha256 && expected_sha256[0] != '\0' && !sha256_matches(actual_sha, expected_sha256)) {
+    ota_set_status("sha mismatch");
+    pm_log_printf(false, "ota: sha mismatch expected=%s actual=%s", expected_sha256, actual_sha);
     Update.abort();
     return false;
   }
@@ -208,9 +292,151 @@ static bool ota_update_from_url(const char *url) {
   }
   ota_set_status("rebooting");
   pm_log_printf(false, "ota: integration update complete bytes=%u", static_cast<unsigned>(s_ota_bytes));
+  if (expected_sha256 && expected_sha256[0] != '\0') {
+    Preferences pref;
+    if (pref.begin(kOtaNvsNs, false)) {
+      pref.putString(kOtaLastShaKey, expected_sha256);
+      pref.end();
+    }
+  }
   return true;
 #else
   (void)url;
+  ota_set_status("dev OTA disabled");
+  return false;
+#endif
+}
+
+static bool http_get_string(const char *url, String *out, size_t max_bytes) {
+#if MYNAH_DEV_INTEGRATION_OTA
+  if (!url || !out) {
+    return false;
+  }
+  WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient http;
+  http.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
+  http.setTimeout(10000);
+  if (!http.begin(client, url)) {
+    return false;
+  }
+  const int code = http.GET();
+  if (code != HTTP_CODE_OK) {
+    http.end();
+    return false;
+  }
+  const int len = http.getSize();
+  if (len > 0 && static_cast<size_t>(len) > max_bytes) {
+    http.end();
+    return false;
+  }
+  String body = http.getString();
+  http.end();
+  if (body.length() == 0 || body.length() > max_bytes) {
+    return false;
+  }
+  *out = body;
+  return true;
+#else
+  (void)url;
+  (void)out;
+  (void)max_bytes;
+  return false;
+#endif
+}
+
+static void absolute_ota_url(const char *manifest_url, char *out, size_t cap) {
+  if (!out || cap == 0) {
+    return;
+  }
+  out[0] = '\0';
+  if (!manifest_url || manifest_url[0] == '\0') {
+    snprintf(out, cap, "%s", ota_integration_url());
+    return;
+  }
+  if (strncmp(manifest_url, "https://", 8) == 0 || strncmp(manifest_url, "http://", 7) == 0) {
+    snprintf(out, cap, "%s", manifest_url);
+    return;
+  }
+  if (manifest_url[0] == '/') {
+    snprintf(out, cap, "https://astrolabe.castalia.institute%s", manifest_url);
+    return;
+  }
+  snprintf(out, cap, "https://astrolabe.castalia.institute/%s", manifest_url);
+}
+
+bool pm_screen_http_ota_auto_check(void) {
+#if MYNAH_DEV_INTEGRATION_OTA
+  if (!pm_wifi_connected()) {
+    ota_set_status("auto no wifi");
+    return false;
+  }
+  ota_set_status("auto checking");
+  pm_log_printf(false, "ota: auto check %s", ota_manifest_url());
+
+  String body;
+  if (!http_get_string(ota_manifest_url(), &body, 8192)) {
+    ota_set_status("manifest failed");
+    pm_log_printf(false, "ota: manifest fetch failed");
+    return false;
+  }
+
+  JsonDocument doc;
+  DeserializationError err = deserializeJson(doc, body);
+  if (err) {
+    ota_set_status("manifest bad");
+    pm_log_printf(false, "ota: manifest parse failed %s", err.c_str());
+    return false;
+  }
+
+  const char *channel = doc["ota_channel"] | "";
+  const char *sha = doc["sha256"] | "";
+  const char *git_sha = doc["git_sha"] | "";
+  const char *firmware_url = doc["firmware_url"] | "";
+  if (!secure_equals(channel, ota_effective_channel()) || sha[0] == '\0') {
+    ota_set_status("manifest mismatch");
+    pm_log_printf(false, "ota: manifest mismatch channel=%s sha=%s", channel, sha);
+    return false;
+  }
+
+  Preferences pref;
+  String last_sha;
+  if (pref.begin(kOtaNvsNs, false)) {
+    last_sha = pref.getString(kOtaLastShaKey, "");
+    pref.end();
+  }
+  if (last_sha.length() > 0 && secure_equals(last_sha.c_str(), sha)) {
+    ota_set_status("auto current");
+    pm_log_printf(false, "ota: auto current sha=%s", sha);
+    return false;
+  }
+  if (git_sha[0] != '\0' && secure_equals(git_sha, PM_BUILD_GIT_SHA_FULL)) {
+    if (pref.begin(kOtaNvsNs, false)) {
+      pref.putString(kOtaLastShaKey, sha);
+      pref.putString(kOtaLastGitKey, git_sha);
+      pref.end();
+    }
+    ota_set_status("auto current");
+    pm_log_printf(false, "ota: auto current git=%s sha=%s", git_sha, sha);
+    return false;
+  }
+
+  char url[240];
+  absolute_ota_url(firmware_url, url, sizeof(url));
+  if (url[0] == '\0') {
+    snprintf(url, sizeof(url), "%s", ota_integration_url());
+  }
+  pm_log_printf(false, "ota: auto install git=%s sha=%s url=%s", git_sha, sha, url);
+  const bool ok = ota_update_from_url(url, sha);
+  if (ok && pref.begin(kOtaNvsNs, false)) {
+    pref.putString(kOtaLastShaKey, sha);
+    if (git_sha[0] != '\0') {
+      pref.putString(kOtaLastGitKey, git_sha);
+    }
+    pref.end();
+  }
+  return ok;
+#else
   ota_set_status("dev OTA disabled");
   return false;
 #endif
@@ -230,7 +456,7 @@ static void handle_ota_get() {
       "<h1 style=\"font-size:22px;\">Astrolabe OTA</h1>");
   snprintf(chunk, sizeof(chunk),
            "<p>Variant: <b>%s %s</b><br>Channel: <b>%s</b><br>Address: <b>http://%s/ota</b></p>",
-           pm_variant_label(pm_variant_get()), pm_variant_device_platform(), pm_variant_ota_channel(),
+           pm_variant_label(pm_variant_get()), pm_variant_device_platform(), ota_effective_channel(),
            ip.c_str());
   s_server.sendContent(chunk);
   snprintf(chunk, sizeof(chunk), "<p>Status: <b>%s</b><br>Physical arm: <b>%s</b>%s</p>",

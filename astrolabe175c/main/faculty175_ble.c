@@ -2,16 +2,21 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 
 #include "cJSON.h"
 #include "astrolabe_time.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "esp_system.h"
 #include "nvs.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/portmacro.h"
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
 #include "host/ble_gatt.h"
 #include "host/ble_hs.h"
+#include "host/ble_hs_adv.h"
 #include "host/ble_uuid.h"
 #include "host/util/util.h"
 #include "nimble/nimble_port.h"
@@ -26,7 +31,10 @@ void ble_store_config_init(void);
 static const char *TAG = "faculty175_ble";
 static const char *BLE_NVS_NS = "ble";
 static const char *BLE_NVS_ENABLED = "enabled";
-static const char *BLE_DEVICE_NAME = "Astrolabe Faculty";
+static const char *BLE_NVS_IDENTITY_NS = "identity";
+static const char *BLE_NVS_DEVICE_NAME = "device_name";
+static const char *BLE_NVS_NAME = "name";
+static const char *BLE_DEVICE_NAME_FALLBACK = "Astrolabe Faculty";
 enum { BLE_APPEARANCE_GENERIC_TAG = 0x0200 };
 
 static const ble_uuid128_t BLE_SETTINGS_SERVICE_UUID =
@@ -40,10 +48,15 @@ static bool s_enabled = true;
 static bool s_started;
 static bool s_synced;
 static bool s_advertising;
+static bool s_scanning;
 static uint8_t s_own_addr_type;
 static char s_json_rx[768];
 static size_t s_json_rx_len;
 static bool s_json_rx_active;
+static char s_device_name[FACULTY175_BLE_PEER_NAME_MAX] = "Astrolabe Faculty";
+static faculty175_ble_peer_t s_peers[FACULTY175_BLE_PEER_MAX];
+static portMUX_TYPE s_peer_lock = portMUX_INITIALIZER_UNLOCKED;
+static uint32_t s_next_scan_ms;
 
 static int ble_gap_event(struct ble_gap_event *event, void *arg);
 static int ble_settings_enabled_access(uint16_t conn_handle,
@@ -99,6 +112,167 @@ static esp_err_t ble_nvs_get_enabled(bool *out)
     }
     *out = value != 0;
     return err;
+}
+
+static uint32_t ble_now_ms(void)
+{
+    return (uint32_t)(esp_timer_get_time() / 1000ULL);
+}
+
+static void ble_copy_text(char *dst, size_t dst_len, const uint8_t *src, size_t src_len)
+{
+    if (dst == NULL || dst_len == 0) {
+        return;
+    }
+    if (src == NULL || src_len == 0) {
+        dst[0] = '\0';
+        return;
+    }
+    if (src_len >= dst_len) {
+        src_len = dst_len - 1;
+    }
+    memcpy(dst, src, src_len);
+    dst[src_len] = '\0';
+}
+
+static bool ble_name_mentions_astrolabe(const char *name)
+{
+    if (name == NULL) {
+        return false;
+    }
+    const char *needle = "astrolabe";
+    const size_t needle_len = strlen(needle);
+    for (const char *p = name; *p != '\0'; ++p) {
+        if (strncasecmp(p, needle, needle_len) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool ble_fields_have_astrolabe_uuid(const struct ble_hs_adv_fields *fields)
+{
+    if (fields == NULL) {
+        return false;
+    }
+    for (uint8_t i = 0; i < fields->num_uuids128; ++i) {
+        if (ble_uuid_cmp(&fields->uuids128[i].u, &BLE_SETTINGS_SERVICE_UUID.u) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static uint16_t ble_peer_bearing(const uint8_t addr[6], uint32_t seen_ms)
+{
+    uint32_t h = 2166136261u;
+    for (int i = 0; i < 6; ++i) {
+        h ^= addr[i];
+        h *= 16777619u;
+    }
+    h ^= seen_ms / 30000u;
+    return (uint16_t)(h % 360u);
+}
+
+static uint8_t ble_rssi_range_pct(int8_t rssi)
+{
+    if (rssi >= -45) {
+        return 18;
+    }
+    if (rssi <= -95) {
+        return 100;
+    }
+    return (uint8_t)(18 + ((-45 - rssi) * 82) / 50);
+}
+
+static uint8_t ble_rssi_confidence_pct(int8_t rssi, bool astrolabe)
+{
+    int v = astrolabe ? 52 : 34;
+    if (rssi > -65) {
+        v += 26;
+    } else if (rssi > -82) {
+        v += 14;
+    }
+    if (v > 96) {
+        v = 96;
+    }
+    return (uint8_t)v;
+}
+
+static void ble_peer_store(const ble_addr_t *addr,
+                           const struct ble_hs_adv_fields *fields,
+                           int8_t rssi,
+                           uint32_t now_ms)
+{
+    if (addr == NULL || fields == NULL) {
+        return;
+    }
+
+    char name[FACULTY175_BLE_PEER_NAME_MAX];
+    ble_copy_text(name, sizeof(name), fields->name, fields->name_len);
+    const bool astrolabe = ble_fields_have_astrolabe_uuid(fields) || ble_name_mentions_astrolabe(name);
+    if (!astrolabe && name[0] == '\0') {
+        return;
+    }
+
+    faculty175_ble_peer_t peer = {
+        .valid = true,
+        .astrolabe = astrolabe,
+        .known = astrolabe,
+        .rssi = rssi,
+        .tx_power = fields->tx_pwr_lvl_is_present ? fields->tx_pwr_lvl : 0,
+        .seen_ms = now_ms,
+        .bearing_deg = ble_peer_bearing(addr->val, now_ms),
+        .range_pct = ble_rssi_range_pct(rssi),
+        .confidence_pct = ble_rssi_confidence_pct(rssi, astrolabe),
+    };
+    memcpy(peer.addr, addr->val, sizeof(peer.addr));
+    if (name[0] != '\0') {
+        strncpy(peer.name, name, sizeof(peer.name) - 1);
+    } else {
+        snprintf(peer.name, sizeof(peer.name), "Astrolabe %02X%02X", addr->val[1], addr->val[0]);
+    }
+
+    portENTER_CRITICAL(&s_peer_lock);
+    int slot = -1;
+    int oldest = 0;
+    for (int i = 0; i < FACULTY175_BLE_PEER_MAX; ++i) {
+        if (s_peers[i].valid && memcmp(s_peers[i].addr, peer.addr, sizeof(peer.addr)) == 0) {
+            slot = i;
+            break;
+        }
+        if (!s_peers[i].valid && slot < 0) {
+            slot = i;
+        }
+        if (s_peers[i].seen_ms < s_peers[oldest].seen_ms) {
+            oldest = i;
+        }
+    }
+    if (slot < 0) {
+        slot = oldest;
+    }
+    s_peers[slot] = peer;
+    portEXIT_CRITICAL(&s_peer_lock);
+}
+
+static void ble_load_device_name(void)
+{
+    strncpy(s_device_name, BLE_DEVICE_NAME_FALLBACK, sizeof(s_device_name) - 1);
+    nvs_handle_t nvs;
+    if (nvs_open(BLE_NVS_IDENTITY_NS, NVS_READONLY, &nvs) != ESP_OK) {
+        return;
+    }
+    size_t len = sizeof(s_device_name);
+    esp_err_t err = nvs_get_str(nvs, BLE_NVS_DEVICE_NAME, s_device_name, &len);
+    if (err != ESP_OK || s_device_name[0] == '\0') {
+        len = sizeof(s_device_name);
+        err = nvs_get_str(nvs, BLE_NVS_NAME, s_device_name, &len);
+    }
+    nvs_close(nvs);
+    if (err != ESP_OK || s_device_name[0] == '\0') {
+        strncpy(s_device_name, BLE_DEVICE_NAME_FALLBACK, sizeof(s_device_name) - 1);
+    }
+    s_device_name[sizeof(s_device_name) - 1] = '\0';
 }
 
 static esp_err_t ble_apply_settings_json(const char *body)
@@ -278,7 +452,7 @@ static esp_err_t ble_advertise(void)
         return ESP_FAIL;
     }
     s_advertising = true;
-    FACULTY175_LOG_STAGE(TAG, "ble", "advertising %s", BLE_DEVICE_NAME);
+    FACULTY175_LOG_STAGE(TAG, "ble", "advertising %s", ble_svc_gap_device_name());
     return ESP_OK;
 }
 
@@ -328,6 +502,20 @@ static int ble_gap_event(struct ble_gap_event *event, void *arg)
         case BLE_GAP_EVENT_DISCONNECT:
         case BLE_GAP_EVENT_ADV_COMPLETE:
             s_advertising = false;
+            if (!s_scanning) {
+                (void)ble_advertise();
+            }
+            break;
+        case BLE_GAP_EVENT_DISC: {
+            struct ble_hs_adv_fields fields = {};
+            if (ble_hs_adv_parse_fields(&fields, event->disc.data, event->disc.length_data) == 0) {
+                ble_peer_store(&event->disc.addr, &fields, event->disc.rssi, ble_now_ms());
+            }
+            break;
+        }
+        case BLE_GAP_EVENT_DISC_COMPLETE:
+            s_scanning = false;
+            s_next_scan_ms = ble_now_ms() + 2500u;
             (void)ble_advertise();
             break;
         default:
@@ -366,6 +554,7 @@ static int ble_settings_enabled_access(uint16_t conn_handle,
 esp_err_t faculty175_ble_init(void)
 {
     esp_err_t err = ble_nvs_get_enabled(&s_enabled);
+    ble_load_device_name();
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "enabled read failed %s; defaulting on", esp_err_to_name(err));
         s_enabled = true;
@@ -396,7 +585,7 @@ esp_err_t faculty175_ble_init(void)
         ESP_LOGE(TAG, "gatt add failed rc=%d", rc);
         return ESP_FAIL;
     }
-    rc = ble_svc_gap_device_name_set(BLE_DEVICE_NAME);
+    rc = ble_svc_gap_device_name_set(s_device_name);
     if (rc != 0) {
         ESP_LOGE(TAG, "device name failed rc=%d", rc);
         return ESP_FAIL;
@@ -427,6 +616,149 @@ bool faculty175_ble_advertising(void)
     return s_advertising;
 }
 
+bool faculty175_ble_scanning(void)
+{
+    return s_scanning;
+}
+
+const char *faculty175_ble_device_name(void)
+{
+    return s_device_name;
+}
+
+esp_err_t faculty175_ble_set_device_name(const char *name)
+{
+    if (name == NULL || name[0] == '\0') {
+        return ESP_ERR_INVALID_ARG;
+    }
+    char next[FACULTY175_BLE_PEER_NAME_MAX] = {};
+    snprintf(next, sizeof(next), "Astrolabe %.21s", name);
+    if (ble_name_mentions_astrolabe(name)) {
+        strncpy(next, name, sizeof(next) - 1);
+    }
+    next[sizeof(next) - 1] = '\0';
+
+    nvs_handle_t nvs;
+    esp_err_t err = nvs_open(BLE_NVS_IDENTITY_NS, NVS_READWRITE, &nvs);
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = nvs_set_str(nvs, BLE_NVS_DEVICE_NAME, next);
+    if (err == ESP_OK) {
+        err = nvs_set_str(nvs, BLE_NVS_NAME, next);
+    }
+    if (err == ESP_OK) {
+        err = nvs_commit(nvs);
+    }
+    nvs_close(nvs);
+    if (err != ESP_OK) {
+        return err;
+    }
+    strncpy(s_device_name, next, sizeof(s_device_name) - 1);
+    s_device_name[sizeof(s_device_name) - 1] = '\0';
+    if (s_started) {
+        const int rc = ble_svc_gap_device_name_set(s_device_name);
+        if (rc != 0) {
+            return ESP_FAIL;
+        }
+        if (s_advertising) {
+            (void)ble_gap_adv_stop();
+            s_advertising = false;
+        }
+        if (!s_scanning) {
+            return ble_advertise();
+        }
+    }
+    return ESP_OK;
+}
+
+esp_err_t faculty175_ble_scan_start(uint32_t duration_ms)
+{
+    if (!s_started || !s_synced || !s_enabled) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (s_scanning) {
+        return ESP_OK;
+    }
+    if (duration_ms < 600u) {
+        duration_ms = 600u;
+    }
+    if (duration_ms > 6000u) {
+        duration_ms = 6000u;
+    }
+    s_scanning = true;
+    if (s_advertising) {
+        (void)ble_gap_adv_stop();
+        s_advertising = false;
+    }
+    struct ble_gap_disc_params params = {};
+    params.passive = 0;
+    params.itvl = 0x40;
+    params.window = 0x30;
+    params.filter_policy = 0;
+    params.limited = 0;
+    params.filter_duplicates = 0;
+    const int rc = ble_gap_disc(s_own_addr_type, (int32_t)duration_ms, &params, ble_gap_event, NULL);
+    if (rc != 0 && rc != BLE_HS_EALREADY) {
+        s_scanning = false;
+        s_next_scan_ms = ble_now_ms() + 2500u;
+        (void)ble_advertise();
+        ESP_LOGW(TAG, "scan start failed rc=%d", rc);
+        return ESP_FAIL;
+    }
+    s_next_scan_ms = ble_now_ms() + duration_ms + 2500u;
+    return ESP_OK;
+}
+
+void faculty175_ble_radar_tick(uint32_t now_ms)
+{
+    if (!s_enabled || !s_started || !s_synced || s_scanning) {
+        return;
+    }
+    if (now_ms == 0) {
+        now_ms = ble_now_ms();
+    }
+    if (now_ms >= s_next_scan_ms) {
+        (void)faculty175_ble_scan_start(1800u);
+    }
+}
+
+size_t faculty175_ble_peers_snapshot(faculty175_ble_peer_t *out, size_t cap)
+{
+    if (out == NULL || cap == 0) {
+        return 0;
+    }
+    if (cap > FACULTY175_BLE_PEER_MAX) {
+        cap = FACULTY175_BLE_PEER_MAX;
+    }
+    faculty175_ble_peer_t tmp[FACULTY175_BLE_PEER_MAX];
+    portENTER_CRITICAL(&s_peer_lock);
+    memcpy(tmp, s_peers, sizeof(tmp));
+    portEXIT_CRITICAL(&s_peer_lock);
+
+    const uint32_t now = ble_now_ms();
+    size_t count = 0;
+    for (size_t i = 0; i < FACULTY175_BLE_PEER_MAX; ++i) {
+        if (!tmp[i].valid || now - tmp[i].seen_ms > 60000u) {
+            continue;
+        }
+        size_t at = count;
+        while (at > 0 && out[at - 1].rssi < tmp[i].rssi) {
+            if (at < cap) {
+                out[at] = out[at - 1];
+            }
+            --at;
+        }
+        if (at < cap) {
+            out[at] = tmp[i];
+        }
+        if (count < cap) {
+            ++count;
+        }
+    }
+    return count;
+}
+
 esp_err_t faculty175_ble_set_enabled(bool enabled)
 {
     esp_err_t err = ble_nvs_set_enabled(enabled);
@@ -438,7 +770,11 @@ esp_err_t faculty175_ble_set_enabled(bool enabled)
         if (s_advertising) {
             (void)ble_gap_adv_stop();
         }
+        if (s_scanning) {
+            (void)ble_gap_disc_cancel();
+        }
         s_advertising = false;
+        s_scanning = false;
         FACULTY175_LOG_STAGE(TAG, "ble", "advertising off");
         return ESP_OK;
     }
@@ -460,23 +796,57 @@ bool faculty175_ble_handle(const char *line)
     }
 
     if (*sub == '\0' || strcasecmp(sub, "status") == 0) {
-        printf("ble: enabled=%s started=%s synced=%s advertising=%s name=\"%s\"\n",
+        printf("ble: enabled=%s started=%s synced=%s advertising=%s scanning=%s name=\"%s\"\n",
                s_enabled ? "yes" : "no",
                s_started ? "yes" : "no",
                s_synced ? "yes" : "no",
                s_advertising ? "yes" : "no",
-               BLE_DEVICE_NAME);
+               s_scanning ? "yes" : "no",
+               s_device_name);
     } else if (strcasecmp(sub, "on") == 0 || strcasecmp(sub, "enable") == 0) {
         const esp_err_t err = faculty175_ble_set_enabled(true);
         printf("ble: enable %s\n", esp_err_to_name(err));
     } else if (strcasecmp(sub, "off") == 0 || strcasecmp(sub, "disable") == 0) {
         const esp_err_t err = faculty175_ble_set_enabled(false);
         printf("ble: disable %s\n", esp_err_to_name(err));
+    } else if (strncasecmp(sub, "name ", 5) == 0) {
+        const char *name = sub + 5;
+        while (*name == ' ') {
+            ++name;
+        }
+        const esp_err_t err = faculty175_ble_set_device_name(name);
+        printf("ble: name %s \"%s\"\n", esp_err_to_name(err), s_device_name);
+    } else if (strcasecmp(sub, "scan") == 0) {
+        const esp_err_t err = faculty175_ble_scan_start(3000u);
+        printf("ble: scan %s\n", esp_err_to_name(err));
+    } else if (strcasecmp(sub, "peers") == 0) {
+        faculty175_ble_peer_t peers[FACULTY175_BLE_PEER_MAX];
+        const size_t count = faculty175_ble_peers_snapshot(peers, FACULTY175_BLE_PEER_MAX);
+        printf("ble: peers=%u scanning=%s\n", (unsigned)count, s_scanning ? "yes" : "no");
+        for (size_t i = 0; i < count; ++i) {
+            printf("  %u %s rssi=%d range=%u%% bearing=%u confidence=%u%% addr=%02x:%02x:%02x:%02x:%02x:%02x name=\"%s\"\n",
+                   (unsigned)i,
+                   peers[i].astrolabe ? "astrolabe" : "ble",
+                   peers[i].rssi,
+                   peers[i].range_pct,
+                   peers[i].bearing_deg,
+                   peers[i].confidence_pct,
+                   peers[i].addr[5],
+                   peers[i].addr[4],
+                   peers[i].addr[3],
+                   peers[i].addr[2],
+                   peers[i].addr[1],
+                   peers[i].addr[0],
+                   peers[i].name);
+        }
     } else {
         printf("ble commands:\n");
         printf("  ble status\n");
         printf("  ble on\n");
         printf("  ble off\n");
+        printf("  ble name <device name>\n");
+        printf("  ble scan\n");
+        printf("  ble peers\n");
     }
     fflush(stdout);
     return true;

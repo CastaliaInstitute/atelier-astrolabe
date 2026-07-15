@@ -63,6 +63,7 @@ esp_err_t faculty175_board_play_boot_chime(void);
 void faculty175_display_fill_rgb565(uint16_t color);
 void faculty175_display_fill_rect(int x, int y, int w, int h, uint16_t color);
 void faculty175_display_draw_rgb565(const uint16_t *pixels, int x, int y, int w, int h);
+void faculty175_display_draw_rgb565_stride(const uint16_t *pixels, int src_stride_pixels, int x, int y, int w, int h);
 void faculty175_display_draw_pixel(int x, int y, uint16_t color);
 void faculty175_display_draw_line(int x0, int y0, int x1, int y1, uint16_t color);
 void faculty175_display_draw_circle(int cx, int cy, int r, uint16_t color);

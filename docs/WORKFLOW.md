@@ -138,6 +138,7 @@ flash.
 | [Firmware flash](../.github/workflows/firmware-flash.yml) | **`self-hosted` + `astrolabe-watch`** | Manual / legacy `ENABLE_INTEGRATION_FLASH` only |
 | [Firmware functional test](../.github/workflows/firmware-functional-test.yml) | **`self-hosted` + `astrolabe-watch`** | Manual dispatch only |
 | [Firmware hardware QA](../.github/workflows/firmware-hardware-qa.yml) | **`self-hosted` + `astrolabe-watch`** | Manual: one face screenshot → issue |
+| [Firmware voice QA](../.github/workflows/firmware-voice-qa.yml) | **`self-hosted` + `astrolabe-watch`** | Manual: all-face STT/TTS tour → `summary.json` |
 | [Deploy GitHub Pages](../.github/workflows/deploy-github-pages.yml) | `ubuntu-latest` | Static site / simulator deploy from `docs/` — exempt from hardware gate |
 
 GitHub **cloud** runners cannot see USB. To flash in CI, register a [self-hosted runner](https://docs.github.com/en/actions/hosting-your-own-runners/managing-self-hosted-runners/adding-self-hosted-runners) on the Mac where the watch is plugged in.
@@ -204,16 +205,46 @@ Flashes firmware, walks each clock face via serial `face N`, captures `screen.bm
 Matrix: [`tests/functional/faces_astrolabe.json`](../tests/functional/faces_astrolabe.json).  
 Comprehensive (L/R/U/D swipes + buttons on every face): [`faces_astrolabe_comprehensive.json`](../tests/functional/faces_astrolabe_comprehensive.json).
 
+### Voice QA (all faces, STT + TTS + crash)
+
+Runs on a bench watch with USB serial attached. The harness walks every ported
+face reported by `faces list`, triggers `voice stt <ms>`, speaks a known host
+prompt into the watch, and waits for `qa: stt done err=ESP_OK`. That marker is
+emitted after reply MP3 playback completes, so each passing row covers STT,
+reply generation, and TTS playback for that face. The run fails on any timeout,
+missing transcript/reply, crash, or reboot marker.
+
+```bash
+scripts/stt_tts_face_tour.py --self-test
+./scripts/ci-voice-qa.sh --no-flash
+mcp/astrolabe-esp/.venv/bin/python scripts/stt_tts_face_tour.py
+summary="$(find artifacts/qa -maxdepth 2 -path '*/summary.json' -path '*stt-tts-face-tour-*' -print | sort | tail -1)"
+mcp/astrolabe-esp/.venv/bin/python scripts/stt_tts_face_tour.py --verify-summary "$summary"
+mcp/astrolabe-esp/.venv/bin/python scripts/stt_tts_face_tour.py --limit 3  # shakedown
+```
+
+Artifacts are written under `artifacts/qa/stt-tts-face-tour-*` with
+`summary.json` and a timestamped serial log. A full-run summary only verifies
+when every planned face completed with zero STT/TTS failures, crashes, or
+reboots; limited shakedown summaries require `--allow-limited`.
+
+GitHub Actions → **Firmware voice QA** runs the same tour on the self-hosted
+watch runner and uploads `artifacts/qa/`.
+
 **m1 bench automation** (pull `integration` → flash → comprehensive test):
 
 ```bash
 ./scripts/device-bench.sh              # pull, flash, test (~30–45 min)
 ./scripts/device-bench.sh --no-pull    # already on integration
+ASTROLABE_BENCH_VOICE=1 ./scripts/device-bench.sh --no-pull
+ASTROLABE_BENCH_VOICE=1 ASTROLABE_VOICE_LIMIT=3 ./scripts/device-bench.sh --no-pull
 ./scripts/install-device-bench-launchagent.sh   # daily 06:00 on this Mac
 ./scripts/install-device-bench-launchagent.sh --run-now
 ```
 
-Logs: `artifacts/bench/`. Uses `ASTROLABE_UHUBCTL_SEARCH=Espressif` for hub power cycle.
+Logs: `artifacts/bench/`. Uses `ASTROLABE_UHUBCTL_SEARCH=Espressif` for hub power cycle. When
+`ASTROLABE_BENCH_VOICE=1`, the bench run also copies
+`latest-voice-summary.json` from the all-face STT/TTS tour.
 
 **On failure** (device gate / `--remediate`):
 

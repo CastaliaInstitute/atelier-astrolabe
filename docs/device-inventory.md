@@ -31,3 +31,45 @@ Manual probe command:
 ```bash
 pio pkg exec --package tool-esptoolpy -- esptool.py --port <port> --baud 115200 --connect-attempts 3 --no-stub read-mac
 ```
+
+## Private assignment database
+
+Person-to-device assignments belong in a local registry, not in the public bench
+inventory, because wearable BLE addresses and family ownership are personal
+data. Keep the private file at:
+
+```text
+.local/device-assignments.json
+```
+
+The committed template is:
+
+```text
+docs/templates/device-assignments.example.json
+```
+
+The registry tracks:
+
+- `people`: local person IDs, display names, and Castalia individual IDs.
+- `familyRepositories`: private per-user GitHub repositories used for family
+  synastry and wellness exchange after a user authorizes Castalia once.
+- `devices`: Astrolabes, smart rings, BLE addresses, firmware identities, and
+  useful GATT service details.
+- `links`: ownership or pairing relationships, such as one person's Astrolabe
+  and ring, plus explicit family wellness subscriptions between Astrolabes.
+
+Family wellness subscriptions should share summaries by default, not raw BLE
+packets: stress, HRV, sleep, and ring battery are enough for the family
+synastry face and LLM/TTS prompts. Keep pairwise encryption material only in
+the private `.local/device-assignments.json` file or the user's private family
+repository; never commit real family keys or wearable addresses to public docs.
+
+When assigning an Astrolabe over serial, set the same owner in firmware NVS:
+
+```text
+name Camille
+castalia individual Camille
+```
+
+Then update `.local/device-assignments.json` with the Astrolabe MAC, current
+serial port or mDNS name, and mark the assignment status as connected.
