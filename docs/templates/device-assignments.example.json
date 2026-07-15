@@ -1,0 +1,135 @@
+{
+  "schema": 1,
+  "updatedAt": "2026-07-14T00:00:00Z",
+  "people": [
+    {
+      "id": "example-person",
+      "displayName": "Example Person",
+      "castaliaIndividual": "ExamplePerson"
+    },
+    {
+      "id": "example-partner",
+      "displayName": "Example Partner",
+      "castaliaIndividual": "ExamplePartner"
+    }
+  ],
+  "familyRepositories": [
+    {
+      "id": "example-family-repo",
+      "owner": "github-user",
+      "name": "castalia-family-example",
+      "visibility": "private",
+      "access": {
+        "mode": "github_user_authorization",
+        "castaliaSupabaseEdgeFunction": "family-repository"
+      },
+      "syncPaths": {
+        "wellnessInbox": "synastry/wellness/inbox",
+        "dailySummaries": "synastry/wellness/daily",
+        "llmPrompts": "synastry/prompts"
+      }
+    }
+  ],
+  "devices": [
+    {
+      "id": "astrolabe-example",
+      "kind": "astrolabe",
+      "assignedTo": "example-person",
+      "label": "Example Astrolabe",
+      "firmwareIdentity": {
+        "wearerNameNvsKey": "user_name",
+        "wearerNameCommand": "name Example",
+        "castaliaIndividualCommand": "castalia individual ExamplePerson"
+      },
+      "identifiers": {
+        "wifiMac": "00:00:00:00:00:00",
+        "mdns": "astrolabe-example.local"
+      },
+      "notes": "Use this shape for a local, private .local/device-assignments.json entry."
+    },
+    {
+      "id": "astrolabe-partner",
+      "kind": "astrolabe",
+      "assignedTo": "example-partner",
+      "label": "Example Partner Astrolabe",
+      "firmwareIdentity": {
+        "wearerNameNvsKey": "user_name",
+        "wearerNameCommand": "name ExamplePartner",
+        "castaliaIndividualCommand": "castalia individual ExamplePartner"
+      },
+      "identifiers": {
+        "wifiMac": "00:00:00:00:00:00",
+        "mdns": "astrolabe-partner.local"
+      },
+      "notes": "Receiver for an explicitly opted-in family wellness subscription."
+    },
+    {
+      "id": "ring-example",
+      "kind": "smart_ring",
+      "assignedTo": "example-person",
+      "label": "Example Smart Ring",
+      "model": "COLMI R10",
+      "identifiers": {
+        "bleAddress": "00:00:00:00:00:00",
+        "advertisedName": "COLMI R10_0000",
+        "bluezAlias": "Example-R10"
+      },
+      "ble": {
+        "primaryControlService": "6e40fff0-b5a3-f393-e0a9-e50e24dcca9e",
+        "writeCharacteristic": "6e400002-b5a3-f393-e0a9-e50e24dcca9e",
+        "notifyCharacteristic": "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+      }
+    }
+  ],
+  "links": [
+    {
+      "id": "example-astrolabe-ring",
+      "kind": "owned_ring",
+      "person": "example-person",
+      "astrolabe": "astrolabe-example",
+      "ring": "ring-example",
+      "status": "planned"
+    },
+    {
+      "id": "example-person-to-partner-wellness",
+      "kind": "family_wellness_subscription",
+      "publisher": {
+        "person": "example-person",
+        "astrolabe": "astrolabe-example",
+        "ring": "ring-example"
+      },
+      "subscriber": {
+        "person": "example-partner",
+        "astrolabe": "astrolabe-partner"
+      },
+      "repository": "example-family-repo",
+      "scopes": [
+        "stress_summary",
+        "hrv_latest",
+        "hrv_24h_history",
+        "sleep_summary",
+        "sleep_24h_history",
+        "ring_battery"
+      ],
+      "transports": [
+        "esp_now_mesh",
+        "castalia_supabase_edge_function",
+        "github_family_repository"
+      ],
+      "privacy": {
+        "mode": "explicit_family_opt_in",
+        "medicalClaims": false,
+        "shareRawPackets": false,
+        "summaryOnlyByDefault": true
+      },
+      "pairing": {
+        "status": "ready_for_receiver_provisioning",
+        "encryption": "xchacha20poly1305-pairwise",
+        "pairwiseKeyId": "example-wellness-key",
+        "pairwiseKeyBase64Url": "replace-with-private-local-key",
+        "rotateAfterDays": 30
+      },
+      "status": "planned"
+    }
+  ]
+}

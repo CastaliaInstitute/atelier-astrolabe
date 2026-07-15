@@ -115,7 +115,7 @@ static bool running_from_factory_partition(void)
 #define BUTTON_RESET_HOLD_MS 4500
 #define BUTTON_REBOOT_GRACE_MS 12000
 #define WIFI_CONNECT_TIMEOUT_MS 20000
-#define WIFI_CANDIDATE_MAX 3
+#define WIFI_CANDIDATE_MAX 4
 #define FACULTY175_WIFI_START_STACK 6144
 #define FACULTY175_PIPELINE_LISTEN_STACK 4096
 #define FACULTY175_PIPELINE_VOICE_STACK 6144
@@ -234,6 +234,7 @@ static bool draw_face_or_status(const faculty175_face_desc_t *face,
 
     if (draw_face && faculty175_lvgl_face_supported(face->id) &&
         !ui_state_modal(state) && faculty175_lvgl_draw_face(face->id, anim_ms)) {
+        faculty175_lvgl_force_full_refresh();
         return true;
     }
 
@@ -281,6 +282,9 @@ static bool wifi_is_connected(void);
 
 #define FACULTY175_USB_OTA_DEMO_BOOT ASTROLABE_USB_OTA_DEMO_BOOT
 #define FACULTY175_USB_RUNTIME_ENABLED 0
+#define FACULTY175_FACTORY_RECOVERY_BOOT_ENABLED 0
+#define FACULTY175_EARLY_WIFI_BOOT_ENABLED 0
+#define FACULTY175_WIFI_BOOT_ENABLED 1
 
 static void faculty175_usb_ota_demo_boot(void)
 {
@@ -2243,6 +2247,7 @@ static esp_err_t wifi_start(void)
         }
         wifi_candidate_add(candidates, &candidate_count, known[i].ssid, known[i].pass, "nvs");
     }
+    wifi_candidate_add(candidates, &candidate_count, "The Chateau", "thechateau", "built-in");
     wifi_candidate_add(candidates, &candidate_count, "Syzygyx", "12345678", "built-in");
     wifi_candidate_add(candidates, &candidate_count, "AstrolabeRouter", "astrolabe", "built-in");
 
@@ -2342,6 +2347,11 @@ static void wifi_start_task(void *arg)
 
 static bool wifi_start_task_launch(const char *stage)
 {
+    if (!FACULTY175_WIFI_BOOT_ENABLED) {
+        FACULTY175_LOG_STAGE_W(TAG, "wifi", "%s start skipped for recovery",
+                               stage != NULL ? stage : "background");
+        return false;
+    }
     if (s_wifi_start_complete || s_wifi_start_task != NULL) {
         return true;
     }
@@ -3415,15 +3425,17 @@ void app_main(void)
     faculty175_ota_init();
     faculty175_ota_maybe_boot_product();
     faculty175_serial_init();
-    if (running_from_factory_partition()) {
+    if (FACULTY175_FACTORY_RECOVERY_BOOT_ENABLED && running_from_factory_partition()) {
         FACULTY175_LOG_STAGE(TAG, "boot", "factory recovery OTA mode");
         (void)wifi_start_task_launch("recovery");
         while (true) {
             vTaskDelay(pdMS_TO_TICKS(1000));
         }
     }
-    (void)wifi_start_task_launch("early");
-    wifi_wait_for_start_complete("early", 25000);
+    if (FACULTY175_EARLY_WIFI_BOOT_ENABLED) {
+        (void)wifi_start_task_launch("early");
+        wifi_wait_for_start_complete("early", 25000);
+    }
 
     boot_probe_stage(0xa7);
     esp_rom_printf("A7 apocalypso\n");

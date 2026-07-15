@@ -28,6 +28,7 @@ void faculty175_face_globe_draw(uint32_t anim_ms);
 void faculty175_face_sky_draw(uint32_t anim_ms);
 void faculty175_face_quotes_draw(uint32_t anim_ms);
 void faculty175_face_transits_draw(uint32_t anim_ms);
+void faculty175_face_solar_draw(uint32_t anim_ms);
 void faculty175_face_qday_draw(uint32_t anim_ms);
 void faculty175_face_focus_draw(uint32_t anim_ms);
 void faculty175_face_bio_draw(uint32_t anim_ms);
@@ -41,6 +42,7 @@ void faculty175_face_maze_draw(uint32_t anim_ms);
 void faculty175_face_deathstar_draw(uint32_t anim_ms);
 void faculty175_face_tron_draw(uint32_t anim_ms);
 void faculty175_face_tron_reset(void);
+bool faculty175_solar_image_action(uint32_t seed_ms);
 void faculty175_face_settings_draw(uint32_t anim_ms);
 void faculty175_face_pocketwatch_draw(uint32_t anim_ms);
 
@@ -73,6 +75,7 @@ bool faculty175_face_dispatch_draw(faculty175_face_id_t id, uint32_t anim_ms)
         case FACULTY175_FACE_SKY: faculty175_face_sky_draw(anim_ms); return true;
         case FACULTY175_FACE_QUOTES: faculty175_face_quotes_draw(anim_ms); return true;
         case FACULTY175_FACE_TRANSITS: faculty175_face_transits_draw(anim_ms); return true;
+        case FACULTY175_FACE_SOLAR: faculty175_face_solar_draw(anim_ms); return true;
         case FACULTY175_FACE_QDAY: faculty175_face_qday_draw(anim_ms); return true;
         case FACULTY175_FACE_FOCUS: faculty175_face_focus_draw(anim_ms); return true;
         case FACULTY175_FACE_BIOMETRICS: faculty175_face_bio_draw(anim_ms); return true;
@@ -122,6 +125,8 @@ bool faculty175_face_dispatch_action(faculty175_face_id_t id, uint32_t seed_ms)
         case FACULTY175_FACE_TRON:
             faculty175_face_tron_reset();
             return true;
+        case FACULTY175_FACE_SOLAR:
+            return faculty175_solar_image_action(seed_ms);
         case FACULTY175_FACE_WSCAN:
         case FACULTY175_FACE_DEAUTH:
         case FACULTY175_FACE_EVILTWIN:

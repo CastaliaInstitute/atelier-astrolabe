@@ -50,7 +50,7 @@ tested without flashing hardware:
 ## Architecture
 
 - `tools/web-sim/CMakeLists.txt` globs and compiles
-  `faculty175/main/faculty175_face_*.c`, `faculty175_lvgl.c`, and
+  `astrolabe175c/main/faculty175_face_*.c`, `faculty175_lvgl.c`, and
   `faculty175_faces.c`.
 - `tools/web-sim/src/main.c` owns the Emscripten main loop, current face ID,
   dispatch call, and exported face catalog hooks used by the browser controls.

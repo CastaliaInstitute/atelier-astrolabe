@@ -76,7 +76,7 @@ static const faculty175_face_desc_t k_faces[] = {
     { FACULTY175_FACE_HUMAN_DESIGN, "human-design", "Human Design", FACULTY175_FACE_CAT_ORACLE, true, false, 176 },
     { FACULTY175_FACE_MAZE, "maze", "Maze", FACULTY175_FACE_CAT_HOME, true, true, 50 },
     { FACULTY175_FACE_DEATHSTAR, "deathstar", "Death Star", FACULTY175_FACE_CAT_HOME, true, true, 60 },
-    { FACULTY175_FACE_SOLAR, "solar", "Solar Activity", FACULTY175_FACE_CAT_HOME | FACULTY175_FACE_CAT_ORACLE, false, false, 92 },
+    { FACULTY175_FACE_SOLAR, "solar", "Solar Activity", FACULTY175_FACE_CAT_HOME | FACULTY175_FACE_CAT_ORACLE, true, true, 18 },
     { FACULTY175_FACE_MAGNETOSPHERE, "magnetosphere", "Magnetosphere", FACULTY175_FACE_CAT_HOME | FACULTY175_FACE_CAT_ORACLE, true, false, 93 },
     { FACULTY175_FACE_TRON, "tron", "TRON", FACULTY175_FACE_CAT_HOME, false, false, 65 },
     { FACULTY175_FACE_WSCAN, "wscan", "WiFi Scan", FACULTY175_FACE_CAT_SYSTEM, true, false, 201 },

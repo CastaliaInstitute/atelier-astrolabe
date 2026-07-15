@@ -19,6 +19,7 @@
 #include "faculty175_almanac.h"
 #include "faculty175_apocalypso.h"
 #include "faculty175_board.h"
+#include "faculty175_ble.h"
 #include "faculty175_charts.h"
 #include "faculty175_device_settings.h"
 #include "faculty175_face_native.h"
@@ -33,8 +34,27 @@
 #include "faculty175_wifi_settings.h"
 #include "faculty175_wifi_lab.h"
 #include "faculty175_wifi_monitor.h"
+#if __has_include("faculty175_usb_screen.h")
 #include "faculty175_usb_screen.h"
+#endif
+#if __has_include("faculty175_rotary_state.h")
 #include "faculty175_rotary_state.h"
+#else
+#define FACULTY175_ROTARY_STATE_KIND_COUNT 8
+typedef struct {
+    bool valid;
+    uint8_t state;
+    int rssi_dbm;
+    const char *source;
+    uint32_t age_ms;
+    bool has_style;
+    uint8_t facial_hair;
+    uint8_t glasses;
+    uint8_t skin_tone;
+    uint8_t hair_color;
+    uint8_t eye_color;
+} faculty175_rotary_state_t;
+#endif
 #include "freertos/task.h"
 #include "nvs.h"
 
@@ -938,6 +958,52 @@ bool faculty175_apocalypso_current(faculty175_apocalypso_status_t *out)
 }
 const char *faculty175_apocalypso_state_name(void) { return "demo"; }
 const char *faculty175_apocalypso_last(void) { return "websim apocalypso"; }
+
+esp_err_t faculty175_ble_init(void) { return ESP_OK; }
+bool faculty175_ble_enabled(void) { return true; }
+bool faculty175_ble_advertising(void) { return true; }
+bool faculty175_ble_scanning(void) { return ((s_tick_ms / 2400u) % 2u) == 0u; }
+esp_err_t faculty175_ble_set_enabled(bool enabled) { (void)enabled; return ESP_OK; }
+esp_err_t faculty175_ble_set_device_name(const char *name) { (void)name; return ESP_OK; }
+const char *faculty175_ble_device_name(void) { return "Astrolabe WebSim"; }
+esp_err_t faculty175_ble_scan_start(uint32_t duration_ms) { (void)duration_ms; return ESP_OK; }
+void faculty175_ble_radar_tick(uint32_t now_ms) { (void)now_ms; }
+size_t faculty175_ble_peers_snapshot(faculty175_ble_peer_t *out, size_t cap)
+{
+    if (out == NULL || cap == 0) {
+        return 0;
+    }
+    const char *names[] = {"Astrolabe Camille", "Astrolabe Daniel", "COLMI R10"};
+    const int8_t rssi[] = {-58, -72, -66};
+    const bool astrolabe[] = {true, true, false};
+    const size_t count = cap < 3 ? cap : 3;
+    for (size_t i = 0; i < count; ++i) {
+        out[i] = (faculty175_ble_peer_t){
+            .valid = true,
+            .astrolabe = astrolabe[i],
+            .known = astrolabe[i],
+            .rssi = rssi[i],
+            .seen_ms = s_tick_ms,
+            .bearing_deg = (uint16_t)((s_tick_ms / 42u + i * 117u) % 360u),
+            .range_pct = (uint8_t)(34u + i * 18u),
+            .confidence_pct = (uint8_t)(88u - i * 13u),
+        };
+        snprintf(out[i].name, sizeof(out[i].name), "%s", names[i]);
+        for (int b = 0; b < 6; ++b) {
+            out[i].addr[b] = (uint8_t)(0x30 + i * 9 + b);
+        }
+    }
+    return count;
+}
+
+void faculty175_solar_image_request(bool force) { (void)force; }
+bool faculty175_solar_image_draw_cached(void) { return false; }
+bool faculty175_solar_image_busy(void) { return false; }
+bool faculty175_solar_image_has_cached(void) { return false; }
+bool faculty175_solar_image_action(uint32_t seed_ms) { (void)seed_ms; return true; }
+const char *faculty175_solar_image_error(void) { return "websim solar"; }
+const char *faculty175_solar_image_channel(void) { return "AIA 171"; }
+time_t faculty175_solar_image_cached_epoch(void) { return 0; }
 
 esp_err_t faculty175_location_settings_load(faculty175_location_settings_t *out)
 {

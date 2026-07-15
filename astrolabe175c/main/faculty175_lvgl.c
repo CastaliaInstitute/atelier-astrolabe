@@ -21,7 +21,9 @@
 #include "faculty175_device_settings.h"
 #include "faculty175_face_alethiometer.h"
 #include "faculty175_face_alethiometer_glyphs.h"
+#include "faculty175_cycle_arcs.h"
 #include "faculty175_face_runes.h"
+#include "faculty175_face_solar_image.h"
 #include "faculty175_face_scale_earth_texture.h"
 #include "faculty175_face_tarot.h"
 #include "faculty175_face_tarot_assets.h"
@@ -51,6 +53,7 @@ static lv_indev_t *s_touch_indev;
 static uint8_t *s_draw_buf;
 static uint8_t *s_draw_buf_2;
 static bool s_ready;
+static bool s_direct_display_buffers;
 static bool s_watch_created;
 static uint32_t s_last_anim_ms;
 static uint32_t s_last_service_ms;
@@ -80,6 +83,13 @@ static lv_obj_t *s_native_bars[7];
 static lv_obj_t *s_native_cards[5];
 static lv_obj_t *s_moon_screen;
 static lv_obj_t *s_moon_image;
+static lv_obj_t *s_moon_fallback_disk;
+static lv_obj_t *s_moon_fallback_shadow;
+static lv_obj_t *s_moon_fallback_craters[9];
+static lv_obj_t *s_moon_phase_arc;
+static lv_obj_t *s_moon_phase_marker;
+static lv_obj_t *s_moon_day_ticks[28];
+static lv_point_precise_t s_moon_day_tick_points[28][2];
 static uint16_t *s_moon_pixels;
 static uint16_t *s_moon_render_pixels;
 static bool s_moon_texture_loaded;
@@ -163,6 +173,18 @@ static lv_obj_t *s_scale_value_label;
 static lv_obj_t *s_scale_note_label;
 static lv_obj_t *s_scale_time_label;
 static lv_obj_t *s_solar_screen;
+static lv_obj_t *s_solar_image;
+static uint16_t *s_solar_image_pixels;
+static lv_image_dsc_t s_solar_image_texture;
+static time_t s_solar_image_epoch;
+static lv_obj_t *s_solar_cycle_arc;
+static lv_obj_t *s_solar_year_arc;
+static lv_obj_t *s_solar_cycle_marker;
+static lv_obj_t *s_solar_year_marker;
+static lv_obj_t *s_solar_cycle_ticks[11];
+static lv_obj_t *s_solar_year_ticks[12];
+static lv_point_precise_t s_solar_cycle_tick_points[11][2];
+static lv_point_precise_t s_solar_year_tick_points[12][2];
 static lv_obj_t *s_solar_corona[4];
 static lv_obj_t *s_solar_disk;
 static lv_obj_t *s_solar_limb;
@@ -419,9 +441,14 @@ static void display_flush(lv_display_t *display, const lv_area_t *area, uint8_t 
     const int32_t w = lv_area_get_width(area);
     const int32_t h = lv_area_get_height(area);
     const uint16_t *src = (const uint16_t *)px_map;
+    if (src != NULL && s_direct_display_buffers) {
+        src += (size_t)area->y1 * (size_t)FACULTY175_LCD_W + (size_t)area->x1;
+    }
 
-    faculty175_display_draw_rgb565(src, area->x1, area->y1, w, h);
+    faculty175_display_lock();
+    faculty175_display_draw_rgb565_stride(src, s_direct_display_buffers ? FACULTY175_LCD_W : w, area->x1, area->y1, w, h);
     faculty175_display_flush_rect(area->x1, area->y1, w, h);
+    faculty175_display_unlock();
     lv_display_flush_ready(display);
 }
 
@@ -1047,6 +1074,71 @@ static bool moon_texture_load(void)
     return true;
 }
 
+static lv_obj_t *create_moon_phase_arc(lv_obj_t *parent)
+{
+    lv_obj_t *arc = lv_arc_create(parent);
+    lv_obj_remove_style(arc, NULL, LV_PART_KNOB);
+    lv_obj_set_size(arc, 432, 432);
+    lv_obj_center(arc);
+    lv_obj_clear_flag(arc, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(arc, LV_OBJ_FLAG_SCROLLABLE);
+    lv_arc_set_bg_angles(arc, 0, 360);
+    lv_arc_set_range(arc, 0, 1000);
+    lv_arc_set_rotation(arc, 270);
+    lv_obj_set_style_arc_width(arc, 2, LV_PART_MAIN);
+    lv_obj_set_style_arc_color(arc, lv_color_hex(0x303646), LV_PART_MAIN);
+    lv_obj_set_style_arc_opa(arc, 170, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(arc, 4, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(arc, lv_color_hex(0xaabdda), LV_PART_INDICATOR);
+    lv_obj_set_style_arc_opa(arc, 230, LV_PART_INDICATOR);
+    return arc;
+}
+
+static void create_moon_day_ticks(lv_obj_t *parent)
+{
+    const int32_t cx = FACULTY175_LCD_W / 2;
+    const int32_t cy = FACULTY175_LCD_H / 2;
+    for (int i = 0; i < 28; ++i) {
+        const float a = ((float)i / 28.0f) * 6.28318530718f - 1.57079632679f;
+        const bool week = (i % 7) == 0;
+        const int inner = week ? 209 : 213;
+        const int outer = 219;
+        s_moon_day_tick_points[i][0].x = (lv_value_precise_t)(cx + (int32_t)lrintf(cosf(a) * (float)inner));
+        s_moon_day_tick_points[i][0].y = (lv_value_precise_t)(cy + (int32_t)lrintf(sinf(a) * (float)inner));
+        s_moon_day_tick_points[i][1].x = (lv_value_precise_t)(cx + (int32_t)lrintf(cosf(a) * (float)outer));
+        s_moon_day_tick_points[i][1].y = (lv_value_precise_t)(cy + (int32_t)lrintf(sinf(a) * (float)outer));
+        s_moon_day_ticks[i] = lv_line_create(parent);
+        lv_obj_clear_flag(s_moon_day_ticks[i], LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_clear_flag(s_moon_day_ticks[i], LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_style_line_width(s_moon_day_ticks[i], week ? 2 : 1, 0);
+        lv_obj_set_style_line_rounded(s_moon_day_ticks[i], true, 0);
+        lv_obj_set_style_line_color(s_moon_day_ticks[i], lv_color_hex(week ? 0xded8c8 : 0x8a9098), 0);
+        lv_obj_set_style_line_opa(s_moon_day_ticks[i], week ? 150 : 82, 0);
+        lv_line_set_points(s_moon_day_ticks[i], s_moon_day_tick_points[i], 2);
+    }
+}
+
+static void moon_update_phase_overlay(float phase)
+{
+    if (s_moon_phase_arc != NULL) {
+        lv_arc_set_value(s_moon_phase_arc, (int32_t)lrintf(phase * 1000.0f));
+    }
+    if (s_moon_phase_marker != NULL) {
+        const float a = phase * 6.28318530718f - 1.57079632679f;
+        const int32_t cx = FACULTY175_LCD_W / 2;
+        const int32_t cy = FACULTY175_LCD_H / 2;
+        const int32_t size = lv_obj_get_width(s_moon_phase_marker);
+        const int32_t x = cx + (int32_t)lrintf(cosf(a) * 216.0f) - size / 2;
+        const int32_t y = cy + (int32_t)lrintf(sinf(a) * 216.0f) - size / 2;
+        lv_obj_align(s_moon_phase_marker, LV_ALIGN_TOP_LEFT, x, y);
+    }
+    if (s_moon_fallback_shadow != NULL) {
+        const int32_t x = (int32_t)lrintf(-78.0f + phase * 156.0f);
+        lv_obj_align(s_moon_fallback_shadow, LV_ALIGN_CENTER, x, 0);
+        lv_obj_set_style_bg_opa(s_moon_fallback_shadow, 238, 0);
+    }
+}
+
 static void create_moon_screen(void)
 {
     s_moon_screen = lv_obj_create(NULL);
@@ -1061,9 +1153,33 @@ static void create_moon_screen(void)
         lv_image_set_src(s_moon_image, &s_moon_texture);
         lv_obj_align(s_moon_image, LV_ALIGN_CENTER, 0, 0);
     } else {
-        lv_obj_t *fallback = make_circle(s_moon_screen, 466, 0xb8b4a8, LV_OPA_COVER);
-        lv_obj_center(fallback);
+        s_moon_fallback_disk = make_circle(s_moon_screen, 286, 0xb8b4a8, LV_OPA_COVER);
+        lv_obj_center(s_moon_fallback_disk);
+        lv_obj_set_style_border_width(s_moon_fallback_disk, 3, 0);
+        lv_obj_set_style_border_color(s_moon_fallback_disk, lv_color_hex(0xded8c8), 0);
+        lv_obj_set_style_border_opa(s_moon_fallback_disk, 190, 0);
+        static const int crater_pos[9][3] = {
+            {-70, -48, 14}, {-28, 42, 19}, {48, -36, 17}, {72, 34, 10}, {-42, -82, 9},
+            {12, -12, 10}, {30, 82, 10}, {-92, 20, 13}, {4, 54, 8},
+        };
+        for (int i = 0; i < 9; ++i) {
+            s_moon_fallback_craters[i] = make_circle(s_moon_screen, crater_pos[i][2], 0x858a90, 92);
+            lv_obj_align(s_moon_fallback_craters[i], LV_ALIGN_CENTER, crater_pos[i][0], crater_pos[i][1]);
+        }
+        s_moon_fallback_shadow = make_circle(s_moon_screen, 292, 0x020308, 238);
+        lv_obj_center(s_moon_fallback_shadow);
     }
+    s_moon_phase_arc = create_moon_phase_arc(s_moon_screen);
+    create_moon_day_ticks(s_moon_screen);
+    s_moon_phase_marker = make_circle(s_moon_screen, 11, 0xeee8d4, LV_OPA_COVER);
+    lv_obj_set_style_border_width(s_moon_phase_marker, 2, 0);
+    lv_obj_set_style_border_color(s_moon_phase_marker, lv_color_hex(0x0b0c10), 0);
+    lv_obj_set_style_border_opa(s_moon_phase_marker, 210, 0);
+    lv_obj_move_foreground(s_moon_phase_arc);
+    for (int i = 0; i < 28; ++i) {
+        lv_obj_move_foreground(s_moon_day_ticks[i]);
+    }
+    lv_obj_move_foreground(s_moon_phase_marker);
 }
 
 static bool draw_moon(uint32_t anim_ms)
@@ -1080,6 +1196,7 @@ static bool draw_moon(uint32_t anim_ms)
 
     const float phase = moon_phase_fraction(anim_ms);
     moon_render_shadow(phase);
+    moon_update_phase_overlay(phase);
 
     lvgl_tick(16);
     lv_timer_handler();
@@ -1785,6 +1902,150 @@ static void configure_solar_line(lv_obj_t *line, uint32_t color, int32_t width, 
     lv_obj_set_style_line_opa(line, opa, 0);
 }
 
+static void set_hidden(lv_obj_t *obj, bool hidden)
+{
+    if (obj == NULL) {
+        return;
+    }
+    if (hidden) {
+        lv_obj_add_flag(obj, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_clear_flag(obj, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+static bool solar_image_texture_ready(void)
+{
+    if (s_solar_image_pixels != NULL) {
+        return true;
+    }
+
+    const size_t pixel_count = (size_t)FACULTY175_LCD_W * FACULTY175_LCD_H;
+    s_solar_image_pixels = heap_caps_malloc(pixel_count * sizeof(uint16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (s_solar_image_pixels == NULL) {
+        s_solar_image_pixels = heap_caps_malloc(pixel_count * sizeof(uint16_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    }
+    if (s_solar_image_pixels == NULL) {
+        ESP_LOGW(TAG, "solar image LVGL pixel alloc failed");
+        return false;
+    }
+    memset(s_solar_image_pixels, 0, pixel_count * sizeof(uint16_t));
+
+    s_solar_image_texture = (lv_image_dsc_t) {
+        .header = {
+            .magic = LV_IMAGE_HEADER_MAGIC,
+            .cf = LV_COLOR_FORMAT_RGB565,
+            .flags = 0,
+            .w = FACULTY175_LCD_W,
+            .h = FACULTY175_LCD_H,
+            .stride = FACULTY175_LCD_W * sizeof(uint16_t),
+            .reserved_2 = 0,
+        },
+        .data_size = FACULTY175_LCD_W * FACULTY175_LCD_H * sizeof(uint16_t),
+        .data = (const uint8_t *)s_solar_image_pixels,
+        .reserved = NULL,
+        .reserved_2 = NULL,
+    };
+    return true;
+}
+
+static void solar_set_procedural_visible(bool visible)
+{
+    for (int i = 0; i < 4; ++i) {
+        set_hidden(s_solar_corona[i], !visible);
+    }
+    set_hidden(s_solar_disk, !visible);
+    set_hidden(s_solar_limb, !visible);
+    for (int i = 0; i < 7; ++i) {
+        set_hidden(s_solar_regions[i], !visible);
+    }
+    for (int i = 0; i < 3; ++i) {
+        set_hidden(s_solar_flare[i], !visible);
+        set_hidden(s_solar_cme[i], !visible);
+    }
+    for (int i = 0; i < 4; ++i) {
+        set_hidden(s_solar_region_labels[i], true);
+    }
+}
+
+static lv_obj_t *create_solar_cycle_arc(lv_obj_t *parent, int size, uint32_t guide, uint32_t progress, int width)
+{
+    lv_obj_t *arc = lv_arc_create(parent);
+    lv_obj_remove_style(arc, NULL, LV_PART_KNOB);
+    lv_obj_set_size(arc, size, size);
+    lv_obj_center(arc);
+    lv_obj_clear_flag(arc, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(arc, LV_OBJ_FLAG_SCROLLABLE);
+    lv_arc_set_bg_angles(arc, 0, 360);
+    lv_arc_set_range(arc, 0, 1000);
+    lv_arc_set_rotation(arc, 270);
+    lv_obj_set_style_arc_width(arc, width, LV_PART_MAIN);
+    lv_obj_set_style_arc_color(arc, lv_color_hex(guide), LV_PART_MAIN);
+    lv_obj_set_style_arc_opa(arc, 150, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(arc, width + 1, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(arc, lv_color_hex(progress), LV_PART_INDICATOR);
+    lv_obj_set_style_arc_opa(arc, 225, LV_PART_INDICATOR);
+    return arc;
+}
+
+static lv_obj_t *create_solar_cycle_marker(lv_obj_t *parent, int size, uint32_t color)
+{
+    lv_obj_t *marker = make_circle(parent, size, color, LV_OPA_COVER);
+    lv_obj_set_style_border_width(marker, 2, 0);
+    lv_obj_set_style_border_color(marker, lv_color_hex(0x0b0c10), 0);
+    lv_obj_set_style_border_opa(marker, 210, 0);
+    return marker;
+}
+
+static void create_solar_cycle_ticks(lv_obj_t *parent,
+                                     lv_obj_t **ticks,
+                                     lv_point_precise_t points[][2],
+                                     int count,
+                                     int inner_radius,
+                                     int outer_radius,
+                                     uint32_t major,
+                                     uint32_t minor)
+{
+    const int32_t cx = FACULTY175_LCD_W / 2;
+    const int32_t cy = FACULTY175_LCD_H / 2;
+    for (int i = 0; i < count; ++i) {
+        const float a = ((float)i / (float)count) * 6.28318530718f - 1.57079632679f;
+        const bool cardinal = i == 0 || (count == 12 && (i % 3) == 0);
+        const int in = cardinal ? inner_radius - 7 : inner_radius;
+        points[i][0].x = (lv_value_precise_t)(cx + (int32_t)lrintf(cosf(a) * (float)in));
+        points[i][0].y = (lv_value_precise_t)(cy + (int32_t)lrintf(sinf(a) * (float)in));
+        points[i][1].x = (lv_value_precise_t)(cx + (int32_t)lrintf(cosf(a) * (float)outer_radius));
+        points[i][1].y = (lv_value_precise_t)(cy + (int32_t)lrintf(sinf(a) * (float)outer_radius));
+        ticks[i] = lv_line_create(parent);
+        configure_solar_line(ticks[i], cardinal ? major : minor, cardinal ? 3 : 2, cardinal ? 218 : 150);
+        lv_line_set_points(ticks[i], points[i], 2);
+    }
+}
+
+static void update_solar_cycle_marker(lv_obj_t *marker, int radius, float phase)
+{
+    if (marker == NULL) {
+        return;
+    }
+    const float a = phase * 6.28318530718f - 1.57079632679f;
+    const int32_t cx = FACULTY175_LCD_W / 2;
+    const int32_t cy = FACULTY175_LCD_H / 2;
+    const int32_t size = lv_obj_get_width(marker);
+    const int32_t x = cx + (int32_t)lrintf(cosf(a) * (float)radius) - size / 2;
+    const int32_t y = cy + (int32_t)lrintf(sinf(a) * (float)radius) - size / 2;
+    lv_obj_align(marker, LV_ALIGN_TOP_LEFT, x, y);
+}
+
+static void update_solar_cycle_dials(uint32_t anim_ms)
+{
+    const float solar_phase = faculty175_cycle_solar_phase(anim_ms);
+    const float year_phase = faculty175_cycle_solar_year_phase(anim_ms);
+    lv_arc_set_value(s_solar_cycle_arc, (int32_t)lrintf(solar_phase * 1000.0f));
+    lv_arc_set_value(s_solar_year_arc, (int32_t)lrintf(year_phase * 1000.0f));
+    update_solar_cycle_marker(s_solar_cycle_marker, 226, solar_phase);
+    update_solar_cycle_marker(s_solar_year_marker, 212, year_phase);
+}
+
 static void create_solar_screen(void)
 {
     s_solar_screen = lv_obj_create(NULL);
@@ -1793,6 +2054,32 @@ static void create_solar_screen(void)
     lv_obj_set_style_bg_color(s_solar_screen, lv_color_hex(0x030406), 0);
     lv_obj_set_style_bg_opa(s_solar_screen, LV_OPA_COVER, 0);
     lv_obj_clear_flag(s_solar_screen, LV_OBJ_FLAG_SCROLLABLE);
+
+    s_solar_image = lv_image_create(s_solar_screen);
+    lv_obj_align(s_solar_image, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_add_flag(s_solar_image, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(s_solar_image, LV_OBJ_FLAG_SCROLLABLE);
+
+    s_solar_cycle_arc = create_solar_cycle_arc(s_solar_screen, 456, 0x583016, 0xff9a26, 3);
+    s_solar_year_arc = create_solar_cycle_arc(s_solar_screen, 428, 0x2e3824, 0x80da66, 3);
+    create_solar_cycle_ticks(s_solar_screen,
+                             s_solar_cycle_ticks,
+                             s_solar_cycle_tick_points,
+                             11,
+                             218,
+                             231,
+                             0xffe080,
+                             0x7a4a20);
+    create_solar_cycle_ticks(s_solar_screen,
+                             s_solar_year_ticks,
+                             s_solar_year_tick_points,
+                             12,
+                             204,
+                             218,
+                             0xffec9a,
+                             0x5b7a48);
+    s_solar_cycle_marker = create_solar_cycle_marker(s_solar_screen, 12, 0xffe080);
+    s_solar_year_marker = create_solar_cycle_marker(s_solar_screen, 10, 0xffec9a);
 
     static const int corona_sizes[4] = {430, 384, 336, 292};
     static const uint32_t corona_colors[4] = {0x402018, 0x74321a, 0xb95b20, 0xff9e36};
@@ -1832,13 +2119,29 @@ static void create_solar_screen(void)
     }
     for (int i = 0; i < 4; ++i) {
         s_solar_region_labels[i] = make_tarot_label(s_solar_screen, 0, 54, 0x2a1408);
+        lv_obj_add_flag(s_solar_region_labels[i], LV_OBJ_FLAG_HIDDEN);
     }
 
     s_solar_title = make_tarot_label(s_solar_screen, 30, 280, 0xffe2a4);
-    lv_label_set_text(s_solar_title, "SOLAR");
+    lv_label_set_text(s_solar_title, "");
+    lv_obj_add_flag(s_solar_title, LV_OBJ_FLAG_HIDDEN);
     s_solar_status = make_tarot_label(s_solar_screen, 392, 350, 0xffbd68);
     s_solar_source = make_tarot_label(s_solar_screen, 414, 360, 0x8fd6ff);
-    lv_label_set_text(s_solar_source, "SDO NRT  DONKI CACHE");
+    lv_label_set_text(s_solar_status, "");
+    lv_label_set_text(s_solar_source, "");
+    lv_obj_add_flag(s_solar_status, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(s_solar_source, LV_OBJ_FLAG_HIDDEN);
+
+    lv_obj_move_foreground(s_solar_cycle_arc);
+    lv_obj_move_foreground(s_solar_year_arc);
+    for (int i = 0; i < 11; ++i) {
+        lv_obj_move_foreground(s_solar_cycle_ticks[i]);
+    }
+    for (int i = 0; i < 12; ++i) {
+        lv_obj_move_foreground(s_solar_year_ticks[i]);
+    }
+    lv_obj_move_foreground(s_solar_cycle_marker);
+    lv_obj_move_foreground(s_solar_year_marker);
 }
 
 static bool draw_solar(uint32_t anim_ms)
@@ -1851,6 +2154,35 @@ static bool draw_solar(uint32_t anim_ms)
     }
     if (lv_screen_active() != s_solar_screen) {
         lv_screen_load(s_solar_screen);
+    }
+
+    faculty175_solar_image_request(false);
+    time_t cached_epoch = faculty175_solar_image_cached_epoch();
+    bool have_live_image = s_solar_image_epoch > 0 && s_solar_image_pixels != NULL;
+    if (cached_epoch > 0 && solar_image_texture_ready()) {
+        if (cached_epoch != s_solar_image_epoch) {
+            time_t copied_epoch = 0;
+            const size_t pixel_count = (size_t)FACULTY175_LCD_W * FACULTY175_LCD_H;
+            if (faculty175_solar_image_copy_cached(s_solar_image_pixels, pixel_count, &copied_epoch)) {
+                s_solar_image_epoch = copied_epoch;
+                lv_image_set_src(s_solar_image, &s_solar_image_texture);
+                lv_obj_invalidate(s_solar_image);
+                ESP_LOGI(TAG, "solar LVGL image refreshed from Helioviewer cache");
+            }
+        }
+        have_live_image = s_solar_image_epoch > 0 && s_solar_image_pixels != NULL;
+    }
+    set_hidden(s_solar_image, !have_live_image);
+    solar_set_procedural_visible(!have_live_image);
+    update_solar_cycle_dials(anim_ms);
+
+    if (have_live_image) {
+        lv_label_set_text(s_solar_status, "");
+        lv_obj_add_flag(s_solar_status, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_invalidate(s_solar_screen);
+        lvgl_tick(16);
+        lv_timer_handler();
+        return true;
     }
 
     const int32_t cx = FACULTY175_LCD_W / 2;
@@ -1871,10 +2203,7 @@ static bool draw_solar(uint32_t anim_ms)
         lv_obj_align(s_solar_regions[i], LV_ALIGN_TOP_LEFT, x - lv_obj_get_width(s_solar_regions[i]) / 2, y - lv_obj_get_height(s_solar_regions[i]) / 2);
         lv_obj_set_style_bg_opa(s_solar_regions[i], i < 3 ? 210 : 144, 0);
         if (i < 4) {
-            char ar[8];
-            snprintf(ar, sizeof(ar), "AR%d", 4 + i);
-            lv_label_set_text(s_solar_region_labels[i], ar);
-            lv_obj_align(s_solar_region_labels[i], LV_ALIGN_TOP_LEFT, x - 26, y - 8);
+            lv_obj_add_flag(s_solar_region_labels[i], LV_OBJ_FLAG_HIDDEN);
         }
     }
 
@@ -1897,7 +2226,8 @@ static bool draw_solar(uint32_t anim_ms)
         lv_line_set_points(s_solar_cme[i], s_solar_cme_points[i], 2);
     }
 
-    lv_label_set_text(s_solar_status, "AIA 193  HMI  FLR/CME");
+    lv_label_set_text(s_solar_status, "");
+    lv_obj_add_flag(s_solar_status, LV_OBJ_FLAG_HIDDEN);
     lv_obj_invalidate(s_solar_screen);
     lvgl_tick(16);
     lv_timer_handler();
@@ -6475,7 +6805,13 @@ esp_err_t faculty175_lvgl_init(void)
     if (s_draw_buf_2 == NULL && buf_size == (size_t)FACULTY175_LCD_W * LVGL_DRAW_BUF_ROWS * sizeof(uint16_t)) {
         ESP_LOGW(TAG, "lvgl second full-screen draw buffer unavailable; using single buffer");
     }
-    lv_display_set_buffers(s_display, s_draw_buf, s_draw_buf_2, buf_size, LV_DISPLAY_RENDER_MODE_PARTIAL);
+    const size_t full_buf_size = (size_t)FACULTY175_LCD_W * (size_t)FACULTY175_LCD_H * sizeof(uint16_t);
+    s_direct_display_buffers = buf_size >= full_buf_size;
+    lv_display_set_buffers(s_display,
+                           s_draw_buf,
+                           s_draw_buf_2,
+                           buf_size,
+                           s_direct_display_buffers ? LV_DISPLAY_RENDER_MODE_DIRECT : LV_DISPLAY_RENDER_MODE_PARTIAL);
     ESP_LOGI(TAG,
              "lvgl draw buffers rows=%u bytes=%u double=%d psram_free=%u",
              (unsigned)(buf_size / ((size_t)FACULTY175_LCD_W * sizeof(uint16_t))),
@@ -6619,6 +6955,19 @@ void faculty175_lvgl_service(uint32_t now_ms)
     s_last_service_ms = now_ms;
     lvgl_tick(elapsed);
     lv_timer_handler();
+}
+
+void faculty175_lvgl_force_full_refresh(void)
+{
+    if (!s_ready || s_display == NULL) {
+        return;
+    }
+    lv_obj_t *screen = lv_screen_active();
+    if (screen == NULL) {
+        return;
+    }
+    lv_obj_invalidate(screen);
+    lv_refr_now(s_display);
 }
 
 bool faculty175_lvgl_draw_nav(const faculty175_face_desc_t *center,

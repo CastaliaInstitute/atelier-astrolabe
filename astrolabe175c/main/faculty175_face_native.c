@@ -13,6 +13,7 @@
 
 #include "astrolabe_round_bezel.h"
 #include "faculty175_board.h"
+#include "faculty175_cycle_arcs.h"
 #include "faculty175_lvgl.h"
 
 static const char *TAG = "faculty175_face_native";
@@ -414,10 +415,12 @@ static bool play_instrument_action(faculty175_face_id_t id, uint32_t seed_ms)
 static void draw_frame(const faculty175_native_face_t *face, uint16_t accent, uint16_t dim)
 {
     faculty175_display_fill_rgb565(rgb(4, 5, 10));
-    faculty175_display_fill_rect(0, 0, FACULTY175_LCD_W, 48, rgb(14, 15, 22));
-    faculty175_display_draw_centered_text(face->title, 12, accent);
-    if (face->subtitle != NULL) {
-        faculty175_display_draw_centered_text(face->subtitle, 32, dim);
+    if (face->id != FACULTY175_FACE_MOON) {
+        faculty175_display_fill_rect(0, 0, FACULTY175_LCD_W, 48, rgb(14, 15, 22));
+        faculty175_display_draw_centered_text(face->title, 12, accent);
+        if (face->subtitle != NULL) {
+            faculty175_display_draw_centered_text(face->subtitle, 32, dim);
+        }
     }
     const int cx = FACULTY175_LCD_W / 2;
     const int cy = FACULTY175_LCD_H / 2 + 2;
@@ -704,14 +707,15 @@ static void draw_celestial(const faculty175_native_face_t *face, uint32_t anim_m
     const int cx = 233;
     const int cy = 238;
     if (face->id == FACULTY175_FACE_MOON) {
+        const float phase = faculty175_cycle_lunar_phase(anim_ms);
         faculty175_display_fill_circle(cx, cy, 126, rgb(178, 184, 190));
-        const int shadow = -74 + (int)((anim_ms / 80u) % 148u);
+        const int shadow = -74 + (int)lrintf(phase * 148.0f);
         faculty175_display_fill_circle(cx + shadow, cy, 128, rgb(8, 10, 18));
         for (int i = 0; i < 18; ++i) {
             const float a = ((float)i / 18.0f) * 6.2831853f;
             dot_polar(cx, cy, a, 36 + (i * 17) % 78, 2 + (i % 3), rgb(120, 126, 132));
         }
-        centered_at("WAXING / WANING", cx, 370, dim);
+        faculty175_cycle_draw_lunar_arc(cx, cy, 212, anim_ms);
         return;
     }
     if (face->id == FACULTY175_FACE_GLOBE) {

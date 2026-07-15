@@ -39,6 +39,7 @@ void faculty175_wifi_settings_set_scan_suppressed(bool suppressed);
 
 bool faculty175_wifi_settings_ap_active(void);
 bool faculty175_wifi_settings_ap_client_connected(void);
+bool faculty175_wifi_settings_sta_connected(void);
 bool faculty175_wifi_settings_scan_suppressed(void);
 const char *faculty175_wifi_settings_ssid(void);
 const char *faculty175_wifi_settings_upstream_ssid(void);

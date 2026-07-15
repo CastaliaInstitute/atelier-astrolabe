@@ -2222,6 +2222,45 @@ void faculty175_display_draw_rgb565(const uint16_t *pixels, int x, int y, int w,
     faculty175_display_blit_rgb565_masked(pixels, NULL, x, y, w, h);
 }
 
+void faculty175_display_draw_rgb565_stride(const uint16_t *pixels, int src_stride_pixels, int x, int y, int w, int h)
+{
+    if (s_fb == NULL || pixels == NULL || src_stride_pixels <= 0 || w <= 0 || h <= 0) {
+        return;
+    }
+    if (src_stride_pixels == w) {
+        faculty175_display_draw_rgb565(pixels, x, y, w, h);
+        return;
+    }
+
+    int src_x = 0;
+    int src_y = 0;
+    if (x < 0) {
+        src_x = -x;
+        w += x;
+        x = 0;
+    }
+    if (y < 0) {
+        src_y = -y;
+        h += y;
+        y = 0;
+    }
+    if (x >= FACULTY175_LCD_W || y >= FACULTY175_LCD_H || w <= 0 || h <= 0) {
+        return;
+    }
+    if (x + w > FACULTY175_LCD_W) {
+        w = FACULTY175_LCD_W - x;
+    }
+    if (y + h > FACULTY175_LCD_H) {
+        h = FACULTY175_LCD_H - y;
+    }
+
+    for (int row = 0; row < h; ++row) {
+        memcpy(&s_fb[(y + row) * FACULTY175_LCD_W + x],
+               &pixels[(src_y + row) * src_stride_pixels + src_x],
+               (size_t)w * sizeof(uint16_t));
+    }
+}
+
 void faculty175_display_blit_rgb565_masked(const uint16_t *pixels, const uint8_t *opaque, int x, int y, int w, int h)
 {
     if (s_fb == NULL || pixels == NULL) {

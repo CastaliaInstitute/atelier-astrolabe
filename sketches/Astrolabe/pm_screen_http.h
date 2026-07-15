@@ -17,3 +17,5 @@ const char *pm_screen_http_ota_status(void);
 size_t pm_screen_http_ota_bytes(void);
 size_t pm_screen_http_ota_total(void);
 const char *pm_screen_http_ota_integration_url(void);
+/** Check the channel manifest and install a newer integration release if present. */
+bool pm_screen_http_ota_auto_check(void);
