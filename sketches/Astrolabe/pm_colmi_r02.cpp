@@ -1,6 +1,8 @@
 #include "pm_colmi_r02.h"
 
 #include <Arduino.h>
+#include <cstring>
+#include <string>
 
 #if defined(ASTROLABE_COLMI_R02_HID_ENABLED) && !defined(ASTROLABE_QEMU) && __has_include(<BLEDevice.h>)
 #include <BLEAdvertisedDevice.h>
@@ -30,7 +32,28 @@ static BLEUUID kMainNotify("de5bf729-d711-4e47-af26-65e3012a5dc7");
 constexpr uint32_t kScanPeriodMs = 4000;
 constexpr uint32_t kSampleStaleMs = 500;
 constexpr uint32_t kStreamRefreshMs = 10000;
+constexpr uint32_t kWellnessPollMs = 15000;
+constexpr uint32_t kHistoryPollMs = 300000;
+constexpr uint32_t kWellnessStaleMs = 10UL * 60UL * 1000UL;
 constexpr float kRawToG = 1.f / 512.f;
+
+constexpr uint8_t kCmdBattery = 0x03;
+constexpr uint8_t kCmdRealtimeHeartRate = 0x1E;
+constexpr uint8_t kCmdSyncStress = 0x37;
+constexpr uint8_t kCmdSyncHrv = 0x39;
+constexpr uint8_t kCmdManualRealtime = 0x69;
+constexpr uint8_t kCmdBigDataV2 = 0xBC;
+constexpr uint8_t kBigDataSleep = 0x27;
+constexpr uint8_t kRealtimeHeartRate = 0x01;
+constexpr uint8_t kRealtimeSpo2 = 0x03;
+constexpr uint8_t kRealtimePressure = 0x08;
+constexpr uint8_t kRealtimeHrv = 0x0A;
+constexpr uint8_t kRealtimeStart = 0x01;
+constexpr uint8_t kRealtimeStop = 0x04;
+constexpr uint8_t kSleepLight = 0x02;
+constexpr uint8_t kSleepDeep = 0x03;
+constexpr uint8_t kSleepRem = 0x04;
+constexpr uint8_t kSleepAwake = 0x05;
 
 BLEClient *s_client = nullptr;
 BLERemoteCharacteristic *s_rxtx_write = nullptr;
@@ -38,12 +61,17 @@ BLERemoteCharacteristic *s_main_write = nullptr;
 uint32_t s_last_scan_ms = 0;
 uint32_t s_last_stream_cmd_ms = 0;
 uint32_t s_last_sample_ms = 0;
+uint32_t s_last_wellness_poll_ms = 0;
+uint32_t s_last_history_poll_ms = 0;
+uint32_t s_last_wellness_ms = 0;
 bool s_started = false;
 bool s_ble_init = false;
 bool s_connected = false;
 bool s_streaming = false;
 char s_status[28] = "ring idle";
 PmColmiR02AccelSample s_last_sample;
+PmColmiR02Wellness s_wellness;
+uint8_t s_realtime_kind = kRealtimeHeartRate;
 
 uint8_t checksum(const uint8_t *data, size_t len_without_crc) {
   uint16_t sum = 0;
@@ -64,6 +92,16 @@ void make_command(uint8_t cmd, uint8_t a = 0, uint8_t b = 0, uint8_t *out = null
   out[15] = checksum(out, 15);
 }
 
+void make_command_payload(const uint8_t *payload, size_t payload_len, uint8_t *out) {
+  if (!payload || !out) {
+    return;
+  }
+  memset(out, 0, 16);
+  const size_t n = payload_len > 15 ? 15 : payload_len;
+  memcpy(out, payload, n);
+  out[15] = checksum(out, 15);
+}
+
 int16_t parse_i12(uint8_t hi, uint8_t lo_nibble) {
   int16_t v = static_cast<int16_t>((static_cast<uint16_t>(hi) << 4) | (lo_nibble & 0x0F));
   if (v & 0x0800) {
@@ -72,8 +110,157 @@ int16_t parse_i12(uint8_t hi, uint8_t lo_nibble) {
   return v;
 }
 
+uint16_t u16le(uint8_t lo, uint8_t hi) {
+  return static_cast<uint16_t>(lo) | (static_cast<uint16_t>(hi) << 8);
+}
+
+void mark_wellness(void) {
+  s_last_wellness_ms = millis();
+}
+
+void parse_realtime_value(const uint8_t *data, size_t len) {
+  if (!data || len < 4 || data[2] != 0x00) {
+    return;
+  }
+  const uint8_t kind = data[1];
+  const uint8_t value = data[3];
+  if (value == 0) {
+    return;
+  }
+  switch (kind) {
+    case kRealtimeHeartRate:
+      s_wellness.heart_rate_bpm = value;
+      s_wellness.heart_rate_valid = true;
+      break;
+    case kRealtimeSpo2:
+      s_wellness.spo2_percent = value;
+      s_wellness.spo2_valid = true;
+      break;
+    case kRealtimePressure:
+      s_wellness.stress = value;
+      s_wellness.stress_valid = true;
+      break;
+    case kRealtimeHrv:
+      s_wellness.hrv_ms = value;
+      s_wellness.hrv_valid = true;
+      break;
+    default:
+      return;
+  }
+  mark_wellness();
+}
+
+void parse_history_series(const uint8_t *data, size_t len, bool hrv) {
+  if (!data || len < 4 || data[1] == 0xFF || data[1] == 0x00) {
+    return;
+  }
+  const uint8_t packet_nr = data[1];
+  const size_t start = packet_nr == 1 ? 3 : 2;
+  for (size_t i = start; i < len - 1; ++i) {
+    const uint8_t value = data[i];
+    if (value == 0) {
+      continue;
+    }
+    if (hrv) {
+      s_wellness.hrv_ms = value;
+      s_wellness.hrv_valid = true;
+    } else {
+      s_wellness.stress = value;
+      s_wellness.stress_valid = true;
+    }
+    mark_wellness();
+  }
+}
+
+void parse_sleep_history(const uint8_t *data, size_t len) {
+  if (!data || len < 8) {
+    return;
+  }
+  const uint16_t packet_len = u16le(data[2], data[3]);
+  if (packet_len < 2) {
+    return;
+  }
+  size_t index = 7;
+  const uint8_t days_in_packet = data[6];
+  PmColmiR02Wellness sleep = s_wellness;
+  sleep.sleep_total_min = 0;
+  sleep.sleep_light_min = 0;
+  sleep.sleep_deep_min = 0;
+  sleep.sleep_rem_min = 0;
+  sleep.sleep_awake_min = 0;
+  for (uint8_t day = 0; day < days_in_packet && index + 5 < len; ++day) {
+    const uint8_t days_ago = data[index++];
+    const uint8_t day_bytes = data[index++];
+    const uint16_t sleep_start = u16le(data[index], data[index + 1]);
+    index += 2;
+    const uint16_t sleep_end = u16le(data[index], data[index + 1]);
+    index += 2;
+    (void)sleep_start;
+    (void)sleep_end;
+    if (days_ago != 0) {
+      index += day_bytes > 4 ? day_bytes - 4 : 0;
+      continue;
+    }
+    for (uint8_t j = 4; j + 1 < day_bytes && index + 1 < len; j += 2) {
+      const uint8_t stage = data[index++];
+      const uint8_t minutes = data[index++];
+      if (minutes == 0) {
+        continue;
+      }
+      sleep.sleep_total_min += minutes;
+      switch (stage) {
+        case kSleepLight:
+          sleep.sleep_light_min += minutes;
+          break;
+        case kSleepDeep:
+          sleep.sleep_deep_min += minutes;
+          break;
+        case kSleepRem:
+          sleep.sleep_rem_min += minutes;
+          break;
+        case kSleepAwake:
+          sleep.sleep_awake_min += minutes;
+          break;
+        default:
+          break;
+      }
+    }
+    sleep.sleep_valid = sleep.sleep_total_min > 0;
+  }
+  if (sleep.sleep_valid) {
+    s_wellness = sleep;
+    mark_wellness();
+  }
+}
+
 void parse_notify(const uint8_t *data, size_t len) {
-  if (!data || len < 10 || data[0] != 0xA1 || data[1] != 0x03) {
+  if (!data || len < 2) {
+    return;
+  }
+  if (len >= 4 && data[0] == kCmdBattery) {
+    s_wellness.battery_percent = data[1];
+    s_wellness.charging = data[2] == 0x01;
+    s_wellness.battery_valid = true;
+    mark_wellness();
+    return;
+  }
+  if (len >= 4 && (data[0] == kCmdManualRealtime || data[0] == kCmdRealtimeHeartRate)) {
+    parse_realtime_value(data, len);
+    return;
+  }
+  if (data[0] == kCmdSyncStress) {
+    parse_history_series(data, len, false);
+    return;
+  }
+  if (data[0] == kCmdSyncHrv) {
+    parse_history_series(data, len, true);
+    return;
+  }
+  if (data[0] == kCmdBigDataV2 && len >= 7 && data[1] == kBigDataSleep) {
+    parse_sleep_history(data, len);
+    return;
+  }
+  if (len < 10 || data[0] != 0xA1 || data[1] != 0x03) {
     return;
   }
   const int16_t raw_y = parse_i12(data[2], data[3]);
@@ -103,6 +290,11 @@ bool send_command(BLERemoteCharacteristic *ch, const uint8_t *data, size_t len) 
   return true;
 }
 
+void send_packet_both(const uint8_t *data, size_t len) {
+  (void)send_command(s_rxtx_write, data, len);
+  (void)send_command(s_main_write, data, len);
+}
+
 void send_raw_sensor_enable(void) {
   uint8_t cmd[16];
   make_command(0xA1, 0x04, 0x00, cmd);
@@ -113,11 +305,54 @@ void send_raw_sensor_enable(void) {
   }
 }
 
+void send_wellness_history_requests(void) {
+  uint8_t cmd[16];
+  make_command(kCmdBattery, 0x00, 0x00, cmd);
+  send_packet_both(cmd, sizeof(cmd));
+
+  make_command(kCmdSyncStress, 0x00, 0x00, cmd);
+  send_packet_both(cmd, sizeof(cmd));
+
+  const uint8_t hrv_payload[] = {kCmdSyncHrv, 0x00, 0x00, 0x00, 0x00};
+  make_command_payload(hrv_payload, sizeof(hrv_payload), cmd);
+  send_packet_both(cmd, sizeof(cmd));
+
+  const uint8_t sleep_payload[] = {kCmdBigDataV2, kBigDataSleep, 0x01, 0x00, 0xFF, 0x00, 0xFF};
+  (void)send_command(s_main_write, sleep_payload, sizeof(sleep_payload));
+  s_last_history_poll_ms = millis();
+}
+
+void send_realtime_probe(void) {
+  uint8_t cmd[16];
+  const uint8_t payload[] = {kCmdManualRealtime, s_realtime_kind, kRealtimeStart};
+  make_command_payload(payload, sizeof(payload), cmd);
+  send_packet_both(cmd, sizeof(cmd));
+
+  switch (s_realtime_kind) {
+    case kRealtimeHeartRate:
+      s_realtime_kind = kRealtimeSpo2;
+      break;
+    case kRealtimeSpo2:
+      s_realtime_kind = kRealtimeHrv;
+      break;
+    case kRealtimeHrv:
+      s_realtime_kind = kRealtimePressure;
+      break;
+    default:
+      s_realtime_kind = kRealtimeHeartRate;
+      break;
+  }
+  s_last_wellness_poll_ms = millis();
+}
+
 void send_raw_sensor_disable(void) {
   uint8_t cmd[16];
   make_command(0xA1, 0x02, 0x00, cmd);
   (void)send_command(s_rxtx_write, cmd, sizeof(cmd));
   (void)send_command(s_main_write, cmd, sizeof(cmd));
+  const uint8_t realtime_stop_payload[] = {kCmdManualRealtime, kRealtimeHeartRate, kRealtimeStop};
+  make_command_payload(realtime_stop_payload, sizeof(realtime_stop_payload), cmd);
+  send_packet_both(cmd, sizeof(cmd));
 }
 
 bool subscribe(BLERemoteService *svc, BLEUUID uuid) {
@@ -176,6 +411,19 @@ bool connect_to(BLEAdvertisedDevice &dev) {
 }
 
 bool advertises_colmi(BLEAdvertisedDevice &dev) {
+  if (dev.haveName()) {
+    const std::string name = dev.getName();
+    if (name.find("COLMI") != std::string::npos || name.find("R02") != std::string::npos ||
+        name.find("R10") != std::string::npos) {
+      return true;
+    }
+  }
+  if (dev.haveManufacturerData()) {
+    const std::string data = dev.getManufacturerData();
+    if (data.size() >= 2 && static_cast<uint8_t>(data[0]) == 0xFE && static_cast<uint8_t>(data[1]) == 0xE7) {
+      return true;
+    }
+  }
   return dev.isAdvertisingService(kRxtxService) || dev.isAdvertisingService(kMainService);
 }
 
@@ -253,6 +501,12 @@ void pm_colmi_r02_tick(uint32_t now_ms) {
   if (now_ms - s_last_stream_cmd_ms > kStreamRefreshMs) {
     send_raw_sensor_enable();
   }
+  if (now_ms - s_last_wellness_poll_ms > kWellnessPollMs) {
+    send_realtime_probe();
+  }
+  if (now_ms - s_last_history_poll_ms > kHistoryPollMs) {
+    send_wellness_history_requests();
+  }
   if (s_streaming && now_ms - s_last_sample_ms > kSampleStaleMs) {
     s_streaming = false;
     strncpy(s_status, "ring stale", sizeof(s_status) - 1);
@@ -287,6 +541,20 @@ bool pm_colmi_r02_accel_g(PmColmiR02AccelSample *out) {
   *out = s_last_sample;
   out->age_ms = millis() - s_last_sample_ms;
   return out->age_ms <= kSampleStaleMs;
+#else
+  (void)out;
+  return false;
+#endif
+}
+
+bool pm_colmi_r02_wellness(PmColmiR02Wellness *out) {
+#if PM_COLMI_R02_BLE
+  if (!out || s_last_wellness_ms == 0) {
+    return false;
+  }
+  *out = s_wellness;
+  out->age_ms = millis() - s_last_wellness_ms;
+  return out->age_ms <= kWellnessStaleMs;
 #else
   (void)out;
   return false;

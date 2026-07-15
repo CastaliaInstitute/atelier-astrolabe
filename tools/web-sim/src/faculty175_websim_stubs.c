@@ -19,6 +19,7 @@
 #include "faculty175_almanac.h"
 #include "faculty175_apocalypso.h"
 #include "faculty175_board.h"
+#include "faculty175_ble.h"
 #include "faculty175_charts.h"
 #include "faculty175_device_settings.h"
 #include "faculty175_face_native.h"
@@ -33,8 +34,27 @@
 #include "faculty175_wifi_settings.h"
 #include "faculty175_wifi_lab.h"
 #include "faculty175_wifi_monitor.h"
+#if __has_include("faculty175_usb_screen.h")
 #include "faculty175_usb_screen.h"
+#endif
+#if __has_include("faculty175_rotary_state.h")
 #include "faculty175_rotary_state.h"
+#else
+#define FACULTY175_ROTARY_STATE_KIND_COUNT 8
+typedef struct {
+    bool valid;
+    uint8_t state;
+    int rssi_dbm;
+    const char *source;
+    uint32_t age_ms;
+    bool has_style;
+    uint8_t facial_hair;
+    uint8_t glasses;
+    uint8_t skin_tone;
+    uint8_t hair_color;
+    uint8_t eye_color;
+} faculty175_rotary_state_t;
+#endif
 #include "freertos/task.h"
 #include "nvs.h"
 
@@ -347,74 +367,6 @@ int faculty175_display_write_bmp(FILE *out) { (void)out; return 0; }
 size_t faculty175_display_bmp565_size(void) { return 0; }
 esp_err_t faculty175_display_write_bmp565(faculty175_display_write_cb_t write_cb, void *ctx) { (void)write_cb; (void)ctx; return ESP_FAIL; }
 
-esp_err_t faculty175_lvgl_init(void) { return ESP_FAIL; }
-bool faculty175_lvgl_ready(void) { return false; }
-void faculty175_lvgl_service(uint32_t now_ms) { (void)now_ms; }
-bool faculty175_lvgl_face_supported(faculty175_face_id_t id) { (void)id; return false; }
-bool faculty175_lvgl_draw_face(faculty175_face_id_t id, uint32_t anim_ms) { (void)id; (void)anim_ms; return false; }
-bool faculty175_lvgl_draw_native_face(const faculty175_native_face_t *face, uint32_t anim_ms) { (void)face; (void)anim_ms; return false; }
-bool faculty175_lvgl_draw_nav(const faculty175_face_desc_t *center,
-                              const faculty175_face_desc_t *left,
-                              const faculty175_face_desc_t *right,
-                              const faculty175_face_desc_t *up,
-                              const faculty175_face_desc_t *down,
-                              uint32_t anim_ms)
-{
-    (void)center;
-    (void)left;
-    (void)right;
-    (void)up;
-    (void)down;
-    (void)anim_ms;
-    return false;
-}
-bool faculty175_lvgl_transition_nav(const faculty175_face_desc_t *center, bool vertical, int delta, uint32_t duration_ms)
-{
-    (void)center;
-    (void)vertical;
-    (void)delta;
-    (void)duration_ms;
-    return false;
-}
-bool faculty175_lvgl_transition_face(faculty175_face_id_t from_id,
-                                     faculty175_face_id_t to_id,
-                                     uint32_t anim_ms,
-                                     bool vertical,
-                                     int delta,
-                                     uint32_t duration_ms,
-                                     bool *animated_out)
-{
-    (void)from_id;
-    (void)to_id;
-    (void)anim_ms;
-    (void)vertical;
-    (void)delta;
-    (void)duration_ms;
-    if (animated_out) {
-        *animated_out = false;
-    }
-    return false;
-}
-bool faculty175_lvgl_faces_share_transition_screen(faculty175_face_id_t a, faculty175_face_id_t b)
-{
-    (void)a;
-    (void)b;
-    return false;
-}
-bool faculty175_lvgl_animate_frames(const uint16_t *from,
-                                    const uint16_t *to,
-                                    bool vertical,
-                                    int delta,
-                                    uint32_t duration_ms)
-{
-    (void)from;
-    (void)to;
-    (void)vertical;
-    (void)delta;
-    (void)duration_ms;
-    return false;
-}
-
 static void websim_placeholder_face(const char *label, uint32_t anim_ms)
 {
     faculty175_display_draw_status(FACULTY175_UI_LISTEN, label, "websim stub", anim_ms, NULL, NULL, 0);
@@ -541,7 +493,9 @@ esp_err_t esp_spiffs_info(const char *partition_label, size_t *total, size_t *us
     }
     return ESP_FAIL;
 }
-const esp_partition_t *esp_partition_find_first(int type, int subtype, const char *label)
+const esp_partition_t *esp_partition_find_first(esp_partition_type_t type,
+                                                esp_partition_subtype_t subtype,
+                                                const char *label)
 {
     (void)type;
     (void)subtype;
@@ -939,6 +893,52 @@ bool faculty175_apocalypso_current(faculty175_apocalypso_status_t *out)
 const char *faculty175_apocalypso_state_name(void) { return "demo"; }
 const char *faculty175_apocalypso_last(void) { return "websim apocalypso"; }
 
+esp_err_t faculty175_ble_init(void) { return ESP_OK; }
+bool faculty175_ble_enabled(void) { return true; }
+bool faculty175_ble_advertising(void) { return true; }
+bool faculty175_ble_scanning(void) { return ((s_tick_ms / 2400u) % 2u) == 0u; }
+esp_err_t faculty175_ble_set_enabled(bool enabled) { (void)enabled; return ESP_OK; }
+esp_err_t faculty175_ble_set_device_name(const char *name) { (void)name; return ESP_OK; }
+const char *faculty175_ble_device_name(void) { return "Astrolabe WebSim"; }
+esp_err_t faculty175_ble_scan_start(uint32_t duration_ms) { (void)duration_ms; return ESP_OK; }
+void faculty175_ble_radar_tick(uint32_t now_ms) { (void)now_ms; }
+size_t faculty175_ble_peers_snapshot(faculty175_ble_peer_t *out, size_t cap)
+{
+    if (out == NULL || cap == 0) {
+        return 0;
+    }
+    const char *names[] = {"Astrolabe Camille", "Astrolabe Daniel", "COLMI R10"};
+    const int8_t rssi[] = {-58, -72, -66};
+    const bool astrolabe[] = {true, true, false};
+    const size_t count = cap < 3 ? cap : 3;
+    for (size_t i = 0; i < count; ++i) {
+        out[i] = (faculty175_ble_peer_t){
+            .valid = true,
+            .astrolabe = astrolabe[i],
+            .known = astrolabe[i],
+            .rssi = rssi[i],
+            .seen_ms = s_tick_ms,
+            .bearing_deg = (uint16_t)((s_tick_ms / 42u + i * 117u) % 360u),
+            .range_pct = (uint8_t)(34u + i * 18u),
+            .confidence_pct = (uint8_t)(88u - i * 13u),
+        };
+        snprintf(out[i].name, sizeof(out[i].name), "%s", names[i]);
+        for (int b = 0; b < 6; ++b) {
+            out[i].addr[b] = (uint8_t)(0x30 + i * 9 + b);
+        }
+    }
+    return count;
+}
+
+void faculty175_solar_image_request(bool force) { (void)force; }
+bool faculty175_solar_image_draw_cached(void) { return false; }
+bool faculty175_solar_image_busy(void) { return false; }
+bool faculty175_solar_image_has_cached(void) { return false; }
+bool faculty175_solar_image_action(uint32_t seed_ms) { (void)seed_ms; return true; }
+const char *faculty175_solar_image_error(void) { return "websim solar"; }
+const char *faculty175_solar_image_channel(void) { return "AIA 171"; }
+time_t faculty175_solar_image_cached_epoch(void) { return 0; }
+
 esp_err_t faculty175_location_settings_load(faculty175_location_settings_t *out)
 {
     if (!out) {
@@ -1022,38 +1022,116 @@ bool faculty175_almanac_cached_phenology(char *date, size_t date_cap, char *subj
     return true;
 }
 
+static const faculty175_birth_chart_t k_websim_family_mcshan[] = {
+    {
+        .name = "Camille",
+        .role = FACULTY175_CHART_ROLE_PARTNER,
+        .year = 1988,
+        .month = 6,
+        .day = 12,
+        .hour = 10,
+        .minute = 24,
+        .lat_deg = 39.7392f,
+        .lon_deg = -104.9903f,
+        .tz_offset_sec = -6 * 3600,
+        .place = "Denver, CO",
+        .valid = true,
+    },
+    {
+        .name = "Finn",
+        .role = FACULTY175_CHART_ROLE_CHILD,
+        .year = 2016,
+        .month = 3,
+        .day = 4,
+        .hour = 8,
+        .minute = 15,
+        .lat_deg = 39.7392f,
+        .lon_deg = -104.9903f,
+        .tz_offset_sec = -7 * 3600,
+        .place = "Denver, CO",
+        .valid = true,
+    },
+    {
+        .name = "Aleia",
+        .role = FACULTY175_CHART_ROLE_CHILD,
+        .year = 2019,
+        .month = 9,
+        .day = 18,
+        .hour = 14,
+        .minute = 42,
+        .lat_deg = 39.7392f,
+        .lon_deg = -104.9903f,
+        .tz_offset_sec = -6 * 3600,
+        .place = "Denver, CO",
+        .valid = true,
+    },
+};
+
 void faculty175_charts_ensure_family_seed(void) {}
 bool faculty175_charts_primary(faculty175_birth_chart_t *out)
 {
     if (out) {
-        snprintf(out->name, sizeof(out->name), "Ada");
-        out->valid = true;
+        *out = (faculty175_birth_chart_t) {
+            .name = "Daniel",
+            .role = FACULTY175_CHART_ROLE_SELF,
+            .year = 1986,
+            .month = 11,
+            .day = 2,
+            .hour = 6,
+            .minute = 30,
+            .lat_deg = 39.7392f,
+            .lon_deg = -104.9903f,
+            .tz_offset_sec = -7 * 3600,
+            .place = "Denver, CO",
+            .valid = true,
+        };
     }
     return true;
 }
 esp_err_t faculty175_charts_save_primary(const faculty175_birth_chart_t *chart) { (void)chart; return ESP_OK; }
-int faculty175_charts_profile_count(void) { return 2; }
-bool faculty175_charts_profile_get(int slot, faculty175_birth_chart_t *out) { (void)slot; return faculty175_charts_primary(out); }
+int faculty175_charts_profile_count(void) { return (int)(sizeof(k_websim_family_mcshan) / sizeof(k_websim_family_mcshan[0])); }
+bool faculty175_charts_profile_get(int slot, faculty175_birth_chart_t *out)
+{
+    if (slot < 0 || slot >= faculty175_charts_profile_count() || out == NULL) {
+        return false;
+    }
+    *out = k_websim_family_mcshan[slot];
+    return true;
+}
 esp_err_t faculty175_charts_profile_save(int slot, const faculty175_birth_chart_t *chart) { (void)slot; (void)chart; return ESP_OK; }
-int faculty175_charts_active_slot(void) { return 1; }
-bool faculty175_charts_set_active_slot(int slot) { (void)slot; return true; }
-bool faculty175_charts_cycle_active(int delta, int *slot_out, faculty175_birth_chart_t *profile_out) { (void)delta; if (slot_out) *slot_out = 1; return faculty175_charts_primary(profile_out); }
+int faculty175_charts_active_slot(void) { return 0; }
+bool faculty175_charts_set_active_slot(int slot) { return slot >= 0 && slot < faculty175_charts_profile_count(); }
+bool faculty175_charts_cycle_active(int delta, int *slot_out, faculty175_birth_chart_t *profile_out)
+{
+    const int count = faculty175_charts_profile_count();
+    int slot = (delta % count + count) % count;
+    if (slot_out) {
+        *slot_out = slot;
+    }
+    return faculty175_charts_profile_get(slot, profile_out);
+}
 bool faculty175_charts_active(faculty175_birth_chart_t *out)
 {
-    bool ok = faculty175_charts_primary(out);
-    if (out) {
-        snprintf(out->name, sizeof(out->name), "Hypatia");
-    }
-    return ok;
+    return faculty175_charts_profile_get(faculty175_charts_active_slot(), out);
 }
 bool faculty175_charts_birth_positions(const faculty175_birth_chart_t *birth, faculty175_chart_positions_t *out)
 {
-    (void)birth;
     if (!out) {
         return false;
     }
+    uint32_t hash = 2166136261u;
+    if (birth != NULL) {
+        for (const char *p = birth->name; *p != '\0'; ++p) {
+            hash ^= (uint8_t)*p;
+            hash *= 16777619u;
+        }
+        hash ^= birth->year;
+        hash *= 16777619u;
+        hash ^= ((uint32_t)birth->month << 8) | birth->day;
+        hash *= 16777619u;
+    }
     for (int i = 0; i < FACULTY175_CHART_BODY_COUNT; ++i) {
-        out->lon[i] = fmod((double)(s_tick_ms / 100u + i * 47), 360.0);
+        out->lon[i] = fmod((double)((hash >> (i % 4)) + i * 47u + s_tick_ms / 160u), 360.0);
     }
     out->ok = true;
     return true;

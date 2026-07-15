@@ -44,6 +44,19 @@ static bool face_in_list(faculty175_face_id_t id, const faculty175_face_id_t *li
     return false;
 }
 
+static bool face_list_index(faculty175_face_id_t id, const faculty175_face_id_t *list, size_t count, size_t *out)
+{
+    for (size_t i = 0; i < count; ++i) {
+        if (list[i] == id) {
+            if (out != NULL) {
+                *out = i;
+            }
+            return true;
+        }
+    }
+    return false;
+}
+
 static const faculty175_face_id_t k_secops_faces[] = {
     FACULTY175_FACE_WSCAN,
     FACULTY175_FACE_DEAUTH,
@@ -54,6 +67,7 @@ static const faculty175_face_id_t k_secops_faces[] = {
 };
 
 static const faculty175_face_id_t k_fortune_faces[] = {
+    FACULTY175_FACE_SOLAR,
     FACULTY175_FACE_TAROT,
     FACULTY175_FACE_LENORMAND,
     FACULTY175_FACE_RUNES,
@@ -65,9 +79,11 @@ static const faculty175_face_id_t k_fortune_faces[] = {
 };
 
 static const faculty175_face_id_t k_lunasay_faces[] = {
+    FACULTY175_FACE_SOLAR,
     FACULTY175_FACE_MOON,
     FACULTY175_FACE_ASTROLOGY,
     FACULTY175_FACE_SYNASTRY,
+    FACULTY175_FACE_PARTNER_WELLNESS,
     FACULTY175_FACE_TRANSITS,
     FACULTY175_FACE_SKY,
     FACULTY175_FACE_TAROT,
@@ -81,7 +97,6 @@ static const faculty175_face_id_t k_lunasay_faces[] = {
     FACULTY175_FACE_HUMAN_DESIGN,
     FACULTY175_FACE_ALMANAC,
     FACULTY175_FACE_PHENOLOGY,
-    FACULTY175_FACE_SOLAR,
     FACULTY175_FACE_MAGNETOSPHERE,
 };
 
@@ -91,6 +106,7 @@ static const faculty175_face_id_t k_castalia_faces[] = {
     FACULTY175_FACE_DIGITAL,
     FACULTY175_FACE_CALCIFER,
     FACULTY175_FACE_CASTALIA,
+    FACULTY175_FACE_SOLAR,
     FACULTY175_FACE_WEATHER,
     FACULTY175_FACE_GLOBE,
     FACULTY175_FACE_RADAR,
@@ -195,6 +211,10 @@ static esp_err_t restore_default_faces(void)
         if (step != ESP_OK && err == ESP_OK) {
             err = step;
         }
+        step = faculty175_faces_set_order(id, face->default_order);
+        if (step != ESP_OK && err == ESP_OK) {
+            err = step;
+        }
     }
     return err;
 }
@@ -216,7 +236,9 @@ static esp_err_t apply_profile_faces(faculty175_face_profile_t profile)
         if (face_is_anchor(id)) {
             enable = true;
             nav = face_is_nav_anchor(id);
-        } else if (allowed != NULL && face_in_list(id, allowed, count)) {
+        }
+        size_t profile_index = 0;
+        if (!enable && allowed != NULL && face_list_index(id, allowed, count, &profile_index)) {
             enable = true;
             nav = true;
         }
@@ -228,6 +250,13 @@ static esp_err_t apply_profile_faces(faculty175_face_profile_t profile)
         step = faculty175_faces_set_navigation_enabled(id, nav);
         if (step != ESP_OK && err == ESP_OK) {
             err = step;
+        }
+        if (enable && nav && !face_is_anchor(id)) {
+            const uint8_t order = profile_index < 220u ? (uint8_t)(20u + profile_index) : 239u;
+            step = faculty175_faces_set_order(id, order);
+            if (step != ESP_OK && err == ESP_OK) {
+                err = step;
+            }
         }
     }
     return err;

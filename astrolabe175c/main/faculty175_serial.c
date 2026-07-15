@@ -8,7 +8,9 @@
 #include <fcntl.h>
 
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include "esp_system.h"
+#include "esp_task_wdt.h"
 #include "esp_wifi.h"
 #include "driver/gpio.h"
 #include "driver/i2c_master.h"
@@ -24,6 +26,7 @@
 #include "faculty175_ble.h"
 #include "faculty175_charts.h"
 #include "faculty175_device_auth.h"
+#include "faculty175_family.h"
 #include "faculty175_face_dispatch.h"
 #include "faculty175_faces.h"
 #include "faculty175_gesture.h"
@@ -34,6 +37,7 @@
 #include "faculty175_quotes.h"
 #include "faculty175_rocket.h"
 #include "faculty175_touch.h"
+#include "faculty175_voice.h"
 #include "faculty175_wifi_monitor.h"
 #include "faculty175_wifi_settings.h"
 
@@ -398,29 +402,163 @@ static esp_err_t serial_bmp_write_cb(void *ctx, const uint8_t *data, size_t len)
     return ESP_OK;
 }
 
-static void emit_screen_bmp_locked(void)
+static void serial_put_le16(uint8_t *p, uint16_t v)
 {
-    const size_t bytes = faculty175_display_bmp565_size();
-    if (bytes == 0) {
+    p[0] = (uint8_t)(v & 0xffu);
+    p[1] = (uint8_t)(v >> 8);
+}
+
+static void serial_put_le32(uint8_t *p, uint32_t v)
+{
+    p[0] = (uint8_t)(v & 0xffu);
+    p[1] = (uint8_t)((v >> 8) & 0xffu);
+    p[2] = (uint8_t)((v >> 16) & 0xffu);
+    p[3] = (uint8_t)((v >> 24) & 0xffu);
+}
+
+static esp_err_t write_snapshot_bmp24(const uint16_t *frame,
+                                      int w,
+                                      int h,
+                                      faculty175_display_write_cb_t write_cb,
+                                      void *ctx)
+{
+    if (frame == NULL || write_cb == NULL || w <= 0 || h <= 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    enum {
+        HEADER_BYTES = 54,
+        ROWS_PER_CHUNK = 4,
+    };
+    const uint32_t row_stride = (((uint32_t)w * 24u + 31u) / 32u) * 4u;
+    const uint32_t pixel_bytes = row_stride * (uint32_t)h;
+    const uint32_t file_size = HEADER_BYTES + pixel_bytes;
+    uint8_t header[HEADER_BYTES] = {};
+
+    header[0] = 'B';
+    header[1] = 'M';
+    serial_put_le32(header + 2, file_size);
+    serial_put_le32(header + 10, HEADER_BYTES);
+    serial_put_le32(header + 14, 40u);
+    serial_put_le32(header + 18, (uint32_t)w);
+    serial_put_le32(header + 22, (uint32_t)h);
+    serial_put_le16(header + 26, 1u);
+    serial_put_le16(header + 28, 24u);
+    serial_put_le32(header + 34, pixel_bytes);
+
+    esp_err_t err = write_cb(ctx, header, sizeof(header));
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    const size_t chunk_bytes = (size_t)row_stride * (size_t)ROWS_PER_CHUNK;
+    uint8_t *chunk = heap_caps_malloc(chunk_bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (chunk == NULL) {
+        chunk = malloc(chunk_bytes);
+    }
+    if (chunk == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    for (int yi = 0; yi < h;) {
+        const int rows = (h - yi) > ROWS_PER_CHUNK ? ROWS_PER_CHUNK : (h - yi);
+        uint8_t *out = chunk;
+        for (int r = 0; r < rows; ++r, ++yi) {
+            const int sy = h - 1 - yi;
+            const uint16_t *src = &frame[sy * w];
+            uint8_t *dst = out;
+            for (int sx = 0; sx < w; ++sx) {
+                const uint16_t px = src[sx];
+                const uint8_t red = (uint8_t)((((px >> 11) & 0x1fu) * 255u) / 31u);
+                const uint8_t green = (uint8_t)((((px >> 5) & 0x3fu) * 255u) / 63u);
+                const uint8_t blue = (uint8_t)(((px & 0x1fu) * 255u) / 31u);
+                *dst++ = blue;
+                *dst++ = green;
+                *dst++ = red;
+            }
+            while ((uint32_t)(dst - out) < row_stride) {
+                *dst++ = 0;
+            }
+            out += row_stride;
+        }
+        err = write_cb(ctx, chunk, (size_t)rows * (size_t)row_stride);
+        if (err != ESP_OK) {
+            free(chunk);
+            return err;
+        }
+    }
+
+    free(chunk);
+    return ESP_OK;
+}
+
+static void emit_screen_bmp_snapshot(bool render_face)
+{
+    const size_t pixels = faculty175_display_frame_pixel_count();
+    const size_t frame_bytes = pixels * sizeof(uint16_t);
+    if (pixels == 0) {
         printf("screen: error no framebuffer\n");
         fflush(stdout);
         return;
     }
 
-    const esp_log_level_t prev = esp_log_level_get("*");
-    esp_log_level_set("*", ESP_LOG_ERROR);
+    uint16_t *frame = heap_caps_malloc(frame_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (frame == NULL) {
+        frame = heap_caps_malloc(frame_bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    }
+    if (frame == NULL) {
+        printf("screen: error alloc failed bytes=%u\n", (unsigned)frame_bytes);
+        fflush(stdout);
+        return;
+    }
 
-    printf("screen: BEGIN w=%d h=%d bytes=%u\n", FACULTY175_LCD_W, FACULTY175_LCD_H, (unsigned)bytes);
+    if (render_face) {
+        const faculty175_face_desc_t *face = faculty175_faces_current();
+        const uint32_t anim_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+        if (face == NULL || !faculty175_face_dispatch_draw(face->id, anim_ms)) {
+            free(frame);
+            printf("screen: error face render failed\n");
+            fflush(stdout);
+            return;
+        }
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+
+    faculty175_display_lock();
+    const bool copied = faculty175_display_frame_copy(frame, pixels);
+    faculty175_display_unlock();
+    if (!copied) {
+        free(frame);
+        printf("screen: error frame copy failed\n");
+        fflush(stdout);
+        return;
+    }
+
+    const uint32_t row_stride = (((uint32_t)FACULTY175_LCD_W * 24u + 31u) / 32u) * 4u;
+    const size_t bytes = 54u + (size_t)row_stride * (size_t)FACULTY175_LCD_H;
+    const esp_log_level_t prev = esp_log_level_get("*");
+    const esp_log_level_t prev_wdt = esp_log_level_get("task_wdt");
+    esp_log_level_set("*", ESP_LOG_NONE);
+    esp_log_level_set("task_wdt", ESP_LOG_NONE);
+
+    printf("screen: BEGIN w=%d h=%d bytes=%u format=bmp24 snapshot=yes\n",
+           FACULTY175_LCD_W,
+           FACULTY175_LCD_H,
+           (unsigned)bytes);
     fflush(stdout);
 
 #if CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG_ENABLED
     usb_serial_jtag_vfs_set_tx_line_endings(ESP_LINE_ENDINGS_LF);
 #endif
-    const esp_err_t write_err = faculty175_display_write_bmp565(serial_bmp_write_cb, stdout);
+    const esp_err_t write_err = write_snapshot_bmp24(frame, FACULTY175_LCD_W, FACULTY175_LCD_H, serial_bmp_write_cb, stdout);
     fflush(stdout);
 #if CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG_ENABLED
     usb_serial_jtag_vfs_set_tx_line_endings(ESP_LINE_ENDINGS_CRLF);
 #endif
+    free(frame);
+
+    esp_log_level_set("task_wdt", prev_wdt);
+    esp_log_level_set("*", prev);
 
     if (write_err != ESP_OK) {
         printf("screen: error bmp write failed (%s)\n", esp_err_to_name(write_err));
@@ -434,24 +572,75 @@ static void emit_screen_bmp_locked(void)
 
 static void emit_screen_bmp(void)
 {
-    faculty175_display_lock();
-    emit_screen_bmp_locked();
-    faculty175_display_unlock();
+    emit_screen_bmp_snapshot(false);
 }
 
 static void emit_face_screen_bmp(void)
 {
-    faculty175_display_lock();
-    const faculty175_face_desc_t *face = faculty175_faces_current();
-    const uint32_t anim_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
-    if (face == NULL || !faculty175_face_dispatch_draw(face->id, anim_ms)) {
-        faculty175_display_unlock();
-        printf("screen: error face render failed\n");
+    emit_screen_bmp_snapshot(false);
+}
+
+static void write_b64_block(const uint8_t *data, size_t len)
+{
+    static const char table[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    size_t col = 0;
+    for (size_t i = 0; i < len; i += 3) {
+        const uint32_t b0 = data[i];
+        const uint32_t b1 = i + 1 < len ? data[i + 1] : 0;
+        const uint32_t b2 = i + 2 < len ? data[i + 2] : 0;
+        const uint32_t v = (b0 << 16) | (b1 << 8) | b2;
+        fputc(table[(v >> 18) & 0x3f], stdout);
+        fputc(table[(v >> 12) & 0x3f], stdout);
+        fputc(i + 1 < len ? table[(v >> 6) & 0x3f] : '=', stdout);
+        fputc(i + 2 < len ? table[v & 0x3f] : '=', stdout);
+        col += 4;
+        if (col >= 76) {
+            fputc('\n', stdout);
+            fflush(stdout);
+            (void)esp_task_wdt_reset();
+            vTaskDelay(pdMS_TO_TICKS(3));
+            col = 0;
+        }
+    }
+    if (col != 0) {
+        fputc('\n', stdout);
+        fflush(stdout);
+        (void)esp_task_wdt_reset();
+        vTaskDelay(pdMS_TO_TICKS(3));
+    }
+}
+
+static void emit_face_raw565_b64(void)
+{
+    const size_t pixels = faculty175_display_frame_pixel_count();
+    const size_t bytes = pixels * sizeof(uint16_t);
+    uint16_t *frame = (uint16_t *)malloc(bytes);
+    if (frame == NULL) {
+        printf("raw565: error alloc failed bytes=%u\n", (unsigned)bytes);
         fflush(stdout);
         return;
     }
-    emit_screen_bmp_locked();
+    faculty175_display_lock();
+    const bool copied = faculty175_display_frame_copy(frame, pixels);
     faculty175_display_unlock();
+    if (!copied) {
+        free(frame);
+        printf("raw565: error frame copy failed\n");
+        fflush(stdout);
+        return;
+    }
+
+    const esp_log_level_t prev = esp_log_level_get("*");
+    const esp_log_level_t prev_wdt = esp_log_level_get("task_wdt");
+    esp_log_level_set("*", ESP_LOG_NONE);
+    esp_log_level_set("task_wdt", ESP_LOG_NONE);
+    printf("raw565: BEGIN w=%d h=%d bytes=%u encoding=base64\n", FACULTY175_LCD_W, FACULTY175_LCD_H, (unsigned)bytes);
+    write_b64_block((const uint8_t *)frame, bytes);
+    printf("raw565: END\n");
+    fflush(stdout);
+    esp_log_level_set("task_wdt", prev_wdt);
+    esp_log_level_set("*", prev);
+    free(frame);
 }
 
 static bool handle_touch_command(const char *line)
@@ -663,6 +852,60 @@ static bool handle_power_command(const char *line)
     return true;
 }
 
+static bool handle_audio_command(const char *line)
+{
+    if (line == NULL || (strcasecmp(line, "audio") != 0 && strncasecmp(line, "audio ", 6) != 0)) {
+        return false;
+    }
+
+    char sub[24] = {};
+    char arg[24] = {};
+    const char *args = line + 5;
+    args = parse_serial_arg(args, sub, sizeof(sub));
+    (void)parse_serial_arg(args, arg, sizeof(arg));
+
+    if (sub[0] == '\0' || strcasecmp(sub, "status") == 0 || strcasecmp(sub, "ns") == 0 ||
+        strcasecmp(sub, "noise") == 0) {
+        if (arg[0] != '\0') {
+            if (strcasecmp(arg, "on") == 0 || strcasecmp(arg, "enable") == 0 ||
+                strcasecmp(arg, "enabled") == 0 || strcmp(arg, "1") == 0) {
+                faculty175_audio_noise_suppression_set_enabled(true);
+            } else if (strcasecmp(arg, "off") == 0 || strcasecmp(arg, "disable") == 0 ||
+                       strcasecmp(arg, "disabled") == 0 || strcmp(arg, "0") == 0) {
+                faculty175_audio_noise_suppression_set_enabled(false);
+            } else if (strcasecmp(arg, "reset") == 0) {
+                faculty175_audio_noise_suppression_reset();
+            } else if (strcasecmp(sub, "ns") == 0 || strcasecmp(sub, "noise") == 0) {
+                printf("audio: usage audio ns [on|off|reset]\n");
+                fflush(stdout);
+                return true;
+            }
+        }
+        faculty175_audio_noise_status_t st = {};
+        faculty175_audio_noise_suppression_status(&st);
+        printf("audio: ns=%s floor_rms=%u last_rms=%u gain=%.2f frames=%u\n",
+               st.enabled ? "on" : "off",
+               (unsigned)st.noise_rms,
+               (unsigned)st.last_rms,
+               (double)st.last_gain_q8 / 256.0,
+               (unsigned)st.frames);
+        fflush(stdout);
+        return true;
+    }
+
+    if (strcasecmp(sub, "help") == 0) {
+        printf("audio commands:\n");
+        printf("  audio status\n");
+        printf("  audio ns [on|off|reset]\n");
+        fflush(stdout);
+        return true;
+    }
+
+    printf("audio: unknown command (try: audio help)\n");
+    fflush(stdout);
+    return true;
+}
+
 static bool parse_gesture_kind(const char *sub, faculty175_gesture_kind_t *out_kind, int16_t *out_value)
 {
     char a[24] = {};
@@ -824,7 +1067,14 @@ static bool handle_tts_command(const char *line)
             sub = "face";
         }
     }
-    if (*sub == '\0' || strcasecmp(sub, "face") == 0 || strcasecmp(sub, "read") == 0) {
+    if (strcasecmp(sub, "status") == 0) {
+        char reason[128];
+        const bool ready = faculty175_voice_config_ready(reason, sizeof(reason));
+        printf("tts: status ready=%s playback=%s reason=%s\n",
+               ready ? "yes" : "no",
+               faculty175_voice_tts_playback_busy() ? "busy" : "idle",
+               reason);
+    } else if (*sub == '\0' || strcasecmp(sub, "face") == 0 || strcasecmp(sub, "read") == 0) {
         const bool ok = faculty175_request_current_face_tts();
         printf("tts: face %s\n", ok ? "ESP_OK" : "ESP_FAIL");
     } else if (strcasecmp(sub, "stt") == 0 || strncasecmp(sub, "stt ", 4) == 0) {
@@ -845,9 +1095,74 @@ static bool handle_tts_command(const char *line)
         printf("stt: capture_ms=%u %s\n", capture_ms, esp_err_to_name(err));
     } else {
         printf("voice commands:\n");
+        printf("  tts status\n");
         printf("  tts face\n");
         printf("  voice tts\n");
         printf("  voice stt [ms]\n");
+    }
+    fflush(stdout);
+    return true;
+}
+
+static bool handle_family_command(const char *line)
+{
+    if (line == NULL || (strcasecmp(line, "family") != 0 && strncasecmp(line, "family ", 7) != 0 &&
+                         strcasecmp(line, "wellness") != 0 && strncasecmp(line, "wellness ", 9) != 0 &&
+                         strcasecmp(line, "synastry wellness") != 0)) {
+        return false;
+    }
+    const char *sub = strchr(line, ' ');
+    sub = sub != NULL ? sub + 1 : "status";
+    while (*sub == ' ') {
+        ++sub;
+    }
+    if (*sub != '\0' && strcasecmp(sub, "status") != 0 && strcasecmp(sub, "wellness") != 0) {
+        printf("family commands:\n");
+        printf("  family status\n");
+        printf("  wellness\n");
+        fflush(stdout);
+        return true;
+    }
+
+    faculty175_family_wellness_t states[FACULTY175_FAMILY_SUBJECT_MAX] = {};
+    const size_t count = faculty175_family_snapshot(states, FACULTY175_FAMILY_SUBJECT_MAX);
+    printf("family: espnow=%s channel=%d subjects=%u\n",
+           faculty175_family_ready() ? "ready" : "waiting",
+           faculty175_family_channel(),
+           (unsigned)count);
+    if (count == 0) {
+        char summary[128];
+        faculty175_family_format_summary(summary, sizeof(summary));
+        printf("family: %s\n", summary);
+    }
+    for (size_t i = 0; i < count; ++i) {
+        const faculty175_family_wellness_t *s = &states[i];
+        printf("family: subject=%u name=\"%s\" cue=%s score=%u age=%lums seq=%lu src=%02x:%02x:%02x:%02x:%02x:%02x flags=0x%02x stress=%u trend=%+d hrv=%u hr=%u spo2=%u sleep=%u light=%u deep=%u rem=%u awake=%u debt=%u batt=%u\n",
+               s->subject_id,
+               s->subject_name,
+               faculty175_family_guidance_cue(s),
+               faculty175_family_load_score(s),
+               (unsigned long)s->age_ms,
+               (unsigned long)s->seq,
+               s->source_mac[0],
+               s->source_mac[1],
+               s->source_mac[2],
+               s->source_mac[3],
+               s->source_mac[4],
+               s->source_mac[5],
+               s->flags,
+               s->stress,
+               s->stress_trend_30m,
+               s->hrv_ms,
+               s->heart_rate_bpm,
+               s->spo2_percent,
+               s->sleep_total_min,
+               s->sleep_light_min,
+               s->sleep_deep_min,
+               s->sleep_rem_min,
+               s->sleep_awake_min,
+               faculty175_family_sleep_debt_min(s),
+               s->battery_percent);
     }
     fflush(stdout);
     return true;
@@ -1087,6 +1402,11 @@ static void handle_line(char *line)
         emit_face_screen_bmp();
         return;
     }
+    if (line_is(line, "face raw565") || line_is(line, "faces raw565") || line_is(line, "face raw565.b64") ||
+        line_is(line, "faces raw565.b64")) {
+        emit_face_raw565_b64();
+        return;
+    }
 
     if (line_is(line, "screen") || line_is(line, "screen.bmp")) {
         emit_screen_bmp();
@@ -1111,6 +1431,10 @@ static void handle_line(char *line)
     }
 
     if (handle_tts_command(line)) {
+        return;
+    }
+
+    if (handle_family_command(line)) {
         return;
     }
 
@@ -1170,12 +1494,16 @@ static void handle_line(char *line)
         return;
     }
 
+    if (handle_audio_command(line)) {
+        return;
+    }
+
     if (handle_power_command(line)) {
         return;
     }
 
     if (strcasecmp(line, "help") == 0 || strcasecmp(line, "?") == 0) {
-        printf("serial: screen | face screen | gesture help | button press | tts face | stt [ms] | voice stt [ms] | pipeline capture|status|stop|restart | wifi status|scan|set | time | watch status | power | i2c scan | ble status | qa help | device help | ota help | faces help | charts help | almanac help | quotes help | rocket help | touch status\n");
+        printf("serial: screen | face screen | gesture help | button press | tts face | stt [ms] | voice stt [ms] | family status | pipeline capture|status|stop|restart | wifi status|scan|set | time | watch status | power | audio status|ns | i2c scan | ble status | qa help | device help | ota help | faces help | charts help | almanac help | quotes help | rocket help | touch status\n");
         (void)faculty175_qa_handle("qa help");
         return;
     }

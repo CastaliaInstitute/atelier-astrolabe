@@ -7,6 +7,7 @@
 #include "freertos/task.h"
 
 #include "faculty175_board.h"
+#include "faculty175_motion.h"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -86,9 +87,9 @@ static int16_t le16(const uint8_t *p)
     return (int16_t)((uint16_t)p[0] | ((uint16_t)p[1] << 8));
 }
 
-bool faculty175_motion_pitch_roll(float *pitch_deg, float *roll_deg)
+bool faculty175_motion_accel_g(float *ax_g, float *ay_g, float *az_g)
 {
-    if (pitch_deg == NULL || roll_deg == NULL || !qmi_init_once()) {
+    if (ax_g == NULL || ay_g == NULL || az_g == NULL || !qmi_init_once()) {
         return false;
     }
 
@@ -97,9 +98,25 @@ bool faculty175_motion_pitch_roll(float *pitch_deg, float *roll_deg)
         return false;
     }
 
-    const float ax = (float)le16(&raw[0]) / QMI8658_ACC_2G_LSB_PER_G;
-    const float ay = (float)le16(&raw[2]) / QMI8658_ACC_2G_LSB_PER_G;
-    const float az = (float)le16(&raw[4]) / QMI8658_ACC_2G_LSB_PER_G;
+    *ax_g = (float)le16(&raw[0]) / QMI8658_ACC_2G_LSB_PER_G;
+    *ay_g = (float)le16(&raw[2]) / QMI8658_ACC_2G_LSB_PER_G;
+    *az_g = (float)le16(&raw[4]) / QMI8658_ACC_2G_LSB_PER_G;
+    return true;
+}
+
+bool faculty175_motion_pitch_roll(float *pitch_deg, float *roll_deg)
+{
+    if (pitch_deg == NULL || roll_deg == NULL) {
+        return false;
+    }
+
+    float ax = 0.0f;
+    float ay = 0.0f;
+    float az = 0.0f;
+    if (!faculty175_motion_accel_g(&ax, &ay, &az)) {
+        return false;
+    }
+
     const float horiz = sqrtf((ay * ay) + (az * az));
     *pitch_deg = atan2f(-ax, horiz) * 180.0f / (float)M_PI;
     *roll_deg = atan2f(ay, az) * 180.0f / (float)M_PI;

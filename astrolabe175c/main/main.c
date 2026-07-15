@@ -1,4 +1,5 @@
 #include <stdarg.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -38,6 +39,7 @@
 #include "faculty175_face_wifilab.h"
 #include "faculty175_face_tarot.h"
 #include "faculty175_face_tarot_assets.h"
+#include "faculty175_family.h"
 #include "faculty175_faculty.h"
 #include "faculty175_faculty_roster.h"
 #include "faculty175_faces.h"
@@ -115,7 +117,7 @@ static bool running_from_factory_partition(void)
 #define BUTTON_RESET_HOLD_MS 4500
 #define BUTTON_REBOOT_GRACE_MS 12000
 #define WIFI_CONNECT_TIMEOUT_MS 20000
-#define WIFI_CANDIDATE_MAX 3
+#define WIFI_CANDIDATE_MAX 4
 #define FACULTY175_WIFI_START_STACK 6144
 #define FACULTY175_PIPELINE_LISTEN_STACK 4096
 #define FACULTY175_PIPELINE_VOICE_STACK 6144
@@ -234,6 +236,7 @@ static bool draw_face_or_status(const faculty175_face_desc_t *face,
 
     if (draw_face && faculty175_lvgl_face_supported(face->id) &&
         !ui_state_modal(state) && faculty175_lvgl_draw_face(face->id, anim_ms)) {
+        faculty175_lvgl_force_full_refresh();
         return true;
     }
 
@@ -281,6 +284,9 @@ static bool wifi_is_connected(void);
 
 #define FACULTY175_USB_OTA_DEMO_BOOT ASTROLABE_USB_OTA_DEMO_BOOT
 #define FACULTY175_USB_RUNTIME_ENABLED 0
+#define FACULTY175_FACTORY_RECOVERY_BOOT_ENABLED 0
+#define FACULTY175_EARLY_WIFI_BOOT_ENABLED 0
+#define FACULTY175_WIFI_BOOT_ENABLED 1
 
 static void faculty175_usb_ota_demo_boot(void)
 {
@@ -837,6 +843,7 @@ static void ui_task(void *arg)
             faculty175_lvgl_service(anim_ms);
         }
         faculty175_display_unlock();
+        faculty175_family_tick(anim_ms);
         vTaskDelay(pdMS_TO_TICKS(20));
     }
 }
@@ -890,6 +897,215 @@ static const char *face_category_label(uint32_t categories)
     return "uncategorized";
 }
 
+typedef struct {
+    int user_body;
+    int target_body;
+    int aspect_deg;
+    double orb;
+} face_tts_synastry_aspect_t;
+
+static double face_tts_norm360(double v)
+{
+    v = fmod(v, 360.0);
+    if (v < 0.0) {
+        v += 360.0;
+    }
+    return v;
+}
+
+static double face_tts_aspect_distance(double a, double b)
+{
+    double d = fabs(face_tts_norm360(a) - face_tts_norm360(b));
+    return d > 180.0 ? 360.0 - d : d;
+}
+
+static const char *face_tts_aspect_word(int deg)
+{
+    switch (deg) {
+        case 0:
+            return "conjunction";
+        case 60:
+            return "sextile";
+        case 90:
+            return "square";
+        case 120:
+            return "trine";
+        case 180:
+            return "opposition";
+        default:
+            return "aspect";
+    }
+}
+
+static int face_tts_rebuild_synastry_aspects(const faculty175_chart_positions_t *user,
+                                             const faculty175_chart_positions_t *target,
+                                             face_tts_synastry_aspect_t *out,
+                                             int cap)
+{
+    static const int k_major[] = {0, 60, 90, 120, 180};
+    int count = 0;
+    for (int ub = 0; ub < FACULTY175_CHART_BODY_COUNT; ++ub) {
+        for (int tb = 0; tb < FACULTY175_CHART_BODY_COUNT; ++tb) {
+            const double sep = face_tts_aspect_distance(user->lon[ub], target->lon[tb]);
+            for (size_t ai = 0; ai < sizeof(k_major) / sizeof(k_major[0]); ++ai) {
+                const double orb = fabs(sep - (double)k_major[ai]);
+                if (orb > 4.5) {
+                    continue;
+                }
+                const face_tts_synastry_aspect_t aspect = {
+                    .user_body = ub,
+                    .target_body = tb,
+                    .aspect_deg = k_major[ai],
+                    .orb = orb,
+                };
+                int ins = count < cap ? count : cap;
+                for (int k = 0; k < ins; ++k) {
+                    if (aspect.orb < out[k].orb) {
+                        ins = k;
+                        break;
+                    }
+                }
+                if (count < cap) {
+                    ++count;
+                }
+                if (ins < cap) {
+                    for (int k = count - 1; k > ins; --k) {
+                        out[k] = out[k - 1];
+                    }
+                    out[ins] = aspect;
+                }
+                break;
+            }
+        }
+    }
+    return count;
+}
+
+static void append_synastry_pair_prompt(char *out,
+                                        size_t cap,
+                                        size_t *off,
+                                        const faculty175_birth_chart_t *user,
+                                        const faculty175_chart_positions_t *user_pos,
+                                        const faculty175_birth_chart_t *target,
+                                        const faculty175_chart_positions_t *target_pos,
+                                        int max_aspects)
+{
+    if (user == NULL || user_pos == NULL || target == NULL || target_pos == NULL || max_aspects <= 0) {
+        return;
+    }
+    face_tts_synastry_aspect_t aspects[12] = {};
+    const int aspect_count = face_tts_rebuild_synastry_aspects(user_pos, target_pos, aspects, 12);
+    prompt_append(out,
+                  cap,
+                  off,
+                  "%s synastry with %s (%s): %s Sun %s Moon %s; %s Sun %s Moon %s. ",
+                  faculty175_charts_role_label(target->role),
+                  target->name,
+                  target->place,
+                  user->name,
+                  faculty175_charts_zodiac_abbr(user_pos->lon[0]),
+                  faculty175_charts_zodiac_abbr(user_pos->lon[1]),
+                  target->name,
+                  faculty175_charts_zodiac_abbr(target_pos->lon[0]),
+                  faculty175_charts_zodiac_abbr(target_pos->lon[1]));
+    if (aspect_count <= 0) {
+        prompt_append(out, cap, off, "No tight major aspects within 4.5 degrees. ");
+        return;
+    }
+    prompt_append(out, cap, off, "Tight major aspects: ");
+    const int n = aspect_count < max_aspects ? aspect_count : max_aspects;
+    for (int i = 0; i < n; ++i) {
+        const face_tts_synastry_aspect_t *a = &aspects[i];
+        prompt_append(out,
+                      cap,
+                      off,
+                      "%s %s %s orb %.1f%s",
+                      faculty175_charts_body_label(a->user_body),
+                      face_tts_aspect_word(a->aspect_deg),
+                      faculty175_charts_body_label(a->target_body),
+                      a->orb,
+                      i == n - 1 ? ". " : "; ");
+    }
+}
+
+static void append_family_wellness_prompt(char *out, size_t cap, size_t *off)
+{
+    faculty175_family_wellness_t states[FACULTY175_FAMILY_SUBJECT_MAX] = {};
+    const size_t count = faculty175_family_snapshot(states, FACULTY175_FAMILY_SUBJECT_MAX);
+    if (count == 0) {
+        prompt_append(out, cap, off, "Family biometrics: no live wellness packets received yet. ");
+        return;
+    }
+    prompt_append(out, cap, off, "Family biometrics from rings and Astrolabes: ");
+    for (size_t i = 0; i < count; ++i) {
+        const faculty175_family_wellness_t *s = &states[i];
+        prompt_append(out,
+                      cap,
+                      off,
+                      "%s cue %s score %u stress %u trend %+d HRV %u ms HR %u SpO2 %u sleep %u min debt %u age %lu s%s",
+                      s->subject_name,
+                      faculty175_family_guidance_cue(s),
+                      faculty175_family_load_score(s),
+                      s->stress,
+                      s->stress_trend_30m,
+                      s->hrv_ms,
+                      s->heart_rate_bpm,
+                      s->spo2_percent,
+                      s->sleep_total_min,
+                      faculty175_family_sleep_debt_min(s),
+                      (unsigned long)(s->age_ms / 1000u),
+                      i + 1 == count ? ". " : "; ");
+    }
+}
+
+static void append_synastry_prompt(char *out, size_t cap, size_t *off)
+{
+    faculty175_charts_ensure_family_seed();
+    faculty175_birth_chart_t user = {};
+    faculty175_chart_positions_t user_pos = {};
+    if (!faculty175_charts_primary(&user) || !faculty175_charts_birth_positions(&user, &user_pos)) {
+        prompt_append(out, cap, off, "Synastry chart context: primary user chart is missing. ");
+        append_family_wellness_prompt(out, cap, off);
+        return;
+    }
+
+    prompt_append(out,
+                  cap,
+                  off,
+                  "Synastry mode combines relationship astrology with live biometrics. Use astrology symbolically and biometrics supportively; do not diagnose, blame, or give medical advice. Primary user: %s, Sun %s Moon %s. ",
+                  user.name,
+                  faculty175_charts_zodiac_abbr(user_pos.lon[0]),
+                  faculty175_charts_zodiac_abbr(user_pos.lon[1]));
+
+    faculty175_birth_chart_t active = {};
+    faculty175_chart_positions_t active_pos = {};
+    if (faculty175_charts_active(&active) && faculty175_charts_birth_positions(&active, &active_pos)) {
+        append_synastry_pair_prompt(out, cap, off, &user, &user_pos, &active, &active_pos, 5);
+    } else {
+        prompt_append(out, cap, off, "No active partner or child chart is selected. ");
+    }
+
+    int child_count = 0;
+    for (int slot = 0; slot < FACULTY175_CHART_PROFILE_SLOTS; ++slot) {
+        faculty175_birth_chart_t child = {};
+        faculty175_chart_positions_t child_pos = {};
+        if (!faculty175_charts_profile_get(slot, &child) || child.role != FACULTY175_CHART_ROLE_CHILD ||
+            !faculty175_charts_birth_positions(&child, &child_pos)) {
+            continue;
+        }
+        ++child_count;
+        append_synastry_pair_prompt(out, cap, off, &user, &user_pos, &child, &child_pos, 3);
+    }
+    if (child_count == 0) {
+        prompt_append(out, cap, off, "No child charts are currently stored. ");
+    }
+    append_family_wellness_prompt(out, cap, off);
+    prompt_append(out,
+                  cap,
+                  off,
+                  "For TTS, synthesize one gentle family guidance thought from chart resonance plus current biometrics. Prefer concrete care: check in, soften tone, protect sleep, breathe together, or give space. ");
+}
+
 static void build_face_read_prompt(const faculty175_face_desc_t *face, char *out, size_t cap)
 {
     if (out == NULL || cap == 0) {
@@ -933,6 +1149,16 @@ static void build_face_read_prompt(const faculty175_face_desc_t *face, char *out
         case FACULTY175_FACE_SOLAR:
             prompt_append(out, cap, &off,
                           "The visible data is live solar activity imagery from NASA when cached; summarize the map state and say if live data appears unavailable. ");
+            break;
+        case FACULTY175_FACE_SYNASTRY:
+            append_synastry_prompt(out, cap, &off);
+            break;
+        case FACULTY175_FACE_PARTNER_WELLNESS:
+            append_family_wellness_prompt(out, cap, &off);
+            prompt_append(out,
+                          cap,
+                          &off,
+                          "The visible data is the selected partner ring day-so-far face: current stress, HRV, SpO2, sleep debt, and day aggregate stress/load. Give one concrete care suggestion based on the partner's day so far. ");
             break;
         case FACULTY175_FACE_MAGNETOSPHERE:
             prompt_append(out, cap, &off,
@@ -1055,7 +1281,12 @@ static void build_face_read_prompt(const faculty175_face_desc_t *face, char *out
                           "Use only the supplied face name, category, and current time when live face-specific data is not available. ");
             break;
     }
-    prompt_append(out, cap, &off, "Keep the spoken answer under forty words.");
+    prompt_append(out,
+                  cap,
+                  &off,
+                  (face->id == FACULTY175_FACE_SYNASTRY || face->id == FACULTY175_FACE_PARTNER_WELLNESS)
+                      ? "Keep the spoken answer under sixty words."
+                      : "Keep the spoken answer under forty words.");
 }
 
 typedef struct {
@@ -1066,10 +1297,14 @@ static void face_tts_run_one(faculty175_face_id_t id)
 {
     const faculty175_face_desc_t *face = faculty175_faces_get(id);
     const char *slug = face != NULL && face->slug != NULL ? face->slug : "-";
-    char *prompt = heap_caps_malloc(1536, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    const bool family_face = face != NULL &&
+                             (face->id == FACULTY175_FACE_SYNASTRY ||
+                              face->id == FACULTY175_FACE_PARTNER_WELLNESS);
+    const size_t prompt_cap = family_face ? 4096 : 1536;
+    char *prompt = heap_caps_malloc(prompt_cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     faculty175_voice_result_t *result = heap_caps_calloc(1, sizeof(*result), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (prompt == NULL) {
-        prompt = malloc(1536);
+        prompt = malloc(prompt_cap);
     }
     if (result == NULL) {
         result = calloc(1, sizeof(*result));
@@ -1084,7 +1319,7 @@ static void face_tts_run_one(faculty175_face_id_t id)
         s_face_tts_busy = false;
         return;
     }
-    build_face_read_prompt(face, prompt, 1536);
+    build_face_read_prompt(face, prompt, prompt_cap);
 
     FACULTY175_LOG_STAGE(TAG, "tts-face", "start %s", slug);
     printf("tts-face: start slug=%s\n", slug);
@@ -1093,6 +1328,8 @@ static void face_tts_run_one(faculty175_face_id_t id)
     ui_set(FACULTY175_UI_THINK, "reading face");
     const char *system = (face != NULL && face->id == FACULTY175_FACE_CRYSTAL_BALL)
                              ? CRYSTAL_BALL_SYSTEM_INSTRUCTION
+                             : family_face
+                                   ? "You are the speaking voice of a tiny round astrolabe on a family synastry face. Use the supplied chart aspects as symbolic relationship weather and the supplied biometrics as live care context. Give one short, practical, compassionate suggestion. Do not diagnose, predict medical states, shame anyone, or expose implementation details."
                              : "You are the speaking voice of a tiny round astrolabe. Read the current face from the supplied data. "
                                "Do not perform speech recognition, do not ask a question, and do not mention hidden implementation details.";
     const char *post_face = (face != NULL && face->id == FACULTY175_FACE_ALETHIOMETER)
@@ -1182,10 +1419,11 @@ static bool start_face_tts_read(const faculty175_face_desc_t *face)
     if (face == NULL) {
         return false;
     }
-    if (strlen(MYNAH_SUPABASE_URL) == 0 || strlen(MYNAH_SUPABASE_ANON_KEY) == 0) {
+    char voice_reason[128];
+    if (!faculty175_voice_config_ready(voice_reason, sizeof(voice_reason))) {
         FACULTY175_LOG_STAGE(TAG, "tts-face", "start %s", face->slug);
         printf("tts-face: start slug=%s\n", face->slug);
-        FACULTY175_LOG_STAGE_W(TAG, "tts-face", "Supabase secrets missing");
+        FACULTY175_LOG_STAGE_W(TAG, "tts-face", "voice config not ready: %s", voice_reason);
         printf("tts-face: done slug=%s err=ESP_ERR_INVALID_STATE\n", face->slug);
         fflush(stdout);
         ui_set(FACULTY175_UI_ERROR, "voice config");
@@ -2243,6 +2481,7 @@ static esp_err_t wifi_start(void)
         }
         wifi_candidate_add(candidates, &candidate_count, known[i].ssid, known[i].pass, "nvs");
     }
+    wifi_candidate_add(candidates, &candidate_count, "The Chateau", "thechateau", "built-in");
     wifi_candidate_add(candidates, &candidate_count, "Syzygyx", "12345678", "built-in");
     wifi_candidate_add(candidates, &candidate_count, "AstrolabeRouter", "astrolabe", "built-in");
 
@@ -2342,6 +2581,11 @@ static void wifi_start_task(void *arg)
 
 static bool wifi_start_task_launch(const char *stage)
 {
+    if (!FACULTY175_WIFI_BOOT_ENABLED) {
+        FACULTY175_LOG_STAGE_W(TAG, "wifi", "%s start skipped for recovery",
+                               stage != NULL ? stage : "background");
+        return false;
+    }
     if (s_wifi_start_complete || s_wifi_start_task != NULL) {
         return true;
     }
@@ -2504,11 +2748,22 @@ static void sync_voice_context(void *user)
                        sizeof(s_voice_commonplace_mode));
     faculty175_strlcpy(s_voice_response_format, (notes_mode || alethiometer_mode || crystal_ball_mode) ? "json" : "mp3",
                        sizeof(s_voice_response_format));
-    faculty175_strlcpy(s_voice_system_instruction,
-                       crystal_ball_mode ? CRYSTAL_BALL_SYSTEM_INSTRUCTION
-                                         : (alethiometer_mode ? ALETHIOMETER_SYSTEM_INSTRUCTION
-                                                             : ASTROLABE_FACULTY_SYSTEM_INSTRUCTION),
-                       sizeof(s_voice_system_instruction));
+    const char *base_instruction = crystal_ball_mode ? CRYSTAL_BALL_SYSTEM_INSTRUCTION
+                                                     : (alethiometer_mode ? ALETHIOMETER_SYSTEM_INSTRUCTION
+                                                                         : ASTROLABE_FACULTY_SYSTEM_INSTRUCTION);
+    faculty175_strlcpy(s_voice_system_instruction, base_instruction, sizeof(s_voice_system_instruction));
+    if (face != NULL &&
+        (face->id == FACULTY175_FACE_SYNASTRY || face->id == FACULTY175_FACE_PARTNER_WELLNESS)) {
+        char family_context[512];
+        faculty175_family_format_voice_context(family_context, sizeof(family_context));
+        const size_t used = strlen(s_voice_system_instruction);
+        if (used + 3 < sizeof(s_voice_system_instruction)) {
+            snprintf(s_voice_system_instruction + used,
+                     sizeof(s_voice_system_instruction) - used,
+                     "\n\n%s",
+                     family_context);
+        }
+    }
     s_voice_skip_llm = notes_mode;
     s_voice_log_to_commonplace = true;
 }
@@ -3049,11 +3304,28 @@ static void input_task(void *arg)
             low_power_note_activity(now_ms, "gesture");
             const faculty175_face_desc_t *active_face = faculty175_faces_current();
             if (gesture.kind == FACULTY175_GESTURE_LONG_TAP) {
-                FACULTY175_LOG_STAGE(TAG,
-                                     "faces",
-                                     "ignored touch long press x=%d y=%d",
-                                     (int)gesture.x,
-                                     (int)gesture.y);
+                if (faculty175_faces_enabled_count() > 1) {
+                    const char *enter_slug = active_face != NULL ? active_face->slug : "-";
+                    const uint32_t enter_start_ms = faculty175_log_ms();
+                    s_nav_mode = true;
+                    faculty175_display_nav_mode_set(true);
+                    const uint32_t draw_ms = draw_nav_preview(now_ms);
+                    FACULTY175_LOG_STAGE(TAG, "faces", "navigation mode on");
+                    FACULTY175_LOG_STAGE(TAG,
+                                         "nav-metrics",
+                                         "enter face=%s queue_age_ms=%u draw_ms=%u total_ms=%u",
+                                         enter_slug,
+                                         (unsigned)queue_age_ms,
+                                         (unsigned)draw_ms,
+                                         (unsigned)(faculty175_log_ms() - enter_start_ms));
+                    faculty175_gesture_flush();
+                } else {
+                    FACULTY175_LOG_STAGE(TAG,
+                                         "faces",
+                                         "ignored touch long press x=%d y=%d",
+                                         (int)gesture.x,
+                                         (int)gesture.y);
+                }
             } else if (woke_from_low_power) {
                 vTaskDelay(pdMS_TO_TICKS(10));
                 continue;
@@ -3121,8 +3393,35 @@ static void input_task(void *arg)
                     }
                 } else if (gesture.kind == FACULTY175_GESTURE_SWIPE_UP ||
                            gesture.kind == FACULTY175_GESTURE_SWIPE_DOWN) {
-                    FACULTY175_LOG_STAGE(TAG, "faces", "ignored vertical nav-mode swipe");
-                    faculty175_gesture_flush();
+                    const int delta = gesture.kind == FACULTY175_GESTURE_SWIPE_UP ? 1 : -1;
+                    const char *from_slug = active_face != NULL ? active_face->slug : "-";
+                    const uint32_t select_start_ms = faculty175_log_ms();
+                    const faculty175_face_desc_t *face = faculty175_faces_cycle_vertical_runtime(delta);
+                    const uint32_t select_ms = faculty175_log_ms() - select_start_ms;
+                    FACULTY175_LOG_STAGE(TAG, "faces", "nav vertical %s -> %s", delta > 0 ? "next" : "prev",
+                                         face != NULL ? face->slug : "-");
+                    if (face != NULL) {
+                        last_face_swipe_ms = now_ms;
+                        face_save_pending = true;
+                        faculty175_display_lock();
+                        const uint32_t preview_start_ms = faculty175_log_ms();
+                        if (!animate_nav_preview_native(true, delta, NAV_TRANSITION_MS)) {
+                            (void)draw_nav_preview(now_ms);
+                        }
+                        const uint32_t preview_ms = faculty175_log_ms() - preview_start_ms;
+                        faculty175_display_unlock();
+                        FACULTY175_LOG_STAGE(TAG,
+                                             "nav-metrics",
+                                             "swipe axis=vertical from=%s to=%s delta=%d queue_age_ms=%u select_ms=%u preview_ms=%u total_ms=%u anim=native-nav-slide",
+                                             from_slug,
+                                             face->slug,
+                                             delta,
+                                             (unsigned)queue_age_ms,
+                                             (unsigned)select_ms,
+                                             (unsigned)preview_ms,
+                                             (unsigned)(faculty175_log_ms() - gesture_ms));
+                        faculty175_gesture_flush();
+                    }
                 }
             } else if (!s_nav_mode && active_face != NULL && active_face->id == FACULTY175_FACE_FACULTY &&
                        (gesture.kind == FACULTY175_GESTURE_SWIPE_UP ||
@@ -3415,15 +3714,17 @@ void app_main(void)
     faculty175_ota_init();
     faculty175_ota_maybe_boot_product();
     faculty175_serial_init();
-    if (running_from_factory_partition()) {
+    if (FACULTY175_FACTORY_RECOVERY_BOOT_ENABLED && running_from_factory_partition()) {
         FACULTY175_LOG_STAGE(TAG, "boot", "factory recovery OTA mode");
         (void)wifi_start_task_launch("recovery");
         while (true) {
             vTaskDelay(pdMS_TO_TICKS(1000));
         }
     }
-    (void)wifi_start_task_launch("early");
-    wifi_wait_for_start_complete("early", 25000);
+    if (FACULTY175_EARLY_WIFI_BOOT_ENABLED) {
+        (void)wifi_start_task_launch("early");
+        wifi_wait_for_start_complete("early", 25000);
+    }
 
     boot_probe_stage(0xa7);
     esp_rom_printf("A7 apocalypso\n");

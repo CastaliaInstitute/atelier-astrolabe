@@ -75,6 +75,9 @@ typedef struct {
     uint32_t start_ms;
     size_t len;
     size_t off;
+    size_t bytes_in;
+    size_t decoded_frames;
+    esp_err_t err;
 } faculty175_tts_speaker_stream_state_t;
 
 static faculty175_tts_speaker_stream_state_t s_tts_speaker_stream = {};
@@ -148,6 +151,49 @@ static void voice_pipeline_preferred_url(char *out, size_t cap)
 static bool voice_should_try_http_fallback(esp_err_t err, int status)
 {
     return err != ESP_OK && status == 0;
+}
+
+bool faculty175_voice_config_ready(char *reason, size_t reason_cap)
+{
+    if (reason != NULL && reason_cap > 0) {
+        reason[0] = '\0';
+    }
+
+    const bool has_http_url = MYNAH_VOICE_HTTP_URL[0] != '\0';
+    const bool has_supabase_url = MYNAH_SUPABASE_URL[0] != '\0';
+    const bool has_key = MYNAH_SUPABASE_ANON_KEY[0] != '\0';
+
+    if (!has_http_url && !has_supabase_url) {
+        if (reason != NULL && reason_cap > 0) {
+            strlcpy(reason, "missing MYNAH_VOICE_HTTP_URL or MYNAH_SUPABASE_URL", reason_cap);
+        }
+        return false;
+    }
+    if (!has_http_url && !has_key) {
+        if (reason != NULL && reason_cap > 0) {
+            strlcpy(reason, "missing MYNAH_SUPABASE_ANON_KEY", reason_cap);
+        }
+        return false;
+    }
+
+    if (reason != NULL && reason_cap > 0) {
+        snprintf(reason,
+                 reason_cap,
+                 "url=%s auth=%s",
+                 has_http_url ? "voice-http" : "supabase",
+                 has_key ? "supabase-key" : "none");
+    }
+    return true;
+}
+
+static esp_err_t voice_require_config(const char *stage)
+{
+    char reason[96];
+    if (!faculty175_voice_config_ready(reason, sizeof(reason))) {
+        FACULTY175_LOG_STAGE_W(TAG, stage != NULL ? stage : "voice", "voice config not ready: %s", reason);
+        return ESP_ERR_INVALID_STATE;
+    }
+    return ESP_OK;
 }
 
 bool faculty175_voice_heap_ready(const char *stage)
@@ -1034,9 +1080,9 @@ esp_err_t faculty175_voice_post_pcm(const uint8_t *pcm,
     if (pcm == NULL || pcm_len == 0 || result == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
-    if (strlen(MYNAH_SUPABASE_URL) == 0 || strlen(MYNAH_SUPABASE_ANON_KEY) == 0) {
-        ESP_LOGW(TAG, "Supabase secrets missing");
-        return ESP_ERR_INVALID_STATE;
+    const esp_err_t config_err = voice_require_config("pipeline");
+    if (config_err != ESP_OK) {
+        return config_err;
     }
 
     memset(result, 0, sizeof(*result));
@@ -1157,9 +1203,9 @@ esp_err_t faculty175_voice_post_message_streaming(const char *message,
     if (message == NULL || message[0] == '\0' || result == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
-    if (strlen(MYNAH_SUPABASE_URL) == 0 || strlen(MYNAH_SUPABASE_ANON_KEY) == 0) {
-        ESP_LOGW(TAG, "Supabase secrets missing");
-        return ESP_ERR_INVALID_STATE;
+    const esp_err_t config_err = voice_require_config("voice");
+    if (config_err != ESP_OK) {
+        return config_err;
     }
 
     memset(result, 0, sizeof(*result));
@@ -1331,8 +1377,9 @@ bool faculty175_voice_stt_stream_is_open(void)
 
 esp_err_t faculty175_voice_stt_stream_open(const faculty175_voice_stt_stream_config_t *config)
 {
-    if (strlen(MYNAH_SUPABASE_URL) == 0 || strlen(MYNAH_SUPABASE_ANON_KEY) == 0) {
-        return ESP_ERR_INVALID_STATE;
+    const esp_err_t config_err = voice_require_config("stream");
+    if (config_err != ESP_OK) {
+        return config_err;
     }
     if (s_stream.open) {
         faculty175_voice_stt_stream_close();
@@ -1401,9 +1448,10 @@ esp_err_t faculty175_voice_stt_stream_commit_streaming(const faculty175_voice_tt
     if (!s_stream.open || result == NULL) {
         return ESP_ERR_INVALID_STATE;
     }
-    if (strlen(MYNAH_SUPABASE_URL) == 0 || strlen(MYNAH_SUPABASE_ANON_KEY) == 0) {
+    const esp_err_t config_err = voice_require_config("stream");
+    if (config_err != ESP_OK) {
         faculty175_voice_stt_stream_close();
-        return ESP_ERR_INVALID_STATE;
+        return config_err;
     }
 
     memset(result, 0, sizeof(*result));
@@ -1525,6 +1573,7 @@ esp_err_t faculty175_voice_play_mp3(const uint8_t *mp3, size_t mp3_len)
     s_tts_playback_busy = true;
     (void)faculty175_audio_reset_speaker(1000);
 
+    esp_err_t result = ESP_OK;
     mp3dec_frame_info_t info;
     int16_t *pcm = s_voice_mp3_pcm;
 
@@ -1572,8 +1621,8 @@ esp_err_t faculty175_voice_play_mp3(const uint8_t *mp3, size_t mp3_len)
                                        "play frame=%u write failed: %s",
                                        (unsigned)frame_index,
                                        esp_err_to_name(write_err));
-                s_tts_playback_busy = false;
-                return write_err;
+                result = write_err;
+                break;
             }
         } else {
             FACULTY175_LOG_STAGE(TAG,
@@ -1591,8 +1640,8 @@ esp_err_t faculty175_voice_play_mp3(const uint8_t *mp3, size_t mp3_len)
                                        "play frame=%u write failed: %s",
                                        (unsigned)frame_index,
                                        esp_err_to_name(write_err));
-                s_tts_playback_busy = false;
-                return write_err;
+                result = write_err;
+                break;
             }
         }
         FACULTY175_LOG_STAGE(TAG,
@@ -1603,10 +1652,18 @@ esp_err_t faculty175_voice_play_mp3(const uint8_t *mp3, size_t mp3_len)
         vTaskDelay(1);
     }
 
+    if (result == ESP_OK && !configured) {
+        FACULTY175_LOG_STAGE_W(TAG, "tts", "play failed: no MP3 frames decoded");
+        result = ESP_ERR_INVALID_RESPONSE;
+    }
     (void)faculty175_audio_reset_speaker(1000);
-    FACULTY175_LOG_STAGE(TAG, "tts", "play done in %ums", (unsigned)(faculty175_log_ms() - t0));
+    FACULTY175_LOG_STAGE(TAG,
+                         "tts",
+                         "play done in %ums err=%s",
+                         (unsigned)(faculty175_log_ms() - t0),
+                         esp_err_to_name(result));
     s_tts_playback_busy = false;
-    return ESP_OK;
+    return result;
 }
 
 bool faculty175_voice_tts_playback_busy(void)
@@ -1630,6 +1687,8 @@ static esp_err_t voice_play_mp3_file_sync(const char *path, size_t mp3_len)
 
     const uint32_t t0 = faculty175_log_ms();
     FACULTY175_LOG_STAGE(TAG, "tts", "play file start mp3=%uB path=%s", (unsigned)mp3_len, path);
+    s_tts_playback_busy = true;
+    (void)faculty175_audio_reset_speaker(1000);
 
     mp3dec_t *dec = &s_voice_mp3_dec;
     mp3dec_init(dec);
@@ -1638,6 +1697,7 @@ static esp_err_t voice_play_mp3_file_sync(const char *path, size_t mp3_len)
     size_t off = 0;
     bool eof = false;
     bool configured = false;
+    esp_err_t result = ESP_OK;
     while (true) {
         if (!eof && (len - off) < 4096) {
             if (off > 0 && off < len) {
@@ -1686,16 +1746,33 @@ static esp_err_t voice_play_mp3_file_sync(const char *path, size_t mp3_len)
                 stereo[i * 2] = pcm[i];
                 stereo[i * 2 + 1] = pcm[i];
             }
-            ESP_ERROR_CHECK_WITHOUT_ABORT(faculty175_audio_write_pcm(stereo, (size_t)samples * 2, 1000));
+            const esp_err_t write_err = faculty175_audio_write_pcm(stereo, (size_t)samples * 2, 1000);
+            if (write_err != ESP_OK) {
+                result = write_err;
+                break;
+            }
         } else {
-            ESP_ERROR_CHECK_WITHOUT_ABORT(faculty175_audio_write_pcm(pcm, (size_t)samples * 2, 1000));
+            const esp_err_t write_err = faculty175_audio_write_pcm(pcm, (size_t)samples * 2, 1000);
+            if (write_err != ESP_OK) {
+                result = write_err;
+                break;
+            }
         }
         vTaskDelay(1);
     }
 
     fclose(f);
-    FACULTY175_LOG_STAGE(TAG, "tts", "play file done in %ums", (unsigned)(faculty175_log_ms() - t0));
-    return ESP_OK;
+    if (result == ESP_OK && !configured) {
+        result = ESP_ERR_INVALID_RESPONSE;
+    }
+    (void)faculty175_audio_reset_speaker(1000);
+    s_tts_playback_busy = false;
+    FACULTY175_LOG_STAGE(TAG,
+                         "tts",
+                         "play file done in %ums err=%s",
+                         (unsigned)(faculty175_log_ms() - t0),
+                         esp_err_to_name(result));
+    return result;
 }
 
 typedef struct {
@@ -1711,7 +1788,11 @@ static void voice_play_mp3_file_task(void *arg)
 {
     voice_play_file_task_args_t *args = (voice_play_file_task_args_t *)arg;
     if (args != NULL) {
-        args->result = faculty175_voice_play_mp3(args->mp3, args->mp3_len);
+        if (args->path[0] != '\0') {
+            args->result = voice_play_mp3_file_sync(args->path, args->mp3_len);
+        } else {
+            args->result = faculty175_voice_play_mp3(args->mp3, args->mp3_len);
+        }
         free(args->mp3);
         args->mp3 = NULL;
         TaskHandle_t waiter = args->waiter;
@@ -1787,23 +1868,43 @@ esp_err_t faculty175_voice_play_mp3_file(const char *path, size_t mp3_len)
     if (path == NULL || path[0] == '\0' || mp3_len < 64 || mp3_len > TTS_MP3_MAX_BYTES) {
         return ESP_ERR_INVALID_ARG;
     }
-    FILE *f = fopen(path, "rb");
-    if (f == NULL) {
-        return ESP_ERR_NOT_FOUND;
+    voice_play_file_task_args_t *args = heap_caps_calloc(1, sizeof(*args), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (args == NULL) {
+        args = calloc(1, sizeof(*args));
     }
-    uint8_t *mp3 = heap_caps_malloc(mp3_len, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (mp3 == NULL) {
-        fclose(f);
+    if (args == NULL) {
         return ESP_ERR_NO_MEM;
     }
-    const size_t got = fread(mp3, 1, mp3_len, f);
-    fclose(f);
-    if (got < 64) {
-        free(mp3);
-        return ESP_ERR_INVALID_SIZE;
+    strlcpy(args->path, path, sizeof(args->path));
+    args->mp3_len = mp3_len;
+    args->waiter = xTaskGetCurrentTaskHandle();
+    args->caller_owns_args = true;
+    args->result = ESP_FAIL;
+
+    const BaseType_t ok = xTaskCreateWithCaps(voice_play_mp3_file_task,
+                                              "voice_file_play",
+                                              24576,
+                                              args,
+                                              6,
+                                              NULL,
+                                              MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (ok != pdPASS) {
+        free(args);
+        return ESP_ERR_NO_MEM;
     }
-    const esp_err_t result = voice_play_mp3_async(mp3, got);
-    free(mp3);
+    if (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(VOICE_PLAY_TASK_TIMEOUT_MS)) == 0) {
+        args->waiter = NULL;
+        args->caller_owns_args = false;
+        FACULTY175_LOG_STAGE_W(TAG,
+                               "tts",
+                               "file play timeout after %ums path=%s len=%u",
+                               (unsigned)VOICE_PLAY_TASK_TIMEOUT_MS,
+                               path,
+                               (unsigned)mp3_len);
+        return ESP_ERR_TIMEOUT;
+    }
+    const esp_err_t result = args->result;
+    free(args);
     return result;
 }
 
@@ -1813,6 +1914,9 @@ static bool tts_stream_decode_available(bool eof)
     int16_t *pcm = s_voice_mp3_pcm;
     bool progressed = false;
 
+    if (s_tts_speaker_stream.err != ESP_OK) {
+        return false;
+    }
     while (s_tts_speaker_stream.off < s_tts_speaker_stream.len) {
         mp3dec_frame_info_t info = {};
         const int samples = mp3dec_decode_frame(&s_voice_mp3_dec,
@@ -1848,10 +1952,19 @@ static bool tts_stream_decode_available(bool eof)
                 stereo[i * 2] = pcm[i];
                 stereo[i * 2 + 1] = pcm[i];
             }
-            ESP_ERROR_CHECK_WITHOUT_ABORT(faculty175_audio_write_pcm(stereo, (size_t)samples * 2, 1000));
+            s_tts_speaker_stream.err = faculty175_audio_write_pcm(stereo, (size_t)samples * 2, 1000);
         } else {
-            ESP_ERROR_CHECK_WITHOUT_ABORT(faculty175_audio_write_pcm(pcm, (size_t)samples * 2, 1000));
+            s_tts_speaker_stream.err = faculty175_audio_write_pcm(pcm, (size_t)samples * 2, 1000);
         }
+        if (s_tts_speaker_stream.err != ESP_OK) {
+            FACULTY175_LOG_STAGE_W(TAG,
+                                   "tts",
+                                   "stream write failed after %u frames: %s",
+                                   (unsigned)s_tts_speaker_stream.decoded_frames,
+                                   esp_err_to_name(s_tts_speaker_stream.err));
+            break;
+        }
+        ++s_tts_speaker_stream.decoded_frames;
         vTaskDelay(1);
     }
 
@@ -1872,7 +1985,10 @@ static bool tts_stream_decode_available(bool eof)
 esp_err_t faculty175_voice_tts_speaker_stream_begin(void)
 {
     memset(&s_tts_speaker_stream, 0, sizeof(s_tts_speaker_stream));
+    s_tts_speaker_stream.err = ESP_OK;
     mp3dec_init(&s_voice_mp3_dec);
+    s_tts_playback_busy = true;
+    (void)faculty175_audio_reset_speaker(1000);
     faculty175_audio_set_speaker_mute(false);
     s_tts_speaker_stream.open = true;
     s_tts_speaker_stream.start_ms = faculty175_log_ms();
@@ -1885,13 +2001,21 @@ esp_err_t faculty175_voice_tts_speaker_stream_write(const uint8_t *mp3_chunk, si
     if (!s_tts_speaker_stream.open || mp3_chunk == NULL || chunk_len == 0) {
         return ESP_ERR_INVALID_ARG;
     }
+    if (s_tts_speaker_stream.err != ESP_OK) {
+        return s_tts_speaker_stream.err;
+    }
+    s_tts_speaker_stream.bytes_in += chunk_len;
     size_t copied = 0;
     while (copied < chunk_len) {
         if (s_tts_speaker_stream.len == VOICE_MP3_STREAM_BUFFER_BYTES) {
             const bool progressed = tts_stream_decode_available(false);
+            if (s_tts_speaker_stream.err != ESP_OK) {
+                return s_tts_speaker_stream.err;
+            }
             if (!progressed && s_tts_speaker_stream.len == VOICE_MP3_STREAM_BUFFER_BYTES) {
-                memmove(s_voice_mp3_stream_buf, s_voice_mp3_stream_buf + 1, VOICE_MP3_STREAM_BUFFER_BYTES - 1);
-                s_tts_speaker_stream.len = VOICE_MP3_STREAM_BUFFER_BYTES - 1;
+                FACULTY175_LOG_STAGE_W(TAG, "tts", "stream decoder stalled with full buffer");
+                s_tts_speaker_stream.err = ESP_ERR_INVALID_RESPONSE;
+                return s_tts_speaker_stream.err;
             }
         }
         const size_t room = VOICE_MP3_STREAM_BUFFER_BYTES - s_tts_speaker_stream.len;
@@ -1901,6 +2025,9 @@ esp_err_t faculty175_voice_tts_speaker_stream_write(const uint8_t *mp3_chunk, si
         s_tts_speaker_stream.len += n;
         copied += n;
         (void)tts_stream_decode_available(false);
+        if (s_tts_speaker_stream.err != ESP_OK) {
+            return s_tts_speaker_stream.err;
+        }
     }
     return ESP_OK;
 }
@@ -1912,14 +2039,26 @@ esp_err_t faculty175_voice_tts_speaker_stream_end(void)
     }
     while (s_tts_speaker_stream.len > 0) {
         const bool progressed = tts_stream_decode_available(true);
+        if (s_tts_speaker_stream.err != ESP_OK) {
+            break;
+        }
         if (!progressed) {
             break;
         }
     }
+    esp_err_t result = s_tts_speaker_stream.err;
+    if (result == ESP_OK && s_tts_speaker_stream.decoded_frames == 0) {
+        result = ESP_ERR_INVALID_RESPONSE;
+    }
     s_tts_speaker_stream.open = false;
+    (void)faculty175_audio_reset_speaker(1000);
+    s_tts_playback_busy = false;
     FACULTY175_LOG_STAGE(TAG,
                          "tts",
-                         "speaker stream end in %ums",
-                         (unsigned)(faculty175_log_ms() - s_tts_speaker_stream.start_ms));
-    return ESP_OK;
+                         "speaker stream end in %ums bytes=%u frames=%u err=%s",
+                         (unsigned)(faculty175_log_ms() - s_tts_speaker_stream.start_ms),
+                         (unsigned)s_tts_speaker_stream.bytes_in,
+                         (unsigned)s_tts_speaker_stream.decoded_frames,
+                         esp_err_to_name(result));
+    return result;
 }

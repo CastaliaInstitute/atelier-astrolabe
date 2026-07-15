@@ -75,13 +75,40 @@ bool faculty175_charts_active(faculty175_birth_chart_t *out)
     return true;
 }
 
+void faculty175_charts_ensure_family_seed(void) {}
+
+bool faculty175_charts_primary(faculty175_birth_chart_t *out)
+{
+    if (out == NULL) {
+        return false;
+    }
+    memset(out, 0, sizeof(*out));
+    snprintf(out->name, sizeof(out->name), "Daniel");
+    out->role = FACULTY175_CHART_ROLE_SELF;
+    out->year = 1972;
+    out->month = 5;
+    out->day = 6;
+    out->hour = 12;
+    out->minute = 0;
+    out->tz_offset_sec = -4 * 3600;
+    out->lat_deg = 30.4383f;
+    out->lon_deg = -84.2807f;
+    out->valid = true;
+    return true;
+}
+
 bool faculty175_charts_birth_to_utc(const faculty175_birth_chart_t *birth, time_t *utc_out)
 {
-    (void)birth;
     if (utc_out == NULL) {
         return false;
     }
-    *utc_out = 74232000;
+    if (birth != NULL && birth->year == 1983) {
+        *utc_out = 432748800;
+    } else if (birth != NULL && birth->year == 1972) {
+        *utc_out = 74232000;
+    } else {
+        *utc_out = 74232000;
+    }
     return true;
 }
 
@@ -291,6 +318,9 @@ int main(int argc, char **argv)
 {
     const char *out_path = argc > 1 ? argv[1] : "human-design.ppm";
     if (argc > 2 && strcmp(argv[2], "natal") == 0) {
+        (void)faculty175_face_human_design_action(0);
+    } else if (argc > 2 && strcmp(argv[2], "connection") == 0) {
+        (void)faculty175_face_human_design_action(0);
         (void)faculty175_face_human_design_action(0);
     }
     faculty175_face_human_design_draw(0);

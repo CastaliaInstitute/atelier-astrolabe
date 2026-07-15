@@ -52,6 +52,8 @@ idf_component_register(
         "faculty175_pocketwatch.c"
         "faculty175_charts.c"
         "faculty175_ephemeris.c"
+        "faculty175_cycle_arcs.c"
+        "faculty175_family.c"
         "faculty175_ble.c"
         "faculty175_apocalypso.c"
         "faculty175_device_auth.c"
@@ -72,6 +74,7 @@ idf_component_register(
         "faculty175_faculty_roster.c"
         "faculty175_faculty_png.cpp"
         "faculty175_face_tarot_image.cpp"
+        "faculty175_face_solar_image.cpp"
         "faculty175_face_tarot_spiffs_image.cpp"
         ${PNGDEC_SRCS}
     INCLUDE_DIRS "." "../../include" "../../lib/astrolabe_display_core/include" "${ASTROLABE_PNGDEC}"
@@ -118,7 +121,14 @@ target_compile_definitions(${COMPONENT_LIB} PRIVATE __LINUX__ PNG_MAX_BUFFERED_P
 if(NOT DEFINED ASTROLABE_USB_OTA_DEMO_BOOT)
     set(ASTROLABE_USB_OTA_DEMO_BOOT 0)
 endif()
+if(NOT DEFINED ASTROLABE_OTA_AUTO_INTERVAL_S)
+    set(ASTROLABE_OTA_AUTO_INTERVAL_S 60)
+endif()
+if(NOT ASTROLABE_OTA_AUTO_INTERVAL_S MATCHES "^[0-9]+$" OR ASTROLABE_OTA_AUTO_INTERVAL_S LESS 60)
+    message(FATAL_ERROR "ASTROLABE_OTA_AUTO_INTERVAL_S must be an integer of at least 60 seconds")
+endif()
 target_compile_definitions(${COMPONENT_LIB} PRIVATE ASTROLABE_USB_OTA_DEMO_BOOT=${ASTROLABE_USB_OTA_DEMO_BOOT})
+target_compile_definitions(${COMPONENT_LIB} PRIVATE ASTROLABE_OTA_AUTO_INTERVAL_S=${ASTROLABE_OTA_AUTO_INTERVAL_S})
 if(DEFINED ASTROLABE_VOICE_HTTP_URL AND NOT "${ASTROLABE_VOICE_HTTP_URL}" STREQUAL "")
     target_compile_definitions(${COMPONENT_LIB} PRIVATE MYNAH_VOICE_HTTP_URL="${ASTROLABE_VOICE_HTTP_URL}")
 endif()

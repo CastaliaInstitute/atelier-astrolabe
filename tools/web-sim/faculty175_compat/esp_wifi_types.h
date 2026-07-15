@@ -8,9 +8,11 @@ typedef enum {
     WIFI_AUTH_WPA_PSK,
     WIFI_AUTH_WPA2_PSK,
     WIFI_AUTH_WPA_WPA2_PSK,
+    WIFI_AUTH_ENTERPRISE,
     WIFI_AUTH_WPA2_ENTERPRISE,
     WIFI_AUTH_WPA3_PSK,
     WIFI_AUTH_WPA2_WPA3_PSK,
+    WIFI_AUTH_WAPI_PSK,
 } wifi_auth_mode_t;
 
 typedef struct {
@@ -20,3 +22,4 @@ typedef struct {
     int8_t rssi;
     wifi_auth_mode_t authmode;
 } wifi_ap_record_t;
+

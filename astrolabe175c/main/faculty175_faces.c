@@ -19,7 +19,7 @@ static const char *TAG = "faculty175_faces";
 #define FACES_NVS_NAV_MAP "navmap"
 #define FACE_KEY_CAP 8
 #define FACES_CONFIG_RESET_SCHEMA_VERSION 36
-#define FACES_SCHEMA_VERSION 37
+#define FACES_SCHEMA_VERSION 38
 
 static const faculty175_face_desc_t k_faces[] = {
     { FACULTY175_FACE_FACULTY, "faculty", "Faculty", FACULTY175_FACE_CAT_HOME, true, true, 10 },
@@ -33,6 +33,7 @@ static const faculty175_face_desc_t k_faces[] = {
     { FACULTY175_FACE_CASTALIA, "castalia", "Castalia", FACULTY175_FACE_CAT_SYSTEM, true, false, 230 },
     { FACULTY175_FACE_ASTROLOGY, "astrology", "Astrology", FACULTY175_FACE_CAT_ORACLE, true, false, 240 },
     { FACULTY175_FACE_SYNASTRY, "synastry", "Synastry", FACULTY175_FACE_CAT_ORACLE, true, false, 245 },
+    { FACULTY175_FACE_PARTNER_WELLNESS, "partner-wellness", "Partner Wellness", FACULTY175_FACE_CAT_HOME | FACULTY175_FACE_CAT_ORACLE, true, true, 246 },
     { FACULTY175_FACE_TAROT, "tarot", "Tarot", FACULTY175_FACE_CAT_ORACLE, true, true, 40 },
     { FACULTY175_FACE_INQ, "inq", "iNQ Card", FACULTY175_FACE_CAT_ORACLE, true, false, 250 },
     { FACULTY175_FACE_RUNES, "runes", "Runes", FACULTY175_FACE_CAT_ORACLE, true, false, 251 },
@@ -76,7 +77,7 @@ static const faculty175_face_desc_t k_faces[] = {
     { FACULTY175_FACE_HUMAN_DESIGN, "human-design", "Human Design", FACULTY175_FACE_CAT_ORACLE, true, false, 176 },
     { FACULTY175_FACE_MAZE, "maze", "Maze", FACULTY175_FACE_CAT_HOME, true, true, 50 },
     { FACULTY175_FACE_DEATHSTAR, "deathstar", "Death Star", FACULTY175_FACE_CAT_HOME, true, true, 60 },
-    { FACULTY175_FACE_SOLAR, "solar", "Solar Activity", FACULTY175_FACE_CAT_HOME | FACULTY175_FACE_CAT_ORACLE, false, false, 92 },
+    { FACULTY175_FACE_SOLAR, "solar", "Solar Activity", FACULTY175_FACE_CAT_HOME | FACULTY175_FACE_CAT_ORACLE, true, true, 18 },
     { FACULTY175_FACE_MAGNETOSPHERE, "magnetosphere", "Magnetosphere", FACULTY175_FACE_CAT_HOME | FACULTY175_FACE_CAT_ORACLE, true, false, 93 },
     { FACULTY175_FACE_TRON, "tron", "TRON", FACULTY175_FACE_CAT_HOME, false, false, 65 },
     { FACULTY175_FACE_WSCAN, "wscan", "WiFi Scan", FACULTY175_FACE_CAT_SYSTEM, true, false, 201 },

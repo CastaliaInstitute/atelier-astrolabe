@@ -18,6 +18,7 @@ void faculty175_face_calcifer_draw(uint32_t anim_ms);
 void faculty175_face_castalia_draw(uint32_t anim_ms);
 void faculty175_face_astrology_draw(uint32_t anim_ms);
 void faculty175_face_synastry_draw(uint32_t anim_ms);
+void faculty175_face_partner_wellness_draw(uint32_t anim_ms);
 void faculty175_face_tarot_draw(uint32_t anim_ms);
 void faculty175_face_tarot_draw_card(uint32_t seed_ms);
 void faculty175_face_inq_draw(uint32_t anim_ms);
@@ -28,6 +29,7 @@ void faculty175_face_globe_draw(uint32_t anim_ms);
 void faculty175_face_sky_draw(uint32_t anim_ms);
 void faculty175_face_quotes_draw(uint32_t anim_ms);
 void faculty175_face_transits_draw(uint32_t anim_ms);
+void faculty175_face_solar_draw(uint32_t anim_ms);
 void faculty175_face_qday_draw(uint32_t anim_ms);
 void faculty175_face_focus_draw(uint32_t anim_ms);
 void faculty175_face_bio_draw(uint32_t anim_ms);
@@ -41,6 +43,7 @@ void faculty175_face_maze_draw(uint32_t anim_ms);
 void faculty175_face_deathstar_draw(uint32_t anim_ms);
 void faculty175_face_tron_draw(uint32_t anim_ms);
 void faculty175_face_tron_reset(void);
+bool faculty175_solar_image_action(uint32_t seed_ms);
 void faculty175_face_settings_draw(uint32_t anim_ms);
 void faculty175_face_pocketwatch_draw(uint32_t anim_ms);
 
@@ -64,6 +67,7 @@ bool faculty175_face_dispatch_draw(faculty175_face_id_t id, uint32_t anim_ms)
         case FACULTY175_FACE_CASTALIA: faculty175_face_castalia_draw(anim_ms); return true;
         case FACULTY175_FACE_ASTROLOGY: faculty175_face_astrology_draw(anim_ms); return true;
         case FACULTY175_FACE_SYNASTRY: faculty175_face_synastry_draw(anim_ms); return true;
+        case FACULTY175_FACE_PARTNER_WELLNESS: faculty175_face_partner_wellness_draw(anim_ms); return true;
         case FACULTY175_FACE_TAROT: faculty175_face_tarot_draw(anim_ms); return true;
         case FACULTY175_FACE_INQ: faculty175_face_inq_draw(anim_ms); return true;
         case FACULTY175_FACE_ROCKET: faculty175_face_rocket_draw(anim_ms); return true;
@@ -73,6 +77,7 @@ bool faculty175_face_dispatch_draw(faculty175_face_id_t id, uint32_t anim_ms)
         case FACULTY175_FACE_SKY: faculty175_face_sky_draw(anim_ms); return true;
         case FACULTY175_FACE_QUOTES: faculty175_face_quotes_draw(anim_ms); return true;
         case FACULTY175_FACE_TRANSITS: faculty175_face_transits_draw(anim_ms); return true;
+        case FACULTY175_FACE_SOLAR: faculty175_face_solar_draw(anim_ms); return true;
         case FACULTY175_FACE_QDAY: faculty175_face_qday_draw(anim_ms); return true;
         case FACULTY175_FACE_FOCUS: faculty175_face_focus_draw(anim_ms); return true;
         case FACULTY175_FACE_BIOMETRICS: faculty175_face_bio_draw(anim_ms); return true;
@@ -117,11 +122,17 @@ bool faculty175_face_dispatch_action(faculty175_face_id_t id, uint32_t seed_ms)
         case FACULTY175_FACE_TAROT:
             faculty175_face_tarot_draw_card(seed_ms);
             return true;
+        case FACULTY175_FACE_SYNASTRY:
+            return faculty175_faces_set_runtime(FACULTY175_FACE_PARTNER_WELLNESS) == ESP_OK;
+        case FACULTY175_FACE_PARTNER_WELLNESS:
+            return faculty175_faces_set_runtime(FACULTY175_FACE_SYNASTRY) == ESP_OK;
         case FACULTY175_FACE_HUMAN_DESIGN:
             return faculty175_face_human_design_action(seed_ms);
         case FACULTY175_FACE_TRON:
             faculty175_face_tron_reset();
             return true;
+        case FACULTY175_FACE_SOLAR:
+            return faculty175_solar_image_action(seed_ms);
         case FACULTY175_FACE_WSCAN:
         case FACULTY175_FACE_DEAUTH:
         case FACULTY175_FACE_EVILTWIN:

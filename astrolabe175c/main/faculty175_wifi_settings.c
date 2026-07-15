@@ -370,6 +370,11 @@ bool faculty175_wifi_settings_ap_client_connected(void)
     return s_ap_client_count > 0;
 }
 
+bool faculty175_wifi_settings_sta_connected(void)
+{
+    return !s_ap_active && s_ssid[0] != '\0' && s_url[0] != '\0';
+}
+
 bool faculty175_wifi_settings_scan_suppressed(void)
 {
     return s_scan_suppressed;

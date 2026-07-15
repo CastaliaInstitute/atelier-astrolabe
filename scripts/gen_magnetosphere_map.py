@@ -11,8 +11,8 @@ from PIL import Image, ImageDraw, ImageFilter
 
 SIZE = 466
 ROOT = Path(__file__).resolve().parents[1]
-OUT_PNG = ROOT / "faculty175" / "storage_seed" / "space" / "magnetosphere_466.png"
-OUT_RGB565 = ROOT / "faculty175" / "storage_seed" / "space" / "magnetosphere_466.rgb565"
+OUT_PNG = ROOT / "astrolabe175c" / "storage_seed" / "space" / "magnetosphere_466.png"
+OUT_RGB565 = ROOT / "astrolabe175c" / "storage_seed" / "space" / "magnetosphere_466.rgb565"
 
 
 def rgb565(r: int, g: int, b: int) -> int:

@@ -28,6 +28,25 @@ Reference: [waveshareteam/ESP32-S3-Touch-AMOLED-1.75C](https://github.com/wavesh
 - Contract: [`include/astrolabe_faculty175_face.h`](../include/astrolabe_faculty175_face.h)
 - OTA channel: `astrolabe-faculty-amoled175`
 
+## Automatic OTA
+
+After Wi-Fi starts, baseline builds check the signed `integration` OTA manifest after 20 seconds and
+then every 60 seconds. Both `integration` and promoted `main` builds publish this baseline path.
+
+The interval is persistent and configurable per device from the serial console (minimum 60 seconds):
+
+```text
+ota auto status
+ota auto 300
+ota auto off
+```
+
+The compiled fallback can also be changed for a build:
+
+```bash
+ASTROLABE175C_OTA_AUTO_INTERVAL_S=300 ./scripts/astrolabe175c_build.sh build
+```
+
 ## Build
 
 ```bash

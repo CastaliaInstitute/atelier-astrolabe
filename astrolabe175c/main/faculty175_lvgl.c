@@ -21,7 +21,10 @@
 #include "faculty175_device_settings.h"
 #include "faculty175_face_alethiometer.h"
 #include "faculty175_face_alethiometer_glyphs.h"
+#include "faculty175_cycle_arcs.h"
+#include "faculty175_family.h"
 #include "faculty175_face_runes.h"
+#include "faculty175_face_solar_image.h"
 #include "faculty175_face_scale_earth_texture.h"
 #include "faculty175_face_tarot.h"
 #include "faculty175_face_tarot_assets.h"
@@ -42,6 +45,9 @@
 #include "faculty175_almanac.h"
 #endif
 
+#define SYNASTRY_ORRERY_MAX_PEOPLE (1 + FACULTY175_CHART_PROFILE_SLOTS)
+#define SYNASTRY_ORRERY_MAX_BONDS ((SYNASTRY_ORRERY_MAX_PEOPLE * (SYNASTRY_ORRERY_MAX_PEOPLE - 1)) / 2)
+
 #define LVGL_DRAW_BUF_ROWS FACULTY175_LCD_H
 
 static const char *TAG = "faculty175_lvgl";
@@ -51,6 +57,7 @@ static lv_indev_t *s_touch_indev;
 static uint8_t *s_draw_buf;
 static uint8_t *s_draw_buf_2;
 static bool s_ready;
+static bool s_direct_display_buffers;
 static bool s_watch_created;
 static uint32_t s_last_anim_ms;
 static uint32_t s_last_service_ms;
@@ -80,6 +87,13 @@ static lv_obj_t *s_native_bars[7];
 static lv_obj_t *s_native_cards[5];
 static lv_obj_t *s_moon_screen;
 static lv_obj_t *s_moon_image;
+static lv_obj_t *s_moon_fallback_disk;
+static lv_obj_t *s_moon_fallback_shadow;
+static lv_obj_t *s_moon_fallback_craters[9];
+static lv_obj_t *s_moon_phase_arc;
+static lv_obj_t *s_moon_phase_marker;
+static lv_obj_t *s_moon_day_ticks[28];
+static lv_point_precise_t s_moon_day_tick_points[28][2];
 static uint16_t *s_moon_pixels;
 static uint16_t *s_moon_render_pixels;
 static bool s_moon_texture_loaded;
@@ -163,6 +177,18 @@ static lv_obj_t *s_scale_value_label;
 static lv_obj_t *s_scale_note_label;
 static lv_obj_t *s_scale_time_label;
 static lv_obj_t *s_solar_screen;
+static lv_obj_t *s_solar_image;
+static uint16_t *s_solar_image_pixels;
+static lv_image_dsc_t s_solar_image_texture;
+static time_t s_solar_image_epoch;
+static lv_obj_t *s_solar_cycle_arc;
+static lv_obj_t *s_solar_year_arc;
+static lv_obj_t *s_solar_cycle_marker;
+static lv_obj_t *s_solar_year_marker;
+static lv_obj_t *s_solar_cycle_ticks[11];
+static lv_obj_t *s_solar_year_ticks[12];
+static lv_point_precise_t s_solar_cycle_tick_points[11][2];
+static lv_point_precise_t s_solar_year_tick_points[12][2];
 static lv_obj_t *s_solar_corona[4];
 static lv_obj_t *s_solar_disk;
 static lv_obj_t *s_solar_limb;
@@ -214,15 +240,14 @@ static lv_obj_t *s_synastry_screen;
 static lv_obj_t *s_synastry_rings[5];
 static lv_obj_t *s_synastry_spokes[12];
 static lv_point_precise_t s_synastry_spoke_points[12][2];
-static lv_obj_t *s_synastry_aspects[8];
-static lv_point_precise_t s_synastry_aspect_points[8][2];
-static lv_obj_t *s_synastry_user_bodies[7];
-static lv_obj_t *s_synastry_target_bodies[7];
-static lv_obj_t *s_synastry_user_labels[7];
-static lv_obj_t *s_synastry_target_labels[7];
+static lv_obj_t *s_synastry_bonds[SYNASTRY_ORRERY_MAX_BONDS];
+static lv_point_precise_t s_synastry_bond_points[SYNASTRY_ORRERY_MAX_BONDS][2];
+static lv_obj_t *s_synastry_people[SYNASTRY_ORRERY_MAX_PEOPLE];
+static lv_obj_t *s_synastry_people_labels[SYNASTRY_ORRERY_MAX_PEOPLE];
 static lv_obj_t *s_synastry_title;
 static lv_obj_t *s_synastry_names;
 static lv_obj_t *s_synastry_line;
+static lv_obj_t *s_synastry_wellness[3];
 static lv_obj_t *s_transits_screen;
 static lv_obj_t *s_transits_rings[4];
 static lv_obj_t *s_transits_spokes[12];
@@ -419,9 +444,14 @@ static void display_flush(lv_display_t *display, const lv_area_t *area, uint8_t 
     const int32_t w = lv_area_get_width(area);
     const int32_t h = lv_area_get_height(area);
     const uint16_t *src = (const uint16_t *)px_map;
+    if (src != NULL && s_direct_display_buffers) {
+        src += (size_t)area->y1 * (size_t)FACULTY175_LCD_W + (size_t)area->x1;
+    }
 
-    faculty175_display_draw_rgb565(src, area->x1, area->y1, w, h);
+    faculty175_display_lock();
+    faculty175_display_draw_rgb565_stride(src, s_direct_display_buffers ? FACULTY175_LCD_W : w, area->x1, area->y1, w, h);
     faculty175_display_flush_rect(area->x1, area->y1, w, h);
+    faculty175_display_unlock();
     lv_display_flush_ready(display);
 }
 
@@ -1047,6 +1077,71 @@ static bool moon_texture_load(void)
     return true;
 }
 
+static lv_obj_t *create_moon_phase_arc(lv_obj_t *parent)
+{
+    lv_obj_t *arc = lv_arc_create(parent);
+    lv_obj_remove_style(arc, NULL, LV_PART_KNOB);
+    lv_obj_set_size(arc, 432, 432);
+    lv_obj_center(arc);
+    lv_obj_clear_flag(arc, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(arc, LV_OBJ_FLAG_SCROLLABLE);
+    lv_arc_set_bg_angles(arc, 0, 360);
+    lv_arc_set_range(arc, 0, 1000);
+    lv_arc_set_rotation(arc, 270);
+    lv_obj_set_style_arc_width(arc, 2, LV_PART_MAIN);
+    lv_obj_set_style_arc_color(arc, lv_color_hex(0x303646), LV_PART_MAIN);
+    lv_obj_set_style_arc_opa(arc, 170, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(arc, 4, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(arc, lv_color_hex(0xaabdda), LV_PART_INDICATOR);
+    lv_obj_set_style_arc_opa(arc, 230, LV_PART_INDICATOR);
+    return arc;
+}
+
+static void create_moon_day_ticks(lv_obj_t *parent)
+{
+    const int32_t cx = FACULTY175_LCD_W / 2;
+    const int32_t cy = FACULTY175_LCD_H / 2;
+    for (int i = 0; i < 28; ++i) {
+        const float a = ((float)i / 28.0f) * 6.28318530718f - 1.57079632679f;
+        const bool week = (i % 7) == 0;
+        const int inner = week ? 209 : 213;
+        const int outer = 219;
+        s_moon_day_tick_points[i][0].x = (lv_value_precise_t)(cx + (int32_t)lrintf(cosf(a) * (float)inner));
+        s_moon_day_tick_points[i][0].y = (lv_value_precise_t)(cy + (int32_t)lrintf(sinf(a) * (float)inner));
+        s_moon_day_tick_points[i][1].x = (lv_value_precise_t)(cx + (int32_t)lrintf(cosf(a) * (float)outer));
+        s_moon_day_tick_points[i][1].y = (lv_value_precise_t)(cy + (int32_t)lrintf(sinf(a) * (float)outer));
+        s_moon_day_ticks[i] = lv_line_create(parent);
+        lv_obj_clear_flag(s_moon_day_ticks[i], LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_clear_flag(s_moon_day_ticks[i], LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_style_line_width(s_moon_day_ticks[i], week ? 2 : 1, 0);
+        lv_obj_set_style_line_rounded(s_moon_day_ticks[i], true, 0);
+        lv_obj_set_style_line_color(s_moon_day_ticks[i], lv_color_hex(week ? 0xded8c8 : 0x8a9098), 0);
+        lv_obj_set_style_line_opa(s_moon_day_ticks[i], week ? 150 : 82, 0);
+        lv_line_set_points(s_moon_day_ticks[i], s_moon_day_tick_points[i], 2);
+    }
+}
+
+static void moon_update_phase_overlay(float phase)
+{
+    if (s_moon_phase_arc != NULL) {
+        lv_arc_set_value(s_moon_phase_arc, (int32_t)lrintf(phase * 1000.0f));
+    }
+    if (s_moon_phase_marker != NULL) {
+        const float a = phase * 6.28318530718f - 1.57079632679f;
+        const int32_t cx = FACULTY175_LCD_W / 2;
+        const int32_t cy = FACULTY175_LCD_H / 2;
+        const int32_t size = lv_obj_get_width(s_moon_phase_marker);
+        const int32_t x = cx + (int32_t)lrintf(cosf(a) * 216.0f) - size / 2;
+        const int32_t y = cy + (int32_t)lrintf(sinf(a) * 216.0f) - size / 2;
+        lv_obj_align(s_moon_phase_marker, LV_ALIGN_TOP_LEFT, x, y);
+    }
+    if (s_moon_fallback_shadow != NULL) {
+        const int32_t x = (int32_t)lrintf(-78.0f + phase * 156.0f);
+        lv_obj_align(s_moon_fallback_shadow, LV_ALIGN_CENTER, x, 0);
+        lv_obj_set_style_bg_opa(s_moon_fallback_shadow, 238, 0);
+    }
+}
+
 static void create_moon_screen(void)
 {
     s_moon_screen = lv_obj_create(NULL);
@@ -1061,9 +1156,33 @@ static void create_moon_screen(void)
         lv_image_set_src(s_moon_image, &s_moon_texture);
         lv_obj_align(s_moon_image, LV_ALIGN_CENTER, 0, 0);
     } else {
-        lv_obj_t *fallback = make_circle(s_moon_screen, 466, 0xb8b4a8, LV_OPA_COVER);
-        lv_obj_center(fallback);
+        s_moon_fallback_disk = make_circle(s_moon_screen, 286, 0xb8b4a8, LV_OPA_COVER);
+        lv_obj_center(s_moon_fallback_disk);
+        lv_obj_set_style_border_width(s_moon_fallback_disk, 3, 0);
+        lv_obj_set_style_border_color(s_moon_fallback_disk, lv_color_hex(0xded8c8), 0);
+        lv_obj_set_style_border_opa(s_moon_fallback_disk, 190, 0);
+        static const int crater_pos[9][3] = {
+            {-70, -48, 14}, {-28, 42, 19}, {48, -36, 17}, {72, 34, 10}, {-42, -82, 9},
+            {12, -12, 10}, {30, 82, 10}, {-92, 20, 13}, {4, 54, 8},
+        };
+        for (int i = 0; i < 9; ++i) {
+            s_moon_fallback_craters[i] = make_circle(s_moon_screen, crater_pos[i][2], 0x858a90, 92);
+            lv_obj_align(s_moon_fallback_craters[i], LV_ALIGN_CENTER, crater_pos[i][0], crater_pos[i][1]);
+        }
+        s_moon_fallback_shadow = make_circle(s_moon_screen, 292, 0x020308, 238);
+        lv_obj_center(s_moon_fallback_shadow);
     }
+    s_moon_phase_arc = create_moon_phase_arc(s_moon_screen);
+    create_moon_day_ticks(s_moon_screen);
+    s_moon_phase_marker = make_circle(s_moon_screen, 11, 0xeee8d4, LV_OPA_COVER);
+    lv_obj_set_style_border_width(s_moon_phase_marker, 2, 0);
+    lv_obj_set_style_border_color(s_moon_phase_marker, lv_color_hex(0x0b0c10), 0);
+    lv_obj_set_style_border_opa(s_moon_phase_marker, 210, 0);
+    lv_obj_move_foreground(s_moon_phase_arc);
+    for (int i = 0; i < 28; ++i) {
+        lv_obj_move_foreground(s_moon_day_ticks[i]);
+    }
+    lv_obj_move_foreground(s_moon_phase_marker);
 }
 
 static bool draw_moon(uint32_t anim_ms)
@@ -1080,6 +1199,7 @@ static bool draw_moon(uint32_t anim_ms)
 
     const float phase = moon_phase_fraction(anim_ms);
     moon_render_shadow(phase);
+    moon_update_phase_overlay(phase);
 
     lvgl_tick(16);
     lv_timer_handler();
@@ -1785,6 +1905,150 @@ static void configure_solar_line(lv_obj_t *line, uint32_t color, int32_t width, 
     lv_obj_set_style_line_opa(line, opa, 0);
 }
 
+static void set_hidden(lv_obj_t *obj, bool hidden)
+{
+    if (obj == NULL) {
+        return;
+    }
+    if (hidden) {
+        lv_obj_add_flag(obj, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_clear_flag(obj, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+static bool solar_image_texture_ready(void)
+{
+    if (s_solar_image_pixels != NULL) {
+        return true;
+    }
+
+    const size_t pixel_count = (size_t)FACULTY175_LCD_W * FACULTY175_LCD_H;
+    s_solar_image_pixels = heap_caps_malloc(pixel_count * sizeof(uint16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (s_solar_image_pixels == NULL) {
+        s_solar_image_pixels = heap_caps_malloc(pixel_count * sizeof(uint16_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    }
+    if (s_solar_image_pixels == NULL) {
+        ESP_LOGW(TAG, "solar image LVGL pixel alloc failed");
+        return false;
+    }
+    memset(s_solar_image_pixels, 0, pixel_count * sizeof(uint16_t));
+
+    s_solar_image_texture = (lv_image_dsc_t) {
+        .header = {
+            .magic = LV_IMAGE_HEADER_MAGIC,
+            .cf = LV_COLOR_FORMAT_RGB565,
+            .flags = 0,
+            .w = FACULTY175_LCD_W,
+            .h = FACULTY175_LCD_H,
+            .stride = FACULTY175_LCD_W * sizeof(uint16_t),
+            .reserved_2 = 0,
+        },
+        .data_size = FACULTY175_LCD_W * FACULTY175_LCD_H * sizeof(uint16_t),
+        .data = (const uint8_t *)s_solar_image_pixels,
+        .reserved = NULL,
+        .reserved_2 = NULL,
+    };
+    return true;
+}
+
+static void solar_set_procedural_visible(bool visible)
+{
+    for (int i = 0; i < 4; ++i) {
+        set_hidden(s_solar_corona[i], !visible);
+    }
+    set_hidden(s_solar_disk, !visible);
+    set_hidden(s_solar_limb, !visible);
+    for (int i = 0; i < 7; ++i) {
+        set_hidden(s_solar_regions[i], !visible);
+    }
+    for (int i = 0; i < 3; ++i) {
+        set_hidden(s_solar_flare[i], !visible);
+        set_hidden(s_solar_cme[i], !visible);
+    }
+    for (int i = 0; i < 4; ++i) {
+        set_hidden(s_solar_region_labels[i], true);
+    }
+}
+
+static lv_obj_t *create_solar_cycle_arc(lv_obj_t *parent, int size, uint32_t guide, uint32_t progress, int width)
+{
+    lv_obj_t *arc = lv_arc_create(parent);
+    lv_obj_remove_style(arc, NULL, LV_PART_KNOB);
+    lv_obj_set_size(arc, size, size);
+    lv_obj_center(arc);
+    lv_obj_clear_flag(arc, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(arc, LV_OBJ_FLAG_SCROLLABLE);
+    lv_arc_set_bg_angles(arc, 0, 360);
+    lv_arc_set_range(arc, 0, 1000);
+    lv_arc_set_rotation(arc, 270);
+    lv_obj_set_style_arc_width(arc, width, LV_PART_MAIN);
+    lv_obj_set_style_arc_color(arc, lv_color_hex(guide), LV_PART_MAIN);
+    lv_obj_set_style_arc_opa(arc, 150, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(arc, width + 1, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(arc, lv_color_hex(progress), LV_PART_INDICATOR);
+    lv_obj_set_style_arc_opa(arc, 225, LV_PART_INDICATOR);
+    return arc;
+}
+
+static lv_obj_t *create_solar_cycle_marker(lv_obj_t *parent, int size, uint32_t color)
+{
+    lv_obj_t *marker = make_circle(parent, size, color, LV_OPA_COVER);
+    lv_obj_set_style_border_width(marker, 2, 0);
+    lv_obj_set_style_border_color(marker, lv_color_hex(0x0b0c10), 0);
+    lv_obj_set_style_border_opa(marker, 210, 0);
+    return marker;
+}
+
+static void create_solar_cycle_ticks(lv_obj_t *parent,
+                                     lv_obj_t **ticks,
+                                     lv_point_precise_t points[][2],
+                                     int count,
+                                     int inner_radius,
+                                     int outer_radius,
+                                     uint32_t major,
+                                     uint32_t minor)
+{
+    const int32_t cx = FACULTY175_LCD_W / 2;
+    const int32_t cy = FACULTY175_LCD_H / 2;
+    for (int i = 0; i < count; ++i) {
+        const float a = ((float)i / (float)count) * 6.28318530718f - 1.57079632679f;
+        const bool cardinal = i == 0 || (count == 12 && (i % 3) == 0);
+        const int in = cardinal ? inner_radius - 7 : inner_radius;
+        points[i][0].x = (lv_value_precise_t)(cx + (int32_t)lrintf(cosf(a) * (float)in));
+        points[i][0].y = (lv_value_precise_t)(cy + (int32_t)lrintf(sinf(a) * (float)in));
+        points[i][1].x = (lv_value_precise_t)(cx + (int32_t)lrintf(cosf(a) * (float)outer_radius));
+        points[i][1].y = (lv_value_precise_t)(cy + (int32_t)lrintf(sinf(a) * (float)outer_radius));
+        ticks[i] = lv_line_create(parent);
+        configure_solar_line(ticks[i], cardinal ? major : minor, cardinal ? 3 : 2, cardinal ? 218 : 150);
+        lv_line_set_points(ticks[i], points[i], 2);
+    }
+}
+
+static void update_solar_cycle_marker(lv_obj_t *marker, int radius, float phase)
+{
+    if (marker == NULL) {
+        return;
+    }
+    const float a = phase * 6.28318530718f - 1.57079632679f;
+    const int32_t cx = FACULTY175_LCD_W / 2;
+    const int32_t cy = FACULTY175_LCD_H / 2;
+    const int32_t size = lv_obj_get_width(marker);
+    const int32_t x = cx + (int32_t)lrintf(cosf(a) * (float)radius) - size / 2;
+    const int32_t y = cy + (int32_t)lrintf(sinf(a) * (float)radius) - size / 2;
+    lv_obj_align(marker, LV_ALIGN_TOP_LEFT, x, y);
+}
+
+static void update_solar_cycle_dials(uint32_t anim_ms)
+{
+    const float solar_phase = faculty175_cycle_solar_phase(anim_ms);
+    const float year_phase = faculty175_cycle_solar_year_phase(anim_ms);
+    lv_arc_set_value(s_solar_cycle_arc, (int32_t)lrintf(solar_phase * 1000.0f));
+    lv_arc_set_value(s_solar_year_arc, (int32_t)lrintf(year_phase * 1000.0f));
+    update_solar_cycle_marker(s_solar_cycle_marker, 226, solar_phase);
+    update_solar_cycle_marker(s_solar_year_marker, 212, year_phase);
+}
+
 static void create_solar_screen(void)
 {
     s_solar_screen = lv_obj_create(NULL);
@@ -1793,6 +2057,32 @@ static void create_solar_screen(void)
     lv_obj_set_style_bg_color(s_solar_screen, lv_color_hex(0x030406), 0);
     lv_obj_set_style_bg_opa(s_solar_screen, LV_OPA_COVER, 0);
     lv_obj_clear_flag(s_solar_screen, LV_OBJ_FLAG_SCROLLABLE);
+
+    s_solar_image = lv_image_create(s_solar_screen);
+    lv_obj_align(s_solar_image, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_add_flag(s_solar_image, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(s_solar_image, LV_OBJ_FLAG_SCROLLABLE);
+
+    s_solar_cycle_arc = create_solar_cycle_arc(s_solar_screen, 456, 0x583016, 0xff9a26, 3);
+    s_solar_year_arc = create_solar_cycle_arc(s_solar_screen, 428, 0x2e3824, 0x80da66, 3);
+    create_solar_cycle_ticks(s_solar_screen,
+                             s_solar_cycle_ticks,
+                             s_solar_cycle_tick_points,
+                             11,
+                             218,
+                             231,
+                             0xffe080,
+                             0x7a4a20);
+    create_solar_cycle_ticks(s_solar_screen,
+                             s_solar_year_ticks,
+                             s_solar_year_tick_points,
+                             12,
+                             204,
+                             218,
+                             0xffec9a,
+                             0x5b7a48);
+    s_solar_cycle_marker = create_solar_cycle_marker(s_solar_screen, 12, 0xffe080);
+    s_solar_year_marker = create_solar_cycle_marker(s_solar_screen, 10, 0xffec9a);
 
     static const int corona_sizes[4] = {430, 384, 336, 292};
     static const uint32_t corona_colors[4] = {0x402018, 0x74321a, 0xb95b20, 0xff9e36};
@@ -1832,13 +2122,29 @@ static void create_solar_screen(void)
     }
     for (int i = 0; i < 4; ++i) {
         s_solar_region_labels[i] = make_tarot_label(s_solar_screen, 0, 54, 0x2a1408);
+        lv_obj_add_flag(s_solar_region_labels[i], LV_OBJ_FLAG_HIDDEN);
     }
 
     s_solar_title = make_tarot_label(s_solar_screen, 30, 280, 0xffe2a4);
-    lv_label_set_text(s_solar_title, "SOLAR");
+    lv_label_set_text(s_solar_title, "");
+    lv_obj_add_flag(s_solar_title, LV_OBJ_FLAG_HIDDEN);
     s_solar_status = make_tarot_label(s_solar_screen, 392, 350, 0xffbd68);
     s_solar_source = make_tarot_label(s_solar_screen, 414, 360, 0x8fd6ff);
-    lv_label_set_text(s_solar_source, "SDO NRT  DONKI CACHE");
+    lv_label_set_text(s_solar_status, "");
+    lv_label_set_text(s_solar_source, "");
+    lv_obj_add_flag(s_solar_status, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(s_solar_source, LV_OBJ_FLAG_HIDDEN);
+
+    lv_obj_move_foreground(s_solar_cycle_arc);
+    lv_obj_move_foreground(s_solar_year_arc);
+    for (int i = 0; i < 11; ++i) {
+        lv_obj_move_foreground(s_solar_cycle_ticks[i]);
+    }
+    for (int i = 0; i < 12; ++i) {
+        lv_obj_move_foreground(s_solar_year_ticks[i]);
+    }
+    lv_obj_move_foreground(s_solar_cycle_marker);
+    lv_obj_move_foreground(s_solar_year_marker);
 }
 
 static bool draw_solar(uint32_t anim_ms)
@@ -1851,6 +2157,35 @@ static bool draw_solar(uint32_t anim_ms)
     }
     if (lv_screen_active() != s_solar_screen) {
         lv_screen_load(s_solar_screen);
+    }
+
+    faculty175_solar_image_request(false);
+    time_t cached_epoch = faculty175_solar_image_cached_epoch();
+    bool have_live_image = s_solar_image_epoch > 0 && s_solar_image_pixels != NULL;
+    if (cached_epoch > 0 && solar_image_texture_ready()) {
+        if (cached_epoch != s_solar_image_epoch) {
+            time_t copied_epoch = 0;
+            const size_t pixel_count = (size_t)FACULTY175_LCD_W * FACULTY175_LCD_H;
+            if (faculty175_solar_image_copy_cached(s_solar_image_pixels, pixel_count, &copied_epoch)) {
+                s_solar_image_epoch = copied_epoch;
+                lv_image_set_src(s_solar_image, &s_solar_image_texture);
+                lv_obj_invalidate(s_solar_image);
+                ESP_LOGI(TAG, "solar LVGL image refreshed from Helioviewer cache");
+            }
+        }
+        have_live_image = s_solar_image_epoch > 0 && s_solar_image_pixels != NULL;
+    }
+    set_hidden(s_solar_image, !have_live_image);
+    solar_set_procedural_visible(!have_live_image);
+    update_solar_cycle_dials(anim_ms);
+
+    if (have_live_image) {
+        lv_label_set_text(s_solar_status, "");
+        lv_obj_add_flag(s_solar_status, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_invalidate(s_solar_screen);
+        lvgl_tick(16);
+        lv_timer_handler();
+        return true;
     }
 
     const int32_t cx = FACULTY175_LCD_W / 2;
@@ -1871,10 +2206,7 @@ static bool draw_solar(uint32_t anim_ms)
         lv_obj_align(s_solar_regions[i], LV_ALIGN_TOP_LEFT, x - lv_obj_get_width(s_solar_regions[i]) / 2, y - lv_obj_get_height(s_solar_regions[i]) / 2);
         lv_obj_set_style_bg_opa(s_solar_regions[i], i < 3 ? 210 : 144, 0);
         if (i < 4) {
-            char ar[8];
-            snprintf(ar, sizeof(ar), "AR%d", 4 + i);
-            lv_label_set_text(s_solar_region_labels[i], ar);
-            lv_obj_align(s_solar_region_labels[i], LV_ALIGN_TOP_LEFT, x - 26, y - 8);
+            lv_obj_add_flag(s_solar_region_labels[i], LV_OBJ_FLAG_HIDDEN);
         }
     }
 
@@ -1897,7 +2229,8 @@ static bool draw_solar(uint32_t anim_ms)
         lv_line_set_points(s_solar_cme[i], s_solar_cme_points[i], 2);
     }
 
-    lv_label_set_text(s_solar_status, "AIA 193  HMI  FLR/CME");
+    lv_label_set_text(s_solar_status, "");
+    lv_obj_add_flag(s_solar_status, LV_OBJ_FLAG_HIDDEN);
     lv_obj_invalidate(s_solar_screen);
     lvgl_tick(16);
     lv_timer_handler();
@@ -5788,6 +6121,27 @@ typedef struct {
     double orb;
 } lvgl_synastry_aspect_t;
 
+typedef struct {
+    faculty175_birth_chart_t chart;
+    faculty175_chart_positions_t pos;
+    int slot;
+    int age_years;
+    int x;
+    int y;
+    int radius;
+    uint32_t color;
+    bool primary;
+    bool active;
+} lvgl_synastry_person_t;
+
+static float s_synastry_sim_x[SYNASTRY_ORRERY_MAX_PEOPLE];
+static float s_synastry_sim_y[SYNASTRY_ORRERY_MAX_PEOPLE];
+static float s_synastry_sim_vx[SYNASTRY_ORRERY_MAX_PEOPLE];
+static float s_synastry_sim_vy[SYNASTRY_ORRERY_MAX_PEOPLE];
+static uint32_t s_synastry_sim_signature;
+static int s_synastry_sim_count;
+static uint32_t s_synastry_sim_last_ms;
+
 static double synastry_norm360(double v)
 {
     v = fmod(v, 360.0);
@@ -5803,16 +6157,15 @@ static double synastry_aspect_distance(double a, double b)
     return d > 180.0 ? 360.0 - d : d;
 }
 
-static uint32_t synastry_aspect_color(int deg)
+static float synastry_clamp01(float v)
 {
-    switch (deg) {
-        case 0: return 0xffe28e;
-        case 60: return 0x78d2fa;
-        case 90: return 0xf5645c;
-        case 120: return 0x78e29a;
-        case 180: return 0xc68af5;
-        default: return 0x96a0b8;
+    if (v < 0.0f) {
+        return 0.0f;
     }
+    if (v > 1.0f) {
+        return 1.0f;
+    }
+    return v;
 }
 
 static const char *synastry_aspect_word(int deg)
@@ -5825,6 +6178,111 @@ static const char *synastry_aspect_word(int deg)
         case 180: return "opp";
         default: return "asp";
     }
+}
+
+static float synastry_aspect_weight(int deg)
+{
+    switch (deg) {
+        case 0: return 1.0f;
+        case 60: return 0.64f;
+        case 90: return 0.72f;
+        case 120: return 0.88f;
+        case 180: return 0.76f;
+        default: return 0.45f;
+    }
+}
+
+static float synastry_body_weight(int body)
+{
+    switch (body) {
+        case 0:
+        case 1:
+            return 1.0f;
+        case 3:
+        case 4:
+            return 0.92f;
+        case 2:
+            return 0.82f;
+        case 5:
+            return 0.72f;
+        case 6:
+            return 0.78f;
+        default:
+            return 0.7f;
+    }
+}
+
+static float synastry_gravity_between(const faculty175_chart_positions_t *a,
+                                      const faculty175_chart_positions_t *b)
+{
+    if (a == NULL || b == NULL || !a->ok || !b->ok) {
+        return 0.0f;
+    }
+    static const int k_major[] = {0, 60, 90, 120, 180};
+    float score = 0.0f;
+    for (int ai = 0; ai < FACULTY175_CHART_BODY_COUNT; ++ai) {
+        for (int bi = 0; bi < FACULTY175_CHART_BODY_COUNT; ++bi) {
+            const double sep = synastry_aspect_distance(a->lon[ai], b->lon[bi]);
+            for (size_t mi = 0; mi < sizeof(k_major) / sizeof(k_major[0]); ++mi) {
+                const double orb = fabs(sep - (double)k_major[mi]);
+                if (orb > 6.5) {
+                    continue;
+                }
+                const float exact = 1.0f - (float)(orb / 6.5);
+                score += exact * synastry_aspect_weight(k_major[mi]) * synastry_body_weight(ai) *
+                         synastry_body_weight(bi);
+                break;
+            }
+        }
+    }
+    return synastry_clamp01(score / 8.5f);
+}
+
+static int synastry_age_years_for_chart(const faculty175_birth_chart_t *chart)
+{
+    if (chart == NULL || chart->year == 0) {
+        return 0;
+    }
+    struct tm local = {
+        .tm_year = 2026 - 1900,
+        .tm_mon = 7 - 1,
+        .tm_mday = 6,
+    };
+    if (astrolabe_time_valid()) {
+        astrolabe_time_local(&local);
+    }
+    int age = (local.tm_year + 1900) - (int)chart->year;
+    const int month = local.tm_mon + 1;
+    if (month < (int)chart->month || (month == (int)chart->month && local.tm_mday < (int)chart->day)) {
+        --age;
+    }
+    return age < 0 ? 0 : age;
+}
+
+static int synastry_sphere_radius_for_age(int age_years, bool primary)
+{
+    float r = 7.0f + sqrtf((float)(age_years < 0 ? 0 : age_years)) * 1.35f;
+    if (primary) {
+        r += 2.5f;
+    }
+    if (r < 8.0f) {
+        r = 8.0f;
+    }
+    if (r > 22.0f) {
+        r = 22.0f;
+    }
+    return (int)lrintf(r);
+}
+
+static uint32_t synastry_person_color(faculty175_chart_role_t role, bool primary)
+{
+    if (primary || role == FACULTY175_CHART_ROLE_SELF) {
+        return 0x7ad6ff;
+    }
+    if (role == FACULTY175_CHART_ROLE_CHILD) {
+        return 0x94ecb2;
+    }
+    return 0xecccff;
 }
 
 static int synastry_rebuild_aspects(const faculty175_chart_positions_t *user,
@@ -5871,6 +6329,318 @@ static int synastry_rebuild_aspects(const faculty175_chart_positions_t *user,
     return count;
 }
 
+static bool synastry_add_person(lvgl_synastry_person_t *people,
+                                int *count,
+                                int cap,
+                                const faculty175_birth_chart_t *chart,
+                                const faculty175_chart_positions_t *pos,
+                                int slot,
+                                bool primary,
+                                bool active)
+{
+    if (people == NULL || count == NULL || chart == NULL || pos == NULL || *count >= cap || !pos->ok) {
+        return false;
+    }
+    lvgl_synastry_person_t *p = &people[(*count)++];
+    memset(p, 0, sizeof(*p));
+    p->chart = *chart;
+    p->pos = *pos;
+    p->slot = slot;
+    p->primary = primary;
+    p->active = active;
+    p->age_years = synastry_age_years_for_chart(chart);
+    p->radius = synastry_sphere_radius_for_age(p->age_years, primary);
+    p->color = synastry_person_color(chart->role, primary);
+    return true;
+}
+
+static int synastry_build_people(lvgl_synastry_person_t *people,
+                                 int cap,
+                                 const faculty175_birth_chart_t *user,
+                                 const faculty175_chart_positions_t *user_pos)
+{
+    int count = 0;
+    (void)synastry_add_person(people, &count, cap, user, user_pos, -1, true, false);
+    const int active_slot = faculty175_charts_active_slot();
+    for (int slot = 0; slot < FACULTY175_CHART_PROFILE_SLOTS && count < cap; ++slot) {
+        faculty175_birth_chart_t profile = {};
+        faculty175_chart_positions_t pos = {};
+        if (!faculty175_charts_profile_get(slot, &profile) ||
+            !faculty175_charts_birth_positions(&profile, &pos)) {
+            continue;
+        }
+        (void)synastry_add_person(people, &count, cap, &profile, &pos, slot, false, slot == active_slot);
+    }
+    return count;
+}
+
+static uint32_t synastry_orrery_signature(const lvgl_synastry_person_t *people, int count)
+{
+    uint32_t h = 2166136261u;
+    for (int i = 0; i < count; ++i) {
+        const uint8_t *name = (const uint8_t *)people[i].chart.name;
+        for (size_t j = 0; j < sizeof(people[i].chart.name) && name[j] != '\0'; ++j) {
+            h ^= name[j];
+            h *= 16777619u;
+        }
+        h ^= (uint32_t)people[i].chart.year;
+        h *= 16777619u;
+        h ^= (uint32_t)people[i].slot;
+        h *= 16777619u;
+    }
+    return h;
+}
+
+static void synastry_layout_people(lvgl_synastry_person_t *people, int count, int cx, int cy, uint32_t anim_ms)
+{
+    if (people == NULL || count <= 0) {
+        return;
+    }
+    const uint32_t sig = synastry_orrery_signature(people, count);
+    const float primary_sun = people[0].pos.ok ? (float)synastry_norm360(people[0].pos.lon[0]) : 0.0f;
+    int partner_idx = -1;
+    int child_count = 0;
+    for (int i = 1; i < count; ++i) {
+        if (people[i].chart.role == FACULTY175_CHART_ROLE_CHILD) {
+            ++child_count;
+        } else if (partner_idx < 0) {
+            partner_idx = i;
+        }
+    }
+    if (partner_idx < 0 && count > 1) {
+        partner_idx = 1;
+    }
+
+    if (s_synastry_sim_signature != sig || s_synastry_sim_count != count) {
+        memset(s_synastry_sim_vx, 0, sizeof(s_synastry_sim_vx));
+        memset(s_synastry_sim_vy, 0, sizeof(s_synastry_sim_vy));
+        s_synastry_sim_signature = sig;
+        s_synastry_sim_count = count;
+    }
+    s_synastry_sim_last_ms = anim_ms;
+
+    const float parent_angle = -1.5707963f + (float)anim_ms * 0.00018f +
+        (people[0].pos.ok ? (float)synastry_norm360(people[0].pos.lon[0]) * 0.0025f : 0.0f);
+    const float parent_r = partner_idx > 0 ? 48.0f : 0.0f;
+    s_synastry_sim_x[0] = (float)cx + cosf(parent_angle) * parent_r;
+    s_synastry_sim_y[0] = (float)cy + sinf(parent_angle) * parent_r;
+    if (partner_idx > 0) {
+        const float partner_angle = parent_angle + 3.1415927f;
+        s_synastry_sim_x[partner_idx] = (float)cx + cosf(partner_angle) * parent_r;
+        s_synastry_sim_y[partner_idx] = (float)cy + sinf(partner_angle) * parent_r;
+    }
+
+    int child_idx = 0;
+    int other_idx = 0;
+    for (int i = 1; i < count; ++i) {
+        if (i == partner_idx) {
+            continue;
+        }
+        if (people[i].chart.role == FACULTY175_CHART_ROLE_CHILD) {
+            const float natal_phase = people[i].pos.ok ?
+                (float)synastry_norm360(people[i].pos.lon[0] - primary_sun) * 0.0174532925f : 0.0f;
+            const float step = child_count > 0 ? 6.2831853f / (float)child_count : 6.2831853f;
+            const float a = parent_angle + 1.5707963f + step * (float)child_idx + natal_phase * 0.16f +
+                (float)anim_ms * (0.00032f + 0.00005f * (float)(child_idx + 1));
+            float parent_gravity = synastry_gravity_between(&people[0].pos, &people[i].pos);
+            if (partner_idx > 0) {
+                parent_gravity = (parent_gravity + synastry_gravity_between(&people[partner_idx].pos, &people[i].pos)) * 0.5f;
+            }
+            const float r = 148.0f - parent_gravity * 48.0f + 10.0f * (float)(child_idx % 2);
+            s_synastry_sim_x[i] = (float)cx + cosf(a) * r;
+            s_synastry_sim_y[i] = (float)cy + sinf(a) * r;
+            ++child_idx;
+        } else {
+            const float a = parent_angle + 2.0943951f * (float)(++other_idx);
+            s_synastry_sim_x[i] = (float)cx + cosf(a) * 148.0f;
+            s_synastry_sim_y[i] = (float)cy + sinf(a) * 148.0f;
+        }
+    }
+
+    for (int i = 0; i < count; ++i) {
+        people[i].x = (int)lrintf(s_synastry_sim_x[i]);
+        people[i].y = (int)lrintf(s_synastry_sim_y[i]);
+    }
+}
+
+static uint32_t synastry_bond_color(float gravity)
+{
+    const uint8_t r = (uint8_t)(95.0f + gravity * 140.0f);
+    const uint8_t g = (uint8_t)(125.0f + gravity * 85.0f);
+    const uint8_t b = (uint8_t)(170.0f + gravity * 70.0f);
+    return ((uint32_t)r << 16) | ((uint32_t)g << 8) | (uint32_t)b;
+}
+
+typedef struct {
+    int aspect_deg;
+    double orb;
+    float strength;
+} lvgl_synastry_bond_style_t;
+
+static lvgl_synastry_bond_style_t synastry_bond_style_between(const faculty175_chart_positions_t *a,
+                                                              const faculty175_chart_positions_t *b)
+{
+    static const int k_major[] = {0, 60, 90, 120, 180};
+    lvgl_synastry_bond_style_t best = {
+        .aspect_deg = -1,
+        .orb = 99.0,
+        .strength = 0.0f,
+    };
+    if (a == NULL || b == NULL || !a->ok || !b->ok) {
+        return best;
+    }
+    for (int ai = 0; ai < FACULTY175_CHART_BODY_COUNT; ++ai) {
+        for (int bi = 0; bi < FACULTY175_CHART_BODY_COUNT; ++bi) {
+            const double sep = synastry_aspect_distance(a->lon[ai], b->lon[bi]);
+            for (size_t mi = 0; mi < sizeof(k_major) / sizeof(k_major[0]); ++mi) {
+                const int aspect = k_major[mi];
+                const double orb = fabs(sep - (double)aspect);
+                if (orb > 6.5) {
+                    continue;
+                }
+                const float exact = 1.0f - (float)(orb / 6.5);
+                const float strength = exact * synastry_aspect_weight(aspect) *
+                    synastry_body_weight(ai) * synastry_body_weight(bi);
+                if (strength > best.strength) {
+                    best.aspect_deg = aspect;
+                    best.orb = orb;
+                    best.strength = strength;
+                }
+                break;
+            }
+        }
+    }
+    best.strength = synastry_clamp01(best.strength);
+    return best;
+}
+
+static uint32_t synastry_aspect_line_color(int aspect_deg, float strength)
+{
+    (void)strength;
+    switch (aspect_deg) {
+        case 0: return 0xffd36a;
+        case 60: return 0x79d7ff;
+        case 90: return 0xff7f6e;
+        case 120: return 0x8ff0ae;
+        case 180: return 0xcaa7ff;
+        default: return synastry_bond_color(strength);
+    }
+}
+
+static void synastry_apply_bond_line_style(lv_obj_t *line,
+                                           const lvgl_synastry_bond_style_t *style,
+                                           float gravity,
+                                           bool child_parent_bond)
+{
+    float strength = gravity;
+    int aspect_deg = -1;
+    double orb = 6.5;
+    if (style != NULL && style->aspect_deg >= 0) {
+        strength = style->strength;
+        aspect_deg = style->aspect_deg;
+        orb = style->orb;
+    }
+    if (child_parent_bond && strength < 0.18f) {
+        strength = 0.18f;
+    }
+    const float exact = synastry_clamp01(1.0f - (float)(orb / 6.5));
+    int width = 1 + (int)lrintf(strength * 3.0f);
+    if (child_parent_bond && width < 2) {
+        width = 2;
+    }
+    if ((aspect_deg == 0 || aspect_deg == 120) && exact > 0.72f) {
+        ++width;
+    }
+    lv_obj_set_style_line_color(line, lv_color_hex(synastry_aspect_line_color(aspect_deg, strength)), 0);
+    lv_obj_set_style_line_width(line, width, 0);
+    lv_obj_set_style_line_opa(line, (lv_opa_t)(86 + exact * 140.0f), 0);
+    lv_obj_set_style_line_rounded(line, true, 0);
+    switch (aspect_deg) {
+        case 60:
+            lv_obj_set_style_line_dash_width(line, 10, 0);
+            lv_obj_set_style_line_dash_gap(line, 7, 0);
+            break;
+        case 90:
+            lv_obj_set_style_line_dash_width(line, 4, 0);
+            lv_obj_set_style_line_dash_gap(line, 5, 0);
+            break;
+        case 180:
+            lv_obj_set_style_line_dash_width(line, 15, 0);
+            lv_obj_set_style_line_dash_gap(line, 8, 0);
+            break;
+        default:
+            lv_obj_set_style_line_dash_width(line, 0, 0);
+            lv_obj_set_style_line_dash_gap(line, 0, 0);
+            break;
+    }
+}
+
+static void synastry_hide_orrery_objects(void)
+{
+    for (int i = 0; i < SYNASTRY_ORRERY_MAX_PEOPLE; ++i) {
+        native_obj_hidden(s_synastry_people[i], true);
+        native_obj_hidden(s_synastry_people_labels[i], true);
+    }
+    for (int i = 0; i < SYNASTRY_ORRERY_MAX_BONDS; ++i) {
+        native_obj_hidden(s_synastry_bonds[i], true);
+    }
+}
+
+static uint32_t synastry_wellness_color(const faculty175_family_wellness_t *state)
+{
+    if (state == NULL || !state->valid) {
+        return 0x788096;
+    }
+    const uint8_t score = faculty175_family_load_score(state);
+    if (score >= 76 || strcmp(faculty175_family_guidance_cue(state), "low-spo2") == 0) {
+        return 0xff7b72;
+    }
+    if (score >= 58) {
+        return 0xffc66e;
+    }
+    return 0x83e6a4;
+}
+
+static void synastry_update_wellness_labels(void)
+{
+    faculty175_family_wellness_t partner = {};
+    char line[96];
+    if (!faculty175_family_primary_partner(&partner)) {
+        lv_label_set_text(s_synastry_wellness[0], "WELLNESS  WAITING");
+        lv_label_set_text(s_synastry_wellness[1], "paired ring packets");
+        lv_label_set_text(s_synastry_wellness[2], "ESP-NOW family mesh");
+        for (int i = 0; i < 3; ++i) {
+            lv_obj_set_style_text_color(s_synastry_wellness[i], lv_color_hex(0x788096), 0);
+        }
+        return;
+    }
+
+    snprintf(line,
+             sizeof(line),
+             "%s  %s  %u",
+             partner.subject_name,
+             faculty175_family_guidance_cue(&partner),
+             faculty175_family_load_score(&partner));
+    almanac_set_trimmed(s_synastry_wellness[0], line, 34);
+    lv_obj_set_style_text_color(s_synastry_wellness[0], lv_color_hex(synastry_wellness_color(&partner)), 0);
+
+    faculty175_family_format_day_summary(&partner, line, sizeof(line));
+    almanac_set_trimmed(s_synastry_wellness[1], line, 38);
+    lv_obj_set_style_text_color(s_synastry_wellness[1], lv_color_hex(0xc8d2e8), 0);
+
+    snprintf(line,
+             sizeof(line),
+             "now %u%+d  hrv %u  sleep %uh%02u  age %lus",
+             partner.stress,
+             partner.stress_trend_30m,
+             partner.hrv_ms,
+             partner.sleep_total_min / 60,
+             partner.sleep_total_min % 60,
+             (unsigned long)(partner.age_ms / 1000u));
+    almanac_set_trimmed(s_synastry_wellness[2], line, 38);
+    lv_obj_set_style_text_color(s_synastry_wellness[2], lv_color_hex(0xaab4cc), 0);
+}
+
 static void create_synastry_screen(void)
 {
     s_synastry_screen = lv_obj_create(NULL);
@@ -5880,11 +6650,11 @@ static void create_synastry_screen(void)
     lv_obj_set_style_bg_opa(s_synastry_screen, LV_OPA_COVER, 0);
     lv_obj_clear_flag(s_synastry_screen, LV_OBJ_FLAG_SCROLLABLE);
 
-    const int ring_sizes[] = {432, 408, 344, 244, 144};
+    const int ring_sizes[] = {432, 408, 292, 196, 108};
     for (size_t i = 0; i < sizeof(ring_sizes) / sizeof(ring_sizes[0]); ++i) {
         s_synastry_rings[i] =
             make_arc_ring(s_synastry_screen, ring_sizes[i], i == 4 ? 0x564870 : 0x343a52, i == 0 ? 2 : 1,
-                          i == 4 ? 220 : 170);
+                          i == 4 ? 190 : 150);
         lv_obj_center(s_synastry_rings[i]);
     }
 
@@ -5892,41 +6662,47 @@ static void create_synastry_screen(void)
     const int cy = FACULTY175_LCD_H / 2 + 4;
     for (int i = 0; i < 12; ++i) {
         const float a = -1.5707963f + (float)i * 6.2831853f / 12.0f;
-        s_synastry_spoke_points[i][0].x = cx + (lv_value_precise_t)lrintf(cosf(a) * 72.0f);
-        s_synastry_spoke_points[i][0].y = cy + (lv_value_precise_t)lrintf(sinf(a) * 72.0f);
+        s_synastry_spoke_points[i][0].x = cx + (lv_value_precise_t)lrintf(cosf(a) * 54.0f);
+        s_synastry_spoke_points[i][0].y = cy + (lv_value_precise_t)lrintf(sinf(a) * 54.0f);
         s_synastry_spoke_points[i][1].x = cx + (lv_value_precise_t)lrintf(cosf(a) * 204.0f);
         s_synastry_spoke_points[i][1].y = cy + (lv_value_precise_t)lrintf(sinf(a) * 204.0f);
         s_synastry_spokes[i] = lv_line_create(s_synastry_screen);
-        configure_aleth_line(s_synastry_spokes[i], i % 3 == 0 ? 0x647090 : 0x3e4862, i % 3 == 0 ? 2 : 1, 160);
+        configure_aleth_line(s_synastry_spokes[i], i % 3 == 0 ? 0x647090 : 0x3e4862, i % 3 == 0 ? 2 : 1, 128);
         lv_line_set_points(s_synastry_spokes[i], s_synastry_spoke_points[i], 2);
     }
 
-    for (int i = 0; i < 8; ++i) {
-        s_synastry_aspects[i] = lv_line_create(s_synastry_screen);
-        configure_aleth_line(s_synastry_aspects[i], 0x96a0b8, 2, 190);
-        native_obj_hidden(s_synastry_aspects[i], true);
+    for (int i = 0; i < SYNASTRY_ORRERY_MAX_BONDS; ++i) {
+        s_synastry_bonds[i] = lv_line_create(s_synastry_screen);
+        configure_aleth_line(s_synastry_bonds[i], 0x96a0b8, 2, 180);
+        native_obj_hidden(s_synastry_bonds[i], true);
     }
 
-    for (int i = 0; i < FACULTY175_CHART_BODY_COUNT; ++i) {
-        s_synastry_target_bodies[i] = make_circle(s_synastry_screen, i == 0 ? 16 : 12, 0xecccff, LV_OPA_COVER);
-        s_synastry_user_bodies[i] = make_circle(s_synastry_screen, i == 0 ? 16 : 12, 0x74d0ff, LV_OPA_COVER);
-        s_synastry_target_labels[i] = make_tarot_label(s_synastry_screen, 0, 28, 0xecccff);
-        s_synastry_user_labels[i] = make_tarot_label(s_synastry_screen, 0, 28, 0x74d0ff);
-        lv_label_set_text(s_synastry_target_labels[i], faculty175_charts_body_label(i));
-        lv_label_set_text(s_synastry_user_labels[i], faculty175_charts_body_label(i));
+    for (int i = 0; i < SYNASTRY_ORRERY_MAX_PEOPLE; ++i) {
+        s_synastry_people[i] = make_circle(s_synastry_screen, 44, 0x7ad6ff, LV_OPA_COVER);
+        lv_obj_set_style_border_width(s_synastry_people[i], 1, 0);
+        lv_obj_set_style_border_color(s_synastry_people[i], lv_color_hex(0xe6eeff), 0);
+        native_obj_hidden(s_synastry_people[i], true);
+        s_synastry_people_labels[i] = make_tarot_label(s_synastry_screen, 0, 24, 0x080a12);
+        lv_obj_set_style_text_align(s_synastry_people_labels[i], LV_TEXT_ALIGN_CENTER, 0);
+        native_obj_hidden(s_synastry_people_labels[i], true);
     }
 
-    lv_obj_t *hub = make_circle(s_synastry_screen, 72, 0x090a14, LV_OPA_COVER);
+    lv_obj_t *hub = make_circle(s_synastry_screen, 64, 0x090a14, LV_OPA_COVER);
     lv_obj_center(hub);
 
     s_synastry_title = make_tarot_label(s_synastry_screen, 48, 300, 0xe6e4f6);
     s_synastry_names = make_tarot_label(s_synastry_screen, 74, 360, 0xb2bcda);
     s_synastry_line = make_tarot_label(s_synastry_screen, 392, 360, 0xc4cce2);
+    s_synastry_wellness[0] = make_tarot_label(s_synastry_screen, 316, 360, 0x83e6a4);
+    s_synastry_wellness[1] = make_tarot_label(s_synastry_screen, 342, 360, 0xc8d2e8);
+    s_synastry_wellness[2] = make_tarot_label(s_synastry_screen, 366, 360, 0xaab4cc);
+    for (int i = 0; i < 3; ++i) {
+        lv_obj_set_style_text_align(s_synastry_wellness[i], LV_TEXT_ALIGN_CENTER, 0);
+    }
 }
 
 static bool draw_synastry(uint32_t anim_ms)
 {
-    (void)anim_ms;
     if (s_synastry_screen == NULL) {
         create_synastry_screen();
     }
@@ -5949,15 +6725,8 @@ static bool draw_synastry(uint32_t anim_ms)
         lv_label_set_text(s_synastry_title, "SYNASTRY");
         lv_label_set_text(s_synastry_names, "CHART DATA NEEDED");
         lv_label_set_text(s_synastry_line, "serial: charts seed");
-        for (int i = 0; i < FACULTY175_CHART_BODY_COUNT; ++i) {
-            native_obj_hidden(s_synastry_target_bodies[i], true);
-            native_obj_hidden(s_synastry_user_bodies[i], true);
-            native_obj_hidden(s_synastry_target_labels[i], true);
-            native_obj_hidden(s_synastry_user_labels[i], true);
-        }
-        for (int i = 0; i < 8; ++i) {
-            native_obj_hidden(s_synastry_aspects[i], true);
-        }
+        synastry_hide_orrery_objects();
+        synastry_update_wellness_labels();
         lvgl_tick(16);
         lv_timer_handler();
         return true;
@@ -5965,50 +6734,65 @@ static bool draw_synastry(uint32_t anim_ms)
 
     lvgl_synastry_aspect_t aspects[12] = {};
     const int aspect_count = synastry_rebuild_aspects(&user_pos, &target_pos, aspects, 12);
-    const int r_user = 104;
-    const int r_target = 152;
-    for (int i = 0; i < FACULTY175_CHART_BODY_COUNT; ++i) {
-        int x = 0;
-        int y = 0;
-        astrology_xy_for_lon(target_pos.lon[i], r_target, &x, &y);
-        const int target_sz = i == 0 ? 16 : 12;
-        lv_obj_align(s_synastry_target_bodies[i], LV_ALIGN_TOP_LEFT, x - target_sz / 2, y - target_sz / 2);
-        int lx = 0;
-        int ly = 0;
-        astrology_xy_for_lon(target_pos.lon[i], r_target + 19, &lx, &ly);
-        lv_obj_align(s_synastry_target_labels[i], LV_ALIGN_TOP_LEFT, lx - 14, ly - 7);
-        native_obj_hidden(s_synastry_target_bodies[i], false);
-        native_obj_hidden(s_synastry_target_labels[i], false);
 
-        astrology_xy_for_lon(user_pos.lon[i], r_user, &x, &y);
-        const int user_sz = i == 0 ? 16 : 12;
-        lv_obj_align(s_synastry_user_bodies[i], LV_ALIGN_TOP_LEFT, x - user_sz / 2, y - user_sz / 2);
-        astrology_xy_for_lon(user_pos.lon[i], r_user - 24, &lx, &ly);
-        lv_obj_align(s_synastry_user_labels[i], LV_ALIGN_TOP_LEFT, lx - 14, ly - 7);
-        native_obj_hidden(s_synastry_user_bodies[i], false);
-        native_obj_hidden(s_synastry_user_labels[i], false);
+    lvgl_synastry_person_t people[SYNASTRY_ORRERY_MAX_PEOPLE] = {};
+    const int person_count = synastry_build_people(people, SYNASTRY_ORRERY_MAX_PEOPLE, &user, &user_pos);
+    const int cx = FACULTY175_LCD_W / 2;
+    const int cy = FACULTY175_LCD_H / 2 + 4;
+    synastry_layout_people(people, person_count, cx, cy, anim_ms);
+
+    int bond_idx = 0;
+    for (int i = 0; i < person_count; ++i) {
+        for (int j = i + 1; j < person_count && bond_idx < SYNASTRY_ORRERY_MAX_BONDS; ++j) {
+            float gravity = synastry_gravity_between(&people[i].pos, &people[j].pos);
+            const bool child_parent_bond =
+                (people[i].chart.role == FACULTY175_CHART_ROLE_CHILD &&
+                 (people[j].primary || people[j].chart.role == FACULTY175_CHART_ROLE_PARTNER)) ||
+                (people[j].chart.role == FACULTY175_CHART_ROLE_CHILD &&
+                 (people[i].primary || people[i].chart.role == FACULTY175_CHART_ROLE_PARTNER));
+            const bool parent_pair_bond =
+                (people[i].primary && people[j].chart.role == FACULTY175_CHART_ROLE_PARTNER) ||
+                (people[j].primary && people[i].chart.role == FACULTY175_CHART_ROLE_PARTNER);
+            if (!child_parent_bond && !parent_pair_bond && gravity < 0.08f) {
+                continue;
+            }
+            const lvgl_synastry_bond_style_t bond_style =
+                synastry_bond_style_between(&people[i].pos, &people[j].pos);
+            s_synastry_bond_points[bond_idx][0].x = people[i].x;
+            s_synastry_bond_points[bond_idx][0].y = people[i].y;
+            s_synastry_bond_points[bond_idx][1].x = people[j].x;
+            s_synastry_bond_points[bond_idx][1].y = people[j].y;
+            lv_line_set_points(s_synastry_bonds[bond_idx], s_synastry_bond_points[bond_idx], 2);
+            synastry_apply_bond_line_style(s_synastry_bonds[bond_idx], &bond_style, gravity,
+                                           child_parent_bond || parent_pair_bond);
+            native_obj_hidden(s_synastry_bonds[bond_idx], false);
+            ++bond_idx;
+        }
+    }
+    for (int i = bond_idx; i < SYNASTRY_ORRERY_MAX_BONDS; ++i) {
+        native_obj_hidden(s_synastry_bonds[i], true);
     }
 
-    for (int i = 0; i < 8; ++i) {
-        if (i >= aspect_count) {
-            native_obj_hidden(s_synastry_aspects[i], true);
+    for (int i = 0; i < SYNASTRY_ORRERY_MAX_PEOPLE; ++i) {
+        if (i >= person_count) {
+            native_obj_hidden(s_synastry_people[i], true);
+            native_obj_hidden(s_synastry_people_labels[i], true);
             continue;
         }
-        const lvgl_synastry_aspect_t *a = &aspects[i];
-        int x0 = 0;
-        int y0 = 0;
-        int x1 = 0;
-        int y1 = 0;
-        astrology_xy_for_lon(user_pos.lon[a->user_body], r_user, &x0, &y0);
-        astrology_xy_for_lon(target_pos.lon[a->target_body], r_target, &x1, &y1);
-        s_synastry_aspect_points[i][0].x = x0;
-        s_synastry_aspect_points[i][0].y = y0;
-        s_synastry_aspect_points[i][1].x = x1;
-        s_synastry_aspect_points[i][1].y = y1;
-        lv_line_set_points(s_synastry_aspects[i], s_synastry_aspect_points[i], 2);
-        lv_obj_set_style_line_color(s_synastry_aspects[i], lv_color_hex(synastry_aspect_color(a->aspect_deg)), 0);
-        lv_obj_set_style_line_opa(s_synastry_aspects[i], i < 4 ? 210 : 150, 0);
-        native_obj_hidden(s_synastry_aspects[i], false);
+        const int size = people[i].radius * 2;
+        lv_obj_set_size(s_synastry_people[i], size, size);
+        lv_obj_set_style_bg_color(s_synastry_people[i], lv_color_hex(people[i].color), 0);
+        lv_obj_set_style_border_color(s_synastry_people[i],
+                                      lv_color_hex(people[i].active ? 0xffe696 : 0xe6eeff), 0);
+        lv_obj_set_style_border_width(s_synastry_people[i], people[i].active ? 2 : 1, 0);
+        lv_obj_align(s_synastry_people[i], LV_ALIGN_TOP_LEFT,
+                     people[i].x - people[i].radius,
+                     people[i].y - people[i].radius);
+        char initial[2] = {people[i].chart.name[0] != '\0' ? people[i].chart.name[0] : '?', '\0'};
+        lv_label_set_text(s_synastry_people_labels[i], initial);
+        lv_obj_align(s_synastry_people_labels[i], LV_ALIGN_TOP_LEFT, people[i].x - 12, people[i].y - 7);
+        native_obj_hidden(s_synastry_people[i], false);
+        native_obj_hidden(s_synastry_people_labels[i], false);
     }
 
     lv_label_set_text(s_synastry_title, "SYNASTRY");
@@ -6031,6 +6815,7 @@ static bool draw_synastry(uint32_t anim_ms)
                  faculty175_charts_zodiac_abbr(target_pos.lon[0]));
     }
     almanac_set_trimmed(s_synastry_line, line, 44);
+    synastry_update_wellness_labels();
 
     lv_obj_invalidate(s_synastry_screen);
     lvgl_tick(16);
@@ -6475,7 +7260,13 @@ esp_err_t faculty175_lvgl_init(void)
     if (s_draw_buf_2 == NULL && buf_size == (size_t)FACULTY175_LCD_W * LVGL_DRAW_BUF_ROWS * sizeof(uint16_t)) {
         ESP_LOGW(TAG, "lvgl second full-screen draw buffer unavailable; using single buffer");
     }
-    lv_display_set_buffers(s_display, s_draw_buf, s_draw_buf_2, buf_size, LV_DISPLAY_RENDER_MODE_PARTIAL);
+    const size_t full_buf_size = (size_t)FACULTY175_LCD_W * (size_t)FACULTY175_LCD_H * sizeof(uint16_t);
+    s_direct_display_buffers = buf_size >= full_buf_size;
+    lv_display_set_buffers(s_display,
+                           s_draw_buf,
+                           s_draw_buf_2,
+                           buf_size,
+                           s_direct_display_buffers ? LV_DISPLAY_RENDER_MODE_DIRECT : LV_DISPLAY_RENDER_MODE_PARTIAL);
     ESP_LOGI(TAG,
              "lvgl draw buffers rows=%u bytes=%u double=%d psram_free=%u",
              (unsigned)(buf_size / ((size_t)FACULTY175_LCD_W * sizeof(uint16_t))),
@@ -6619,6 +7410,19 @@ void faculty175_lvgl_service(uint32_t now_ms)
     s_last_service_ms = now_ms;
     lvgl_tick(elapsed);
     lv_timer_handler();
+}
+
+void faculty175_lvgl_force_full_refresh(void)
+{
+    if (!s_ready || s_display == NULL) {
+        return;
+    }
+    lv_obj_t *screen = lv_screen_active();
+    if (screen == NULL) {
+        return;
+    }
+    lv_obj_invalidate(screen);
+    lv_refr_now(s_display);
 }
 
 bool faculty175_lvgl_draw_nav(const faculty175_face_desc_t *center,
@@ -7105,7 +7909,8 @@ static bool draw_face_descriptor(faculty175_face_id_t id, uint32_t anim_ms)
 bool faculty175_lvgl_draw_face(faculty175_face_id_t id, uint32_t anim_ms)
 {
     if (id == FACULTY175_FACE_DEATHSTAR || id == FACULTY175_FACE_TRON || id == FACULTY175_FACE_MAZE ||
-        id == FACULTY175_FACE_HUMAN_DESIGN || id == FACULTY175_FACE_CRYSTAL_BALL) {
+        id == FACULTY175_FACE_HUMAN_DESIGN || id == FACULTY175_FACE_CRYSTAL_BALL ||
+        id == FACULTY175_FACE_PARTNER_WELLNESS) {
         return false;
     }
 
@@ -7131,6 +7936,7 @@ bool faculty175_lvgl_draw_face(faculty175_face_id_t id, uint32_t anim_ms)
         case FACULTY175_FACE_PYTHIA:
         case FACULTY175_FACE_MAZE:
         case FACULTY175_FACE_TRON:
+        case FACULTY175_FACE_PARTNER_WELLNESS:
             return false;
         case FACULTY175_FACE_CLASSIC:
         case FACULTY175_FACE_POCKETWATCH:
