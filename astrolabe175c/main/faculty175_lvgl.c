@@ -3146,6 +3146,7 @@ static const char *utility_title(faculty175_face_id_t id)
         case FACULTY175_FACE_QDAY: return "QUESTION";
         case FACULTY175_FACE_FOCUS: return "FOCUS";
         case FACULTY175_FACE_BIOMETRICS: return "BIOMETRICS";
+        case FACULTY175_FACE_IRONMAN: return "IRON MAN";
         case FACULTY175_FACE_WATCHER: return "WATCHER";
         case FACULTY175_FACE_HID: return "HID";
         case FACULTY175_FACE_WSCAN: return "WIFI SCAN";
@@ -7343,6 +7344,7 @@ bool faculty175_lvgl_face_supported(faculty175_face_id_t id)
         case FACULTY175_FACE_QDAY:
         case FACULTY175_FACE_FOCUS:
         case FACULTY175_FACE_BIOMETRICS:
+        case FACULTY175_FACE_IRONMAN:
         case FACULTY175_FACE_WATCHER:
         case FACULTY175_FACE_LENORMAND:
         case FACULTY175_FACE_GEOMANCY:
@@ -7774,6 +7776,7 @@ static faculty175_native_style_t descriptor_style_for_face(const faculty175_face
         case FACULTY175_FACE_SETTINGS:
         case FACULTY175_FACE_HID:
         case FACULTY175_FACE_BIOMETRICS:
+        case FACULTY175_FACE_IRONMAN:
         case FACULTY175_FACE_WATCHER:
             return FACULTY175_NATIVE_STATUS;
         case FACULTY175_FACE_NOTES:
@@ -7850,6 +7853,7 @@ static const char *descriptor_subtitle_for_face(const faculty175_face_desc_t *de
         case FACULTY175_FACE_QDAY: return "Daily question";
         case FACULTY175_FACE_FOCUS: return "Timer";
         case FACULTY175_FACE_BIOMETRICS: return "Body state";
+        case FACULTY175_FACE_IRONMAN: return "Biometric HUD";
         case FACULTY175_FACE_WATCHER: return "Device watch";
         case FACULTY175_FACE_LENORMAND: return "Oracle tableau";
         case FACULTY175_FACE_GEOMANCY: return "Figures";
@@ -7910,7 +7914,8 @@ bool faculty175_lvgl_draw_face(faculty175_face_id_t id, uint32_t anim_ms)
 {
     if (id == FACULTY175_FACE_DEATHSTAR || id == FACULTY175_FACE_TRON || id == FACULTY175_FACE_MAZE ||
         id == FACULTY175_FACE_HUMAN_DESIGN || id == FACULTY175_FACE_CRYSTAL_BALL ||
-        id == FACULTY175_FACE_PARTNER_WELLNESS) {
+        id == FACULTY175_FACE_PARTNER_WELLNESS ||
+        id == FACULTY175_FACE_IRONMAN) {
         return false;
     }
 

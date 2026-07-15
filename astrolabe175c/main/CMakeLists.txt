@@ -55,6 +55,7 @@ idf_component_register(
         "faculty175_cycle_arcs.c"
         "faculty175_family.c"
         "faculty175_ble.c"
+        "faculty175_ring.c"
         "faculty175_apocalypso.c"
         "faculty175_device_auth.c"
         "faculty175_device_settings.c"

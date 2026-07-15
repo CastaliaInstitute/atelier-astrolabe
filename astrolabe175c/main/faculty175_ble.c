@@ -26,6 +26,7 @@
 #include "faculty175_log.h"
 #include "faculty175_device_settings.h"
 #include "faculty175_motion.h"
+#include "faculty175_ring.h"
 #include "faculty175_wifi_settings.h"
 
 void ble_store_config_init(void);
@@ -412,6 +413,17 @@ static esp_err_t ble_apply_settings_json(const char *body)
         if (err == ESP_OK && cJSON_IsString(ssid) && ssid->valuestring != NULL && ssid->valuestring[0] != '\0') {
             err = faculty175_wifi_settings_save(ssid->valuestring,
                                                 cJSON_IsString(pass) && pass->valuestring != NULL ? pass->valuestring : "");
+        }
+    }
+    const cJSON *ring = cJSON_GetObjectItemCaseSensitive(root, "ring");
+    if (err == ESP_OK && cJSON_IsObject(ring)) {
+        char *ring_json = cJSON_PrintUnformatted((cJSON *)ring);
+        if (ring_json != NULL) {
+            const esp_err_t ring_err = faculty175_ring_handle_json(ring_json);
+            cJSON_free(ring_json);
+            if (ring_err != ESP_OK && ring_err != ESP_ERR_NOT_FOUND) {
+                err = ring_err;
+            }
         }
     }
     cJSON_Delete(root);
