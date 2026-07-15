@@ -40,6 +40,9 @@ void faculty175_voice_result_free(faculty175_voice_result_t *result);
 /** True when internal heap is sufficient for TLS + streaming voice pipeline work. */
 bool faculty175_voice_heap_ready(const char *stage);
 
+/** True when the configured voice endpoint can be called. reason may be NULL. */
+bool faculty175_voice_config_ready(char *reason, size_t reason_cap);
+
 /** POST mono PCM @ 16 kHz to Castalia voice-pipeline (face=faculty). Allocates mp3 on success. */
 esp_err_t faculty175_voice_post_pcm(const uint8_t *pcm,
                               size_t pcm_len,

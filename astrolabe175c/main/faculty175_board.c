@@ -104,6 +104,10 @@ static const int32_t FACULTY175_MIC_MONO_GAIN = 6;
 #define FACULTY175_AEC_TAIL_MS 650
 #define FACULTY175_AEC_MIN_REF_RMS 80
 #define FACULTY175_AEC_MAX_GAIN_Q15 (2 * 32768)
+#define FACULTY175_NS_DEFAULT_FLOOR_RMS 96
+#define FACULTY175_NS_NOISE_UPDATE_MARGIN 180
+#define FACULTY175_NS_MIN_GAIN_Q8 64
+#define FACULTY175_NS_LOG_INTERVAL 100
 #define FACULTY175_HTTP_SCREEN_QA_SKIP_AUDIO 0
 #define FACULTY175_I2C_SCAN_CANDIDATES 0
 
@@ -154,9 +158,15 @@ static uint32_t s_aec_ref_write;
 static uint32_t s_aec_ref_rate_hz = FACULTY175_AUDIO_RATE;
 static int64_t s_aec_ref_active_until_us;
 static uint32_t s_aec_frames;
+static bool s_noise_suppression_enabled = true;
+static uint32_t s_noise_floor_rms = FACULTY175_NS_DEFAULT_FLOOR_RMS;
+static uint32_t s_noise_last_rms;
+static uint32_t s_noise_last_gain_q8 = 256;
+static uint32_t s_noise_frames;
 
 static void draw_pixel_safe(int x, int y, uint16_t color);
 static portMUX_TYPE s_aec_mux = portMUX_INITIALIZER_UNLOCKED;
+static portMUX_TYPE s_noise_mux = portMUX_INITIALIZER_UNLOCKED;
 static portMUX_TYPE s_touch_visual_mux = portMUX_INITIALIZER_UNLOCKED;
 
 typedef struct {
@@ -889,6 +899,98 @@ static void faculty175_aec_process(int16_t *samples, size_t sample_count)
                  (double)gain_q15 / 32768.0,
                  (unsigned)ref_rms);
     }
+}
+
+static void faculty175_noise_suppress(int16_t *samples, size_t sample_count)
+{
+    if (samples == NULL || sample_count == 0 || !s_noise_suppression_enabled) {
+        return;
+    }
+
+    uint64_t energy = 0;
+    uint32_t peak = 0;
+    for (size_t i = 0; i < sample_count; ++i) {
+        const int32_t sample = samples[i];
+        energy += (uint64_t)(sample * sample);
+        const uint32_t abs_sample = (uint32_t)(sample < 0 ? -sample : sample);
+        if (abs_sample > peak) {
+            peak = abs_sample;
+        }
+    }
+    const uint32_t rms = isqrt_u64(energy / sample_count);
+
+    portENTER_CRITICAL(&s_noise_mux);
+    uint32_t floor = s_noise_floor_rms == 0 ? FACULTY175_NS_DEFAULT_FLOOR_RMS : s_noise_floor_rms;
+    const bool likely_noise = rms < floor * 2u + FACULTY175_NS_NOISE_UPDATE_MARGIN && peak < floor * 12u + 800u;
+    if (likely_noise) {
+        floor = (floor * 31u + rms + 1u) / 32u;
+    } else if (rms < floor) {
+        floor = (floor * 7u + rms + 1u) / 8u;
+    }
+    if (floor < FACULTY175_NS_DEFAULT_FLOOR_RMS) {
+        floor = FACULTY175_NS_DEFAULT_FLOOR_RMS;
+    }
+    s_noise_floor_rms = floor;
+
+    const uint32_t threshold = floor * 2u + 180u;
+    const uint32_t open = floor * 5u + 900u;
+    uint32_t gain_q8 = 256;
+    if (rms <= threshold) {
+        gain_q8 = FACULTY175_NS_MIN_GAIN_Q8;
+    } else if (rms < open) {
+        gain_q8 = FACULTY175_NS_MIN_GAIN_Q8 +
+                  ((rms - threshold) * (256u - FACULTY175_NS_MIN_GAIN_Q8)) / (open - threshold);
+    }
+    s_noise_last_rms = rms;
+    s_noise_last_gain_q8 = gain_q8;
+    const uint32_t frame = ++s_noise_frames;
+    portEXIT_CRITICAL(&s_noise_mux);
+
+    if (gain_q8 < 256u) {
+        for (size_t i = 0; i < sample_count; ++i) {
+            samples[i] = (int16_t)(((int32_t)samples[i] * (int32_t)gain_q8) / 256);
+        }
+    }
+
+    if ((frame % FACULTY175_NS_LOG_INTERVAL) == 0u) {
+        ESP_LOGI(TAG,
+                 "noise suppression rms=%u floor=%u gain=%.2f peak=%u",
+                 (unsigned)rms,
+                 (unsigned)floor,
+                 (double)gain_q8 / 256.0,
+                 (unsigned)peak);
+    }
+}
+
+void faculty175_audio_noise_suppression_set_enabled(bool enabled)
+{
+    portENTER_CRITICAL(&s_noise_mux);
+    s_noise_suppression_enabled = enabled;
+    portEXIT_CRITICAL(&s_noise_mux);
+}
+
+void faculty175_audio_noise_suppression_reset(void)
+{
+    portENTER_CRITICAL(&s_noise_mux);
+    s_noise_floor_rms = FACULTY175_NS_DEFAULT_FLOOR_RMS;
+    s_noise_last_rms = 0;
+    s_noise_last_gain_q8 = 256;
+    s_noise_frames = 0;
+    portEXIT_CRITICAL(&s_noise_mux);
+}
+
+void faculty175_audio_noise_suppression_status(faculty175_audio_noise_status_t *out)
+{
+    if (out == NULL) {
+        return;
+    }
+    portENTER_CRITICAL(&s_noise_mux);
+    out->enabled = s_noise_suppression_enabled;
+    out->noise_rms = s_noise_floor_rms;
+    out->last_rms = s_noise_last_rms;
+    out->last_gain_q8 = s_noise_last_gain_q8;
+    out->frames = s_noise_frames;
+    portEXIT_CRITICAL(&s_noise_mux);
 }
 
 static esp_err_t faculty175_i2s_set_rate(uint32_t hz)
@@ -1964,6 +2066,7 @@ esp_err_t faculty175_audio_read(int16_t *samples, size_t sample_count, size_t *o
         samples[i] = (int16_t)sample;
     }
     faculty175_aec_process(samples, sample_count);
+    faculty175_noise_suppress(samples, sample_count);
     if (out_read != NULL) {
         *out_read = sample_count;
     }

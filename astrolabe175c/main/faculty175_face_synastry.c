@@ -8,6 +8,7 @@
 #include "astrolabe_time.h"
 #include "faculty175_board.h"
 #include "faculty175_charts.h"
+#include "faculty175_family.h"
 
 #define SYNASTRY_ORRERY_MAX_PEOPLE (1 + FACULTY175_CHART_PROFILE_SLOTS)
 
@@ -448,6 +449,62 @@ static const char *aspect_word(int deg)
     }
 }
 
+static void centered_at(const char *text, int cx, int y, uint16_t color)
+{
+    if (text == NULL || text[0] == '\0') {
+        return;
+    }
+    const int w = (int)strlen(text) * 6;
+    faculty175_display_draw_text(text, cx - w / 2, y, color);
+}
+
+static uint16_t wellness_color(const faculty175_family_wellness_t *state)
+{
+    if (state == NULL || !state->valid) {
+        return c(120, 128, 150);
+    }
+    const uint8_t score = faculty175_family_load_score(state);
+    if (score >= 76 || strcmp(faculty175_family_guidance_cue(state), "low-spo2") == 0) {
+        return c(255, 123, 114);
+    }
+    if (score >= 58) {
+        return c(255, 198, 110);
+    }
+    return c(131, 230, 164);
+}
+
+static void draw_wellness_overlay(void)
+{
+    faculty175_family_wellness_t partner = {};
+    char line[96];
+    if (!faculty175_family_primary_partner(&partner)) {
+        centered_at("WELLNESS WAITING", FACULTY175_LCD_W / 2, 316, c(120, 128, 150));
+        centered_at("paired ring packets", FACULTY175_LCD_W / 2, 340, c(120, 128, 150));
+        centered_at("ESP-NOW family mesh", FACULTY175_LCD_W / 2, 364, c(120, 128, 150));
+        return;
+    }
+
+    snprintf(line,
+             sizeof(line),
+             "%s %s %u",
+             partner.subject_name,
+             faculty175_family_guidance_cue(&partner),
+             faculty175_family_load_score(&partner));
+    centered_at(line, FACULTY175_LCD_W / 2, 316, wellness_color(&partner));
+    faculty175_family_format_day_summary(&partner, line, sizeof(line));
+    centered_at(line, FACULTY175_LCD_W / 2, 340, c(200, 210, 232));
+    snprintf(line,
+             sizeof(line),
+             "now %u%+d hrv %u sleep %uh%02u age %lus",
+             partner.stress,
+             partner.stress_trend_30m,
+             partner.hrv_ms,
+             partner.sleep_total_min / 60,
+             partner.sleep_total_min % 60,
+             (unsigned long)(partner.age_ms / 1000u));
+    centered_at(line, FACULTY175_LCD_W / 2, 364, c(170, 180, 204));
+}
+
 void faculty175_face_synastry_draw(uint32_t anim_ms)
 {
     faculty175_charts_ensure_family_seed();
@@ -462,6 +519,7 @@ void faculty175_face_synastry_draw(uint32_t anim_ms)
         faculty175_display_fill_rgb565(c(8, 9, 18));
         faculty175_display_draw_bezel_label("SYNASTRY", false, 222, anim_ms, c(220, 224, 244));
         faculty175_display_draw_centered_text("CHART DATA NEEDED", 190, c(150, 158, 184));
+        draw_wellness_overlay();
         faculty175_display_draw_bezel_label("serial: charts seed", true, 222, anim_ms, c(150, 158, 184));
         faculty175_display_flush();
         return;
@@ -514,6 +572,7 @@ void faculty175_face_synastry_draw(uint32_t anim_ms)
                  faculty175_charts_zodiac_abbr(user_pos.lon[0]), target.name,
                  faculty175_charts_zodiac_abbr(target_pos.lon[0]));
     }
+    draw_wellness_overlay();
     faculty175_display_draw_bezel_label(line, true, 222, anim_ms, c(196, 204, 226));
     faculty175_display_flush();
 }

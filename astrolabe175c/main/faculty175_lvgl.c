@@ -22,6 +22,7 @@
 #include "faculty175_face_alethiometer.h"
 #include "faculty175_face_alethiometer_glyphs.h"
 #include "faculty175_cycle_arcs.h"
+#include "faculty175_family.h"
 #include "faculty175_face_runes.h"
 #include "faculty175_face_solar_image.h"
 #include "faculty175_face_scale_earth_texture.h"
@@ -246,6 +247,7 @@ static lv_obj_t *s_synastry_people_labels[SYNASTRY_ORRERY_MAX_PEOPLE];
 static lv_obj_t *s_synastry_title;
 static lv_obj_t *s_synastry_names;
 static lv_obj_t *s_synastry_line;
+static lv_obj_t *s_synastry_wellness[3];
 static lv_obj_t *s_transits_screen;
 static lv_obj_t *s_transits_rings[4];
 static lv_obj_t *s_transits_spokes[12];
@@ -6584,6 +6586,61 @@ static void synastry_hide_orrery_objects(void)
     }
 }
 
+static uint32_t synastry_wellness_color(const faculty175_family_wellness_t *state)
+{
+    if (state == NULL || !state->valid) {
+        return 0x788096;
+    }
+    const uint8_t score = faculty175_family_load_score(state);
+    if (score >= 76 || strcmp(faculty175_family_guidance_cue(state), "low-spo2") == 0) {
+        return 0xff7b72;
+    }
+    if (score >= 58) {
+        return 0xffc66e;
+    }
+    return 0x83e6a4;
+}
+
+static void synastry_update_wellness_labels(void)
+{
+    faculty175_family_wellness_t partner = {};
+    char line[96];
+    if (!faculty175_family_primary_partner(&partner)) {
+        lv_label_set_text(s_synastry_wellness[0], "WELLNESS  WAITING");
+        lv_label_set_text(s_synastry_wellness[1], "paired ring packets");
+        lv_label_set_text(s_synastry_wellness[2], "ESP-NOW family mesh");
+        for (int i = 0; i < 3; ++i) {
+            lv_obj_set_style_text_color(s_synastry_wellness[i], lv_color_hex(0x788096), 0);
+        }
+        return;
+    }
+
+    snprintf(line,
+             sizeof(line),
+             "%s  %s  %u",
+             partner.subject_name,
+             faculty175_family_guidance_cue(&partner),
+             faculty175_family_load_score(&partner));
+    almanac_set_trimmed(s_synastry_wellness[0], line, 34);
+    lv_obj_set_style_text_color(s_synastry_wellness[0], lv_color_hex(synastry_wellness_color(&partner)), 0);
+
+    faculty175_family_format_day_summary(&partner, line, sizeof(line));
+    almanac_set_trimmed(s_synastry_wellness[1], line, 38);
+    lv_obj_set_style_text_color(s_synastry_wellness[1], lv_color_hex(0xc8d2e8), 0);
+
+    snprintf(line,
+             sizeof(line),
+             "now %u%+d  hrv %u  sleep %uh%02u  age %lus",
+             partner.stress,
+             partner.stress_trend_30m,
+             partner.hrv_ms,
+             partner.sleep_total_min / 60,
+             partner.sleep_total_min % 60,
+             (unsigned long)(partner.age_ms / 1000u));
+    almanac_set_trimmed(s_synastry_wellness[2], line, 38);
+    lv_obj_set_style_text_color(s_synastry_wellness[2], lv_color_hex(0xaab4cc), 0);
+}
+
 static void create_synastry_screen(void)
 {
     s_synastry_screen = lv_obj_create(NULL);
@@ -6636,6 +6693,12 @@ static void create_synastry_screen(void)
     s_synastry_title = make_tarot_label(s_synastry_screen, 48, 300, 0xe6e4f6);
     s_synastry_names = make_tarot_label(s_synastry_screen, 74, 360, 0xb2bcda);
     s_synastry_line = make_tarot_label(s_synastry_screen, 392, 360, 0xc4cce2);
+    s_synastry_wellness[0] = make_tarot_label(s_synastry_screen, 316, 360, 0x83e6a4);
+    s_synastry_wellness[1] = make_tarot_label(s_synastry_screen, 342, 360, 0xc8d2e8);
+    s_synastry_wellness[2] = make_tarot_label(s_synastry_screen, 366, 360, 0xaab4cc);
+    for (int i = 0; i < 3; ++i) {
+        lv_obj_set_style_text_align(s_synastry_wellness[i], LV_TEXT_ALIGN_CENTER, 0);
+    }
 }
 
 static bool draw_synastry(uint32_t anim_ms)
@@ -6663,6 +6726,7 @@ static bool draw_synastry(uint32_t anim_ms)
         lv_label_set_text(s_synastry_names, "CHART DATA NEEDED");
         lv_label_set_text(s_synastry_line, "serial: charts seed");
         synastry_hide_orrery_objects();
+        synastry_update_wellness_labels();
         lvgl_tick(16);
         lv_timer_handler();
         return true;
@@ -6751,6 +6815,7 @@ static bool draw_synastry(uint32_t anim_ms)
                  faculty175_charts_zodiac_abbr(target_pos.lon[0]));
     }
     almanac_set_trimmed(s_synastry_line, line, 44);
+    synastry_update_wellness_labels();
 
     lv_obj_invalidate(s_synastry_screen);
     lvgl_tick(16);
@@ -7844,7 +7909,8 @@ static bool draw_face_descriptor(faculty175_face_id_t id, uint32_t anim_ms)
 bool faculty175_lvgl_draw_face(faculty175_face_id_t id, uint32_t anim_ms)
 {
     if (id == FACULTY175_FACE_DEATHSTAR || id == FACULTY175_FACE_TRON || id == FACULTY175_FACE_MAZE ||
-        id == FACULTY175_FACE_HUMAN_DESIGN || id == FACULTY175_FACE_CRYSTAL_BALL) {
+        id == FACULTY175_FACE_HUMAN_DESIGN || id == FACULTY175_FACE_CRYSTAL_BALL ||
+        id == FACULTY175_FACE_PARTNER_WELLNESS) {
         return false;
     }
 
@@ -7870,6 +7936,7 @@ bool faculty175_lvgl_draw_face(faculty175_face_id_t id, uint32_t anim_ms)
         case FACULTY175_FACE_PYTHIA:
         case FACULTY175_FACE_MAZE:
         case FACULTY175_FACE_TRON:
+        case FACULTY175_FACE_PARTNER_WELLNESS:
             return false;
         case FACULTY175_FACE_CLASSIC:
         case FACULTY175_FACE_POCKETWATCH:

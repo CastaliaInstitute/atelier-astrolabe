@@ -23,6 +23,14 @@ typedef enum {
     FACULTY175_UI_ERROR,
 } faculty175_ui_state_t;
 
+typedef struct {
+    bool enabled;
+    uint32_t noise_rms;
+    uint32_t last_rms;
+    uint32_t last_gain_q8;
+    uint32_t frames;
+} faculty175_audio_noise_status_t;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -58,6 +66,9 @@ esp_err_t faculty175_audio_set_sample_rate(uint32_t hz);
 void faculty175_audio_set_speaker_mute(bool mute);
 void faculty175_audio_set_speaker_pa_level(bool enabled);
 void faculty175_audio_set_speaker_volume(uint8_t volume);
+void faculty175_audio_noise_suppression_set_enabled(bool enabled);
+void faculty175_audio_noise_suppression_reset(void);
+void faculty175_audio_noise_suppression_status(faculty175_audio_noise_status_t *out);
 esp_err_t faculty175_board_play_boot_chime(void);
 
 void faculty175_display_fill_rgb565(uint16_t color);

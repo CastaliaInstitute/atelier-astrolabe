@@ -26,6 +26,7 @@
 #include "faculty175_ble.h"
 #include "faculty175_charts.h"
 #include "faculty175_device_auth.h"
+#include "faculty175_family.h"
 #include "faculty175_face_dispatch.h"
 #include "faculty175_faces.h"
 #include "faculty175_gesture.h"
@@ -36,6 +37,7 @@
 #include "faculty175_quotes.h"
 #include "faculty175_rocket.h"
 #include "faculty175_touch.h"
+#include "faculty175_voice.h"
 #include "faculty175_wifi_monitor.h"
 #include "faculty175_wifi_settings.h"
 
@@ -850,6 +852,60 @@ static bool handle_power_command(const char *line)
     return true;
 }
 
+static bool handle_audio_command(const char *line)
+{
+    if (line == NULL || (strcasecmp(line, "audio") != 0 && strncasecmp(line, "audio ", 6) != 0)) {
+        return false;
+    }
+
+    char sub[24] = {};
+    char arg[24] = {};
+    const char *args = line + 5;
+    args = parse_serial_arg(args, sub, sizeof(sub));
+    (void)parse_serial_arg(args, arg, sizeof(arg));
+
+    if (sub[0] == '\0' || strcasecmp(sub, "status") == 0 || strcasecmp(sub, "ns") == 0 ||
+        strcasecmp(sub, "noise") == 0) {
+        if (arg[0] != '\0') {
+            if (strcasecmp(arg, "on") == 0 || strcasecmp(arg, "enable") == 0 ||
+                strcasecmp(arg, "enabled") == 0 || strcmp(arg, "1") == 0) {
+                faculty175_audio_noise_suppression_set_enabled(true);
+            } else if (strcasecmp(arg, "off") == 0 || strcasecmp(arg, "disable") == 0 ||
+                       strcasecmp(arg, "disabled") == 0 || strcmp(arg, "0") == 0) {
+                faculty175_audio_noise_suppression_set_enabled(false);
+            } else if (strcasecmp(arg, "reset") == 0) {
+                faculty175_audio_noise_suppression_reset();
+            } else if (strcasecmp(sub, "ns") == 0 || strcasecmp(sub, "noise") == 0) {
+                printf("audio: usage audio ns [on|off|reset]\n");
+                fflush(stdout);
+                return true;
+            }
+        }
+        faculty175_audio_noise_status_t st = {};
+        faculty175_audio_noise_suppression_status(&st);
+        printf("audio: ns=%s floor_rms=%u last_rms=%u gain=%.2f frames=%u\n",
+               st.enabled ? "on" : "off",
+               (unsigned)st.noise_rms,
+               (unsigned)st.last_rms,
+               (double)st.last_gain_q8 / 256.0,
+               (unsigned)st.frames);
+        fflush(stdout);
+        return true;
+    }
+
+    if (strcasecmp(sub, "help") == 0) {
+        printf("audio commands:\n");
+        printf("  audio status\n");
+        printf("  audio ns [on|off|reset]\n");
+        fflush(stdout);
+        return true;
+    }
+
+    printf("audio: unknown command (try: audio help)\n");
+    fflush(stdout);
+    return true;
+}
+
 static bool parse_gesture_kind(const char *sub, faculty175_gesture_kind_t *out_kind, int16_t *out_value)
 {
     char a[24] = {};
@@ -1011,7 +1067,14 @@ static bool handle_tts_command(const char *line)
             sub = "face";
         }
     }
-    if (*sub == '\0' || strcasecmp(sub, "face") == 0 || strcasecmp(sub, "read") == 0) {
+    if (strcasecmp(sub, "status") == 0) {
+        char reason[128];
+        const bool ready = faculty175_voice_config_ready(reason, sizeof(reason));
+        printf("tts: status ready=%s playback=%s reason=%s\n",
+               ready ? "yes" : "no",
+               faculty175_voice_tts_playback_busy() ? "busy" : "idle",
+               reason);
+    } else if (*sub == '\0' || strcasecmp(sub, "face") == 0 || strcasecmp(sub, "read") == 0) {
         const bool ok = faculty175_request_current_face_tts();
         printf("tts: face %s\n", ok ? "ESP_OK" : "ESP_FAIL");
     } else if (strcasecmp(sub, "stt") == 0 || strncasecmp(sub, "stt ", 4) == 0) {
@@ -1032,9 +1095,74 @@ static bool handle_tts_command(const char *line)
         printf("stt: capture_ms=%u %s\n", capture_ms, esp_err_to_name(err));
     } else {
         printf("voice commands:\n");
+        printf("  tts status\n");
         printf("  tts face\n");
         printf("  voice tts\n");
         printf("  voice stt [ms]\n");
+    }
+    fflush(stdout);
+    return true;
+}
+
+static bool handle_family_command(const char *line)
+{
+    if (line == NULL || (strcasecmp(line, "family") != 0 && strncasecmp(line, "family ", 7) != 0 &&
+                         strcasecmp(line, "wellness") != 0 && strncasecmp(line, "wellness ", 9) != 0 &&
+                         strcasecmp(line, "synastry wellness") != 0)) {
+        return false;
+    }
+    const char *sub = strchr(line, ' ');
+    sub = sub != NULL ? sub + 1 : "status";
+    while (*sub == ' ') {
+        ++sub;
+    }
+    if (*sub != '\0' && strcasecmp(sub, "status") != 0 && strcasecmp(sub, "wellness") != 0) {
+        printf("family commands:\n");
+        printf("  family status\n");
+        printf("  wellness\n");
+        fflush(stdout);
+        return true;
+    }
+
+    faculty175_family_wellness_t states[FACULTY175_FAMILY_SUBJECT_MAX] = {};
+    const size_t count = faculty175_family_snapshot(states, FACULTY175_FAMILY_SUBJECT_MAX);
+    printf("family: espnow=%s channel=%d subjects=%u\n",
+           faculty175_family_ready() ? "ready" : "waiting",
+           faculty175_family_channel(),
+           (unsigned)count);
+    if (count == 0) {
+        char summary[128];
+        faculty175_family_format_summary(summary, sizeof(summary));
+        printf("family: %s\n", summary);
+    }
+    for (size_t i = 0; i < count; ++i) {
+        const faculty175_family_wellness_t *s = &states[i];
+        printf("family: subject=%u name=\"%s\" cue=%s score=%u age=%lums seq=%lu src=%02x:%02x:%02x:%02x:%02x:%02x flags=0x%02x stress=%u trend=%+d hrv=%u hr=%u spo2=%u sleep=%u light=%u deep=%u rem=%u awake=%u debt=%u batt=%u\n",
+               s->subject_id,
+               s->subject_name,
+               faculty175_family_guidance_cue(s),
+               faculty175_family_load_score(s),
+               (unsigned long)s->age_ms,
+               (unsigned long)s->seq,
+               s->source_mac[0],
+               s->source_mac[1],
+               s->source_mac[2],
+               s->source_mac[3],
+               s->source_mac[4],
+               s->source_mac[5],
+               s->flags,
+               s->stress,
+               s->stress_trend_30m,
+               s->hrv_ms,
+               s->heart_rate_bpm,
+               s->spo2_percent,
+               s->sleep_total_min,
+               s->sleep_light_min,
+               s->sleep_deep_min,
+               s->sleep_rem_min,
+               s->sleep_awake_min,
+               faculty175_family_sleep_debt_min(s),
+               s->battery_percent);
     }
     fflush(stdout);
     return true;
@@ -1306,6 +1434,10 @@ static void handle_line(char *line)
         return;
     }
 
+    if (handle_family_command(line)) {
+        return;
+    }
+
     if (handle_pipeline_command(line)) {
         return;
     }
@@ -1362,12 +1494,16 @@ static void handle_line(char *line)
         return;
     }
 
+    if (handle_audio_command(line)) {
+        return;
+    }
+
     if (handle_power_command(line)) {
         return;
     }
 
     if (strcasecmp(line, "help") == 0 || strcasecmp(line, "?") == 0) {
-        printf("serial: screen | face screen | gesture help | button press | tts face | stt [ms] | voice stt [ms] | pipeline capture|status|stop|restart | wifi status|scan|set | time | watch status | power | i2c scan | ble status | qa help | device help | ota help | faces help | charts help | almanac help | quotes help | rocket help | touch status\n");
+        printf("serial: screen | face screen | gesture help | button press | tts face | stt [ms] | voice stt [ms] | family status | pipeline capture|status|stop|restart | wifi status|scan|set | time | watch status | power | audio status|ns | i2c scan | ble status | qa help | device help | ota help | faces help | charts help | almanac help | quotes help | rocket help | touch status\n");
         (void)faculty175_qa_handle("qa help");
         return;
     }

@@ -20,6 +20,13 @@ typedef struct {
     uint16_t bearing_deg;
     uint8_t range_pct;
     uint8_t confidence_pct;
+    bool imu_valid;
+    int8_t imu_pitch_deg;
+    int8_t imu_roll_deg;
+    int8_t accel_x_q6;
+    int8_t accel_y_q6;
+    int8_t accel_z_q6;
+    uint8_t imu_seq;
     char name[FACULTY175_BLE_PEER_NAME_MAX];
 } faculty175_ble_peer_t;
 

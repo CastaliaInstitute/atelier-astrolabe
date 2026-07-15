@@ -19,7 +19,7 @@ static const char *TAG = "faculty175_faces";
 #define FACES_NVS_NAV_MAP "navmap"
 #define FACE_KEY_CAP 8
 #define FACES_CONFIG_RESET_SCHEMA_VERSION 36
-#define FACES_SCHEMA_VERSION 37
+#define FACES_SCHEMA_VERSION 38
 
 static const faculty175_face_desc_t k_faces[] = {
     { FACULTY175_FACE_FACULTY, "faculty", "Faculty", FACULTY175_FACE_CAT_HOME, true, true, 10 },
@@ -33,6 +33,7 @@ static const faculty175_face_desc_t k_faces[] = {
     { FACULTY175_FACE_CASTALIA, "castalia", "Castalia", FACULTY175_FACE_CAT_SYSTEM, true, false, 230 },
     { FACULTY175_FACE_ASTROLOGY, "astrology", "Astrology", FACULTY175_FACE_CAT_ORACLE, true, false, 240 },
     { FACULTY175_FACE_SYNASTRY, "synastry", "Synastry", FACULTY175_FACE_CAT_ORACLE, true, false, 245 },
+    { FACULTY175_FACE_PARTNER_WELLNESS, "partner-wellness", "Partner Wellness", FACULTY175_FACE_CAT_HOME | FACULTY175_FACE_CAT_ORACLE, true, true, 246 },
     { FACULTY175_FACE_TAROT, "tarot", "Tarot", FACULTY175_FACE_CAT_ORACLE, true, true, 40 },
     { FACULTY175_FACE_INQ, "inq", "iNQ Card", FACULTY175_FACE_CAT_ORACLE, true, false, 250 },
     { FACULTY175_FACE_RUNES, "runes", "Runes", FACULTY175_FACE_CAT_ORACLE, true, false, 251 },

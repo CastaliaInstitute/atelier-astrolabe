@@ -6,6 +6,7 @@
 #include <strings.h>
 
 #include "faculty175_board.h"
+#include "faculty175_motion.h"
 
 static uint16_t rgb(uint8_t r, uint8_t g, uint8_t b)
 {
@@ -67,6 +68,9 @@ void faculty175_face_radar_draw(uint32_t anim_ms)
     const uint16_t accent = rgb(92, 240, 168);
     const uint16_t peer_col = rgb(116, 198, 255);
     const uint16_t generic_col = rgb(216, 188, 118);
+    float self_pitch = 0.0f;
+    float self_roll = 0.0f;
+    const bool self_imu = faculty175_motion_pitch_roll(&self_pitch, &self_roll);
 
     faculty175_display_fill_rgb565(bg);
     faculty175_display_draw_bezel_label("ASTROLABE RADAR", false, 220, anim_ms, accent);
@@ -94,7 +98,13 @@ void faculty175_face_radar_draw(uint32_t anim_ms)
         const uint16_t col = peer->astrolabe ? peer_col : generic_col;
         const int dot = peer->astrolabe ? 8 : 5;
         faculty175_display_fill_circle(x, y, dot, col);
-        faculty175_display_draw_circle(x, y, dot + 5, rgb(22, 70, 76));
+        faculty175_display_draw_circle(x, y, dot + 5, peer->imu_valid ? accent : rgb(22, 70, 76));
+        if (peer->imu_valid) {
+            const float tilt = ((float)peer->imu_roll_deg / 180.0f) * 3.1415927f;
+            const int tx = x + (int)lrintf(cosf(tilt) * 14.0f);
+            const int ty = y + (int)lrintf(sinf(tilt) * 14.0f);
+            faculty175_display_draw_line(x, y, tx, ty, accent);
+        }
         if (i < 4) {
             label_at(short_name(peer), clamp_i(x, 58, FACULTY175_LCD_W - 58), clamp_i(y + 14, 80, 386), col);
         }
@@ -103,15 +113,20 @@ void faculty175_face_radar_draw(uint32_t anim_ms)
     char line[64];
     snprintf(line, sizeof(line), "%u PEERS  %s", (unsigned)peer_count, scanning ? "LIVE" : (ble_on ? "IDLE" : "BLE OFF"));
     centered(line, 58, ble_on ? accent : rgb(220, 104, 92));
+    if (self_imu) {
+        snprintf(line, sizeof(line), "SELF IMU P%+.0f R%+.0f", (double)self_pitch, (double)self_roll);
+        centered(line, 78, dim);
+    }
 
     if (peer_count == 0) {
         centered(ble_on ? "WAITING FOR ADVERTISEMENTS" : "ENABLE BLE TO SCAN", 394, dim);
     } else {
         const faculty175_ble_peer_t *p = &peers[0];
-        snprintf(line, sizeof(line), "%s  %ddBm  %u%%",
+        snprintf(line, sizeof(line), "%s  %ddBm  %u%%  %s",
                  short_name(p),
                  p->rssi,
-                 p->confidence_pct);
+                 p->confidence_pct,
+                 p->imu_valid ? "IMU" : "RSSI");
         centered(line, 402, p->astrolabe ? peer_col : generic_col);
     }
 
