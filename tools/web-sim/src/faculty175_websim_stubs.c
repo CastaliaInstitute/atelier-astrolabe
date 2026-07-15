@@ -27,8 +27,10 @@
 #include "faculty175_face_tarot_spiffs_image.h"
 #include "faculty175_faces.h"
 #include "faculty175_faculty.h"
+#include "faculty175_family.h"
 #include "faculty175_lvgl.h"
 #include "faculty175_quotes.h"
+#include "faculty175_ring.h"
 #include "faculty175_rocket.h"
 #include "faculty175_touch.h"
 #include "faculty175_wifi_settings.h"
@@ -164,6 +166,16 @@ void faculty175_display_draw_rgb565(const uint16_t *pixels, int x, int y, int w,
         for (int xx = 0; xx < w; ++xx) {
             put_px(x + xx, y + yy, pixels[yy * w + xx]);
         }
+    }
+}
+
+void faculty175_display_draw_rgb565_stride(const uint16_t *pixels, int src_stride_pixels, int x, int y, int w, int h)
+{
+    if (pixels == NULL || src_stride_pixels <= 0 || w <= 0 || h <= 0) {
+        return;
+    }
+    for (int yy = 0; yy < h; ++yy) {
+        faculty175_display_draw_rgb565(pixels + yy * src_stride_pixels, x, y + yy, w, 1);
     }
 }
 
@@ -932,12 +944,106 @@ size_t faculty175_ble_peers_snapshot(faculty175_ble_peer_t *out, size_t cap)
 
 void faculty175_solar_image_request(bool force) { (void)force; }
 bool faculty175_solar_image_draw_cached(void) { return false; }
+bool faculty175_solar_image_copy_cached(uint16_t *out, size_t pixel_count, time_t *cached_epoch_out)
+{
+    if (out != NULL) {
+        memset(out, 0, pixel_count * sizeof(uint16_t));
+    }
+    if (cached_epoch_out != NULL) {
+        *cached_epoch_out = 0;
+    }
+    return false;
+}
 bool faculty175_solar_image_busy(void) { return false; }
 bool faculty175_solar_image_has_cached(void) { return false; }
 bool faculty175_solar_image_action(uint32_t seed_ms) { (void)seed_ms; return true; }
 const char *faculty175_solar_image_error(void) { return "websim solar"; }
 const char *faculty175_solar_image_channel(void) { return "AIA 171"; }
 time_t faculty175_solar_image_cached_epoch(void) { return 0; }
+
+void faculty175_ring_update_vitals(const faculty175_ring_vitals_t *vitals) { (void)vitals; }
+bool faculty175_ring_latest_vitals(faculty175_ring_vitals_t *out)
+{
+    if (out == NULL) {
+        return false;
+    }
+    memset(out, 0, sizeof(*out));
+    out->heart_rate_bpm = 72;
+    out->heart_rate_valid = true;
+    out->hrv_ms = 48;
+    out->hrv_valid = true;
+    out->battery_percent = 86;
+    out->battery_valid = true;
+    out->updated_ms = s_tick_ms;
+    return true;
+}
+esp_err_t faculty175_ring_handle_json(const char *json) { (void)json; return ESP_OK; }
+
+esp_err_t faculty175_family_init(void) { return ESP_OK; }
+void faculty175_family_tick(uint32_t now_ms) { (void)now_ms; }
+bool faculty175_family_ready(void) { return true; }
+int faculty175_family_channel(void) { return 6; }
+size_t faculty175_family_snapshot(faculty175_family_wellness_t *out, size_t cap)
+{
+    if (out == NULL || cap == 0) {
+        return 0;
+    }
+    memset(out, 0, sizeof(*out));
+    snprintf(out->subject_name, sizeof(out->subject_name), "Camille");
+    out->flags = FACULTY175_FAMILY_FLAG_STRESS_VALID | FACULTY175_FAMILY_FLAG_HRV_VALID |
+                 FACULTY175_FAMILY_FLAG_HR_VALID | FACULTY175_FAMILY_FLAG_SPO2_VALID |
+                 FACULTY175_FAMILY_FLAG_SLEEP_VALID | FACULTY175_FAMILY_FLAG_BATTERY_VALID;
+    out->stress = 42;
+    out->hrv_ms = 52;
+    out->heart_rate_bpm = 68;
+    out->spo2_percent = 98;
+    out->sleep_total_min = 430;
+    out->sleep_deep_min = 82;
+    out->sleep_rem_min = 96;
+    out->sleep_light_min = 230;
+    out->sleep_awake_min = 22;
+    out->battery_percent = 91;
+    out->age_ms = 8000;
+    return 1;
+}
+bool faculty175_family_primary_partner(faculty175_family_wellness_t *out)
+{
+    return faculty175_family_snapshot(out, 1) == 1;
+}
+const char *faculty175_family_guidance_cue(const faculty175_family_wellness_t *state)
+{
+    (void)state;
+    return "steady";
+}
+uint8_t faculty175_family_load_score(const faculty175_family_wellness_t *state)
+{
+    (void)state;
+    return 38;
+}
+uint16_t faculty175_family_sleep_debt_min(const faculty175_family_wellness_t *state)
+{
+    (void)state;
+    return 0;
+}
+void faculty175_family_format_summary(char *out, size_t cap)
+{
+    if (out != NULL && cap > 0) {
+        snprintf(out, cap, "Camille steady load 38");
+    }
+}
+void faculty175_family_format_day_summary(const faculty175_family_wellness_t *state, char *out, size_t cap)
+{
+    (void)state;
+    if (out != NULL && cap > 0) {
+        snprintf(out, cap, "sleep 7h10m hrv 52 spo2 98");
+    }
+}
+void faculty175_family_format_voice_context(char *out, size_t cap)
+{
+    if (out != NULL && cap > 0) {
+        snprintf(out, cap, "Family wellness is steady. Camille load 38.");
+    }
+}
 
 esp_err_t faculty175_location_settings_load(faculty175_location_settings_t *out)
 {
