@@ -3,6 +3,7 @@
 #include <math.h>
 #include <stddef.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 
@@ -35,6 +36,7 @@ void ble_store_config_init(void);
 static const char *TAG = "faculty175_ble";
 static const char *BLE_NVS_NS = "ble";
 static const char *BLE_NVS_ENABLED = "enabled";
+static const char *BLE_NVS_RING_ID = "ring_id";
 static const char *BLE_NVS_IDENTITY_NS = "identity";
 static const char *BLE_NVS_DEVICE_NAME = "device_name";
 static const char *BLE_NVS_NAME = "name";
@@ -89,6 +91,12 @@ static bool s_json_rx_active;
 static char s_device_name[FACULTY175_BLE_PEER_NAME_MAX] = "Astrolabe Faculty";
 static faculty175_ble_peer_t s_peers[FACULTY175_BLE_PEER_MAX];
 static portMUX_TYPE s_peer_lock = portMUX_INITIALIZER_UNLOCKED;
+static faculty175_ble_ring_telem_t s_ring_telem[FACULTY175_BLE_RING_TELEM_MAX];
+static portMUX_TYPE s_ring_telem_lock = portMUX_INITIALIZER_UNLOCKED;
+static uint16_t s_paired_ring_id;
+static bool s_paired_ring_id_set;
+static int8_t s_last_ring_rssi;
+static bool s_have_last_ring_rssi;
 static uint32_t s_next_scan_ms;
 static uint8_t s_imu_adv_seq;
 
@@ -145,6 +153,56 @@ static esp_err_t ble_nvs_get_enabled(bool *out)
         value = 1;
     }
     *out = value != 0;
+    return err;
+}
+
+static esp_err_t ble_nvs_get_ring_id(uint16_t *out, bool *set)
+{
+    if (out == NULL || set == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    *out = 0;
+    *set = false;
+    nvs_handle_t nvs;
+    esp_err_t err = nvs_open(BLE_NVS_NS, NVS_READONLY, &nvs);
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
+        return ESP_OK;
+    }
+    if (err != ESP_OK) {
+        return err;
+    }
+    uint16_t value = 0;
+    err = nvs_get_u16(nvs, BLE_NVS_RING_ID, &value);
+    nvs_close(nvs);
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
+        return ESP_OK;
+    }
+    if (err == ESP_OK) {
+        *out = value;
+        *set = true;
+    }
+    return err;
+}
+
+static esp_err_t ble_nvs_set_ring_id(uint16_t id, bool set)
+{
+    nvs_handle_t nvs;
+    esp_err_t err = nvs_open(BLE_NVS_NS, NVS_READWRITE, &nvs);
+    if (err != ESP_OK) {
+        return err;
+    }
+    if (set) {
+        err = nvs_set_u16(nvs, BLE_NVS_RING_ID, id);
+    } else {
+        err = nvs_erase_key(nvs, BLE_NVS_RING_ID);
+        if (err == ESP_ERR_NVS_NOT_FOUND) {
+            err = ESP_OK;
+        }
+    }
+    if (err == ESP_OK) {
+        err = nvs_commit(nvs);
+    }
+    nvs_close(nvs);
     return err;
 }
 
@@ -289,6 +347,83 @@ static int8_t ble_accel_q6(float g)
     return (int8_t)v;
 }
 
+static uint8_t ble_motion_score(float ax, float ay, float az)
+{
+    const float mag = sqrtf((ax * ax) + (ay * ay) + (az * az));
+    const float dynamic = fabsf(mag - 1.0f);
+    int score = (int)lrintf(dynamic * 160.0f);
+    if (score < 0) {
+        score = 0;
+    }
+    if (score > 100) {
+        score = 100;
+    }
+    return (uint8_t)score;
+}
+
+static const char *ble_ring_gesture_label(int8_t rssi_delta, uint8_t motion_score)
+{
+    if (motion_score >= 48 && rssi_delta >= 8) {
+        return "reach";
+    }
+    if (motion_score >= 48 && rssi_delta <= -8) {
+        return "withdraw";
+    }
+    if (motion_score >= 62) {
+        return "flick";
+    }
+    if (rssi_delta >= 10) {
+        return "closer";
+    }
+    if (rssi_delta <= -10) {
+        return "farther";
+    }
+    return "steady";
+}
+
+static void ble_ring_telem_store(const faculty175_ble_peer_t *peer)
+{
+    if (peer == NULL || !peer->ring) {
+        return;
+    }
+    if (s_paired_ring_id_set && peer->addr_hash != s_paired_ring_id) {
+        return;
+    }
+
+    float ax = 0.0f;
+    float ay = 0.0f;
+    float az = 0.0f;
+    const bool imu_ok = faculty175_motion_accel_g(&ax, &ay, &az);
+    float pitch = 0.0f;
+    float roll = 0.0f;
+    const bool pitch_roll_ok = faculty175_motion_pitch_roll(&pitch, &roll);
+    const int8_t delta = s_have_last_ring_rssi ? (int8_t)(peer->rssi - s_last_ring_rssi) : 0;
+    s_last_ring_rssi = peer->rssi;
+    s_have_last_ring_rssi = true;
+
+    faculty175_ble_ring_telem_t sample = {
+        .valid = true,
+        .age_ms = ble_now_ms(),
+        .ring_id = peer->addr_hash,
+        .rssi = peer->rssi,
+        .rssi_delta = delta,
+        .local_imu_valid = imu_ok,
+        .pitch_deg = pitch_roll_ok ? ble_clamp_deg_i8(pitch, -90, 90) : 0,
+        .roll_deg = pitch_roll_ok ? ble_clamp_deg_i8(roll, -90, 90) : 0,
+        .accel_x_q6 = imu_ok ? ble_accel_q6(ax) : 0,
+        .accel_y_q6 = imu_ok ? ble_accel_q6(ay) : 0,
+        .accel_z_q6 = imu_ok ? ble_accel_q6(az) : 0,
+        .motion_score = imu_ok ? ble_motion_score(ax, ay, az) : 0,
+    };
+    strncpy(sample.gesture, ble_ring_gesture_label(sample.rssi_delta, sample.motion_score), sizeof(sample.gesture) - 1);
+    strncpy(sample.name, peer->name, sizeof(sample.name) - 1);
+
+    portENTER_CRITICAL(&s_ring_telem_lock);
+    memmove(&s_ring_telem[1], &s_ring_telem[0], sizeof(s_ring_telem[0]) * (FACULTY175_BLE_RING_TELEM_MAX - 1));
+    s_ring_telem[0] = sample;
+    portEXIT_CRITICAL(&s_ring_telem_lock);
+}
+
 static ble_astrolabe_mfg_t ble_build_mfg_payload(void)
 {
     ble_astrolabe_mfg_t payload = {
@@ -364,11 +499,13 @@ static void ble_peer_store(const ble_addr_t *addr,
 
     char name[FACULTY175_BLE_PEER_NAME_MAX];
     ble_copy_text(name, sizeof(name), fields->name, fields->name_len);
+    const uint16_t addr_hash = ble_addr_hash16(addr->val);
     const bool astrolabe = ble_fields_have_astrolabe_uuid(fields) || ble_name_mentions_astrolabe(name);
-    const bool ring = !astrolabe && ble_name_mentions_ring(name);
+    const bool paired_ring = s_paired_ring_id_set && addr_hash == s_paired_ring_id;
+    const bool ring = !astrolabe && (paired_ring || ble_name_mentions_ring(name));
     ble_astrolabe_mfg_t mfg = {};
     const bool has_mfg = ble_parse_mfg_payload(fields, &mfg);
-    if (!astrolabe && name[0] == '\0') {
+    if (!astrolabe && !ring && name[0] == '\0') {
         return;
     }
 
@@ -377,7 +514,7 @@ static void ble_peer_store(const ble_addr_t *addr,
         .astrolabe = astrolabe,
         .ring = ring,
         .known = astrolabe || ring,
-        .addr_hash = ble_addr_hash16(addr->val),
+        .addr_hash = addr_hash,
         .rssi = rssi,
         .tx_power = fields->tx_pwr_lvl_is_present ? fields->tx_pwr_lvl : 0,
         .seen_ms = now_ms,
@@ -432,6 +569,8 @@ static void ble_peer_store(const ble_addr_t *addr,
     }
     s_peers[slot] = peer;
     portEXIT_CRITICAL(&s_peer_lock);
+
+    ble_ring_telem_store(&peer);
 }
 
 static void ble_load_device_name(void)
@@ -759,6 +898,15 @@ static int ble_settings_enabled_access(uint16_t conn_handle,
 esp_err_t faculty175_ble_init(void)
 {
     esp_err_t err = ble_nvs_get_enabled(&s_enabled);
+    uint16_t ring_id = 0;
+    bool ring_id_set = false;
+    const esp_err_t ring_id_err = ble_nvs_get_ring_id(&ring_id, &ring_id_set);
+    if (ring_id_err == ESP_OK) {
+        s_paired_ring_id = ring_id;
+        s_paired_ring_id_set = ring_id_set;
+    } else {
+        ESP_LOGW(TAG, "paired ring read failed %s", esp_err_to_name(ring_id_err));
+    }
     ble_load_device_name();
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "enabled read failed %s; defaulting on", esp_err_to_name(err));
@@ -964,6 +1112,30 @@ size_t faculty175_ble_peers_snapshot(faculty175_ble_peer_t *out, size_t cap)
     return count;
 }
 
+size_t faculty175_ble_ring_telemetry_snapshot(faculty175_ble_ring_telem_t *out, size_t cap)
+{
+    if (out == NULL || cap == 0) {
+        return 0;
+    }
+    if (cap > FACULTY175_BLE_RING_TELEM_MAX) {
+        cap = FACULTY175_BLE_RING_TELEM_MAX;
+    }
+    portENTER_CRITICAL(&s_ring_telem_lock);
+    memcpy(out, s_ring_telem, sizeof(out[0]) * cap);
+    portEXIT_CRITICAL(&s_ring_telem_lock);
+
+    const uint32_t now = ble_now_ms();
+    size_t count = 0;
+    for (size_t i = 0; i < cap; ++i) {
+        if (!out[i].valid) {
+            break;
+        }
+        out[i].age_ms = now - out[i].age_ms;
+        ++count;
+    }
+    return count;
+}
+
 esp_err_t faculty175_ble_set_enabled(bool enabled)
 {
     esp_err_t err = ble_nvs_set_enabled(enabled);
@@ -1056,6 +1228,61 @@ bool faculty175_ble_handle(const char *line)
                        obs->rssi);
             }
         }
+    } else if (strcasecmp(sub, "ring") == 0 || strcasecmp(sub, "ring status") == 0) {
+        enum { BLE_RING_PRINT_MAX = 8 };
+        faculty175_ble_ring_telem_t samples[BLE_RING_PRINT_MAX];
+        const size_t count = faculty175_ble_ring_telemetry_snapshot(samples, BLE_RING_PRINT_MAX);
+        printf("ble: ring paired=%s", s_paired_ring_id_set ? "yes" : "no");
+        if (s_paired_ring_id_set) {
+            printf(" id=%04x", s_paired_ring_id);
+        }
+        printf(" samples=%u scanning=%s\n", (unsigned)count, s_scanning ? "yes" : "no");
+        for (size_t i = 0; i < count; ++i) {
+            printf("  %u ring id=%04x age=%ums rssi=%d delta=%+d imu=%s pitch=%d roll=%d accel=%.2f,%.2f,%.2f motion=%u gesture=%s name=\"%s\"\n",
+                   (unsigned)i,
+                   samples[i].ring_id,
+                   (unsigned)samples[i].age_ms,
+                   samples[i].rssi,
+                   samples[i].rssi_delta,
+                   samples[i].local_imu_valid ? "yes" : "no",
+                   samples[i].pitch_deg,
+                   samples[i].roll_deg,
+                   (double)samples[i].accel_x_q6 / 64.0,
+                   (double)samples[i].accel_y_q6 / 64.0,
+                   (double)samples[i].accel_z_q6 / 64.0,
+                   samples[i].motion_score,
+                   samples[i].gesture,
+                   samples[i].name);
+        }
+    } else if (strncasecmp(sub, "ring pair ", 10) == 0) {
+        const char *id_text = sub + 10;
+        while (*id_text == ' ') {
+            ++id_text;
+        }
+        char *end = NULL;
+        const unsigned long id = strtoul(id_text, &end, 16);
+        if (end == id_text || id > 0xfffful) {
+            printf("ble: ring pair ESP_ERR_INVALID_ARG\n");
+        } else {
+            const esp_err_t err = ble_nvs_set_ring_id((uint16_t)id, true);
+            if (err == ESP_OK) {
+                s_paired_ring_id = (uint16_t)id;
+                s_paired_ring_id_set = true;
+                s_have_last_ring_rssi = false;
+            }
+            printf("ble: ring pair %s id=%04x\n", esp_err_to_name(err), (unsigned)id);
+        }
+    } else if (strcasecmp(sub, "ring clear") == 0 || strcasecmp(sub, "ring unpair") == 0) {
+        const esp_err_t err = ble_nvs_set_ring_id(0, false);
+        if (err == ESP_OK) {
+            s_paired_ring_id = 0;
+            s_paired_ring_id_set = false;
+            s_have_last_ring_rssi = false;
+        }
+        printf("ble: ring clear %s\n", esp_err_to_name(err));
+    } else if (strcasecmp(sub, "ring scan") == 0) {
+        const esp_err_t err = faculty175_ble_scan_start(3000u);
+        printf("ble: ring scan %s\n", esp_err_to_name(err));
     } else {
         printf("ble commands:\n");
         printf("  ble status\n");
@@ -1064,6 +1291,10 @@ bool faculty175_ble_handle(const char *line)
         printf("  ble name <device name>\n");
         printf("  ble scan\n");
         printf("  ble peers\n");
+        printf("  ble ring\n");
+        printf("  ble ring pair <short-id>\n");
+        printf("  ble ring clear\n");
+        printf("  ble ring scan\n");
     }
     fflush(stdout);
     return true;
