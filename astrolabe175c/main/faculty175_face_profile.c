@@ -285,15 +285,15 @@ faculty175_face_id_t faculty175_face_profile_home_face(faculty175_face_profile_t
         case FACULTY175_FACE_PROFILE_FORTUNE:
             return FACULTY175_FACE_TAROT;
         case FACULTY175_FACE_PROFILE_CASTALIA:
-            return FACULTY175_FACE_CLASSIC;
+            return FACULTY175_FACE_SOLAR;
         case FACULTY175_FACE_PROFILE_OCARINA:
             return FACULTY175_FACE_OCARINA;
         case FACULTY175_FACE_PROFILE_LUNASAY:
-            return FACULTY175_FACE_MOON;
+            return FACULTY175_FACE_SOLAR;
         case FACULTY175_FACE_PROFILE_CAMEO:
             return FACULTY175_FACE_FACULTY;
         default:
-            return FACULTY175_FACE_POCKETWATCH;
+            return FACULTY175_FACE_SOLAR;
     }
 }
 

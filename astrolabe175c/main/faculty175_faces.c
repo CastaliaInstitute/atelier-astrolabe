@@ -90,7 +90,7 @@ static const faculty175_face_desc_t k_faces[] = {
     { FACULTY175_FACE_POCKETWATCH, "pocketwatch", "Watch", FACULTY175_FACE_CAT_HOME, true, true, 0 },
 };
 
-static faculty175_face_id_t s_current = FACULTY175_FACE_POCKETWATCH;
+static faculty175_face_id_t s_current = FACULTY175_FACE_SOLAR;
 static uint8_t s_enabled_cache[FACULTY175_FACE_COUNT];
 static uint8_t s_nav_cache[FACULTY175_FACE_COUNT];
 static uint8_t s_order_cache[FACULTY175_FACE_COUNT];
@@ -523,7 +523,7 @@ esp_err_t faculty175_faces_init(void)
     size_t len = sizeof(current);
     err = nvs_get_str(nvs, FACES_NVS_CURRENT, current, &len);
     if (err == ESP_ERR_NVS_NOT_FOUND) {
-        err = nvs_set_str(nvs, FACES_NVS_CURRENT, k_faces[FACULTY175_FACE_POCKETWATCH].slug);
+        err = nvs_set_str(nvs, FACES_NVS_CURRENT, k_faces[FACULTY175_FACE_SOLAR].slug);
         current[0] = '\0';
     }
     uint8_t schema = 0;
@@ -577,9 +577,9 @@ esp_err_t faculty175_faces_init(void)
             }
         }
         if (err == ESP_OK) {
-            err = nvs_set_str(nvs, FACES_NVS_CURRENT, k_faces[FACULTY175_FACE_POCKETWATCH].slug);
+            err = nvs_set_str(nvs, FACES_NVS_CURRENT, k_faces[FACULTY175_FACE_SOLAR].slug);
             if (err == ESP_OK) {
-                strncpy(current, k_faces[FACULTY175_FACE_POCKETWATCH].slug, sizeof(current) - 1u);
+                strncpy(current, k_faces[FACULTY175_FACE_SOLAR].slug, sizeof(current) - 1u);
                 current[sizeof(current) - 1u] = '\0';
             }
         }
@@ -615,7 +615,7 @@ esp_err_t faculty175_faces_init(void)
         return err;
     }
 
-    s_current = FACULTY175_FACE_POCKETWATCH;
+    s_current = FACULTY175_FACE_SOLAR;
     const faculty175_face_desc_t *saved_current = faculty175_faces_find(current);
     if (saved_current != NULL && saved_current->ported && faculty175_faces_enabled(saved_current->id)) {
         s_current = saved_current->id;
