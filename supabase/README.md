@@ -28,6 +28,7 @@ supabase functions deploy voice-stream
 supabase functions deploy ask-faculty-voice
 supabase functions deploy faculty-dreams
 supabase functions deploy faculty-bust
+supabase functions deploy astrolabe-device-lookup
 ```
 
 JWT verification is on (`config.toml`). The watch sends Supabase `apikey` + Castalia `Authorization` when signed in.
@@ -53,13 +54,32 @@ supabase secrets set ASTROLABE_DEVICE_AUTH_REQUIRED=true
 device provision
 
 # On workstation, using the printed mac/secret:
-./scripts/provision-faculty175-device.py \
+./scripts/provision-astrolabe175c-device.py \
   --mac a0:f2:62:e3:06:44 \
   --secret <64-hex-secret> \
   --label "faculty175 lab unit"
 ```
 
 This protects privileged Castalia pipeline access from arbitrary boards with only the public firmware. It does not replace ESP secure boot + flash encryption for physical attacker resistance.
+
+Provisioning also stores `short_id`, a four-hex display/lookup ID matching the
+firmware BLE radar hash. Override it only when repairing a registry collision:
+
+```bash
+./scripts/provision-astrolabe175c-device.py \
+  --mac a0:f2:62:e3:07:9c \
+  --secret <64-hex-secret> \
+  --label "Daniel Astrolabe" \
+  --short-id 1a2b
+```
+
+Authenticated clients can resolve a short ID without receiving the full MAC:
+
+```bash
+curl "$SUPABASE_URL/functions/v1/astrolabe-device-lookup?shortId=1a2b&channel=astrolabe-faculty-amoled175" \
+  -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
+  -H "apikey: $SUPABASE_ANON_KEY"
+```
 
 ## `voice-pipeline` contract
 

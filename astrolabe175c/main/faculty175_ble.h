@@ -8,12 +8,23 @@
 
 #define FACULTY175_BLE_PEER_MAX 10
 #define FACULTY175_BLE_PEER_NAME_MAX 32
+#define FACULTY175_BLE_OBS_MAX 2
 
 typedef struct {
     bool valid;
     bool astrolabe;
+    bool ring;
+    uint16_t addr_hash;
+    int8_t rssi;
+} faculty175_ble_observation_t;
+
+typedef struct {
+    bool valid;
+    bool astrolabe;
+    bool ring;
     bool known;
     uint8_t addr[6];
+    uint16_t addr_hash;
     int8_t rssi;
     int8_t tx_power;
     uint32_t seen_ms;
@@ -27,6 +38,8 @@ typedef struct {
     int8_t accel_y_q6;
     int8_t accel_z_q6;
     uint8_t imu_seq;
+    uint8_t observation_count;
+    faculty175_ble_observation_t observations[FACULTY175_BLE_OBS_MAX];
     char name[FACULTY175_BLE_PEER_NAME_MAX];
 } faculty175_ble_peer_t;
 

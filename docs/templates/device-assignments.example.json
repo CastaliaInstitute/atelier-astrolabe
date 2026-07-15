@@ -42,6 +42,7 @@
         "castaliaIndividualCommand": "castalia individual ExamplePerson"
       },
       "identifiers": {
+        "shortId": "0000",
         "wifiMac": "00:00:00:00:00:00",
         "mdns": "astrolabe-example.local"
       },
@@ -58,6 +59,7 @@
         "castaliaIndividualCommand": "castalia individual ExamplePartner"
       },
       "identifiers": {
+        "shortId": "0000",
         "wifiMac": "00:00:00:00:00:00",
         "mdns": "astrolabe-partner.local"
       },
@@ -70,6 +72,7 @@
       "label": "Example Smart Ring",
       "model": "COLMI R10",
       "identifiers": {
+        "shortId": "0000",
         "bleAddress": "00:00:00:00:00:00",
         "advertisedName": "COLMI R10_0000",
         "bluezAlias": "Example-R10"

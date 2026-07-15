@@ -1,6 +1,7 @@
 #include "faculty175_ble.h"
 
 #include <math.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>
@@ -42,9 +43,17 @@ enum { BLE_APPEARANCE_GENERIC_TAG = 0x0200 };
 enum {
     BLE_ASTROLABE_MFG_COMPANY_ID = 0xffff,
     BLE_ASTROLABE_MFG_MAGIC = 0xa7,
-    BLE_ASTROLABE_MFG_VERSION = 1,
+    BLE_ASTROLABE_MFG_VERSION = 2,
     BLE_ASTROLABE_MFG_FLAG_IMU_VALID = 0x01,
+    BLE_ASTROLABE_OBS_TYPE_ASTROLABE = 0x01,
+    BLE_ASTROLABE_OBS_TYPE_RING = 0x02,
 };
+
+typedef struct __attribute__((packed)) {
+    uint16_t addr_hash;
+    int8_t rssi;
+    uint8_t type;
+} ble_astrolabe_obs_t;
 
 typedef struct __attribute__((packed)) {
     uint16_t company_id;
@@ -57,6 +66,8 @@ typedef struct __attribute__((packed)) {
     int8_t accel_z_q6;
     uint8_t flags;
     uint8_t seq;
+    uint8_t obs_count;
+    ble_astrolabe_obs_t obs[FACULTY175_BLE_OBS_MAX];
 } ble_astrolabe_mfg_t;
 
 static const ble_uuid128_t BLE_SETTINGS_SERVICE_UUID =
@@ -173,6 +184,29 @@ static bool ble_name_mentions_astrolabe(const char *name)
     return false;
 }
 
+static bool ble_name_mentions_ring(const char *name)
+{
+    if (name == NULL) {
+        return false;
+    }
+    static const char *const needles[] = {
+        "colmi",
+        "r02",
+        "r10",
+        "ring",
+    };
+    for (size_t i = 0; i < sizeof(needles) / sizeof(needles[0]); ++i) {
+        const char *needle = needles[i];
+        const size_t needle_len = strlen(needle);
+        for (const char *p = name; *p != '\0'; ++p) {
+            if (strncasecmp(p, needle, needle_len) == 0) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 static bool ble_fields_have_astrolabe_uuid(const struct ble_hs_adv_fields *fields)
 {
     if (fields == NULL) {
@@ -222,6 +256,16 @@ static uint8_t ble_rssi_confidence_pct(int8_t rssi, bool astrolabe)
     return (uint8_t)v;
 }
 
+static uint16_t ble_addr_hash16(const uint8_t addr[6])
+{
+    uint32_t h = 2166136261u;
+    for (int i = 0; i < 6; ++i) {
+        h ^= addr[i];
+        h *= 16777619u;
+    }
+    return (uint16_t)((h >> 16) ^ h);
+}
+
 static int8_t ble_clamp_deg_i8(float deg, int lo, int hi)
 {
     if (deg < (float)lo) {
@@ -267,20 +311,43 @@ static ble_astrolabe_mfg_t ble_build_mfg_payload(void)
         payload.accel_z_q6 = ble_accel_q6(az);
         payload.flags = BLE_ASTROLABE_MFG_FLAG_IMU_VALID;
     }
+    faculty175_ble_peer_t peers[FACULTY175_BLE_PEER_MAX] = {};
+    const size_t peer_count = faculty175_ble_peers_snapshot(peers, FACULTY175_BLE_PEER_MAX);
+    for (size_t i = 0; i < peer_count && payload.obs_count < FACULTY175_BLE_OBS_MAX; ++i) {
+        if (!peers[i].astrolabe && !peers[i].ring) {
+            continue;
+        }
+        ble_astrolabe_obs_t *obs = &payload.obs[payload.obs_count++];
+        obs->addr_hash = ble_addr_hash16(peers[i].addr);
+        obs->rssi = peers[i].rssi;
+        obs->type = peers[i].astrolabe ? BLE_ASTROLABE_OBS_TYPE_ASTROLABE : BLE_ASTROLABE_OBS_TYPE_RING;
+    }
     return payload;
 }
 
 static bool ble_parse_mfg_payload(const struct ble_hs_adv_fields *fields, ble_astrolabe_mfg_t *out)
 {
-    if (fields == NULL || out == NULL || fields->mfg_data == NULL || fields->mfg_data_len < sizeof(*out)) {
+    if (fields == NULL || out == NULL || fields->mfg_data == NULL ||
+        fields->mfg_data_len < offsetof(ble_astrolabe_mfg_t, obs_count)) {
         return false;
     }
-    ble_astrolabe_mfg_t payload;
-    memcpy(&payload, fields->mfg_data, sizeof(payload));
+    ble_astrolabe_mfg_t payload = {};
+    size_t copy_len = fields->mfg_data_len;
+    if (copy_len > sizeof(payload)) {
+        copy_len = sizeof(payload);
+    }
+    memcpy(&payload, fields->mfg_data, copy_len);
     if (payload.company_id != BLE_ASTROLABE_MFG_COMPANY_ID ||
         payload.magic != BLE_ASTROLABE_MFG_MAGIC ||
-        payload.version != BLE_ASTROLABE_MFG_VERSION) {
+        payload.version > BLE_ASTROLABE_MFG_VERSION ||
+        payload.version == 0) {
         return false;
+    }
+    if (payload.version < 2) {
+        payload.obs_count = 0;
+        memset(payload.obs, 0, sizeof(payload.obs));
+    } else if (payload.obs_count > FACULTY175_BLE_OBS_MAX) {
+        payload.obs_count = FACULTY175_BLE_OBS_MAX;
     }
     *out = payload;
     return true;
@@ -298,6 +365,7 @@ static void ble_peer_store(const ble_addr_t *addr,
     char name[FACULTY175_BLE_PEER_NAME_MAX];
     ble_copy_text(name, sizeof(name), fields->name, fields->name_len);
     const bool astrolabe = ble_fields_have_astrolabe_uuid(fields) || ble_name_mentions_astrolabe(name);
+    const bool ring = !astrolabe && ble_name_mentions_ring(name);
     ble_astrolabe_mfg_t mfg = {};
     const bool has_mfg = ble_parse_mfg_payload(fields, &mfg);
     if (!astrolabe && name[0] == '\0') {
@@ -307,7 +375,9 @@ static void ble_peer_store(const ble_addr_t *addr,
     faculty175_ble_peer_t peer = {
         .valid = true,
         .astrolabe = astrolabe,
-        .known = astrolabe,
+        .ring = ring,
+        .known = astrolabe || ring,
+        .addr_hash = ble_addr_hash16(addr->val),
         .rssi = rssi,
         .tx_power = fields->tx_pwr_lvl_is_present ? fields->tx_pwr_lvl : 0,
         .seen_ms = now_ms,
@@ -321,7 +391,15 @@ static void ble_peer_store(const ble_addr_t *addr,
         .accel_y_q6 = mfg.accel_y_q6,
         .accel_z_q6 = mfg.accel_z_q6,
         .imu_seq = mfg.seq,
+        .observation_count = has_mfg ? mfg.obs_count : 0,
     };
+    for (uint8_t i = 0; i < peer.observation_count && i < FACULTY175_BLE_OBS_MAX; ++i) {
+        peer.observations[i].valid = true;
+        peer.observations[i].addr_hash = mfg.obs[i].addr_hash;
+        peer.observations[i].rssi = mfg.obs[i].rssi;
+        peer.observations[i].astrolabe = (mfg.obs[i].type & BLE_ASTROLABE_OBS_TYPE_ASTROLABE) != 0;
+        peer.observations[i].ring = (mfg.obs[i].type & BLE_ASTROLABE_OBS_TYPE_RING) != 0;
+    }
     if (peer.imu_valid && peer.confidence_pct <= 86) {
         peer.confidence_pct += 10;
     } else if (peer.imu_valid) {
@@ -331,7 +409,7 @@ static void ble_peer_store(const ble_addr_t *addr,
     if (name[0] != '\0') {
         strncpy(peer.name, name, sizeof(peer.name) - 1);
     } else {
-        snprintf(peer.name, sizeof(peer.name), "Astrolabe %02X%02X", addr->val[1], addr->val[0]);
+        snprintf(peer.name, sizeof(peer.name), "BLE %04X", peer.addr_hash);
     }
 
     portENTER_CRITICAL(&s_peer_lock);
@@ -549,10 +627,19 @@ static esp_err_t ble_advertise(void)
     rsp.tx_pwr_lvl = BLE_HS_ADV_TX_PWR_LVL_AUTO;
     rsp.tx_pwr_lvl_is_present = 1;
     rc = ble_gap_adv_rsp_set_fields(&rsp);
-    if (rc != 0 && rsp.name_len > 13) {
-        rsp.name_len = 13;
+    while (rc != 0 && rsp.name_len > 0) {
+        rsp.name_len = rsp.name_len > 4 ? rsp.name_len - 4 : 0;
         rsp.name_is_complete = 0;
         rc = ble_gap_adv_rsp_set_fields(&rsp);
+    }
+    if (rc != 0 && rsp.tx_pwr_lvl_is_present) {
+        rsp.tx_pwr_lvl_is_present = 0;
+        rc = ble_gap_adv_rsp_set_fields(&rsp);
+        while (rc != 0 && rsp.name_len > 0) {
+            rsp.name_len = rsp.name_len > 4 ? rsp.name_len - 4 : 0;
+            rsp.name_is_complete = 0;
+            rc = ble_gap_adv_rsp_set_fields(&rsp);
+        }
     }
     if (rc != 0) {
         s_advertising = false;
@@ -942,9 +1029,10 @@ bool faculty175_ble_handle(const char *line)
         const size_t count = faculty175_ble_peers_snapshot(peers, FACULTY175_BLE_PEER_MAX);
         printf("ble: peers=%u scanning=%s\n", (unsigned)count, s_scanning ? "yes" : "no");
         for (size_t i = 0; i < count; ++i) {
-            printf("  %u %s rssi=%d range=%u%% bearing=%u confidence=%u%% imu=%s pitch=%d roll=%d accel=%.2f,%.2f,%.2f seq=%u addr=%02x:%02x:%02x:%02x:%02x:%02x name=\"%s\"\n",
+            printf("  %u %s id=%04x rssi=%d range=%u%% bearing=%u confidence=%u%% imu=%s pitch=%d roll=%d accel=%.2f,%.2f,%.2f seq=%u name=\"%s\"\n",
                    (unsigned)i,
-                   peers[i].astrolabe ? "astrolabe" : "ble",
+                   peers[i].astrolabe ? "astrolabe" : (peers[i].ring ? "ring" : "ble"),
+                   peers[i].addr_hash,
                    peers[i].rssi,
                    peers[i].range_pct,
                    peers[i].bearing_deg,
@@ -956,13 +1044,17 @@ bool faculty175_ble_handle(const char *line)
                    (double)peers[i].accel_y_q6 / 64.0,
                    (double)peers[i].accel_z_q6 / 64.0,
                    peers[i].imu_seq,
-                   peers[i].addr[5],
-                   peers[i].addr[4],
-                   peers[i].addr[3],
-                   peers[i].addr[2],
-                   peers[i].addr[1],
-                   peers[i].addr[0],
                    peers[i].name);
+            for (uint8_t j = 0; j < peers[i].observation_count && j < FACULTY175_BLE_OBS_MAX; ++j) {
+                const faculty175_ble_observation_t *obs = &peers[i].observations[j];
+                if (!obs->valid) {
+                    continue;
+                }
+                printf("    sees %s hash=%04x rssi=%d\n",
+                       obs->astrolabe ? "astrolabe" : (obs->ring ? "ring" : "ble"),
+                       obs->addr_hash,
+                       obs->rssi);
+            }
         }
     } else {
         printf("ble commands:\n");

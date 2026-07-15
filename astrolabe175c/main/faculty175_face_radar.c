@@ -38,16 +38,53 @@ static int clamp_i(int v, int lo, int hi)
     return v;
 }
 
-static const char *short_name(const faculty175_ble_peer_t *peer)
+static void short_name(const faculty175_ble_peer_t *peer, char *out, size_t cap)
 {
-    if (peer == NULL || peer->name[0] == '\0') {
-        return "BLE";
+    if (out == NULL || cap == 0) {
+        return;
+    }
+    out[0] = '\0';
+    if (peer == NULL) {
+        snprintf(out, cap, "BLE");
+        return;
     }
     const char *name = peer->name;
+    if (name[0] == '\0' || strncasecmp(name, "BLE ", 4) == 0) {
+        snprintf(out, cap, "%s %04X", peer->astrolabe ? "AST" : (peer->ring ? "RING" : "BLE"), peer->addr_hash);
+        return;
+    }
     if (strncasecmp(name, "Astrolabe ", 10) == 0) {
         name += 10;
     }
-    return name;
+    if (strlen(name) <= 10) {
+        snprintf(out, cap, "%s", name);
+    } else {
+        snprintf(out, cap, "%s %04X", peer->astrolabe ? "AST" : (peer->ring ? "RING" : "BLE"), peer->addr_hash);
+    }
+}
+
+static void draw_astrolabe_icon(int x, int y, uint16_t color, uint16_t accent)
+{
+    faculty175_display_draw_circle(x, y, 9, color);
+    faculty175_display_draw_circle(x, y, 4, accent);
+    faculty175_display_draw_line(x - 12, y, x - 5, y, color);
+    faculty175_display_draw_line(x + 5, y, x + 12, y, color);
+    faculty175_display_draw_line(x, y - 12, x, y - 5, color);
+    faculty175_display_draw_line(x, y + 5, x, y + 12, color);
+    faculty175_display_fill_circle(x, y, 2, color);
+}
+
+static void draw_ring_icon(int x, int y, uint16_t color, uint16_t accent)
+{
+    faculty175_display_draw_circle(x, y, 10, color);
+    faculty175_display_draw_circle(x, y, 6, accent);
+    faculty175_display_fill_circle(x + 7, y - 7, 3, color);
+}
+
+static void draw_ble_icon(int x, int y, uint16_t color)
+{
+    faculty175_display_fill_circle(x, y, 5, color);
+    faculty175_display_draw_circle(x, y, 10, color);
 }
 
 void faculty175_face_radar_draw(uint32_t anim_ms)
@@ -67,6 +104,7 @@ void faculty175_face_radar_draw(uint32_t anim_ms)
     const uint16_t dim = rgb(102, 132, 140);
     const uint16_t accent = rgb(92, 240, 168);
     const uint16_t peer_col = rgb(116, 198, 255);
+    const uint16_t ring_col = rgb(238, 176, 255);
     const uint16_t generic_col = rgb(216, 188, 118);
     float self_pitch = 0.0f;
     float self_roll = 0.0f;
@@ -95,10 +133,15 @@ void faculty175_face_radar_draw(uint32_t anim_ms)
         const int radius = clamp_i(((int)peer->range_pct * outer) / 100, 28, outer - 8);
         const int x = cx + (int)lrintf(cosf(a) * (float)radius);
         const int y = cy + (int)lrintf(sinf(a) * (float)radius);
-        const uint16_t col = peer->astrolabe ? peer_col : generic_col;
-        const int dot = peer->astrolabe ? 8 : 5;
-        faculty175_display_fill_circle(x, y, dot, col);
-        faculty175_display_draw_circle(x, y, dot + 5, peer->imu_valid ? accent : rgb(22, 70, 76));
+        const uint16_t col = peer->astrolabe ? peer_col : (peer->ring ? ring_col : generic_col);
+        const uint16_t icon_accent = peer->imu_valid ? accent : rgb(22, 70, 76);
+        if (peer->astrolabe) {
+            draw_astrolabe_icon(x, y, col, icon_accent);
+        } else if (peer->ring) {
+            draw_ring_icon(x, y, col, icon_accent);
+        } else {
+            draw_ble_icon(x, y, col);
+        }
         if (peer->imu_valid) {
             const float tilt = ((float)peer->imu_roll_deg / 180.0f) * 3.1415927f;
             const int tx = x + (int)lrintf(cosf(tilt) * 14.0f);
@@ -106,7 +149,10 @@ void faculty175_face_radar_draw(uint32_t anim_ms)
             faculty175_display_draw_line(x, y, tx, ty, accent);
         }
         if (i < 4) {
-            label_at(short_name(peer), clamp_i(x, 58, FACULTY175_LCD_W - 58), clamp_i(y + 14, 80, 386), col);
+            char label[18];
+            short_name(peer, label, sizeof(label));
+            const int label_y = peer->astrolabe ? y + 17 : (peer->ring ? y + 16 : y + 14);
+            label_at(label, clamp_i(x, 58, FACULTY175_LCD_W - 58), clamp_i(label_y, 80, 386), col);
         }
     }
 
@@ -122,12 +168,24 @@ void faculty175_face_radar_draw(uint32_t anim_ms)
         centered(ble_on ? "WAITING FOR ADVERTISEMENTS" : "ENABLE BLE TO SCAN", 394, dim);
     } else {
         const faculty175_ble_peer_t *p = &peers[0];
-        snprintf(line, sizeof(line), "%s  %ddBm  %u%%  %s",
-                 short_name(p),
-                 p->rssi,
-                 p->confidence_pct,
-                 p->imu_valid ? "IMU" : "RSSI");
-        centered(line, 402, p->astrolabe ? peer_col : generic_col);
+        char label[18];
+        short_name(p, label, sizeof(label));
+        if (p->observation_count > 0 && p->observations[0].valid) {
+            const faculty175_ble_observation_t *obs = &p->observations[0];
+            snprintf(line, sizeof(line), "%s SEES %s %04X %ddBm",
+                     p->astrolabe ? "AST" : (p->ring ? "RING" : "BLE"),
+                     obs->astrolabe ? "AST" : (obs->ring ? "RING" : "BLE"),
+                     obs->addr_hash,
+                     obs->rssi);
+        } else {
+            snprintf(line, sizeof(line), "%s %s  %ddBm  %u%%  %s",
+                     p->astrolabe ? "AST" : (p->ring ? "RING" : "BLE"),
+                     label,
+                     p->rssi,
+                     p->confidence_pct,
+                     p->imu_valid ? "IMU" : "RSSI");
+        }
+        centered(line, 402, p->astrolabe ? peer_col : (p->ring ? ring_col : generic_col));
     }
 
     faculty175_display_flush();
