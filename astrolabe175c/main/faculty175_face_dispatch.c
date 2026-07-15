@@ -31,6 +31,7 @@ void faculty175_face_transits_draw(uint32_t anim_ms);
 void faculty175_face_qday_draw(uint32_t anim_ms);
 void faculty175_face_focus_draw(uint32_t anim_ms);
 void faculty175_face_bio_draw(uint32_t anim_ms);
+void faculty175_face_ironman_draw(uint32_t anim_ms);
 void faculty175_face_watcher_draw(uint32_t anim_ms);
 void faculty175_face_lenormand_draw(uint32_t anim_ms);
 void faculty175_face_hid_draw(uint32_t anim_ms);
@@ -76,6 +77,7 @@ bool faculty175_face_dispatch_draw(faculty175_face_id_t id, uint32_t anim_ms)
         case FACULTY175_FACE_QDAY: faculty175_face_qday_draw(anim_ms); return true;
         case FACULTY175_FACE_FOCUS: faculty175_face_focus_draw(anim_ms); return true;
         case FACULTY175_FACE_BIOMETRICS: faculty175_face_bio_draw(anim_ms); return true;
+        case FACULTY175_FACE_IRONMAN: faculty175_face_ironman_draw(anim_ms); return true;
         case FACULTY175_FACE_WATCHER: faculty175_face_watcher_draw(anim_ms); return true;
         case FACULTY175_FACE_LENORMAND: faculty175_face_lenormand_draw(anim_ms); return true;
         case FACULTY175_FACE_HID: faculty175_face_hid_draw(anim_ms); return true;

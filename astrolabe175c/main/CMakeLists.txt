@@ -53,6 +53,7 @@ idf_component_register(
         "faculty175_charts.c"
         "faculty175_ephemeris.c"
         "faculty175_ble.c"
+        "faculty175_ring.c"
         "faculty175_apocalypso.c"
         "faculty175_device_auth.c"
         "faculty175_device_settings.c"
