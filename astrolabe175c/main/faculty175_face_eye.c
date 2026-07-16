@@ -472,6 +472,13 @@ void faculty175_face_eye_usb_status(faculty175_eye_usb_status_t *out)
         .frames_received = s_frames_received,
         .frames_decoded = s_frames_decoded,
     };
+    if (s_host_installed) {
+        usb_host_lib_info_t info = {};
+        if (usb_host_lib_info(&info) == ESP_OK) {
+            out->connected_devices = info.num_devices;
+            out->registered_clients = info.num_clients;
+        }
+    }
 }
 
 void faculty175_face_eye_draw(uint32_t anim_ms)

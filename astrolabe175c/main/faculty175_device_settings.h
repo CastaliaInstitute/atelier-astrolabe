@@ -21,6 +21,10 @@ esp_err_t faculty175_location_settings_load(faculty175_location_settings_t *out)
 esp_err_t faculty175_location_settings_save(double lat_deg, double lon_deg, const char *source);
 bool faculty175_location_settings_valid(double lat_deg, double lon_deg);
 
+/** Persistent global idle dim/sleep policy. Defaults to enabled. */
+bool faculty175_power_saving_enabled(void);
+esp_err_t faculty175_power_saving_set_enabled(bool enabled);
+
 #ifdef __cplusplus
 }
 #endif

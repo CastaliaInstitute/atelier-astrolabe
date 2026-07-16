@@ -11,6 +11,10 @@
 
 #define DEVICE_SETTINGS_NVS_NS "device_cfg"
 #define DEVICE_SETTINGS_LOC_KEY "location"
+#define DEVICE_SETTINGS_POWER_SAVE_KEY "power_save"
+
+static bool s_power_saving_loaded;
+static bool s_power_saving_enabled = true;
 
 typedef struct {
     uint32_t version;
@@ -81,5 +85,39 @@ esp_err_t faculty175_location_settings_save(double lat_deg, double lon_deg, cons
         err = nvs_commit(nvs);
     }
     nvs_close(nvs);
+    return err;
+}
+
+bool faculty175_power_saving_enabled(void)
+{
+    if (!s_power_saving_loaded) {
+        uint8_t stored = 1;
+        nvs_handle_t nvs;
+        if (nvs_open(DEVICE_SETTINGS_NVS_NS, NVS_READONLY, &nvs) == ESP_OK) {
+            (void)nvs_get_u8(nvs, DEVICE_SETTINGS_POWER_SAVE_KEY, &stored);
+            nvs_close(nvs);
+        }
+        s_power_saving_enabled = stored != 0;
+        s_power_saving_loaded = true;
+    }
+    return s_power_saving_enabled;
+}
+
+esp_err_t faculty175_power_saving_set_enabled(bool enabled)
+{
+    nvs_handle_t nvs;
+    esp_err_t err = nvs_open(DEVICE_SETTINGS_NVS_NS, NVS_READWRITE, &nvs);
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = nvs_set_u8(nvs, DEVICE_SETTINGS_POWER_SAVE_KEY, enabled ? 1 : 0);
+    if (err == ESP_OK) {
+        err = nvs_commit(nvs);
+    }
+    nvs_close(nvs);
+    if (err == ESP_OK) {
+        s_power_saving_enabled = enabled;
+        s_power_saving_loaded = true;
+    }
     return err;
 }

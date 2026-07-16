@@ -10,6 +10,8 @@ typedef struct {
     bool host_installed;
     bool uvc_installed;
     bool stream_open;
+    int connected_devices;
+    int registered_clients;
     const char *state;
     esp_err_t last_error;
     uint16_t target_vid;

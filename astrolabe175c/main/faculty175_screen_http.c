@@ -80,6 +80,8 @@ static esp_err_t usb_status_get(httpd_req_t *req)
     cJSON_AddBoolToObject(root, "initialized", status.initialized);
     cJSON_AddBoolToObject(root, "hostInstalled", status.host_installed);
     cJSON_AddBoolToObject(root, "uvcInstalled", status.uvc_installed);
+    cJSON_AddNumberToObject(root, "connectedDevices", status.connected_devices);
+    cJSON_AddNumberToObject(root, "registeredClients", status.registered_clients);
 
     cJSON *target = cJSON_AddObjectToObject(root, "target");
     if (target != NULL) {
@@ -1010,6 +1012,11 @@ static esp_err_t api_settings_send(httpd_req_t *req, esp_err_t apply_err)
         cJSON_AddBoolToObject(ble, "advertising", faculty175_ble_advertising());
     }
 
+    cJSON *power = cJSON_AddObjectToObject(root, "power");
+    if (power != NULL) {
+        cJSON_AddBoolToObject(power, "savingEnabled", faculty175_power_saving_enabled());
+    }
+
     cJSON *time = cJSON_AddObjectToObject(root, "time");
     if (time != NULL) {
         cJSON_AddBoolToObject(time, "synced", time_status.synced);
@@ -1121,6 +1128,14 @@ static esp_err_t api_settings_post(httpd_req_t *req)
                     }
                 }
             }
+        }
+    }
+
+    const cJSON *power = cJSON_GetObjectItemCaseSensitive(root, "power");
+    if (err == ESP_OK && cJSON_IsObject(power)) {
+        const cJSON *saving_enabled = cJSON_GetObjectItemCaseSensitive(power, "savingEnabled");
+        if (cJSON_IsBool(saving_enabled)) {
+            err = faculty175_power_saving_set_enabled(cJSON_IsTrue(saving_enabled));
         }
     }
 

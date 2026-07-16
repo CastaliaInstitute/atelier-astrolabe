@@ -52,6 +52,7 @@
 #include "faculty175_usb.h"
 #include "faculty175_log.h"
 #include "faculty175_device_auth.h"
+#include "faculty175_device_settings.h"
 #include "faculty175_qa.h"
 #include "faculty175_ota.h"
 #include "faculty175_pmu.h"
@@ -698,6 +699,15 @@ static void low_power_tick(uint32_t now_ms)
         }
         return;
     }
+
+    /* USB-host accessories remove charger VBUS from the PMU even when the
+       display is meant to run continuously. A persistent device setting lets
+       dedicated installations opt out of idle dim/sleep behavior. */
+    if (!faculty175_power_saving_enabled()) {
+        low_power_note_activity(now_ms, "power-saving-disabled");
+        return;
+    }
+
     if (!low_power_wifi_allowed()) {
         low_power_wifi_pause();
     }
