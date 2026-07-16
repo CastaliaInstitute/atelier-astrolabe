@@ -50,6 +50,15 @@ static volatile esp_err_t s_last_error = ESP_OK;
 static volatile uint32_t s_frames_received;
 static volatile uint32_t s_frames_decoded;
 static volatile bool s_started;
+static volatile bool s_host_installed;
+static volatile bool s_uvc_installed;
+static volatile bool s_stream_open;
+static volatile uint16_t s_stream_w;
+static volatile uint16_t s_stream_h;
+static volatile uint16_t s_stream_fps;
+static volatile uint32_t s_open_attempts;
+static volatile uint32_t s_disconnects;
+static volatile uint32_t s_transfer_errors;
 
 static const char *eye_state_label(void)
 {
@@ -236,10 +245,13 @@ static void stream_event_callback(const uvc_host_stream_event_data_t *event, voi
     switch (event->type) {
         case UVC_HOST_TRANSFER_ERROR:
             s_last_error = event->transfer_error.error;
+            ++s_transfer_errors;
             ESP_LOGW(TAG, "UVC transfer error: %s", esp_err_to_name(s_last_error));
             break;
         case UVC_HOST_DEVICE_DISCONNECTED:
             s_state = EYE_STATE_WAITING;
+            s_stream_open = false;
+            ++s_disconnects;
             ESP_LOGI(TAG, "Astrolabe Eye disconnected");
             (void)uvc_host_stream_close(event->device_disconnected.stream_hdl);
             xSemaphoreGive(s_disconnected);
@@ -264,6 +276,7 @@ static void stream_event_callback(const uvc_host_stream_event_data_t *event, voi
 
 static esp_err_t open_and_run_mode(unsigned width, unsigned height, float fps)
 {
+    ++s_open_attempts;
     const uvc_host_stream_config_t config = {
         .event_cb = stream_event_callback,
         .frame_cb = frame_callback,
@@ -303,6 +316,10 @@ static esp_err_t open_and_run_mode(unsigned width, unsigned height, float fps)
     }
 
     s_frames_received = 0;
+    s_stream_w = (uint16_t)width;
+    s_stream_h = (uint16_t)height;
+    s_stream_fps = (uint16_t)fps;
+    s_stream_open = true;
     s_state = EYE_STATE_STREAMING;
     s_last_error = ESP_OK;
     ESP_LOGI(TAG, "Astrolabe Eye streaming %ux%u@%.1f MJPEG", width, height, (double)fps);
@@ -374,6 +391,7 @@ esp_err_t faculty175_face_eye_init(void)
         s_last_error = err;
         return err;
     }
+    s_host_installed = true;
     if (xTaskCreatePinnedToCore(usb_library_task,
                                 "eye_usb_lib",
                                 4096,
@@ -398,6 +416,7 @@ esp_err_t faculty175_face_eye_init(void)
         s_last_error = err;
         return err;
     }
+    s_uvc_installed = true;
     if (xTaskCreatePinnedToCoreWithCaps(decode_task,
                                         "eye_decode",
                                         6144,
@@ -428,6 +447,31 @@ esp_err_t faculty175_face_eye_init(void)
 bool faculty175_face_eye_has_frame(void)
 {
     return s_frames_decoded > 0;
+}
+
+void faculty175_face_eye_usb_status(faculty175_eye_usb_status_t *out)
+{
+    if (out == NULL) {
+        return;
+    }
+    *out = (faculty175_eye_usb_status_t){
+        .initialized = s_started,
+        .host_installed = s_host_installed,
+        .uvc_installed = s_uvc_installed,
+        .stream_open = s_stream_open,
+        .state = eye_state_label(),
+        .last_error = s_last_error,
+        .target_vid = EYE_USB_VID,
+        .target_pid = EYE_USB_PID,
+        .width = s_stream_w,
+        .height = s_stream_h,
+        .fps = s_stream_fps,
+        .open_attempts = s_open_attempts,
+        .disconnects = s_disconnects,
+        .transfer_errors = s_transfer_errors,
+        .frames_received = s_frames_received,
+        .frames_decoded = s_frames_decoded,
+    };
 }
 
 void faculty175_face_eye_draw(uint32_t anim_ms)

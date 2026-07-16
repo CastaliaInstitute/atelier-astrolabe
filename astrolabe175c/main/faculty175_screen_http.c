@@ -20,6 +20,7 @@
 #include "faculty175_board.h"
 #include "faculty175_breath.h"
 #include "faculty175_device_settings.h"
+#include "faculty175_face_eye.h"
 #include "faculty175_face_profile.h"
 #include "faculty175_faces.h"
 #include "faculty175_power_metrics.h"
@@ -61,6 +62,66 @@ static esp_err_t api_options(httpd_req_t *req)
 {
     set_api_headers(req);
     return httpd_resp_send(req, "", 0);
+}
+
+static esp_err_t usb_status_get(httpd_req_t *req)
+{
+    faculty175_eye_usb_status_t status = {};
+    faculty175_face_eye_usb_status(&status);
+
+    cJSON *root = cJSON_CreateObject();
+    if (root == NULL) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "json alloc");
+        return ESP_FAIL;
+    }
+    cJSON_AddNumberToObject(root, "schema", 1);
+    add_json_string(root, "role", "host");
+    cJSON_AddBoolToObject(root, "deviceModeEnabled", false);
+    cJSON_AddBoolToObject(root, "initialized", status.initialized);
+    cJSON_AddBoolToObject(root, "hostInstalled", status.host_installed);
+    cJSON_AddBoolToObject(root, "uvcInstalled", status.uvc_installed);
+
+    cJSON *target = cJSON_AddObjectToObject(root, "target");
+    if (target != NULL) {
+        char vid[7];
+        char pid[7];
+        snprintf(vid, sizeof(vid), "0x%04x", status.target_vid);
+        snprintf(pid, sizeof(pid), "0x%04x", status.target_pid);
+        add_json_string(target, "class", "UVC");
+        add_json_string(target, "vid", vid);
+        add_json_string(target, "pid", pid);
+    }
+
+    cJSON *stream = cJSON_AddObjectToObject(root, "stream");
+    if (stream != NULL) {
+        add_json_string(stream, "state", status.state);
+        cJSON_AddBoolToObject(stream, "open", status.stream_open);
+        cJSON_AddNumberToObject(stream, "width", status.width);
+        cJSON_AddNumberToObject(stream, "height", status.height);
+        cJSON_AddNumberToObject(stream, "fps", status.fps);
+        cJSON_AddNumberToObject(stream, "openAttempts", status.open_attempts);
+        cJSON_AddNumberToObject(stream, "disconnects", status.disconnects);
+        cJSON_AddNumberToObject(stream, "transferErrors", status.transfer_errors);
+        cJSON_AddNumberToObject(stream, "framesReceived", status.frames_received);
+        cJSON_AddNumberToObject(stream, "framesDecoded", status.frames_decoded);
+    }
+
+    cJSON *error = cJSON_AddObjectToObject(root, "lastError");
+    if (error != NULL) {
+        cJSON_AddNumberToObject(error, "code", status.last_error);
+        add_json_string(error, "name", esp_err_to_name(status.last_error));
+    }
+
+    char *body = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    if (body == NULL) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "json print");
+        return ESP_FAIL;
+    }
+    set_api_headers(req);
+    const esp_err_t err = httpd_resp_send(req, body, HTTPD_RESP_USE_STRLEN);
+    free(body);
+    return err;
 }
 
 static esp_err_t api_breath_get(httpd_req_t *req)
@@ -1496,6 +1557,18 @@ esp_err_t faculty175_screen_http_start(const esp_ip4_addr_t *ip)
         .handler = api_faces_get,
         .user_ctx = NULL,
     };
+    const httpd_uri_t usb_uri = {
+        .uri = "/usb",
+        .method = HTTP_GET,
+        .handler = usb_status_get,
+        .user_ctx = NULL,
+    };
+    const httpd_uri_t api_usb_uri = {
+        .uri = "/api/usb",
+        .method = HTTP_GET,
+        .handler = usb_status_get,
+        .user_ctx = NULL,
+    };
     const httpd_uri_t api_breath_uri = {
         .uri = "/api/breath",
         .method = HTTP_GET,
@@ -1610,6 +1683,8 @@ esp_err_t faculty175_screen_http_start(const esp_ip4_addr_t *ip)
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &wifi_post_uri), TAG, "register POST /wifi");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &wifi_scan_uri), TAG, "register GET /wifi/scan");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &api_faces_uri), TAG, "register GET /api/faces");
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &usb_uri), TAG, "register GET /usb");
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &api_usb_uri), TAG, "register GET /api/usb");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &api_breath_uri), TAG, "register GET /api/breath");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &breathing_uri), TAG, "register GET /breathing");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &api_battery_uri), TAG, "register GET /api/battery");
