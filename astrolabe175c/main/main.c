@@ -3860,7 +3860,13 @@ void app_main(void)
     }
     button_reboot_task_start_if_needed();
     ui_set(FACULTY175_UI_LISTEN, NULL);
-    if (xTaskCreate(eye_host_start_task, "eye_start", 4096, NULL, 3, NULL) != pdPASS) {
+    if (xTaskCreateWithCaps(eye_host_start_task,
+                            "eye_start",
+                            4096,
+                            NULL,
+                            3,
+                            NULL,
+                            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS) {
         FACULTY175_LOG_STAGE_W(TAG, "eye", "UVC host start task create failed");
     }
     FACULTY175_LOG_STAGE(TAG, "boot", "board audio=%s", faculty175_board_audio_ready() ? "ok" : "off");

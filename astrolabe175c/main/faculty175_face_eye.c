@@ -385,7 +385,7 @@ esp_err_t faculty175_face_eye_init(void)
     }
 
     const uvc_host_driver_config_t uvc_config = {
-        .driver_task_stack_size = 6u * 1024u,
+        .driver_task_stack_size = 4u * 1024u,
         .driver_task_priority = EYE_USB_TASK_PRIORITY + 1,
         .xCoreID = tskNO_AFFINITY,
         .create_background_task = true,
@@ -398,20 +398,22 @@ esp_err_t faculty175_face_eye_init(void)
         s_last_error = err;
         return err;
     }
-    if (xTaskCreatePinnedToCore(decode_task,
-                                "eye_decode",
-                                6144,
-                                NULL,
-                                EYE_DECODE_TASK_PRIORITY,
-                                &s_decode_task,
-                                tskNO_AFFINITY) != pdPASS ||
-        xTaskCreatePinnedToCore(stream_task,
-                                "eye_stream",
-                                6144,
-                                NULL,
-                                EYE_STREAM_TASK_PRIORITY,
-                                NULL,
-                                tskNO_AFFINITY) != pdPASS) {
+    if (xTaskCreatePinnedToCoreWithCaps(decode_task,
+                                        "eye_decode",
+                                        6144,
+                                        NULL,
+                                        EYE_DECODE_TASK_PRIORITY,
+                                        &s_decode_task,
+                                        tskNO_AFFINITY,
+                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS ||
+        xTaskCreatePinnedToCoreWithCaps(stream_task,
+                                        "eye_stream",
+                                        6144,
+                                        NULL,
+                                        EYE_STREAM_TASK_PRIORITY,
+                                        NULL,
+                                        tskNO_AFFINITY,
+                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS) {
         s_state = EYE_STATE_ERROR;
         s_last_error = ESP_ERR_NO_MEM;
         return ESP_ERR_NO_MEM;
