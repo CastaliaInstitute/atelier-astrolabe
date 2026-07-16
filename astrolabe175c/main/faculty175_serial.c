@@ -1472,6 +1472,7 @@ static void handle_line(char *line)
     if (line[0] == '\0') {
         return;
     }
+    faculty175_ble_serial_activity();
 
     if (line_is(line, "face screen") || line_is(line, "faces screen") || line_is(line, "face screen.bmp") ||
         line_is(line, "faces screen.bmp")) {

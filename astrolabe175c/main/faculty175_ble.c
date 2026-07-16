@@ -10,11 +10,13 @@
 #include "cJSON.h"
 #include "astrolabe_time.h"
 #include "esp_log.h"
+#include "esp_random.h"
 #include "esp_timer.h"
 #include "esp_system.h"
 #include "nvs.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/portmacro.h"
+#include "freertos/task.h"
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
 #include "host/ble_gatt.h"
@@ -98,9 +100,11 @@ static bool s_paired_ring_id_set;
 static int8_t s_last_ring_rssi;
 static bool s_have_last_ring_rssi;
 static uint32_t s_next_scan_ms;
+static uint32_t s_serial_quiet_until_ms;
 static uint8_t s_imu_adv_seq;
 
 static int ble_gap_event(struct ble_gap_event *event, void *arg);
+static esp_err_t ble_advertise(void);
 static int ble_settings_enabled_access(uint16_t conn_handle,
                                        uint16_t attr_handle,
                                        struct ble_gatt_access_ctxt *ctxt,
@@ -209,6 +213,29 @@ static esp_err_t ble_nvs_set_ring_id(uint16_t id, bool set)
 static uint32_t ble_now_ms(void)
 {
     return (uint32_t)(esp_timer_get_time() / 1000ULL);
+}
+
+static void ble_defer_radar_scan(uint32_t delay_ms)
+{
+    const uint32_t now = ble_now_ms();
+    const uint32_t until = now + delay_ms;
+    s_serial_quiet_until_ms = until;
+    if (!s_scanning && (s_next_scan_ms == 0 || (int32_t)(s_next_scan_ms - until) < 0)) {
+        s_next_scan_ms = until;
+    }
+}
+
+void faculty175_ble_serial_activity(void)
+{
+    if (s_scanning) {
+        (void)ble_gap_disc_cancel();
+        s_scanning = false;
+        vTaskDelay(pdMS_TO_TICKS(120));
+        if (s_started && s_synced && s_enabled && !s_advertising) {
+            (void)ble_advertise();
+        }
+    }
+    ble_defer_radar_scan(10000u);
 }
 
 static void ble_copy_text(char *dst, size_t dst_len, const uint8_t *src, size_t src_len)
@@ -500,11 +527,11 @@ static void ble_peer_store(const ble_addr_t *addr,
     char name[FACULTY175_BLE_PEER_NAME_MAX];
     ble_copy_text(name, sizeof(name), fields->name, fields->name_len);
     const uint16_t addr_hash = ble_addr_hash16(addr->val);
-    const bool astrolabe = ble_fields_have_astrolabe_uuid(fields) || ble_name_mentions_astrolabe(name);
-    const bool paired_ring = s_paired_ring_id_set && addr_hash == s_paired_ring_id;
-    const bool ring = !astrolabe && (paired_ring || ble_name_mentions_ring(name));
     ble_astrolabe_mfg_t mfg = {};
     const bool has_mfg = ble_parse_mfg_payload(fields, &mfg);
+    const bool astrolabe = has_mfg || ble_fields_have_astrolabe_uuid(fields) || ble_name_mentions_astrolabe(name);
+    const bool paired_ring = s_paired_ring_id_set && addr_hash == s_paired_ring_id;
+    const bool ring = !astrolabe && (paired_ring || ble_name_mentions_ring(name));
     if (!astrolabe && !ring && name[0] == '\0') {
         return;
     }
@@ -796,7 +823,6 @@ static esp_err_t ble_advertise(void)
         return ESP_FAIL;
     }
     s_advertising = true;
-    FACULTY175_LOG_STAGE(TAG, "ble", "advertising %s", ble_svc_gap_device_name());
     return ESP_OK;
 }
 
@@ -897,6 +923,9 @@ static int ble_settings_enabled_access(uint16_t conn_handle,
 
 esp_err_t faculty175_ble_init(void)
 {
+    esp_log_level_set("NimBLE", ESP_LOG_NONE);
+    esp_log_level_set("BLE_INIT", ESP_LOG_NONE);
+
     esp_err_t err = ble_nvs_get_enabled(&s_enabled);
     uint16_t ring_id = 0;
     bool ring_id_set = false;
@@ -1054,12 +1083,12 @@ esp_err_t faculty175_ble_scan_start(uint32_t duration_ms)
     const int rc = ble_gap_disc(s_own_addr_type, (int32_t)duration_ms, &params, ble_gap_event, NULL);
     if (rc != 0 && rc != BLE_HS_EALREADY) {
         s_scanning = false;
-        s_next_scan_ms = ble_now_ms() + 2500u;
+        s_next_scan_ms = ble_now_ms() + 1800u + (esp_random() % 1400u);
         (void)ble_advertise();
         ESP_LOGW(TAG, "scan start failed rc=%d", rc);
         return ESP_FAIL;
     }
-    s_next_scan_ms = ble_now_ms() + duration_ms + 2500u;
+    s_next_scan_ms = ble_now_ms() + duration_ms + 900u + (esp_random() % 1600u);
     return ESP_OK;
 }
 
@@ -1070,6 +1099,13 @@ void faculty175_ble_radar_tick(uint32_t now_ms)
     }
     if (now_ms == 0) {
         now_ms = ble_now_ms();
+    }
+    if ((int32_t)(now_ms - s_serial_quiet_until_ms) < 0) {
+        return;
+    }
+    if (s_next_scan_ms == 0) {
+        s_next_scan_ms = now_ms + 5000u + (esp_random() % 4000u);
+        return;
     }
     if (now_ms >= s_next_scan_ms) {
         (void)faculty175_ble_scan_start(1800u);
@@ -1170,6 +1206,11 @@ bool faculty175_ble_handle(const char *line)
     sub = sub != NULL ? sub + 1 : "status";
     while (*sub == ' ') {
         ++sub;
+    }
+
+    const bool explicit_scan_cmd = strcasecmp(sub, "scan") == 0 || strcasecmp(sub, "ring scan") == 0;
+    if (!explicit_scan_cmd) {
+        ble_defer_radar_scan(10000u);
     }
 
     if (*sub == '\0' || strcasecmp(sub, "status") == 0) {

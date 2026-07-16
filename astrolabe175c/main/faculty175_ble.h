@@ -69,6 +69,7 @@ esp_err_t faculty175_ble_set_enabled(bool enabled);
 esp_err_t faculty175_ble_set_device_name(const char *name);
 const char *faculty175_ble_device_name(void);
 esp_err_t faculty175_ble_scan_start(uint32_t duration_ms);
+void faculty175_ble_serial_activity(void);
 void faculty175_ble_radar_tick(uint32_t now_ms);
 size_t faculty175_ble_peers_snapshot(faculty175_ble_peer_t *out, size_t cap);
 size_t faculty175_ble_ring_telemetry_snapshot(faculty175_ble_ring_telem_t *out, size_t cap);

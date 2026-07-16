@@ -127,7 +127,7 @@ static bool running_from_factory_partition(void)
 #define FACULTY175_PIPELINE_VOICE_STACK 6144
 #define FACULTY175_UI_TASK_STACK 8192
 #define FACULTY175_INPUT_TASK_STACK 5376
-#define FACULTY175_SERIAL_TASK_STACK 4608
+#define FACULTY175_SERIAL_TASK_STACK 8192
 #define FACULTY175_BUTTON_REBOOT_STACK 3328
 #define FACULTY175_FACULTY_SAVE_STACK 2048
 
@@ -3288,6 +3288,9 @@ static void input_task(void *arg)
     while (true) {
         const uint32_t now_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
         low_power_tick(now_ms);
+        if (!s_nav_mode) {
+            faculty175_ble_radar_tick(now_ms);
+        }
 
         const faculty175_touch_state_t touch = faculty175_touch_state_get();
         if ((s_low_power_asleep || s_low_power_dimmed) &&
