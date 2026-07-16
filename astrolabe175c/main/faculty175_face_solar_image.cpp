@@ -11,12 +11,12 @@
 #include "esp_heap_caps.h"
 #include "esp_http_client.h"
 #include "esp_log.h"
-#include "esp_spiffs.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 
 #include "faculty175_board.h"
+#include "faculty175_storage.h"
 #include "faculty175_wifi_settings.h"
 #include "stb_image.h"
 
@@ -27,7 +27,10 @@ constexpr size_t kMaxPngBytes = 360000;
 constexpr size_t kPixels = static_cast<size_t>(FACULTY175_LCD_W) * static_cast<size_t>(FACULTY175_LCD_H);
 constexpr time_t kRefreshSeconds = 30 * 60;
 constexpr time_t kFailureBackoffSeconds = 5 * 60;
-constexpr const char *kCacheBasePath = "/bust_cache";
+constexpr const char *kCacheBasePath = "/usbflash/media/bust_cache";
+constexpr int kHelioviewerHalfExtent = 1200;
+constexpr int kHelioviewerCenterX = -240;
+constexpr int kHelioviewerCenterY = 250;
 
 struct SolarChannel {
     int wavelength;
@@ -37,9 +40,9 @@ struct SolarChannel {
 };
 
 constexpr SolarChannel kChannels[] = {
-    {171, "AIA 171", "/bust_cache/solar_aia171.png", "/bust_cache/solar_aia171.meta"},
-    {304, "AIA 304", "/bust_cache/solar_aia304.png", "/bust_cache/solar_aia304.meta"},
-    {193, "AIA 193", "/bust_cache/solar_aia193.png", "/bust_cache/solar_aia193.meta"},
+    {171, "AIA 171", "/usbflash/media/bust_cache/solar_aia171.png", "/usbflash/media/bust_cache/solar_aia171.meta"},
+    {304, "AIA 304", "/usbflash/media/bust_cache/solar_aia304.png", "/usbflash/media/bust_cache/solar_aia304.meta"},
+    {193, "AIA 193", "/usbflash/media/bust_cache/solar_aia193.png", "/usbflash/media/bust_cache/solar_aia193.meta"},
 };
 
 SemaphoreHandle_t s_mux = nullptr;
@@ -112,22 +115,21 @@ bool build_url(int channel, char *out, size_t cap)
                            cap,
                            "https://api.helioviewer.org/v2/takeScreenshot/"
                            "?date=%s&imageScale=5.15&layers=%%5BSDO,AIA,AIA,%d,1,100%%5D"
-                           "&x1=-1200&y1=-1200&x2=1200&y2=1200&width=466&height=466"
+                           "&x1=%d&y1=%d&x2=%d&y2=%d&width=466&height=466"
                            "&display=true&watermark=false",
                            date,
-                           kChannels[channel].wavelength);
+                           kChannels[channel].wavelength,
+                           kHelioviewerCenterX - kHelioviewerHalfExtent,
+                           kHelioviewerCenterY - kHelioviewerHalfExtent,
+                           kHelioviewerCenterX + kHelioviewerHalfExtent,
+                           kHelioviewerCenterY + kHelioviewerHalfExtent);
     return n > 0 && static_cast<size_t>(n) < cap;
 }
 
 bool ensure_cache_fs()
 {
-    esp_vfs_spiffs_conf_t conf = {};
-    conf.base_path = kCacheBasePath;
-    conf.partition_label = "storage";
-    conf.max_files = 4;
-    conf.format_if_mount_failed = false;
-    const esp_err_t err = esp_vfs_spiffs_register(&conf);
-    return err == ESP_OK || err == ESP_ERR_INVALID_STATE;
+    (void)kCacheBasePath;
+    return faculty175_storage_init() == ESP_OK;
 }
 
 bool read_flash_epoch(const char *path, time_t *out)
@@ -383,6 +385,14 @@ void fetch_task(void *)
             !s_flash_cache_checked[channel]) {
             (void)load_flash_cache(channel);
         }
+        if (!faculty175_wifi_settings_sta_connected()) {
+            if (s_pixels == nullptr) {
+                set_error("wifi pending");
+            }
+            s_force = false;
+            s_busy = false;
+            continue;
+        }
         char url[256];
         bool ok = build_url(channel, url, sizeof(url));
         uint8_t *png = nullptr;
@@ -432,21 +442,19 @@ extern "C" void faculty175_solar_image_request(bool force)
     if (s_busy) {
         return;
     }
-    if (s_pixels == nullptr && s_channel >= 0 &&
-        s_channel < static_cast<int>(sizeof(kChannels) / sizeof(kChannels[0])) &&
-        !s_flash_cache_checked[s_channel]) {
-        (void)load_flash_cache(s_channel);
-    }
-    if (!faculty175_wifi_settings_sta_connected()) {
+    const bool needs_flash_check = s_pixels == nullptr && s_channel >= 0 &&
+                                    s_channel < static_cast<int>(sizeof(kChannels) / sizeof(kChannels[0])) &&
+                                    !s_flash_cache_checked[s_channel];
+    if (!needs_flash_check && !faculty175_wifi_settings_sta_connected()) {
         set_error("wifi pending");
         return;
     }
     const time_t now = astrolabe_time_valid() ? astrolabe_time_now() : time(nullptr);
-    if (!force && s_last_failure_epoch > 0 && now > s_last_failure_epoch &&
+    if (!force && !needs_flash_check && s_last_failure_epoch > 0 && now > s_last_failure_epoch &&
         now - s_last_failure_epoch < kFailureBackoffSeconds) {
         return;
     }
-    if (!force && s_cached_channel == s_channel && !cache_stale(now)) {
+    if (!force && !needs_flash_check && s_cached_channel == s_channel && !cache_stale(now)) {
         return;
     }
     ensure_task();

@@ -2170,6 +2170,7 @@ static bool draw_solar(uint32_t anim_ms)
             if (faculty175_solar_image_copy_cached(s_solar_image_pixels, pixel_count, &copied_epoch)) {
                 s_solar_image_epoch = copied_epoch;
                 lv_image_set_src(s_solar_image, &s_solar_image_texture);
+                lv_obj_align(s_solar_image, LV_ALIGN_CENTER, 0, 0);
                 lv_obj_invalidate(s_solar_image);
                 ESP_LOGI(TAG, "solar LVGL image refreshed from Helioviewer cache");
             }

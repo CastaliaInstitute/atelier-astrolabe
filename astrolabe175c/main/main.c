@@ -3813,6 +3813,10 @@ void app_main(void)
         s_ui_task = NULL;
         FACULTY175_LOG_STAGE_E(TAG, "ui", "task create failed");
     }
+    const esp_err_t ble_boot_err = faculty175_ble_init();
+    if (ble_boot_err != ESP_OK) {
+        FACULTY175_LOG_STAGE_W(TAG, "ble", "boot start failed: %s", esp_err_to_name(ble_boot_err));
+    }
     (void)wifi_start_task_launch("background");
     BaseType_t input_task_ok = xTaskCreateWithCaps(input_task,
                                                    "input",
@@ -3838,8 +3842,6 @@ void app_main(void)
         faculty175_faculty_set_ui_notify(bust_ui_refresh);
         faculty175_faculty_set_network_fetch_enabled(wifi_is_connected());
     }
-
-    FACULTY175_LOG_STAGE_W(TAG, "ble", "startup disabled to preserve internal RAM");
 
     ESP_ERROR_CHECK(faculty175_listen_init(&s_listen));
     configure_voice_endpoint_urls();

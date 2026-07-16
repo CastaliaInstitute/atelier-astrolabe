@@ -53,8 +53,8 @@ The registry tracks:
 - `people`: local person IDs, display names, and Castalia individual IDs.
 - `familyRepositories`: private per-user GitHub repositories used for family
   synastry and wellness exchange after a user authorizes Castalia once.
-- `devices`: Astrolabes, smart rings, BLE addresses, firmware identities, and
-  useful GATT service details.
+- `devices`: Astrolabes, smart rings, short display IDs, BLE addresses,
+  firmware identities, and useful GATT service details.
 - `links`: ownership or pairing relationships, such as one person's Astrolabe
   and ring, plus explicit family wellness subscriptions between Astrolabes.
 
@@ -73,3 +73,9 @@ castalia individual Camille
 
 Then update `.local/device-assignments.json` with the Astrolabe MAC, current
 serial port or mDNS name, and mark the assignment status as connected.
+
+Short IDs are the normal UI and family-synastry identifier. Keep full MAC
+addresses in the private local registry or protected Supabase provisioning
+table; use `identifiers.shortId` for radar labels, prompts, and family
+repository records. The Supabase `astrolabe-device-lookup` Edge Function
+resolves a short ID to sanitized metadata without returning the MAC.
