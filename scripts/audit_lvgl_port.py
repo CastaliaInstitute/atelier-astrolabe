@@ -80,8 +80,8 @@ def main() -> None:
         fail("nav-mode swipe path is not logging anim=native-nav-slide")
     if "animate_face_slide(from_face, face, vertical, delta, now_ms)" not in main_c or "native-snapshot-slide" not in main_c:
         fail("direct face swipe path is not using native snapshot slide transitions")
-    if "snapshot-slide-settle" not in main_c:
-        fail("snapshot slide does not settle back onto the live LVGL face")
+    if "snapshot-slide-settle" in main_c:
+        fail("snapshot slide still performs a redundant full-frame settle flush")
     if "queue_age_ms = gesture.queued_ms" not in main_c:
         fail("navigation metrics do not compute gesture queue age")
     for metric in ("enter face=%s queue_age_ms=%u",
@@ -153,18 +153,18 @@ def main() -> None:
         fail("SPIFFS magnetosphere RGB565 asset is missing or has the wrong size")
     if "SWMF2023-RT" not in magnet_refresh or "MagnetopausePosition" not in magnet_refresh:
         fail("magnetosphere refresh script is not using the current NASA CCMC SWMF2023 data tree")
-    if "NAV_TRANSITION_MS 72" not in main_c:
-        fail("nav transition duration is not pinned at 72ms")
-    if "#define FACE_CAROUSEL_FRAMES 1" not in main_c or "#define FACE_CAROUSEL_FRAME_MS 120" not in main_c:
-        fail("native snapshot carousel is not using the no-stutter commit budget")
+    if "NAV_TRANSITION_MS 160" not in main_c:
+        fail("nav transition duration is not pinned at 160ms")
+    if "#define FACE_CAROUSEL_FRAMES 4" not in main_c or "#define FACE_CAROUSEL_FRAME_MS 16" not in main_c:
+        fail("native snapshot carousel is not using the bounded four-frame transition budget")
     if "vTaskDelay(pdMS_TO_TICKS(12))" in main_c:
         fail("manual face transition still has a hardcoded 12ms delay")
     transition_nav = re.search(r"bool faculty175_lvgl_transition_nav[\s\S]*?\n}", lvgl)
     transition_nav_text = transition_nav.group(0) if transition_nav else ""
     if "duration_ms > 0 ? duration_ms : 72" not in transition_nav_text:
         fail("LVGL nav transition fallback duration is not 72ms")
-    if "const uint32_t step_ms = 8" not in transition_nav_text:
-        fail("LVGL nav transition is not serviced in 8ms steps")
+    if "const uint32_t step_ms = 16" not in transition_nav_text:
+        fail("LVGL nav transition is not serviced in 16ms steps")
     if "animate_nav_preview_native(false, delta, NAV_TRANSITION_MS)" not in main_c:
         fail("horizontal nav-mode swipes are not using pinned native nav duration")
     if "animate_nav_preview_native(true, delta, NAV_TRANSITION_MS)" not in main_c:
@@ -177,8 +177,8 @@ def main() -> None:
     animate_frames_text = animate_frames.group(0) if animate_frames else ""
     if "duration_ms > 0 ? duration_ms : 72" not in animate_frames_text:
         fail("LVGL snapshot animation fallback duration is not 72ms")
-    if "elapsed += 8" not in animate_frames_text or "lvgl_tick(8)" not in animate_frames_text:
-        fail("LVGL snapshot animation is not serviced in 8ms steps")
+    if "elapsed += 16" not in animate_frames_text or "lvgl_tick(16)" not in animate_frames_text:
+        fail("LVGL snapshot animation is not serviced in 16ms steps")
     if "vertical-direct-swipe" not in main_c:
         fail("vertical face-group swipe is not using the direct LVGL transition path")
     if "change_face_group_for_vertical" in main_c:
@@ -190,7 +190,7 @@ def main() -> None:
 
     print(f"OK: {len(faces)} registered faces have LVGL case coverage")
     print("OK: nav-mode swipes use native-nav-slide")
-    print("OK: direct swipes use native-snapshot-slide with live-face settle")
+    print("OK: direct swipes use native-snapshot-slide without a redundant settle flush")
     print("OK: preview-snap path absent")
     print("OK: stale/queued navigation gestures are bounded")
     print("OK: registered faces avoid descriptor/generic utility fallbacks")

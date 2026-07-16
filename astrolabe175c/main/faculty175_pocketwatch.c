@@ -20,7 +20,7 @@ extern const uint8_t _binary_pocketwatch_default_rgb565_start[] asm("_binary_poc
 extern const uint8_t _binary_pocketwatch_default_rgb565_end[] asm("_binary_pocketwatch_default_rgb565_end");
 
 static bool s_bg_loaded;
-static bool s_bg_enabled = true;
+static bool s_bg_enabled = false;
 static bool s_bg_override_checked;
 static uint16_t *s_bg_override_pixels;
 
@@ -156,7 +156,7 @@ static void load_bg_setting(void)
     s_bg_loaded = true;
 
     nvs_handle_t nvs;
-    uint8_t enabled = 1;
+    uint8_t enabled = 0;
     if (nvs_open(POCKETWATCH_NVS_NS, NVS_READONLY, &nvs) == ESP_OK) {
         if (nvs_get_u8(nvs, POCKETWATCH_NVS_BG, &enabled) == ESP_OK) {
             s_bg_enabled = enabled != 0;

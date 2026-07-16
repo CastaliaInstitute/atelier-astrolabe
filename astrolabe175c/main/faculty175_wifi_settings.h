@@ -15,6 +15,7 @@ extern "C" {
 #define FACULTY175_WIFI_URL_MAX 64
 #define FACULTY175_WIFI_QR_MAX 160
 #define FACULTY175_WIFI_KNOWN_MAX 6
+#define FACULTY175_WIFI_HOSTNAME_MAX 63
 
 typedef struct {
     char ssid[FACULTY175_WIFI_SSID_MAX + 1];
@@ -29,6 +30,8 @@ esp_err_t faculty175_wifi_settings_remove_known(const char *ssid);
 esp_err_t faculty175_wifi_settings_clear_known(void);
 bool faculty175_wifi_settings_travel_router_enabled(void);
 esp_err_t faculty175_wifi_settings_set_travel_router_enabled(bool enabled);
+esp_err_t faculty175_wifi_settings_load_hostname(char *out, size_t cap);
+esp_err_t faculty175_wifi_settings_save_hostname(const char *hostname);
 
 void faculty175_wifi_settings_set_sta(const char *ssid, const esp_ip4_addr_t *ip);
 void faculty175_wifi_settings_set_ap(const char *ssid, const char *pass, const esp_ip4_addr_t *ip);

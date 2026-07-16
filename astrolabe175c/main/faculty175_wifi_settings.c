@@ -1,5 +1,6 @@
 #include "faculty175_wifi_settings.h"
 
+#include <ctype.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -12,6 +13,7 @@ static const char *kSsid = "ssid";
 static const char *kPass = "pass";
 static const char *kCount = "count";
 static const char *kTravelRouter = "router";
+static const char *kHostname = "hostname";
 
 static bool s_ap_active;
 static unsigned s_ap_client_count;
@@ -283,6 +285,67 @@ esp_err_t faculty175_wifi_settings_set_travel_router_enabled(bool enabled)
         return err;
     }
     err = nvs_set_u8(nvs, kTravelRouter, enabled ? 1 : 0);
+    if (err == ESP_OK) {
+        err = nvs_commit(nvs);
+    }
+    nvs_close(nvs);
+    return err;
+}
+
+static bool hostname_valid(const char *hostname)
+{
+    if (hostname == NULL) {
+        return false;
+    }
+    const size_t len = strlen(hostname);
+    if (len == 0 || len > FACULTY175_WIFI_HOSTNAME_MAX || hostname[0] == '-' || hostname[len - 1] == '-') {
+        return false;
+    }
+    for (size_t i = 0; i < len; ++i) {
+        const unsigned char c = (unsigned char)hostname[i];
+        if (!isalnum(c) && c != '-') {
+            return false;
+        }
+    }
+    return true;
+}
+
+esp_err_t faculty175_wifi_settings_load_hostname(char *out, size_t cap)
+{
+    if (out == NULL || cap == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    out[0] = '\0';
+    nvs_handle_t nvs;
+    esp_err_t err = nvs_open(kNs, NVS_READONLY, &nvs);
+    if (err != ESP_OK) {
+        return err;
+    }
+    size_t len = cap;
+    err = nvs_get_str(nvs, kHostname, out, &len);
+    nvs_close(nvs);
+    if (err != ESP_OK || !hostname_valid(out)) {
+        out[0] = '\0';
+        return err != ESP_OK ? err : ESP_ERR_INVALID_STATE;
+    }
+    return ESP_OK;
+}
+
+esp_err_t faculty175_wifi_settings_save_hostname(const char *hostname)
+{
+    const bool clear = hostname == NULL || hostname[0] == '\0';
+    if (!clear && !hostname_valid(hostname)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    nvs_handle_t nvs;
+    esp_err_t err = nvs_open(kNs, NVS_READWRITE, &nvs);
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = clear ? nvs_erase_key(nvs, kHostname) : nvs_set_str(nvs, kHostname, hostname);
+    if (clear && err == ESP_ERR_NVS_NOT_FOUND) {
+        err = ESP_OK;
+    }
     if (err == ESP_OK) {
         err = nvs_commit(nvs);
     }

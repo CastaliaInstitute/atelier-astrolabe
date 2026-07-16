@@ -23,6 +23,7 @@
 
 #include "astrolabe_time.h"
 #include "faculty175_board.h"
+#include "faculty175_breath.h"
 #include "faculty175_ble.h"
 #include "faculty175_charts.h"
 #include "faculty175_device_auth.h"
@@ -33,6 +34,7 @@
 #include "faculty175_qa.h"
 #include "faculty175_ota.h"
 #include "faculty175_pocketwatch.h"
+#include "faculty175_power_metrics.h"
 #include "faculty175_pmu.h"
 #include "faculty175_quotes.h"
 #include "faculty175_rocket.h"
@@ -153,12 +155,8 @@ static bool handle_wifi_command(const char *line)
         ++sub;
     }
     if (*sub == '\0' || strcasecmp(sub, "status") == 0) {
-        char saved_ssid[FACULTY175_WIFI_SSID_MAX + 1] = {};
-        char saved_pass[FACULTY175_WIFI_PASS_MAX + 1] = {};
-        const esp_err_t load_err = faculty175_wifi_settings_load(saved_ssid,
-                                                                 sizeof(saved_ssid),
-                                                                 saved_pass,
-                                                                 sizeof(saved_pass));
+        faculty175_wifi_known_t known[FACULTY175_WIFI_KNOWN_MAX] = {};
+        const size_t known_count = faculty175_wifi_settings_load_known(known, FACULTY175_WIFI_KNOWN_MAX);
         wifi_ap_record_t ap = {};
         const esp_err_t ap_err = esp_wifi_sta_get_ap_info(&ap);
         printf("wifi: runtime status=\"%s\" ssid=\"%s\" url=\"%s\" ap_active=%s ap_client=%s\n",
@@ -180,11 +178,9 @@ static bool handle_wifi_command(const char *line)
             printf("wifi: sta disconnected err=%s\n", esp_err_to_name(ap_err));
         }
         printf("wifi: saved=%s ssid=\"%s\" pass=%s\n",
-               load_err == ESP_OK ? "yes" : "no",
-               load_err == ESP_OK ? saved_ssid : "",
-               (load_err == ESP_OK && saved_pass[0] != '\0') ? "set" : "empty");
-        faculty175_wifi_known_t known[FACULTY175_WIFI_KNOWN_MAX] = {};
-        const size_t known_count = faculty175_wifi_settings_load_known(known, FACULTY175_WIFI_KNOWN_MAX);
+               known_count > 0 ? "yes" : "no",
+               known_count > 0 ? known[0].ssid : "",
+               (known_count > 0 && known[0].pass[0] != '\0') ? "set" : "empty");
         printf("wifi: known count=%u\n", (unsigned)known_count);
         for (size_t i = 0; i < known_count; ++i) {
             printf("wifi: known %u ssid=\"%s\" pass=%s%s\n",
@@ -209,6 +205,36 @@ static bool handle_wifi_command(const char *line)
                    i == 0 ? " primary" : "");
         }
         fflush(stdout);
+        return true;
+    }
+
+    if (strncasecmp(sub, "hostname", 8) == 0 &&
+        (sub[8] == '\0' || isspace((unsigned char)sub[8]))) {
+        const char *arg = sub + 8;
+        while (*arg != '\0' && isspace((unsigned char)*arg)) {
+            ++arg;
+        }
+        char hostname[FACULTY175_WIFI_HOSTNAME_MAX + 1] = {};
+        if (*arg == '\0' || strcasecmp(arg, "status") == 0) {
+            const esp_err_t err = faculty175_wifi_settings_load_hostname(hostname, sizeof(hostname));
+            printf("wifi: hostname=%s%s%s\n",
+                   err == ESP_OK ? "\"" : "auto (astrolabe-XXXX)",
+                   err == ESP_OK ? hostname : "",
+                   err == ESP_OK ? "\"" : "");
+            fflush(stdout);
+            return true;
+        }
+        const bool clear = strcasecmp(arg, "auto") == 0 || strcasecmp(arg, "clear") == 0;
+        const esp_err_t err = faculty175_wifi_settings_save_hostname(clear ? NULL : arg);
+        printf("wifi: hostname=%s err=%s%s\n",
+               clear ? "auto (astrolabe-XXXX)" : arg,
+               esp_err_to_name(err),
+               err == ESP_OK ? " (rebooting)" : "");
+        fflush(stdout);
+        if (err == ESP_OK) {
+            vTaskDelay(pdMS_TO_TICKS(250));
+            esp_restart();
+        }
         return true;
     }
 
@@ -380,6 +406,7 @@ static bool handle_wifi_command(const char *line)
     printf("  wifi scan\n");
     printf("  wifi incidents | wifi incidents clear\n");
     printf("  wifi router on|off\n");
+    printf("  wifi hostname [name|auto]  (persistent mDNS name and reboot)\n");
     printf("  wifi set \"SSID\" \"password\"  (save primary and reboot)\n");
     printf("  wifi add \"SSID\" \"password\"  (save known network)\n");
     printf("  wifi remove \"SSID\"\n");
@@ -831,23 +858,72 @@ static bool handle_power_command(const char *line)
         return false;
     }
 
-    faculty175_pmu_status_t st = {
-        .battery_percent = -1,
-    };
-    if (!faculty175_pmu_status(&st)) {
+    const char *args = line + (strncasecmp(line, "battery", 7) == 0 ? 7 : 5);
+    char sub[24] = {0};
+    char arg[24] = {0};
+    args = parse_serial_arg(args, sub, sizeof(sub));
+    (void)parse_serial_arg(args, arg, sizeof(arg));
+
+    if (strcasecmp(sub, "stream") == 0) {
+        float hz = 0.2f;
+        if (arg[0] != '\0' && strcasecmp(arg, "on") != 0) {
+            if (strcasecmp(arg, "off") == 0 || strcmp(arg, "0") == 0) {
+                hz = 0.0f;
+            } else {
+                char *end = NULL;
+                hz = strtof(arg, &end);
+                if (end == arg || end == NULL || *end != '\0') {
+                    printf("power: usage: power stream [off|0.1..5]\n");
+                    fflush(stdout);
+                    return true;
+                }
+            }
+        }
+        if (!faculty175_power_metrics_stream_set(hz)) {
+            printf("power: stream rate must be between 0 and 5 Hz\n");
+        } else if (hz == 0.0f) {
+            printf("power: stream off\n");
+        } else {
+            printf("power: stream %.1f Hz\n", (double)hz);
+        }
+        fflush(stdout);
+        return true;
+    }
+
+    faculty175_power_metrics_t metrics = {0};
+    faculty175_power_metrics_status(&metrics);
+    const faculty175_pmu_status_t *st = &metrics.pmu;
+    if (!st->present) {
         printf("power: PMU unavailable\n");
         fflush(stdout);
         return true;
     }
-    const bool on_battery = st.present && st.battery_present && !st.vbus_in && !st.charging;
-    printf("power: source=%s battery=%s percent=%d mv=%u vbus=%s charging=%s discharging=%s\n",
+    const bool on_battery = st->battery_present && !st->vbus_in && !st->charging;
+    printf("power: source=%s battery=%s percent=%d mv=%u vbus=%s charging=%s discharging=%s mode=%s wifi=%s uptime_s=%lu awake_s=%lu breathing_s=%lu dimmed_s=%lu asleep_s=%lu discharge_drop=%d discharge_elapsed_s=%lu rate_pct_h=%.3f estimate=%s stream_hz=%.1f\n",
            on_battery ? "battery" : "usb",
-           st.battery_present ? "present" : "absent",
-           st.battery_percent,
-           (unsigned)st.battery_mv,
-           st.vbus_in ? "yes" : "no",
-           st.charging ? "yes" : "no",
-           st.discharging ? "yes" : "no");
+           st->battery_present ? "present" : "absent",
+           st->battery_percent,
+           (unsigned)st->battery_mv,
+           st->vbus_in ? "yes" : "no",
+           st->charging ? "yes" : "no",
+           st->discharging ? "yes" : "no",
+           faculty175_power_mode_name(metrics.mode),
+           metrics.wifi_active ? "on" : "off",
+           (unsigned long)(metrics.uptime_ms / 1000u),
+           (unsigned long)(metrics.awake_ms / 1000u),
+           (unsigned long)(metrics.breathing_ms / 1000u),
+           (unsigned long)(metrics.dimmed_ms / 1000u),
+           (unsigned long)(metrics.asleep_ms / 1000u),
+           metrics.discharge_drop_percent,
+           (unsigned long)(metrics.discharge_elapsed_ms / 1000u),
+           (double)metrics.discharge_percent_per_hour,
+           metrics.estimate_valid ? "valid" : "learning",
+           (double)metrics.stream_hz);
+    if (metrics.estimate_valid) {
+        printf("power: estimated remaining %.2f hours at observed usage mix\n", (double)metrics.remaining_hours);
+    } else if (on_battery) {
+        printf("power: runtime estimate learning; needs at least 15 minutes and a 1%% battery drop\n");
+    }
     fflush(stdout);
     return true;
 }
@@ -1422,6 +1498,72 @@ static void handle_line(char *line)
         return;
     }
 
+    if (strcasecmp(line, "breath") == 0 || strcasecmp(line, "breath status") == 0) {
+        faculty175_breath_status_t status = {};
+        faculty175_breath_status(&status);
+        printf("breath: state=%s rate_bpm=%.1f confidence=%.2f amplitude_deg=%.4f waveform=%.3f axis=%c pitch_deg=%.4f roll_deg=%.4f signal_deg=%.4f motion_dps=%.3f samples=%lu breaths=%lu calibration_ms=%lu guide=%s phase_ms=%lu cycle=%lu target=%.3f alignment=%.2f stream_hz=%.1f\n",
+               faculty175_breath_state_name(status.state),
+               (double)status.rate_bpm,
+               (double)status.confidence,
+               (double)status.amplitude_deg,
+               (double)status.waveform,
+               status.axis,
+               (double)status.pitch_deg,
+               (double)status.roll_deg,
+               (double)status.signal_deg,
+               (double)status.motion_rate_dps,
+               (unsigned long)status.samples,
+               (unsigned long)status.breaths,
+               (unsigned long)status.calibration_ms,
+               faculty175_breath_guide_phase_name(status.guide_phase),
+               (unsigned long)status.guide_phase_ms,
+               (unsigned long)status.guide_cycle,
+               (double)status.guide_target,
+               (double)status.guide_alignment,
+               (double)faculty175_breath_stream_hz());
+        fflush(stdout);
+        return;
+    }
+    if (strcasecmp(line, "breath reset") == 0) {
+        faculty175_breath_reset();
+        printf("breath: reset; open the Iron Man face and remain still for calibration\n");
+        fflush(stdout);
+        return;
+    }
+    if (strncasecmp(line, "breath stream", 13) == 0) {
+        const char *arg = line + 13;
+        while (*arg == ' ') {
+            ++arg;
+        }
+        float hz = 10.0f;
+        if (*arg != '\0' && strcasecmp(arg, "on") != 0) {
+            if (strcasecmp(arg, "off") == 0 || strcmp(arg, "0") == 0) {
+                hz = 0.0f;
+            } else {
+                char *end = NULL;
+                hz = strtof(arg, &end);
+                while (end != NULL && *end == ' ') {
+                    ++end;
+                }
+                if (end == arg || end == NULL || *end != '\0') {
+                    printf("breath: usage: breath stream [off|1..25]\n");
+                    fflush(stdout);
+                    return;
+                }
+            }
+        }
+        if (!faculty175_breath_stream_set(hz)) {
+            printf("breath: stream rate must be between 0 and 25 Hz\n");
+        } else if (hz == 0.0f) {
+            printf("breath: stream off\n");
+        } else {
+            printf("breath: stream %.1f Hz\n", (double)hz);
+            printf("breath_csv_header,ms,state,pitch_deg,roll_deg,signal_deg,amplitude_deg,waveform,rate_bpm,confidence,axis,motion_rate_dps,samples,breaths,guide_phase,guide_phase_ms,guide_cycle,guide_target,guide_alignment\n");
+        }
+        fflush(stdout);
+        return;
+    }
+
     if (handle_gesture_command(line)) {
         return;
     }
@@ -1503,7 +1645,7 @@ static void handle_line(char *line)
     }
 
     if (strcasecmp(line, "help") == 0 || strcasecmp(line, "?") == 0) {
-        printf("serial: screen | face screen | gesture help | button press | tts face | stt [ms] | voice stt [ms] | family status | pipeline capture|status|stop|restart | wifi status|scan|set | time | watch status | power | audio status|ns | i2c scan | ble status | qa help | device help | ota help | faces help | charts help | almanac help | quotes help | rocket help | touch status\n");
+        printf("serial: screen | face screen | breath status|reset|stream [hz|off] | gesture help | button press | tts face | stt [ms] | voice stt [ms] | family status | pipeline capture|status|stop|restart | wifi status|scan|set | time | watch status | power | audio status|ns | i2c scan | ble status | qa help | device help | ota help | faces help | charts help | almanac help | quotes help | rocket help | touch status\n");
         (void)faculty175_qa_handle("qa help");
         return;
     }
@@ -1573,7 +1715,10 @@ void faculty175_serial_init(void)
     if (flags >= 0) {
         (void)fcntl(STDIN_FILENO, F_SETFL, flags | O_NONBLOCK);
     }
-    xTaskCreate(serial_task, "serial", 4608, NULL, 3, &s_serial_task);
+    /* Several diagnostics format Wi-Fi and QA snapshots on this task's stack.
+       Keep enough headroom for nested NVS calls; 4608 bytes overflowed in
+       `wifi status` and corrupted the NVS partition-manager list. */
+    xTaskCreate(serial_task, "serial", 8192, NULL, 3, &s_serial_task);
 }
 
 TaskHandle_t faculty175_serial_task_handle(void)

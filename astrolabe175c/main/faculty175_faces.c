@@ -18,8 +18,8 @@ static const char *TAG = "faculty175_faces";
 #define FACES_NVS_NAV_COUNT "navcnt"
 #define FACES_NVS_NAV_MAP "navmap"
 #define FACE_KEY_CAP 8
-#define FACES_CONFIG_RESET_SCHEMA_VERSION 37
-#define FACES_SCHEMA_VERSION 39
+#define FACES_CONFIG_RESET_SCHEMA_VERSION 40
+#define FACES_SCHEMA_VERSION 40
 
 static const faculty175_face_desc_t k_faces[] = {
     { FACULTY175_FACE_FACULTY, "faculty", "Faculty", FACULTY175_FACE_CAT_HOME, true, true, 10 },
@@ -67,7 +67,7 @@ static const faculty175_face_desc_t k_faces[] = {
     { FACULTY175_FACE_QDAY, "qday", "Question Day", FACULTY175_FACE_CAT_COMMONPLACE, true, false, 140 },
     { FACULTY175_FACE_FOCUS, "focus", "Focus Timer", FACULTY175_FACE_CAT_HOME, true, false, 145 },
     { FACULTY175_FACE_BIOMETRICS, "bio", "Biometrics", FACULTY175_FACE_CAT_HOME, true, false, 150 },
-    { FACULTY175_FACE_IRONMAN, "ironman", "Iron Man", FACULTY175_FACE_CAT_HOME, true, false, 151 },
+    { FACULTY175_FACE_IRONMAN, "arc-reactor", "Arc Reactor", FACULTY175_FACE_CAT_HOME, true, false, 151 },
     { FACULTY175_FACE_WATCHER, "watcher", "Watcher", FACULTY175_FACE_CAT_HOME, true, false, 155 },
     { FACULTY175_FACE_LENORMAND, "lenormand", "Lenormand", FACULTY175_FACE_CAT_ORACLE, true, false, 160 },
     { FACULTY175_FACE_PYTHIA, "pythia", "Pythia", FACULTY175_FACE_CAT_ORACLE, false, false, 165 },
@@ -88,9 +88,10 @@ static const faculty175_face_desc_t k_faces[] = {
     { FACULTY175_FACE_INCIDENTS, "incidents", "Incidents", FACULTY175_FACE_CAT_SYSTEM, true, false, 205 },
     { FACULTY175_FACE_SETTINGS, "settings", "Settings", FACULTY175_FACE_CAT_SYSTEM, true, true, 250 },
     { FACULTY175_FACE_POCKETWATCH, "pocketwatch", "Watch", FACULTY175_FACE_CAT_HOME, true, true, 0 },
+    { FACULTY175_FACE_BATTERY, "battery", "Battery", FACULTY175_FACE_CAT_HOME | FACULTY175_FACE_CAT_SYSTEM, true, true, 152 },
 };
 
-static faculty175_face_id_t s_current = FACULTY175_FACE_POCKETWATCH;
+static faculty175_face_id_t s_current = FACULTY175_FACE_IRONMAN;
 static uint8_t s_enabled_cache[FACULTY175_FACE_COUNT];
 static uint8_t s_nav_cache[FACULTY175_FACE_COUNT];
 static uint8_t s_order_cache[FACULTY175_FACE_COUNT];
@@ -210,7 +211,8 @@ static bool face_active_slot(size_t index)
 
 static bool face_is_nav_anchor(faculty175_face_id_t id)
 {
-    return id == FACULTY175_FACE_FACULTY || id == FACULTY175_FACE_POCKETWATCH;
+    return id == FACULTY175_FACE_FACULTY || id == FACULTY175_FACE_POCKETWATCH ||
+           id == FACULTY175_FACE_IRONMAN;
 }
 
 static uint32_t primary_face_category(uint32_t categories)
@@ -523,7 +525,7 @@ esp_err_t faculty175_faces_init(void)
     size_t len = sizeof(current);
     err = nvs_get_str(nvs, FACES_NVS_CURRENT, current, &len);
     if (err == ESP_ERR_NVS_NOT_FOUND) {
-        err = nvs_set_str(nvs, FACES_NVS_CURRENT, k_faces[FACULTY175_FACE_POCKETWATCH].slug);
+        err = nvs_set_str(nvs, FACES_NVS_CURRENT, k_faces[FACULTY175_FACE_IRONMAN].slug);
         current[0] = '\0';
     }
     uint8_t schema = 0;
@@ -577,9 +579,9 @@ esp_err_t faculty175_faces_init(void)
             }
         }
         if (err == ESP_OK) {
-            err = nvs_set_str(nvs, FACES_NVS_CURRENT, k_faces[FACULTY175_FACE_POCKETWATCH].slug);
+            err = nvs_set_str(nvs, FACES_NVS_CURRENT, k_faces[FACULTY175_FACE_IRONMAN].slug);
             if (err == ESP_OK) {
-                strncpy(current, k_faces[FACULTY175_FACE_POCKETWATCH].slug, sizeof(current) - 1u);
+                strncpy(current, k_faces[FACULTY175_FACE_IRONMAN].slug, sizeof(current) - 1u);
                 current[sizeof(current) - 1u] = '\0';
             }
         }
@@ -615,7 +617,7 @@ esp_err_t faculty175_faces_init(void)
         return err;
     }
 
-    s_current = FACULTY175_FACE_POCKETWATCH;
+    s_current = FACULTY175_FACE_IRONMAN;
     const faculty175_face_desc_t *saved_current = faculty175_faces_find(current);
     if (saved_current != NULL && saved_current->ported && faculty175_faces_enabled(saved_current->id)) {
         s_current = saved_current->id;
@@ -637,6 +639,9 @@ const faculty175_face_desc_t *faculty175_faces_find(const char *slug)
 {
     if (slug == NULL || slug[0] == '\0') {
         return NULL;
+    }
+    if (strcasecmp(slug, "ironman") == 0) {
+        slug = "arc-reactor";
     }
     for (size_t i = 0; i < FACULTY175_FACE_COUNT; ++i) {
         if (!face_active_slot(i)) {

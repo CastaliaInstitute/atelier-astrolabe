@@ -34,6 +34,7 @@ void faculty175_face_qday_draw(uint32_t anim_ms);
 void faculty175_face_focus_draw(uint32_t anim_ms);
 void faculty175_face_bio_draw(uint32_t anim_ms);
 void faculty175_face_ironman_draw(uint32_t anim_ms);
+bool faculty175_face_ironman_action(uint32_t now_ms);
 void faculty175_face_watcher_draw(uint32_t anim_ms);
 void faculty175_face_lenormand_draw(uint32_t anim_ms);
 void faculty175_face_hid_draw(uint32_t anim_ms);
@@ -47,6 +48,7 @@ void faculty175_face_tron_reset(void);
 bool faculty175_solar_image_action(uint32_t seed_ms);
 void faculty175_face_settings_draw(uint32_t anim_ms);
 void faculty175_face_pocketwatch_draw(uint32_t anim_ms);
+void faculty175_face_battery_draw(uint32_t anim_ms);
 
 bool faculty175_face_dispatch_draw(faculty175_face_id_t id, uint32_t anim_ms)
 {
@@ -102,6 +104,7 @@ bool faculty175_face_dispatch_draw(faculty175_face_id_t id, uint32_t anim_ms)
             return true;
         case FACULTY175_FACE_SETTINGS: faculty175_face_settings_draw(anim_ms); return true;
         case FACULTY175_FACE_POCKETWATCH: faculty175_face_pocketwatch_draw(anim_ms); return true;
+        case FACULTY175_FACE_BATTERY: faculty175_face_battery_draw(anim_ms); return true;
         case FACULTY175_FACE_FACULTY:
         case FACULTY175_FACE_COUNT:
         default:
@@ -135,6 +138,8 @@ bool faculty175_face_dispatch_action(faculty175_face_id_t id, uint32_t seed_ms)
             return true;
         case FACULTY175_FACE_SOLAR:
             return faculty175_solar_image_action(seed_ms);
+        case FACULTY175_FACE_IRONMAN:
+            return faculty175_face_ironman_action(seed_ms);
         case FACULTY175_FACE_WSCAN:
         case FACULTY175_FACE_DEAUTH:
         case FACULTY175_FACE_EVILTWIN:
@@ -144,6 +149,7 @@ bool faculty175_face_dispatch_action(faculty175_face_id_t id, uint32_t seed_ms)
             return faculty175_face_incidents_action(seed_ms);
         case FACULTY175_FACE_FACULTY:
         case FACULTY175_FACE_NOTES:
+        case FACULTY175_FACE_BATTERY:
         case FACULTY175_FACE_COUNT:
             return false;
         default:

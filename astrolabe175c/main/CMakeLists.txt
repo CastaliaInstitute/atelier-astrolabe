@@ -40,7 +40,10 @@ idf_component_register(
         "faculty175_usb.c"
         "faculty175_gesture.c"
         "faculty175_motion.c"
+        "faculty175_breath.c"
         "faculty175_pmu.cpp"
+        "faculty175_power_metrics.c"
+        "faculty175_power_history.c"
         "faculty175_serial.c"
         "faculty175_screen_http.c"
         "faculty175_wifi_settings.c"
@@ -88,6 +91,7 @@ idf_component_register(
         esp_lcd
         lvgl
         lwip
+        espressif__mdns
         espressif__esp_lcd_touch
         waveshare__esp_lcd_touch_cst9217
         esp_netif

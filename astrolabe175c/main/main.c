@@ -26,6 +26,7 @@
 #include "astrolabe_time.h"
 #include "faculty175_apocalypso.h"
 #include "faculty175_board.h"
+#include "faculty175_breath.h"
 #include "faculty175_ble.h"
 #include "faculty175_charts.h"
 #include "faculty175_listen.h"
@@ -56,6 +57,8 @@
 #include "faculty175_pocketwatch.h"
 #include "faculty175_quotes.h"
 #include "faculty175_rocket.h"
+#include "faculty175_power_metrics.h"
+#include "faculty175_power_history.h"
 #include "faculty175_screen_http.h"
 #include "faculty175_serial.h"
 #include "faculty175_util.h"
@@ -99,9 +102,9 @@ static bool running_from_factory_partition(void)
 #define FACE_DEATHSTAR_REDRAW_MS 125
 #define FACE_POCKETWATCH_REDRAW_MS 250
 #define FACE_TRON_REDRAW_MS 50
-#define FACE_CAROUSEL_FRAMES 1
-#define FACE_CAROUSEL_FRAME_MS 120
-#define NAV_TRANSITION_MS 72
+#define FACE_CAROUSEL_FRAMES 4
+#define FACE_CAROUSEL_FRAME_MS 16
+#define NAV_TRANSITION_MS 160
 #define FACULTY175_AUDIO_PIPELINE_AUTOSTART 0
 #define FACULTY175_AUDIO_PIPELINE_DUPLEX 1
 #define FACULTY175_BUTTON_USES_DUPLEX_PIPELINE 1
@@ -112,6 +115,7 @@ static bool running_from_factory_partition(void)
 #define LISTEN_CUE_COOLDOWN_MS 1400
 #define BATTERY_DIM_IDLE_MS 8000
 #define BATTERY_SLEEP_IDLE_MS 30000
+#define BATTERY_TOUCH_WAKE_SUPPRESS_MS 850
 #define BATTERY_MONITOR_MS 5000
 #define BATTERY_STT_ARM_MS 20000
 #define BUTTON_RESET_HOLD_MS 4500
@@ -535,7 +539,8 @@ static void low_power_wifi_resume(void)
 
 static bool low_power_wifi_allowed(void)
 {
-    return !s_power_on_battery || s_battery_network_active;
+    return !s_power_on_battery || s_battery_network_active ||
+           (!s_low_power_dimmed && !s_low_power_asleep);
 }
 
 static void low_power_wifi_resume_for_voice(uint32_t wait_ms)
@@ -622,7 +627,11 @@ static void low_power_tick(uint32_t now_ms)
     static int last_pct = -2;
     static uint16_t last_mv;
 
-    if (last_monitor_ms == 0 || now_ms - last_monitor_ms >= BATTERY_MONITOR_MS) {
+    /* PMU reads share the I2C bus with touch and motion. During OTA, the
+       display/UI pipeline is deliberately quiesced and internal RAM is tight;
+       keep the cached power sample instead of starting an I2C transaction. */
+    if (!faculty175_ota_active() &&
+        (last_monitor_ms == 0 || now_ms - last_monitor_ms >= BATTERY_MONITOR_MS)) {
         last_monitor_ms = now_ms;
         faculty175_pmu_status_t st = {
             .battery_percent = -1,
@@ -630,6 +639,9 @@ static void low_power_tick(uint32_t now_ms)
         s_power_have_status = faculty175_pmu_status(&st);
         s_power_status = st;
         s_power_on_battery = low_power_on_battery(&st);
+        if (s_power_have_status) {
+            faculty175_power_history_maybe_record(&st);
+        }
         if (s_power_have_status &&
             (s_power_on_battery != last_on_battery || !last_have_status ||
              st.battery_percent != last_pct || st.battery_mv != last_mv)) {
@@ -652,6 +664,26 @@ static void low_power_tick(uint32_t now_ms)
         }
     }
 
+    bool breathing_guide_active = false;
+    const faculty175_face_desc_t *power_face = faculty175_faces_current();
+    if (power_face != NULL && power_face->id == FACULTY175_FACE_IRONMAN) {
+        faculty175_breath_status_t breath = {0};
+        faculty175_breath_status(&breath);
+        breathing_guide_active = breath.guide_phase != FACULTY175_BREATH_GUIDE_NONE;
+    }
+    const faculty175_power_mode_t power_mode = s_low_power_asleep
+                                                   ? FACULTY175_POWER_ASLEEP
+                                                   : (s_low_power_dimmed
+                                                          ? FACULTY175_POWER_DIMMED
+                                                          : (breathing_guide_active
+                                                                 ? FACULTY175_POWER_BREATHING
+                                                                 : FACULTY175_POWER_AWAKE));
+    faculty175_power_metrics_update(now_ms,
+                                    s_power_have_status ? &s_power_status : NULL,
+                                    power_mode,
+                                    !s_wifi_low_power_paused && wifi_is_connected());
+    faculty175_power_metrics_stream_maybe_emit(now_ms);
+
     if (s_battery_stt_armed && (int32_t)(now_ms - s_battery_stt_armed_until_ms) >= 0) {
         s_battery_stt_armed = false;
         FACULTY175_LOG_STAGE(TAG, "power", "battery button STT arm expired");
@@ -669,6 +701,11 @@ static void low_power_tick(uint32_t now_ms)
         low_power_wifi_pause();
     }
     if (ui_state_modal(s_ui) || faculty175_ota_active() || faculty175_qa_audio_busy()) {
+        return;
+    }
+
+    if (breathing_guide_active) {
+        low_power_note_activity(now_ms, "breathing");
         return;
     }
 
@@ -2944,16 +2981,20 @@ static void animate_face_slide(const faculty175_face_desc_t *from_face,
         const uint32_t anim_start_ms = faculty175_log_ms();
         faculty175_display_lock();
         faculty175_display_draw_rgb565(from, 0, 0, FACULTY175_LCD_W, FACULTY175_LCD_H);
-        const int dir = delta >= 0 ? 1 : -1;
+        /* Gesture routing uses positive delta for a left/up swipe. The frame
+           compositor's source offset has the opposite sign convention. */
+        const int dir = delta >= 0 ? -1 : 1;
         uint32_t frames = 0;
         uint32_t max_gap_ms = 0;
         uint32_t last_frame_ms = faculty175_log_ms();
         for (int frame = 1; frame <= FACE_CAROUSEL_FRAMES; ++frame) {
+            const int t = (1024 * frame) / FACE_CAROUSEL_FRAMES;
+            const int eased = (int)(((int64_t)t * t * (3072 - 2 * t)) / (1024 * 1024));
             if (vertical) {
-                const int shift = (FACULTY175_LCD_H * frame * dir) / FACE_CAROUSEL_FRAMES;
+                const int shift = (FACULTY175_LCD_H * eased * dir) / 1024;
                 faculty175_display_frame_compose_vertical(from, to, shift);
             } else {
-                const int shift = (FACULTY175_LCD_W * frame * dir) / FACE_CAROUSEL_FRAMES;
+                const int shift = (FACULTY175_LCD_W * eased * dir) / 1024;
                 faculty175_display_frame_compose_carousel(from, to, shift);
             }
             faculty175_display_flush_rect(0, 0, FACULTY175_LCD_W, FACULTY175_LCD_H);
@@ -3036,7 +3077,9 @@ static void animate_face_vertical_change(const faculty175_face_desc_t *face,
         faculty175_display_lock();
         const int max_r = FACULTY175_LCD_W > FACULTY175_LCD_H ? FACULTY175_LCD_W : FACULTY175_LCD_H;
         for (int frame = 0; frame <= FACE_CAROUSEL_FRAMES; ++frame) {
-            const int r = (max_r * frame) / FACE_CAROUSEL_FRAMES;
+            const int t = (1024 * frame) / FACE_CAROUSEL_FRAMES;
+            const int eased = (int)(((int64_t)t * t * (3072 - 2 * t)) / (1024 * 1024));
+            const int r = (max_r * eased) / 1024;
             faculty175_display_frame_compose_radial(from, to, r);
             faculty175_display_flush();
             vTaskDelay(pdMS_TO_TICKS(FACE_CAROUSEL_FRAME_MS));
@@ -3119,43 +3162,8 @@ static uint32_t transition_current_face_now(faculty175_face_id_t from_id,
     const faculty175_face_desc_t *from_face = faculty175_faces_get(from_id);
     const uint32_t draw_start_ms = faculty175_log_ms();
 
-    if (face != NULL && from_face != NULL &&
-        faculty175_lvgl_face_supported(from_face->id) &&
-        faculty175_lvgl_face_supported(face->id)) {
-        bool animated = false;
-        faculty175_display_lock();
-        const bool ok = faculty175_lvgl_transition_face(from_id,
-                                                        face->id,
-                                                        now_ms,
-                                                        vertical,
-                                                        delta,
-                                                        NAV_TRANSITION_MS,
-                                                        &animated);
-        faculty175_display_unlock();
-        if (ok) {
-            FACULTY175_LOG_STAGE(TAG,
-                                 "nav-metrics",
-                                 "screen-slide-complete from=%s to=%s animated=%d",
-                                 from_face->slug,
-                                 face->slug,
-                                 animated ? 1 : 0);
-            if (anim_out != NULL) {
-                *anim_out = animated ? "lvgl-screen-slide" : "direct-lvgl-swap";
-            }
-            return faculty175_log_ms() - draw_start_ms;
-        }
-    }
-
     if (face != NULL && from_face != NULL) {
         animate_face_slide(from_face, face, vertical, delta, now_ms);
-        const uint32_t settle_start_ms = faculty175_log_ms();
-        (void)draw_current_face_now(now_ms);
-        FACULTY175_LOG_STAGE(TAG,
-                             "nav-metrics",
-                             "snapshot-slide-settle from=%s to=%s draw_ms=%u",
-                             from_face->slug,
-                             face->slug,
-                             (unsigned)(faculty175_log_ms() - settle_start_ms));
         if (anim_out != NULL) {
             *anim_out = "native-snapshot-slide";
         }
@@ -3269,6 +3277,7 @@ static void input_task(void *arg)
     uint32_t last_bust_retry_ms = 0;
     uint32_t last_face_swipe_ms = 0;
     uint32_t last_time_retry_ms = 0;
+    uint32_t suppress_wake_gesture_until_ms = 0;
     bool button_was_down = false;
     bool face_save_pending = false;
     s_nav_mode = false;
@@ -3279,6 +3288,14 @@ static void input_task(void *arg)
     while (true) {
         const uint32_t now_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
         low_power_tick(now_ms);
+
+        const faculty175_touch_state_t touch = faculty175_touch_state_get();
+        if ((s_low_power_asleep || s_low_power_dimmed) &&
+            (touch.down || faculty175_touch_int_active())) {
+            low_power_note_activity(now_ms, "touch");
+            suppress_wake_gesture_until_ms = now_ms + BATTERY_TOUCH_WAKE_SUPPRESS_MS;
+            faculty175_gesture_flush();
+        }
 
         const bool button_down = faculty175_button_pressed();
         bool button_short_press = false;
@@ -3298,6 +3315,11 @@ static void input_task(void *arg)
 
         faculty175_gesture_t gesture = {};
         if (faculty175_gesture_consume(&gesture)) {
+            if ((int32_t)(suppress_wake_gesture_until_ms - now_ms) > 0) {
+                FACULTY175_LOG_STAGE(TAG, "power", "wake gesture consumed");
+                vTaskDelay(pdMS_TO_TICKS(10));
+                continue;
+            }
             const uint32_t gesture_ms = now_ms;
             const uint32_t queue_age_ms = gesture.queued_ms != 0 && now_ms >= gesture.queued_ms ? now_ms - gesture.queued_ms : 0;
             const bool woke_from_low_power = s_low_power_asleep || s_low_power_dimmed;
@@ -3389,7 +3411,6 @@ static void input_task(void *arg)
                                              (unsigned)select_ms,
                                              (unsigned)preview_ms,
                                              (unsigned)(faculty175_log_ms() - gesture_ms));
-                        faculty175_gesture_flush();
                     }
                 } else if (gesture.kind == FACULTY175_GESTURE_SWIPE_UP ||
                            gesture.kind == FACULTY175_GESTURE_SWIPE_DOWN) {
@@ -3420,7 +3441,6 @@ static void input_task(void *arg)
                                              (unsigned)select_ms,
                                              (unsigned)preview_ms,
                                              (unsigned)(faculty175_log_ms() - gesture_ms));
-                        faculty175_gesture_flush();
                     }
                 }
             } else if (!s_nav_mode && active_face != NULL && active_face->id == FACULTY175_FACE_FACULTY &&
@@ -3466,7 +3486,6 @@ static void input_task(void *arg)
                                          (unsigned)draw_ms,
                                          (unsigned)(faculty175_log_ms() - gesture_ms),
                                          anim);
-                    faculty175_gesture_flush();
                 }
             } else if (!s_nav_mode && active_face != NULL &&
                        ((active_face->id == FACULTY175_FACE_POCKETWATCH &&
@@ -3504,7 +3523,6 @@ static void input_task(void *arg)
                                          (unsigned)draw_ms,
                                          (unsigned)(faculty175_log_ms() - gesture_ms),
                                          anim);
-                    faculty175_gesture_flush();
                 }
             } else if (!s_nav_mode && active_face != NULL &&
                        faculty175_wifi_lab_is_face(active_face->id) &&
@@ -3514,7 +3532,6 @@ static void input_task(void *arg)
                 if (faculty175_wifi_lab_cycle_target(active_face->id, delta)) {
                     ui_redraw();
                 }
-                faculty175_gesture_flush();
             } else if (!s_nav_mode && active_face != NULL && active_face->id == FACULTY175_FACE_INCIDENTS &&
                        (gesture.kind == FACULTY175_GESTURE_SWIPE_UP ||
                         gesture.kind == FACULTY175_GESTURE_SWIPE_DOWN)) {
@@ -3522,7 +3539,6 @@ static void input_task(void *arg)
                 if (faculty175_face_incidents_scroll(delta)) {
                     ui_redraw();
                 }
-                faculty175_gesture_flush();
             } else if (!s_nav_mode && active_face != NULL && false && faculty175_faces_vertical_group(active_face->id) &&
                        (gesture.kind == FACULTY175_GESTURE_SWIPE_UP ||
                         gesture.kind == FACULTY175_GESTURE_SWIPE_DOWN)) {
@@ -3548,7 +3564,6 @@ static void input_task(void *arg)
                                          (unsigned)draw_ms,
                                          (unsigned)(faculty175_log_ms() - gesture_ms),
                                          anim);
-                    faculty175_gesture_flush();
                 }
             } else if (!s_nav_mode && active_face != NULL && faculty175_faces_enabled_count() > 1 &&
                        (gesture.kind == FACULTY175_GESTURE_SWIPE_LEFT ||
@@ -3575,7 +3590,6 @@ static void input_task(void *arg)
                                          (unsigned)draw_ms,
                                          (unsigned)(faculty175_log_ms() - gesture_ms),
                                          anim);
-                    faculty175_gesture_flush();
                 }
             } else if (!s_nav_mode && gesture.kind == FACULTY175_GESTURE_TAP) {
                 const faculty175_face_desc_t *face = faculty175_faces_current();
@@ -3806,7 +3820,7 @@ void app_main(void)
                                                    NULL,
                                                    5,
                                                    &s_input_task,
-                                                   MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+                                                   MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     if (input_task_ok != pdPASS) {
         s_input_task = NULL;
         input_task_ok = xTaskCreate(input_task, "input", FACULTY175_INPUT_TASK_STACK, NULL, 5, &s_input_task);

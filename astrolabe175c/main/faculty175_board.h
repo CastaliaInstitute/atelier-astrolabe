@@ -85,6 +85,8 @@ void faculty175_display_draw_bezel_label(const char *text, bool bottom, int radi
 void faculty175_display_flush(void);
 void faculty175_display_flush_rect(int x, int y, int w, int h);
 void faculty175_display_flush_suspended_set(bool suspended);
+size_t faculty175_display_prepare_ota(void);
+void faculty175_display_resume_after_ota_error(void);
 size_t faculty175_display_frame_pixel_count(void);
 bool faculty175_display_frame_copy(uint16_t *out, size_t pixel_count);
 void faculty175_display_frame_compose_carousel(const uint16_t *from, const uint16_t *to, int shift_px);

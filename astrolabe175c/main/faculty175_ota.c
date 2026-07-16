@@ -20,6 +20,7 @@
 #include "esp_ota_ops.h"
 #include "esp_partition.h"
 #include "esp_system.h"
+#include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "mbedtls/base64.h"
@@ -31,6 +32,7 @@
 
 #include "astrolabe_faculty175_face.h"
 #include "astrolabe_faculty175_ota_key.h"
+#include "faculty175_board.h"
 #include "faculty175_log.h"
 #include "faculty175_storage.h"
 #include "faculty175_usb.h"
@@ -79,8 +81,28 @@ static volatile ota_state_t s_ota_state;
 static char s_ota_last[160];
 static bool s_ota_auto_started;
 static volatile bool s_ota_auto_paused;
+static wifi_ps_type_t s_ota_previous_wifi_ps = WIFI_PS_MIN_MODEM;
+static bool s_ota_wifi_ps_saved;
 
 static void set_last(const char *fmt, ...);
+
+static void ota_wifi_performance_begin(void)
+{
+    wifi_ps_type_t current = WIFI_PS_MIN_MODEM;
+    if (esp_wifi_get_ps(&current) == ESP_OK) {
+        s_ota_previous_wifi_ps = current;
+        s_ota_wifi_ps_saved = true;
+        (void)esp_wifi_set_ps(WIFI_PS_NONE);
+    }
+}
+
+static void ota_wifi_performance_end(void)
+{
+    if (s_ota_wifi_ps_saved) {
+        (void)esp_wifi_set_ps(s_ota_previous_wifi_ps);
+        s_ota_wifi_ps_saved = false;
+    }
+}
 
 static void *ota_scratch_malloc(size_t size)
 {
@@ -819,10 +841,13 @@ static esp_err_t stream_install_url(const char *url,
 
     esp_http_client_config_t cfg = {
         .url = url,
-        .timeout_ms = 15000,
+        .timeout_ms = 60000,
         .buffer_size = OTA_IO_BUFFER_BYTES,
         .crt_bundle_attach = ota_crt_bundle_attach(),
-        .keep_alive_enable = false,
+        .keep_alive_enable = true,
+        .keep_alive_idle = 5,
+        .keep_alive_interval = 5,
+        .keep_alive_count = 6,
     };
     esp_http_client_handle_t client = esp_http_client_init(&cfg);
     if (client == NULL) {
@@ -1239,6 +1264,8 @@ static void ota_task(void *arg)
     } else {
         s_ota_state = OTA_STATE_ERROR;
         FACULTY175_LOG_STAGE_E(TAG, "ota", "install failed: %s (%s)", esp_err_to_name(err), s_ota_last);
+        ota_wifi_performance_end();
+        faculty175_display_resume_after_ota_error();
         if (job->from_recovery_request) {
             nvs_clear_pending_url();
         }
@@ -1255,8 +1282,12 @@ static esp_err_t start_install_job(const ota_job_t *src)
     if (src == NULL || src->url[0] == '\0' || (!src->local_file && !is_http_url(src->url))) {
         return ESP_ERR_INVALID_ARG;
     }
+    ota_wifi_performance_begin();
+    const size_t released_dma_bytes = faculty175_display_prepare_ota();
     ota_job_t *job = calloc(1, sizeof(*job));
     if (job == NULL) {
+        ota_wifi_performance_end();
+        faculty175_display_resume_after_ota_error();
         return ESP_ERR_NO_MEM;
     }
     *job = *src;
@@ -1264,8 +1295,11 @@ static esp_err_t start_install_job(const ota_job_t *src)
     if (xTaskCreate(ota_task, "ota", OTA_TASK_STACK_BYTES, job, 6, NULL) != pdPASS) {
         s_ota_state = OTA_STATE_ERROR;
         free(job);
+        ota_wifi_performance_end();
+        faculty175_display_resume_after_ota_error();
         return ESP_ERR_NO_MEM;
     }
+    FACULTY175_LOG_STAGE(TAG, "ota", "worker started after releasing %u DMA bytes", (unsigned)released_dma_bytes);
     return ESP_OK;
 }
 

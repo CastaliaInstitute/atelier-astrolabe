@@ -31,6 +31,7 @@
 #include "faculty175_face_tarot_spiffs_image.h"
 #include "faculty175_faculty.h"
 #include "faculty175_lenormand_glyphs.h"
+#include "faculty175_pocketwatch.h"
 #include "faculty175_quotes.h"
 #include "faculty175_rocket.h"
 #include "faculty175_touch.h"
@@ -3146,7 +3147,8 @@ static const char *utility_title(faculty175_face_id_t id)
         case FACULTY175_FACE_QDAY: return "QUESTION";
         case FACULTY175_FACE_FOCUS: return "FOCUS";
         case FACULTY175_FACE_BIOMETRICS: return "BIOMETRICS";
-        case FACULTY175_FACE_IRONMAN: return "IRON MAN";
+        case FACULTY175_FACE_IRONMAN: return "";
+        case FACULTY175_FACE_BATTERY: return "";
         case FACULTY175_FACE_WATCHER: return "WATCHER";
         case FACULTY175_FACE_HID: return "HID";
         case FACULTY175_FACE_WSCAN: return "WIFI SCAN";
@@ -7157,9 +7159,11 @@ static void create_watch_screen(void)
     lv_obj_set_style_bg_opa(s_watch_screen, LV_OPA_COVER, 0);
     lv_obj_clear_flag(s_watch_screen, LV_OBJ_FLAG_SCROLLABLE);
 
-    lv_obj_t *bg = lv_image_create(s_watch_screen);
-    lv_image_set_src(bg, &s_watch_bg);
-    lv_obj_align(bg, LV_ALIGN_CENTER, 0, 0);
+    if (faculty175_pocketwatch_background_enabled()) {
+        lv_obj_t *bg = lv_image_create(s_watch_screen);
+        lv_image_set_src(bg, &s_watch_bg);
+        lv_obj_align(bg, LV_ALIGN_CENTER, 0, 0);
+    }
 
     lv_obj_t *shade = lv_obj_create(s_watch_screen);
     lv_obj_remove_style_all(shade);
@@ -7480,7 +7484,7 @@ bool faculty175_lvgl_transition_nav(const faculty175_face_desc_t *center,
     const int32_t dir = delta >= 0 ? 1 : -1;
     const int32_t travel = vertical ? 58 : 72;
     const uint32_t duration = duration_ms > 0 ? duration_ms : 72;
-    const uint32_t step_ms = 8;
+    const uint32_t step_ms = 16;
     const uint32_t steps = duration / step_ms > 0 ? duration / step_ms : 1;
     int64_t metric_start_us = 0;
     int64_t metric_last_us = 0;
@@ -7649,11 +7653,11 @@ bool faculty175_lvgl_animate_frames(const uint16_t *from,
     uint32_t metric_frames = 0;
     uint32_t metric_max_gap_ms = 0;
     nav_anim_metric_start(&metric_last_us, &metric_start_us, &metric_frames, &metric_max_gap_ms);
-    for (uint32_t elapsed = 0; elapsed <= duration; elapsed += 8) {
-        lvgl_tick(8);
+    for (uint32_t elapsed = 0; elapsed <= duration; elapsed += 16) {
+        lvgl_tick(16);
         lv_timer_handler();
         nav_anim_metric_frame(&metric_last_us, &metric_frames, &metric_max_gap_ms);
-        vTaskDelay(pdMS_TO_TICKS(8));
+        vTaskDelay(pdMS_TO_TICKS(16));
     }
 
     lv_screen_load(to_screen);
@@ -7853,7 +7857,7 @@ static const char *descriptor_subtitle_for_face(const faculty175_face_desc_t *de
         case FACULTY175_FACE_QDAY: return "Daily question";
         case FACULTY175_FACE_FOCUS: return "Timer";
         case FACULTY175_FACE_BIOMETRICS: return "Body state";
-        case FACULTY175_FACE_IRONMAN: return "Biometric HUD";
+        case FACULTY175_FACE_IRONMAN: return "Respiration HUD";
         case FACULTY175_FACE_WATCHER: return "Device watch";
         case FACULTY175_FACE_LENORMAND: return "Oracle tableau";
         case FACULTY175_FACE_GEOMANCY: return "Figures";
@@ -7915,7 +7919,7 @@ bool faculty175_lvgl_draw_face(faculty175_face_id_t id, uint32_t anim_ms)
     if (id == FACULTY175_FACE_DEATHSTAR || id == FACULTY175_FACE_TRON || id == FACULTY175_FACE_MAZE ||
         id == FACULTY175_FACE_HUMAN_DESIGN || id == FACULTY175_FACE_CRYSTAL_BALL ||
         id == FACULTY175_FACE_PARTNER_WELLNESS ||
-        id == FACULTY175_FACE_IRONMAN) {
+        id == FACULTY175_FACE_IRONMAN || id == FACULTY175_FACE_BATTERY) {
         return false;
     }
 

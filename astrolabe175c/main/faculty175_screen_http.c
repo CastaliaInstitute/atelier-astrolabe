@@ -11,15 +11,19 @@
 #include "esp_timer.h"
 #include "esp_wifi.h"
 #include "cJSON.h"
+#include "mdns.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
 #include "astrolabe_time.h"
 #include "faculty175_ble.h"
 #include "faculty175_board.h"
+#include "faculty175_breath.h"
 #include "faculty175_device_settings.h"
 #include "faculty175_face_profile.h"
 #include "faculty175_faces.h"
+#include "faculty175_power_metrics.h"
+#include "faculty175_power_history.h"
 #include "faculty175_serial.h"
 #include "faculty175_wifi_lab.h"
 #include "faculty175_wifi_monitor.h"
@@ -28,12 +32,16 @@
 static const char *TAG = "faculty175_screen_http";
 static httpd_handle_t s_httpd;
 static esp_ip4_addr_t s_ip;
+static bool s_mdns_started;
+static char s_mdns_hostname[FACULTY175_WIFI_HOSTNAME_MAX + 1] = "astrolabe-0000";
 
 // The 1.75C QA path relies on the lightweight screen/settings HTTP server.
 #define FACULTY175_SCREEN_HTTP_RUNTIME_ENABLED 1
 #define FACULTY175_SCREEN_HTTP_STACK_SIZE 6144
 #define FACULTY175_SCREEN_HTTP_FALLBACK_STACK_SIZE 4096
 #define FACULTY175_SCREEN_HTTP_START_ATTEMPTS 4
+
+static void add_json_string(cJSON *obj, const char *key, const char *value);
 
 static esp_err_t send_chunk_cb(void *ctx, const uint8_t *data, size_t len)
 {
@@ -55,16 +63,398 @@ static esp_err_t api_options(httpd_req_t *req)
     return httpd_resp_send(req, "", 0);
 }
 
+static esp_err_t api_breath_get(httpd_req_t *req)
+{
+    faculty175_breath_status_t status = {};
+    faculty175_breath_status(&status);
+    const uint32_t uptime_ms = (uint32_t)(esp_timer_get_time() / 1000);
+    const uint32_t age_ms = status.updated_ms != 0 ? uptime_ms - status.updated_ms : 0;
+    const char axis[] = { status.axis != '\0' ? status.axis : '-', '\0' };
+
+    cJSON *root = cJSON_CreateObject();
+    if (root == NULL) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "json alloc");
+        return ESP_FAIL;
+    }
+    cJSON_AddNumberToObject(root, "schema", 1);
+    cJSON_AddNumberToObject(root, "uptime_ms", uptime_ms);
+    cJSON_AddNumberToObject(root, "updated_ms", status.updated_ms);
+    cJSON_AddNumberToObject(root, "age_ms", age_ms);
+    add_json_string(root, "state", faculty175_breath_state_name(status.state));
+    cJSON_AddBoolToObject(root, "sensor_valid", status.state != FACULTY175_BREATH_SENSOR_MISSING);
+    cJSON_AddNumberToObject(root, "rate_bpm", status.rate_bpm);
+    cJSON_AddNumberToObject(root, "confidence", status.confidence);
+    cJSON_AddNumberToObject(root, "amplitude_deg", status.amplitude_deg);
+    cJSON_AddNumberToObject(root, "waveform", status.waveform);
+    add_json_string(root, "axis", axis);
+    cJSON_AddNumberToObject(root, "pitch_deg", status.pitch_deg);
+    cJSON_AddNumberToObject(root, "roll_deg", status.roll_deg);
+    cJSON_AddNumberToObject(root, "signal_deg", status.signal_deg);
+    cJSON_AddNumberToObject(root, "motion_rate_dps", status.motion_rate_dps);
+    cJSON_AddNumberToObject(root, "samples", status.samples);
+    cJSON_AddNumberToObject(root, "breaths", status.breaths);
+    cJSON_AddNumberToObject(root, "calibration_ms", status.calibration_ms);
+
+    cJSON *detected = cJSON_AddObjectToObject(root, "detected");
+    if (detected != NULL) {
+        add_json_string(detected, "phase", faculty175_breath_phase_name(status.detected_phase));
+        cJSON_AddNumberToObject(detected, "phase_ms", status.detected_phase_ms);
+        cJSON_AddNumberToObject(detected, "confidence", status.phase_confidence);
+        cJSON_AddNumberToObject(detected, "velocity", status.phase_velocity);
+    }
+
+    cJSON *guide = cJSON_AddObjectToObject(root, "guide");
+    if (guide != NULL) {
+        add_json_string(guide, "phase", faculty175_breath_guide_phase_name(status.guide_phase));
+        cJSON_AddNumberToObject(guide, "phase_ms", status.guide_phase_ms);
+        cJSON_AddNumberToObject(guide, "cycle", status.guide_cycle);
+        cJSON_AddNumberToObject(guide, "target", status.guide_target);
+        cJSON_AddNumberToObject(guide, "alignment", status.guide_alignment);
+    }
+
+    char *body = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    if (body == NULL) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "json print");
+        return ESP_FAIL;
+    }
+    set_api_headers(req);
+    const esp_err_t err = httpd_resp_send(req, body, HTTPD_RESP_USE_STRLEN);
+    free(body);
+    return err;
+}
+
+static esp_err_t api_battery_get(httpd_req_t *req)
+{
+    faculty175_power_metrics_t status = {};
+    faculty175_power_metrics_status(&status);
+    const bool on_battery = status.pmu.present && status.pmu.battery_present &&
+                            !status.pmu.vbus_in && !status.pmu.charging;
+    cJSON *root = cJSON_CreateObject();
+    if (root == NULL) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "json alloc");
+        return ESP_FAIL;
+    }
+    cJSON_AddNumberToObject(root, "schema", 2);
+    cJSON_AddNumberToObject(root,
+                           "epoch_s",
+                           astrolabe_time_valid() ? (double)astrolabe_time_now() : 0);
+    cJSON_AddNumberToObject(root, "uptime_ms", status.uptime_ms);
+    add_json_string(root, "mode", faculty175_power_mode_name(status.mode));
+    add_json_string(root, "source", on_battery ? "battery" : "usb");
+    cJSON_AddBoolToObject(root, "wifi_active", status.wifi_active);
+
+    cJSON *battery = cJSON_AddObjectToObject(root, "battery");
+    if (battery != NULL) {
+        cJSON_AddBoolToObject(battery, "pmu_present", status.pmu.present);
+        cJSON_AddBoolToObject(battery, "present", status.pmu.battery_present);
+        cJSON_AddNumberToObject(battery, "percent", status.pmu.battery_percent);
+        cJSON_AddNumberToObject(battery, "voltage_mv", status.pmu.battery_mv);
+        cJSON_AddBoolToObject(battery, "vbus", status.pmu.vbus_in);
+        cJSON_AddBoolToObject(battery, "charging", status.pmu.charging);
+        cJSON_AddBoolToObject(battery, "discharging", status.pmu.discharging);
+    }
+    cJSON *usage = cJSON_AddObjectToObject(root, "usage");
+    if (usage != NULL) {
+        cJSON_AddNumberToObject(usage, "awake_ms", status.awake_ms);
+        cJSON_AddNumberToObject(usage, "breathing_ms", status.breathing_ms);
+        cJSON_AddNumberToObject(usage, "dimmed_ms", status.dimmed_ms);
+        cJSON_AddNumberToObject(usage, "asleep_ms", status.asleep_ms);
+    }
+
+    faculty175_power_history_sample_t *samples = calloc(FACULTY175_POWER_HISTORY_CAPACITY,
+                                                        sizeof(*samples));
+    const size_t history_count = samples != NULL
+                                     ? faculty175_power_history_load(samples,
+                                                                     FACULTY175_POWER_HISTORY_CAPACITY)
+                                     : 0;
+    bool estimate_valid = status.estimate_valid;
+    uint32_t estimate_elapsed_ms = status.discharge_elapsed_ms;
+    int estimate_drop_percent = status.discharge_drop_percent;
+    float estimate_percent_per_hour = status.discharge_percent_per_hour;
+    float estimate_remaining_hours = status.remaining_hours;
+    const char *estimate_basis = status.estimate_valid ? "observed-discharge-slope"
+                                                       : (on_battery ? "collecting-discharge-data"
+                                                                     : "external-power");
+    if (on_battery && history_count > 0 && astrolabe_time_valid()) {
+        const uint32_t now_s = (uint32_t)astrolabe_time_now();
+        for (size_t i = history_count; i-- > 0;) {
+            const faculty175_power_history_sample_t *sample = &samples[i];
+            if ((sample->flags & FACULTY175_POWER_HISTORY_BATTERY_PRESENT) == 0 ||
+                (sample->flags & (FACULTY175_POWER_HISTORY_VBUS |
+                                  FACULTY175_POWER_HISTORY_CHARGING)) != 0) {
+                break;
+            }
+            if (sample->epoch_s > now_s || sample->battery_percent < status.pmu.battery_percent) {
+                continue;
+            }
+            const uint32_t elapsed_s = now_s - sample->epoch_s;
+            const int drop = (int)sample->battery_percent - status.pmu.battery_percent;
+            if (elapsed_s >= 15u * 60u && drop >= 1 && elapsed_s * 1000u > estimate_elapsed_ms) {
+                estimate_valid = true;
+                estimate_elapsed_ms = elapsed_s * 1000u;
+                estimate_drop_percent = drop;
+                estimate_percent_per_hour = (float)drop * 3600.0f / (float)elapsed_s;
+                estimate_remaining_hours = estimate_percent_per_hour > 0.0f
+                                               ? (float)status.pmu.battery_percent /
+                                                     estimate_percent_per_hour
+                                               : 0.0f;
+                estimate_basis = "flash-history-discharge-slope";
+            }
+        }
+    }
+    cJSON *estimate = cJSON_AddObjectToObject(root, "estimate");
+    if (estimate != NULL) {
+        cJSON_AddBoolToObject(estimate, "valid", estimate_valid);
+        cJSON_AddNumberToObject(estimate, "discharge_elapsed_ms", estimate_elapsed_ms);
+        cJSON_AddNumberToObject(estimate, "drop_percent", estimate_drop_percent);
+        cJSON_AddNumberToObject(estimate, "percent_per_hour", estimate_percent_per_hour);
+        cJSON_AddNumberToObject(estimate, "remaining_hours", estimate_remaining_hours);
+        cJSON_AddNumberToObject(estimate, "remaining_ms", estimate_remaining_hours * 3600000.0f);
+        add_json_string(estimate, "basis", estimate_basis);
+    }
+
+    cJSON *history = cJSON_AddArrayToObject(root, "history");
+    if (history != NULL) {
+        for (size_t i = 0; i < history_count; ++i) {
+            const faculty175_power_history_sample_t *sample = &samples[i];
+            cJSON *entry = cJSON_CreateObject();
+            if (entry == NULL) {
+                break;
+            }
+            cJSON_AddNumberToObject(entry, "epoch_s", sample->epoch_s);
+            cJSON_AddNumberToObject(entry, "percent", sample->battery_percent);
+            cJSON_AddNumberToObject(entry, "voltage_mv", sample->battery_mv);
+            cJSON_AddBoolToObject(entry,
+                                  "battery_present",
+                                  (sample->flags & FACULTY175_POWER_HISTORY_BATTERY_PRESENT) != 0);
+            cJSON_AddBoolToObject(entry,
+                                  "vbus",
+                                  (sample->flags & FACULTY175_POWER_HISTORY_VBUS) != 0);
+            cJSON_AddBoolToObject(entry,
+                                  "charging",
+                                  (sample->flags & FACULTY175_POWER_HISTORY_CHARGING) != 0);
+            cJSON_AddBoolToObject(entry,
+                                  "discharging",
+                                  (sample->flags & FACULTY175_POWER_HISTORY_DISCHARGING) != 0);
+            cJSON_AddItemToArray(history, entry);
+        }
+    }
+    free(samples);
+
+    char *body = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    if (body == NULL) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "json print");
+        return ESP_FAIL;
+    }
+    set_api_headers(req);
+    const esp_err_t err = httpd_resp_send(req, body, HTTPD_RESP_USE_STRLEN);
+    free(body);
+    return err;
+}
+
+static const char k_battery_page[] =
+    "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+    "<meta name=\"theme-color\" content=\"#061018\"><link rel=\"manifest\" href=\"/manifest.webmanifest\">"
+    "<link rel=\"icon\" href=\"/favicon.svg\" type=\"image/svg+xml\"><link rel=\"apple-touch-icon\" href=\"/favicon.svg\">"
+    "<title>Astrolabe Battery</title><style>:root{color-scheme:dark;--bg:#05080d;--panel:#0c151d;--line:#203947;"
+    "--green:#73f0a7;--cyan:#62d7ff;--gold:#ffd167;--text:#e5f8ff;--muted:#8ba7b2}*{box-sizing:border-box}"
+    "html,body{min-height:100%;height:auto;overflow-x:hidden;overflow-y:auto}body{margin:0;background:radial-gradient(circle at 30% -10%,"
+    "#19352e,var(--bg) 48%);color:var(--text);font:15px system-ui,sans-serif;-webkit-overflow-scrolling:touch}"
+    "main{width:min(1050px,94vw);margin:auto;padding:24px 0 max(72px,env(safe-area-inset-bottom))}header{display:flex;"
+    "justify-content:space-between;align-items:end;gap:12px;margin-bottom:18px}h1{margin:0;font-size:clamp(1.4rem,4vw,2.2rem);"
+    "font-weight:500;letter-spacing:.13em}.status{color:var(--green);text-align:right}.bad{color:#ff7c88}.cards{display:grid;"
+    "grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:12px}.card,.plot{background:#0c151df0;border:1px solid var(--line);"
+    "border-radius:14px;box-shadow:0 12px 40px #0005}.card{padding:14px}.label{color:var(--muted);font-size:.76rem;"
+    "letter-spacing:.09em;text-transform:uppercase}.value{font-size:1.5rem;margin-top:5px}.plots{display:grid;grid-template-columns:2fr 1fr;"
+    "gap:12px}.plot{padding:14px}.plot h2{font-size:.82rem;color:var(--muted);font-weight:500;letter-spacing:.08em;"
+    "text-transform:uppercase;margin:0 0 8px}.charge{grid-row:span 2}.charge canvas{height:390px}canvas{width:100%;height:180px;"
+    "display:block}.usage{margin-top:14px}.bar{height:18px;border-radius:9px;overflow:hidden;display:flex;background:#14232c}.bar i{height:100%}"
+    ".legend{display:flex;gap:14px;flex-wrap:wrap;color:var(--muted);font-size:.78rem;margin-top:8px}.foot{color:var(--muted);"
+    "font-size:.78rem;margin-top:6px}@media(max-width:760px){.cards{grid-template-columns:repeat(2,1fr)}.plots{grid-template-columns:1fr}"
+    ".charge{grid-row:auto}.charge canvas{height:270px}}</style></head><body><main><header><div><h1>ASTROLABE · BATTERY</h1>"
+    "<div class=\"foot\">24-hour flash history · 15-minute samples · discharge-based forecast</div></div><div id=\"status\" class=\"status\">Connecting…</div>"
+    "</header><section class=\"cards\"><div class=\"card\"><div class=\"label\">Charge</div><div class=\"value\"><span id=\"percent\">—</span>%</div>"
+    "</div><div class=\"card\"><div class=\"label\">Voltage</div><div class=\"value\"><span id=\"voltage\">—</span> V</div></div>"
+    "<div class=\"card\"><div class=\"label\">Power</div><div id=\"source\" class=\"value\">—</div></div><div class=\"card\">"
+    "<div class=\"label\">Estimated remaining</div><div id=\"remaining\" class=\"value\">—</div></div><div class=\"card\">"
+    "<div class=\"label\">Discharge rate</div><div id=\"rate\" class=\"value\">—</div></div></section><section class=\"plots\">"
+    "<div class=\"plot charge\"><h2>Battery charge · solid measured / dotted forecast</h2><canvas id=\"chargePlot\"></canvas>"
+    "<div id=\"forecastNote\" class=\"foot\"></div></div><div class=\"plot\"><h2>Battery voltage</h2><canvas id=\"voltagePlot\"></canvas></div>"
+    "<div class=\"plot\"><h2>Mode utilization</h2><div class=\"usage\"><div class=\"bar\"><i id=\"awakeBar\" style=\"background:#62d7ff\"></i>"
+    "<i id=\"breathingBar\" style=\"background:#73f0a7\"></i><i id=\"dimmedBar\" style=\"background:#ffd167\"></i>"
+    "<i id=\"asleepBar\" style=\"background:#765eaa\"></i></div><div class=\"legend\"><span>Awake</span><span>Breathing</span>"
+    "<span>Dimmed</span><span>Asleep</span></div></div></div></section></main><script>"
+    "const N=1500,data={percent:[],voltage:[],time:[]},el=id=>document.getElementById(id),statusEl=el('status');let latest=null,historyLoaded=false;"
+    "function size(c){const d=devicePixelRatio||1,w=c.clientWidth,h=c.clientHeight;if(c.width!==Math.round(w*d)||c.height!==Math.round(h*d)){"
+    "c.width=Math.round(w*d);c.height=Math.round(h*d)}const x=c.getContext('2d');x.setTransform(d,0,0,d,0,0);x.clearRect(0,0,w,h);return{x,w,h}}"
+    "function grid(x,w,h,lo,hi){x.strokeStyle='#203947';x.lineWidth=1;for(let i=0;i<=4;i++){let y=12+(h-28)*i/4;x.beginPath();x.moveTo(36,y);"
+    "x.lineTo(w-12,y);x.stroke();x.fillStyle='#8ba7b2';x.font='11px system-ui';x.fillText((hi-(hi-lo)*i/4).toFixed(0),3,y+4)}}"
+    "function chargeChart(){const c=el('chargePlot'),{x,w,h}=size(c),left=36,right=w-12,bottom=h-16,top=12,measuredEnd=left+(right-left)*.64;"
+    "grid(x,w,h,0,100);if(data.percent.length>1){x.strokeStyle='#73f0a7';x.lineWidth=3;x.beginPath();data.percent.forEach((v,i)=>{"
+    "let t0=data.time[0],span=Math.max(1,data.time[data.time.length-1]-t0),px=left+(data.time[i]-t0)*(measuredEnd-left)/span,py=bottom-v*(bottom-top)/100;i?x.lineTo(px,py):x.moveTo(px,py)});x.stroke()}"
+    "if(latest&&latest.estimate.valid&&data.percent.length){const v=data.percent[data.percent.length-1],y=bottom-v*(bottom-top)/100;x.save();"
+    "x.strokeStyle='#ffd167';x.lineWidth=3;x.setLineDash([8,7]);x.beginPath();x.moveTo(measuredEnd,y);x.lineTo(right,bottom);x.stroke();x.restore();"
+    "x.fillStyle='#ffd167';x.font='12px system-ui';x.textAlign='right';x.fillText(latest.estimate.remaining_hours.toFixed(1)+'h forecast',right,bottom-8);x.textAlign='left'}}"
+    "function voltageChart(){const c=el('voltagePlot'),{x,w,h}=size(c);if(data.voltage.length<2)return;let lo=Math.min(...data.voltage)-.03,"
+    "hi=Math.max(...data.voltage)+.03;grid(x,w,h,lo,hi);x.strokeStyle='#62d7ff';x.lineWidth=2;x.beginPath();data.voltage.forEach((v,i)=>{"
+    "let t0=data.time[0],span=Math.max(1,data.time[data.time.length-1]-t0),px=36+(data.time[i]-t0)*(w-48)/span,py=h-16-(v-lo)*(h-28)/(hi-lo);i?x.lineTo(px,py):x.moveTo(px,py)});x.stroke()}"
+    "function draw(){chargeChart();voltageChart()}function fmtHours(h){if(h<1)return Math.round(h*60)+'m';return h.toFixed(1)+'h'}"
+    "async function update(){try{let r=await fetch('/api/battery',{cache:'no-store'});if(!r.ok)throw Error('HTTP '+r.status);latest=await r.json();"
+    "statusEl.textContent=latest.mode+' · '+(latest.wifi_active?'Wi-Fi on':'Wi-Fi off');statusEl.className='status';el('percent').textContent=latest.battery.percent;"
+    "el('voltage').textContent=(latest.battery.voltage_mv/1000).toFixed(3);el('source').textContent=latest.battery.charging?'charging':latest.source;"
+    "el('remaining').textContent=latest.estimate.valid?fmtHours(latest.estimate.remaining_hours):'collecting';el('rate').textContent=latest.estimate.valid?"
+    "latest.estimate.percent_per_hour.toFixed(2)+'%/h':'—';el('forecastNote').textContent=latest.estimate.valid?'Forecast based on '+latest.estimate.drop_percent+"
+    "'% drop over '+fmtHours(latest.estimate.discharge_elapsed_ms/3600000):latest.source==='usb'?'Forecast begins after unplugging USB and observing at least 1% drop.':"
+    "'Collecting at least 15 minutes and 1% discharge before forecasting.';if(!historyLoaded){(latest.history||[]).forEach(s=>{data.percent.push(s.percent);data.voltage.push(s.voltage_mv/1000);data.time.push(s.epoch_s)});historyLoaded=true}"
+    "let now=latest.epoch_s||Math.floor(Date.now()/1000),last=data.time.length-1;if(last<0||now-data.time[last]>=60||data.percent[last]!==latest.battery.percent||data.voltage[last]!==latest.battery.voltage_mv/1000){data.percent.push(latest.battery.percent);data.voltage.push(latest.battery.voltage_mv/1000);data.time.push(now)}"
+    "while(data.percent.length>N){data.percent.shift();data.voltage.shift();data.time.shift()}let u=latest.usage,total=u.awake_ms+u.breathing_ms+u.dimmed_ms+u.asleep_ms||1;"
+    "el('awakeBar').style.width=100*u.awake_ms/total+'%';el('breathingBar').style.width=100*u.breathing_ms/total+'%';el('dimmedBar').style.width=100*u.dimmed_ms/total+'%';"
+    "el('asleepBar').style.width=100*u.asleep_ms/total+'%';draw()}catch(e){statusEl.textContent='Device unavailable · '+e.message;statusEl.className='status bad'}}"
+    "addEventListener('resize',draw);update();setInterval(update,5000);</script></body></html>";
+
+static esp_err_t battery_get(httpd_req_t *req)
+{
+    httpd_resp_set_type(req, "text/html; charset=utf-8");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    return httpd_resp_send(req, k_battery_page, HTTPD_RESP_USE_STRLEN);
+}
+
+static const char k_pwa_manifest[] =
+    "{\"name\":\"Astrolabe Arc Reactor\",\"short_name\":\"Astrolabe\","
+    "\"description\":\"Arc Reactor breathing and battery monitor\","
+    "\"start_url\":\"/\",\"scope\":\"/\",\"display\":\"standalone\","
+    "\"background_color\":\"#06080c\",\"theme_color\":\"#061018\","
+    "\"icons\":[{\"src\":\"/favicon.svg\",\"sizes\":\"any\","
+    "\"type\":\"image/svg+xml\",\"purpose\":\"any maskable\"}]}";
+
+static const char k_arc_reactor_icon[] =
+    "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 512 512\">"
+    "<defs><radialGradient id=\"g\"><stop offset=\"0\" stop-color=\"#fff\"/>"
+    "<stop offset=\".28\" stop-color=\"#b8fcff\"/><stop offset=\".68\" stop-color=\"#168da5\"/>"
+    "<stop offset=\"1\" stop-color=\"#061018\"/></radialGradient>"
+    "<filter id=\"b\"><feGaussianBlur stdDeviation=\"9\"/></filter></defs>"
+    "<rect width=\"512\" height=\"512\" rx=\"112\" fill=\"#06080c\"/>"
+    "<circle cx=\"256\" cy=\"256\" r=\"171\" fill=\"none\" stroke=\"#165868\" stroke-width=\"18\"/>"
+    "<circle cx=\"256\" cy=\"256\" r=\"137\" fill=\"none\" stroke=\"#aaf8ff\" stroke-width=\"16\" opacity=\".35\" filter=\"url(#b)\"/>"
+    "<g fill=\"#aaf8ff\"><path d=\"M245 67h22l14 87h-50z\"/><path d=\"M245 445h22l14-87h-50z\"/>"
+    "<path d=\"M67 245v22l87 14v-50z\"/><path d=\"M445 245v22l-87 14v-50z\"/>"
+    "<path d=\"M122 106l16-16 72 52-36 36z\"/><path d=\"M390 406l-16 16-72-52 36-36z\"/>"
+    "<path d=\"M106 390l-16-16 52-72 36 36z\"/><path d=\"M406 122l16 16-52 72-36-36z\"/></g>"
+    "<circle cx=\"256\" cy=\"256\" r=\"111\" fill=\"url(#g)\" stroke=\"#b8fcff\" stroke-width=\"12\"/>"
+    "<circle cx=\"256\" cy=\"256\" r=\"53\" fill=\"#efffff\" stroke=\"#177f96\" stroke-width=\"10\"/>"
+    "</svg>";
+
+static esp_err_t manifest_get(httpd_req_t *req)
+{
+    httpd_resp_set_type(req, "application/manifest+json");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
+    return httpd_resp_send(req, k_pwa_manifest, HTTPD_RESP_USE_STRLEN);
+}
+
+static esp_err_t favicon_get(httpd_req_t *req)
+{
+    httpd_resp_set_type(req, "image/svg+xml");
+    httpd_resp_set_hdr(req, "Cache-Control", "public, max-age=86400");
+    return httpd_resp_send(req, k_arc_reactor_icon, HTTPD_RESP_USE_STRLEN);
+}
+
+static const char k_breathing_page[] =
+    "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" "
+    "content=\"width=device-width,initial-scale=1\"><meta name=\"theme-color\" content=\"#061018\">"
+    "<link rel=\"manifest\" href=\"/manifest.webmanifest\"><link rel=\"icon\" href=\"/favicon.svg\" type=\"image/svg+xml\">"
+    "<link rel=\"apple-touch-icon\" href=\"/favicon.svg\"><title>Astrolabe Breathing</title><style>"
+    ":root{color-scheme:dark;--bg:#030810;--panel:#091622;--line:#173747;--cyan:#58dcff;"
+    "--gold:#ffd46a;--green:#70f4ac;--text:#dbf8ff;--muted:#87a9b5}*{box-sizing:border-box}"
+    "html,body{min-height:100%;height:auto;overflow-x:hidden;overflow-y:auto;overscroll-behavior-y:auto}"
+    "body{margin:0;background:radial-gradient(circle at 50% -20%,#12334a 0,var(--bg) 48%);"
+    "color:var(--text);font:15px system-ui,sans-serif;-webkit-overflow-scrolling:touch}main{width:min(1080px,94vw);"
+    "margin:auto;padding:24px 0 max(72px,env(safe-area-inset-bottom))}header{display:flex;align-items:end;justify-content:space-between;"
+    "gap:16px;margin-bottom:18px}h1{font-size:clamp(1.35rem,4vw,2.2rem);font-weight:500;"
+    "letter-spacing:.13em;margin:0}.status{color:var(--green);text-align:right}.bad{color:#ff7b86}"
+    ".cards{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:12px}.card,.plot{"
+    "background:color-mix(in srgb,var(--panel) 94%,transparent);border:1px solid var(--line);"
+    "border-radius:14px;box-shadow:0 12px 40px #0005}.card{padding:14px}.label{color:var(--muted);"
+    "font-size:.78rem;text-transform:uppercase;letter-spacing:.09em}.value{font-size:1.55rem;"
+    "margin-top:4px}.phase{color:var(--gold)}.plots{display:grid;grid-template-columns:2fr 1fr;gap:12px}"
+    ".plot{padding:12px 14px}.plot h2{font-size:.82rem;color:var(--muted);font-weight:500;"
+    "letter-spacing:.08em;text-transform:uppercase;margin:0 0 8px}.plot.wave{grid-row:span 3}.plot.wave canvas{"
+    "height:430px}.plot.timeline{grid-column:1/-1}.plot.timeline canvas{height:105px}canvas{display:block;width:100%;height:112px}.foot{color:var(--muted);font-size:.78rem;"
+    "margin-top:10px}@media(max-width:760px){.cards{grid-template-columns:repeat(2,1fr)}.plots{"
+    "grid-template-columns:1fr}.plot.wave{grid-row:auto}.plot.wave canvas{height:230px}}"
+    "</style></head><body><main><header><div><h1>ARC REACTOR · BREATHING</h1>"
+    "<div class=\"foot\">Rolling 90-second IMU telemetry</div></div><div id=\"status\" class=\"status\">Connecting…</div>"
+    "</header><section class=\"cards\"><div class=\"card\"><div class=\"label\">Detected phase</div>"
+    "<div id=\"detectedPhase\" class=\"value phase\">—</div><small id=\"phaseConfidence\"></small></div>"
+    "<div class=\"card\"><div class=\"label\">Guide phase</div><div id=\"guidePhase\" class=\"value\">—</div></div>"
+    "<div class=\"card\"><div class=\"label\">Rate</div>"
+    "<div class=\"value\"><span id=\"rate\">—</span> <small>bpm</small></div></div><div class=\"card\">"
+    "<div class=\"label\">Confidence</div><div id=\"confidence\" class=\"value\">—</div></div>"
+    "<div class=\"card\"><div class=\"label\">Breaths</div><div id=\"breaths\" class=\"value\">—</div></div>"
+    "<div class=\"card\"><div class=\"label\">Axis</div><div id=\"axis\" class=\"value\">—</div></div>"
+    "</section><section class=\"plots\"><div class=\"plot timeline\"><h2>Detected inhale · hold · exhale durations</h2>"
+    "<canvas id=\"phasePlot\"></canvas></div><div class=\"plot wave\"><h2>Breath waveform</h2><canvas id=\"wave\"></canvas>"
+    "</div><div class=\"plot\"><h2>Rate · bpm</h2><canvas id=\"ratePlot\"></canvas></div>"
+    "<div class=\"plot\"><h2>Confidence</h2><canvas id=\"confidencePlot\"></canvas></div>"
+    "<div class=\"plot\"><h2>Amplitude · degrees</h2><canvas id=\"amplitudePlot\"></canvas></div>"
+    "</section></main><script>"
+    "const N=180,series={wave:[],rate:[],confidence:[],amplitude:[],phase:[],time:[],phaseMs:[]};"
+    "const el=id=>document.getElementById(id);const statusEl=el('status');"
+    "function push(a,v){a.push(Number.isFinite(v)?v:0);if(a.length>N)a.shift()}"
+    "function chart(id,a,color,fixedMin,fixedMax,bands){const c=el(id),dpr=devicePixelRatio||1,w=c.clientWidth,h=c.clientHeight;"
+    "if(c.width!==Math.round(w*dpr)||c.height!==Math.round(h*dpr)){c.width=Math.round(w*dpr);c.height=Math.round(h*dpr)}"
+    "const x=c.getContext('2d');x.setTransform(dpr,0,0,dpr,0,0);x.clearRect(0,0,w,h);"
+    "if(bands)bands.forEach((v,i)=>{x.fillStyle=v==='inhale'?'#58dcff20':v==='exhale'?'#c895ff20':v==='hold'?'#ffd46a20':'#0000';x.fillRect(i*w/(N-1),0,w/(N-1)+1,h)});"
+    "let lo=fixedMin,hi=fixedMax;if(lo==null){lo=Math.min(...a,0);hi=Math.max(...a,1);const p=Math.max((hi-lo)*.12,.05);lo-=p;hi+=p}"
+    "x.strokeStyle='#173747';x.lineWidth=1;for(let i=1;i<4;i++){let y=h*i/4;x.beginPath();x.moveTo(0,y);x.lineTo(w,y);x.stroke()}"
+    "if(a.length<2)return;x.strokeStyle=color;x.lineWidth=2;x.beginPath();a.forEach((v,i)=>{let px=i*w/(N-1),"
+    "py=h-(v-lo)*h/Math.max(hi-lo,.001);if(i)x.lineTo(px,py);else x.moveTo(px,py)});x.stroke();"
+    "x.fillStyle='#87a9b5';x.font='11px system-ui';x.fillText(hi.toFixed(1),4,12);x.fillText(lo.toFixed(1),4,h-4)}"
+    "function phaseTimeline(){const c=el('phasePlot'),dpr=devicePixelRatio||1,w=c.clientWidth,h=c.clientHeight;"
+    "if(c.width!==Math.round(w*dpr)||c.height!==Math.round(h*dpr)){c.width=Math.round(w*dpr);c.height=Math.round(h*dpr)}"
+    "const x=c.getContext('2d');x.setTransform(dpr,0,0,dpr,0,0);x.clearRect(0,0,w,h);if(!series.phase.length)return;"
+    "const color=p=>p==='inhale'?'#58dcff':p==='hold'?'#ffd46a':p==='exhale'?'#c895ff':'#425563';"
+    "let start=0;for(let i=1;i<=series.phase.length;i++){if(i<series.phase.length&&series.phase[i]===series.phase[start])continue;"
+    "const x0=start*w/N,x1=i*w/N,p=series.phase[start],current=i===series.phase.length;let seconds=current?series.phaseMs[i-1]/1000:"
+    "Math.max(.5,(series.time[i-1]-series.time[start])/1000+.5);x.fillStyle=color(p)+'bb';x.fillRect(x0,14,Math.max(1,x1-x0),h-28);"
+    "if(x1-x0>48){x.fillStyle='#061018';x.font='600 12px system-ui';x.textAlign='center';x.fillText(p+' '+seconds.toFixed(1)+'s',(x0+x1)/2,h/2+4)}start=i}"
+    "x.textAlign='left';x.fillStyle='#87a9b5';x.font='11px system-ui';x.fillText('90s ago',3,h-2);x.textAlign='right';x.fillText('now',w-3,h-2)}"
+    "function draw(){phaseTimeline();chart('wave',series.wave,'#58dcff',0,1,series.phase);chart('ratePlot',series.rate,'#ffd46a',0,30);"
+    "chart('confidencePlot',series.confidence,'#70f4ac',0,1);chart('amplitudePlot',series.amplitude,'#c895ff',null,null)}"
+    "async function update(){try{const r=await fetch('/api/breath',{cache:'no-store'});if(!r.ok)throw Error('HTTP '+r.status);"
+    "const d=await r.json();statusEl.textContent=d.state+' · '+d.age_ms+' ms old';statusEl.className='status';"
+    "el('detectedPhase').textContent=d.detected.phase;el('phaseConfidence').textContent=Math.round(d.detected.confidence*100)+'% · '+(d.detected.phase_ms/1000).toFixed(1)+'s';"
+    "el('guidePhase').textContent=d.guide.phase;el('rate').textContent=d.rate_bpm.toFixed(1);"
+    "el('confidence').textContent=Math.round(d.confidence*100)+'%';el('breaths').textContent=d.breaths;"
+    "el('axis').textContent=d.axis;push(series.wave,d.waveform);push(series.rate,d.rate_bpm);"
+    "push(series.confidence,d.confidence);push(series.amplitude,d.amplitude_deg);series.phase.push(d.detected.phase);"
+    "series.time.push(d.uptime_ms);series.phaseMs.push(d.detected.phase_ms);if(series.phase.length>N){series.phase.shift();series.time.shift();series.phaseMs.shift()}draw()}catch(e){"
+    "statusEl.textContent='Device unavailable · '+e.message;statusEl.className='status bad'}}"
+    "addEventListener('resize',draw);update();setInterval(update,500);"
+    "</script></body></html>";
+
+static esp_err_t breathing_get(httpd_req_t *req)
+{
+    httpd_resp_set_type(req, "text/html; charset=utf-8");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    return httpd_resp_send(req, k_breathing_page, HTTPD_RESP_USE_STRLEN);
+}
+
 static esp_err_t root_get(httpd_req_t *req)
 {
-    char body[768];
+    char body[1024];
     snprintf(body,
              sizeof(body),
              "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" "
-             "content=\"width=device-width,initial-scale=1\"><title>Astrolabe</title></head>"
+             "content=\"width=device-width,initial-scale=1\"><meta name=\"theme-color\" content=\"#061018\">"
+             "<link rel=\"manifest\" href=\"/manifest.webmanifest\"><link rel=\"icon\" href=\"/favicon.svg\" type=\"image/svg+xml\">"
+             "<link rel=\"apple-touch-icon\" href=\"/favicon.svg\"><title>Astrolabe</title></head>"
              "<body style=\"margin:0;background:#111;color:#ccc;font-family:system-ui,sans-serif;\">"
              "<p style=\"padding:10px\">Faculty175 ESP-IDF "
              "| <a style=\"color:#8cf\" href=\"/wifi\">wifi settings</a> "
+             "| <a style=\"color:#8cf\" href=\"/breathing\">breathing monitor</a> "
+             "| <a style=\"color:#8cf\" href=\"/battery\">battery monitor</a> "
              "| <a style=\"color:#8cf\" href=\"/screen.bmp\">screen.bmp</a></p>"
              "<img src=\"/screen.bmp\" style=\"width:100%%;max-width:466px;height:auto;display:block;margin:0 auto\" "
              "alt=\"screen\"></body></html>");
@@ -401,7 +791,7 @@ static esp_err_t api_faces_get(httpd_req_t *req)
     }
     off += (size_t)wrote < sizeof(chunk) - off ? (size_t)wrote : sizeof(chunk) - off - 1;
     chunk[off] = '\0';
-    for (size_t i = 0; i < faculty175_faces_count(); ++i) {
+    for (size_t i = 0; i < FACULTY175_FACE_COUNT; ++i) {
         const faculty175_face_desc_t *face = faculty175_faces_get((faculty175_face_id_t)i);
         if (face == NULL) {
             continue;
@@ -901,7 +1291,7 @@ static esp_err_t api_face_post(httpd_req_t *req)
         return ESP_FAIL;
     }
     const int64_t start = esp_timer_get_time();
-    const esp_err_t err = faculty175_faces_set_runtime(face->id);
+    const esp_err_t err = faculty175_faces_set(face->id);
     const int64_t set_us = esp_timer_get_time() - start;
     return api_face_reply(req, faculty175_faces_current(), set_us, err);
 }
@@ -1008,11 +1398,41 @@ esp_err_t faculty175_screen_http_start(const esp_ip4_addr_t *ip)
         return ESP_OK;
     }
 
+    if (!s_mdns_started) {
+        if (faculty175_wifi_settings_load_hostname(s_mdns_hostname, sizeof(s_mdns_hostname)) != ESP_OK) {
+            uint8_t sta_mac[6] = {};
+            if (esp_wifi_get_mac(WIFI_IF_STA, sta_mac) == ESP_OK) {
+                snprintf(s_mdns_hostname,
+                         sizeof(s_mdns_hostname),
+                         "astrolabe-%02x%02x",
+                         sta_mac[4],
+                         sta_mac[5]);
+            }
+        }
+        esp_err_t mdns_err = mdns_init();
+        if (mdns_err == ESP_OK) {
+            mdns_err = mdns_hostname_set(s_mdns_hostname);
+        }
+        if (mdns_err == ESP_OK) {
+            mdns_err = mdns_instance_name_set("Astrolabe Faculty 1.75C");
+        }
+        if (mdns_err == ESP_OK) {
+            mdns_err = mdns_service_add(NULL, "_http", "_tcp", 80, NULL, 0);
+        }
+        if (mdns_err != ESP_OK) {
+            ESP_LOGW(TAG, "mDNS start failed: %s", esp_err_to_name(mdns_err));
+            mdns_free();
+        } else {
+            s_mdns_started = true;
+            ESP_LOGI(TAG, "mDNS ready http://%s.local/", s_mdns_hostname);
+        }
+    }
+
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = 80;
     config.stack_size = FACULTY175_SCREEN_HTTP_STACK_SIZE;
     config.max_open_sockets = 4;
-    config.max_uri_handlers = 16;
+    config.max_uri_handlers = 28;
     config.lru_purge_enable = true;
 
     esp_err_t err = ESP_FAIL;
@@ -1074,6 +1494,54 @@ esp_err_t faculty175_screen_http_start(const esp_ip4_addr_t *ip)
         .uri = "/api/faces",
         .method = HTTP_GET,
         .handler = api_faces_get,
+        .user_ctx = NULL,
+    };
+    const httpd_uri_t api_breath_uri = {
+        .uri = "/api/breath",
+        .method = HTTP_GET,
+        .handler = api_breath_get,
+        .user_ctx = NULL,
+    };
+    const httpd_uri_t breathing_uri = {
+        .uri = "/breathing",
+        .method = HTTP_GET,
+        .handler = breathing_get,
+        .user_ctx = NULL,
+    };
+    const httpd_uri_t api_battery_uri = {
+        .uri = "/api/battery",
+        .method = HTTP_GET,
+        .handler = api_battery_get,
+        .user_ctx = NULL,
+    };
+    const httpd_uri_t battery_uri = {
+        .uri = "/battery",
+        .method = HTTP_GET,
+        .handler = battery_get,
+        .user_ctx = NULL,
+    };
+    const httpd_uri_t manifest_uri = {
+        .uri = "/manifest.webmanifest",
+        .method = HTTP_GET,
+        .handler = manifest_get,
+        .user_ctx = NULL,
+    };
+    const httpd_uri_t favicon_svg_uri = {
+        .uri = "/favicon.svg",
+        .method = HTTP_GET,
+        .handler = favicon_get,
+        .user_ctx = NULL,
+    };
+    const httpd_uri_t favicon_ico_uri = {
+        .uri = "/favicon.ico",
+        .method = HTTP_GET,
+        .handler = favicon_get,
+        .user_ctx = NULL,
+    };
+    const httpd_uri_t api_breath_options_uri = {
+        .uri = "/api/breath",
+        .method = HTTP_OPTIONS,
+        .handler = api_options,
         .user_ctx = NULL,
     };
     const httpd_uri_t api_face_get_uri = {
@@ -1142,6 +1610,14 @@ esp_err_t faculty175_screen_http_start(const esp_ip4_addr_t *ip)
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &wifi_post_uri), TAG, "register POST /wifi");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &wifi_scan_uri), TAG, "register GET /wifi/scan");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &api_faces_uri), TAG, "register GET /api/faces");
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &api_breath_uri), TAG, "register GET /api/breath");
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &breathing_uri), TAG, "register GET /breathing");
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &api_battery_uri), TAG, "register GET /api/battery");
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &battery_uri), TAG, "register GET /battery");
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &manifest_uri), TAG, "register GET /manifest.webmanifest");
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &favicon_svg_uri), TAG, "register GET /favicon.svg");
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &favicon_ico_uri), TAG, "register GET /favicon.ico");
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &api_breath_options_uri), TAG, "register OPTIONS /api/breath");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &api_face_get_uri), TAG, "register GET /api/face");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &api_face_post_uri), TAG, "register POST /api/face");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &api_voice_post_uri), TAG, "register POST /api/voice");
@@ -1153,11 +1629,13 @@ esp_err_t faculty175_screen_http_start(const esp_ip4_addr_t *ip)
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &lab_handshake_pcap_uri), TAG, "register GET /lab/handshake.pcap");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &api_wifi_incidents_uri), TAG, "register GET /api/wifi/incidents");
 
-    ESP_LOGI(TAG, "ready http://" IPSTR "/ (GET /screen.bmp, /wifi, /api/faces)", IP2STR(&s_ip));
+    ESP_LOGI(TAG, "ready http://" IPSTR "/ (GET /screen.bmp, /wifi, /api/faces, /api/breath)", IP2STR(&s_ip));
     printf("Astrolabe WiFi settings: http://" IPSTR "/wifi\n", IP2STR(&s_ip));
     printf("Screen over WiFi: http://" IPSTR "/  (GET /screen.bmp)\n", IP2STR(&s_ip));
     printf("Face control over WiFi: http://" IPSTR "/api/faces  (GET /api/faces, POST /api/face slug=<slug>)\n",
            IP2STR(&s_ip));
+    printf("Breathing metrics over WiFi: http://" IPSTR "/api/breath\n", IP2STR(&s_ip));
+    printf("Arc Reactor monitor: http://%s.local/breathing\n", s_mdns_hostname);
     fflush(stdout);
     return ESP_OK;
 #endif
@@ -1172,6 +1650,10 @@ void faculty175_screen_http_stop(void)
         httpd_handle_t httpd = s_httpd;
         s_httpd = NULL;
         (void)httpd_stop(httpd);
+    }
+    if (s_mdns_started) {
+        mdns_free();
+        s_mdns_started = false;
     }
 #endif
 }

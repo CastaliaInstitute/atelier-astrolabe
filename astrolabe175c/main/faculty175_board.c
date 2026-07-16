@@ -242,7 +242,9 @@ void faculty175_display_unlock(void)
     }
 }
 
-#define FACULTY175_LCD_FLUSH_STRIP_H 8
+#define FACULTY175_LCD_FLUSH_STRIP_H 16
+#define FACULTY175_LCD_FLUSH_BUFFER_COUNT 2
+#define FACULTY175_LCD_FLUSH_TIMEOUT_MS 100
 
 /* CO5300 QSPI (same class as SH8601) wants RGB565 high byte first on the wire. */
 static uint16_t rgb565_panel_wire(uint16_t logical565)
@@ -257,26 +259,91 @@ static bool faculty175_flush_strip_alloc(void)
     }
     const int candidates[] = {
         FACULTY175_LCD_FLUSH_STRIP_H,
-        16,
         12,
         8,
     };
     for (size_t i = 0; i < sizeof(candidates) / sizeof(candidates[0]); ++i) {
         const int h = candidates[i];
         const size_t strip_bytes = (size_t)FACULTY175_LCD_W * (size_t)h * sizeof(uint16_t);
-        /* Keep the panel strip in internal DMA memory; SPI color queueing rejects some PSRAM-backed buffers. */
-        s_flush_strip = heap_caps_malloc(strip_bytes, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+        const size_t allocation_bytes = strip_bytes * FACULTY175_LCD_FLUSH_BUFFER_COUNT;
+        /* Keep both panel strips in internal DMA memory. Alternating strips lets
+           the CPU prepare the next one while QSPI transmits the current one. */
+        s_flush_strip = heap_caps_malloc(allocation_bytes, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
         if (s_flush_strip == NULL) {
-            s_flush_strip = heap_caps_malloc(strip_bytes, MALLOC_CAP_DMA);
+            s_flush_strip = heap_caps_malloc(allocation_bytes, MALLOC_CAP_DMA);
         }
         if (s_flush_strip != NULL) {
             s_flush_strip_h = h;
-            ESP_LOGI(TAG, "lcd flush strip DMA alloc rows=%d bytes=%u", h, (unsigned)strip_bytes);
+            ESP_LOGI(TAG,
+                     "lcd flush DMA pipeline buffers=%d rows=%d bytes=%u",
+                     FACULTY175_LCD_FLUSH_BUFFER_COUNT,
+                     h,
+                     (unsigned)allocation_bytes);
             return true;
         }
     }
     ESP_LOGE(TAG, "lcd flush strip DMA alloc failed");
     return false;
+}
+
+static bool faculty175_flush_wait_one(unsigned *in_flight)
+{
+    if (*in_flight == 0) {
+        return true;
+    }
+    if (xSemaphoreTake(s_flush_done, pdMS_TO_TICKS(FACULTY175_LCD_FLUSH_TIMEOUT_MS)) != pdTRUE) {
+        ESP_LOGW(TAG, "lcd queued flush timeout in_flight=%u", *in_flight);
+        return false;
+    }
+    --(*in_flight);
+    return true;
+}
+
+static void faculty175_flush_wait_all(unsigned *in_flight)
+{
+    while (*in_flight > 0 && faculty175_flush_wait_one(in_flight)) {
+    }
+}
+
+static void faculty175_display_flush_region(int x, int y, int w, int h)
+{
+    const int max_strip_h = s_flush_strip_h > 0 ? s_flush_strip_h : FACULTY175_LCD_FLUSH_STRIP_H;
+    const size_t buffer_pixels = (size_t)FACULTY175_LCD_W * (size_t)max_strip_h;
+    unsigned in_flight = 0;
+    unsigned submitted = 0;
+
+    /* A completed callback from an earlier aborted transfer must not be mistaken
+       for completion of a buffer submitted by this flush. */
+    while (xSemaphoreTake(s_flush_done, 0) == pdTRUE) {
+    }
+
+    for (int row0 = 0; row0 < h; row0 += max_strip_h) {
+        int strip_h = h - row0;
+        if (strip_h > max_strip_h) {
+            strip_h = max_strip_h;
+        }
+        if (in_flight == FACULTY175_LCD_FLUSH_BUFFER_COUNT && !faculty175_flush_wait_one(&in_flight)) {
+            break;
+        }
+
+        uint16_t *strip = s_flush_strip + (submitted % FACULTY175_LCD_FLUSH_BUFFER_COUNT) * buffer_pixels;
+        for (int row = 0; row < strip_h; ++row) {
+            const uint16_t *src = &s_fb[(y + row0 + row) * FACULTY175_LCD_W + x];
+            uint16_t *dst = &strip[row * w];
+            for (int col = 0; col < w; ++col) {
+                dst[col] = rgb565_panel_wire(src[col]);
+            }
+        }
+        esp_err_t err = esp_lcd_panel_draw_bitmap(s_panel, x, y + row0, x + w, y + row0 + strip_h, strip);
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "lcd queue rect %d,%d %dx%d failed: %s", x, y + row0, w, strip_h, esp_err_to_name(err));
+            break;
+        }
+        ++in_flight;
+        ++submitted;
+    }
+
+    faculty175_flush_wait_all(&in_flight);
 }
 
 static void faculty175_display_flush_fb(void)
@@ -288,28 +355,7 @@ static void faculty175_display_flush_fb(void)
         return;
     }
 
-    const int strip_h = s_flush_strip_h > 0 ? s_flush_strip_h : FACULTY175_LCD_FLUSH_STRIP_H;
-    for (int y = 0; y < FACULTY175_LCD_H; y += strip_h) {
-        int h = strip_h;
-        if (y + h > FACULTY175_LCD_H) {
-            h = FACULTY175_LCD_H - y;
-        }
-        for (int row = 0; row < h; ++row) {
-            const uint16_t *src = &s_fb[(y + row) * FACULTY175_LCD_W];
-            uint16_t *dst = &s_flush_strip[row * FACULTY175_LCD_W];
-            for (int x = 0; x < FACULTY175_LCD_W; ++x) {
-                dst[x] = rgb565_panel_wire(src[x]);
-            }
-        }
-        (void)xSemaphoreTake(s_flush_done, 0);
-        if (esp_lcd_panel_draw_bitmap(s_panel, 0, y, FACULTY175_LCD_W, y + h, s_flush_strip) != ESP_OK) {
-            ESP_LOGW(TAG, "lcd flush strip y=%d failed", y);
-            break;
-        }
-        if (xSemaphoreTake(s_flush_done, pdMS_TO_TICKS(20)) != pdTRUE) {
-            ESP_LOGW(TAG, "lcd flush strip y=%d timeout", y);
-        }
-    }
+    faculty175_display_flush_region(0, 0, FACULTY175_LCD_W, FACULTY175_LCD_H);
 }
 
 static uint16_t lcd_pack565(uint8_t r, uint8_t g, uint8_t b)
@@ -1646,7 +1692,7 @@ static esp_err_t faculty175_lcd_init(void)
     g_faculty175_boot_stage = 0xae32;
 
     if (s_flush_done == NULL) {
-        s_flush_done = xSemaphoreCreateBinary();
+        s_flush_done = xSemaphoreCreateCounting(10, 0);
         ESP_RETURN_ON_FALSE(s_flush_done != NULL, ESP_ERR_NO_MEM, TAG, "flush sem");
     }
     if (s_display_lock == NULL) {
@@ -1657,7 +1703,9 @@ static esp_err_t faculty175_lcd_init(void)
 
     esp_lcd_panel_io_spi_config_t io_cfg = CO5300_PANEL_IO_QSPI_CONFIG(FACULTY175_LCD_PIN_CS, lcd_flush_done_cb, NULL);
     io_cfg.trans_queue_depth = 10;
-    io_cfg.pclk_hz = 20 * 1000 * 1000;
+    /* Use the CO5300 driver's supported 40 MHz QSPI rate. At 20 MHz with
+       eight-row DMA strips, full-frame navigation visibly scanned top-down. */
+    io_cfg.pclk_hz = 40 * 1000 * 1000;
     g_faculty175_boot_last_err =
         esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)FACULTY175_LCD_HOST, &io_cfg, &s_panel_io);
     ESP_RETURN_ON_ERROR(g_faculty175_boot_last_err, TAG, "lcd io");
@@ -3139,6 +3187,30 @@ void faculty175_display_flush_suspended_set(bool suspended)
     s_flush_suspended = suspended;
 }
 
+size_t faculty175_display_prepare_ota(void)
+{
+    size_t released = 0;
+    faculty175_display_lock();
+    s_flush_suspended = true;
+    if (s_flush_strip != NULL && s_flush_strip_h > 0) {
+        released = (size_t)FACULTY175_LCD_W * (size_t)s_flush_strip_h * sizeof(uint16_t) *
+                   FACULTY175_LCD_FLUSH_BUFFER_COUNT;
+        heap_caps_free(s_flush_strip);
+        s_flush_strip = NULL;
+        s_flush_strip_h = 0;
+    }
+    faculty175_display_unlock();
+    ESP_LOGI(TAG, "OTA display pipeline paused; released %u DMA bytes", (unsigned)released);
+    return released;
+}
+
+void faculty175_display_resume_after_ota_error(void)
+{
+    faculty175_display_lock();
+    s_flush_suspended = false;
+    faculty175_display_unlock();
+}
+
 void faculty175_display_flush(void)
 {
     if (s_flush_suspended) {
@@ -3176,28 +3248,7 @@ void faculty175_display_flush_rect(int x, int y, int w, int h)
         h = FACULTY175_LCD_H - y;
     }
 
-    const int max_strip_h = s_flush_strip_h > 0 ? s_flush_strip_h : FACULTY175_LCD_FLUSH_STRIP_H;
-    for (int row0 = 0; row0 < h; row0 += max_strip_h) {
-        int strip_h = h - row0;
-        if (strip_h > max_strip_h) {
-            strip_h = max_strip_h;
-        }
-        for (int row = 0; row < strip_h; ++row) {
-            const uint16_t *src = &s_fb[(y + row0 + row) * FACULTY175_LCD_W + x];
-            uint16_t *dst = &s_flush_strip[row * w];
-            for (int col = 0; col < w; ++col) {
-                dst[col] = rgb565_panel_wire(src[col]);
-            }
-        }
-        (void)xSemaphoreTake(s_flush_done, 0);
-        if (esp_lcd_panel_draw_bitmap(s_panel, x, y + row0, x + w, y + row0 + strip_h, s_flush_strip) != ESP_OK) {
-            ESP_LOGW(TAG, "lcd flush rect %d,%d %dx%d failed", x, y + row0, w, strip_h);
-            break;
-        }
-        if (xSemaphoreTake(s_flush_done, pdMS_TO_TICKS(20)) != pdTRUE) {
-            ESP_LOGW(TAG, "lcd flush rect %d,%d %dx%d timeout", x, y + row0, w, strip_h);
-        }
-    }
+    faculty175_display_flush_region(x, y, w, h);
 }
 
 void faculty175_display_draw_circle(int cx, int cy, int r, uint16_t color)
