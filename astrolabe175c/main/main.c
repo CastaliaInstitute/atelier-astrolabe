@@ -886,6 +886,21 @@ static void ui_task(void *arg)
     }
 }
 
+static void eye_host_start_task(void *arg)
+{
+    (void)arg;
+    /* Let the primary face render before USB host mode takes the shared PHY. */
+    vTaskDelay(pdMS_TO_TICKS(1500));
+    const esp_err_t err = faculty175_face_eye_init();
+    if (err != ESP_OK) {
+        FACULTY175_LOG_STAGE_W(TAG, "eye", "UVC host init failed: %s", esp_err_to_name(err));
+    }
+    if (s_ui_task != NULL) {
+        xTaskNotifyGive(s_ui_task);
+    }
+    vTaskDelete(NULL);
+}
+
 static void append_history(const char *user, const char *reply)
 {
     char chunk[256];
@@ -3789,10 +3804,6 @@ void app_main(void)
         FACULTY175_LOG_STAGE_W(TAG, "boot", "leaving serial recovery shell available");
         return;
     }
-    const esp_err_t eye_init_err = faculty175_face_eye_init();
-    if (eye_init_err != ESP_OK) {
-        FACULTY175_LOG_STAGE_W(TAG, "eye", "UVC host init failed: %s", esp_err_to_name(eye_init_err));
-    }
     boot_probe_stage(0xaf);
     esp_rom_printf("A15 touch_init\n");
     (void)faculty175_touch_init();
@@ -3843,6 +3854,9 @@ void app_main(void)
     }
     button_reboot_task_start_if_needed();
     ui_set(FACULTY175_UI_LISTEN, NULL);
+    if (xTaskCreate(eye_host_start_task, "eye_start", 4096, NULL, 3, NULL) != pdPASS) {
+        FACULTY175_LOG_STAGE_W(TAG, "eye", "UVC host start task create failed");
+    }
     FACULTY175_LOG_STAGE(TAG, "boot", "board audio=%s", faculty175_board_audio_ready() ? "ok" : "off");
 
     if (faculty_init_err == ESP_OK) {
