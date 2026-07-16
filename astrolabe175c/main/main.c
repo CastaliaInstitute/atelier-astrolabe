@@ -3832,17 +3832,17 @@ void app_main(void)
         s_ui_task = NULL;
         FACULTY175_LOG_STAGE_E(TAG, "ui", "task create failed");
     }
-    const esp_err_t ble_boot_err = faculty175_ble_init();
-    if (ble_boot_err != ESP_OK) {
-        FACULTY175_LOG_STAGE_W(TAG, "ble", "boot start failed: %s", esp_err_to_name(ble_boot_err));
-    }
     (void)wifi_start_task_launch("background");
     /*
      * Wi-Fi needs a short-lived block of internal DMA-capable memory while its
      * driver starts.  Finish that allocation before the input, button, and UVC
      * host task stacks compete for the same pool.
-     */
+    */
     wifi_wait_for_start_complete("background", 25000);
+    const esp_err_t ble_boot_err = faculty175_ble_init();
+    if (ble_boot_err != ESP_OK) {
+        FACULTY175_LOG_STAGE_W(TAG, "ble", "boot start failed: %s", esp_err_to_name(ble_boot_err));
+    }
     BaseType_t input_task_ok = xTaskCreateWithCaps(input_task,
                                                    "input",
                                                    FACULTY175_INPUT_TASK_STACK,
