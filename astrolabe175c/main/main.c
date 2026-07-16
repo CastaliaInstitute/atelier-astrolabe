@@ -34,6 +34,7 @@
 #include "faculty175_face_alethiometer.h"
 #include "faculty175_face_babel.h"
 #include "faculty175_face_dispatch.h"
+#include "faculty175_face_eye.h"
 #include "faculty175_face_incidents.h"
 #include "faculty175_face_native.h"
 #include "faculty175_face_runes.h"
@@ -3787,6 +3788,10 @@ void app_main(void)
         FACULTY175_LOG_STAGE_E(TAG, "boot", "board init failed: %s", esp_err_to_name(board_init_err));
         FACULTY175_LOG_STAGE_W(TAG, "boot", "leaving serial recovery shell available");
         return;
+    }
+    const esp_err_t eye_init_err = faculty175_face_eye_init();
+    if (eye_init_err != ESP_OK) {
+        FACULTY175_LOG_STAGE_W(TAG, "eye", "UVC host init failed: %s", esp_err_to_name(eye_init_err));
     }
     boot_probe_stage(0xaf);
     esp_rom_printf("A15 touch_init\n");

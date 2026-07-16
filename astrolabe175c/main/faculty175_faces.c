@@ -18,8 +18,8 @@ static const char *TAG = "faculty175_faces";
 #define FACES_NVS_NAV_COUNT "navcnt"
 #define FACES_NVS_NAV_MAP "navmap"
 #define FACE_KEY_CAP 8
-#define FACES_CONFIG_RESET_SCHEMA_VERSION 40
-#define FACES_SCHEMA_VERSION 40
+#define FACES_CONFIG_RESET_SCHEMA_VERSION 41
+#define FACES_SCHEMA_VERSION 41
 
 static const faculty175_face_desc_t k_faces[] = {
     { FACULTY175_FACE_FACULTY, "faculty", "Faculty", FACULTY175_FACE_CAT_HOME, true, true, 10 },
@@ -89,9 +89,10 @@ static const faculty175_face_desc_t k_faces[] = {
     { FACULTY175_FACE_SETTINGS, "settings", "Settings", FACULTY175_FACE_CAT_SYSTEM, true, true, 250 },
     { FACULTY175_FACE_POCKETWATCH, "pocketwatch", "Watch", FACULTY175_FACE_CAT_HOME, true, true, 0 },
     { FACULTY175_FACE_BATTERY, "battery", "Battery", FACULTY175_FACE_CAT_HOME | FACULTY175_FACE_CAT_SYSTEM, true, true, 152 },
+    { FACULTY175_FACE_EYE, "astrolabe-eye", "Astrolabe Eye", FACULTY175_FACE_CAT_HOME, true, true, 0 },
 };
 
-static faculty175_face_id_t s_current = FACULTY175_FACE_IRONMAN;
+static faculty175_face_id_t s_current = FACULTY175_FACE_EYE;
 static uint8_t s_enabled_cache[FACULTY175_FACE_COUNT];
 static uint8_t s_nav_cache[FACULTY175_FACE_COUNT];
 static uint8_t s_order_cache[FACULTY175_FACE_COUNT];
@@ -212,7 +213,7 @@ static bool face_active_slot(size_t index)
 static bool face_is_nav_anchor(faculty175_face_id_t id)
 {
     return id == FACULTY175_FACE_FACULTY || id == FACULTY175_FACE_POCKETWATCH ||
-           id == FACULTY175_FACE_IRONMAN;
+           id == FACULTY175_FACE_IRONMAN || id == FACULTY175_FACE_EYE;
 }
 
 static uint32_t primary_face_category(uint32_t categories)
@@ -525,7 +526,7 @@ esp_err_t faculty175_faces_init(void)
     size_t len = sizeof(current);
     err = nvs_get_str(nvs, FACES_NVS_CURRENT, current, &len);
     if (err == ESP_ERR_NVS_NOT_FOUND) {
-        err = nvs_set_str(nvs, FACES_NVS_CURRENT, k_faces[FACULTY175_FACE_IRONMAN].slug);
+        err = nvs_set_str(nvs, FACES_NVS_CURRENT, k_faces[FACULTY175_FACE_EYE].slug);
         current[0] = '\0';
     }
     uint8_t schema = 0;
@@ -579,9 +580,9 @@ esp_err_t faculty175_faces_init(void)
             }
         }
         if (err == ESP_OK) {
-            err = nvs_set_str(nvs, FACES_NVS_CURRENT, k_faces[FACULTY175_FACE_IRONMAN].slug);
+            err = nvs_set_str(nvs, FACES_NVS_CURRENT, k_faces[FACULTY175_FACE_EYE].slug);
             if (err == ESP_OK) {
-                strncpy(current, k_faces[FACULTY175_FACE_IRONMAN].slug, sizeof(current) - 1u);
+                strncpy(current, k_faces[FACULTY175_FACE_EYE].slug, sizeof(current) - 1u);
                 current[sizeof(current) - 1u] = '\0';
             }
         }
@@ -617,7 +618,7 @@ esp_err_t faculty175_faces_init(void)
         return err;
     }
 
-    s_current = FACULTY175_FACE_IRONMAN;
+    s_current = FACULTY175_FACE_EYE;
     const faculty175_face_desc_t *saved_current = faculty175_faces_find(current);
     if (saved_current != NULL && saved_current->ported && faculty175_faces_enabled(saved_current->id)) {
         s_current = saved_current->id;
@@ -627,6 +628,7 @@ esp_err_t faculty175_faces_init(void)
     if (profile_err != ESP_OK) {
         FACULTY175_LOG_STAGE(TAG, "faces", "profile init: %s", esp_err_to_name(profile_err));
     }
+    (void)faculty175_faces_set(FACULTY175_FACE_EYE);
     return ESP_OK;
 }
 

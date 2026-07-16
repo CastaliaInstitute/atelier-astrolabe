@@ -18,13 +18,13 @@ static faculty175_face_profile_t s_profile = FACULTY175_FACE_PROFILE_DEFAULT;
 static bool face_is_anchor(faculty175_face_id_t id)
 {
     return id == FACULTY175_FACE_FACULTY || id == FACULTY175_FACE_POCKETWATCH ||
-           id == FACULTY175_FACE_IRONMAN || id == FACULTY175_FACE_SETTINGS;
+           id == FACULTY175_FACE_IRONMAN || id == FACULTY175_FACE_EYE || id == FACULTY175_FACE_SETTINGS;
 }
 
 static bool face_is_nav_anchor(faculty175_face_id_t id)
 {
     return id == FACULTY175_FACE_FACULTY || id == FACULTY175_FACE_POCKETWATCH ||
-           id == FACULTY175_FACE_IRONMAN;
+           id == FACULTY175_FACE_IRONMAN || id == FACULTY175_FACE_EYE;
 }
 
 static bool face_default_navigation_enabled(faculty175_face_id_t id)

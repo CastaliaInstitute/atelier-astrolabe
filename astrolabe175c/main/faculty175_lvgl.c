@@ -3150,6 +3150,7 @@ static const char *utility_title(faculty175_face_id_t id)
         case FACULTY175_FACE_BIOMETRICS: return "BIOMETRICS";
         case FACULTY175_FACE_IRONMAN: return "";
         case FACULTY175_FACE_BATTERY: return "";
+        case FACULTY175_FACE_EYE: return "";
         case FACULTY175_FACE_WATCHER: return "WATCHER";
         case FACULTY175_FACE_HID: return "HID";
         case FACULTY175_FACE_WSCAN: return "WIFI SCAN";
@@ -7920,7 +7921,7 @@ bool faculty175_lvgl_draw_face(faculty175_face_id_t id, uint32_t anim_ms)
     if (id == FACULTY175_FACE_DEATHSTAR || id == FACULTY175_FACE_TRON || id == FACULTY175_FACE_MAZE ||
         id == FACULTY175_FACE_HUMAN_DESIGN || id == FACULTY175_FACE_CRYSTAL_BALL ||
         id == FACULTY175_FACE_PARTNER_WELLNESS ||
-        id == FACULTY175_FACE_IRONMAN || id == FACULTY175_FACE_BATTERY) {
+        id == FACULTY175_FACE_IRONMAN || id == FACULTY175_FACE_BATTERY || id == FACULTY175_FACE_EYE) {
         return false;
     }
 
