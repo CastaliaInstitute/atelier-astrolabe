@@ -1338,12 +1338,14 @@ static void ota_auto_task(void *arg)
     }
 }
 
-static esp_err_t start_manifest_task(const char *manifest_url)
+esp_err_t faculty175_ota_start_manifest(const char *manifest_url)
 {
     ota_job_t job = {
         .manifest_url = true,
     };
-    strlcpy(job.url, manifest_url, sizeof(job.url));
+    strlcpy(job.url,
+            manifest_url != NULL && manifest_url[0] != '\0' ? manifest_url : OTA_AUTO_MANIFEST_URL,
+            sizeof(job.url));
     return start_install_job(&job);
 }
 
@@ -1426,6 +1428,31 @@ void faculty175_ota_maybe_boot_product(void)
 bool faculty175_ota_active(void)
 {
     return s_ota_state == OTA_STATE_RUNNING;
+}
+
+void faculty175_ota_status(char *state, size_t state_cap, char *last, size_t last_cap)
+{
+    const char *name = "unknown";
+    switch (s_ota_state) {
+    case OTA_STATE_IDLE:
+        name = "idle";
+        break;
+    case OTA_STATE_RUNNING:
+        name = "running";
+        break;
+    case OTA_STATE_DONE:
+        name = "done";
+        break;
+    case OTA_STATE_ERROR:
+        name = "error";
+        break;
+    }
+    if (state != NULL && state_cap > 0) {
+        strlcpy(state, name, state_cap);
+    }
+    if (last != NULL && last_cap > 0) {
+        strlcpy(last, s_ota_last, last_cap);
+    }
 }
 
 void faculty175_ota_set_auto_paused(bool paused)
@@ -1646,7 +1673,7 @@ bool faculty175_ota_handle(const char *line)
         char url[OTA_URL_MAX];
         esp_err_t err = take_token(&cursor, url, sizeof(url)) && is_http_url(url) ? ESP_OK : ESP_ERR_INVALID_ARG;
         if (err == ESP_OK) {
-            err = start_manifest_task(url);
+            err = faculty175_ota_start_manifest(url);
         }
         printf("ota: manifest %s\n", esp_err_to_name(err));
         fflush(stdout);

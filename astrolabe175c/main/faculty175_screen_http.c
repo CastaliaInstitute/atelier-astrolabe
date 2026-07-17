@@ -25,6 +25,7 @@
 #include "faculty175_faces.h"
 #include "faculty175_power_metrics.h"
 #include "faculty175_power_history.h"
+#include "faculty175_ota.h"
 #include "faculty175_serial.h"
 #include "faculty175_wifi_lab.h"
 #include "faculty175_wifi_monitor.h"
@@ -934,6 +935,61 @@ static esp_err_t read_request_body(httpd_req_t *req, char *body, size_t body_cap
     return ESP_OK;
 }
 
+static esp_err_t api_ota_send(httpd_req_t *req, esp_err_t request_err)
+{
+    char state[16] = {};
+    char last[160] = {};
+    faculty175_ota_status(state, sizeof(state), last, sizeof(last));
+    cJSON *root = cJSON_CreateObject();
+    if (root == NULL) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "json alloc");
+        return ESP_FAIL;
+    }
+    cJSON_AddBoolToObject(root, "ok", request_err == ESP_OK);
+    add_json_string(root, "err", esp_err_to_name(request_err));
+    add_json_string(root, "state", state);
+    add_json_string(root, "last", last);
+    cJSON_AddBoolToObject(root, "active", faculty175_ota_active());
+    char *body = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    if (body == NULL) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "json print");
+        return ESP_FAIL;
+    }
+    set_api_headers(req);
+    const esp_err_t err = httpd_resp_send(req, body, HTTPD_RESP_USE_STRLEN);
+    free(body);
+    return err;
+}
+
+static esp_err_t api_ota_get(httpd_req_t *req)
+{
+    return api_ota_send(req, ESP_OK);
+}
+
+static esp_err_t api_ota_post(httpd_req_t *req)
+{
+    char body[384];
+    esp_err_t err = read_request_body(req, body, sizeof(body));
+    if (err != ESP_OK) {
+        return err;
+    }
+    const char *manifest_url = NULL;
+    cJSON *root = body[0] != '\0' ? cJSON_Parse(body) : cJSON_CreateObject();
+    if (root == NULL || !cJSON_IsObject(root)) {
+        cJSON_Delete(root);
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "invalid json");
+        return ESP_FAIL;
+    }
+    const cJSON *manifest = cJSON_GetObjectItemCaseSensitive(root, "manifestUrl");
+    if (cJSON_IsString(manifest) && manifest->valuestring != NULL && manifest->valuestring[0] != '\0') {
+        manifest_url = manifest->valuestring;
+    }
+    err = faculty175_ota_start_manifest(manifest_url);
+    cJSON_Delete(root);
+    return api_ota_send(req, err);
+}
+
 static esp_err_t api_face_reply(httpd_req_t *req, const faculty175_face_desc_t *face, int64_t set_us, esp_err_t set_err)
 {
     char body[1024];
@@ -1508,7 +1564,7 @@ esp_err_t faculty175_screen_http_start(const esp_ip4_addr_t *ip)
     config.server_port = 80;
     config.stack_size = FACULTY175_SCREEN_HTTP_STACK_SIZE;
     config.max_open_sockets = 4;
-    config.max_uri_handlers = 28;
+    config.max_uri_handlers = 32;
     config.lru_purge_enable = true;
 
     esp_err_t err = ESP_FAIL;
@@ -1668,6 +1724,24 @@ esp_err_t faculty175_screen_http_start(const esp_ip4_addr_t *ip)
         .handler = api_options,
         .user_ctx = NULL,
     };
+    const httpd_uri_t api_ota_get_uri = {
+        .uri = "/api/ota",
+        .method = HTTP_GET,
+        .handler = api_ota_get,
+        .user_ctx = NULL,
+    };
+    const httpd_uri_t api_ota_post_uri = {
+        .uri = "/api/ota",
+        .method = HTTP_POST,
+        .handler = api_ota_post,
+        .user_ctx = NULL,
+    };
+    const httpd_uri_t api_ota_options_uri = {
+        .uri = "/api/ota",
+        .method = HTTP_OPTIONS,
+        .handler = api_options,
+        .user_ctx = NULL,
+    };
     const httpd_uri_t lab_portal_get_uri = {
         .uri = "/lab/portal",
         .method = HTTP_GET,
@@ -1714,6 +1788,9 @@ esp_err_t faculty175_screen_http_start(const esp_ip4_addr_t *ip)
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &api_settings_get_uri), TAG, "register GET /api/settings");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &api_settings_post_uri), TAG, "register POST /api/settings");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &api_settings_options_uri), TAG, "register OPTIONS /api/settings");
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &api_ota_get_uri), TAG, "register GET /api/ota");
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &api_ota_post_uri), TAG, "register POST /api/ota");
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &api_ota_options_uri), TAG, "register OPTIONS /api/ota");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &lab_portal_get_uri), TAG, "register GET /lab/portal");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &lab_portal_post_uri), TAG, "register POST /lab/portal");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &lab_handshake_pcap_uri), TAG, "register GET /lab/handshake.pcap");
