@@ -80,6 +80,14 @@ typedef enum {
     COLMI_CLIENT_ERROR,
 } colmi_client_state_t;
 
+typedef enum {
+    COLMI_ACTION_NONE = 0,
+    COLMI_ACTION_BATTERY,
+    COLMI_ACTION_START_HR,
+    COLMI_ACTION_START_SPO2,
+    COLMI_ACTION_START_HRV,
+} colmi_client_action_t;
+
 typedef struct __attribute__((packed)) {
     uint16_t addr_hash;
     int8_t rssi;
@@ -148,6 +156,9 @@ static uint16_t s_colmi_ccc_handle;
 static uint32_t s_colmi_started_ms;
 static uint32_t s_colmi_last_packet_ms;
 static uint32_t s_colmi_connect_after_ms;
+static uint32_t s_colmi_measure_started_ms;
+static uint32_t s_colmi_action_due_ms;
+static colmi_client_action_t s_colmi_action;
 static faculty175_ring_vitals_t s_colmi_working_vitals;
 static bool s_colmi_have_conn;
 static bool s_colmi_want_scan;
@@ -159,6 +170,7 @@ static int ble_gap_event(struct ble_gap_event *event, void *arg);
 static esp_err_t ble_advertise(void);
 static void ble_ring_telem_store(const faculty175_ble_peer_t *peer);
 static esp_err_t colmi_client_start(void);
+static void colmi_client_finish(void);
 static void colmi_client_on_ring_found(const ble_addr_t *addr, uint8_t event_type, int8_t rssi);
 static int ble_settings_enabled_access(uint16_t conn_handle,
                                        uint16_t attr_handle,
@@ -601,22 +613,10 @@ static bool colmi_adv_event_connectable(uint8_t event_type)
     return event_type == BLE_HCI_ADV_RPT_EVTYPE_ADV_IND || event_type == BLE_HCI_ADV_RPT_EVTYPE_DIR_IND;
 }
 
-static int colmi_write_cb(uint16_t conn_handle,
-                          const struct ble_gatt_error *error,
-                          struct ble_gatt_attr *attr,
-                          void *arg)
+static void colmi_schedule_action(colmi_client_action_t action, uint32_t delay_ms)
 {
-    (void)conn_handle;
-    (void)attr;
-    (void)arg;
-    if (error != NULL && error->status != 0) {
-        ESP_LOGW(TAG, "colmi write failed status=%u", (unsigned)error->status);
-        if (s_colmi_state == COLMI_CLIENT_DONE) {
-            return 0;
-        }
-        s_colmi_state = COLMI_CLIENT_ERROR;
-    }
-    return 0;
+    s_colmi_action = action;
+    s_colmi_action_due_ms = ble_now_ms() + delay_ms;
 }
 
 static esp_err_t colmi_send_packet(const uint8_t packet[COLMI_PACKET_LEN])
@@ -624,12 +624,10 @@ static esp_err_t colmi_send_packet(const uint8_t packet[COLMI_PACKET_LEN])
     if (!s_colmi_have_conn || s_colmi_rx_handle == 0) {
         return ESP_ERR_INVALID_STATE;
     }
-    const int rc = ble_gattc_write_flat(s_colmi_conn_handle,
-                                        s_colmi_rx_handle,
-                                        packet,
-                                        COLMI_PACKET_LEN,
-                                        colmi_write_cb,
-                                        NULL);
+    const int rc = ble_gattc_write_no_rsp_flat(s_colmi_conn_handle,
+                                               s_colmi_rx_handle,
+                                               packet,
+                                               COLMI_PACKET_LEN);
     if (rc != 0) {
         ESP_LOGW(TAG, "colmi send failed rc=%d", rc);
         s_colmi_state = COLMI_CLIENT_ERROR;
@@ -654,10 +652,39 @@ static esp_err_t colmi_stop_realtime(uint8_t kind)
     return colmi_send_packet(packet);
 }
 
+static void colmi_stop_current_realtime(void)
+{
+    if (s_colmi_state == COLMI_CLIENT_READING_HR) {
+        (void)colmi_stop_realtime(COLMI_REALTIME_HEART_RATE);
+    } else if (s_colmi_state == COLMI_CLIENT_READING_SPO2) {
+        (void)colmi_stop_realtime(COLMI_REALTIME_SPO2);
+    } else if (s_colmi_state == COLMI_CLIENT_READING_HRV) {
+        (void)colmi_stop_realtime(COLMI_REALTIME_HRV);
+    }
+}
+
+static void colmi_advance_after_realtime(uint8_t kind)
+{
+    if (kind == COLMI_REALTIME_HEART_RATE && s_colmi_state == COLMI_CLIENT_READING_HR) {
+        colmi_stop_current_realtime();
+        s_colmi_state = COLMI_CLIENT_READY;
+        colmi_schedule_action(COLMI_ACTION_START_SPO2, 1500u);
+    } else if (kind == COLMI_REALTIME_SPO2 && s_colmi_state == COLMI_CLIENT_READING_SPO2) {
+        colmi_stop_current_realtime();
+        s_colmi_state = COLMI_CLIENT_READY;
+        colmi_schedule_action(COLMI_ACTION_START_HRV, 1500u);
+    } else if (kind == COLMI_REALTIME_HRV && s_colmi_state == COLMI_CLIENT_READING_HRV) {
+        colmi_stop_current_realtime();
+        colmi_client_finish();
+    }
+}
+
 static void colmi_client_finish(void)
 {
     s_colmi_working_vitals.updated_ms = ble_now_ms();
     faculty175_ring_update_vitals(&s_colmi_working_vitals);
+    s_colmi_action = COLMI_ACTION_NONE;
+    s_colmi_action_due_ms = 0;
     s_colmi_state = COLMI_CLIENT_DONE;
     if (s_colmi_have_conn) {
         (void)ble_gap_terminate(s_colmi_conn_handle, BLE_ERR_REM_USER_CONN_TERM);
@@ -669,8 +696,8 @@ static void colmi_client_advance_after_packet(uint8_t cmd, uint8_t kind, uint8_t
     if (cmd == COLMI_CMD_BATTERY && s_colmi_state == COLMI_CLIENT_READING_BATTERY) {
         s_colmi_working_vitals.battery_percent = value;
         s_colmi_working_vitals.battery_valid = value <= 100;
-        s_colmi_state = COLMI_CLIENT_READING_HR;
-        (void)colmi_start_realtime(COLMI_REALTIME_HEART_RATE);
+        s_colmi_state = COLMI_CLIENT_READY;
+        colmi_schedule_action(COLMI_ACTION_START_HR, 1500u);
         return;
     }
     if (cmd != COLMI_CMD_REALTIME_START || value == 0 || kind == 0) {
@@ -679,36 +706,95 @@ static void colmi_client_advance_after_packet(uint8_t cmd, uint8_t kind, uint8_t
     if (kind == COLMI_REALTIME_HEART_RATE && s_colmi_state == COLMI_CLIENT_READING_HR) {
         s_colmi_working_vitals.heart_rate_bpm = value;
         s_colmi_working_vitals.heart_rate_valid = value >= 30 && value <= 240;
-        (void)colmi_stop_realtime(COLMI_REALTIME_HEART_RATE);
-        s_colmi_state = COLMI_CLIENT_READING_SPO2;
-        (void)colmi_start_realtime(COLMI_REALTIME_SPO2);
+        colmi_advance_after_realtime(kind);
     } else if (kind == COLMI_REALTIME_SPO2 && s_colmi_state == COLMI_CLIENT_READING_SPO2) {
         s_colmi_working_vitals.spo2_percent = value;
         s_colmi_working_vitals.spo2_valid = value >= 50 && value <= 100;
-        (void)colmi_stop_realtime(COLMI_REALTIME_SPO2);
-        s_colmi_state = COLMI_CLIENT_READING_HRV;
-        (void)colmi_start_realtime(COLMI_REALTIME_HRV);
+        colmi_advance_after_realtime(kind);
     } else if (kind == COLMI_REALTIME_HRV && s_colmi_state == COLMI_CLIENT_READING_HRV) {
         s_colmi_working_vitals.hrv_ms = value;
         s_colmi_working_vitals.hrv_valid = value > 0;
-        (void)colmi_stop_realtime(COLMI_REALTIME_HRV);
-        colmi_client_finish();
+        colmi_advance_after_realtime(kind);
     }
 }
 
 static void colmi_client_advance_after_realtime_error(uint8_t kind)
 {
-    if (kind == COLMI_REALTIME_HEART_RATE && s_colmi_state == COLMI_CLIENT_READING_HR) {
-        (void)colmi_stop_realtime(COLMI_REALTIME_HEART_RATE);
-        s_colmi_state = COLMI_CLIENT_READING_SPO2;
-        (void)colmi_start_realtime(COLMI_REALTIME_SPO2);
-    } else if (kind == COLMI_REALTIME_SPO2 && s_colmi_state == COLMI_CLIENT_READING_SPO2) {
-        (void)colmi_stop_realtime(COLMI_REALTIME_SPO2);
-        s_colmi_state = COLMI_CLIENT_READING_HRV;
-        (void)colmi_start_realtime(COLMI_REALTIME_HRV);
-    } else if (kind == COLMI_REALTIME_HRV && s_colmi_state == COLMI_CLIENT_READING_HRV) {
-        (void)colmi_stop_realtime(COLMI_REALTIME_HRV);
-        colmi_client_finish();
+    colmi_advance_after_realtime(kind);
+}
+
+static void colmi_run_scheduled_action(uint32_t now_ms)
+{
+    if (s_colmi_action == COLMI_ACTION_NONE || (int32_t)(now_ms - s_colmi_action_due_ms) < 0) {
+        return;
+    }
+    const colmi_client_action_t action = s_colmi_action;
+    s_colmi_action = COLMI_ACTION_NONE;
+    s_colmi_action_due_ms = 0;
+
+    if (!s_colmi_have_conn) {
+        s_colmi_state = COLMI_CLIENT_ERROR;
+        return;
+    }
+
+    esp_err_t err = ESP_OK;
+    switch (action) {
+        case COLMI_ACTION_BATTERY: {
+            s_colmi_state = COLMI_CLIENT_READING_BATTERY;
+            s_colmi_measure_started_ms = now_ms;
+            uint8_t packet[COLMI_PACKET_LEN];
+            colmi_make_packet(COLMI_CMD_BATTERY, NULL, 0, packet);
+            err = colmi_send_packet(packet);
+            ESP_LOGI(TAG, "colmi battery request %s", esp_err_to_name(err));
+            break;
+        }
+        case COLMI_ACTION_START_HR:
+            s_colmi_state = COLMI_CLIENT_READING_HR;
+            s_colmi_measure_started_ms = now_ms;
+            err = colmi_start_realtime(COLMI_REALTIME_HEART_RATE);
+            ESP_LOGI(TAG, "colmi realtime start hr %s", esp_err_to_name(err));
+            break;
+        case COLMI_ACTION_START_SPO2:
+            s_colmi_state = COLMI_CLIENT_READING_SPO2;
+            s_colmi_measure_started_ms = now_ms;
+            err = colmi_start_realtime(COLMI_REALTIME_SPO2);
+            ESP_LOGI(TAG, "colmi realtime start spo2 %s", esp_err_to_name(err));
+            break;
+        case COLMI_ACTION_START_HRV:
+            s_colmi_state = COLMI_CLIENT_READING_HRV;
+            s_colmi_measure_started_ms = now_ms;
+            err = colmi_start_realtime(COLMI_REALTIME_HRV);
+            ESP_LOGI(TAG, "colmi realtime start hrv %s", esp_err_to_name(err));
+            break;
+        case COLMI_ACTION_NONE:
+        default:
+            return;
+    }
+    if (err != ESP_OK) {
+        s_colmi_state = COLMI_CLIENT_ERROR;
+    }
+}
+
+static void colmi_handle_measure_timeout(uint32_t now_ms)
+{
+    const uint32_t timeout_ms = s_colmi_state == COLMI_CLIENT_READING_BATTERY ? 8000u : 45000u;
+    if (s_colmi_state != COLMI_CLIENT_READING_BATTERY && s_colmi_state != COLMI_CLIENT_READING_HR &&
+        s_colmi_state != COLMI_CLIENT_READING_SPO2 && s_colmi_state != COLMI_CLIENT_READING_HRV) {
+        return;
+    }
+    if (s_colmi_measure_started_ms == 0 || (int32_t)(now_ms - (s_colmi_measure_started_ms + timeout_ms)) < 0) {
+        return;
+    }
+    ESP_LOGW(TAG, "colmi measurement timeout state=%s", colmi_state_name(s_colmi_state));
+    if (s_colmi_state == COLMI_CLIENT_READING_BATTERY) {
+        s_colmi_state = COLMI_CLIENT_READY;
+        colmi_schedule_action(COLMI_ACTION_START_HR, 500u);
+    } else if (s_colmi_state == COLMI_CLIENT_READING_HR) {
+        colmi_advance_after_realtime(COLMI_REALTIME_HEART_RATE);
+    } else if (s_colmi_state == COLMI_CLIENT_READING_SPO2) {
+        colmi_advance_after_realtime(COLMI_REALTIME_SPO2);
+    } else if (s_colmi_state == COLMI_CLIENT_READING_HRV) {
+        colmi_advance_after_realtime(COLMI_REALTIME_HRV);
     }
 }
 
@@ -748,10 +834,8 @@ static int colmi_subscribe_cb(uint16_t conn_handle,
         s_colmi_state = COLMI_CLIENT_ERROR;
         return 0;
     }
-    s_colmi_state = COLMI_CLIENT_READING_BATTERY;
-    uint8_t packet[COLMI_PACKET_LEN];
-    colmi_make_packet(COLMI_CMD_BATTERY, NULL, 0, packet);
-    (void)colmi_send_packet(packet);
+    s_colmi_state = COLMI_CLIENT_READY;
+    colmi_schedule_action(COLMI_ACTION_BATTERY, 500u);
     return 0;
 }
 
@@ -959,6 +1043,9 @@ static esp_err_t colmi_client_start(void)
     s_colmi_started_ms = ble_now_ms();
     s_colmi_last_packet_ms = 0;
     s_colmi_connect_after_ms = 0;
+    s_colmi_measure_started_ms = 0;
+    s_colmi_action_due_ms = 0;
+    s_colmi_action = COLMI_ACTION_NONE;
     s_colmi_have_packet = false;
     s_colmi_connect_started = false;
     s_colmi_want_scan = true;
@@ -975,6 +1062,8 @@ static void colmi_client_tick(uint32_t now_ms)
     if (s_colmi_state == COLMI_CLIENT_IDLE || s_colmi_state == COLMI_CLIENT_DONE || s_colmi_state == COLMI_CLIENT_ERROR) {
         return;
     }
+    colmi_run_scheduled_action(now_ms);
+    colmi_handle_measure_timeout(now_ms);
     if (s_colmi_state == COLMI_CLIENT_CONNECTING && s_scanning &&
         s_colmi_connect_after_ms != 0 && (int32_t)(now_ms - (s_colmi_connect_after_ms + 1000u)) >= 0) {
         ESP_LOGW(TAG, "colmi forcing scan state clear before connect retry");
@@ -1010,7 +1099,7 @@ static void colmi_client_tick(uint32_t now_ms)
         }
         return;
     }
-    if ((int32_t)(now_ms - s_colmi_started_ms) >= 45000) {
+    if ((int32_t)(now_ms - s_colmi_started_ms) >= 140000) {
         ESP_LOGW(TAG, "colmi client timeout state=%s", colmi_state_name(s_colmi_state));
         s_colmi_state = COLMI_CLIENT_ERROR;
         s_scanning = false;
