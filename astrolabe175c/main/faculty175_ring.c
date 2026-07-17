@@ -47,7 +47,7 @@ void faculty175_ring_update_vitals(const faculty175_ring_vitals_t *vitals)
     if (s_latest.updated_ms == 0) {
         s_latest.updated_ms = now_ms();
     }
-    s_have_latest = s_latest.heart_rate_valid || s_latest.hrv_valid || s_latest.battery_valid;
+    s_have_latest = s_latest.heart_rate_valid || s_latest.hrv_valid || s_latest.spo2_valid || s_latest.battery_valid;
 }
 
 bool faculty175_ring_latest_vitals(faculty175_ring_vitals_t *out)
@@ -81,6 +81,11 @@ esp_err_t faculty175_ring_handle_json(const char *json)
         vitals.hrv_ms = value;
         vitals.hrv_valid = true;
     }
+    const cJSON *spo2 = json_any(root, "spo2", "spo2Percent", "bloodOxygen");
+    if (json_u16(spo2, 50, 100, &value)) {
+        vitals.spo2_percent = (uint8_t)value;
+        vitals.spo2_valid = true;
+    }
     const cJSON *battery = json_any(root, "battery", "batteryPercent", NULL);
     if (json_u16(battery, 0, 100, &value)) {
         vitals.battery_percent = (uint8_t)value;
@@ -93,7 +98,7 @@ esp_err_t faculty175_ring_handle_json(const char *json)
     }
 
     cJSON_Delete(root);
-    if (!vitals.heart_rate_valid && !vitals.hrv_valid && !vitals.battery_valid) {
+    if (!vitals.heart_rate_valid && !vitals.hrv_valid && !vitals.spo2_valid && !vitals.battery_valid) {
         return ESP_ERR_NOT_FOUND;
     }
     faculty175_ring_update_vitals(&vitals);

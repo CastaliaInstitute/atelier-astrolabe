@@ -53,6 +53,33 @@ enum {
     BLE_ASTROLABE_OBS_TYPE_RING = 0x02,
 };
 
+enum {
+    COLMI_PACKET_LEN = 16,
+    COLMI_CMD_BATTERY = 0x03,
+    COLMI_CMD_REALTIME_START = 0x69,
+    COLMI_CMD_REALTIME_STOP = 0x6a,
+    COLMI_REALTIME_HEART_RATE = 0x01,
+    COLMI_REALTIME_SPO2 = 0x03,
+    COLMI_REALTIME_HRV = 0x0a,
+};
+
+typedef enum {
+    COLMI_CLIENT_IDLE = 0,
+    COLMI_CLIENT_SCAN,
+    COLMI_CLIENT_CONNECTING,
+    COLMI_CLIENT_DISC_SERVICE,
+    COLMI_CLIENT_DISC_RX,
+    COLMI_CLIENT_DISC_TX,
+    COLMI_CLIENT_DISC_CCC,
+    COLMI_CLIENT_READY,
+    COLMI_CLIENT_READING_BATTERY,
+    COLMI_CLIENT_READING_HR,
+    COLMI_CLIENT_READING_SPO2,
+    COLMI_CLIENT_READING_HRV,
+    COLMI_CLIENT_DONE,
+    COLMI_CLIENT_ERROR,
+} colmi_client_state_t;
+
 typedef struct __attribute__((packed)) {
     uint16_t addr_hash;
     int8_t rssi;
@@ -80,6 +107,12 @@ static const ble_uuid128_t BLE_ENABLED_CHAR_UUID =
     BLE_UUID128_INIT(0x41, 0x73, 0x74, 0x72, 0x6f, 0x6c, 0x61, 0x62, 0x65, 0x00, 0x17, 0x50, 0x00, 0x00, 0x00, 0x02);
 static const ble_uuid128_t BLE_SETTINGS_JSON_CHAR_UUID =
     BLE_UUID128_INIT(0x41, 0x73, 0x74, 0x72, 0x6f, 0x6c, 0x61, 0x62, 0x65, 0x00, 0x17, 0x50, 0x00, 0x00, 0x00, 0x03);
+static const ble_uuid128_t COLMI_UART_SERVICE_UUID =
+    BLE_UUID128_INIT(0x9e, 0xca, 0xdc, 0x24, 0x0e, 0xe5, 0xa9, 0xe0, 0x93, 0xf3, 0xa3, 0xb5, 0xf0, 0xff, 0x40, 0x6e);
+static const ble_uuid128_t COLMI_UART_RX_UUID =
+    BLE_UUID128_INIT(0x9e, 0xca, 0xdc, 0x24, 0x0e, 0xe5, 0xa9, 0xe0, 0x93, 0xf3, 0xa3, 0xb5, 0x02, 0x00, 0x40, 0x6e);
+static const ble_uuid128_t COLMI_UART_TX_UUID =
+    BLE_UUID128_INIT(0x9e, 0xca, 0xdc, 0x24, 0x0e, 0xe5, 0xa9, 0xe0, 0x93, 0xf3, 0xa3, 0xb5, 0x03, 0x00, 0x40, 0x6e);
 
 static bool s_enabled = true;
 static bool s_started;
@@ -102,9 +135,31 @@ static bool s_have_last_ring_rssi;
 static uint32_t s_next_scan_ms;
 static uint32_t s_serial_quiet_until_ms;
 static uint8_t s_imu_adv_seq;
+static bool s_raw_scan_log;
+static uint32_t s_raw_scan_until_ms;
+static colmi_client_state_t s_colmi_state;
+static ble_addr_t s_colmi_addr;
+static uint16_t s_colmi_conn_handle;
+static uint16_t s_colmi_svc_start;
+static uint16_t s_colmi_svc_end;
+static uint16_t s_colmi_rx_handle;
+static uint16_t s_colmi_tx_handle;
+static uint16_t s_colmi_ccc_handle;
+static uint32_t s_colmi_started_ms;
+static uint32_t s_colmi_last_packet_ms;
+static uint32_t s_colmi_connect_after_ms;
+static faculty175_ring_vitals_t s_colmi_working_vitals;
+static bool s_colmi_have_conn;
+static bool s_colmi_want_scan;
+static bool s_colmi_connect_started;
+static bool s_colmi_have_packet;
+static uint8_t s_colmi_last_packet[COLMI_PACKET_LEN];
 
 static int ble_gap_event(struct ble_gap_event *event, void *arg);
 static esp_err_t ble_advertise(void);
+static void ble_ring_telem_store(const faculty175_ble_peer_t *peer);
+static esp_err_t colmi_client_start(void);
+static void colmi_client_on_ring_found(const ble_addr_t *addr, uint8_t event_type, int8_t rssi);
 static int ble_settings_enabled_access(uint16_t conn_handle,
                                        uint16_t attr_handle,
                                        struct ble_gatt_access_ctxt *ctxt,
@@ -113,6 +168,7 @@ static int ble_settings_json_access(uint16_t conn_handle,
                                     uint16_t attr_handle,
                                     struct ble_gatt_access_ctxt *ctxt,
                                     void *arg);
+static void ble_ring_telem_store(const faculty175_ble_peer_t *peer);
 
 static const struct ble_gatt_svc_def k_ble_svcs[] = {
     {
@@ -292,6 +348,33 @@ static bool ble_name_mentions_ring(const char *name)
     return false;
 }
 
+static bool ble_parse_public_mac_text(const char *text, uint8_t out_addr[6])
+{
+    if (text == NULL || out_addr == NULL) {
+        return false;
+    }
+    unsigned b[6] = {};
+    char tail = '\0';
+    if (sscanf(text,
+               " %2x:%2x:%2x:%2x:%2x:%2x %c",
+               &b[0],
+               &b[1],
+               &b[2],
+               &b[3],
+               &b[4],
+               &b[5],
+               &tail) != 6) {
+        return false;
+    }
+    for (int i = 0; i < 6; ++i) {
+        if (b[i] > 0xffu) {
+            return false;
+        }
+        out_addr[i] = (uint8_t)b[5 - i];
+    }
+    return true;
+}
+
 static bool ble_fields_have_astrolabe_uuid(const struct ble_hs_adv_fields *fields)
 {
     if (fields == NULL) {
@@ -349,6 +432,592 @@ static uint16_t ble_addr_hash16(const uint8_t addr[6])
         h *= 16777619u;
     }
     return (uint16_t)((h >> 16) ^ h);
+}
+
+static void ble_format_addr(const uint8_t addr[6], char *out, size_t cap)
+{
+    if (out == NULL || cap == 0) {
+        return;
+    }
+    if (addr == NULL) {
+        snprintf(out, cap, "00:00:00:00:00:00");
+        return;
+    }
+    snprintf(out,
+             cap,
+             "%02x:%02x:%02x:%02x:%02x:%02x",
+             addr[5],
+             addr[4],
+             addr[3],
+             addr[2],
+             addr[1],
+             addr[0]);
+}
+
+static void ble_format_hex(const uint8_t *data, size_t len, char *out, size_t cap)
+{
+    if (out == NULL || cap == 0) {
+        return;
+    }
+    out[0] = '\0';
+    if (data == NULL || len == 0) {
+        return;
+    }
+    size_t off = 0;
+    const size_t max_len = len > 12 ? 12 : len;
+    for (size_t i = 0; i < max_len && off + 3 < cap; ++i) {
+        off += snprintf(out + off, cap - off, "%02x", data[i]);
+    }
+}
+
+static void ble_format_hex_full(const uint8_t *data, size_t len, char *out, size_t cap)
+{
+    if (out == NULL || cap == 0) {
+        return;
+    }
+    out[0] = '\0';
+    if (data == NULL || len == 0) {
+        return;
+    }
+    size_t off = 0;
+    for (size_t i = 0; i < len && off + 3 < cap; ++i) {
+        off += snprintf(out + off, cap - off, "%02x", data[i]);
+    }
+}
+
+static void ble_store_raw_ring_fallback(const ble_addr_t *addr, int8_t rssi, uint32_t now_ms)
+{
+    if (addr == NULL) {
+        return;
+    }
+    const uint16_t addr_hash = ble_addr_hash16(addr->val);
+    if (!s_paired_ring_id_set || addr_hash != s_paired_ring_id) {
+        return;
+    }
+
+    faculty175_ble_peer_t peer = {
+        .valid = true,
+        .ring = true,
+        .known = true,
+        .addr_hash = addr_hash,
+        .rssi = rssi,
+        .seen_ms = now_ms,
+        .bearing_deg = ble_peer_bearing(addr->val, now_ms),
+        .range_pct = ble_rssi_range_pct(rssi),
+        .confidence_pct = ble_rssi_confidence_pct(rssi, false),
+    };
+    memcpy(peer.addr, addr->val, sizeof(peer.addr));
+    snprintf(peer.name, sizeof(peer.name), "RING %04X", peer.addr_hash);
+
+    portENTER_CRITICAL(&s_peer_lock);
+    int slot = -1;
+    int oldest = 0;
+    for (int i = 0; i < FACULTY175_BLE_PEER_MAX; ++i) {
+        if (s_peers[i].valid && memcmp(s_peers[i].addr, peer.addr, sizeof(peer.addr)) == 0) {
+            slot = i;
+            break;
+        }
+        if (!s_peers[i].valid && slot < 0) {
+            slot = i;
+        }
+        if (s_peers[i].seen_ms < s_peers[oldest].seen_ms) {
+            oldest = i;
+        }
+    }
+    if (slot < 0) {
+        slot = oldest;
+    }
+    s_peers[slot] = peer;
+    portEXIT_CRITICAL(&s_peer_lock);
+
+    ble_ring_telem_store(&peer);
+}
+
+static const char *colmi_state_name(colmi_client_state_t state)
+{
+    switch (state) {
+        case COLMI_CLIENT_IDLE:
+            return "idle";
+        case COLMI_CLIENT_SCAN:
+            return "scan";
+        case COLMI_CLIENT_CONNECTING:
+            return "connecting";
+        case COLMI_CLIENT_DISC_SERVICE:
+            return "disc-service";
+        case COLMI_CLIENT_DISC_RX:
+            return "disc-rx";
+        case COLMI_CLIENT_DISC_TX:
+            return "disc-tx";
+        case COLMI_CLIENT_DISC_CCC:
+            return "disc-ccc";
+        case COLMI_CLIENT_READY:
+            return "ready";
+        case COLMI_CLIENT_READING_BATTERY:
+            return "battery";
+        case COLMI_CLIENT_READING_HR:
+            return "heart-rate";
+        case COLMI_CLIENT_READING_SPO2:
+            return "spo2";
+        case COLMI_CLIENT_READING_HRV:
+            return "hrv";
+        case COLMI_CLIENT_DONE:
+            return "done";
+        case COLMI_CLIENT_ERROR:
+            return "error";
+        default:
+            return "?";
+    }
+}
+
+static uint8_t colmi_checksum(const uint8_t packet[COLMI_PACKET_LEN])
+{
+    uint16_t sum = 0;
+    for (size_t i = 0; i < COLMI_PACKET_LEN - 1; ++i) {
+        sum += packet[i];
+    }
+    return (uint8_t)(sum & 0xffu);
+}
+
+static void colmi_make_packet(uint8_t cmd, const uint8_t *sub, size_t sub_len, uint8_t out[COLMI_PACKET_LEN])
+{
+    memset(out, 0, COLMI_PACKET_LEN);
+    out[0] = cmd;
+    if (sub != NULL && sub_len > 0) {
+        if (sub_len > COLMI_PACKET_LEN - 2) {
+            sub_len = COLMI_PACKET_LEN - 2;
+        }
+        memcpy(&out[1], sub, sub_len);
+    }
+    out[COLMI_PACKET_LEN - 1] = colmi_checksum(out);
+}
+
+static bool colmi_packet_checksum_ok(const uint8_t packet[COLMI_PACKET_LEN])
+{
+    return packet[COLMI_PACKET_LEN - 1] == colmi_checksum(packet);
+}
+
+static bool colmi_adv_event_connectable(uint8_t event_type)
+{
+    return event_type == BLE_HCI_ADV_RPT_EVTYPE_ADV_IND || event_type == BLE_HCI_ADV_RPT_EVTYPE_DIR_IND;
+}
+
+static int colmi_write_cb(uint16_t conn_handle,
+                          const struct ble_gatt_error *error,
+                          struct ble_gatt_attr *attr,
+                          void *arg)
+{
+    (void)conn_handle;
+    (void)attr;
+    (void)arg;
+    if (error != NULL && error->status != 0) {
+        ESP_LOGW(TAG, "colmi write failed status=%u", (unsigned)error->status);
+        if (s_colmi_state == COLMI_CLIENT_DONE) {
+            return 0;
+        }
+        s_colmi_state = COLMI_CLIENT_ERROR;
+    }
+    return 0;
+}
+
+static esp_err_t colmi_send_packet(const uint8_t packet[COLMI_PACKET_LEN])
+{
+    if (!s_colmi_have_conn || s_colmi_rx_handle == 0) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    const int rc = ble_gattc_write_flat(s_colmi_conn_handle,
+                                        s_colmi_rx_handle,
+                                        packet,
+                                        COLMI_PACKET_LEN,
+                                        colmi_write_cb,
+                                        NULL);
+    if (rc != 0) {
+        ESP_LOGW(TAG, "colmi send failed rc=%d", rc);
+        s_colmi_state = COLMI_CLIENT_ERROR;
+        return ESP_FAIL;
+    }
+    return ESP_OK;
+}
+
+static esp_err_t colmi_start_realtime(uint8_t kind)
+{
+    uint8_t sub[2] = {kind, 0x01};
+    uint8_t packet[COLMI_PACKET_LEN];
+    colmi_make_packet(COLMI_CMD_REALTIME_START, sub, sizeof(sub), packet);
+    return colmi_send_packet(packet);
+}
+
+static esp_err_t colmi_stop_realtime(uint8_t kind)
+{
+    uint8_t sub[3] = {kind, 0x00, 0x00};
+    uint8_t packet[COLMI_PACKET_LEN];
+    colmi_make_packet(COLMI_CMD_REALTIME_STOP, sub, sizeof(sub), packet);
+    return colmi_send_packet(packet);
+}
+
+static void colmi_client_finish(void)
+{
+    s_colmi_working_vitals.updated_ms = ble_now_ms();
+    faculty175_ring_update_vitals(&s_colmi_working_vitals);
+    s_colmi_state = COLMI_CLIENT_DONE;
+    if (s_colmi_have_conn) {
+        (void)ble_gap_terminate(s_colmi_conn_handle, BLE_ERR_REM_USER_CONN_TERM);
+    }
+}
+
+static void colmi_client_advance_after_packet(uint8_t cmd, uint8_t kind, uint8_t value)
+{
+    if (cmd == COLMI_CMD_BATTERY && s_colmi_state == COLMI_CLIENT_READING_BATTERY) {
+        s_colmi_working_vitals.battery_percent = value;
+        s_colmi_working_vitals.battery_valid = value <= 100;
+        s_colmi_state = COLMI_CLIENT_READING_HR;
+        (void)colmi_start_realtime(COLMI_REALTIME_HEART_RATE);
+        return;
+    }
+    if (cmd != COLMI_CMD_REALTIME_START || value == 0 || kind == 0) {
+        return;
+    }
+    if (kind == COLMI_REALTIME_HEART_RATE && s_colmi_state == COLMI_CLIENT_READING_HR) {
+        s_colmi_working_vitals.heart_rate_bpm = value;
+        s_colmi_working_vitals.heart_rate_valid = value >= 30 && value <= 240;
+        (void)colmi_stop_realtime(COLMI_REALTIME_HEART_RATE);
+        s_colmi_state = COLMI_CLIENT_READING_SPO2;
+        (void)colmi_start_realtime(COLMI_REALTIME_SPO2);
+    } else if (kind == COLMI_REALTIME_SPO2 && s_colmi_state == COLMI_CLIENT_READING_SPO2) {
+        s_colmi_working_vitals.spo2_percent = value;
+        s_colmi_working_vitals.spo2_valid = value >= 50 && value <= 100;
+        (void)colmi_stop_realtime(COLMI_REALTIME_SPO2);
+        s_colmi_state = COLMI_CLIENT_READING_HRV;
+        (void)colmi_start_realtime(COLMI_REALTIME_HRV);
+    } else if (kind == COLMI_REALTIME_HRV && s_colmi_state == COLMI_CLIENT_READING_HRV) {
+        s_colmi_working_vitals.hrv_ms = value;
+        s_colmi_working_vitals.hrv_valid = value > 0;
+        (void)colmi_stop_realtime(COLMI_REALTIME_HRV);
+        colmi_client_finish();
+    }
+}
+
+static void colmi_client_advance_after_realtime_error(uint8_t kind)
+{
+    if (kind == COLMI_REALTIME_HEART_RATE && s_colmi_state == COLMI_CLIENT_READING_HR) {
+        (void)colmi_stop_realtime(COLMI_REALTIME_HEART_RATE);
+        s_colmi_state = COLMI_CLIENT_READING_SPO2;
+        (void)colmi_start_realtime(COLMI_REALTIME_SPO2);
+    } else if (kind == COLMI_REALTIME_SPO2 && s_colmi_state == COLMI_CLIENT_READING_SPO2) {
+        (void)colmi_stop_realtime(COLMI_REALTIME_SPO2);
+        s_colmi_state = COLMI_CLIENT_READING_HRV;
+        (void)colmi_start_realtime(COLMI_REALTIME_HRV);
+    } else if (kind == COLMI_REALTIME_HRV && s_colmi_state == COLMI_CLIENT_READING_HRV) {
+        (void)colmi_stop_realtime(COLMI_REALTIME_HRV);
+        colmi_client_finish();
+    }
+}
+
+static void colmi_handle_packet(const uint8_t *data, size_t len)
+{
+    if (data == NULL || len != COLMI_PACKET_LEN) {
+        return;
+    }
+    memcpy(s_colmi_last_packet, data, COLMI_PACKET_LEN);
+    s_colmi_have_packet = true;
+    s_colmi_last_packet_ms = ble_now_ms();
+    if (!colmi_packet_checksum_ok(data)) {
+        ESP_LOGW(TAG, "colmi packet checksum mismatch cmd=0x%02x", data[0]);
+    }
+    if (data[0] == COLMI_CMD_BATTERY) {
+        colmi_client_advance_after_packet(data[0], 0, data[1]);
+    } else if (data[0] == COLMI_CMD_REALTIME_START) {
+        if (data[2] != 0) {
+            ESP_LOGW(TAG, "colmi realtime kind=%u error=%u", data[1], data[2]);
+            colmi_client_advance_after_realtime_error(data[1]);
+            return;
+        }
+        colmi_client_advance_after_packet(data[0], data[1], data[3]);
+    }
+}
+
+static int colmi_subscribe_cb(uint16_t conn_handle,
+                              const struct ble_gatt_error *error,
+                              struct ble_gatt_attr *attr,
+                              void *arg)
+{
+    (void)conn_handle;
+    (void)attr;
+    (void)arg;
+    if (error != NULL && error->status != 0) {
+        ESP_LOGW(TAG, "colmi subscribe failed status=%u", (unsigned)error->status);
+        s_colmi_state = COLMI_CLIENT_ERROR;
+        return 0;
+    }
+    s_colmi_state = COLMI_CLIENT_READING_BATTERY;
+    uint8_t packet[COLMI_PACKET_LEN];
+    colmi_make_packet(COLMI_CMD_BATTERY, NULL, 0, packet);
+    (void)colmi_send_packet(packet);
+    return 0;
+}
+
+static void colmi_write_ccc(uint16_t conn_handle, uint16_t ccc_handle, const char *source)
+{
+    const uint8_t notify_on[2] = {1, 0};
+    const int rc = ble_gattc_write_flat(conn_handle,
+                                        ccc_handle,
+                                        notify_on,
+                                        sizeof(notify_on),
+                                        colmi_subscribe_cb,
+                                        NULL);
+    if (rc != 0) {
+        ESP_LOGW(TAG, "colmi subscribe write failed source=%s handle=%u rc=%d", source, (unsigned)ccc_handle, rc);
+        s_colmi_state = COLMI_CLIENT_ERROR;
+    } else {
+        ESP_LOGI(TAG, "colmi subscribe write source=%s handle=%u", source, (unsigned)ccc_handle);
+    }
+}
+
+static int colmi_dsc_cb(uint16_t conn_handle,
+                        const struct ble_gatt_error *error,
+                        uint16_t chr_val_handle,
+                        const struct ble_gatt_dsc *dsc,
+                        void *arg)
+{
+    (void)chr_val_handle;
+    (void)arg;
+    if (error == NULL) {
+        return 0;
+    }
+    if (error->status == 0 && dsc != NULL && ble_uuid_u16(&dsc->uuid.u) == BLE_GATT_DSC_CLT_CFG_UUID16) {
+        s_colmi_ccc_handle = dsc->handle;
+        return 0;
+    }
+    if (error->status == BLE_HS_EDONE) {
+        if (s_colmi_ccc_handle == 0) {
+            ESP_LOGW(TAG, "colmi tx ccc not found");
+            s_colmi_state = COLMI_CLIENT_ERROR;
+            return 0;
+        }
+        colmi_write_ccc(conn_handle, s_colmi_ccc_handle, "discovery");
+    } else {
+        ESP_LOGW(TAG, "colmi dsc discovery failed status=%u", (unsigned)error->status);
+        s_colmi_state = COLMI_CLIENT_ERROR;
+    }
+    return 0;
+}
+
+static int colmi_tx_chr_cb(uint16_t conn_handle,
+                           const struct ble_gatt_error *error,
+                           const struct ble_gatt_chr *chr,
+                           void *arg)
+{
+    (void)arg;
+    if (error == NULL) {
+        return 0;
+    }
+    if (error->status == 0 && chr != NULL) {
+        s_colmi_tx_handle = chr->val_handle;
+        return 0;
+    }
+    if (error->status == BLE_HS_EDONE) {
+        if (s_colmi_tx_handle == 0) {
+            ESP_LOGW(TAG, "colmi tx characteristic not found");
+            s_colmi_state = COLMI_CLIENT_ERROR;
+            return 0;
+        }
+        s_colmi_state = COLMI_CLIENT_DISC_CCC;
+        const int rc = ble_gattc_disc_all_dscs(conn_handle,
+                                               s_colmi_tx_handle + 1,
+                                               s_colmi_svc_end,
+                                               colmi_dsc_cb,
+                                               NULL);
+        if (rc != 0) {
+            s_colmi_ccc_handle = s_colmi_tx_handle + 1;
+            ESP_LOGW(TAG, "colmi ccc discovery start failed rc=%d; trying direct handle=%u",
+                     rc,
+                     (unsigned)s_colmi_ccc_handle);
+            colmi_write_ccc(conn_handle, s_colmi_ccc_handle, "direct");
+        }
+    } else {
+        ESP_LOGW(TAG, "colmi tx discovery failed status=%u", (unsigned)error->status);
+        s_colmi_state = COLMI_CLIENT_ERROR;
+    }
+    return 0;
+}
+
+static int colmi_rx_chr_cb(uint16_t conn_handle,
+                           const struct ble_gatt_error *error,
+                           const struct ble_gatt_chr *chr,
+                           void *arg)
+{
+    (void)arg;
+    if (error == NULL) {
+        return 0;
+    }
+    if (error->status == 0 && chr != NULL) {
+        s_colmi_rx_handle = chr->val_handle;
+        return 0;
+    }
+    if (error->status == BLE_HS_EDONE) {
+        if (s_colmi_rx_handle == 0) {
+            ESP_LOGW(TAG, "colmi rx characteristic not found");
+            s_colmi_state = COLMI_CLIENT_ERROR;
+            return 0;
+        }
+        s_colmi_state = COLMI_CLIENT_DISC_TX;
+        const int rc = ble_gattc_disc_chrs_by_uuid(conn_handle,
+                                                   s_colmi_svc_start,
+                                                   s_colmi_svc_end,
+                                                   &COLMI_UART_TX_UUID.u,
+                                                   colmi_tx_chr_cb,
+                                                   NULL);
+        if (rc != 0) {
+            ESP_LOGW(TAG, "colmi tx discovery start failed rc=%d", rc);
+            s_colmi_state = COLMI_CLIENT_ERROR;
+        }
+    } else {
+        ESP_LOGW(TAG, "colmi rx discovery failed status=%u", (unsigned)error->status);
+        s_colmi_state = COLMI_CLIENT_ERROR;
+    }
+    return 0;
+}
+
+static int colmi_svc_cb(uint16_t conn_handle,
+                        const struct ble_gatt_error *error,
+                        const struct ble_gatt_svc *service,
+                        void *arg)
+{
+    (void)arg;
+    if (error == NULL) {
+        return 0;
+    }
+    if (error->status == 0 && service != NULL) {
+        s_colmi_svc_start = service->start_handle;
+        s_colmi_svc_end = service->end_handle;
+        return 0;
+    }
+    if (error->status == BLE_HS_EDONE) {
+        if (s_colmi_svc_start == 0 || s_colmi_svc_end == 0) {
+            ESP_LOGW(TAG, "colmi uart service not found");
+            s_colmi_state = COLMI_CLIENT_ERROR;
+            return 0;
+        }
+        s_colmi_state = COLMI_CLIENT_DISC_RX;
+        const int rc = ble_gattc_disc_chrs_by_uuid(conn_handle,
+                                                   s_colmi_svc_start,
+                                                   s_colmi_svc_end,
+                                                   &COLMI_UART_RX_UUID.u,
+                                                   colmi_rx_chr_cb,
+                                                   NULL);
+        if (rc != 0) {
+            ESP_LOGW(TAG, "colmi rx discovery start failed rc=%d", rc);
+            s_colmi_state = COLMI_CLIENT_ERROR;
+        }
+    } else {
+        ESP_LOGW(TAG, "colmi service discovery failed status=%u", (unsigned)error->status);
+        s_colmi_state = COLMI_CLIENT_ERROR;
+    }
+    return 0;
+}
+
+static void colmi_client_on_ring_found(const ble_addr_t *addr, uint8_t event_type, int8_t rssi)
+{
+    if (addr == NULL || !s_colmi_want_scan || s_colmi_state != COLMI_CLIENT_SCAN) {
+        return;
+    }
+    char addr_text[24];
+    ble_format_addr(addr->val, addr_text, sizeof(addr_text));
+    if (!colmi_adv_event_connectable(event_type)) {
+        ESP_LOGI(TAG, "colmi ring seen addr=%s type=%u rssi=%d; waiting for connectable adv", addr_text,
+                 (unsigned)event_type, rssi);
+        return;
+    }
+    s_colmi_addr = *addr;
+    s_colmi_want_scan = false;
+    s_colmi_connect_started = false;
+    s_colmi_connect_after_ms = ble_now_ms() + 250u;
+    s_colmi_state = COLMI_CLIENT_CONNECTING;
+    ESP_LOGI(TAG, "colmi ring connect target addr=%s type=%u rssi=%d", addr_text, (unsigned)event_type, rssi);
+    if (s_scanning) {
+        const int rc = ble_gap_disc_cancel();
+        ESP_LOGI(TAG, "colmi scan cancel rc=%d", rc);
+        s_scanning = false;
+    }
+}
+
+static esp_err_t colmi_client_start(void)
+{
+    if (!s_started || !s_synced || !s_enabled || !s_paired_ring_id_set) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (s_colmi_have_conn) {
+        return ESP_OK;
+    }
+    memset(&s_colmi_addr, 0, sizeof(s_colmi_addr));
+    memset(&s_colmi_working_vitals, 0, sizeof(s_colmi_working_vitals));
+    s_colmi_conn_handle = 0;
+    s_colmi_svc_start = 0;
+    s_colmi_svc_end = 0;
+    s_colmi_rx_handle = 0;
+    s_colmi_tx_handle = 0;
+    s_colmi_ccc_handle = 0;
+    s_colmi_started_ms = ble_now_ms();
+    s_colmi_last_packet_ms = 0;
+    s_colmi_connect_after_ms = 0;
+    s_colmi_have_packet = false;
+    s_colmi_connect_started = false;
+    s_colmi_want_scan = true;
+    s_colmi_state = COLMI_CLIENT_SCAN;
+    if (s_advertising) {
+        (void)ble_gap_adv_stop();
+        s_advertising = false;
+    }
+    return faculty175_ble_scan_start(15000u);
+}
+
+static void colmi_client_tick(uint32_t now_ms)
+{
+    if (s_colmi_state == COLMI_CLIENT_IDLE || s_colmi_state == COLMI_CLIENT_DONE || s_colmi_state == COLMI_CLIENT_ERROR) {
+        return;
+    }
+    if (s_colmi_state == COLMI_CLIENT_CONNECTING && s_scanning &&
+        s_colmi_connect_after_ms != 0 && (int32_t)(now_ms - (s_colmi_connect_after_ms + 1000u)) >= 0) {
+        ESP_LOGW(TAG, "colmi forcing scan state clear before connect retry");
+        s_scanning = false;
+    }
+    if (s_colmi_state == COLMI_CLIENT_CONNECTING && !s_scanning && !s_colmi_connect_started &&
+        (s_colmi_connect_after_ms == 0 || (int32_t)(now_ms - s_colmi_connect_after_ms) >= 0)) {
+        struct ble_gap_conn_params params = {};
+        params.scan_itvl = 0x40;
+        params.scan_window = 0x30;
+        params.itvl_min = 24;
+        params.itvl_max = 40;
+        params.latency = 0;
+        params.supervision_timeout = 400;
+        params.min_ce_len = 0;
+        params.max_ce_len = 0;
+        const int rc = ble_gap_connect(s_own_addr_type,
+                                       &s_colmi_addr,
+                                       12000,
+                                       &params,
+                                       ble_gap_event,
+                                       NULL);
+        if (rc != 0) {
+            ESP_LOGW(TAG, "colmi connect start failed rc=%d", rc);
+            if (rc == BLE_HS_EALREADY || rc == BLE_HS_EBUSY || rc == BLE_HS_EAGAIN) {
+                s_colmi_connect_after_ms = now_ms + 350u;
+            } else {
+                s_colmi_state = COLMI_CLIENT_ERROR;
+            }
+        } else {
+            s_colmi_connect_started = true;
+            ESP_LOGI(TAG, "colmi connect started");
+        }
+        return;
+    }
+    if ((int32_t)(now_ms - s_colmi_started_ms) >= 45000) {
+        ESP_LOGW(TAG, "colmi client timeout state=%s", colmi_state_name(s_colmi_state));
+        s_colmi_state = COLMI_CLIENT_ERROR;
+        s_scanning = false;
+        if (s_colmi_have_conn) {
+            (void)ble_gap_terminate(s_colmi_conn_handle, BLE_ERR_REM_USER_CONN_TERM);
+        }
+    }
 }
 
 static int8_t ble_clamp_deg_i8(float deg, int lo, int hi)
@@ -769,27 +1438,30 @@ static esp_err_t ble_advertise(void)
         return ESP_ERR_INVALID_STATE;
     }
 
+    ble_astrolabe_mfg_t mfg = ble_build_mfg_payload();
     struct ble_hs_adv_fields fields = {};
     fields.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
-    fields.uuids128 = &BLE_SETTINGS_SERVICE_UUID;
-    fields.num_uuids128 = 1;
-    fields.uuids128_is_complete = 1;
+    fields.mfg_data = (const uint8_t *)&mfg;
+    fields.mfg_data_len = sizeof(mfg);
 
     int rc = ble_gap_adv_set_fields(&fields);
     if (rc != 0) {
-        s_advertising = false;
-        ESP_LOGE(TAG, "adv fields failed rc=%d", rc);
-        return ESP_FAIL;
+        ESP_LOGW(TAG, "adv mfg payload disabled rc=%d", rc);
+        fields.mfg_data = NULL;
+        fields.mfg_data_len = 0;
+        rc = ble_gap_adv_set_fields(&fields);
+        if (rc != 0) {
+            s_advertising = false;
+            ESP_LOGE(TAG, "adv fields failed rc=%d", rc);
+            return ESP_FAIL;
+        }
     }
 
-    ble_astrolabe_mfg_t mfg = ble_build_mfg_payload();
     struct ble_hs_adv_fields rsp = {};
     const char *name = ble_svc_gap_device_name();
     rsp.name = (uint8_t *)name;
     rsp.name_len = strlen(name);
     rsp.name_is_complete = 1;
-    rsp.mfg_data = (const uint8_t *)&mfg;
-    rsp.mfg_data_len = sizeof(mfg);
     rsp.tx_pwr_lvl = BLE_HS_ADV_TX_PWR_LVL_AUTO;
     rsp.tx_pwr_lvl_is_present = 1;
     rc = ble_gap_adv_rsp_set_fields(&rsp);
@@ -808,14 +1480,15 @@ static esp_err_t ble_advertise(void)
         }
     }
     if (rc != 0) {
-        s_advertising = false;
-        ESP_LOGE(TAG, "scan response failed rc=%d", rc);
-        return ESP_FAIL;
+        ESP_LOGW(TAG, "scan response disabled rc=%d", rc);
+        (void)ble_gap_adv_rsp_set_data(NULL, 0);
     }
 
     struct ble_gap_adv_params params = {};
-    params.conn_mode = BLE_GAP_CONN_MODE_UND;
+    params.conn_mode = BLE_GAP_CONN_MODE_NON;
     params.disc_mode = BLE_GAP_DISC_MODE_GEN;
+    params.itvl_min = BLE_GAP_ADV_ITVL_MS(1000);
+    params.itvl_max = BLE_GAP_ADV_ITVL_MS(1200);
     rc = ble_gap_adv_start(s_own_addr_type, NULL, BLE_HS_FOREVER, &params, ble_gap_event, NULL);
     if (rc != 0 && rc != BLE_HS_EALREADY) {
         s_advertising = false;
@@ -865,11 +1538,38 @@ static int ble_gap_event(struct ble_gap_event *event, void *arg)
     switch (event->type) {
         case BLE_GAP_EVENT_CONNECT:
             s_advertising = false;
-            if (event->connect.status != 0) {
+            if (s_colmi_state == COLMI_CLIENT_CONNECTING) {
+                if (event->connect.status == 0) {
+                    s_colmi_have_conn = true;
+                    s_colmi_conn_handle = event->connect.conn_handle;
+                    s_colmi_state = COLMI_CLIENT_DISC_SERVICE;
+                    const int rc = ble_gattc_disc_svc_by_uuid(s_colmi_conn_handle,
+                                                              &COLMI_UART_SERVICE_UUID.u,
+                                                              colmi_svc_cb,
+                                                              NULL);
+                    if (rc != 0) {
+                        ESP_LOGW(TAG, "colmi service discovery start failed rc=%d", rc);
+                        s_colmi_state = COLMI_CLIENT_ERROR;
+                    }
+                } else {
+                    ESP_LOGW(TAG, "colmi connect failed status=%d", event->connect.status);
+                    s_colmi_state = COLMI_CLIENT_ERROR;
+                    (void)ble_advertise();
+                }
+            } else if (event->connect.status != 0) {
                 (void)ble_advertise();
             }
             break;
         case BLE_GAP_EVENT_DISCONNECT:
+            if (s_colmi_have_conn && event->disconnect.conn.conn_handle == s_colmi_conn_handle) {
+                s_colmi_have_conn = false;
+                s_colmi_conn_handle = 0;
+            }
+            s_advertising = false;
+            if (!s_scanning) {
+                (void)ble_advertise();
+            }
+            break;
         case BLE_GAP_EVENT_ADV_COMPLETE:
             s_advertising = false;
             if (!s_scanning) {
@@ -878,16 +1578,75 @@ static int ble_gap_event(struct ble_gap_event *event, void *arg)
             break;
         case BLE_GAP_EVENT_DISC: {
             struct ble_hs_adv_fields fields = {};
-            if (ble_hs_adv_parse_fields(&fields, event->disc.data, event->disc.length_data) == 0) {
-                ble_peer_store(&event->disc.addr, &fields, event->disc.rssi, ble_now_ms());
+            const uint32_t now = ble_now_ms();
+            const int parse_rc = ble_hs_adv_parse_fields(&fields, event->disc.data, event->disc.length_data);
+            if (parse_rc == 0) {
+                if (s_raw_scan_log) {
+                    char name[FACULTY175_BLE_PEER_NAME_MAX];
+                    char addr[24];
+                    ble_copy_text(name, sizeof(name), fields.name, fields.name_len);
+                    ble_format_addr(event->disc.addr.val, addr, sizeof(addr));
+                    printf("ble_raw: addr=%s id=%04x type=%u rssi=%d name=\"%s\" mfg=%u svc16=%u svc128=%u len=%u\n",
+                           addr,
+                           ble_addr_hash16(event->disc.addr.val),
+                           event->disc.addr.type,
+                           event->disc.rssi,
+                           name,
+                           (unsigned)fields.mfg_data_len,
+                           (unsigned)fields.num_uuids16,
+                           (unsigned)fields.num_uuids128,
+                           (unsigned)event->disc.length_data);
+                }
+                ble_peer_store(&event->disc.addr, &fields, event->disc.rssi, now);
+            } else if (s_raw_scan_log) {
+                char addr[24];
+                char hex[32];
+                ble_format_addr(event->disc.addr.val, addr, sizeof(addr));
+                ble_format_hex(event->disc.data, event->disc.length_data, hex, sizeof(hex));
+                printf("ble_raw: addr=%s id=%04x type=%u rssi=%d parse_rc=%d len=%u data=%s\n",
+                       addr,
+                       ble_addr_hash16(event->disc.addr.val),
+                       event->disc.addr.type,
+                       event->disc.rssi,
+                       parse_rc,
+                       (unsigned)event->disc.length_data,
+                       hex);
+            }
+            if (parse_rc != 0) {
+                ble_store_raw_ring_fallback(&event->disc.addr, event->disc.rssi, now);
+            }
+            if (s_colmi_want_scan && s_paired_ring_id_set &&
+                ble_addr_hash16(event->disc.addr.val) == s_paired_ring_id) {
+                colmi_client_on_ring_found(&event->disc.addr, event->disc.event_type, event->disc.rssi);
             }
             break;
         }
         case BLE_GAP_EVENT_DISC_COMPLETE:
             s_scanning = false;
+            s_raw_scan_log = false;
+            s_raw_scan_until_ms = 0;
             s_next_scan_ms = ble_now_ms() + 2500u;
-            (void)ble_advertise();
+            if (!s_colmi_want_scan && s_colmi_state == COLMI_CLIENT_CONNECTING) {
+                s_colmi_connect_after_ms = ble_now_ms() + 250u;
+            } else {
+                if (s_colmi_want_scan && s_colmi_state == COLMI_CLIENT_SCAN) {
+                    s_colmi_want_scan = false;
+                    s_colmi_state = COLMI_CLIENT_ERROR;
+                }
+                (void)ble_advertise();
+            }
             break;
+        case BLE_GAP_EVENT_NOTIFY_RX: {
+            if (s_colmi_have_conn && event->notify_rx.conn_handle == s_colmi_conn_handle &&
+                event->notify_rx.attr_handle == s_colmi_tx_handle) {
+                uint8_t packet[COLMI_PACKET_LEN];
+                if (OS_MBUF_PKTLEN(event->notify_rx.om) == COLMI_PACKET_LEN &&
+                    os_mbuf_copydata(event->notify_rx.om, 0, COLMI_PACKET_LEN, packet) == 0) {
+                    colmi_handle_packet(packet, sizeof(packet));
+                }
+            }
+            break;
+        }
         default:
             break;
     }
@@ -1065,7 +1824,10 @@ esp_err_t faculty175_ble_scan_start(uint32_t duration_ms)
     if (duration_ms < 600u) {
         duration_ms = 600u;
     }
-    if (duration_ms > 6000u) {
+    if (duration_ms > 20000u) {
+        duration_ms = 20000u;
+    }
+    if (!s_raw_scan_log && s_colmi_state != COLMI_CLIENT_SCAN && duration_ms > 6000u) {
         duration_ms = 6000u;
     }
     s_scanning = true;
@@ -1094,11 +1856,15 @@ esp_err_t faculty175_ble_scan_start(uint32_t duration_ms)
 
 void faculty175_ble_radar_tick(uint32_t now_ms)
 {
+    if (now_ms == 0) {
+        now_ms = ble_now_ms();
+    }
+    colmi_client_tick(now_ms);
     if (!s_enabled || !s_started || !s_synced || s_scanning) {
         return;
     }
-    if (now_ms == 0) {
-        now_ms = ble_now_ms();
+    if (s_colmi_state != COLMI_CLIENT_IDLE && s_colmi_state != COLMI_CLIENT_DONE && s_colmi_state != COLMI_CLIENT_ERROR) {
+        return;
     }
     if ((int32_t)(now_ms - s_serial_quiet_until_ms) < 0) {
         return;
@@ -1208,7 +1974,9 @@ bool faculty175_ble_handle(const char *line)
         ++sub;
     }
 
-    const bool explicit_scan_cmd = strcasecmp(sub, "scan") == 0 || strcasecmp(sub, "ring scan") == 0;
+    const bool explicit_scan_cmd = strcasecmp(sub, "scan") == 0 || strcasecmp(sub, "ring scan") == 0 ||
+                                   strcasecmp(sub, "ring vitals") == 0 || strcasecmp(sub, "ring connect") == 0 ||
+                                   strncasecmp(sub, "raw", 3) == 0;
     if (!explicit_scan_cmd) {
         ble_defer_radar_scan(10000u);
     }
@@ -1237,6 +2005,33 @@ bool faculty175_ble_handle(const char *line)
     } else if (strcasecmp(sub, "scan") == 0) {
         const esp_err_t err = faculty175_ble_scan_start(3000u);
         printf("ble: scan %s\n", esp_err_to_name(err));
+    } else if (strcasecmp(sub, "raw") == 0 || strncasecmp(sub, "raw ", 4) == 0) {
+        uint32_t duration_ms = 10000u;
+        if (strncasecmp(sub, "raw ", 4) == 0) {
+            char *end = NULL;
+            const unsigned long parsed = strtoul(sub + 4, &end, 10);
+            if (end != sub + 4 && parsed > 0) {
+                duration_ms = (uint32_t)parsed;
+            }
+        }
+        if (duration_ms < 1000u) {
+            duration_ms = 1000u;
+        } else if (duration_ms > 20000u) {
+            duration_ms = 20000u;
+        }
+        s_raw_scan_log = true;
+        s_raw_scan_until_ms = ble_now_ms() + duration_ms;
+        const esp_err_t err = faculty175_ble_scan_start(duration_ms);
+        printf("ble: raw %s duration_ms=%lu\n", esp_err_to_name(err), (unsigned long)duration_ms);
+        if (err != ESP_OK) {
+            s_raw_scan_log = false;
+            s_raw_scan_until_ms = 0;
+        } else {
+            while (s_scanning && s_raw_scan_log && (int32_t)(s_raw_scan_until_ms - ble_now_ms()) > 0) {
+                vTaskDelay(pdMS_TO_TICKS(250));
+            }
+            printf("ble: raw done scanning=%s\n", s_scanning ? "yes" : "no");
+        }
     } else if (strcasecmp(sub, "peers") == 0) {
         faculty175_ble_peer_t peers[FACULTY175_BLE_PEER_MAX];
         const size_t count = faculty175_ble_peers_snapshot(peers, FACULTY175_BLE_PEER_MAX);
@@ -1273,11 +2068,27 @@ bool faculty175_ble_handle(const char *line)
         enum { BLE_RING_PRINT_MAX = 8 };
         faculty175_ble_ring_telem_t samples[BLE_RING_PRINT_MAX];
         const size_t count = faculty175_ble_ring_telemetry_snapshot(samples, BLE_RING_PRINT_MAX);
-        printf("ble: ring paired=%s", s_paired_ring_id_set ? "yes" : "no");
+        faculty175_ring_vitals_t vitals = {};
+        const bool have_vitals = faculty175_ring_latest_vitals(&vitals);
+        printf("ble: ring paired=%s colmi=%s", s_paired_ring_id_set ? "yes" : "no", colmi_state_name(s_colmi_state));
         if (s_paired_ring_id_set) {
             printf(" id=%04x", s_paired_ring_id);
         }
         printf(" samples=%u scanning=%s\n", (unsigned)count, s_scanning ? "yes" : "no");
+        if (have_vitals) {
+            const uint32_t now = ble_now_ms();
+            const uint32_t age = vitals.updated_ms <= now ? now - vitals.updated_ms : 0;
+            printf("  vitals age=%ums hr=%s%u hrv=%s%u spo2=%s%u batt=%s%u\n",
+                   (unsigned)age,
+                   vitals.heart_rate_valid ? "" : "?",
+                   vitals.heart_rate_bpm,
+                   vitals.hrv_valid ? "" : "?",
+                   vitals.hrv_ms,
+                   vitals.spo2_valid ? "" : "?",
+                   vitals.spo2_percent,
+                   vitals.battery_valid ? "" : "?",
+                   vitals.battery_percent);
+        }
         for (size_t i = 0; i < count; ++i) {
             printf("  %u ring id=%04x age=%ums rssi=%d delta=%+d imu=%s pitch=%d roll=%d accel=%.2f,%.2f,%.2f motion=%u gesture=%s name=\"%s\"\n",
                    (unsigned)i,
@@ -1300,14 +2111,26 @@ bool faculty175_ble_handle(const char *line)
         while (*id_text == ' ') {
             ++id_text;
         }
-        char *end = NULL;
-        const unsigned long id = strtoul(id_text, &end, 16);
-        if (end == id_text || id > 0xfffful) {
+        uint16_t id = 0;
+        uint8_t mac_addr[6] = {};
+        bool parsed = false;
+        if (ble_parse_public_mac_text(id_text, mac_addr)) {
+            id = ble_addr_hash16(mac_addr);
+            parsed = true;
+        } else {
+            char *end = NULL;
+            const unsigned long parsed_id = strtoul(id_text, &end, 16);
+            if (end != id_text && parsed_id <= 0xfffful) {
+                id = (uint16_t)parsed_id;
+                parsed = true;
+            }
+        }
+        if (!parsed) {
             printf("ble: ring pair ESP_ERR_INVALID_ARG\n");
         } else {
-            const esp_err_t err = ble_nvs_set_ring_id((uint16_t)id, true);
+            const esp_err_t err = ble_nvs_set_ring_id(id, true);
             if (err == ESP_OK) {
-                s_paired_ring_id = (uint16_t)id;
+                s_paired_ring_id = id;
                 s_paired_ring_id_set = true;
                 s_have_last_ring_rssi = false;
             }
@@ -1324,6 +2147,16 @@ bool faculty175_ble_handle(const char *line)
     } else if (strcasecmp(sub, "ring scan") == 0) {
         const esp_err_t err = faculty175_ble_scan_start(3000u);
         printf("ble: ring scan %s\n", esp_err_to_name(err));
+    } else if (strcasecmp(sub, "ring connect") == 0 || strcasecmp(sub, "ring vitals") == 0) {
+        const esp_err_t err = colmi_client_start();
+        printf("ble: ring vitals %s state=%s\n", esp_err_to_name(err), colmi_state_name(s_colmi_state));
+    } else if (strcasecmp(sub, "ring packet") == 0) {
+        char hex[48];
+        ble_format_hex_full(s_colmi_last_packet, s_colmi_have_packet ? COLMI_PACKET_LEN : 0, hex, sizeof(hex));
+        printf("ble: ring packet state=%s have=%s data=%s\n",
+               colmi_state_name(s_colmi_state),
+               s_colmi_have_packet ? "yes" : "no",
+               hex);
     } else {
         printf("ble commands:\n");
         printf("  ble status\n");
@@ -1331,11 +2164,14 @@ bool faculty175_ble_handle(const char *line)
         printf("  ble off\n");
         printf("  ble name <device name>\n");
         printf("  ble scan\n");
+        printf("  ble raw [ms]\n");
         printf("  ble peers\n");
         printf("  ble ring\n");
-        printf("  ble ring pair <short-id>\n");
+        printf("  ble ring pair <short-id|public-mac>\n");
         printf("  ble ring clear\n");
         printf("  ble ring scan\n");
+        printf("  ble ring vitals\n");
+        printf("  ble ring packet\n");
     }
     fflush(stdout);
     return true;

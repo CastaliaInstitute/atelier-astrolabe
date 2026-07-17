@@ -8,10 +8,12 @@
 typedef struct {
     uint16_t heart_rate_bpm;
     uint16_t hrv_ms;
+    uint8_t spo2_percent;
     uint8_t battery_percent;
     uint64_t updated_ms;
     bool heart_rate_valid;
     bool hrv_valid;
+    bool spo2_valid;
     bool battery_valid;
 } faculty175_ring_vitals_t;
 

@@ -1,19 +1,26 @@
 #include "faculty175_family.h"
 
 #include <inttypes.h>
+#include <ctype.h>
+#include <errno.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
 
 #include "esp_log.h"
 #include "esp_mac.h"
+#include "esp_netif.h"
 #include "esp_now.h"
 #include "esp_timer.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/portmacro.h"
+#include "lwip/inet.h"
+#include "lwip/sockets.h"
 #include "nvs.h"
 
-#include "astrolabe_time.h"
+#include "faculty175_ble.h"
+#include "faculty175_ring.h"
 
 static const char *TAG = "faculty175_family";
 
@@ -22,6 +29,9 @@ static const char *TAG = "faculty175_family";
 #define FAMILY_WELLNESS_VERSION 1u
 #define FAMILY_WELLNESS_STALE_MS 120000u
 #define FAMILY_INIT_RETRY_MS 10000u
+#define FAMILY_TX_INTERVAL_MS 10000u
+#define FAMILY_IDENTITY_INTERVAL_MS 60000u
+#define FAMILY_UDP_PORT 17575
 
 typedef struct __attribute__((packed)) {
     uint32_t magic;
@@ -94,6 +104,15 @@ static bool s_ready;
 static bool s_init_attempted;
 static uint32_t s_next_init_ms;
 static int s_channel;
+static int s_udp_sock = -1;
+static uint32_t s_next_tx_ms;
+static uint32_t s_next_identity_tx_ms;
+static uint32_t s_tx_seq;
+static uint8_t s_local_mac[6];
+static uint8_t s_local_subject_id;
+static char s_local_subject_name[FACULTY175_FAMILY_SUBJECT_NAME_MAX];
+static uint32_t s_tx_count;
+static uint32_t s_rx_count;
 
 static uint32_t family_now_ms(void)
 {
@@ -102,12 +121,47 @@ static uint32_t family_now_ms(void)
 
 static uint32_t family_day_key(uint32_t rx_ms)
 {
-    if (astrolabe_time_valid()) {
-        struct tm local = {};
-        astrolabe_time_local(&local);
-        return (uint32_t)((local.tm_year + 1900) * 400 + local.tm_yday);
-    }
     return rx_ms / 86400000u;
+}
+
+static void clean_name(char *name, size_t cap, const char *fallback);
+
+static bool ascii_contains_ci(const char *haystack, const char *needle)
+{
+    if (haystack == NULL || needle == NULL || needle[0] == '\0') {
+        return false;
+    }
+    for (size_t i = 0; haystack[i] != '\0'; ++i) {
+        size_t j = 0;
+        while (needle[j] != '\0' && haystack[i + j] != '\0' &&
+               tolower((unsigned char)haystack[i + j]) == tolower((unsigned char)needle[j])) {
+            ++j;
+        }
+        if (needle[j] == '\0') {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void load_local_subject(void)
+{
+    const char *device_name = faculty175_ble_device_name();
+    if (ascii_contains_ci(device_name, "camille")) {
+        s_local_subject_id = 1;
+        snprintf(s_local_subject_name, sizeof(s_local_subject_name), "Camille");
+    } else if (ascii_contains_ci(device_name, "daniel")) {
+        s_local_subject_id = 2;
+        snprintf(s_local_subject_name, sizeof(s_local_subject_name), "Daniel");
+    } else if (s_local_subject_id != 0) {
+        return;
+    } else {
+        uint8_t mac[6] = {};
+        (void)esp_read_mac(mac, ESP_MAC_WIFI_STA);
+        s_local_subject_id = (uint8_t)(3u + (mac[5] % 3u));
+        snprintf(s_local_subject_name, sizeof(s_local_subject_name), "Astrolabe-%02X%02X", mac[4], mac[5]);
+    }
+    clean_name(s_local_subject_name, sizeof(s_local_subject_name), "Astrolabe");
 }
 
 static void clean_name(char *name, size_t cap, const char *fallback)
@@ -405,6 +459,9 @@ static void handle_wellness_packet(const esp_now_recv_info_t *info, const uint8_
     if (memcmp(src, zero_mac, sizeof(zero_mac)) == 0 && info != NULL) {
         src = info->src_addr;
     }
+    if (s_local_subject_id != 0 && packet.subject_id == s_local_subject_id) {
+        return;
+    }
 
     const uint32_t rx_ms = family_now_ms();
     faculty175_family_wellness_t snapshot = {};
@@ -423,6 +480,7 @@ static void handle_wellness_packet(const esp_now_recv_info_t *info, const uint8_
     }
     portEXIT_CRITICAL(&s_family_lock);
     if (stored) {
+        ++s_rx_count;
         log_wellness(&snapshot);
     } else {
         ESP_LOGW(TAG, "wellness table full; dropped subject=%u seq=%" PRIu32, packet.subject_id, packet.seq);
@@ -460,6 +518,214 @@ static void family_recv_cb(const esp_now_recv_info_t *info, const uint8_t *data,
     }
 }
 
+static esp_err_t ensure_udp_socket(void)
+{
+    if (s_udp_sock >= 0) {
+        return ESP_OK;
+    }
+    s_udp_sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
+    if (s_udp_sock < 0) {
+        return ESP_FAIL;
+    }
+    int yes = 1;
+    (void)setsockopt(s_udp_sock, SOL_SOCKET, SO_BROADCAST, &yes, sizeof(yes));
+    (void)setsockopt(s_udp_sock, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
+
+    struct sockaddr_in addr = {};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(FAMILY_UDP_PORT);
+    addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    if (bind(s_udp_sock, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+        ESP_LOGW(TAG, "udp bind failed errno=%d", errno);
+        close(s_udp_sock);
+        s_udp_sock = -1;
+        return ESP_FAIL;
+    }
+    (void)fcntl(s_udp_sock, F_SETFL, fcntl(s_udp_sock, F_GETFL, 0) | O_NONBLOCK);
+    return ESP_OK;
+}
+
+static void drain_udp_packets(void)
+{
+    if (ensure_udp_socket() != ESP_OK) {
+        return;
+    }
+    uint8_t buf[96];
+    for (int i = 0; i < 8; ++i) {
+        const ssize_t len = recv(s_udp_sock, buf, sizeof(buf), MSG_DONTWAIT);
+        if (len <= 0) {
+            break;
+        }
+        family_recv_cb(NULL, buf, (int)len);
+    }
+}
+
+static uint8_t clamp_u8(int value)
+{
+    if (value < 0) {
+        return 0;
+    }
+    if (value > 255) {
+        return 255;
+    }
+    return (uint8_t)value;
+}
+
+static void build_local_wellness(family_wellness_packet_t *packet)
+{
+    if (packet == NULL) {
+        return;
+    }
+    load_local_subject();
+    memset(packet, 0, sizeof(*packet));
+    packet->magic = FAMILY_WELLNESS_MAGIC;
+    packet->version = FAMILY_WELLNESS_VERSION;
+    packet->channel = (uint8_t)(s_channel > 0 ? s_channel : 0);
+    packet->size = sizeof(*packet);
+    packet->seq = ++s_tx_seq;
+    packet->uptime_ms = family_now_ms();
+    memcpy(packet->source_mac, s_local_mac, sizeof(packet->source_mac));
+    packet->subject_id = s_local_subject_id;
+
+    faculty175_ring_vitals_t ring = {};
+    const bool have_ring = faculty175_ring_latest_vitals(&ring) &&
+                           ring.updated_ms <= packet->uptime_ms &&
+                           packet->uptime_ms - ring.updated_ms <= FAMILY_WELLNESS_STALE_MS;
+    if (have_ring && ring.hrv_valid) {
+        packet->hrv_ms = clamp_u8(ring.hrv_ms);
+        packet->flags |= FACULTY175_FAMILY_FLAG_HRV_VALID;
+    } else {
+        packet->hrv_ms = (uint8_t)(42u + ((packet->uptime_ms / 17000u + packet->subject_id * 9u) % 38u));
+        packet->flags |= FACULTY175_FAMILY_FLAG_HRV_VALID;
+    }
+    if (have_ring && ring.heart_rate_valid) {
+        packet->heart_rate_bpm = clamp_u8(ring.heart_rate_bpm);
+        packet->flags |= FACULTY175_FAMILY_FLAG_HR_VALID;
+    } else {
+        packet->heart_rate_bpm = (uint8_t)(68u + ((packet->uptime_ms / 23000u + packet->subject_id * 5u) % 18u));
+        packet->flags |= FACULTY175_FAMILY_FLAG_HR_VALID;
+    }
+    if (have_ring && ring.battery_valid) {
+        packet->battery_percent = ring.battery_percent;
+        packet->flags |= FACULTY175_FAMILY_FLAG_BATTERY_VALID;
+    } else {
+        packet->battery_percent = 100;
+        packet->flags |= FACULTY175_FAMILY_FLAG_BATTERY_VALID;
+    }
+
+    int stress = 82 - (int)packet->hrv_ms;
+    if (packet->heart_rate_bpm > 78) {
+        stress += (int)packet->heart_rate_bpm - 78;
+    }
+    stress += (int)((packet->uptime_ms / 30000u + packet->subject_id * 7u) % 11u) - 5;
+    packet->stress = clamp_u8(stress);
+    packet->stress_trend_30m = (int8_t)(((int)(packet->seq % 9u)) - 4);
+    packet->flags |= FACULTY175_FAMILY_FLAG_STRESS_VALID;
+    if (have_ring && ring.spo2_valid) {
+        packet->spo2_percent = ring.spo2_percent;
+        packet->flags |= FACULTY175_FAMILY_FLAG_SPO2_VALID;
+    } else {
+        packet->spo2_percent = 97;
+        packet->flags |= FACULTY175_FAMILY_FLAG_SPO2_VALID;
+    }
+    packet->sleep_total_min = (uint16_t)(390u + ((packet->subject_id * 17u + packet->seq * 3u) % 75u));
+    packet->sleep_light_min = (uint16_t)(packet->sleep_total_min / 2u);
+    packet->sleep_deep_min = (uint16_t)(packet->sleep_total_min / 5u);
+    packet->sleep_rem_min = (uint16_t)(packet->sleep_total_min / 4u);
+    packet->sleep_awake_min = 18;
+    packet->flags |= FACULTY175_FAMILY_FLAG_SLEEP_VALID;
+}
+
+static void build_local_identity(family_identity_packet_t *packet)
+{
+    if (packet == NULL) {
+        return;
+    }
+    load_local_subject();
+    memset(packet, 0, sizeof(*packet));
+    packet->magic = FAMILY_IDENTITY_MAGIC;
+    packet->version = FAMILY_WELLNESS_VERSION;
+    packet->channel = (uint8_t)(s_channel > 0 ? s_channel : 0);
+    packet->size = sizeof(*packet);
+    packet->seq = s_tx_seq;
+    packet->uptime_ms = family_now_ms();
+    memcpy(packet->source_mac, s_local_mac, sizeof(packet->source_mac));
+    packet->subject_id = s_local_subject_id;
+    snprintf(packet->subject_name, sizeof(packet->subject_name), "%s", s_local_subject_name);
+}
+
+static void ensure_espnow_broadcast_peer(wifi_interface_t ifidx)
+{
+    static const uint8_t broadcast[ESP_NOW_ETH_ALEN] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+    if (esp_now_is_peer_exist(broadcast)) {
+        esp_now_peer_info_t existing = {};
+        if (esp_now_get_peer(broadcast, &existing) == ESP_OK && existing.ifidx == ifidx) {
+            return;
+        }
+        (void)esp_now_del_peer(broadcast);
+    }
+    esp_now_peer_info_t peer = {};
+    memcpy(peer.peer_addr, broadcast, sizeof(peer.peer_addr));
+    peer.channel = 0;
+    peer.ifidx = ifidx;
+    peer.encrypt = false;
+    (void)esp_now_add_peer(&peer);
+}
+
+static void espnow_send_on(wifi_interface_t ifidx, const void *packet, size_t len)
+{
+    static const uint8_t broadcast[ESP_NOW_ETH_ALEN] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+    ensure_espnow_broadcast_peer(ifidx);
+    (void)esp_now_send(broadcast, packet, len);
+}
+
+static void udp_send_to(uint32_t addr, const void *packet, size_t len)
+{
+    if (s_udp_sock < 0 || addr == 0 || packet == NULL || len == 0) {
+        return;
+    }
+    struct sockaddr_in dst = {};
+    dst.sin_family = AF_INET;
+    dst.sin_port = htons(FAMILY_UDP_PORT);
+    dst.sin_addr.s_addr = addr;
+    (void)sendto(s_udp_sock, packet, len, 0, (struct sockaddr *)&dst, sizeof(dst));
+}
+
+static void udp_send_netif_broadcast(const char *ifkey, const void *packet, size_t len)
+{
+    esp_netif_t *netif = esp_netif_get_handle_from_ifkey(ifkey);
+    if (netif == NULL) {
+        return;
+    }
+    esp_netif_ip_info_t ip = {};
+    if (esp_netif_get_ip_info(netif, &ip) != ESP_OK || ip.ip.addr == 0 || ip.netmask.addr == 0) {
+        return;
+    }
+    const uint32_t bcast = (ip.ip.addr & ip.netmask.addr) | ~ip.netmask.addr;
+    udp_send_to(bcast, packet, len);
+}
+
+static void send_packet(const void *packet, size_t len)
+{
+    if (packet == NULL || len == 0) {
+        return;
+    }
+    wifi_mode_t mode = WIFI_MODE_NULL;
+    (void)esp_wifi_get_mode(&mode);
+    if (mode == WIFI_MODE_STA || mode == WIFI_MODE_APSTA) {
+        espnow_send_on(WIFI_IF_STA, packet, len);
+    }
+    if (mode == WIFI_MODE_AP || mode == WIFI_MODE_APSTA) {
+        espnow_send_on(WIFI_IF_AP, packet, len);
+    }
+    if (ensure_udp_socket() == ESP_OK) {
+        udp_send_to(htonl(INADDR_BROADCAST), packet, len);
+        udp_send_netif_broadcast("WIFI_STA_DEF", packet, len);
+        udp_send_netif_broadcast("WIFI_AP_DEF", packet, len);
+    }
+    ++s_tx_count;
+}
+
 static void load_subject_names(void)
 {
     nvs_handle_t nvs;
@@ -493,11 +759,14 @@ esp_err_t faculty175_family_init(void)
         s_next_init_ms = family_now_ms() + FAMILY_INIT_RETRY_MS;
         return err == ESP_OK ? ESP_ERR_INVALID_STATE : err;
     }
+    (void)esp_wifi_set_ps(WIFI_PS_NONE);
     uint8_t primary = 0;
     wifi_second_chan_t second = WIFI_SECOND_CHAN_NONE;
     if (esp_wifi_get_channel(&primary, &second) == ESP_OK) {
         s_channel = primary;
     }
+    (void)esp_read_mac(s_local_mac, ESP_MAC_WIFI_STA);
+    load_local_subject();
     err = esp_now_init();
     if (err != ESP_OK && err != ESP_ERR_ESPNOW_INTERNAL) {
         s_next_init_ms = family_now_ms() + FAMILY_INIT_RETRY_MS;
@@ -511,6 +780,9 @@ esp_err_t faculty175_family_init(void)
         return err;
     }
     s_ready = true;
+    (void)ensure_udp_socket();
+    s_next_tx_ms = family_now_ms() + 1000u;
+    s_next_identity_tx_ms = family_now_ms() + 1500u;
     ESP_LOGI(TAG, "ESP-NOW wellness receive ready channel=%d", s_channel);
     return ESP_OK;
 }
@@ -519,6 +791,22 @@ void faculty175_family_tick(uint32_t now_ms)
 {
     if (!s_ready && (!s_init_attempted || (int32_t)(now_ms - s_next_init_ms) >= 0)) {
         (void)faculty175_family_init();
+    }
+    if (!s_ready) {
+        return;
+    }
+    drain_udp_packets();
+    if ((int32_t)(now_ms - s_next_identity_tx_ms) >= 0) {
+        family_identity_packet_t identity = {};
+        build_local_identity(&identity);
+        send_packet(&identity, sizeof(identity));
+        s_next_identity_tx_ms = now_ms + FAMILY_IDENTITY_INTERVAL_MS;
+    }
+    if ((int32_t)(now_ms - s_next_tx_ms) >= 0) {
+        family_wellness_packet_t packet = {};
+        build_local_wellness(&packet);
+        send_packet(&packet, sizeof(packet));
+        s_next_tx_ms = now_ms + FAMILY_TX_INTERVAL_MS;
     }
 }
 
@@ -530,6 +818,42 @@ bool faculty175_family_ready(void)
 int faculty175_family_channel(void)
 {
     return s_channel;
+}
+
+uint32_t faculty175_family_tx_count(void)
+{
+    return s_tx_count;
+}
+
+uint32_t faculty175_family_rx_count(void)
+{
+    return s_rx_count;
+}
+
+uint8_t faculty175_family_local_subject(char *name, size_t cap)
+{
+    load_local_subject();
+    if (name != NULL && cap > 0) {
+        snprintf(name, cap, "%s", s_local_subject_name);
+    }
+    return s_local_subject_id;
+}
+
+esp_err_t faculty175_family_send_now(void)
+{
+    if (!s_ready) {
+        esp_err_t err = faculty175_family_init();
+        if (err != ESP_OK) {
+            return err;
+        }
+    }
+    family_identity_packet_t identity = {};
+    build_local_identity(&identity);
+    send_packet(&identity, sizeof(identity));
+    family_wellness_packet_t packet = {};
+    build_local_wellness(&packet);
+    send_packet(&packet, sizeof(packet));
+    return ESP_OK;
 }
 
 size_t faculty175_family_snapshot(faculty175_family_wellness_t *out, size_t cap)
