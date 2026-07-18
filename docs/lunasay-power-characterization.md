@@ -119,6 +119,15 @@ VBUS-off window to receive the `direct-battery-analyzer` label; shorter traces
 are retained but explicitly marked `direct-battery-analyzer-partial`, and their
 energy is not used for per-turn or per-recorded-minute claims.
 
+Radio-off idle runs have no in-band liveness transport. For those runs only,
+the report may timestamp automatic shutdown from the first analyzer sample at
+or below `0.2 mA` when at least three near-zero samples remain near zero for
+five minutes. That electrical endpoint is accepted only when VBUS recovery also
+reports a reboot, power-on reset, and AXP2101 undervoltage power-off flag. Either
+signal alone is insufficient. The threshold and sustain window are explicit
+`lunasay_power_report.py` options and the resulting `shutdown_basis` is preserved
+in CSV and Markdown output.
+
 ## True deep sleep gate
 
 The current ESP-IDF `sleep-offline` scenario is a display-off, radio-off idle

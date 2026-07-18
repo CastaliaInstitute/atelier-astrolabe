@@ -99,6 +99,30 @@ def direct_power_metrics(rows: list[dict]) -> dict | None:
     }
 
 
+def analyzer_shutdown_epoch(
+    rows: list[dict],
+    threshold_ma: float,
+    sustain_s: float,
+) -> float | None:
+    """Find a sustained battery-path current collapse after observable active load."""
+    ordered = sorted(rows, key=lambda row: row["epoch_s"])
+    if len(ordered) < 4:
+        return None
+    active_seen = False
+    for index, row in enumerate(ordered):
+        if row["current_ma"] > threshold_ma:
+            active_seen = True
+            continue
+        if not active_seen:
+            continue
+        tail = ordered[index:]
+        if len(tail) < 3 or tail[-1]["epoch_s"] - row["epoch_s"] < sustain_s:
+            continue
+        if all(sample["current_ma"] <= threshold_ma for sample in tail):
+            return float(row["epoch_s"])
+    return None
+
+
 def linear_slope(points: list[tuple[float, float]]) -> float | None:
     """Return y units/hour for timestamped points, or None when underdetermined."""
     if len(points) < 2:
@@ -354,8 +378,14 @@ def main() -> int:
                         help="labeled cell capacity; omit when unknown")
     parser.add_argument("--analyzer-csv", type=Path, action="append", default=[],
                         help="battery-path CSV: run_id, epoch_s|timestamp, current_ma, voltage_mv|voltage_v")
+    parser.add_argument("--shutdown-current-threshold-ma", type=float, default=0.2,
+                        help="maximum battery current considered electrically off")
+    parser.add_argument("--shutdown-current-sustain-s", type=float, default=300.0,
+                        help="required continuous near-zero tail for analyzer shutdown inference")
     parser.add_argument("--matrix", type=Path, default=ROOT / "config" / "lunasay_power_matrix.json")
     args = parser.parse_args()
+    if args.shutdown_current_threshold_ma < 0 or args.shutdown_current_sustain_s <= 0:
+        raise SystemExit("error: analyzer shutdown threshold must be non-negative and sustain positive")
     analyzer_rows = load_analyzer_rows(args.analyzer_csv)
     analyzer_sources = [
         {
@@ -385,6 +415,34 @@ def main() -> int:
             run_battery_mah = float(article["battery_mah"])
         events = load_events(summary_path.parent / "events.jsonl")
         start, end, shutdown_observed = run_window(events, summary)
+        shutdown_basis = "runner-confirmed" if shutdown_observed else "none"
+        window_analyzer_rows = [
+            row for row in analyzer_rows
+            if row["run_id"] == summary_path.parent.name
+            and start is not None and end is not None
+            and start <= row["epoch_s"] <= end
+        ]
+        recovery = summary.get("shutdown_evidence", {})
+        radio_off_idle = bool(
+            summary.get("workload") == "idle"
+            and summary.get("scenario") in ("full-offline", "dim-offline", "sleep-offline")
+        )
+        inferred_shutdown = analyzer_shutdown_epoch(
+            window_analyzer_rows,
+            args.shutdown_current_threshold_ma,
+            args.shutdown_current_sustain_s,
+        )
+        if (
+            not shutdown_observed
+            and radio_off_idle
+            and inferred_shutdown is not None
+            and recovery.get("reboot_confirmed")
+            and recovery.get("poweron_reset")
+            and recovery.get("pmu_under_voltage")
+        ):
+            end = inferred_shutdown
+            shutdown_observed = True
+            shutdown_basis = "analyzer-current-collapse+pmu-undervoltage-reset"
         samples = battery_samples(summary, start, end)
         metrics = classify(
             validated_summary,
@@ -398,10 +456,8 @@ def main() -> int:
             run_battery_mah,
         )
         direct_rows = [
-            row for row in analyzer_rows
-            if row["run_id"] == summary_path.parent.name
-            and start is not None and end is not None
-            and start <= row["epoch_s"] <= end
+            row for row in window_analyzer_rows
+            if end is not None and row["epoch_s"] <= end
         ]
         direct_metrics = direct_power_metrics(direct_rows)
         metrics.update({
@@ -464,6 +520,7 @@ def main() -> int:
             "battery_photo_sha256": article.get("battery_photo_sha256"),
             "firmware_build": article.get("firmware_build", "unknown"),
             "harness_build": article.get("harness_build", "unknown"),
+            "shutdown_basis": shutdown_basis,
             "turns": int(summary.get("turns", 0)),
             "accepted_captures": accepted_captures,
             "successful_turns": successful_turns,
@@ -612,7 +669,7 @@ def main() -> int:
         "percent_per_hour", "voltage_drop_mv_per_hour", "projected_full_runtime_h",
         "measured_runtime_h", "median_current_ma", "average_current_ma", "peak_current_ma", "charge_mah", "energy_wh",
         "current_basis", "analyzer_samples", "analyzer_duration_h", "analyzer_coverage_ratio",
-        "shutdown_observed", "charge_ready", "evidence",
+        "shutdown_observed", "shutdown_basis", "charge_ready", "evidence",
     ]
     with (args.out_dir / "runs.csv").open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=run_fields)
@@ -648,8 +705,8 @@ def main() -> int:
         "![Battery discharge curves](curves.svg)",
         "" if args.battery_mah is None else f"Average current uses the labeled {args.battery_mah:g} mAh cell capacity.",
         "",
-        "| Scenario | Workload | Duration | Samples | Drop | Rate | Projected | Measured | Avg current | Current basis | Energy | Evidence |",
-        "|---|---|---:|---:|---:|---:|---:|---:|---:|---|---:|---|",
+        "| Scenario | Workload | Duration | Samples | Drop | Rate | Projected | Measured | Avg current | Current basis | Energy | Shutdown basis | Evidence |",
+        "|---|---|---:|---:|---:|---:|---:|---:|---:|---|---:|---|---|",
     ]
     for run in runs:
         lines.append(
@@ -658,10 +715,10 @@ def main() -> int:
             f"{fmt(run['percent_per_hour'])}%/h | {fmt(run['projected_full_runtime_h'])} h | "
             f"{fmt(run['measured_runtime_h'])} h | {fmt(run['average_current_ma'])} mA | "
             f"{run['current_basis']} | {fmt(run['energy_wh'], 3)} Wh | "
-            f"{run['evidence']} |"
+            f"{run['shutdown_basis']} | {run['evidence']} |"
         )
     if not runs:
-        lines.append("| — | — | — | — | — | — | — | — | — | — | — | no completed runs |")
+        lines.append("| — | — | — | — | — | — | — | — | — | — | — | — | no completed runs |")
     voice_runs = [run for run in runs if run["workload"] in ("conversation", "journal")]
     direct_runs = [
         run for run in [*runs, *deep_runs]
