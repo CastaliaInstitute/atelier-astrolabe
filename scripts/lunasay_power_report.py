@@ -226,6 +226,52 @@ def reconcile_shutdown_endpoint(
     return end, shutdown_observed, "runner-confirmed" if shutdown_observed else "none"
 
 
+def reconcile_scenario_evidence(evidence: dict, battery_duration_s: float) -> dict:
+    """Recompute retained scenario coverage at an analyzer-confirmed endpoint."""
+    reconciled = json.loads(json.dumps(evidence)) if isinstance(evidence, dict) else {}
+    try:
+        seconds = reconciled["seconds"]
+        expected = reconciled["expected"]
+        battery_s = float(seconds["firmware_battery"])
+        mode_s = float(seconds["display_mode"])
+        wifi_s = float(seconds["wifi"])
+        ble_s = float(seconds["ble"])
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return reconciled
+    if (
+        not math.isfinite(battery_duration_s)
+        or battery_duration_s <= 0
+        or not all(math.isfinite(value) and value >= 0 for value in (battery_s, mode_s, wifi_s, ble_s))
+    ):
+        return reconciled
+    coverage_ratio = battery_s / battery_duration_s
+    mode_ratio = mode_s / battery_s if battery_s > 0 else 0.0
+    wifi_ratio = wifi_s / battery_s if battery_s > 0 else 0.0
+    ble_ratio = ble_s / battery_s if battery_s > 0 else 0.0
+    wifi_expected = bool(expected.get("wifi"))
+    ble_expected = bool(expected.get("ble"))
+    old_checks = reconciled.get("counter_checks", {})
+    checks = {
+        "scenario_name": bool(old_checks.get("scenario_name")),
+        "battery_counter_coverage": coverage_ratio >= 0.80,
+        "display_mode_dominant": mode_ratio >= 0.90,
+        "wifi_state": wifi_ratio >= 0.75 if wifi_expected else (wifi_s <= 5 or wifi_ratio <= 0.05),
+        "ble_state": ble_ratio >= 0.75 if ble_expected else (ble_s <= 5 or ble_ratio <= 0.05),
+    }
+    reconciled["counter_checks"] = checks
+    reconciled["counter_passed"] = all(checks.values())
+    reconciled["passed"] = bool(reconciled["counter_passed"] or reconciled.get("history_passed"))
+    reconciled["seconds"] = {**seconds, "runner_battery": round(battery_duration_s, 3)}
+    reconciled["ratios"] = {
+        "counter_coverage": round(coverage_ratio, 4),
+        "display_mode": round(mode_ratio, 4),
+        "wifi": round(wifi_ratio, 4),
+        "ble": round(ble_ratio, 4),
+    }
+    reconciled["endpoint_reconciled"] = True
+    return reconciled
+
+
 def linear_slope(points: list[tuple[float, float]]) -> float | None:
     """Return y units/hour for timestamped points, or None when underdetermined."""
     if len(points) < 2:
@@ -788,9 +834,6 @@ def main() -> int:
     for summary_path in active_summary_paths:
         summary = load_json(summary_path)
         scenario_evidence = summary.get("scenario_evidence", {})
-        scenario_verified = bool(scenario_evidence.get("passed", False))
-        validated_summary = dict(summary)
-        validated_summary["passed"] = bool(summary.get("passed", False) and scenario_verified)
         article = summary.get("test_article", {})
         workload_config = summary.get("workload_config", {})
         charge_gate = summary.get("charge_gate", {})
@@ -822,6 +865,29 @@ def main() -> int:
             shutdown_observed,
             inferred_shutdown,
             recovery,
+        )
+        if (
+            shutdown_basis == "analyzer-current-collapse+pmu-undervoltage-reset"
+            and start is not None
+            and end is not None
+        ):
+            scenario_evidence = reconcile_scenario_evidence(
+                scenario_evidence,
+                end - start,
+            )
+        scenario_verified = bool(scenario_evidence.get("passed", False))
+        radio_off_idle_completed = bool(
+            shutdown_basis == "analyzer-current-collapse+pmu-undervoltage-reset"
+            and summary.get("workload") == "idle"
+            and summary.get("scenario") in ("full-offline", "dim-offline", "sleep-offline")
+            and summary.get("run_error") is None
+            and summary.get("cleanup_error") is None
+            and not summary.get("device_unreachable")
+        )
+        validated_summary = dict(summary)
+        validated_summary["passed"] = bool(
+            scenario_verified
+            and (summary.get("passed", False) or radio_off_idle_completed)
         )
         samples = battery_samples(summary, start, end)
         metrics = classify(

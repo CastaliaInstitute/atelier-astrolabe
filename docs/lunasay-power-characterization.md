@@ -177,6 +177,12 @@ battery runtime. Radio-off idle runs rely on the same electrical endpoint
 because they have no in-band liveness transport. The threshold and sustain
 window are explicit `lunasay_power_report.py` options and the resulting
 `shutdown_basis` is preserved in CSV and Markdown output.
+For a radio-off run that remains physically disconnected until its safety
+ceiling, the report also recomputes firmware scenario-counter coverage against
+the confirmed electrical endpoint rather than counting the powered-off tail.
+It may restore an otherwise clean idle artifact only when the analyzer/PMU
+shutdown proof passes, runner and cleanup errors are absent, and the corrected
+display/radio counters or retained history prove the requested scenario.
 
 ## True deep sleep gate
 
