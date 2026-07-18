@@ -336,6 +336,11 @@ def main() -> int:
     parser.add_argument("--settle-sec", type=float, default=1.0)
     parser.add_argument("--out-dir", default="")
     parser.add_argument("--include-unported", action="store_true")
+    parser.add_argument(
+        "--nav-only",
+        action="store_true",
+        help="Test only faces in the active profile's swipe navigation roster",
+    )
     parser.add_argument("--limit", type=int, default=0, help="Limit face count for shakedown runs")
     parser.add_argument("--self-test", action="store_true", help="Run parser/verdict checks without hardware")
     parser.add_argument("--verify-summary", default="", help="Verify an existing summary.json and exit")
@@ -369,6 +374,8 @@ def main() -> int:
         list_rows = command_lines(ser, "faces list", 4.0, ())
         all_rows.extend(list_rows)
         faces = parse_faces("\n".join(line for _, line in list_rows), args.include_unported)
+        if args.nav_only:
+            faces = [face for face in faces if face["nav"]]
         planned_faces = [face["slug"] for face in faces]
         if args.limit > 0:
             faces = faces[: args.limit]
@@ -417,6 +424,7 @@ def main() -> int:
         "port": port,
         "phrase": args.phrase,
         "capture_ms": args.capture_ms,
+        "nav_only": args.nav_only,
         "limited": args.limit > 0,
         "planned_face_count": len(faces),
         "available_face_count": len(planned_faces),

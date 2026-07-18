@@ -49,6 +49,7 @@ static const char *TAG = "faculty175_voice";
 #define VOICE_STREAM_CHUNK_BYTES 1024
 #define VOICE_PCM_CAPTURE_MAX_BYTES (15 * 16000 * sizeof(int16_t))
 #define VOICE_MP3_STREAM_BUFFER_BYTES (24 * 1024)
+#define VOICE_FLASH_READ_BOUNCE_BYTES 4096
 #define VOICE_PLAY_TASK_TIMEOUT_MS 30000
 
 #ifndef MYNAH_VOICE_HTTP_URL
@@ -1704,7 +1705,7 @@ esp_err_t faculty175_voice_play_mp3(const uint8_t *mp3, size_t mp3_len)
         ++frame_index;
         const uint32_t write_start_ms = faculty175_log_ms();
         if (info.channels == 1) {
-            int16_t *stereo = pcm + MINIMP3_MAX_SAMPLES_PER_FRAME;
+            int16_t *stereo = pcm;
             for (int i = samples - 1; i >= 0; --i) {
                 stereo[i * 2] = pcm[i];
                 stereo[i * 2 + 1] = pcm[i];
@@ -1786,6 +1787,16 @@ static esp_err_t voice_play_mp3_file_sync(const char *path, size_t mp3_len)
 
     uint8_t *in = s_voice_mp3_stream_buf;
     int16_t *pcm = s_voice_mp3_pcm;
+    /* SPIFFS may disable the external-memory cache while filling a read
+     * buffer. Never give fread() a PSRAM destination: use a small internal
+     * bounce buffer, then copy into the larger PSRAM decode window after the
+     * flash operation has returned and caches are available again. */
+    uint8_t *flash_read = heap_caps_malloc(VOICE_FLASH_READ_BOUNCE_BYTES,
+                                           MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (flash_read == NULL) {
+        fclose(f);
+        return ESP_ERR_NO_MEM;
+    }
 
     const uint32_t t0 = faculty175_log_ms();
     FACULTY175_LOG_STAGE(TAG, "tts", "play file start mp3=%uB path=%s", (unsigned)mp3_len, path);
@@ -1811,9 +1822,15 @@ static esp_err_t voice_play_mp3_file_sync(const char *path, size_t mp3_len)
                 off = 0;
             }
             const size_t room = VOICE_MP3_STREAM_BUFFER_BYTES - len;
-            const size_t n = fread(in + len, 1, room, f);
+            const size_t request = room < VOICE_FLASH_READ_BOUNCE_BYTES
+                                       ? room
+                                       : VOICE_FLASH_READ_BOUNCE_BYTES;
+            const size_t n = fread(flash_read, 1, request, f);
+            if (n > 0) {
+                memcpy(in + len, flash_read, n);
+            }
             len += n;
-            if (n < room) {
+            if (n < request) {
                 eof = true;
             }
         }
@@ -1868,6 +1885,7 @@ static esp_err_t voice_play_mp3_file_sync(const char *path, size_t mp3_len)
     }
 
     fclose(f);
+    free(flash_read);
     if (result == ESP_OK && !configured) {
         result = ESP_ERR_INVALID_RESPONSE;
     }
@@ -2067,7 +2085,7 @@ static bool tts_stream_decode_available(bool eof)
                                  (unsigned)FACULTY175_AUDIO_RATE);
         }
         if (info.channels == 1) {
-            int16_t *stereo = pcm + MINIMP3_MAX_SAMPLES_PER_FRAME;
+            int16_t *stereo = pcm;
             for (int i = samples - 1; i >= 0; --i) {
                 stereo[i * 2] = pcm[i];
                 stereo[i * 2 + 1] = pcm[i];
