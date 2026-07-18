@@ -19,6 +19,7 @@ import os
 from pathlib import Path
 import re
 import socket
+import struct
 import threading
 import time
 from urllib import request
@@ -31,6 +32,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_IMAGE = ROOT / "astrolabe175c" / "build" / "astrolabe175c.bin"
 STATUS_RE = re.compile(r"ota: status .*running=(\S+) boot=(\S+)")
 CRASH_RE = re.compile(r"Guru Meditation|assert failed|CORRUPT HEAP|panic'ed", re.I)
+ESP_APP_DESC_MAGIC = 0xABCD5432
 
 
 def sha256_hex(path: Path) -> str:
@@ -39,6 +41,38 @@ def sha256_hex(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def image_app_identity(path: Path) -> dict:
+    """Read the first ESP app descriptor without importing the IDF toolchain."""
+    with path.open("rb") as handle:
+        header = handle.read(24)
+        segment_header = handle.read(8)
+        descriptor = handle.read(176)
+    if len(header) != 24 or len(segment_header) != 8 or len(descriptor) != 176:
+        raise ValueError(f"firmware image is too short for an ESP app descriptor: {path}")
+    magic = struct.unpack_from("<I", descriptor, 0)[0]
+    if magic != ESP_APP_DESC_MAGIC:
+        raise ValueError(f"firmware app descriptor magic is invalid: 0x{magic:08x}")
+    decode = lambda data: data.split(b"\0", 1)[0].decode("utf-8", "strict")
+    version = decode(descriptor[16:48])
+    project = decode(descriptor[48:80])
+    elf_sha256 = descriptor[144:176].hex()
+    if not version or not project or len(elf_sha256) != 64:
+        raise ValueError("firmware app descriptor identity is incomplete")
+    return {"project": project, "version": version, "elf_sha256": elf_sha256}
+
+
+def battery_firmware_identity(device_ip: str) -> dict:
+    with request.urlopen(f"http://{device_ip}/api/battery", timeout=5.0) as response:
+        payload = json.load(response)
+    firmware = payload.get("firmware", {})
+    return {
+        "project": firmware.get("project"),
+        "version": firmware.get("version"),
+        "variant": firmware.get("variant"),
+        "elf_sha256": firmware.get("elf_sha256"),
+    }
 
 
 def resolve_port(requested: str) -> str:
@@ -193,14 +227,30 @@ def main() -> int:
     parser.add_argument("--device-ip", default="192.168.86.72")
     parser.add_argument("--http-port", type=int, default=0)
     parser.add_argument("--out-dir", default="")
+    parser.add_argument("--expected-variant", default="LunaSay")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="inspect and hash the image without accessing device or network")
     args = parser.parse_args()
 
     image = Path(args.image).expanduser().resolve()
     if not image.is_file():
         raise SystemExit(f"error: firmware image not found: {image}")
+    digest = sha256_hex(image)
+    expected_identity = {
+        **image_app_identity(image),
+        "variant": args.expected_variant,
+    }
+    if args.dry_run:
+        print(json.dumps({
+            "dry_run": True,
+            "image": str(image),
+            "bytes": image.stat().st_size,
+            "image_sha256": digest,
+            "expected_identity": expected_identity,
+        }, indent=2))
+        return 0
     port = resolve_port(args.port)
     host = resolve_lan_ip(args.host)
-    digest = sha256_hex(image)
     wrong_digest = ("0" if digest[0] != "0" else "1") + digest[1:]
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     out_dir = Path(args.out_dir).expanduser() if args.out_dir else ROOT / "artifacts" / "qa" / f"lunasay-ota-recovery-{stamp}"
@@ -247,6 +297,13 @@ def main() -> int:
                 details["product_slot"] = slot
                 break
         checks["product_boot_after_install"] = product_ok
+        if product_ok:
+            wait_for_device_http(args.device_ip)
+            installed_identity = battery_firmware_identity(args.device_ip)
+            details["product_identity_after_install"] = json.dumps(installed_identity, sort_keys=True)
+            checks["product_binary_identity_after_install"] = installed_identity == expected_identity
+        else:
+            checks["product_binary_identity_after_install"] = False
 
         console.command("ota boot factory", ("ota: boot factory",), 5.0)
         checks["commanded_factory_recovery"], details["commanded_factory_recovery"] = console.status("factory")
@@ -254,6 +311,13 @@ def main() -> int:
         console.command("ota boot ota", ("ota: boot ota",), 5.0)
         slot = details.get("product_slot", "ota_0")
         checks["commanded_product_recovery"], details["commanded_product_recovery"] = console.status(slot, timeout=90.0)
+        if checks["commanded_product_recovery"]:
+            wait_for_device_http(args.device_ip)
+            recovered_identity = battery_firmware_identity(args.device_ip)
+            details["product_identity_after_recovery"] = json.dumps(recovered_identity, sort_keys=True)
+            checks["product_binary_identity_after_recovery"] = recovered_identity == expected_identity
+        else:
+            checks["product_binary_identity_after_recovery"] = False
 
         final_status = console.command("ota status", ("ota: status",), 5.0)
         details["final_status"] = final_status
@@ -271,7 +335,12 @@ def main() -> int:
         "started_at": started.isoformat(),
         "finished_at": datetime.now().astimezone().isoformat(),
         "device_port": port,
-        "firmware": {"path": str(image), "bytes": image.stat().st_size, "sha256": digest},
+        "firmware": {
+            "path": str(image),
+            "bytes": image.stat().st_size,
+            "sha256": digest,
+            "expected_identity": expected_identity,
+        },
         "transport": {"url": url, "scope": "local-lab-http-with-explicit-sha256"},
         "checks": checks,
         "details": details,

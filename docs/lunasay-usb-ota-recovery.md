@@ -67,8 +67,16 @@ python3 scripts/lunasay_ota_recovery_validate.py \
   --device-ip DEVICE_LAN_IP
 ```
 
+Before touching hardware, inspect the exact image descriptor and hashes with:
+
+```bash
+python3 scripts/lunasay_ota_recovery_validate.py --dry-run
+```
+
 The validator deliberately rejects a wrong SHA-256, installs the same image
-with its correct SHA-256, exercises factory and product boot routing, leaves the
+with its correct SHA-256, exercises factory and product boot routing, verifies
+that `/api/battery` reports the descriptor's project, version, full ELF SHA-256,
+and the expected `LunaSay` variant after both install and recovery, leaves the
 device on the product slot, and writes evidence under `artifacts/qa/`.
 
 This local HTTP test proves image-integrity and recovery mechanics only.
