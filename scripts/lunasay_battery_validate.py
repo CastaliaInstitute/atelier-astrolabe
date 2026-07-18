@@ -283,10 +283,21 @@ def main() -> int:
         ["git", "describe", "--always", "--dirty"], cwd=ROOT, text=True
     ).strip()
 
-    if args.duration_min <= 0:
+    if not math.isfinite(args.duration_min) or args.duration_min <= 0:
         raise SystemExit("error: --duration-min must be positive")
-    if args.battery_mah is not None and args.battery_mah <= 0:
-        raise SystemExit("error: --battery-mah must be positive")
+    if args.battery_mah is not None and (
+        not math.isfinite(args.battery_mah) or args.battery_mah <= 0
+    ):
+        raise SystemExit("error: --battery-mah must be finite and positive")
+    if args.ambient_c is not None and not math.isfinite(args.ambient_c):
+        raise SystemExit("error: --ambient-c must be finite")
+    if (
+        not math.isfinite(args.rest_min)
+        or not math.isfinite(args.charge_ready_timeout_min)
+        or args.rest_min < 0
+        or args.charge_ready_timeout_min <= 0
+    ):
+        raise SystemExit("error: charge rest/timeout must be finite and non-negative/positive")
     if args.battery_cycle_count is not None and args.battery_cycle_count < 0:
         raise SystemExit("error: --battery-cycle-count must be non-negative")
     if args.battery_photo is not None and not args.battery_photo.is_file():
@@ -305,14 +316,28 @@ def main() -> int:
         )
     if not 1000 <= args.capture_ms <= 30000:
         raise SystemExit("error: --capture-ms must be 1000..30000")
-    if args.turn_interval_s < 0 or args.journal_gap_s < 0:
-        raise SystemExit("error: workload gaps must be non-negative")
+    if args.say_rate <= 0 or not 0 <= args.say_volume <= 100:
+        raise SystemExit("error: --say-rate must be positive and --say-volume must be 0..100")
     if (
-        args.ble_probe_interval_s <= 0
+        not math.isfinite(args.turn_interval_s)
+        or not math.isfinite(args.journal_gap_s)
+        or args.turn_interval_s < 0
+        or args.journal_gap_s < 0
+    ):
+        raise SystemExit("error: workload gaps must be finite and non-negative")
+    if (
+        not math.isfinite(args.ble_probe_interval_s)
+        or not math.isfinite(args.ble_probe_timeout_s)
+        or not math.isfinite(args.ble_config_write_interval_s)
+        or args.ble_probe_interval_s <= 0
         or args.ble_probe_timeout_s <= 0
         or args.ble_config_write_interval_s <= 0
     ):
-        raise SystemExit("error: BLE probe, timeout, and configuration-write intervals must be positive")
+        raise SystemExit(
+            "error: BLE probe, timeout, and configuration-write intervals must be finite and positive"
+        )
+    if not math.isfinite(args.turn_timeout_s) or args.turn_timeout_s <= 0:
+        raise SystemExit("error: --turn-timeout-s must be finite and positive")
     if args.workload in VOICE_WORKLOADS and args.scenario not in ("full-wifi", "dim-wifi", "off-wifi"):
         raise SystemExit("error: voice workloads require full-wifi, dim-wifi, or off-wifi")
     if args.workload in BLE_WORKLOADS and args.scenario not in ("full-offline", "dim-offline", "sleep-offline"):

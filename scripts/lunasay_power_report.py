@@ -352,13 +352,18 @@ def test_article_gate_passes(
             not require_labeled_capacity
             or (
                 isinstance(run.get("battery_mah"), (int, float))
+                and math.isfinite(float(run["battery_mah"]))
+                and float(run["battery_mah"]) > 0
                 and bool(run.get("battery_photo_sha256"))
             )
         )
         and (not require_hardware_revision or known_text(run.get("hardware_revision")))
         and (
             not require_ambient_temperature
-            or isinstance(run.get("ambient_c"), (int, float))
+            or (
+                isinstance(run.get("ambient_c"), (int, float))
+                and math.isfinite(float(run["ambient_c"]))
+            )
         )
     )
 
@@ -540,7 +545,10 @@ def main() -> int:
     parser.add_argument("--matrix", type=Path, default=ROOT / "config" / "lunasay_power_matrix.json")
     args = parser.parse_args()
     if (
-        args.shutdown_current_threshold_ma < 0
+        not math.isfinite(args.shutdown_current_threshold_ma)
+        or not math.isfinite(args.shutdown_current_sustain_s)
+        or not math.isfinite(args.analyzer_max_gap_s)
+        or args.shutdown_current_threshold_ma < 0
         or args.shutdown_current_sustain_s <= 0
         or args.analyzer_max_gap_s <= 0
     ):
@@ -548,6 +556,14 @@ def main() -> int:
             "error: analyzer shutdown threshold must be non-negative; sustain and maximum gap "
             "must be positive"
         )
+    if args.battery_mah is not None and (
+        not math.isfinite(args.battery_mah) or args.battery_mah <= 0
+    ):
+        raise SystemExit("error: --battery-mah must be finite and positive")
+    if not math.isfinite(args.min_estimate_hours) or args.min_estimate_hours <= 0:
+        raise SystemExit("error: --min-estimate-hours must be finite and positive")
+    if not 0 < args.min_percent_drop <= 100:
+        raise SystemExit("error: --min-percent-drop must be 1..100")
     matrix_sha256 = hashlib.sha256(args.matrix.read_bytes()).hexdigest() if args.matrix.is_file() else None
     analyzer_rows = load_analyzer_rows(args.analyzer_csv)
     analyzer_sources = []

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import json
+import math
 from pathlib import Path
 import re
 import time
@@ -37,7 +38,12 @@ def wait_for_charge_ready(
     timeout_min: float,
 ) -> dict:
     """Wait for charge termination and a continuous docked rest interval."""
-    if rest_min < 0 or timeout_min <= 0:
+    if (
+        not math.isfinite(rest_min)
+        or not math.isfinite(timeout_min)
+        or rest_min < 0
+        or timeout_min <= 0
+    ):
         raise ValueError("invalid charge gate timing")
     started = time.monotonic()
     deadline = started + timeout_min * 60.0

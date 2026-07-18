@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 import glob
 import hashlib
 import json
+import math
 from pathlib import Path
 import re
 import shutil
@@ -119,8 +120,21 @@ def main() -> int:
     ).strip()
     if not 1 <= args.duration_min <= 10080:
         raise SystemExit("error: --duration-min must be 1..10080")
-    if args.battery_mah is not None and args.battery_mah <= 0:
-        raise SystemExit("error: --battery-mah must be positive")
+    if args.battery_mah is not None and (
+        not math.isfinite(args.battery_mah) or args.battery_mah <= 0
+    ):
+        raise SystemExit("error: --battery-mah must be finite and positive")
+    if args.ambient_c is not None and not math.isfinite(args.ambient_c):
+        raise SystemExit("error: --ambient-c must be finite")
+    if not math.isfinite(args.boot_timeout_s) or args.boot_timeout_s <= 0:
+        raise SystemExit("error: --boot-timeout-s must be finite and positive")
+    if (
+        not math.isfinite(args.rest_min)
+        or not math.isfinite(args.charge_ready_timeout_min)
+        or args.rest_min < 0
+        or args.charge_ready_timeout_min <= 0
+    ):
+        raise SystemExit("error: charge rest/timeout must be finite and non-negative/positive")
     if args.battery_cycle_count is not None and args.battery_cycle_count < 0:
         raise SystemExit("error: --battery-cycle-count must be non-negative")
     if args.battery_photo is not None and not args.battery_photo.is_file():
