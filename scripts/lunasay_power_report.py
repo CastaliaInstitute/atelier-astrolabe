@@ -1038,7 +1038,8 @@ def main() -> int:
         f"a {args.min_percent_drop}% monotonic drop, and a completed full-charge/rest gate.",
         "Analyzer inputs are hashed in `analyzer_sources.json`; consumed QA artifacts are hashed "
         "in `artifact_sources.json`; all thresholds, the matrix hash, and report-generator hash "
-        "are recorded in `report_config.json`.",
+        "are recorded in `report_config.json`; generated deliverables are sealed by "
+        "`report_outputs.json`.",
         "",
         "![Battery discharge curves](curves.svg)",
         "" if args.battery_mah is None else f"Average current uses the labeled {args.battery_mah:g} mAh cell capacity.",
@@ -1420,6 +1421,24 @@ def main() -> int:
         "",
     ])
     (args.out_dir / "report.md").write_text("\n".join(lines), encoding="utf-8")
+    output_names = (
+        "report.md",
+        "runs.csv",
+        "deep_sleep_runs.csv",
+        "curves.csv",
+        "curves.svg",
+        "analyzer_sources.json",
+        "artifact_sources.json",
+        "report_config.json",
+    )
+    output_manifest = {
+        "schema_version": 1,
+        "files": [file_manifest(args.out_dir / name) for name in output_names],
+    }
+    (args.out_dir / "report_outputs.json").write_text(
+        json.dumps(output_manifest, indent=2) + "\n",
+        encoding="utf-8",
+    )
     print(f"lunasay_power_report: wrote {len(runs)} runs and {len(curves)} samples to {args.out_dir}")
     return 0
 

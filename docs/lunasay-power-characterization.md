@@ -303,6 +303,19 @@ preference.
 
 The generated `report.md`, `runs.csv`, `deep_sleep_runs.csv`, `curves.csv`,
 `curves.svg`, analyzer-input hash manifest `analyzer_sources.json`, consumed-QA
-hash manifest `artifact_sources.json`, and reproducibility manifest
-`report_config.json` (including the report-generator SHA-256) live under
-`artifacts/qa/lunasay-power-report/` by default.
+hash manifest `artifact_sources.json`, reproducibility manifest
+`report_config.json` (including the matrix and report-generator SHA-256), and
+sealed-output manifest `report_outputs.json` live under
+`artifacts/qa/lunasay-power-report/` by default. Verify the entire evidence
+chain after copying, archiving, or regenerating a report:
+
+```bash
+scripts/lunasay_power_report_verify.py \
+  --report-dir artifacts/qa/lunasay-power-report
+```
+
+Verification fails if a consumed QA/analyzer source, the qualification matrix,
+the report generator, or any generated CSV/SVG/Markdown/manifest output has
+changed. The hash manifests provide reproducibility and tamper detection, not
+authenticity; preserve them in a signed release artifact before publishing a
+claim.
