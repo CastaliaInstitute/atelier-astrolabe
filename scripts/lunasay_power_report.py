@@ -281,20 +281,23 @@ def fmt(value: float | int | None, digits: int = 2) -> str:
     return f"{value:.{digits}f}"
 
 
-def release_build_key(run: dict) -> tuple[str, str] | None:
-    """Return a claim-safe firmware/harness pair, rejecting unknown or dirty builds."""
+def release_build_key(run: dict) -> tuple[str, str, str] | None:
+    """Return a claim-safe firmware/harness/hardware cohort key."""
     firmware = str(run.get("firmware_build", "")).strip()
     harness = str(run.get("harness_build", "")).strip()
+    hardware_revision = str(run.get("hardware_revision", "")).strip()
     if (
         not firmware
         or not harness
+        or not hardware_revision
         or firmware == "unknown"
         or harness == "unknown"
+        or hardware_revision.lower() in ("unknown", "unspecified")
         or "dirty" in firmware.lower()
         or "dirty" in harness.lower()
     ):
         return None
-    return firmware, harness
+    return firmware, harness, hardware_revision
 
 
 def known_text(value: object) -> bool:
@@ -360,7 +363,7 @@ def matrix_test_matches(run: dict, test: dict, matrix_sha256: str | None) -> boo
 
 def largest_release_cohort(runs: list[dict]) -> list[dict]:
     """Keep only the same clean firmware/harness cohort with the most physical units."""
-    cohorts: dict[tuple[str, str], list[dict]] = {}
+    cohorts: dict[tuple[str, str, str], list[dict]] = {}
     for run in runs:
         key = release_build_key(run)
         if key is not None:
@@ -1197,8 +1200,8 @@ def main() -> int:
         )
     if any(release_build_key(run) is None for run in [*runs, *deep_runs]):
         limitations.append(
-            "At least one artifact has unknown or dirty firmware/harness provenance and is excluded "
-            "from release claims."
+            "At least one artifact has unknown/dirty firmware, harness, or hardware-revision "
+            "provenance and is excluded from release claims."
         )
     if any(
         run.get("qualification_matrix_sha256") != matrix_sha256

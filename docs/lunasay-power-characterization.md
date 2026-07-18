@@ -69,7 +69,8 @@ release-candidate unit, then repeat it on a second unit. Shorter runs may be use
 to tune firmware but are not final runtime evidence. Release readiness also
 requires a synchronized battery-path analyzer trace covering at least 95% of
 each run and a recorded labeled cell capacity; runtime alone does not fully
-characterize power consumption.
+characterize power consumption. Both units contributing to a claim must share
+the same known hardware revision, firmware build, and committed harness build.
 
 The qualification matrix gives every full-runtime active test a seven-day
 safety ceiling, the longest scenario the firmware accepts. This is a ceiling,
