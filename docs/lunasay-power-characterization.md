@@ -14,8 +14,11 @@ projected runtime, and measured runtime to shutdown.
   SHA-256, hardware revision, battery label and
   rated capacity, battery cycle count when known, ambient temperature, and unit
   identifier for every publishable run.
-- Charge to termination, allow 30 minutes of rest, record starting voltage and
-  fuel-gauge percentage, then remove VBUS with the controllable USB hub.
+- Charge to termination, then require a present cell, at least 99%, 4100–4400
+  mV, VBUS present, and charging inactive continuously throughout a 30-minute
+  docked rest. Record the final rested voltage and fuel-gauge percentage, then
+  remove VBUS with the controllable USB hub. Any condition leaving the window
+  restarts the timer.
 - Keep automatic brightness, face, Wi-Fi credentials, audio volume, prompt
   cadence, and server/model configuration fixed for the whole run.
 - A runner must always restore VBUS on completion or failure. Network polling

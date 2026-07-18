@@ -39,6 +39,7 @@ def common_args(args: argparse.Namespace, out_dir: Path, test: dict) -> list[str
         "--battery-id", args.battery_id,
         "--rest-min", str(args.rest_min),
         "--charge-ready-timeout-min", str(args.charge_ready_timeout_min),
+        "--charge-ready-min-mv", str(args.charge_ready_min_mv),
         "--qualification-matrix-sha256", args.matrix_sha256,
         "--qualification-test-id", str(test["id"]),
     ]
@@ -169,6 +170,31 @@ def main() -> int:
     args.matrix_sha256 = matrix_sha256
     matrix = json.loads(matrix_bytes)
     release_gate = matrix.get("release_gate", {})
+    minimum_start_voltage_mv = release_gate.get("minimum_start_voltage_mv", 4100)
+    if (
+        not isinstance(minimum_start_voltage_mv, int)
+        or isinstance(minimum_start_voltage_mv, bool)
+        or not 3500 <= minimum_start_voltage_mv <= 4400
+    ):
+        raise SystemExit(
+            "error: matrix release_gate.minimum_start_voltage_mv must be 3500..4400"
+        )
+    args.charge_ready_min_mv = minimum_start_voltage_mv
+    minimum_charge_rest_min = release_gate.get("minimum_charge_rest_min", 30)
+    if (
+        not isinstance(minimum_charge_rest_min, (int, float))
+        or isinstance(minimum_charge_rest_min, bool)
+        or not math.isfinite(float(minimum_charge_rest_min))
+        or minimum_charge_rest_min < 0
+    ):
+        raise SystemExit(
+            "error: matrix release_gate.minimum_charge_rest_min must be finite and non-negative"
+        )
+    if not args.allow_not_ready and args.rest_min < float(minimum_charge_rest_min):
+        raise SystemExit(
+            f"error: --rest-min {args.rest_min:g} is below the qualified "
+            f"{float(minimum_charge_rest_min):g}-minute minimum"
+        )
     ambient_c_min = release_gate.get("ambient_c_min")
     ambient_c_max = release_gate.get("ambient_c_max")
     for name, value in (("ambient_c_min", ambient_c_min), ("ambient_c_max", ambient_c_max)):

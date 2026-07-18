@@ -80,6 +80,7 @@ def wait_for_charge_ready(
     log_path: Path,
     rest_min: float,
     timeout_min: float,
+    minimum_voltage_mv: int = 4100,
 ) -> dict:
     """Wait for charge termination and a continuous docked rest interval."""
     if (
@@ -87,8 +88,11 @@ def wait_for_charge_ready(
         or not math.isfinite(timeout_min)
         or rest_min < 0
         or timeout_min <= 0
+        or not isinstance(minimum_voltage_mv, int)
+        or isinstance(minimum_voltage_mv, bool)
+        or not 3500 <= minimum_voltage_mv <= 4400
     ):
-        raise ValueError("invalid charge gate timing")
+        raise ValueError("invalid charge gate timing or voltage")
     started = time.monotonic()
     deadline = started + timeout_min * 60.0
     ready_since: float | None = None
@@ -100,8 +104,10 @@ def wait_for_charge_ready(
         charge_terminated = bool(
             status.get("docked") == "yes"
             and status.get("vbus") == "yes"
+            and status.get("battery") == "present"
             and status.get("charging") == "no"
             and int(status.get("percent", -1)) >= 99
+            and minimum_voltage_mv <= int(status.get("mv", -1)) <= 4400
         )
         now = time.monotonic()
         if charge_terminated:
@@ -116,6 +122,8 @@ def wait_for_charge_ready(
             "charge_terminated": charge_terminated,
             "rested_s": round(rested_s, 3),
             "required_rest_s": rest_min * 60.0,
+            "minimum_voltage_mv": minimum_voltage_mv,
+            "maximum_voltage_mv": 4400,
             "status": status,
         }
         with log_path.open("a", encoding="utf-8") as handle:

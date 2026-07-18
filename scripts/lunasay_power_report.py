@@ -387,6 +387,39 @@ def known_text(value: object) -> bool:
     )
 
 
+def charge_gate_passes(
+    charge_gate: dict,
+    minimum_start_voltage_mv: int,
+    minimum_rest_s: float,
+) -> bool:
+    """Revalidate the recorded full-charge sample instead of trusting its flag."""
+    try:
+        rested_s = float(charge_gate["rested_s"])
+        required_rest_s = float(charge_gate["required_rest_s"])
+        recorded_minimum_mv = int(charge_gate["minimum_voltage_mv"])
+        recorded_maximum_mv = int(charge_gate["maximum_voltage_mv"])
+        status = charge_gate["status"]
+        voltage_mv = int(status["mv"])
+        percent = int(status["percent"])
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return False
+    return bool(
+        charge_gate.get("charge_terminated") is True
+        and math.isfinite(rested_s)
+        and math.isfinite(required_rest_s)
+        and required_rest_s >= minimum_rest_s
+        and rested_s >= required_rest_s
+        and recorded_minimum_mv >= minimum_start_voltage_mv
+        and recorded_maximum_mv <= 4400
+        and recorded_minimum_mv <= voltage_mv <= recorded_maximum_mv
+        and status.get("docked") == "yes"
+        and status.get("vbus") == "yes"
+        and status.get("battery") == "present"
+        and status.get("charging") == "no"
+        and percent >= 99
+    )
+
+
 def test_article_gate_passes(
     run: dict,
     require_labeled_capacity: bool,
@@ -686,6 +719,21 @@ def main() -> int:
     if not 0 < args.min_percent_drop <= 100:
         raise SystemExit("error: --min-percent-drop must be 1..100")
     matrix_sha256 = hashlib.sha256(args.matrix.read_bytes()).hexdigest() if args.matrix.is_file() else None
+    matrix_data = load_json(args.matrix) if args.matrix.is_file() else {}
+    matrix_release_gate = matrix_data.get("release_gate", {})
+    minimum_start_voltage_mv = matrix_release_gate.get("minimum_start_voltage_mv", 4100)
+    minimum_charge_rest_min = matrix_release_gate.get("minimum_charge_rest_min", 30)
+    if (
+        not isinstance(minimum_start_voltage_mv, int)
+        or isinstance(minimum_start_voltage_mv, bool)
+        or not 3500 <= minimum_start_voltage_mv <= 4400
+        or not isinstance(minimum_charge_rest_min, (int, float))
+        or isinstance(minimum_charge_rest_min, bool)
+        or not math.isfinite(float(minimum_charge_rest_min))
+        or minimum_charge_rest_min < 0
+    ):
+        raise SystemExit("error: matrix charge start/rest controls are invalid")
+    minimum_charge_rest_s = float(minimum_charge_rest_min) * 60.0
     analyzer_input_paths = analyzer_paths(args.analyzer_csv, args.artifact_root)
     analyzer_rows = load_analyzer_rows(analyzer_input_paths)
     active_summary_paths = sorted(args.artifact_root.glob("lunasay-battery-*/summary.json"))
@@ -738,9 +786,10 @@ def main() -> int:
         article = summary.get("test_article", {})
         workload_config = summary.get("workload_config", {})
         charge_gate = summary.get("charge_gate", {})
-        charge_ready = bool(
-            charge_gate.get("charge_terminated")
-            and float(charge_gate.get("rested_s", -1)) >= float(charge_gate.get("required_rest_s", 0))
+        charge_ready = charge_gate_passes(
+            charge_gate,
+            minimum_start_voltage_mv,
+            minimum_charge_rest_s,
         )
         run_battery_mah = args.battery_mah
         if run_battery_mah is None and isinstance(article.get("battery_mah"), (int, float)):
@@ -939,6 +988,8 @@ def main() -> int:
         "minimum_estimate_hours": args.min_estimate_hours,
         "minimum_percent_drop": args.min_percent_drop,
         "battery_mah_override": args.battery_mah,
+        "minimum_start_voltage_mv": minimum_start_voltage_mv,
+        "minimum_charge_rest_s": minimum_charge_rest_s,
         "analyzer_inputs": [str(path.resolve()) for path in analyzer_input_paths],
         "analyzer_max_gap_s": args.analyzer_max_gap_s,
         "shutdown_current_threshold_ma": args.shutdown_current_threshold_ma,
@@ -955,9 +1006,10 @@ def main() -> int:
         summary = load_json(summary_path)
         article = summary.get("test_article", {})
         charge_gate = summary.get("charge_gate", {})
-        charge_ready = bool(
-            charge_gate.get("charge_terminated")
-            and float(charge_gate.get("rested_s", -1)) >= float(charge_gate.get("required_rest_s", 0))
+        charge_ready = charge_gate_passes(
+            charge_gate,
+            minimum_start_voltage_mv,
+            minimum_charge_rest_s,
         )
         sample = summary.get("wake_battery", {})
         sleep = sample.get("deep_sleep", {})
@@ -1253,7 +1305,7 @@ def main() -> int:
     claim_rows: list[dict] = []
     matrix_open_count = 0
     if args.matrix.exists():
-        matrix = load_json(args.matrix)
+        matrix = matrix_data
         rank = {"failed": 0, "insufficient-samples": 1, "unqualified-runtime": 2,
                 "functional-only": 2,
                 "runtime-estimate": 3, "measured-runtime": 4}

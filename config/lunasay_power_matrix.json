@@ -1,5 +1,5 @@
 {
-  "schema": 6,
+  "schema": 7,
   "release_gate": {
     "units_required": 2,
     "batteries_required": 2,
@@ -13,6 +13,8 @@
     "ambient_c_min": 15,
     "ambient_c_max": 30,
     "maximum_cohort_ambient_spread_c": 5,
+    "minimum_start_voltage_mv": 4100,
+    "minimum_charge_rest_min": 30,
     "minimum_projection_hours": 1,
     "minimum_projection_drop_percent": 2
   },

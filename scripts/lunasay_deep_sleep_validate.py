@@ -112,6 +112,7 @@ def main() -> int:
     parser.add_argument("--qualification-test-id", default="")
     parser.add_argument("--rest-min", type=float, default=30.0)
     parser.add_argument("--charge-ready-timeout-min", type=float, default=360.0)
+    parser.add_argument("--charge-ready-min-mv", type=int, default=4100)
     parser.add_argument("--allow-not-ready", action="store_true",
                         help="skip full-charge/rest gate; smoke tests only")
     args = parser.parse_args()
@@ -133,6 +134,7 @@ def main() -> int:
         or not math.isfinite(args.charge_ready_timeout_min)
         or args.rest_min < 0
         or args.charge_ready_timeout_min <= 0
+        or not 3500 <= args.charge_ready_min_mv <= 4400
     ):
         raise SystemExit("error: charge rest/timeout must be finite and non-negative/positive")
     if args.battery_cycle_count is not None and args.battery_cycle_count < 0:
@@ -178,6 +180,7 @@ def main() -> int:
             out_dir / "charge-ready.jsonl",
             args.rest_min,
             args.charge_ready_timeout_min,
+            args.charge_ready_min_mv,
         )
     started = time.monotonic()
 
