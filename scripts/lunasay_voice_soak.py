@@ -23,6 +23,8 @@ from urllib import request
 
 import serial
 
+from lunasay_power_common import image_app_identity
+
 
 ROOT = Path(__file__).resolve().parents[1]
 CRASH_RE = re.compile(r"Guru Meditation|assert failed|CORRUPT HEAP|panic'ed", re.I)
@@ -47,6 +49,7 @@ FACE_TOUR_CASES = (
     ("alethiometer", 7000, "In one sentence under twelve words, what truth should I examine today?", ()),
     ("sky", 7000, "In one sentence under twelve words, name one thing visible in tonight's sky.", ("star", "planet", "moon", "constellation", "visible")),
 )
+DEFAULT_FIRMWARE_IMAGE = ROOT / "astrolabe175c" / "build" / "astrolabe175c.bin"
 
 
 def resolve_port(value: str) -> str:
@@ -95,6 +98,17 @@ def wait_for_full_server(ip: str, timeout: float = 45.0) -> None:
             last_error = exc
             time.sleep(1.0)
     raise RuntimeError(f"full device API did not become ready: {last_error}")
+
+
+def device_firmware_identity(ip: str) -> dict:
+    payload = json.loads(http_get(f"http://{ip}/api/battery", timeout=5.0))
+    firmware = payload.get("firmware", {})
+    return {
+        "project": firmware.get("project"),
+        "version": firmware.get("version"),
+        "variant": firmware.get("variant"),
+        "elf_sha256": firmware.get("elf_sha256"),
+    }
 
 
 def start_capture(ip: str, capture_ms: int) -> dict:
@@ -236,6 +250,8 @@ def main() -> int:
     parser.add_argument("--volume", type=int, default=85)
     parser.add_argument("--turn-timeout", type=float, default=100.0)
     parser.add_argument("--out-dir", default="")
+    parser.add_argument("--firmware-image", type=Path, default=DEFAULT_FIRMWARE_IMAGE,
+                        help="exact LunaSay app image expected on the device")
     parser.add_argument(
         "--face-tour",
         action="store_true",
@@ -252,6 +268,21 @@ def main() -> int:
         raise SystemExit("error: this physical acoustic test requires macOS say and osascript")
     if not 0.1 <= args.say_delay <= 2.0:
         raise SystemExit("error: --say-delay must be between 0.1 and 2.0 seconds")
+    if not args.firmware_image.is_file():
+        raise SystemExit(f"error: firmware image not found: {args.firmware_image}")
+    expected_firmware_identity = {
+        **image_app_identity(args.firmware_image),
+        "variant": "LunaSay",
+    }
+    cases = FACE_TOUR_CASES if args.face_tour else CASES
+    if args.faces:
+        if not args.face_tour:
+            raise SystemExit("error: --faces requires --face-tour")
+        requested = {slug.strip() for slug in args.faces.split(",") if slug.strip()}
+        cases = tuple(case for case in cases if case[0] in requested)
+        found = {case[0] for case in cases}
+        if found != requested:
+            raise SystemExit(f"error: unknown face(s): {sorted(requested - found)}")
 
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     out_dir = (
@@ -264,6 +295,9 @@ def main() -> int:
     original_volume = mac_volume()
     all_rows: list[str] = []
     results: list[dict] = []
+    actual_firmware_identity: dict = {}
+    firmware_identity_match = False
+    run_error: str | None = None
 
     try:
         set_mac_volume(args.volume)
@@ -271,16 +305,14 @@ def main() -> int:
             # A request to the thin listener pauses the duplex audio pipeline
             # and brings up the full settings/API server.
             wait_for_full_server(args.ip)
+            actual_firmware_identity = device_firmware_identity(args.ip)
+            firmware_identity_match = actual_firmware_identity == expected_firmware_identity
+            if not firmware_identity_match:
+                raise RuntimeError(
+                    "device firmware identity does not match expected image: "
+                    f"actual={actual_firmware_identity} expected={expected_firmware_identity}"
+                )
 
-            cases = FACE_TOUR_CASES if args.face_tour else CASES
-            if args.faces:
-                if not args.face_tour:
-                    raise SystemExit("error: --faces requires --face-tour")
-                requested = {slug.strip() for slug in args.faces.split(",") if slug.strip()}
-                cases = tuple(case for case in cases if case[0] in requested)
-                found = {case[0] for case in cases}
-                if found != requested:
-                    raise SystemExit(f"error: unknown face(s): {sorted(requested - found)}")
             for case in cases:
                 if args.face_tour:
                     name, capture_ms, phrase, semantic_terms = case
@@ -322,14 +354,26 @@ def main() -> int:
                 )
                 results.append(result)
                 print(json.dumps(result), flush=True)
+    except Exception as exc:
+        run_error = f"{type(exc).__name__}: {exc}"
     finally:
         set_mac_volume(original_volume)
 
     verdict = {
-        "passed": len(results) == len(cases) and all(row["passed"] for row in results),
+        "passed": bool(
+            run_error is None
+            and firmware_identity_match
+            and len(results) == len(cases)
+            and all(row["passed"] for row in results)
+        ),
         "port": port,
         "ip": args.ip,
         "say_delay_s": args.say_delay,
+        "firmware_image": str(args.firmware_image.resolve()),
+        "expected_firmware_identity": expected_firmware_identity,
+        "actual_firmware_identity": actual_firmware_identity,
+        "firmware_identity_match": firmware_identity_match,
+        "run_error": run_error,
         "results": results,
     }
     (out_dir / "serial.log").write_text("\n".join(all_rows) + "\n", encoding="utf-8")

@@ -219,6 +219,18 @@ itself changes, while the app-image SHA-256 and descriptor-derived
 version/LunaSay/full-ELF identity prevent reuse after the firmware file changes.
 The physical BOOT/GPIO0 gate remains a separate operator action.
 
+Then run the acoustic Kickstarter face tour against the same exact image:
+
+```sh
+python3 scripts/lunasay_voice_soak.py --face-tour \
+  --firmware-image astrolabe175c/build/astrolabe175c.bin
+```
+
+It selects and completes STT→LLM→TTS on Moon, Astrology, Transits, Synastry,
+Tarot, Alethiometer, and Sky. The artifact records and requires the running
+device's project, version, `LunaSay` variant, and full ELF SHA-256 to match the
+supplied image before the first spoken turn.
+
 The board's separate PWR key connects to the AXP2101 `PWRON` input. Its `PWROK`
 output controls ESP32 reset, while `AXP_IRQ` is not routed to an ESP GPIO in the
 official schematic. Therefore firmware must not describe the PWR key as an
