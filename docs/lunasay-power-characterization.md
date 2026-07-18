@@ -116,7 +116,13 @@ python3 scripts/lunasay_power_report.py --analyzer-csv analyzer.csv
 
 The CSV requires `run_id`, positive-discharge `current_ma`, one time column
 (`epoch_s` or ISO-8601 `timestamp`), and one voltage column (`voltage_mv` or
-`voltage_v`). Timestamps and electrical values must be finite, voltage must be
+`voltage_v`). Qualified direct-current evidence also requires the repeated
+columns `instrument_model`, `instrument_serial`, and `calibration_ref`; the
+last value identifies the applicable certificate, factory-calibration record,
+or documented verification against a traceable reference. Missing, mixed, or
+placeholder instrument provenance is retained as
+`direct-battery-analyzer-unattributed` engineering data but cannot satisfy a
+release claim. Timestamps and electrical values must be finite, voltage must be
 positive, and current must be non-negative. Identical duplicate samples at
 chunk boundaries are deduplicated; conflicting samples for one run/timestamp
 reject the input. The report trapezoid-integrates charge and energy, records average

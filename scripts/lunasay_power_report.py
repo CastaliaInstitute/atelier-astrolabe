@@ -42,7 +42,7 @@ def load_events(path: Path) -> list[dict]:
 def load_analyzer_rows(paths: list[Path]) -> list[dict]:
     """Load battery-path analyzer CSVs; positive current means discharge."""
     rows: list[dict] = []
-    seen: dict[tuple[str, float], tuple[float, float, Path]] = {}
+    seen: dict[tuple[str, float], tuple[float, float, str, str, str, Path]] = {}
     for path in paths:
         with path.open(newline="", encoding="utf-8") as handle:
             for line_number, raw in enumerate(csv.DictReader(handle), start=2):
@@ -75,21 +75,34 @@ def load_analyzer_rows(paths: list[Path]) -> list[dict]:
                         f"{path}:{line_number}: voltage must be finite and positive"
                     )
                 key = (raw["run_id"], epoch_s)
-                electrical = (current_ma, voltage_mv)
+                instrument_model = str(raw.get("instrument_model", "")).strip()
+                instrument_serial = str(raw.get("instrument_serial", "")).strip()
+                calibration_ref = str(raw.get("calibration_ref", "")).strip()
+                sample_identity = (
+                    current_ma,
+                    voltage_mv,
+                    instrument_model,
+                    instrument_serial,
+                    calibration_ref,
+                )
                 if key in seen:
-                    previous_current, previous_voltage, previous_path = seen[key]
-                    if electrical != (previous_current, previous_voltage):
+                    *previous_identity, previous_path = seen[key]
+                    if sample_identity != tuple(previous_identity):
                         raise ValueError(
                             f"{path}:{line_number}: conflicting duplicate timestamp for "
                             f"{raw['run_id']}; first seen in {previous_path}"
                         )
                     continue
-                seen[key] = (current_ma, voltage_mv, path)
+                seen[key] = (*sample_identity, path)
                 rows.append({
                     "run_id": raw["run_id"],
                     "epoch_s": epoch_s,
                     "current_ma": current_ma,
                     "voltage_mv": voltage_mv,
+                    "instrument_model": instrument_model,
+                    "instrument_serial": instrument_serial,
+                    "calibration_ref": calibration_ref,
+                    "source_path": str(path.resolve()),
                 })
     return rows
 
@@ -113,6 +126,22 @@ def direct_power_metrics(rows: list[dict]) -> dict | None:
         charge_mah += mean_current * hours
         energy_mwh += (previous_power_mw + current_power_mw) / 2.0 * hours
     duration_h = (rows[-1]["epoch_s"] - rows[0]["epoch_s"]) / 3600.0
+    instrument_identities = {
+        (
+            str(row.get("instrument_model", "")).strip(),
+            str(row.get("instrument_serial", "")).strip(),
+            str(row.get("calibration_ref", "")).strip(),
+        )
+        for row in rows
+    }
+    instrument_model = instrument_serial = calibration_ref = None
+    analyzer_provenance_complete = False
+    if len(instrument_identities) == 1:
+        identity = next(iter(instrument_identities))
+        placeholders = {"", "unknown", "unspecified", "none", "uncalibrated"}
+        if all(value.lower() not in placeholders for value in identity):
+            instrument_model, instrument_serial, calibration_ref = identity
+            analyzer_provenance_complete = True
     return {
         "analyzer_samples": len(rows),
         "analyzer_duration_h": duration_h,
@@ -123,6 +152,10 @@ def direct_power_metrics(rows: list[dict]) -> dict | None:
         "peak_current_ma": max(row["current_ma"] for row in rows),
         "charge_mah": charge_mah,
         "energy_wh": energy_mwh / 1000.0,
+        "analyzer_instrument_model": instrument_model,
+        "analyzer_instrument_serial": instrument_serial,
+        "analyzer_calibration_ref": calibration_ref,
+        "analyzer_provenance_complete": analyzer_provenance_complete,
         "current_basis": "direct-battery-analyzer",
     }
 
@@ -513,14 +546,31 @@ def main() -> int:
         )
     matrix_sha256 = hashlib.sha256(args.matrix.read_bytes()).hexdigest() if args.matrix.is_file() else None
     analyzer_rows = load_analyzer_rows(args.analyzer_csv)
-    analyzer_sources = [
-        {
+    analyzer_sources = []
+    for path in args.analyzer_csv:
+        source_path = str(path.resolve())
+        source_identities = sorted({
+            (
+                row.get("instrument_model", ""),
+                row.get("instrument_serial", ""),
+                row.get("calibration_ref", ""),
+            )
+            for row in analyzer_rows
+            if row.get("source_path") == source_path
+        })
+        analyzer_sources.append({
             "path": str(path.resolve()),
             "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
             "bytes": path.stat().st_size,
-        }
-        for path in args.analyzer_csv
-    ]
+            "instrument_identities": [
+                {
+                    "model": identity[0] or None,
+                    "serial": identity[1] or None,
+                    "calibration_ref": identity[2] or None,
+                }
+                for identity in source_identities
+            ],
+        })
 
     runs: list[dict] = []
     curves: list[dict] = []
@@ -593,6 +643,10 @@ def main() -> int:
             "analyzer_coverage_ratio": 0.0,
             "analyzer_median_gap_s": None,
             "analyzer_max_gap_s": None,
+            "analyzer_instrument_model": None,
+            "analyzer_instrument_serial": None,
+            "analyzer_calibration_ref": None,
+            "analyzer_provenance_complete": False,
             "median_current_ma": None,
             "peak_current_ma": None,
             "charge_mah": None,
@@ -609,6 +663,8 @@ def main() -> int:
                 direct_metrics["current_basis"] = "direct-battery-analyzer-partial"
             elif float(direct_metrics.get("analyzer_max_gap_s") or math.inf) > args.analyzer_max_gap_s:
                 direct_metrics["current_basis"] = "direct-battery-analyzer-gapped"
+            elif not direct_metrics.get("analyzer_provenance_complete"):
+                direct_metrics["current_basis"] = "direct-battery-analyzer-unattributed"
             metrics.update(direct_metrics)
         workload_events = [
             event for event in events if event.get("kind") in ("voice_turn", "journal_segment")
@@ -797,6 +853,10 @@ def main() -> int:
             "analyzer_coverage_ratio": 0.0,
             "analyzer_median_gap_s": None,
             "analyzer_max_gap_s": None,
+            "analyzer_instrument_model": None,
+            "analyzer_instrument_serial": None,
+            "analyzer_calibration_ref": None,
+            "analyzer_provenance_complete": False,
             "median_current_ma": None,
             "average_current_ma": None,
             "peak_current_ma": None,
@@ -813,6 +873,8 @@ def main() -> int:
                 deep_direct["current_basis"] = "direct-battery-analyzer-partial"
             elif float(deep_direct.get("analyzer_max_gap_s") or math.inf) > args.analyzer_max_gap_s:
                 deep_direct["current_basis"] = "direct-battery-analyzer-gapped"
+            elif not deep_direct.get("analyzer_provenance_complete"):
+                deep_direct["current_basis"] = "direct-battery-analyzer-unattributed"
             deep_power.update(deep_direct)
         direct_runtime_h = (
             run_battery_mah / deep_power["average_current_ma"]
@@ -873,6 +935,8 @@ def main() -> int:
         "measured_runtime_h", "median_current_ma", "average_current_ma", "peak_current_ma", "charge_mah", "energy_wh",
         "current_basis", "analyzer_samples", "analyzer_duration_h", "analyzer_coverage_ratio",
         "analyzer_median_gap_s", "analyzer_max_gap_s",
+        "analyzer_instrument_model", "analyzer_instrument_serial", "analyzer_calibration_ref",
+        "analyzer_provenance_complete",
         "shutdown_observed", "shutdown_basis", "charge_ready", "evidence",
     ]
     with (args.out_dir / "runs.csv").open("w", newline="", encoding="utf-8") as handle:
@@ -888,6 +952,8 @@ def main() -> int:
         "median_current_ma", "average_current_ma", "peak_current_ma", "charge_mah", "energy_wh",
         "current_basis", "analyzer_samples", "analyzer_duration_h", "analyzer_coverage_ratio",
         "analyzer_median_gap_s", "analyzer_max_gap_s",
+        "analyzer_instrument_model", "analyzer_instrument_serial", "analyzer_calibration_ref",
+        "analyzer_provenance_complete",
         "evidence",
     ]
     with (args.out_dir / "deep_sleep_runs.csv").open("w", newline="", encoding="utf-8") as handle:
@@ -937,12 +1003,15 @@ def main() -> int:
             "",
             "## Direct battery-path power evidence",
             "",
-            "| Scenario | Workload | Samples | Coverage | Median gap | Max gap | Median | Average | Peak | Charge | Energy |",
-            "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+            "| Scenario | Workload | Instrument | Calibration | Samples | Coverage | Median gap | Max gap | Median | Average | Peak | Charge | Energy |",
+            "|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
         ])
         for run in direct_runs:
             lines.append(
-                f"| {run['scenario']} | {run['workload']} | {run['analyzer_samples']} | "
+                f"| {run['scenario']} | {run['workload']} | "
+                f"{run.get('analyzer_instrument_model') or '—'} / "
+                f"{run.get('analyzer_instrument_serial') or '—'} | "
+                f"{run.get('analyzer_calibration_ref') or '—'} | {run['analyzer_samples']} | "
                 f"{fmt(run['analyzer_coverage_ratio'] * 100.0, 1)}% | "
                 f"{fmt(run['analyzer_median_gap_s'], 1)} s | "
                 f"{fmt(run['analyzer_max_gap_s'], 1)} s | "
@@ -1024,6 +1093,9 @@ def main() -> int:
         ])
         release_gate = matrix.get("release_gate", {})
         require_direct_current = bool(release_gate.get("require_direct_current", False))
+        require_analyzer_provenance = bool(
+            release_gate.get("require_analyzer_provenance", False)
+        )
         require_labeled_capacity = bool(release_gate.get("require_labeled_capacity", False))
         require_hardware_revision = bool(release_gate.get("require_hardware_revision", False))
         require_ambient_temperature = bool(
@@ -1118,6 +1190,8 @@ def main() -> int:
                 if release_basis == "measured-runtime" and require_direct_current
                 else release_basis
             )
+            if require_analyzer_provenance:
+                required_basis_label += "+meter-provenance"
             if int(test.get("minimum_successful_turns", 0)) > 0:
                 required_basis_label += f"+≥{int(test['minimum_successful_turns'])}-turns"
             if float(test.get("minimum_capture_coverage_ratio", 0)) > 0:
@@ -1180,6 +1254,14 @@ def main() -> int:
         limitations.append(
             f"At least one analyzer trace exceeds the {args.analyzer_max_gap_s:g}-second maximum "
             "sample gap and is excluded from release claims."
+        )
+    if any(
+        run.get("current_basis") == "direct-battery-analyzer-unattributed"
+        for run in [*runs, *deep_runs]
+    ):
+        limitations.append(
+            "At least one analyzer trace lacks a consistent meter model, serial number, or "
+            "calibration reference and is excluded from release claims."
         )
     if any(
         run.get("battery_mah") is None or not run.get("battery_photo_sha256")
