@@ -294,6 +294,10 @@ def classify(
     duration_h = (end - start) / 3600.0 if start is not None and end is not None else 0.0
     percent_drop = 0
     voltage_drop_mv = 0
+    start_percent = int(samples[0]["percent"]) if samples else None
+    end_percent = int(samples[-1]["percent"]) if samples else None
+    start_voltage_mv = int(samples[0]["voltage_mv"]) if samples else None
+    end_voltage_mv = int(samples[-1]["voltage_mv"]) if samples else None
     if len(samples) >= 2:
         percent_drop = int(samples[0]["percent"]) - int(samples[-1]["percent"])
         voltage_drop_mv = int(samples[0]["voltage_mv"]) - int(samples[-1]["voltage_mv"])
@@ -334,6 +338,10 @@ def classify(
     return {
         "duration_h": duration_h,
         "sample_count": len(samples),
+        "start_percent": start_percent,
+        "end_percent": end_percent,
+        "start_voltage_mv": start_voltage_mv,
+        "end_voltage_mv": end_voltage_mv,
         "percent_drop": percent_drop,
         "voltage_drop_mv": voltage_drop_mv,
         "percent_monotonic": percent_monotonic,
@@ -786,6 +794,7 @@ def main() -> int:
         article = summary.get("test_article", {})
         workload_config = summary.get("workload_config", {})
         charge_gate = summary.get("charge_gate", {})
+        charge_status = charge_gate.get("status", {})
         charge_ready = charge_gate_passes(
             charge_gate,
             minimum_start_voltage_mv,
@@ -932,6 +941,8 @@ def main() -> int:
             "qualification_matrix_sha256": article.get("qualification_matrix_sha256"),
             "qualification_test_id": article.get("qualification_test_id"),
             "requested_duration_min": summary.get("requested_duration_min"),
+            "rested_start_percent": charge_status.get("percent"),
+            "rested_start_voltage_mv": charge_status.get("mv"),
             **{
                 key: workload_config.get(key)
                 for key in (
@@ -968,6 +979,7 @@ def main() -> int:
                 "scenario": summary.get("scenario", "unknown"),
                 "workload": summary.get("workload", "unknown"),
                 "elapsed_h": (float(sample["epoch_s"]) - start) / 3600.0,
+                "epoch_s": sample["epoch_s"],
                 "percent": sample["percent"],
                 "voltage_mv": sample["voltage_mv"],
             })
@@ -1006,6 +1018,7 @@ def main() -> int:
         summary = load_json(summary_path)
         article = summary.get("test_article", {})
         charge_gate = summary.get("charge_gate", {})
+        charge_status = charge_gate.get("status", {})
         charge_ready = charge_gate_passes(
             charge_gate,
             minimum_start_voltage_mv,
@@ -1020,7 +1033,9 @@ def main() -> int:
         duration_s = float(observed_s) if isinstance(observed_s, (int, float)) else requested_s
         duration_h = duration_s / 3600.0
         start_percent = sleep.get("start_percent")
+        start_voltage_mv = sleep.get("start_voltage_mv")
         end_percent = battery.get("percent")
+        end_voltage_mv = battery.get("voltage_mv")
         drop = (
             float(start_percent) - float(end_percent)
             if isinstance(start_percent, (int, float)) and isinstance(end_percent, (int, float))
@@ -1118,6 +1133,8 @@ def main() -> int:
             "qualification_test_id": article.get("qualification_test_id"),
             "requested_duration_min": summary.get("duration_min"),
             "boot_timeout_s": summary.get("boot_timeout_s"),
+            "rested_start_percent": charge_status.get("percent"),
+            "rested_start_voltage_mv": charge_status.get("mv"),
             "firmware_build": article.get("firmware_build", "unknown"),
             "firmware_version": article.get("firmware_version", "unknown"),
             "firmware_variant": article.get("firmware_variant", "unknown"),
@@ -1126,6 +1143,10 @@ def main() -> int:
             "harness_build": article.get("harness_build", "unknown"),
             "charge_ready": charge_ready,
             "duration_h": duration_h,
+            "start_percent": start_percent,
+            "end_percent": end_percent,
+            "start_voltage_mv": start_voltage_mv,
+            "end_voltage_mv": end_voltage_mv,
             "percent_drop": drop,
             "projected_full_runtime_h": projected_h,
             **deep_power,
@@ -1139,6 +1160,7 @@ def main() -> int:
         "scenario_counter_passed", "scenario_history_passed", "unit_id", "hardware_revision",
         "battery_id", "battery_mah", "battery_photo_sha256", "battery_cycle_count", "ambient_c",
         "qualification_matrix_sha256", "qualification_test_id", "requested_duration_min",
+        "rested_start_percent", "rested_start_voltage_mv",
         "capture_ms", "turn_interval_s", "journal_gap_s", "turn_timeout_s", "say_rate", "say_volume",
         "ble_probe_interval_s", "ble_probe_timeout_s", "ble_config_write_interval_s",
         "firmware_build", "firmware_version", "firmware_variant", "firmware_elf_sha256",
@@ -1147,7 +1169,8 @@ def main() -> int:
         "terminal_ble_failures", "ble_config_roundtrips",
         "captured_audio_s", "capture_coverage_ratio", "metered_successful_turns",
         "metered_captured_audio_s", "metered_ble_config_roundtrips", "energy_per_unit_mwh",
-        "duration_h", "sample_count", "percent_drop", "voltage_drop_mv", "percent_monotonic",
+        "duration_h", "sample_count", "start_percent", "end_percent", "start_voltage_mv",
+        "end_voltage_mv", "percent_drop", "voltage_drop_mv", "percent_monotonic",
         "percent_per_hour", "voltage_drop_mv_per_hour", "projected_full_runtime_h",
         "measured_runtime_h", "median_current_ma", "average_current_ma", "peak_current_ma", "charge_mah", "energy_wh",
         "current_basis", "analyzer_samples", "analyzer_duration_h", "analyzer_coverage_ratio",
@@ -1164,9 +1187,11 @@ def main() -> int:
         "run_id", "scenario", "workload", "wake_source", "passed", "unit_id", "hardware_revision",
         "battery_id", "battery_mah", "battery_photo_sha256", "battery_cycle_count", "ambient_c",
         "qualification_matrix_sha256", "qualification_test_id", "requested_duration_min", "boot_timeout_s",
+        "rested_start_percent", "rested_start_voltage_mv",
         "firmware_build", "firmware_version", "firmware_variant", "firmware_elf_sha256",
         "firmware_provenance_complete", "harness_build", "charge_ready",
-        "duration_h", "percent_drop", "projected_full_runtime_h",
+        "duration_h", "start_percent", "end_percent", "start_voltage_mv", "end_voltage_mv",
+        "percent_drop", "projected_full_runtime_h",
         "median_current_ma", "average_current_ma", "peak_current_ma", "charge_mah", "energy_wh",
         "current_basis", "analyzer_samples", "analyzer_duration_h", "analyzer_coverage_ratio",
         "analyzer_median_gap_s", "analyzer_max_gap_s",
@@ -1178,7 +1203,7 @@ def main() -> int:
         writer = csv.DictWriter(handle, fieldnames=deep_fields)
         writer.writeheader()
         writer.writerows(deep_runs)
-    curve_fields = ["run_id", "scenario", "workload", "elapsed_h", "percent", "voltage_mv"]
+    curve_fields = ["run_id", "scenario", "workload", "epoch_s", "elapsed_h", "percent", "voltage_mv"]
     with (args.out_dir / "curves.csv").open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=curve_fields)
         writer.writeheader()
@@ -1199,20 +1224,23 @@ def main() -> int:
         "![Battery discharge curves](curves.svg)",
         "" if args.battery_mah is None else f"Average current uses the labeled {args.battery_mah:g} mAh cell capacity.",
         "",
-        "| Scenario | Workload | Duration | Samples | Drop | Rate | Projected | Measured | Avg current | Current basis | Energy | Shutdown basis | Evidence |",
-        "|---|---|---:|---:|---:|---:|---:|---:|---:|---|---:|---|---|",
+        "| Scenario | Workload | Unit | Duration | Samples | Battery-only start → end | Drop | Rate | Projected | Measured | Avg current | Current basis | Energy | Shutdown basis | Evidence |",
+        "|---|---|---|---:|---:|---|---:|---:|---:|---:|---:|---|---:|---|---|",
     ]
     for run in runs:
         lines.append(
-            f"| {run['scenario']} | {run['workload']} | {fmt(run['duration_h'])} h | "
-            f"{run['sample_count']} | {run['percent_drop']}% | "
+            f"| {run['scenario']} | {run['workload']} | {run['unit_id']} | "
+            f"{fmt(run['duration_h'])} h | {run['sample_count']} | "
+            f"{fmt(run['start_percent'], 0)}% / {fmt(run['start_voltage_mv'], 0)} mV → "
+            f"{fmt(run['end_percent'], 0)}% / {fmt(run['end_voltage_mv'], 0)} mV | "
+            f"{run['percent_drop']}% | "
             f"{fmt(run['percent_per_hour'])}%/h | {fmt(run['projected_full_runtime_h'])} h | "
             f"{fmt(run['measured_runtime_h'])} h | {fmt(run['average_current_ma'])} mA | "
             f"{run['current_basis']} | {fmt(run['energy_wh'], 3)} Wh | "
             f"{run['shutdown_basis']} | {run['evidence']} |"
         )
     if not runs:
-        lines.append("| — | — | — | — | — | — | — | — | — | — | — | — | no completed runs |")
+        lines.append("| — | — | — | — | — | — | — | — | — | — | — | — | — | — | no completed runs |")
     voice_runs = [run for run in runs if run["workload"] in ("conversation", "journal")]
     direct_runs = [
         run for run in [*runs, *deep_runs]
@@ -1292,12 +1320,14 @@ def main() -> int:
             "",
             "## True deep-sleep evidence",
             "",
-            "| Unit | Wake | Duration | Drop | Projected runtime | Avg current | Current basis | Evidence |",
-            "|---|---|---:|---:|---:|---:|---|---|",
+            "| Unit | Wake | Duration | Start → end | Drop | Projected runtime | Avg current | Current basis | Evidence |",
+            "|---|---|---:|---|---:|---:|---:|---|---|",
         ])
         for run in deep_runs:
             lines.append(
                 f"| {run['unit_id']} | {run['wake_source']} | {fmt(run['duration_h'])} h | "
+                f"{fmt(run['start_percent'], 0)}% / {fmt(run['start_voltage_mv'], 0)} mV → "
+                f"{fmt(run['end_percent'], 0)}% / {fmt(run['end_voltage_mv'], 0)} mV | "
                 f"{fmt(run['percent_drop'])}% | {fmt(run['projected_full_runtime_h'])} h | "
                 f"{fmt(run['average_current_ma'])} mA | {run['current_basis']} | {run['evidence']} |"
             )

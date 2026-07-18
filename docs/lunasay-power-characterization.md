@@ -333,6 +333,10 @@ sealed-output manifest `report_outputs.json` live under
 `artifacts/qa/lunasay-power-report/` by default. Verify the entire evidence
 chain after copying, archiving, or regenerating a report:
 
+`runs.csv` and `deep_sleep_runs.csv` preserve rested-start and battery-only
+start/end SOC and voltage. `curves.csv` preserves both absolute epoch time for
+analyzer alignment and elapsed time for plotting.
+
 ```bash
 scripts/lunasay_power_report_verify.py \
   --report-dir artifacts/qa/lunasay-power-report
