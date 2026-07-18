@@ -26,7 +26,13 @@ from lunasay_analyzer_session import (
     stop_analyzer_session,
     validate_capture_window,
 )
-from lunasay_power_common import firmware_provenance, parse_power_status, wait_for_charge_ready
+from lunasay_power_common import (
+    expected_firmware_identity,
+    firmware_provenance,
+    parse_power_status,
+    reported_firmware_identity,
+    wait_for_charge_ready,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -109,6 +115,8 @@ def main() -> int:
     parser.add_argument("--uhubctl", default="/opt/homebrew/bin/uhubctl")
     parser.add_argument("--boot-timeout-s", type=float, default=120.0)
     parser.add_argument("--out-dir", default="")
+    parser.add_argument("--firmware-image", type=Path, default=None,
+                        help="exact LunaSay app image required on the device before VBUS removal")
     parser.add_argument("--unit-id", default="dev-unit-1")
     parser.add_argument("--hardware-revision", default="")
     parser.add_argument("--battery-id", default="unlabeled")
@@ -155,6 +163,10 @@ def main() -> int:
         raise SystemExit("error: --battery-cycle-count must be non-negative")
     if args.battery_photo is not None and not args.battery_photo.is_file():
         raise SystemExit(f"error: battery label photo not found: {args.battery_photo}")
+    if args.firmware_image is not None and not args.firmware_image.is_file():
+        raise SystemExit(f"error: firmware image not found: {args.firmware_image}")
+    if not args.allow_not_ready and args.firmware_image is None:
+        raise SystemExit("error: qualified runs require --firmware-image")
     if not args.allow_not_ready and (
         args.battery_mah is None
         or args.battery_photo is None
@@ -209,6 +221,25 @@ def main() -> int:
         battery_photo_sha256 = hashlib.sha256(photo_target.read_bytes()).hexdigest()
         battery_photo_artifact = photo_target.name
     events_path = out_dir / "events.jsonl"
+    expected_identity = (
+        expected_firmware_identity(args.firmware_image)
+        if args.firmware_image is not None else None
+    )
+    preflight_battery = {}
+    preflight_identity = None
+    firmware_identity_match = None
+    if expected_identity is not None:
+        preflight_battery = wait_json_get(f"http://{args.ip}/api/battery")
+        (out_dir / "preflight-battery.json").write_text(
+            json.dumps(preflight_battery, indent=2) + "\n", encoding="utf-8"
+        )
+        preflight_identity = reported_firmware_identity(preflight_battery)
+        firmware_identity_match = preflight_identity == expected_identity
+        if not firmware_identity_match:
+            raise RuntimeError(
+                "device firmware identity does not match expected image before VBUS removal: "
+                f"actual={preflight_identity} expected={expected_identity}"
+            )
     charge_gate: dict = {"skipped": args.allow_not_ready}
     if not args.allow_not_ready:
         charge_gate = wait_for_charge_ready(
@@ -448,6 +479,9 @@ def main() -> int:
         },
         "charge_gate": charge_gate,
         "analyzer_capture": analyzer_capture,
+        "expected_firmware_identity": expected_identity,
+        "preflight_firmware_identity": preflight_identity,
+        "firmware_identity_match": firmware_identity_match,
         "elapsed_s": round(time.monotonic() - started, 3),
         "preflight_serial": preflight,
         "postflight_serial": postflight,

@@ -35,6 +35,7 @@ def common_args(args: argparse.Namespace, out_dir: Path, test: dict) -> list[str
         "--hub-port", str(args.hub_port),
         "--uhubctl", args.uhubctl,
         "--out-dir", str(out_dir),
+        "--firmware-image", str(args.firmware_image.resolve()),
         "--unit-id", args.unit_id,
         "--hardware-revision", args.hardware_revision,
         "--battery-id", args.battery_id,

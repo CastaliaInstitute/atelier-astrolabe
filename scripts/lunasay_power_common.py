@@ -37,6 +37,22 @@ def image_app_identity(path: Path) -> dict:
     return {"project": project, "version": version, "elf_sha256": elf_sha256}
 
 
+def expected_firmware_identity(path: Path, variant: str = "LunaSay") -> dict:
+    """Return the exact API identity expected from a supplied app image."""
+    return {**image_app_identity(path), "variant": variant}
+
+
+def reported_firmware_identity(sample: dict) -> dict:
+    """Extract the exact project/version/variant/ELF identity from battery API data."""
+    firmware = sample.get("firmware", {}) if isinstance(sample, dict) else {}
+    return {
+        "project": firmware.get("project"),
+        "version": firmware.get("version"),
+        "variant": firmware.get("variant"),
+        "elf_sha256": firmware.get("elf_sha256"),
+    }
+
+
 def firmware_provenance(sample: dict, fallback_version: object = "unknown") -> dict:
     firmware = sample.get("firmware", {}) if isinstance(sample, dict) else {}
     version = str(firmware.get("version", fallback_version) or "unknown").strip()
