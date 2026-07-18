@@ -229,6 +229,41 @@ def fmt(value: float | int | None, digits: int = 2) -> str:
     return f"{value:.{digits}f}"
 
 
+def release_build_key(run: dict) -> tuple[str, str] | None:
+    """Return a claim-safe firmware/harness pair, rejecting unknown or dirty builds."""
+    firmware = str(run.get("firmware_build", "")).strip()
+    harness = str(run.get("harness_build", "")).strip()
+    if (
+        not firmware
+        or not harness
+        or firmware == "unknown"
+        or harness == "unknown"
+        or "dirty" in firmware.lower()
+        or "dirty" in harness.lower()
+    ):
+        return None
+    return firmware, harness
+
+
+def largest_release_cohort(runs: list[dict]) -> list[dict]:
+    """Keep only the same clean firmware/harness cohort with the most physical units."""
+    cohorts: dict[tuple[str, str], list[dict]] = {}
+    for run in runs:
+        key = release_build_key(run)
+        if key is not None:
+            cohorts.setdefault(key, []).append(run)
+    if not cohorts:
+        return []
+    ranked = sorted(
+        cohorts.items(),
+        key=lambda item: (
+            -len({run.get("unit_id") for run in item[1] if run.get("unit_id") != "unknown"}),
+            item[0],
+        ),
+    )
+    return ranked[0][1]
+
+
 def write_curves_svg(curves: list[dict], path: Path) -> None:
     """Write dependency-free percent/voltage discharge plots for all runs."""
     width, height = 1200, 680
@@ -554,6 +589,8 @@ def main() -> int:
             "battery_id": article.get("battery_id", "unknown"),
             "battery_mah": run_battery_mah,
             "battery_photo_sha256": article.get("battery_photo_sha256"),
+            "firmware_build": article.get("firmware_build", "unknown"),
+            "harness_build": article.get("harness_build", "unknown"),
             "duration_h": duration_h,
             "percent_drop": drop,
             "projected_full_runtime_h": projected_h,
@@ -583,7 +620,8 @@ def main() -> int:
         writer.writerows(runs)
     deep_fields = [
         "run_id", "scenario", "workload", "wake_source", "passed", "unit_id", "battery_id",
-        "battery_mah", "battery_photo_sha256", "duration_h", "percent_drop", "projected_full_runtime_h",
+        "battery_mah", "battery_photo_sha256", "firmware_build", "harness_build",
+        "duration_h", "percent_drop", "projected_full_runtime_h",
         "median_current_ma", "average_current_ma", "peak_current_ma", "charge_mah", "energy_wh",
         "current_basis", "analyzer_samples", "analyzer_duration_h", "analyzer_coverage_ratio",
         "evidence",
@@ -770,21 +808,22 @@ def main() -> int:
                         )
                     )
                 ]
+            if release_basis == "direct-projection":
+                qualifying = [
+                    run for run in qualifying
+                    if any(
+                        gate_run.get("passed")
+                        and gate_run.get("wake_source") == "gpio0"
+                        and gate_run.get("unit_id") == run.get("unit_id")
+                        and release_build_key(gate_run) == release_build_key(run)
+                        for gate_run in deep_runs
+                    )
+                ]
+            qualifying = largest_release_cohort(qualifying)
             qualifying_units = {
                 run.get("unit_id", "unknown") for run in qualifying
                 if run.get("unit_id") != "unknown"
             }
-            if release_basis == "direct-projection":
-                gpio0_units = {
-                    run.get("unit_id", "unknown") for run in deep_runs
-                    if run.get("passed")
-                    and run.get("wake_source") == "gpio0"
-                    and run.get("unit_id") != "unknown"
-                }
-                qualifying_units &= gpio0_units
-                qualifying = [
-                    run for run in qualifying if run.get("unit_id") in qualifying_units
-                ]
             required_units = int(release_gate.get("units_required", 2))
             gate = "ready" if len(qualifying_units) >= required_units else "open"
             matrix_open_count += int(gate != "ready")
@@ -842,18 +881,29 @@ def main() -> int:
             "At least one test article lacks a labeled cell capacity or hashed label photo; "
             "its release gate remains open."
         )
+    if any(release_build_key(run) is None for run in [*runs, *deep_runs]):
+        limitations.append(
+            "At least one artifact has unknown or dirty firmware/harness provenance and is excluded "
+            "from release claims."
+        )
     if not any(run.get("evidence") == "measured-runtime" for run in runs):
         limitations.append("No qualified active-mode run has yet reached confirmed automatic low-voltage shutdown.")
     if not any(run.get("passed") and run.get("wake_source") == "timer" for run in deep_runs):
         limitations.append("Timed deep-sleep wake has not yet passed on hardware.")
     if not any(run.get("passed") and run.get("wake_source") == "gpio0" for run in deep_runs):
         limitations.append("Physical BOOT/GPIO0 deep-sleep wake has not yet passed on hardware.")
+    measured_cohort = largest_release_cohort(
+        [run for run in runs if run.get("evidence") == "measured-runtime"]
+    )
     measured_units = {
-        run.get("unit_id") for run in runs
-        if run.get("evidence") == "measured-runtime" and run.get("unit_id") not in (None, "unknown")
+        run.get("unit_id") for run in measured_cohort
+        if run.get("unit_id") not in (None, "unknown")
     }
     if len(measured_units) < 2:
-        limitations.append("The two-release-candidate-unit repetition gate is still open.")
+        limitations.append(
+            "The two-release-candidate-unit repetition gate on one clean firmware/harness build "
+            "is still open."
+        )
     if matrix_open_count:
         limitations.append(f"{matrix_open_count} required matrix release gate(s) remain open.")
     lines.extend(["", "## Limitations", ""])

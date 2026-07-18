@@ -62,6 +62,14 @@ requires a synchronized battery-path analyzer trace covering at least 95% of
 each run and a recorded labeled cell capacity; runtime alone does not fully
 characterize power consumption.
 
+The qualification matrix gives every full-runtime active test a seven-day
+safety ceiling, the longest scenario the firmware accepts. This is a ceiling,
+not the measurement endpoint: the runner stops as soon as confirmed automatic
+low-voltage shutdown occurs. A run that reaches the ceiling with the device
+still alive is projection evidence only and cannot satisfy a measured-runtime
+or Kickstarter-claim gate. The shorter BLE configuration test is explicitly a
+direct workload-energy test rather than a full-runtime test.
+
 ## Current and energy measurement
 
 The on-board AXP2101 interface used by this board reports battery voltage,
@@ -208,6 +216,12 @@ stale completions. Use `--dry-run` to review all commands. `--allow-not-ready`
 is only for smoke tests and permanently classifies those artifacts as
 unqualified. Qualified runners copy the battery-label photo into every artifact
 directory and store its SHA-256 with the labeled capacity.
+
+Qualified orchestration refuses a dirty host worktree. Claim generation rejects
+unknown or dirty firmware/harness identifiers and counts only the largest cohort
+of physical units running the exact same firmware and harness revisions. The
+GPIO0 wake artifact required for a deep-sleep claim must come from that same
+unit and build pair; evidence from another revision cannot be mixed in.
 
 BLE-only runs use the non-persistent firmware command `ble power-test on` and
 the native `scripts/lunasay_ble_probe.swift` CoreBluetooth client. Advertising

@@ -119,6 +119,11 @@ def main() -> int:
     harness_build = subprocess.check_output(
         ["git", "describe", "--always", "--dirty"], cwd=ROOT, text=True
     ).strip()
+    if not args.allow_not_ready and (not harness_build or "dirty" in harness_build.lower()):
+        raise SystemExit(
+            "error: qualified matrix runs require a clean committed harness build; "
+            f"current build is {harness_build!r}"
+        )
     tests = matrix.get("tests", [])
     selected = {item for item in args.only.split(",") if item}
     if selected:
