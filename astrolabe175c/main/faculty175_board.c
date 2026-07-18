@@ -47,9 +47,9 @@ static const int32_t FACULTY175_MIC_MONO_GAIN = 1;
  * ─────────────────────────────────────────────────
  * CO5300, 466×466, PCLK=38     SH8601, 368×448, PCLK=11
  * panel gap 6,0                gap 0,0 + 90° flush rotation
- * AXP2101 rails (BLDO1 OLED)   TCA9554 @ I2C 0x20 display power
+ * AXP2101 DCDC1 LCD/ALDO1 audio TCA9554 @ I2C 0x20 display power
  * ES7210 + ES8311              ES8311 only
- * LCD RST: GPIO1 (BSP)         LCD RST via TCA9554
+ * LCD/touch RST: GPIO2          LCD RST via TCA9554
  * RGB565 big-endian on wire    SH8601 byte-swapped wire format
  */
 #define FACULTY175_LCD_HOST SPI2_HOST
@@ -1678,6 +1678,10 @@ static esp_err_t faculty175_audio_init(void)
 
 static void faculty175_lcd_hardware_reset(void)
 {
+    /* Deep sleep holds the shared display/touch reset low. Release that hold
+       before the cold-boot reset sequence tries to drive the pin. */
+    gpio_deep_sleep_hold_dis();
+    gpio_hold_dis(FACULTY175_LCD_PIN_RST);
     const gpio_config_t cfg = {
         .pin_bit_mask = 1ULL << FACULTY175_LCD_PIN_RST,
         .mode = GPIO_MODE_OUTPUT,
@@ -1961,6 +1965,42 @@ void faculty175_board_display_on(bool on)
     if (on) {
         faculty175_board_set_backlight(100);
     }
+}
+
+esp_err_t faculty175_display_prepare_deep_sleep(void)
+{
+    faculty175_display_flush_suspended_set(true);
+    if (s_panel == NULL || s_panel_io == NULL) {
+        return ESP_OK;
+    }
+
+    faculty175_display_lock();
+    faculty175_board_set_backlight(0);
+    esp_err_t result = esp_lcd_panel_disp_on_off(s_panel, false);
+    if (result == ESP_OK) {
+        /* CO5300 uses the QSPI write-command opcode. Display-off (0x28)
+           blanks emission; sleep-in (0x10) also shuts down panel analog
+           blocks before ESP32 deep sleep. */
+        uint32_t sleep_in_cmd = 0x10;
+        sleep_in_cmd <<= 8;
+        sleep_in_cmd |= 0x02u << 24;
+        result = esp_lcd_panel_io_tx_param(s_panel_io, sleep_in_cmd, NULL, 0);
+    }
+    faculty175_display_unlock();
+    if (result != ESP_OK) {
+        ESP_LOGE(TAG, "AMOLED deep-sleep command failed: %s", esp_err_to_name(result));
+        return result;
+    }
+
+    /* MIPI DCS requires the panel to settle after sleep-in. Then hold the
+       shared LCD/touch reset asserted so neither peripheral can wake or float
+       during deep sleep. Cold boot releases the hold above. */
+    vTaskDelay(pdMS_TO_TICKS(120));
+    gpio_set_direction(FACULTY175_LCD_PIN_RST, GPIO_MODE_OUTPUT);
+    gpio_set_level(FACULTY175_LCD_PIN_RST, 0);
+    ESP_RETURN_ON_ERROR(gpio_hold_en(FACULTY175_LCD_PIN_RST), TAG, "hold LCD reset");
+    gpio_deep_sleep_hold_en();
+    return ESP_OK;
 }
 
 static esp_err_t faculty175_audio_read_standard(int16_t *samples,

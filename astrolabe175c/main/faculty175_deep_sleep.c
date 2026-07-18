@@ -8,6 +8,7 @@
 #include "esp_attr.h"
 #include "esp_log.h"
 #include "esp_sleep.h"
+#include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -110,10 +111,13 @@ void faculty175_deep_sleep_enter(const faculty175_pmu_status_t *pmu)
                  esp_err_to_name(audio_err));
         return;
     }
-    faculty175_board_set_backlight(0);
-    faculty175_board_display_on(false);
-    faculty175_display_flush_suspended_set(true);
-    vTaskDelay(pdMS_TO_TICKS(100));
+    const esp_err_t display_err = faculty175_display_prepare_deep_sleep();
+    if (display_err != ESP_OK) {
+        ESP_LOGE(TAG, "deep sleep entry rejected: display quiesce failed: %s; restarting",
+                 esp_err_to_name(display_err));
+        vTaskDelay(pdMS_TO_TICKS(100));
+        esp_restart();
+    }
     faculty175_pmu_prepare_deep_sleep();
 
     ESP_ERROR_CHECK(esp_sleep_enable_timer_wakeup((uint64_t)sleep_s * 1000000ULL));

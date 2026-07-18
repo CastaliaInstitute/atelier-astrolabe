@@ -127,8 +127,9 @@ wake. The ESP-IDF port now implements the following behavior, but it remains
 unqualified until the hardware gates below pass:
 
 1. Reject entry while VBUS is present or a voice/OTA/write transaction is active.
-2. Mute the amplifier, stop I2S, stop Wi-Fi/BLE, blank the AMOLED, and quiesce
-   safe AXP2101 peripheral rails without disabling the ESP32 supply.
+2. Mute the amplifier, stop I2S, stop Wi-Fi/BLE, send AMOLED display-off and
+   sleep-in, hold the shared display/touch reset low through deep sleep, and
+   quiesce safe AXP2101 peripheral rails without disabling the ESP32 supply.
 3. Persist the test start, requested wake interval, starting voltage/percentage,
    firmware build, and wake reason across reset.
 4. Wake by BOOT/GPIO0 or timer, restore all required rails, and expose the completed

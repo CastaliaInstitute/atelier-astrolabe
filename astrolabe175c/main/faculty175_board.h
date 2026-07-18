@@ -53,6 +53,8 @@ bool faculty175_board_pi4ioe_ok(void);
 int32_t faculty175_board_mic_probe_peak(void);
 void faculty175_board_set_backlight(uint8_t percent);
 void faculty175_board_display_on(bool on);
+/** Put the AMOLED in sleep-in and hold its shared display/touch reset low. */
+esp_err_t faculty175_display_prepare_deep_sleep(void);
 
 esp_err_t faculty175_audio_read(int16_t *samples, size_t sample_count, size_t *out_read, uint32_t timeout_ms);
 esp_err_t faculty175_audio_prepare_capture(uint32_t timeout_ms);
