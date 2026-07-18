@@ -774,8 +774,15 @@ def main() -> int:
                         help="required continuous near-zero tail for analyzer shutdown inference")
     parser.add_argument("--analyzer-max-gap-s", type=float, default=60.0,
                         help="largest accepted gap between direct-current samples")
-    parser.add_argument("--matrix", type=Path, default=ROOT / "config" / "lunasay_power_matrix.json")
+    parser.add_argument(
+        "--matrix",
+        type=Path,
+        default=ROOT / "config" / "lunasay_power_matrix.json",
+        help="qualification matrix JSON; generation fails if the file is missing",
+    )
     args = parser.parse_args()
+    if not args.matrix.is_file():
+        raise SystemExit(f"error: qualification matrix is not a file: {args.matrix}")
     if (
         not math.isfinite(args.shutdown_current_threshold_ma)
         or not math.isfinite(args.shutdown_current_sustain_s)
@@ -796,8 +803,8 @@ def main() -> int:
         raise SystemExit("error: --min-estimate-hours must be finite and positive")
     if not 0 < args.min_percent_drop <= 100:
         raise SystemExit("error: --min-percent-drop must be 1..100")
-    matrix_sha256 = hashlib.sha256(args.matrix.read_bytes()).hexdigest() if args.matrix.is_file() else None
-    matrix_data = load_json(args.matrix) if args.matrix.is_file() else {}
+    matrix_sha256 = hashlib.sha256(args.matrix.read_bytes()).hexdigest()
+    matrix_data = load_json(args.matrix)
     matrix_release_gate = matrix_data.get("release_gate", {})
     minimum_start_voltage_mv = matrix_release_gate.get("minimum_start_voltage_mv", 4100)
     minimum_charge_rest_min = matrix_release_gate.get("minimum_charge_rest_min", 30)
