@@ -123,6 +123,21 @@ def wait_voice_result(ip: str, baseline_sequence: int, timeout_s: float) -> dict
     raise TimeoutError(f"voice turn did not finish; last status={last}")
 
 
+def ping_reachable(ip: str, attempts: int = 3) -> bool:
+    """Distinguish a voice-service failure from expected battery exhaustion."""
+    for attempt in range(attempts):
+        ping = subprocess.run(
+            ["ping", "-c", "1", "-W", "1000", ip],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        if ping.returncode == 0:
+            return True
+        if attempt + 1 < attempts:
+            time.sleep(1.0)
+    return False
+
+
 def ble_probe(binary: Path, name_contains: str, timeout_s: float, operation: str) -> dict:
     result = subprocess.run(
         [
@@ -440,6 +455,7 @@ def main() -> int:
     ble_probes = 0
     successful_ble_probes = 0
     ble_config_roundtrips = 0
+    terminal_ble_failures = 0
     final_battery: dict = {}
     device_unreachable = False
     run_error: str | None = None
@@ -531,6 +547,7 @@ def main() -> int:
                             sample=sample,
                         )
                         if consecutive_ble_failures >= 3:
+                            terminal_ble_failures = consecutive_ble_failures
                             device_unreachable = True
                             record("device_unreachable", probable_battery_shutdown=True, transport="ble")
                             break
@@ -573,33 +590,51 @@ def main() -> int:
                 )
             )
             while time.monotonic() < deadline:
-                baseline = json_request(f"http://{args.ip}/api/voice")
+                turn_number = turns + 1
                 phrase = prompts[turns % len(prompts)]
-                accepted = json_request(
-                    f"http://{args.ip}/api/voice",
-                    {"action": "stt", "ms": args.capture_ms},
-                )
-                turns += 1
                 turn_started = time.monotonic()
-                if accepted.get("accepted"):
-                    accepted_captures += 1
-                    captured_audio_s += args.capture_ms / 1000.0
-                    time.sleep(0.35)
-                    subprocess.run(["say", "-r", str(args.say_rate), phrase], check=True)
-                    result = wait_voice_result(args.ip, int(baseline.get("sequence", 0)), args.turn_timeout_s)
-                else:
-                    result = {"err": accepted.get("err", "not-accepted")}
+                try:
+                    baseline = json_request(f"http://{args.ip}/api/voice")
+                    accepted = json_request(
+                        f"http://{args.ip}/api/voice",
+                        {"action": "stt", "ms": args.capture_ms},
+                    )
+                    if accepted.get("accepted"):
+                        time.sleep(0.35)
+                        subprocess.run(["say", "-r", str(args.say_rate), phrase], check=True)
+                        result = wait_voice_result(
+                            args.ip,
+                            int(baseline.get("sequence", 0)),
+                            args.turn_timeout_s,
+                        )
+                        accepted_captures += 1
+                        captured_audio_s += args.capture_ms / 1000.0
+                    else:
+                        result = {"err": accepted.get("err", "not-accepted")}
+                    battery = json_request(f"http://{args.ip}/api/battery")
+                except Exception as exc:
+                    if not ping_reachable(args.ip):
+                        device_unreachable = True
+                        record(
+                            "device_unreachable",
+                            probable_battery_shutdown=True,
+                            transport="wifi-voice",
+                            incomplete_turn=turn_number,
+                            error=f"{type(exc).__name__}: {exc}",
+                        )
+                        break
+                    raise
+                turns += 1
                 passed = bool(
                     result.get("err") == "ESP_OK"
                     and str(result.get("transcript", "")).strip()
                     and (args.workload == "journal" or str(result.get("reply", "")).strip())
                 )
                 successful_turns += int(passed)
-                battery = json_request(f"http://{args.ip}/api/battery")
                 final_battery = battery
                 record(
                     "journal_segment" if args.workload == "journal" else "voice_turn",
-                    turn=turns,
+                    turn=turn_number,
                     accepted=bool(accepted.get("accepted")),
                     passed=passed,
                     wall_s=round(time.monotonic() - turn_started, 3),
@@ -748,6 +783,7 @@ def main() -> int:
         "accepted_captures": accepted_captures,
         "ble_probes": ble_probes,
         "successful_ble_probes": successful_ble_probes,
+        "terminal_ble_failures": terminal_ble_failures if shutdown_confirmed else 0,
         "ble_config_roundtrips": ble_config_roundtrips,
         "captured_audio_s": captured_audio_s,
         "capture_coverage_ratio": min(

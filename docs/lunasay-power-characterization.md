@@ -64,6 +64,13 @@ gap; in addition to ten successful segments, at least 75% of the battery-only
 interval must be accepted audio-capture time. Reported journal energy is per
 captured minute, and any eventual claim states the measured capture duty cycle
 rather than implying gapless recording.
+BLE runtime and configuration gates require at least 99% of scheduled
+CoreBluetooth probes to succeed. The eight-hour configuration test additionally
+requires at least four settings roundtrips completed wholly inside the analyzer
+window. A final incomplete Wi-Fi voice turn or the terminal BLE probe failures
+used to detect confirmed automatic low-voltage shutdown are treated as endpoint
+evidence, not workload failures; earlier completed operations must still
+satisfy their functional gates.
 
 Run every advertised mode to automatic low-voltage shutdown on one identified
 release-candidate unit/cell article, then repeat it on a second distinct

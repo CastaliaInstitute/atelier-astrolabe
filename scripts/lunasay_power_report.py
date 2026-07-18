@@ -437,10 +437,20 @@ def largest_release_cohort(runs: list[dict]) -> list[dict]:
 
 
 def workload_gate_passes(run: dict, test: dict) -> bool:
+    ble_probes = int(run.get("ble_probes", 0))
+    terminal_ble_failures = int(run.get("terminal_ble_failures", 0))
+    qualified_ble_probes = max(0, ble_probes - terminal_ble_failures)
+    ble_success_ratio = (
+        int(run.get("successful_ble_probes", 0)) / qualified_ble_probes
+        if qualified_ble_probes > 0 else 0.0
+    )
     return bool(
         int(run.get("successful_turns", 0)) >= int(test.get("minimum_successful_turns", 0))
         and float(run.get("capture_coverage_ratio", 0))
         >= float(test.get("minimum_capture_coverage_ratio", 0))
+        and ble_success_ratio >= float(test.get("minimum_ble_probe_success_ratio", 0))
+        and int(run.get("metered_ble_config_roundtrips", 0))
+        >= int(test.get("minimum_metered_ble_config_roundtrips", 0))
     )
 
 
@@ -729,6 +739,7 @@ def main() -> int:
         accepted_captures = int(summary.get("accepted_captures", summary.get("turns", 0)))
         ble_probes = int(summary.get("ble_probes", 0))
         successful_ble_probes = int(summary.get("successful_ble_probes", 0))
+        terminal_ble_failures = int(summary.get("terminal_ble_failures", 0))
         ble_config_roundtrips = int(summary.get("ble_config_roundtrips", 0))
         metered_events: list[dict] = []
         if direct_rows:
@@ -804,6 +815,7 @@ def main() -> int:
             "successful_turns": successful_turns,
             "ble_probes": ble_probes,
             "successful_ble_probes": successful_ble_probes,
+            "terminal_ble_failures": terminal_ble_failures,
             "ble_config_roundtrips": ble_config_roundtrips,
             "captured_audio_s": captured_audio_s,
             "capture_coverage_ratio": capture_coverage_ratio,
@@ -989,7 +1001,7 @@ def main() -> int:
         "firmware_build", "firmware_version", "firmware_variant", "firmware_elf_sha256",
         "firmware_provenance_complete", "harness_build",
         "turns", "accepted_captures", "successful_turns", "ble_probes", "successful_ble_probes",
-        "ble_config_roundtrips",
+        "terminal_ble_failures", "ble_config_roundtrips",
         "captured_audio_s", "capture_coverage_ratio", "metered_successful_turns",
         "metered_captured_audio_s", "metered_ble_config_roundtrips", "energy_per_unit_mwh",
         "duration_h", "sample_count", "percent_drop", "voltage_drop_mv", "percent_monotonic",
@@ -1112,18 +1124,23 @@ def main() -> int:
             "",
             "## BLE workload evidence",
             "",
-            "| Workload | Scenario | Probes | Successful | Success | Set roundtrips | Metered sets | Direct mWh/set interval |",
-            "|---|---|---:|---:|---:|---:|---:|---:|",
+            "| Workload | Scenario | Probes | Successful | Endpoint misses | Qualified success | Set roundtrips | Metered sets | Direct mWh/set interval |",
+            "|---|---|---:|---:|---:|---:|---:|---:|---:|",
         ])
         for run in ble_runs:
+            qualified_probes = max(
+                0,
+                run["ble_probes"] - run["terminal_ble_failures"],
+            )
             success_ratio = (
-                run["successful_ble_probes"] / run["ble_probes"]
-                if run["ble_probes"] > 0 else 0.0
+                run["successful_ble_probes"] / qualified_probes
+                if qualified_probes > 0 else 0.0
             )
             config_energy = run["energy_per_unit_mwh"] if run["workload"] == "ble-config" else None
             lines.append(
                 f"| {run['workload']} | {run['scenario']} | {run['ble_probes']} | "
-                f"{run['successful_ble_probes']} | {fmt(success_ratio * 100.0, 1)}% | "
+                f"{run['successful_ble_probes']} | {run['terminal_ble_failures']} | "
+                f"{fmt(success_ratio * 100.0, 1)}% | "
                 f"{run['ble_config_roundtrips']} | {run['metered_ble_config_roundtrips']} | "
                 f"{fmt(config_energy, 2)} |"
             )
@@ -1201,6 +1218,7 @@ def main() -> int:
                     run for run in candidates
                     if run.get("passed")
                     and run.get("charge_ready")
+                    and workload_gate_passes(run, test)
                     and run.get("current_basis") == "direct-battery-analyzer"
                     and float(run.get("analyzer_coverage_ratio", 0)) >= 0.95
                     and int(run.get("successful_ble_probes", 0)) > 0
@@ -1272,6 +1290,14 @@ def main() -> int:
             if float(test.get("minimum_capture_coverage_ratio", 0)) > 0:
                 required_basis_label += (
                     f"+≥{float(test['minimum_capture_coverage_ratio']) * 100:g}%-capture"
+                )
+            if float(test.get("minimum_ble_probe_success_ratio", 0)) > 0:
+                required_basis_label += (
+                    f"+≥{float(test['minimum_ble_probe_success_ratio']) * 100:g}%-BLE"
+                )
+            if int(test.get("minimum_metered_ble_config_roundtrips", 0)) > 0:
+                required_basis_label += (
+                    f"+≥{int(test['minimum_metered_ble_config_roundtrips'])}-metered-sets"
                 )
             lines.append(
                 f"| {test['id']} | {test.get('display', '—')} | {test.get('radio', '—')} | "
