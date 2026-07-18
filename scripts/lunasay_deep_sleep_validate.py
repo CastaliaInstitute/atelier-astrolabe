@@ -221,6 +221,28 @@ def main() -> int:
         battery_photo_sha256 = hashlib.sha256(photo_target.read_bytes()).hexdigest()
         battery_photo_artifact = photo_target.name
     events_path = out_dir / "events.jsonl"
+    ota_test_lock_preflight = ""
+
+    def release_ota_test_lock() -> None:
+        try:
+            serial_commands(port, ["ota test-lock off", "ota test-lock status"], 1.0)
+        except Exception:
+            pass
+
+    try:
+        ota_test_lock_preflight = serial_commands(
+            port, ["ota test-lock on", "ota test-lock status"], 1.0
+        )
+        (out_dir / "ota-test-lock-preflight.log").write_text(
+            ota_test_lock_preflight, encoding="utf-8"
+        )
+        if "ota: test-lock ESP_OK locked=yes active=no" not in ota_test_lock_preflight:
+            raise RuntimeError(
+                "firmware did not acquire an idle non-persistent OTA test lock"
+            )
+    except Exception:
+        release_ota_test_lock()
+        raise
     expected_identity = (
         expected_firmware_identity(args.firmware_image)
         if args.firmware_image is not None else None
@@ -228,27 +250,43 @@ def main() -> int:
     preflight_battery = {}
     preflight_identity = None
     firmware_identity_match = None
-    if expected_identity is not None:
-        preflight_battery = wait_json_get(f"http://{args.ip}/api/battery")
-        (out_dir / "preflight-battery.json").write_text(
-            json.dumps(preflight_battery, indent=2) + "\n", encoding="utf-8"
-        )
-        preflight_identity = reported_firmware_identity(preflight_battery)
-        firmware_identity_match = preflight_identity == expected_identity
-        if not firmware_identity_match:
-            raise RuntimeError(
-                "device firmware identity does not match expected image before VBUS removal: "
-                f"actual={preflight_identity} expected={expected_identity}"
-            )
+    pre_vbus_identity = None
     charge_gate: dict = {"skipped": args.allow_not_ready}
-    if not args.allow_not_ready:
-        charge_gate = wait_for_charge_ready(
-            lambda: serial_commands(port, ["power"], settle_s=2.0),
-            out_dir / "charge-ready.jsonl",
-            args.rest_min,
-            args.charge_ready_timeout_min,
-            args.charge_ready_min_mv,
-        )
+    try:
+        if expected_identity is not None:
+            preflight_battery = wait_json_get(f"http://{args.ip}/api/battery")
+            (out_dir / "preflight-battery.json").write_text(
+                json.dumps(preflight_battery, indent=2) + "\n", encoding="utf-8"
+            )
+            preflight_identity = reported_firmware_identity(preflight_battery)
+            firmware_identity_match = preflight_identity == expected_identity
+            if not firmware_identity_match:
+                raise RuntimeError(
+                    "device firmware identity does not match expected image before VBUS removal: "
+                    f"actual={preflight_identity} expected={expected_identity}"
+                )
+        if not args.allow_not_ready:
+            charge_gate = wait_for_charge_ready(
+                lambda: serial_commands(port, ["power"], settle_s=2.0),
+                out_dir / "charge-ready.jsonl",
+                args.rest_min,
+                args.charge_ready_timeout_min,
+                args.charge_ready_min_mv,
+            )
+        if expected_identity is not None:
+            pre_vbus_battery = wait_json_get(f"http://{args.ip}/api/battery")
+            (out_dir / "pre-vbus-battery.json").write_text(
+                json.dumps(pre_vbus_battery, indent=2) + "\n", encoding="utf-8"
+            )
+            pre_vbus_identity = reported_firmware_identity(pre_vbus_battery)
+            if pre_vbus_identity != expected_identity:
+                raise RuntimeError(
+                    "device firmware identity changed during charge rest: "
+                    f"actual={pre_vbus_identity} expected={expected_identity}"
+                )
+    except Exception:
+        release_ota_test_lock()
+        raise
     started = time.monotonic()
 
     def record(kind: str, **fields: object) -> None:
@@ -257,22 +295,30 @@ def main() -> int:
             handle.write(json.dumps(row) + "\n")
         print(json.dumps(row), flush=True)
 
-    preflight = serial_commands(
-        port,
-        [
-            "faces profile lunasay",
-            "power deep-sleep cancel",
-            "time",
-            "power",
-            f"power deep-sleep {args.duration_min}",
-            "power deep-sleep status",
-        ],
-        3.0,
-    )
+    try:
+        preflight = serial_commands(
+            port,
+            [
+                "faces profile lunasay",
+                "power deep-sleep cancel",
+                "time",
+                "power",
+                f"power deep-sleep {args.duration_min}",
+                "power deep-sleep status",
+            ],
+            3.0,
+        )
+    except Exception:
+        release_ota_test_lock()
+        raise
     (out_dir / "preflight-serial.log").write_text(preflight, encoding="utf-8")
     def cancel_preflight() -> None:
         try:
-            serial_commands(port, ["power deep-sleep cancel"], 1.0)
+            serial_commands(
+                port,
+                ["power deep-sleep cancel", "ota test-lock off", "ota test-lock status"],
+                1.0,
+            )
         except Exception:
             pass
 
@@ -282,7 +328,11 @@ def main() -> int:
     if "time: valid=yes" not in preflight:
         cancel_preflight()
         raise RuntimeError("device wall clock is invalid; deep-sleep start time would be unavailable")
-    preflight_power = parse_power_status(preflight)
+    try:
+        preflight_power = parse_power_status(preflight)
+    except Exception:
+        cancel_preflight()
+        raise
     record("armed", duration_min=args.duration_min, wake_source=args.wake_source)
 
     power_off = False
@@ -380,7 +430,13 @@ def main() -> int:
         port = wait_for_port(20.0)
         postflight = serial_commands(
             port,
-            ["power deep-sleep status", "power", "power deep-sleep cancel"],
+            [
+                "power deep-sleep status",
+                "power",
+                "power deep-sleep cancel",
+                "ota test-lock off",
+                "ota test-lock status",
+            ],
             3.0,
         )
     except Exception as exc:
@@ -390,6 +446,10 @@ def main() -> int:
     (out_dir / "postflight-serial.log").write_text(postflight, encoding="utf-8")
     if "power: deep-sleep cancelled" not in postflight:
         confirmation_error = "firmware did not confirm deep-sleep cancellation"
+        cleanup_error = f"{cleanup_error}; {confirmation_error}" if cleanup_error else confirmation_error
+        record("cleanup_failed", error=confirmation_error)
+    if "ota: test-lock ESP_OK locked=no active=no" not in postflight:
+        confirmation_error = "firmware did not confirm OTA test-lock release"
         cleanup_error = f"{cleanup_error}; {confirmation_error}" if cleanup_error else confirmation_error
         record("cleanup_failed", error=confirmation_error)
     retained = "retained=yes" in postflight
@@ -416,6 +476,10 @@ def main() -> int:
         and deep_sleep_telemetry.get("wake_cause") == expected_wake_cause
         and prepare_valid
     )
+    final_firmware_identity = reported_firmware_identity(wake_battery)
+    final_firmware_identity_match = (
+        expected_identity is None or final_firmware_identity == expected_identity
+    )
     requested_s = args.duration_min * 60.0
     if args.wake_source == "timer":
         wake_timing_valid = bool(
@@ -437,6 +501,7 @@ def main() -> int:
         and expected_wake
         and wake_timing_valid
         and telemetry_valid
+        and final_firmware_identity_match
     )
     firmware_article = firmware_provenance(
         wake_battery,
@@ -479,9 +544,13 @@ def main() -> int:
         },
         "charge_gate": charge_gate,
         "analyzer_capture": analyzer_capture,
+        "ota_test_lock_preflight": "ota: test-lock ESP_OK locked=yes active=no" in ota_test_lock_preflight,
         "expected_firmware_identity": expected_identity,
         "preflight_firmware_identity": preflight_identity,
+        "pre_vbus_firmware_identity": pre_vbus_identity,
         "firmware_identity_match": firmware_identity_match,
+        "final_firmware_identity": final_firmware_identity,
+        "final_firmware_identity_match": final_firmware_identity_match,
         "elapsed_s": round(time.monotonic() - started, 3),
         "preflight_serial": preflight,
         "postflight_serial": postflight,

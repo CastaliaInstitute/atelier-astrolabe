@@ -199,6 +199,9 @@ def main() -> int:
     matrix = json.loads(matrix_bytes)
     release_gate = matrix.get("release_gate", {})
     require_direct_current = bool(release_gate.get("require_direct_current", False))
+    require_firmware_continuity = bool(
+        release_gate.get("require_firmware_continuity", False)
+    )
     analyzer_identity = {
         "model": args.analyzer_model.strip(),
         "serial": args.analyzer_serial.strip(),
@@ -419,6 +422,15 @@ def main() -> int:
                 or str(article.get("firmware_variant", "")).lower() != "lunasay"
             ):
                 state_error = "passing child run did not report a complete LunaSay binary identity"
+            elif result.returncode == 0 and require_firmware_continuity and not (
+                child_summary.get("ota_test_lock_preflight")
+                and child_summary.get("firmware_identity_match")
+                and child_summary.get("final_firmware_identity_match")
+            ):
+                state_error = (
+                    "passing qualified child run did not prove OTA lock and exact firmware "
+                    "identity continuity"
+                )
             elif result.returncode == 0 and require_direct_current and not (
                 isinstance(child_analyzer, dict) and child_analyzer.get("passed")
             ):

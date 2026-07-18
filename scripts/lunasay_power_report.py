@@ -1032,6 +1032,11 @@ def main() -> int:
             "ambient_c": article.get("ambient_c"),
             "qualification_matrix_sha256": article.get("qualification_matrix_sha256"),
             "qualification_test_id": article.get("qualification_test_id"),
+            "ota_test_lock_preflight": bool(summary.get("ota_test_lock_preflight")),
+            "firmware_identity_match": bool(summary.get("firmware_identity_match")),
+            "final_firmware_identity_match": bool(
+                summary.get("final_firmware_identity_match")
+            ),
             "requested_duration_min": summary.get("requested_duration_min"),
             "analyzer_capture_bound": analyzer_capture_is_bound,
             "analyzer_adapter_sha256": (
@@ -1230,6 +1235,11 @@ def main() -> int:
             "ambient_c": article.get("ambient_c"),
             "qualification_matrix_sha256": article.get("qualification_matrix_sha256"),
             "qualification_test_id": article.get("qualification_test_id"),
+            "ota_test_lock_preflight": bool(summary.get("ota_test_lock_preflight")),
+            "firmware_identity_match": bool(summary.get("firmware_identity_match")),
+            "final_firmware_identity_match": bool(
+                summary.get("final_firmware_identity_match")
+            ),
             "requested_duration_min": summary.get("duration_min"),
             "analyzer_capture_bound": analyzer_capture_is_bound,
             "analyzer_adapter_sha256": (
@@ -1264,6 +1274,7 @@ def main() -> int:
         "scenario_counter_passed", "scenario_history_passed", "unit_id", "hardware_revision",
         "battery_id", "battery_mah", "battery_photo_sha256", "battery_cycle_count", "ambient_c",
         "qualification_matrix_sha256", "qualification_test_id", "requested_duration_min",
+        "ota_test_lock_preflight", "firmware_identity_match", "final_firmware_identity_match",
         "analyzer_capture_bound", "analyzer_adapter_sha256",
         "rested_start_percent", "rested_start_voltage_mv",
         "capture_ms", "turn_interval_s", "journal_gap_s", "turn_timeout_s", "say_rate", "say_volume",
@@ -1292,6 +1303,7 @@ def main() -> int:
         "run_id", "scenario", "workload", "wake_source", "passed", "unit_id", "hardware_revision",
         "battery_id", "battery_mah", "battery_photo_sha256", "battery_cycle_count", "ambient_c",
         "qualification_matrix_sha256", "qualification_test_id", "requested_duration_min", "boot_timeout_s",
+        "ota_test_lock_preflight", "firmware_identity_match", "final_firmware_identity_match",
         "analyzer_capture_bound", "analyzer_adapter_sha256",
         "rested_start_percent", "rested_start_voltage_mv",
         "firmware_build", "firmware_version", "firmware_variant", "firmware_elf_sha256",
@@ -1462,6 +1474,9 @@ def main() -> int:
         require_analyzer_adapter_capture = bool(
             release_gate.get("require_analyzer_adapter_capture", False)
         )
+        require_firmware_continuity = bool(
+            release_gate.get("require_firmware_continuity", False)
+        )
         require_labeled_capacity = bool(release_gate.get("require_labeled_capacity", False))
         require_hardware_revision = bool(release_gate.get("require_hardware_revision", False))
         require_ambient_temperature = bool(
@@ -1603,6 +1618,13 @@ def main() -> int:
                         ambient_c_max,
                     )
                 ]
+            if require_firmware_continuity:
+                qualifying = [
+                    run for run in qualifying
+                    if run.get("ota_test_lock_preflight")
+                    and run.get("firmware_identity_match")
+                    and run.get("final_firmware_identity_match")
+                ]
             if release_basis == "direct-projection":
                 qualifying = [
                     run for run in qualifying
@@ -1649,6 +1671,8 @@ def main() -> int:
                 required_basis_label += "+meter-provenance"
             if require_analyzer_adapter_capture and release_basis != "functional-gate":
                 required_basis_label += "+adapter-bound"
+            if require_firmware_continuity:
+                required_basis_label += "+firmware-continuity"
             if require_uniform_capacity:
                 required_basis_label += "+uniform-capacity"
             if require_ambient_temperature:

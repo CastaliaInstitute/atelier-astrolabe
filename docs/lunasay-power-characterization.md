@@ -21,6 +21,11 @@ projected runtime, and measured runtime to shutdown.
   restarts the timer.
 - Keep automatic brightness, face, Wi-Fi credentials, audio volume, prompt
   cadence, and server/model configuration fixed for the whole run.
+- Acquire the firmware's non-NVS OTA test lock before the charge/rest gate and
+  retain it through VBUS restoration. The runner must refuse to begin if an OTA
+  job is already active and must confirm lock release during cleanup. The lock
+  survives deliberate deep sleep but does not change the owner's saved OTA
+  interval.
 - A runner must always restore VBUS on completion or failure. Network polling
   may establish liveness but must not wake HTTP/audio services during idle runs.
 - Attribute only PMU samples between `vbus_off` and `vbus_on`. Never combine
@@ -141,6 +146,11 @@ Add this argument fragment to the release-matrix command:
 --analyzer-model MODEL --analyzer-serial SERIAL \
 --analyzer-calibration-ref CALIBRATION_RECORD
 ```
+
+The schema-9 release matrix also requires exact firmware continuity: the
+non-NVS OTA test lock, both docked identity checks, and the recovered/wake
+identity match must all be present in the child summary. Older artifacts that
+lack these fields cannot qualify even if they used an otherwise similar matrix.
 
 The harness invokes the adapter after charge/rest and serial preflight with
 `--run-id`, `--output`, `--ready-file`, `--stop-file`,
@@ -325,8 +335,9 @@ settings, and BLE probe cadence. The report rejects manually similar or stale
 artifacts that are not bound to the current matrix definition. The orchestrator
 passes the exact app image to every child runner. Each child reads the docked
 device's project, version, LunaSay variant, and full ELF SHA-256 from the API
-and refuses to begin charge rest or remove VBUS unless all four match that
-image. The orchestrator then waits for charge termination and the required rest
+before and after charge rest, and refuses to remove VBUS unless all four match
+that image. The recovered/wake identity must still match for the child to pass.
+The orchestrator then waits for charge termination and the required rest
 before every run; and stops at the first
 failure. A changed matrix requires a new state file rather than silently reusing
 stale completions. Use `--dry-run` to review all commands. `--allow-not-ready`

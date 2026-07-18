@@ -10,6 +10,7 @@
 
 #include "esp_app_format.h"
 #include "esp_app_desc.h"
+#include "esp_attr.h"
 #include "esp_crt_bundle.h"
 #include "esp_err.h"
 #include "esp_heap_caps.h"
@@ -87,6 +88,10 @@ static volatile ota_state_t s_ota_state;
 static char s_ota_last[160];
 static bool s_ota_auto_started;
 static volatile bool s_ota_auto_paused;
+/* Non-NVS QA lock. Unlike the audio-pipeline pause above, this is owned by
+   host power tests and cannot be cleared by pipeline lifecycle. RTC retention
+   keeps it asserted across a deliberate deep-sleep reset until postflight. */
+RTC_DATA_ATTR static volatile bool s_ota_test_locked;
 static volatile bool s_ota_network_ready;
 static wifi_ps_type_t s_ota_previous_wifi_ps = WIFI_PS_MIN_MODEM;
 static bool s_ota_wifi_ps_saved;
@@ -1347,7 +1352,8 @@ static void ota_auto_task(void *arg)
     vTaskDelay(pdMS_TO_TICKS(OTA_AUTO_INITIAL_DELAY_MS));
     while (true) {
         const uint32_t interval_s = nvs_get_auto_interval_s();
-        if (interval_s > 0 && !s_ota_auto_paused && s_ota_state != OTA_STATE_RUNNING && ota_heap_ready()) {
+        if (interval_s > 0 && !s_ota_auto_paused && !s_ota_test_locked &&
+            s_ota_state != OTA_STATE_RUNNING && ota_heap_ready()) {
             ota_job_t job = {
                 .manifest_url = true,
             };
@@ -1515,6 +1521,7 @@ bool faculty175_ota_handle(const char *line)
         printf("  ota usb [sha256]   # default: " OTA_LOCAL_DEFAULT_RELATIVE "\n");
         printf("  ota manifest <https-manifest-url>\n");
         printf("  ota recovery <https-url>\n");
+        printf("  ota test-lock <on|off|status>  # non-persistent power-test lock\n");
         printf("  ota auto <seconds|off|status>   # default: %u\n", (unsigned)OTA_AUTO_DEFAULT_INTERVAL_S);
         printf("  ota boot ota|factory|status\n");
         printf("  ota factory\n");
@@ -1533,6 +1540,25 @@ bool faculty175_ota_handle(const char *line)
             vTaskDelay(pdMS_TO_TICKS(250));
             esp_restart();
         }
+        return true;
+    }
+    if (strcasecmp(sub, "test-lock") == 0 || strncasecmp(sub, "test-lock ", 10) == 0) {
+        const char *value = skip_spaces(sub + 9);
+        esp_err_t err = ESP_OK;
+        if (*value == '\0' || strcasecmp(value, "status") == 0) {
+            /* status only */
+        } else if (strcasecmp(value, "on") == 0 || strcasecmp(value, "lock") == 0) {
+            s_ota_test_locked = true;
+        } else if (strcasecmp(value, "off") == 0 || strcasecmp(value, "unlock") == 0) {
+            s_ota_test_locked = false;
+        } else {
+            err = ESP_ERR_INVALID_ARG;
+        }
+        printf("ota: test-lock %s locked=%s active=%s\n",
+               esp_err_to_name(err),
+               s_ota_test_locked ? "yes" : "no",
+               s_ota_state == OTA_STATE_RUNNING ? "yes" : "no");
+        fflush(stdout);
         return true;
     }
     if (strncasecmp(sub, "boot ", 5) == 0) {
