@@ -30,7 +30,7 @@ bool faculty175_pmu_status(faculty175_pmu_status_t *out);
 bool faculty175_pmu_pekey_long_press(void);
 
 /** Disable only confirmed-unused PMU outputs before ESP32 deep sleep. */
-void faculty175_pmu_prepare_deep_sleep(void);
+bool faculty175_pmu_prepare_deep_sleep(void);
 
 #ifdef __cplusplus
 }

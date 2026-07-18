@@ -265,10 +265,22 @@ def main() -> int:
     # Public esp_sleep_wakeup_cause_t values: EXT0=2, TIMER=4.
     expected_wake_cause = 4 if args.wake_source == "timer" else 2
     expected_wake = wake_cause == expected_wake_cause
+    deep_sleep_telemetry = wake_battery.get("deep_sleep", {})
+    prepare_flags = int(deep_sleep_telemetry.get("prepare_flags", 0))
+    serial_prepare_match = re.search(r"prepare_flags=0x([0-9a-fA-F]+)", postflight)
+    serial_prepare_flags = int(serial_prepare_match.group(1), 16) if serial_prepare_match else 0
+    prepare_valid = bool(
+        (prepare_flags & 0x07) == 0x07
+        and (serial_prepare_flags & 0x07) == 0x07
+        and deep_sleep_telemetry.get("audio_quiesced")
+        and deep_sleep_telemetry.get("display_quiesced")
+        and deep_sleep_telemetry.get("pmu_quiesced")
+    )
     telemetry_valid = bool(
         wake_battery.get("battery", {}).get("present")
-        and wake_battery.get("deep_sleep", {}).get("completed")
-        and wake_battery.get("deep_sleep", {}).get("wake_cause") == expected_wake_cause
+        and deep_sleep_telemetry.get("completed")
+        and deep_sleep_telemetry.get("wake_cause") == expected_wake_cause
+        and prepare_valid
     )
     requested_s = args.duration_min * 60.0
     if args.wake_source == "timer":
@@ -303,6 +315,9 @@ def main() -> int:
         "wake_cause": wake_cause,
         "expected_wake_cause": expected_wake_cause,
         "expected_wake": expected_wake,
+        "prepare_flags": prepare_flags,
+        "serial_prepare_flags": serial_prepare_flags,
+        "prepare_valid": prepare_valid,
         "telemetry_valid": telemetry_valid,
         "run_error": run_error,
         "cleanup_error": cleanup_error,

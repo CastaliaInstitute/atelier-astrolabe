@@ -157,10 +157,10 @@ extern "C" bool faculty175_pmu_pekey_long_press(void)
     return long_press;
 }
 
-extern "C" void faculty175_pmu_prepare_deep_sleep(void)
+extern "C" bool faculty175_pmu_prepare_deep_sleep(void)
 {
     if (!s_pmu_ready) {
-        return;
+        return false;
     }
     /* ALDO1 supplies the audio-codec analog A3V3 net. Codecs and I2S are
        already quiesced before this call, and cold boot restores ALDO1. The
@@ -179,4 +179,5 @@ extern "C" void faculty175_pmu_prepare_deep_sleep(void)
              aldo4_off ? "off" : "error",
              bldo1_off ? "off" : "error",
              bldo2_off ? "off" : "error");
+    return aldo1_off && aldo2_off && aldo3_off && aldo4_off && bldo1_off && bldo2_off;
 }

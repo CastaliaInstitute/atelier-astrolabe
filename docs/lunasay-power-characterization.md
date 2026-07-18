@@ -153,6 +153,7 @@ python3 scripts/lunasay_deep_sleep_validate.py \
 
 Both gates require the device to disappear from the network, return on the
 expected wake cause, restore Wi-Fi and `/api/battery`, retain start telemetry,
+retain matching audio/AMOLED/PMU quiesce bits in both serial and API telemetry,
 and wake within the permitted time window. A deep-sleep claim requires a
 passing GPIO0 artifact for every unit contributing direct-current projection
 evidence; timer evidence alone cannot open the claim gate.

@@ -321,6 +321,13 @@ static esp_err_t api_battery_get(httpd_req_t *req)
         cJSON_AddNumberToObject(deep_sleep, "started_epoch_s", sleep.started_epoch_s);
         cJSON_AddNumberToObject(deep_sleep, "start_percent", sleep.start_battery_percent);
         cJSON_AddNumberToObject(deep_sleep, "start_voltage_mv", sleep.start_battery_mv);
+        cJSON_AddNumberToObject(deep_sleep, "prepare_flags", sleep.prepare_flags);
+        cJSON_AddBoolToObject(deep_sleep, "audio_quiesced",
+                              (sleep.prepare_flags & FACULTY175_DEEP_SLEEP_PREP_AUDIO) != 0);
+        cJSON_AddBoolToObject(deep_sleep, "display_quiesced",
+                              (sleep.prepare_flags & FACULTY175_DEEP_SLEEP_PREP_DISPLAY) != 0);
+        cJSON_AddBoolToObject(deep_sleep, "pmu_quiesced",
+                              (sleep.prepare_flags & FACULTY175_DEEP_SLEEP_PREP_PMU) != 0);
         cJSON_AddNumberToObject(deep_sleep, "wake_cause", sleep.wake_cause);
     }
 

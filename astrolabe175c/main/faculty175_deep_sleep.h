@@ -9,6 +9,13 @@
 extern "C" {
 #endif
 
+#define FACULTY175_DEEP_SLEEP_PREP_AUDIO   (1u << 0)
+#define FACULTY175_DEEP_SLEEP_PREP_DISPLAY (1u << 1)
+#define FACULTY175_DEEP_SLEEP_PREP_PMU     (1u << 2)
+#define FACULTY175_DEEP_SLEEP_PREP_ALL     (FACULTY175_DEEP_SLEEP_PREP_AUDIO | \
+                                            FACULTY175_DEEP_SLEEP_PREP_DISPLAY | \
+                                            FACULTY175_DEEP_SLEEP_PREP_PMU)
+
 typedef struct {
     bool retained;
     bool completed;
@@ -17,6 +24,7 @@ typedef struct {
     uint32_t started_epoch_s;
     int start_battery_percent;
     uint16_t start_battery_mv;
+    uint16_t prepare_flags;
     int wake_cause;
 } faculty175_deep_sleep_status_t;
 

@@ -25,7 +25,7 @@ typedef struct {
     uint32_t started_epoch_s;
     int32_t start_battery_percent;
     uint16_t start_battery_mv;
-    uint16_t reserved;
+    uint16_t prepare_flags;
 } retained_sleep_t;
 
 static const char *TAG = "faculty175_sleep";
@@ -75,6 +75,7 @@ void faculty175_deep_sleep_status(faculty175_deep_sleep_status_t *out)
     out->started_epoch_s = s_retained.started_epoch_s;
     out->start_battery_percent = s_retained.start_battery_percent;
     out->start_battery_mv = s_retained.start_battery_mv;
+    out->prepare_flags = s_retained.prepare_flags;
     out->completed = out->wake_cause == ESP_SLEEP_WAKEUP_TIMER ||
                      out->wake_cause == ESP_SLEEP_WAKEUP_EXT0;
 }
@@ -111,6 +112,7 @@ void faculty175_deep_sleep_enter(const faculty175_pmu_status_t *pmu)
                  esp_err_to_name(audio_err));
         return;
     }
+    s_retained.prepare_flags |= FACULTY175_DEEP_SLEEP_PREP_AUDIO;
     const esp_err_t display_err = faculty175_display_prepare_deep_sleep();
     if (display_err != ESP_OK) {
         ESP_LOGE(TAG, "deep sleep entry rejected: display quiesce failed: %s; restarting",
@@ -118,7 +120,13 @@ void faculty175_deep_sleep_enter(const faculty175_pmu_status_t *pmu)
         vTaskDelay(pdMS_TO_TICKS(100));
         esp_restart();
     }
-    faculty175_pmu_prepare_deep_sleep();
+    s_retained.prepare_flags |= FACULTY175_DEEP_SLEEP_PREP_DISPLAY;
+    if (!faculty175_pmu_prepare_deep_sleep()) {
+        ESP_LOGE(TAG, "deep sleep entry rejected: PMU rail quiesce failed; restarting");
+        vTaskDelay(pdMS_TO_TICKS(100));
+        esp_restart();
+    }
+    s_retained.prepare_flags |= FACULTY175_DEEP_SLEEP_PREP_PMU;
 
     ESP_ERROR_CHECK(esp_sleep_enable_timer_wakeup((uint64_t)sleep_s * 1000000ULL));
     ESP_ERROR_CHECK(rtc_gpio_pullup_en(DEEP_SLEEP_WAKE_GPIO));

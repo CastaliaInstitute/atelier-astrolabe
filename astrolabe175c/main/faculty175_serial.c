@@ -1046,7 +1046,7 @@ static bool handle_power_command(const char *line)
             faculty175_deep_sleep_status_t sleep = {0};
             faculty175_deep_sleep_status(&sleep);
             printf("power: deep-sleep pending=%s retained=%s completed=%s requested_s=%lu "
-                   "start_pct=%d start_mv=%u start_epoch=%lu wake_cause=%d\n",
+                   "start_pct=%d start_mv=%u start_epoch=%lu prepare_flags=0x%02x wake_cause=%d\n",
                    sleep.pending ? "yes" : "no",
                    sleep.retained ? "yes" : "no",
                    sleep.completed ? "yes" : "no",
@@ -1054,6 +1054,7 @@ static bool handle_power_command(const char *line)
                    sleep.start_battery_percent,
                    (unsigned)sleep.start_battery_mv,
                    (unsigned long)sleep.started_epoch_s,
+                   (unsigned)sleep.prepare_flags,
                    sleep.wake_cause);
         }
         fflush(stdout);
