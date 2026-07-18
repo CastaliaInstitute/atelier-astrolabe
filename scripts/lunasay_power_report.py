@@ -1307,7 +1307,7 @@ def main() -> int:
         writer.writeheader()
         writer.writerows(runs)
     deep_fields = [
-        "run_id", "scenario", "workload", "wake_source", "passed", "unit_id", "hardware_revision",
+        "run_id", "runner", "scenario", "workload", "wake_source", "passed", "unit_id", "hardware_revision",
         "battery_id", "battery_mah", "battery_photo_sha256", "battery_cycle_count", "ambient_c",
         "qualification_matrix_sha256", "qualification_test_id", "requested_duration_min", "boot_timeout_s",
         "ota_test_lock_preflight", "firmware_identity_match", "final_firmware_identity_match",
