@@ -263,8 +263,9 @@ Generate the current evidence table and curve data with:
 python3 scripts/lunasay_power_report.py
 ```
 
-After flashing and completing the short timer/BOOT wake gates, run the matrix
-sequentially with a dedicated state file for each physical unit and battery:
+After flashing and completing the short smoke timer/BOOT wake gates, run the
+release matrix sequentially with a dedicated state file for each physical unit
+and battery:
 
 ```sh
 python3 scripts/lunasay_power_matrix_run.py \
@@ -288,7 +289,11 @@ failure. A changed matrix requires a new state file rather than silently reusing
 stale completions. Use `--dry-run` to review all commands. `--allow-not-ready`
 is only for smoke tests and permanently classifies those artifacts as
 unqualified. Qualified runners copy the battery-label photo into every artifact
-directory and store its SHA-256 with the labeled capacity.
+directory and store its SHA-256 with the labeled capacity. The release matrix
+pauses at `true_deep_sleep_gpio0_gate`; press BOOT
+once only after the child runner prints `awaiting_gpio0`. That qualified,
+matrix-bound physical-wake artifact is required before the same unit's
+analyzer-backed timer projection can open a deep-sleep claim gate.
 
 Qualified orchestration refuses a dirty host worktree. Claim generation rejects
 unknown or dirty firmware/harness identifiers and counts only the largest cohort

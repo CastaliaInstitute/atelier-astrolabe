@@ -341,6 +341,7 @@ def main() -> int:
     summary = {
         "passed": passed,
         "duration_min": args.duration_min,
+        "boot_timeout_s": args.boot_timeout_s,
         "wake_source": args.wake_source,
         "became_unreachable": became_unreachable,
         "woke_on_network": woke_on_network,

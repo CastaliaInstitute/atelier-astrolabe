@@ -60,13 +60,16 @@ def common_args(args: argparse.Namespace, out_dir: Path, test: dict) -> list[str
 def command_for(test: dict, args: argparse.Namespace, out_dir: Path) -> list[str]:
     duration_min = int(test["duration_min"])
     if test.get("runner") == "deep-sleep":
-        return [
+        command = [
             sys.executable,
             str(ROOT / "scripts" / "lunasay_deep_sleep_validate.py"),
             "--duration-min", str(duration_min),
             "--wake-source", str(test.get("wake_source", "timer")),
             *common_args(args, out_dir, test),
         ]
+        if "boot_timeout_s" in test:
+            command += ["--boot-timeout-s", str(test["boot_timeout_s"])]
+        return command
     command = [
         sys.executable,
         str(ROOT / "scripts" / "lunasay_battery_validate.py"),

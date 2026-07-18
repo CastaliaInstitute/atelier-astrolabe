@@ -405,6 +405,7 @@ def matrix_test_matches(run: dict, test: dict, matrix_sha256: str | None) -> boo
         "ble_probe_interval_s",
         "ble_probe_timeout_s",
         "ble_config_write_interval_s",
+        "boot_timeout_s",
     ):
         if key not in test:
             continue
@@ -976,12 +977,14 @@ def main() -> int:
             "qualification_matrix_sha256": article.get("qualification_matrix_sha256"),
             "qualification_test_id": article.get("qualification_test_id"),
             "requested_duration_min": summary.get("duration_min"),
+            "boot_timeout_s": summary.get("boot_timeout_s"),
             "firmware_build": article.get("firmware_build", "unknown"),
             "firmware_version": article.get("firmware_version", "unknown"),
             "firmware_variant": article.get("firmware_variant", "unknown"),
             "firmware_elf_sha256": article.get("firmware_elf_sha256"),
             "firmware_provenance_complete": bool(article.get("firmware_provenance_complete")),
             "harness_build": article.get("harness_build", "unknown"),
+            "charge_ready": charge_ready,
             "duration_h": duration_h,
             "percent_drop": drop,
             "projected_full_runtime_h": projected_h,
@@ -1020,9 +1023,9 @@ def main() -> int:
     deep_fields = [
         "run_id", "scenario", "workload", "wake_source", "passed", "unit_id", "hardware_revision",
         "battery_id", "battery_mah", "battery_photo_sha256", "battery_cycle_count", "ambient_c",
-        "qualification_matrix_sha256", "qualification_test_id", "requested_duration_min",
+        "qualification_matrix_sha256", "qualification_test_id", "requested_duration_min", "boot_timeout_s",
         "firmware_build", "firmware_version", "firmware_variant", "firmware_elf_sha256",
-        "firmware_provenance_complete", "harness_build",
+        "firmware_provenance_complete", "harness_build", "charge_ready",
         "duration_h", "percent_drop", "projected_full_runtime_h",
         "median_current_ma", "average_current_ma", "peak_current_ma", "charge_mah", "energy_wh",
         "current_basis", "analyzer_samples", "analyzer_duration_h", "analyzer_coverage_ratio",
@@ -1183,7 +1186,14 @@ def main() -> int:
         require_ambient_temperature = bool(
             release_gate.get("require_ambient_temperature", False)
         )
-        for test in matrix.get("tests", []):
+        matrix_tests = matrix.get("tests", [])
+        gpio_gate_tests = [
+            matrix_test for matrix_test in matrix_tests
+            if matrix_test.get("runner") == "deep-sleep"
+            and matrix_test.get("wake_source") == "gpio0"
+            and matrix_test.get("release_basis") == "functional-gate"
+        ]
+        for test in matrix_tests:
             if test.get("runner") == "deep-sleep":
                 candidates = [
                     run for run in deep_runs
@@ -1203,9 +1213,23 @@ def main() -> int:
                 qualifying = [
                     run for run in candidates
                     if run.get("passed")
+                    and run.get("charge_ready")
                     and run.get("wake_source") == "timer"
                     and run.get("current_basis") == "direct-battery-analyzer"
                     and isinstance(run.get("projected_full_runtime_h"), (int, float))
+                    and test_article_gate_passes(
+                        run,
+                        require_labeled_capacity,
+                        require_hardware_revision,
+                        require_ambient_temperature,
+                    )
+                ]
+            elif release_basis == "functional-gate":
+                qualifying = [
+                    run for run in candidates
+                    if run.get("passed")
+                    and run.get("charge_ready")
+                    and run.get("wake_source") == test.get("wake_source")
                     and test_article_gate_passes(
                         run,
                         require_labeled_capacity,
@@ -1257,6 +1281,10 @@ def main() -> int:
                         and gate_run.get("wake_source") == "gpio0"
                         and gate_run.get("unit_id") == run.get("unit_id")
                         and release_build_key(gate_run) == release_build_key(run)
+                        and any(
+                            matrix_test_matches(gate_run, gate_test, matrix_sha256)
+                            for gate_test in gpio_gate_tests
+                        )
                         for gate_run in deep_runs
                     )
                 ]
@@ -1283,7 +1311,7 @@ def main() -> int:
                 if release_basis == "measured-runtime" and require_direct_current
                 else release_basis
             )
-            if require_analyzer_provenance:
+            if require_analyzer_provenance and release_basis != "functional-gate":
                 required_basis_label += "+meter-provenance"
             if int(test.get("minimum_successful_turns", 0)) > 0:
                 required_basis_label += f"+≥{int(test['minimum_successful_turns'])}-turns"
@@ -1343,8 +1371,8 @@ def main() -> int:
     limitations: list[str] = []
     if not runs and not deep_runs:
         limitations.append("No completed hub-controlled runs were found.")
-    if any(not run.get("charge_ready", False) for run in runs):
-        limitations.append("One or more active-mode runs skipped or failed the full-charge/30-minute-rest gate.")
+    if any(not run.get("charge_ready", False) for run in [*runs, *deep_runs]):
+        limitations.append("One or more runs skipped or failed the full-charge/30-minute-rest gate.")
     if any(not run.get("scenario_evidence_passed", False) for run in runs):
         limitations.append(
             "One or more active-mode runs lack verified battery-only display/radio scenario evidence."
