@@ -42,26 +42,49 @@ def load_events(path: Path) -> list[dict]:
 def load_analyzer_rows(paths: list[Path]) -> list[dict]:
     """Load battery-path analyzer CSVs; positive current means discharge."""
     rows: list[dict] = []
+    seen: dict[tuple[str, float], tuple[float, float, Path]] = {}
     for path in paths:
         with path.open(newline="", encoding="utf-8") as handle:
-            for raw in csv.DictReader(handle):
+            for line_number, raw in enumerate(csv.DictReader(handle), start=2):
                 if not raw.get("run_id") or not raw.get("current_ma"):
-                    raise ValueError(f"{path}: run_id and current_ma are required")
-                if raw.get("epoch_s"):
-                    epoch_s = float(raw["epoch_s"])
-                elif raw.get("timestamp"):
-                    epoch_s = parse_time(raw["timestamp"])
-                else:
-                    raise ValueError(f"{path}: epoch_s or timestamp is required")
-                current_ma = float(raw["current_ma"])
-                if current_ma < 0:
-                    raise ValueError(f"{path}: current_ma must be positive for discharge")
-                if raw.get("voltage_mv"):
-                    voltage_mv = float(raw["voltage_mv"])
-                elif raw.get("voltage_v"):
-                    voltage_mv = float(raw["voltage_v"]) * 1000.0
-                else:
-                    raise ValueError(f"{path}: voltage_mv or voltage_v is required")
+                    raise ValueError(f"{path}:{line_number}: run_id and current_ma are required")
+                try:
+                    if raw.get("epoch_s"):
+                        epoch_s = float(raw["epoch_s"])
+                    elif raw.get("timestamp"):
+                        epoch_s = parse_time(raw["timestamp"])
+                    else:
+                        raise ValueError("epoch_s or timestamp is required")
+                    current_ma = float(raw["current_ma"])
+                    if raw.get("voltage_mv"):
+                        voltage_mv = float(raw["voltage_mv"])
+                    elif raw.get("voltage_v"):
+                        voltage_mv = float(raw["voltage_v"]) * 1000.0
+                    else:
+                        raise ValueError("voltage_mv or voltage_v is required")
+                except (TypeError, ValueError) as exc:
+                    raise ValueError(f"{path}:{line_number}: invalid analyzer sample: {exc}") from exc
+                if not math.isfinite(epoch_s) or epoch_s <= 0:
+                    raise ValueError(f"{path}:{line_number}: timestamp must be finite and positive")
+                if not math.isfinite(current_ma) or current_ma < 0:
+                    raise ValueError(
+                        f"{path}:{line_number}: current_ma must be finite and non-negative"
+                    )
+                if not math.isfinite(voltage_mv) or voltage_mv <= 0:
+                    raise ValueError(
+                        f"{path}:{line_number}: voltage must be finite and positive"
+                    )
+                key = (raw["run_id"], epoch_s)
+                electrical = (current_ma, voltage_mv)
+                if key in seen:
+                    previous_current, previous_voltage, previous_path = seen[key]
+                    if electrical != (previous_current, previous_voltage):
+                        raise ValueError(
+                            f"{path}:{line_number}: conflicting duplicate timestamp for "
+                            f"{raw['run_id']}; first seen in {previous_path}"
+                        )
+                    continue
+                seen[key] = (current_ma, voltage_mv, path)
                 rows.append({
                     "run_id": raw["run_id"],
                     "epoch_s": epoch_s,
