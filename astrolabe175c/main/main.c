@@ -137,7 +137,7 @@ static bool running_from_factory_partition(void)
 #else
 #define FACULTY175_INPUT_TASK_STACK 5376
 #endif
-#define FACULTY175_POWER_METRICS_TASK_STACK 3072
+#define FACULTY175_POWER_METRICS_TASK_STACK 4096
 #define FACULTY175_SERIAL_TASK_STACK 8192
 #define FACULTY175_BUTTON_REBOOT_STACK 3328
 #define FACULTY175_FACULTY_SAVE_STACK 2048
@@ -198,6 +198,7 @@ static char s_wifi_ssid[FACULTY175_WIFI_SSID_MAX + 1];
 static TaskHandle_t s_wifi_start_task;
 static TaskHandle_t s_ui_task;
 static TaskHandle_t s_input_task;
+static TaskHandle_t s_power_metrics_task;
 #if defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
 /* input_task reads/writes NVS, so its stack must remain accessible while the
  * flash cache is disabled. Reserve it statically to avoid late-boot heap
@@ -881,8 +882,8 @@ static void low_power_tick(uint32_t now_ms)
 
 /* Measurement is intentionally independent of input/touch. Settings-mode HTTP
  * transitions can pause the audio and interaction stack, but must not freeze a
- * battery test. This sampler does no flash writes, so its stack may live in
- * PSRAM without crossing a cache-disabled NVS operation. */
+ * battery test. Its stack must remain internal: voice capture, OTA, and NVS
+ * tasks can disable the external-memory cache while this sampler is runnable. */
 static void power_metrics_task(void *arg)
 {
     (void)arg;
@@ -2921,6 +2922,7 @@ static void qa_emit_tasks(void)
     qa_emit_task_stack_line("ui", s_ui_task, FACULTY175_UI_TASK_STACK);
     qa_emit_task_stack_line("gesture", faculty175_gesture_task_handle(), 4096u);
     qa_emit_task_stack_line("input", s_input_task, FACULTY175_INPUT_TASK_STACK);
+    qa_emit_task_stack_line("power_metrics", s_power_metrics_task, FACULTY175_POWER_METRICS_TASK_STACK);
     qa_emit_task_stack_line("button_reboot", s_button_reboot_task, FACULTY175_BUTTON_REBOOT_STACK);
     qa_emit_task_stack_line("face_save", s_face_save_task, FACULTY175_FACE_SAVE_STACK);
     qa_emit_task_stack_line("audio_pipe", s_pipeline_start_task, 4096u);
@@ -4492,8 +4494,9 @@ void app_main(void)
                             FACULTY175_POWER_METRICS_TASK_STACK,
                             NULL,
                             3,
-                            NULL,
-                            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS) {
+                            &s_power_metrics_task,
+                            MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) != pdPASS) {
+        s_power_metrics_task = NULL;
         FACULTY175_LOG_STAGE_E(TAG, "power", "metrics task create failed");
     }
     button_reboot_task_start_if_needed();
