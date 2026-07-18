@@ -6,7 +6,9 @@
 #include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
+#include "esp_attr.h"
 #include "esp_log.h"
 #include "esp_mac.h"
 #include "esp_netif.h"
@@ -19,6 +21,7 @@
 #include "lwip/sockets.h"
 #include "nvs.h"
 
+#include "astrolabe_time.h"
 #include "faculty175_ble.h"
 #include "faculty175_ring.h"
 
@@ -95,7 +98,7 @@ typedef struct {
 } family_slot_t;
 
 static portMUX_TYPE s_family_lock = portMUX_INITIALIZER_UNLOCKED;
-static family_slot_t s_slots[FACULTY175_FAMILY_SUBJECT_MAX];
+EXT_RAM_BSS_ATTR static family_slot_t s_slots[FACULTY175_FAMILY_SUBJECT_MAX];
 static family_subject_t s_subjects[FACULTY175_FAMILY_SUBJECT_MAX] = {
     {.used = true, .subject_id = 1, .name = "Camille"},
     {.used = true, .subject_id = 2, .name = "Daniel"},
@@ -121,6 +124,15 @@ static uint32_t family_now_ms(void)
 
 static uint32_t family_day_key(uint32_t rx_ms)
 {
+    if (astrolabe_time_valid()) {
+        /* ESP-NOW invokes this path from the Wi-Fi callback task. Avoid the
+         * timezone/setenv machinery there: newlib's environment locks are not
+         * callback-safe. UTC day buckets are sufficient for aggregation. */
+        const time_t now = time(NULL);
+        if (now > 0) {
+            return (uint32_t)((uint64_t)now / 86400u);
+        }
+    }
     return rx_ms / 86400000u;
 }
 

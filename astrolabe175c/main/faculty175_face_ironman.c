@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "esp_attr.h"
 #include "faculty175_board.h"
 #include "faculty175_breath.h"
 #include "faculty175_faces.h"
@@ -42,7 +43,7 @@ static float s_guide_expansion;
 static float s_guide_last_waveform;
 static float s_guide_waveform_velocity;
 static uint32_t s_guide_last_breath_ms;
-static int16_t s_guide_tone_pcm[ARC_GUIDE_TONE_CHUNK_FRAMES * 2u];
+EXT_RAM_BSS_ATTR static int16_t s_guide_tone_pcm[ARC_GUIDE_TONE_CHUNK_FRAMES * 2u];
 
 static uint16_t rgb(uint8_t r, uint8_t g, uint8_t b)
 {

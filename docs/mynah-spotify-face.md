@@ -294,7 +294,7 @@ Mynah Hub / phone / local server
 Spotify Web API + Spotify Connect
 ```
 
-Astrolabe today: `pm_spotify` → Castalia `mynah-spotify` edge function; face code in [`pm_face_spotify.cpp`](../sketches/Astrolabe/faces/spotify/pm_face_spotify.cpp) (transport-bar MVP). Vinyl Queue replaces UI/gesture model; hub stream payload is the v1 target contract.
+Astrolabe today: the native face lives in [`faculty175_face_spotify.c`](../astrolabe175c/main/faculty175_face_spotify.c). Vinyl Queue replaces the earlier transport-bar UI/gesture model; the hub stream payload remains the v1 target contract.
 
 ---
 
@@ -510,6 +510,6 @@ Build around **`selected_track ≠ playing_track`**. Swipes change selection onl
 
 | Path | Role |
 |------|------|
-| [`sketches/Astrolabe/faces/spotify/pm_face_spotify.cpp`](../sketches/Astrolabe/faces/spotify/pm_face_spotify.cpp) | Current face (transport bar MVP) |
-| [`sketches/Astrolabe/pm_spotify.cpp`](../sketches/Astrolabe/pm_spotify.cpp) | `mynah-spotify` HTTP client |
+| [`astrolabe175c/main/faculty175_face_spotify.c`](../astrolabe175c/main/faculty175_face_spotify.c) | Native round-watch Spotify face |
+| Castalia `mynah-spotify` service | Spotify state and command backend |
 | [`docs/BACKLOG.md`](BACKLOG.md) | Backlog epic — Mynah Spotify Face |

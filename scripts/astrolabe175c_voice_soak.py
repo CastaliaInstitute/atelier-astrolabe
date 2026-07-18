@@ -275,8 +275,17 @@ def wait_for_connected_status(
         status = parse_status(text)
         last_text = text
         last_status = status
-        if status and int(status["rssi"]) != 0 and int(status["internal"]) >= internal_min:
-            return ser, text, status
+        if (
+            status
+            and status["audio"] == "ok"
+            and int(status["rssi"]) != 0
+            and int(status["internal"]) >= internal_min
+        ):
+            ser, pipeline_text = send_command(ser, "pipeline status")
+            pipeline = parse_pipeline_status(pipeline_text)
+            last_text = text + pipeline_text
+            if pipeline and pipeline["configured"]:
+                return ser, last_text, status
         time.sleep(1.0)
     return ser, last_text, last_status
 
@@ -312,7 +321,7 @@ def evaluate_failures(results: list[dict[str, object]], min_internal: int, min_l
         turn = int(result["turn"])
         if not result.get("ok"):
             failures.append(f"turn {turn} did not complete cleanly")
-        if result.get("pipeline_before") is not None:
+        if result.get("require_preconfigured") and result.get("pipeline_before") is not None:
             before = result["pipeline_before"]
             if isinstance(before, dict) and not before.get("configured", False):
                 failures.append(f"turn {turn} pipeline not configured before capture")
@@ -579,6 +588,7 @@ def main() -> int:
                 "turn": measured_turn if not is_warmup else 0,
                 "raw_turn": raw_turn,
                 "warmup": is_warmup,
+                "require_preconfigured": args.precreate_pipeline,
                 "ok": ok,
                 "pipeline_before": pipeline_before,
                 "pipeline_after": pipeline_after,

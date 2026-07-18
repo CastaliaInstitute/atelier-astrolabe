@@ -7,6 +7,7 @@
 
 #include "cJSON.h"
 #include "esp_crt_bundle.h"
+#include "esp_attr.h"
 #include "esp_heap_caps.h"
 #include "esp_http_client.h"
 #include "esp_log.h"
@@ -42,7 +43,7 @@ static const char *const k_axis_ids[FACULTY175_APOCALYPSO_AXIS_COUNT] = {
 };
 
 static SemaphoreHandle_t s_lock;
-static faculty175_apocalypso_status_t s_current;
+EXT_RAM_BSS_ATTR static faculty175_apocalypso_status_t s_current;
 static volatile apocalypso_state_t s_state;
 static char s_last[96];
 static bool s_storage_checked;

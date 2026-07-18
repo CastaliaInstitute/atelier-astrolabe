@@ -7,7 +7,7 @@ Hardware:
 - [M5 AtomS3R](https://docs.m5stack.com/en/core/AtomS3R) (GC9107 0.85" display, front button)
 - [Atomic Voice Base](https://docs.m5stack.com/en/atom/Atomic%20Echo%20Base) (ES8311 + MEMS mic + NS4150B speaker)
 
-This follows the same pattern as [`sensecap/`](../sensecap/): a sibling ESP-IDF project, not the PlatformIO Waveshare sketch.
+This follows the same pattern as [`sensecap/`](../sensecap/): a sibling ESP-IDF project, not the round-watch target.
 
 ## Configure secrets
 
@@ -115,4 +115,4 @@ I facultyatom: [ready] listening — speak to run STT->LLM->TTS
 
 - FacultyAtom contract: [`include/astrolabe_faculty_atom_face.h`](../include/astrolabe_faculty_atom_face.h)
 - Waveshare 1.8″ faculty: [`faculty18/`](../faculty18/)
-- Round watch Wand face: [`sketches/Astrolabe/faces/wand/`](../sketches/Astrolabe/faces/wand/)
+- Round watch target: [`astrolabe175c/`](../astrolabe175c/)

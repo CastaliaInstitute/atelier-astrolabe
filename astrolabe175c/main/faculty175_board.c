@@ -39,7 +39,7 @@
 #include "astrolabe_time.h"
 
 static const char *TAG = "faculty_board";
-static const int32_t FACULTY175_MIC_MONO_GAIN = 6;
+static const int32_t FACULTY175_MIC_MONO_GAIN = 1;
 
 /* Waveshare ESP32-S3-Touch-AMOLED-1.75C — CO5300 466×466 QSPI (NOT 1.8″ SH8601).
  *
@@ -77,8 +77,6 @@ static const int32_t FACULTY175_MIC_MONO_GAIN = 6;
 #define FACULTY175_PA_GPIO GPIO_NUM_46
 #define FACULTY175_ES7210_ADDR ES7210_CODEC_DEFAULT_ADDR
 #define FACULTY175_ES7210_ADDR_7BIT (FACULTY175_ES7210_ADDR >> 1)
-#define FACULTY175_ES7210_MODE_CONFIG_REG08 0x08
-#define FACULTY175_ES7210_SDP_INTERFACE2_REG12 0x12
 #define FACULTY175_ES8311_ADDR ES8311_CODEC_DEFAULT_ADDR
 #define FACULTY175_ES8311_SYSTEM_REG0D 0x0D
 #define FACULTY175_ES8311_SDPIN_REG09 0x09
@@ -93,11 +91,9 @@ static const int32_t FACULTY175_MIC_MONO_GAIN = 6;
 #define FACULTY175_SPEAKER_VOLUME 100
 #define FACULTY175_AUDIO_MAX_READ_SAMPLES 1024
 #define FACULTY175_ES7210_CHANNELS 4
+#define FACULTY175_ES7210_CAPTURE_CHANNELS 1
 #define FACULTY175_ES7210_HALFWORD_GROUPS_PER_FRAME 2
-#define FACULTY175_ES7210_MIC_A_CH 0
-#define FACULTY175_ES7210_MIC_B_CH 2
-#define FACULTY175_ES7210_CHANNEL_MASK (ESP_CODEC_DEV_MAKE_CHANNEL_MASK(0) | ESP_CODEC_DEV_MAKE_CHANNEL_MASK(1) | \
-                                        ESP_CODEC_DEV_MAKE_CHANNEL_MASK(2) | ESP_CODEC_DEV_MAKE_CHANNEL_MASK(3))
+#define FACULTY175_ES7210_CHANNEL_MASK ESP_CODEC_DEV_MAKE_CHANNEL_MASK(0)
 #define FACULTY175_AEC_REF_SAMPLES 65536
 #define FACULTY175_I2S_DMA_DESC_NUM 3
 #define FACULTY175_I2S_DMA_FRAME_NUM 96
@@ -145,8 +141,14 @@ static volatile uint32_t s_button_injected_presses;
 static uint16_t *s_flush_strip;
 static int s_flush_strip_h;
 static bool s_speaker_ready;
-static int16_t s_audio_read_tdm[FACULTY175_AUDIO_MAX_READ_SAMPLES * FACULTY175_ES7210_CHANNELS *
-                                FACULTY175_ES7210_HALFWORD_GROUPS_PER_FRAME];
+/* The production LunaSay path is mono and only needs one DMA-sized frame.
+ * Keep the legacy TDM QA scratch in PSRAM so it does not permanently consume
+ * 16 KiB of the scarce internal heap. */
+DMA_ATTR static int16_t s_audio_read_mono[FACULTY175_AUDIO_MAX_READ_SAMPLES *
+                                          FACULTY175_ES7210_CAPTURE_CHANNELS];
+EXT_RAM_BSS_ATTR static int16_t s_audio_read_tdm[FACULTY175_AUDIO_MAX_READ_SAMPLES *
+                                                 FACULTY175_ES7210_CHANNELS *
+                                                 FACULTY175_ES7210_HALFWORD_GROUPS_PER_FRAME];
 static uint32_t s_audio_read_frames;
 static int s_audio_selected_ch = -1;
 static SemaphoreHandle_t s_audio_read_mux;
@@ -242,7 +244,12 @@ void faculty175_display_unlock(void)
     }
 }
 
+#if defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
+/* Preserve a contiguous internal block for the flash-safe voice worker. */
+#define FACULTY175_LCD_FLUSH_STRIP_H 4
+#else
 #define FACULTY175_LCD_FLUSH_STRIP_H 16
+#endif
 #define FACULTY175_LCD_FLUSH_BUFFER_COUNT 2
 #define FACULTY175_LCD_FLUSH_TIMEOUT_MS 100
 
@@ -261,6 +268,8 @@ static bool faculty175_flush_strip_alloc(void)
         FACULTY175_LCD_FLUSH_STRIP_H,
         12,
         8,
+        4,
+        2,
     };
     for (size_t i = 0; i < sizeof(candidates) / sizeof(candidates[0]); ++i) {
         const int h = candidates[i];
@@ -812,11 +821,6 @@ static int16_t audio_sample_host_order(int16_t sample)
     return sample;
 }
 
-static uint16_t codec_channel_mask(int ch)
-{
-    return ESP_CODEC_DEV_MAKE_CHANNEL_MASK(ch);
-}
-
 static uint32_t isqrt_u64(uint64_t value)
 {
     uint64_t bit = 1ULL << 62;
@@ -1055,9 +1059,8 @@ static esp_err_t faculty175_i2s_set_rate(uint32_t hz)
     }
 
     i2s_std_clk_config_t clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(hz);
-    i2s_tdm_clk_config_t tdm_clk_cfg = I2S_TDM_CLK_DEFAULT_CONFIG(hz);
     ESP_RETURN_ON_ERROR(i2s_channel_reconfig_std_clock(s_i2s_tx, &clk_cfg), TAG, "i2s tx clk");
-    ESP_RETURN_ON_ERROR(i2s_channel_reconfig_tdm_clock(s_i2s_rx, &tdm_clk_cfg), TAG, "i2s rx clk");
+    ESP_RETURN_ON_ERROR(i2s_channel_reconfig_std_clock(s_i2s_rx, &clk_cfg), TAG, "i2s rx clk");
     ESP_RETURN_ON_ERROR(i2s_channel_enable(s_i2s_tx), TAG, "i2s tx en");
     ESP_RETURN_ON_ERROR(i2s_channel_enable(s_i2s_rx), TAG, "i2s rx en");
     return ESP_OK;
@@ -1078,7 +1081,7 @@ static esp_err_t faculty175_i2s_init(uint32_t hz)
 
     i2s_std_config_t std_cfg = {
         .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(hz),
-        .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO),
+        .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO),
         .gpio_cfg = {
             .mclk = FACULTY175_I2S_MCLK,
             .bclk = FACULTY175_I2S_BCK,
@@ -1097,31 +1100,11 @@ static esp_err_t faculty175_i2s_init(uint32_t hz)
     ret = i2s_channel_init_std_mode(s_i2s_tx, &std_cfg);
     ESP_GOTO_ON_ERROR(ret, fail, TAG, "i2s tx");
 
-    i2s_tdm_config_t tdm_cfg = {
-        .clk_cfg = I2S_TDM_CLK_DEFAULT_CONFIG(hz),
-        .slot_cfg = I2S_TDM_PHILIPS_SLOT_DEFAULT_CONFIG(
-            I2S_DATA_BIT_WIDTH_16BIT,
-            I2S_SLOT_MODE_STEREO,
-            I2S_TDM_SLOT0 | I2S_TDM_SLOT1 | I2S_TDM_SLOT2 | I2S_TDM_SLOT3),
-        .gpio_cfg = {
-            .mclk = FACULTY175_I2S_MCLK,
-            .bclk = FACULTY175_I2S_BCK,
-            .ws = FACULTY175_I2S_WS,
-            .dout = I2S_GPIO_UNUSED,
-            .din = FACULTY175_I2S_DIN,
-            .invert_flags = {
-                .mclk_inv = false,
-                .bclk_inv = false,
-                .ws_inv = false,
-            },
-        },
-    };
-    tdm_cfg.slot_cfg.total_slot = FACULTY175_ES7210_CHANNELS;
-    tdm_cfg.slot_cfg.slot_bit_width = I2S_SLOT_BIT_WIDTH_32BIT;
-    tdm_cfg.slot_cfg.ws_width = I2S_SLOT_BIT_WIDTH_32BIT;
-    tdm_cfg.slot_cfg.left_align = true;
-    ret = i2s_channel_init_tdm_mode(s_i2s_rx, &tdm_cfg);
-    ESP_GOTO_ON_ERROR(ret, fail, TAG, "i2s rx tdm");
+    i2s_std_config_t rx_cfg = std_cfg;
+    rx_cfg.gpio_cfg.dout = I2S_GPIO_UNUSED;
+    rx_cfg.gpio_cfg.din = FACULTY175_I2S_DIN;
+    ret = i2s_channel_init_std_mode(s_i2s_rx, &rx_cfg);
+    ESP_GOTO_ON_ERROR(ret, fail, TAG, "i2s rx std");
     ret = i2s_channel_enable(s_i2s_tx);
     ESP_GOTO_ON_ERROR(ret, fail, TAG, "i2s tx en");
     ret = i2s_channel_enable(s_i2s_rx);
@@ -1195,6 +1178,8 @@ static esp_codec_dev_handle_t faculty175_mic_codec_init(void)
 
     es7210_codec_cfg_t es7210_cfg = {
         .ctrl_if = i2c_ctrl_if,
+        /* Match Waveshare's Arduino example. ADC1/2 are the physical mics;
+         * ADC3/4 remain enabled for the board's analog echo-reference path. */
         .mic_selected = ES7210_SEL_MIC1 | ES7210_SEL_MIC2 | ES7210_SEL_MIC3 | ES7210_SEL_MIC4,
         .mclk_src = ES7210_MCLK_FROM_PAD,
     };
@@ -1331,15 +1316,43 @@ static const audio_codec_ctrl_if_t *faculty175_codec_ctrl_new(uint8_t addr_7bit)
     return &ctrl->base;
 }
 
-static void faculty175_es7210_apply_arduino_compat(void)
+static void faculty175_es7210_apply_board_capture_route(void)
 {
-    esp_err_t err = faculty175_es7210_write_reg(FACULTY175_ES7210_MODE_CONFIG_REG08, 0x20);
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "ES7210 reg08 compat write failed: %s", esp_err_to_name(err));
-    }
-    err = faculty175_es7210_write_reg(FACULTY175_ES7210_SDP_INTERFACE2_REG12, 0x02);
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "ES7210 reg12 compat write failed: %s", esp_err_to_name(err));
+    /* Exact 16 kHz slave-mode sequence from Waveshare's Arduino example.
+     * Espressif's generic driver deliberately skips the divider registers in
+     * slave mode, but this board's ES7210 needs them for live ADC output. */
+    static const struct {
+        uint8_t reg;
+        uint8_t value;
+    } route[] = {
+        {0x01, 0x14}, /* enable ADC1/2 and SDOUT1 clocks */
+        {0x02, 0xC1}, /* ADC divider, DLL and clock doubler */
+        {0x04, 0x01}, /* 16 kHz LRCK divider high */
+        {0x05, 0x00}, /* 16 kHz LRCK divider low */
+        {0x06, 0x00}, /* power up ADC */
+        {0x07, 0x20}, /* ADC oversampling ratio */
+        {0x12, 0x00}, /* ADC1/2 on SDOUT1, non-TDM */
+        {0x40, 0xC3}, /* board analog/VMID power state */
+        {0x41, 0x70}, /* MIC1/2 bias 2.87 V, matching Waveshare */
+        {0x42, 0x70}, /* keep unused MIC3/4 bias at board default */
+        {0x43, 0x1A}, /* MIC1 enabled, 30 dB gain for mono capture */
+        {0x44, 0x1A}, /* MIC2 enabled, 30 dB gain for mono capture */
+        {0x45, 0x1E}, /* MIC3 enabled, Arduino 37.5 dB gain */
+        {0x46, 0x1E}, /* MIC4 enabled, Arduino 37.5 dB gain */
+        {0x47, 0x00}, /* MIC1 ADC power */
+        {0x48, 0x00}, /* MIC2 ADC power */
+        {0x49, 0x00}, /* MIC3 ADC power */
+        {0x4A, 0x00}, /* MIC4 ADC power */
+        {0x4B, 0x00}, /* MIC1/2 analog power */
+        {0x4C, 0x00}, /* MIC3/4 analog power */
+    };
+    for (size_t i = 0; i < sizeof(route) / sizeof(route[0]); ++i) {
+        const esp_err_t err = faculty175_es7210_write_reg(route[i].reg, route[i].value);
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "ES7210 capture reg 0x%02x <- 0x%02x failed: %s",
+                     route[i].reg, route[i].value, esp_err_to_name(err));
+            return;
+        }
     }
 }
 
@@ -1379,9 +1392,11 @@ static void faculty175_mic_apply_capture_config(void)
     if (s_mic_codec == NULL) {
         return;
     }
-    (void)esp_codec_dev_set_in_channel_gain(s_mic_codec, codec_channel_mask(0) | codec_channel_mask(1), 24.0f);
-    (void)esp_codec_dev_set_in_channel_gain(s_mic_codec, codec_channel_mask(2) | codec_channel_mask(3), 37.5f);
-    faculty175_es7210_apply_arduino_compat();
+    /* Match Waveshare's 1.75C BSP: standard I2S with the MIC1/MIC2 pair. The
+     * previous four-channel TDM override produced one clock-noise lane and a
+     * second all-zero half-frame on this board. */
+    (void)esp_codec_dev_set_in_gain(s_mic_codec, 24.0f);
+    faculty175_es7210_apply_board_capture_route();
 }
 
 static esp_err_t faculty175_codec_open(bool out, uint32_t hz)
@@ -1392,7 +1407,7 @@ static esp_err_t faculty175_codec_open(bool out, uint32_t hz)
     }
     esp_codec_dev_sample_info_t fs = {
         .bits_per_sample = 16,
-        .channel = out ? 2 : FACULTY175_ES7210_CHANNELS,
+        .channel = 1,
         .channel_mask = out ? 0 : FACULTY175_ES7210_CHANNEL_MASK,
         .sample_rate = hz == 0 ? FACULTY175_AUDIO_RATE : hz,
     };
@@ -1418,12 +1433,14 @@ static esp_err_t faculty175_audio_prepare_capture_locked(void)
     return ESP_OK;
 }
 
-static void faculty175_audio_suspend_capture_locked(void)
+static bool faculty175_audio_suspend_capture_locked(void)
 {
     if (s_mic_open && s_mic_codec != NULL) {
         (void)esp_codec_dev_close(s_mic_codec);
         s_mic_open = false;
+        return true;
     }
+    return false;
 }
 
 static esp_err_t faculty175_audio_restart_tx_locked(void)
@@ -1446,19 +1463,33 @@ static esp_err_t faculty175_audio_write_mono_from_stereo(const int16_t *samples,
                                                          size_t sample_count,
                                                          uint32_t timeout_ms)
 {
-    const size_t bytes = sample_count * sizeof(int16_t);
-    size_t written = 0;
     if (s_i2s_tx == NULL) {
         return ESP_ERR_INVALID_STATE;
     }
-    const TickType_t ticks = pdMS_TO_TICKS(timeout_ms == 0 ? 200 : timeout_ms);
-    esp_err_t err = i2s_channel_write(s_i2s_tx, samples, bytes, &written, ticks);
-    if (err != ESP_OK) {
-        return err;
+    if ((sample_count & 1u) != 0u) {
+        return ESP_ERR_INVALID_SIZE;
     }
-    if (written != bytes) {
-        ESP_LOGW(TAG, "spk i2s short write %u/%u", (unsigned)written, (unsigned)bytes);
-        return ESP_ERR_TIMEOUT;
+
+    const TickType_t ticks = pdMS_TO_TICKS(timeout_ms == 0 ? 200 : timeout_ms);
+    int16_t mono[256];
+    const size_t frame_count = sample_count / 2u;
+    for (size_t base = 0; base < frame_count; base += 256u) {
+        const size_t frames = (frame_count - base) < 256u ? (frame_count - base) : 256u;
+        for (size_t i = 0; i < frames; ++i) {
+            const int32_t left = samples[(base + i) * 2u];
+            const int32_t right = samples[(base + i) * 2u + 1u];
+            mono[i] = (int16_t)((left + right) / 2);
+        }
+        const size_t bytes = frames * sizeof(int16_t);
+        size_t written = 0;
+        const esp_err_t err = i2s_channel_write(s_i2s_tx, mono, bytes, &written, ticks);
+        if (err != ESP_OK) {
+            return err;
+        }
+        if (written != bytes) {
+            ESP_LOGW(TAG, "spk i2s short write %u/%u", (unsigned)written, (unsigned)bytes);
+            return ESP_ERR_TIMEOUT;
+        }
     }
     return ESP_OK;
 }
@@ -1932,8 +1963,93 @@ void faculty175_board_display_on(bool on)
     }
 }
 
+static esp_err_t faculty175_audio_read_standard(int16_t *samples,
+                                                size_t sample_count,
+                                                size_t *out_read,
+                                                uint32_t timeout_ms)
+{
+    if (!s_audio_ready || s_mic_codec == NULL || samples == NULL || sample_count == 0) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    if (sample_count > FACULTY175_AUDIO_MAX_READ_SAMPLES) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+
+    if (s_audio_read_mux != NULL &&
+        xSemaphoreTake(s_audio_read_mux, pdMS_TO_TICKS(timeout_ms == 0 ? 200 : timeout_ms)) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
+
+    esp_err_t err = faculty175_audio_prepare_capture_locked();
+    if (err != ESP_OK) {
+        if (s_audio_read_mux != NULL) {
+            xSemaphoreGive(s_audio_read_mux);
+        }
+        return err;
+    }
+
+    const size_t bytes = sample_count * FACULTY175_ES7210_CAPTURE_CHANNELS * sizeof(int16_t);
+    if (esp_codec_dev_read(s_mic_codec, s_audio_read_mono, bytes) != ESP_CODEC_DEV_OK) {
+        if (s_audio_read_mux != NULL) {
+            xSemaphoreGive(s_audio_read_mux);
+        }
+        return ESP_FAIL;
+    }
+
+    int64_t sum = 0;
+    for (size_t i = 0; i < sample_count; ++i) {
+        sum += audio_sample_host_order(s_audio_read_mono[i]);
+    }
+    const int32_t mean = (int32_t)(sum / (int64_t)sample_count);
+
+    uint64_t energy = 0;
+    uint32_t peak = 0;
+    for (size_t i = 0; i < sample_count; ++i) {
+        int32_t sample = (int32_t)audio_sample_host_order(s_audio_read_mono[i]) - mean;
+        energy += (uint64_t)(sample * sample);
+        if (sample < 0) {
+            sample = -sample;
+        }
+        if ((uint32_t)sample > peak) {
+            peak = (uint32_t)sample;
+        }
+    }
+
+    if (s_audio_selected_ch != 0) {
+        s_audio_selected_ch = 0;
+        ESP_LOGI(TAG, "mic selected ES7210 mono-I2S peak=%u", (unsigned)peak);
+    } else if ((++s_audio_read_frames % 25u) == 0u && peak > 96u) {
+        ESP_LOGI(TAG, "mic mono-I2S peak=%u e=%u",
+                 (unsigned)peak, (unsigned)(energy / sample_count));
+    }
+
+    for (size_t i = 0; i < sample_count; ++i) {
+        int32_t sample = (int32_t)audio_sample_host_order(s_audio_read_mono[i]) - mean;
+        sample *= FACULTY175_MIC_MONO_GAIN;
+        if (sample > INT16_MAX) {
+            sample = INT16_MAX;
+        } else if (sample < INT16_MIN) {
+            sample = INT16_MIN;
+        }
+        samples[i] = (int16_t)sample;
+    }
+
+    faculty175_aec_process(samples, sample_count);
+    faculty175_noise_suppress(samples, sample_count);
+    if (out_read != NULL) {
+        *out_read = sample_count;
+    }
+    if (s_audio_read_mux != NULL) {
+        xSemaphoreGive(s_audio_read_mux);
+    }
+    return ESP_OK;
+}
+
 esp_err_t faculty175_audio_read(int16_t *samples, size_t sample_count, size_t *out_read, uint32_t timeout_ms)
 {
+    return faculty175_audio_read_standard(samples, sample_count, out_read, timeout_ms);
+#if 0 /* Superseded four-channel TDM recovery path retained temporarily for bisect context. */
     if (!s_audio_ready || s_mic_codec == NULL || samples == NULL || sample_count == 0) {
         return ESP_ERR_INVALID_STATE;
     }
@@ -1965,12 +2081,14 @@ esp_err_t faculty175_audio_read(int16_t *samples, size_t sample_count, size_t *o
     }
 
     uint64_t group_energy[FACULTY175_ES7210_HALFWORD_GROUPS_PER_FRAME] = {0};
+    int64_t group_sum[FACULTY175_ES7210_HALFWORD_GROUPS_PER_FRAME][FACULTY175_ES7210_CHANNELS] = {0};
     for (size_t i = 0; i < sample_count; ++i) {
         for (size_t group = 0; group < FACULTY175_ES7210_HALFWORD_GROUPS_PER_FRAME; ++group) {
             const size_t frame_base = (i * FACULTY175_ES7210_HALFWORD_GROUPS_PER_FRAME + group) * FACULTY175_ES7210_CHANNELS;
             for (int ch = 0; ch < FACULTY175_ES7210_CHANNELS; ++ch) {
                 const int32_t sample = audio_sample_host_order(s_audio_read_tdm[frame_base + ch]);
                 group_energy[group] += (uint64_t)(sample * sample);
+                group_sum[group][ch] += sample;
             }
         }
     }
@@ -1981,18 +2099,27 @@ esp_err_t faculty175_audio_read(int16_t *samples, size_t sample_count, size_t *o
         }
     }
 
-    int64_t sum[FACULTY175_ES7210_CHANNELS] = {0};
-    for (size_t i = 0; i < sample_count; ++i) {
-        const size_t frame_base =
-            (i * FACULTY175_ES7210_HALFWORD_GROUPS_PER_FRAME + populated_group) * FACULTY175_ES7210_CHANNELS;
-        for (int ch = 0; ch < FACULTY175_ES7210_CHANNELS; ++ch) {
-            sum[ch] += audio_sample_host_order(s_audio_read_tdm[frame_base + ch]);
-        }
-    }
-
     int32_t mean[FACULTY175_ES7210_CHANNELS] = {0};
     for (int ch = 0; ch < FACULTY175_ES7210_CHANNELS; ++ch) {
-        mean[ch] = (int32_t)(sum[ch] / (int64_t)sample_count);
+        mean[ch] = (int32_t)(group_sum[populated_group][ch] / (int64_t)sample_count);
+    }
+
+    uint32_t lane_peak[FACULTY175_ES7210_HALFWORD_GROUPS_PER_FRAME][FACULTY175_ES7210_CHANNELS] = {0};
+    for (size_t i = 0; i < sample_count; ++i) {
+        for (size_t group = 0; group < FACULTY175_ES7210_HALFWORD_GROUPS_PER_FRAME; ++group) {
+            const size_t frame_base =
+                (i * FACULTY175_ES7210_HALFWORD_GROUPS_PER_FRAME + group) * FACULTY175_ES7210_CHANNELS;
+            for (int ch = 0; ch < FACULTY175_ES7210_CHANNELS; ++ch) {
+                const int32_t lane_mean = (int32_t)(group_sum[group][ch] / (int64_t)sample_count);
+                int32_t centered = (int32_t)audio_sample_host_order(s_audio_read_tdm[frame_base + ch]) - lane_mean;
+                if (centered < 0) {
+                    centered = -centered;
+                }
+                if ((uint32_t)centered > lane_peak[group][ch]) {
+                    lane_peak[group][ch] = (uint32_t)centered;
+                }
+            }
+        }
     }
 
     uint64_t energy[FACULTY175_ES7210_CHANNELS] = {0};
@@ -2012,8 +2139,25 @@ esp_err_t faculty175_audio_read(int16_t *samples, size_t sample_count, size_t *o
         }
     }
 
-    const int mic_a = FACULTY175_ES7210_MIC_A_CH;
-    const int mic_b = FACULTY175_ES7210_MIC_B_CH;
+    /* ES7210 TDM channel placement differs between codec/BSP revisions. Pick
+     * the two channels carrying the most energy instead of assuming 0/2; the
+     * former fixed mapping could select two empty slots and suppress real
+     * speech down to the noise floor. */
+    int mic_a = 0;
+    int mic_b = 1;
+    if (energy[mic_b] > energy[mic_a]) {
+        const int swap = mic_a;
+        mic_a = mic_b;
+        mic_b = swap;
+    }
+    for (int ch = 2; ch < FACULTY175_ES7210_CHANNELS; ++ch) {
+        if (energy[ch] > energy[mic_a]) {
+            mic_b = mic_a;
+            mic_a = ch;
+        } else if (energy[ch] > energy[mic_b]) {
+            mic_b = ch;
+        }
+    }
     uint64_t sum_mix_energy = 0;
     uint64_t diff_mix_energy = 0;
     uint32_t sum_mix_peak = 0;
@@ -2054,7 +2198,7 @@ esp_err_t faculty175_audio_read(int16_t *samples, size_t sample_count, size_t *o
 
     if (s_audio_selected_ch != -2) {
         s_audio_selected_ch = -2;
-        ESP_LOGI(TAG, "mic selected ES7210 group=%u dual ch%d/ch%d mode=%s peak=%u/%u",
+        ESP_LOGI(TAG, "mic selected ES7210 group=%u dual ch%d/ch%d mode=%s peak=%u/%u p=%u/%u/%u/%u",
                  (unsigned)populated_group,
                  mic_a,
                  mic_b,
@@ -2062,9 +2206,25 @@ esp_err_t faculty175_audio_read(int16_t *samples, size_t sample_count, size_t *o
                                : (mix_mode == 2 ? "chA"
                                                 : (mix_mode == 3 ? "chB" : (mix_mode == 4 ? "weighted" : "sum"))),
                  (unsigned)peak[mic_a],
-                 (unsigned)peak[mic_b]);
-    } else if ((++s_audio_read_frames % 25u) == 0u && mix_peak > 96u) {
-        ESP_LOGI(TAG, "mic mix group=%u ch%d/ch%d mode=%s peak=%u/%u p=%u/%u/%u/%u e=%u/%u/%u/%u",
+                 (unsigned)peak[mic_b],
+                 (unsigned)peak[0],
+                 (unsigned)peak[1],
+                 (unsigned)peak[2],
+                 (unsigned)peak[3]);
+    } else if ((++s_audio_read_frames % 25u) == 0u) {
+        ESP_LOGI(TAG, "mic lanes selected=%u g0=%u/%u/%u/%u g1=%u/%u/%u/%u mix=%u",
+                 (unsigned)populated_group,
+                 (unsigned)lane_peak[0][0],
+                 (unsigned)lane_peak[0][1],
+                 (unsigned)lane_peak[0][2],
+                 (unsigned)lane_peak[0][3],
+                 (unsigned)lane_peak[1][0],
+                 (unsigned)lane_peak[1][1],
+                 (unsigned)lane_peak[1][2],
+                 (unsigned)lane_peak[1][3],
+                 (unsigned)mix_peak);
+        if (mix_peak > 96u) {
+            ESP_LOGI(TAG, "mic mix group=%u ch%d/ch%d mode=%s peak=%u/%u p=%u/%u/%u/%u e=%u/%u/%u/%u",
                  (unsigned)populated_group,
                  mic_a,
                  mic_b,
@@ -2081,6 +2241,7 @@ esp_err_t faculty175_audio_read(int16_t *samples, size_t sample_count, size_t *o
                  (unsigned)(energy[1] / sample_count),
                  (unsigned)(energy[2] / sample_count),
                  (unsigned)(energy[3] / sample_count));
+        }
     }
 
     for (size_t i = 0; i < sample_count; ++i) {
@@ -2122,6 +2283,7 @@ esp_err_t faculty175_audio_read(int16_t *samples, size_t sample_count, size_t *o
         xSemaphoreGive(s_audio_read_mux);
     }
     return ESP_OK;
+#endif
 }
 
 esp_err_t faculty175_audio_prepare_capture(uint32_t timeout_ms)
@@ -2225,7 +2387,7 @@ esp_err_t faculty175_audio_write_pcm(const int16_t *samples, size_t sample_count
     esp_err_t err = ESP_OK;
     bool opened_speaker = false;
     faculty175_audio_set_speaker_pa_level(true);
-    faculty175_audio_suspend_capture_locked();
+    const bool suspended_capture = faculty175_audio_suspend_capture_locked();
     if (!s_spk_open) {
         err = faculty175_codec_open(true, s_spk_rate_hz);
         if (err != ESP_OK) {
@@ -2245,7 +2407,7 @@ esp_err_t faculty175_audio_write_pcm(const int16_t *samples, size_t sample_count
         s_spk_open = true;
         opened_speaker = true;
     }
-    if (opened_speaker) {
+    if (opened_speaker || suspended_capture) {
         err = faculty175_audio_restart_tx_locked();
         if (err != ESP_OK) {
             ESP_LOGE(TAG, "spk tx restart: %s", esp_err_to_name(err));
@@ -2305,6 +2467,13 @@ esp_err_t faculty175_audio_set_sample_rate(uint32_t hz)
 
 void faculty175_audio_set_speaker_mute(bool mute)
 {
+    if (mute) {
+        /* Half-duplex STT has no speaker echo.  Retire any playback tail so
+         * the correlation search cannot consume microphone capture time. */
+        portENTER_CRITICAL(&s_aec_mux);
+        s_aec_ref_active_until_us = 0;
+        portEXIT_CRITICAL(&s_aec_mux);
+    }
     faculty175_audio_set_speaker_pa_level(!mute);
     if (s_spk_codec != NULL) {
         (void)esp_codec_dev_set_out_mute(s_spk_codec, mute);

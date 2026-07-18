@@ -4,12 +4,18 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#07090f" />
-    <title>Astrolabe WebSerial Flasher</title>
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <title>Astrolabe Flasher</title>
     <meta
       name="description"
-      content="Flash Astrolabe ESP32-S3 firmware from Chrome or Edge with WebSerial and esptool-js."
+      content="Flash Astrolabe ESP32-S3 firmware from Android Chrome or a desktop browser."
     />
     <link rel="canonical" href="https://astrolabe.castalia.institute/flasher/" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" href="icon-192.png" sizes="192x192" />
+    <link rel="apple-touch-icon" href="icon-192.png" />
     <link rel="stylesheet" href="../styles.css" />
   </head>
   <body class="tool-page">
@@ -27,18 +33,19 @@
 
     <main class="wrap flasher-shell">
       <section class="flasher-head">
-        <p class="eyebrow">WebSerial recovery</p>
+        <p class="eyebrow">Android WebUSB · Desktop WebSerial</p>
         <h1>Astrolabe Flasher</h1>
         <p class="muted">
           Connect an ESP32-S3 Astrolabe over USB, select a release image, and flash it directly
           from the browser with esptool-js.
         </p>
+        <button class="btn" type="button" data-install hidden>Install Android app</button>
       </section>
 
       <section class="flasher-grid" aria-label="Astrolabe WebSerial flasher">
         <form class="flasher-panel" data-flasher-form>
           <div class="field-group">
-            <label for="release-select">Integration release</label>
+            <label for="release-select">Firmware build</label>
             <select id="release-select" data-release-select></select>
           </div>
 
@@ -98,10 +105,11 @@
         <aside class="flasher-panel flasher-panel--notes">
           <h2>Before flashing</h2>
           <ul>
-            <li>Use Chrome or Edge on a secure origin.</li>
+            <li>On Android, use Chrome and connect Astrolabe through USB-C/OTG.</li>
+            <li>For a local build, keep the CLI flash bridge running until flashing finishes.</li>
             <li>Select the USB Serial/JTAG port for the attached Astrolabe.</li>
             <li>If connect fails, hold BOOT while plugging in, then try again.</li>
-            <li>The default mode flashes only the app image at <code>0x20000</code>.</li>
+            <li>Local CLI builds include the bootloader, partitions, OTA data, and app image.</li>
           </ul>
           <p class="muted">
             Full factory flashing also needs bootloader and partition images. Release manifests
@@ -134,6 +142,6 @@
       </section>
     </main>
 
-    <script type="module" src="flasher.js?v=20260710h"></script>
+    <script type="module" src="flasher.js?v=20260716a"></script>
   </body>
 </html>

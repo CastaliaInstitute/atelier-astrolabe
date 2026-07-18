@@ -27,11 +27,24 @@
       }
 
       main {
-        width: min(100vw, 760px);
+        width: min(100vw, 1040px);
         padding: 24px;
         display: grid;
         justify-items: center;
         gap: 18px;
+      }
+
+      .instrument-row {
+        width: 100%;
+        display: grid;
+        grid-template-columns: minmax(0, 466px) minmax(0, 360px);
+        justify-content: center;
+        align-items: center;
+        gap: 30px;
+      }
+
+      .instrument-row:has(.psychometer-panel[hidden]) {
+        grid-template-columns: minmax(0, 466px);
       }
 
       .watch {
@@ -51,10 +64,24 @@
         touch-action: none;
       }
 
+      .face-art-overlay {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        border-radius: 50%;
+        pointer-events: none;
+      }
+
+      .face-art-overlay[hidden] {
+        display: none;
+      }
+
       .controls {
         width: min(466px, calc(100vw - 32px));
         display: grid;
-        grid-template-columns: 38px 1fr 38px;
+        grid-template-columns: 38px minmax(0, 1fr) 38px 88px;
         align-items: center;
         gap: 8px;
       }
@@ -173,17 +200,203 @@
         font-size: 13px;
         color: #91a7bc;
       }
+
+      .psychometer-panel {
+        width: 100%;
+        border: 1px solid #34404b;
+        border-radius: 18px;
+        background:
+          radial-gradient(circle at 92% 0%, rgb(107 194 205 / 14%), transparent 34%),
+          linear-gradient(145deg, #141b22, #0b1015);
+        box-shadow: 0 24px 70px rgb(0 0 0 / 34%);
+        padding: 22px;
+        color: #e9f0f2;
+      }
+
+      .psychometer-panel[hidden] {
+        display: none;
+      }
+
+      .psychometer-kicker,
+      .psychometer-section-title {
+        margin: 0;
+        color: #88a2ad;
+        font: 600 11px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+      }
+
+      .psychometer-heading {
+        display: flex;
+        justify-content: space-between;
+        align-items: start;
+        gap: 16px;
+        margin-bottom: 18px;
+      }
+
+      .psychometer-heading h1 {
+        margin: 5px 0 0;
+        font: 500 28px/1.05 Georgia, serif;
+      }
+
+      .capture-state {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        border: 1px solid #31515a;
+        border-radius: 999px;
+        padding: 7px 9px;
+        color: #a9dbe0;
+        font: 600 10px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        white-space: nowrap;
+      }
+
+      .capture-state::before {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: #62d0c4;
+        box-shadow: 0 0 12px #62d0c4;
+        content: "";
+      }
+
+      .affect-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        margin: 10px 0 18px;
+      }
+
+      .affect-card {
+        min-height: 98px;
+        border: 1px solid #2a353f;
+        border-radius: 12px;
+        background: rgb(255 255 255 / 3%);
+        padding: 13px;
+      }
+
+      .affect-card span {
+        display: block;
+        color: #8ba1ab;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+      }
+
+      .affect-value {
+        margin-top: 7px;
+        color: #f2f7f7;
+        font: 500 31px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      }
+
+      .affect-range {
+        margin-top: 7px;
+        color: #708690;
+        font-size: 11px;
+      }
+
+      .metric-list {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 9px 16px;
+        margin: 10px 0 18px;
+        color: #a5b4bb;
+        font-size: 12px;
+      }
+
+      .metric-list output {
+        color: #dce7e9;
+        font: 500 12px/1.3 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      }
+
+      .signal-row {
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        align-items: center;
+        gap: 9px;
+        margin-top: 10px;
+        color: #9eafb7;
+        font-size: 11px;
+      }
+
+      .signal-track {
+        height: 5px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: #29333c;
+      }
+
+      .signal-track i {
+        display: block;
+        width: 86%;
+        height: 100%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, #55b6b2, #9fdbc3);
+      }
+
+      .psychometer-note {
+        margin: 18px 0 0;
+        border-top: 1px solid #28323a;
+        padding-top: 14px;
+        color: #71838c;
+        font-size: 11px;
+        line-height: 1.45;
+      }
+
+      @media (max-width: 880px) {
+        .instrument-row {
+          grid-template-columns: minmax(0, 466px);
+        }
+      }
     </style>
   </head>
   <body>
     <main>
-      <div class="watch">
-        <canvas id="astrolabe-canvas" width="466" height="466"></canvas>
+      <div class="instrument-row">
+        <div class="watch">
+          <canvas id="astrolabe-canvas" width="466" height="466"></canvas>
+          <img id="tarot-art" class="face-art-overlay" alt="" hidden />
+        </div>
+        <aside id="psychometer-panel" class="psychometer-panel" aria-label="Psychometer facial and affect estimates" hidden>
+          <div class="psychometer-heading">
+            <div>
+              <p class="psychometer-kicker">Mirror telemetry</p>
+              <h1>Psychometer</h1>
+            </div>
+            <span class="capture-state">LOCAL · CAMERA ON</span>
+          </div>
+          <p class="psychometer-section-title">Affect estimate</p>
+          <div class="affect-grid">
+            <div class="affect-card">
+              <span>Valence</span>
+              <div class="affect-value" id="psych-valence">+0.18</div>
+              <div class="affect-range">unpleasant — pleasant</div>
+            </div>
+            <div class="affect-card">
+              <span>Arousal</span>
+              <div class="affect-value" id="psych-arousal">0.63</div>
+              <div class="affect-range">settled — activated</div>
+            </div>
+          </div>
+          <p class="psychometer-section-title">Facial metrics</p>
+          <div class="metric-list">
+            <span>Head pose</span><output id="psych-pose">+2° yaw · −1° pitch</output>
+            <span>Eye openness</span><output id="psych-eyes">0.82</output>
+            <span>Blink rate</span><output>14 / min</output>
+            <span>Symmetry</span><output id="psych-symmetry">0.94</output>
+            <span>Baseline shift</span><output id="psych-baseline">+0.11</output>
+          </div>
+          <p class="psychometer-section-title">Signal quality</p>
+          <div class="signal-row"><span>Confidence</span><span class="signal-track"><i id="psych-confidence-bar"></i></span><output id="psych-confidence">86%</output></div>
+          <div class="signal-row"><span>Framing</span><span class="signal-track"><i style="width: 92%"></i></span><output>centered</output></div>
+          <p class="psychometer-note">Observed expression is not inner state. Estimates are compared with the user’s own baseline and paired with self-report; no diagnosis or deception inference.</p>
+        </aside>
       </div>
       <div class="controls" aria-label="Watch face controls">
         <button type="button" id="prev-face" aria-label="Previous face" disabled>‹</button>
         <select id="face-select" aria-label="Face" disabled></select>
         <button type="button" id="next-face" aria-label="Next face" disabled>›</button>
+        <button type="button" id="save-face" aria-label="Save current face as PNG" disabled>Save PNG</button>
       </div>
       <section class="voice" aria-label="Voice test controls">
         <div class="voice-meta">
@@ -228,6 +441,7 @@
       const controls = {
         prev: document.querySelector("#prev-face"),
         next: document.querySelector("#next-face"),
+        saveFace: document.querySelector("#save-face"),
         select: document.querySelector("#face-select"),
         deviceUrl: document.querySelector("#device-url"),
         syncWifi: document.querySelector("#sync-wifi"),
@@ -271,8 +485,11 @@
               return;
             }
             populateFaces();
+            updateTarotArt();
+            updatePsychometerPanel();
             controls.prev.disabled = false;
             controls.next.disabled = false;
+            controls.saveFace.disabled = false;
             controls.select.disabled = false;
           };
           enableControls();
@@ -292,6 +509,25 @@
       const voiceReport = [];
       const BLE_SERVICE_UUID = "01000000-5017-0065-6261-6c6f72747341";
       const BLE_SETTINGS_UUID = "03000000-5017-0065-6261-6c6f72747341";
+      const tarotArt = document.querySelector("#tarot-art");
+      const psychometerPanel = document.querySelector("#psychometer-panel");
+      const psychometerReadout = {
+        valence: document.querySelector("#psych-valence"),
+        arousal: document.querySelector("#psych-arousal"),
+        pose: document.querySelector("#psych-pose"),
+        eyes: document.querySelector("#psych-eyes"),
+        symmetry: document.querySelector("#psych-symmetry"),
+        baseline: document.querySelector("#psych-baseline"),
+        confidence: document.querySelector("#psych-confidence"),
+        confidenceBar: document.querySelector("#psych-confidence-bar"),
+      };
+      const tarotMajorArcana = [
+        "00-fool", "01-magician", "02-priestess", "03-empress", "04-emperor", "05-hierophant",
+        "06-lovers", "07-chariot", "08-strength", "09-hermit", "10-fortune", "11-justice",
+        "12-hanged", "13-death", "14-temperance", "15-devil", "16-tower", "17-star",
+        "18-moon", "19-sun", "20-judgement", "21-world",
+      ];
+      let tarotCardIndex = 16;
 
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register("/sw.js").catch(() => {});
@@ -317,6 +553,8 @@
         const normalized = ((face % faceCount) + faceCount) % faceCount;
         faceSelect.value = String(normalized);
         Module.ccall("astrolabe_web_set_face", null, ["number"], [normalized]);
+        updateTarotArt();
+        updatePsychometerPanel();
       }
 
       function currentFaceMeta() {
@@ -329,6 +567,54 @@
           slug: Module.UTF8ToString(slugPtr),
         };
       }
+
+      function updateTarotArt(drawAgain = false) {
+        if (!Module.ccall || !faceSelect.value) {
+          tarotArt.hidden = true;
+          return;
+        }
+        const face = currentFaceMeta();
+        if (face.slug !== "tarot") {
+          tarotArt.hidden = true;
+          return;
+        }
+        if (drawAgain) {
+          tarotCardIndex = (tarotCardIndex + 1) % tarotMajorArcana.length;
+        }
+        tarotArt.src = `assets/tarot/${tarotMajorArcana[tarotCardIndex]}.png`;
+        tarotArt.hidden = false;
+      }
+
+      function updatePsychometerPanel() {
+        if (!Module.ccall || faceSelect.value === "") {
+          psychometerPanel.hidden = true;
+          return;
+        }
+        psychometerPanel.hidden = currentFaceMeta().slug !== "psych-state";
+      }
+
+      function updatePsychometerSample() {
+        if (psychometerPanel.hidden) {
+          return;
+        }
+        const phase = performance.now() / 2400;
+        const valence = 0.18 + Math.sin(phase) * 0.025;
+        const arousal = 0.63 + Math.cos(phase * 0.8) * 0.018;
+        const eyes = 0.82 + Math.sin(phase * 1.7) * 0.015;
+        const symmetry = 0.94 + Math.cos(phase * 0.6) * 0.008;
+        const confidence = Math.round(86 + Math.sin(phase * 0.4) * 2);
+        const yaw = Math.round(2 + Math.sin(phase * 0.7));
+        psychometerReadout.valence.textContent = `${valence >= 0 ? "+" : ""}${valence.toFixed(2)}`;
+        psychometerReadout.arousal.textContent = arousal.toFixed(2);
+        psychometerReadout.pose.textContent = `${yaw >= 0 ? "+" : ""}${yaw}° yaw · −1° pitch`;
+        psychometerReadout.eyes.textContent = eyes.toFixed(2);
+        psychometerReadout.symmetry.textContent = symmetry.toFixed(2);
+        psychometerReadout.baseline.textContent = `+${(valence - 0.07).toFixed(2)}`;
+        psychometerReadout.confidence.textContent = `${confidence}%`;
+        psychometerReadout.confidenceBar.style.width = `${confidence}%`;
+      }
+
+      window.setInterval(updatePsychometerSample, 450);
 
       function setVoiceState(state, detail, durationMs = 1800) {
         if (!Module.ccall) {
@@ -343,6 +629,42 @@
 
       const canvas = document.querySelector("#astrolabe-canvas");
       let swipeStart = null;
+
+      function currentFaceCaptureCanvas() {
+        if (tarotArt.hidden || !tarotArt.complete || !tarotArt.naturalWidth) {
+          return canvas;
+        }
+        const capture = document.createElement("canvas");
+        capture.width = canvas.width;
+        capture.height = canvas.height;
+        const context = capture.getContext("2d");
+        context.drawImage(canvas, 0, 0);
+        context.drawImage(tarotArt, 0, 0, capture.width, capture.height);
+        return capture;
+      }
+
+      function currentFacePngDataUrl() {
+        return currentFaceCaptureCanvas().toDataURL("image/png");
+      }
+
+      function saveCurrentFacePng() {
+        const face = currentFaceMeta();
+        currentFaceCaptureCanvas().toBlob((blob) => {
+          if (!blob) {
+            controls.status.textContent = "Unable to capture the current face.";
+            return;
+          }
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = `astrolabe-${face.slug || "face"}.png`;
+          link.click();
+          URL.revokeObjectURL(url);
+        }, "image/png");
+      }
+
+      window.astrolabeWebsimCapturePng = currentFacePngDataUrl;
+      controls.saveFace.addEventListener("click", saveCurrentFacePng);
 
       canvas.addEventListener("pointerdown", (event) => {
         if (event.pointerType === "mouse" && event.button !== 0) {
@@ -627,6 +949,7 @@
       controls.stopVoice.addEventListener("click", stopVoice);
       controls.buttonVoice.addEventListener("click", () => {
         Module.ccall("astrolabe_web_button_press", null);
+        updateTarotArt(true);
         speakCurrentFace("button TTS");
       });
       controls.allVoice.addEventListener("click", testAllFaces);

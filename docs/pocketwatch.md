@@ -37,7 +37,7 @@ Same project as Android Mynah:
 
 ### Firmware (this repo)
 
-Firmware source lives at this **repository root** (**PlatformIO** + **Arduino**); **ESP-IDF** is acceptable if we need tighter audio/display coupling.
+Firmware source lives in [`astrolabe175c/`](../astrolabe175c/) and uses native **ESP-IDF** for the round 1.75/1.75C hardware family.
 
 **Suggested layers:**
 

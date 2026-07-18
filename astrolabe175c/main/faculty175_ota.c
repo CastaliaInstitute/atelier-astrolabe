@@ -64,11 +64,17 @@ static const char *TAG = "faculty175_ota";
 #ifndef ASTROLABE_OTA_AUTO_INTERVAL_S
 #define ASTROLABE_OTA_AUTO_INTERVAL_S 60
 #endif
+#ifndef ASTROLABE_FIRMWARE_VARIANT
+#define ASTROLABE_FIRMWARE_VARIANT "Faculty"
+#endif
 #define OTA_AUTO_DEFAULT_INTERVAL_S ASTROLABE_OTA_AUTO_INTERVAL_S
 #define OTA_AUTO_MIN_INTERVAL_S 60
 #define OTA_LOCAL_PATH_MAX 256
 #define OTA_LOCAL_DEFAULT_RELATIVE "update/astrolabe175c.bin"
-#define OTA_DEV_SKIP_TLS_SERVER_VERIFY 1
+/* Release OTA must authenticate its HTTPS peer before trusting even a signed
+ * manifest. The manifest signature protects content; TLS also protects the
+ * endpoint, redirects, error handling, and availability boundary. */
+#define OTA_DEV_SKIP_TLS_SERVER_VERIFY 0
 
 typedef enum {
     OTA_STATE_IDLE = 0,
@@ -81,6 +87,7 @@ static volatile ota_state_t s_ota_state;
 static char s_ota_last[160];
 static bool s_ota_auto_started;
 static volatile bool s_ota_auto_paused;
+static volatile bool s_ota_network_ready;
 static wifi_ps_type_t s_ota_previous_wifi_ps = WIFI_PS_MIN_MODEM;
 static bool s_ota_wifi_ps_saved;
 
@@ -298,19 +305,22 @@ static esp_err_t manifest_devices_csv(const cJSON *devices, char *out, size_t ca
 static esp_err_t manifest_canonical(char *out,
                                     size_t cap,
                                     const char *channel,
+                                    const char *firmware_variant,
                                     const char *firmware_url,
                                     const char *sha256,
                                     int64_t bytes,
                                     const char *devices_csv)
 {
-    if (out == NULL || channel == NULL || firmware_url == NULL || sha256 == NULL || devices_csv == NULL ||
+    if (out == NULL || channel == NULL || firmware_variant == NULL || firmware_url == NULL ||
+        sha256 == NULL || devices_csv == NULL ||
         devices_csv[0] == '\0' || bytes <= 0) {
         return ESP_ERR_INVALID_ARG;
     }
     const int n = snprintf(out,
                            cap,
-                           "ota_channel=%s\nfirmware_url=%s\nsha256=%s\nbytes=%lld\ndevices=%s\n",
+                           "ota_channel=%s\nfirmware_variant=%s\nfirmware_url=%s\nsha256=%s\nbytes=%lld\ndevices=%s\n",
                            channel,
+                           firmware_variant,
                            firmware_url,
                            sha256,
                            bytes,
@@ -759,6 +769,7 @@ static esp_err_t fetch_manifest(const char *manifest_url, ota_job_t *job)
             err = ESP_ERR_INVALID_RESPONSE;
         } else {
             const cJSON *channel = cJSON_GetObjectItemCaseSensitive(root, "ota_channel");
+            const cJSON *firmware_variant = cJSON_GetObjectItemCaseSensitive(root, "firmware_variant");
             const cJSON *url = cJSON_GetObjectItemCaseSensitive(root, "firmware_url");
             const cJSON *sha = cJSON_GetObjectItemCaseSensitive(root, "sha256");
             const cJSON *bytes = cJSON_GetObjectItemCaseSensitive(root, "bytes");
@@ -767,6 +778,10 @@ static esp_err_t fetch_manifest(const char *manifest_url, ota_job_t *job)
             const cJSON *signature = cJSON_GetObjectItemCaseSensitive(root, "signature");
             if (!cJSON_IsString(channel) || strcmp(channel->valuestring, ASTROLABE_FACULTY_OTA_CHANNEL) != 0) {
                 set_last("manifest wrong channel");
+                err = ESP_ERR_INVALID_VERSION;
+            } else if (!cJSON_IsString(firmware_variant) ||
+                       strcmp(firmware_variant->valuestring, ASTROLABE_FIRMWARE_VARIANT) != 0) {
+                set_last("manifest wrong firmware variant");
                 err = ESP_ERR_INVALID_VERSION;
             } else if (!cJSON_IsString(url) || !is_http_url(url->valuestring)) {
                 set_last("manifest missing firmware_url");
@@ -794,6 +809,7 @@ static esp_err_t fetch_manifest(const char *manifest_url, ota_job_t *job)
                     err = manifest_canonical(canonical,
                                              sizeof(canonical),
                                              channel->valuestring,
+                                             firmware_variant->valuestring,
                                              url->valuestring,
                                              sha->valuestring,
                                              expected_size,
@@ -1282,6 +1298,14 @@ static esp_err_t start_install_job(const ota_job_t *src)
     if (src == NULL || src->url[0] == '\0' || (!src->local_file && !is_http_url(src->url))) {
         return ESP_ERR_INVALID_ARG;
     }
+    /* esp_http_client ultimately enters lwIP. Calling it before esp-netif and
+     * the Wi-Fi connection are ready asserts inside tcpip_send_msg_wait_sem
+     * instead of returning a recoverable network error. The serial console is
+     * available earlier in boot, so explicitly gate remote jobs. */
+    if (!src->local_file && !s_ota_network_ready) {
+        set_last("network not ready");
+        return ESP_ERR_INVALID_STATE;
+    }
     ota_wifi_performance_begin();
     const size_t released_dma_bytes = faculty175_display_prepare_ota();
     ota_job_t *job = calloc(1, sizeof(*job));
@@ -1391,6 +1415,7 @@ static bool take_token(const char **cursor, char *out, size_t cap)
 void faculty175_ota_init(void)
 {
     s_ota_state = OTA_STATE_IDLE;
+    s_ota_network_ready = false;
     const esp_partition_t *running = esp_ota_get_running_partition();
     const esp_partition_t *boot = esp_ota_get_boot_partition();
     set_last("boot running=%s boot=%s", part_label(running), part_label(boot));
@@ -1431,6 +1456,11 @@ bool faculty175_ota_active(void)
 void faculty175_ota_set_auto_paused(bool paused)
 {
     s_ota_auto_paused = paused;
+}
+
+void faculty175_ota_set_network_ready(bool ready)
+{
+    s_ota_network_ready = ready;
 }
 
 void faculty175_ota_maybe_start_recovery_request(void)

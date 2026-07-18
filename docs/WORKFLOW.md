@@ -1,45 +1,125 @@
-# Development workflow (GitHub + Cursor)
+# Astrolabe development workflow
 
-Astrolabe uses **GitHub Issues** for trackable work, **one branch per issue**, and **[`docs/BACKLOG.md`](BACKLOG.md)** as the product roadmap. **Cursor Cloud** (and local Cursor agents) implement from an issue on a dedicated branch, open a PR into **`integration`**, and may merge when CI is green. Firmware on **`main`** is updated only after **build + on-device flash** (promotion). GitHub Pages is a site deploy and may publish from `integration`.
+Astrolabe uses GitHub Issues, one branch per issue, and `integration` as the
+base branch. The native ESP-IDF round-watch source is [`astrolabe175c/`](../astrolabe175c/).
 
 ## Branches
 
-| Branch | Role |
-|--------|------|
-| **`integration`** | Default merge target for issue PRs; CI build on every PR/push |
-| **`main`** | Firmware release line — must always build and have been flashed before firmware promotion |
-| `feature/<#>-slug` / `fix/<#>-slug` | One issue per branch; branch **from** `integration` |
+| Work | Branch |
+|---|---|
+| Start | `integration` |
+| Feature | `feature/<issue>-slug` |
+| Fix | `fix/<issue>-slug` |
+| Pull request base | `integration` |
+| Firmware release | `main`, by promotion after physical-device QA |
 
-```text
-fix|feature/<#>-slug  ──PR──►  integration  ──promote──►  main
-```
+Never open ordinary issue work against `main`. GitHub Pages publication from
+`integration` is not firmware release promotion and does not require a flash
+gate.
 
-**Promote** (human or operator after hardware QA on `integration`):
+## Start work
 
 ```bash
 git fetch origin integration
-# flash integration firmware on watch, smoke-test
+git checkout integration
+git pull --ff-only origin integration
+git checkout -b feature/<issue>-slug
+```
+
+Keep changes focused. Update [`BACKLOG.md`](BACKLOG.md) when an item begins or
+finishes, and use `Closes #N` in the pull request description.
+
+## Build
+
+Source ESP-IDF 5.5 or later, then build the canonical target:
+
+```bash
+source ~/esp/esp-idf/export.sh
+./scripts/astrolabe175c_build.sh build
+```
+
+For a connected 1.75/1.75C device:
+
+```bash
+./scripts/astrolabe175c_identify.sh /dev/cu.usbmodem1101
+./scripts/astrolabe175c_build.sh -p /dev/cu.usbmodem1101 flash monitor
+```
+
+Use [`ensure-device-secrets.sh`](../scripts/ensure-device-secrets.sh) or a local
+`include/secrets.local.h` when a test requires Wi-Fi or Castalia. Never place
+secrets in logs, commits, artifacts, issue comments, or screenshots.
+
+## Verification
+
+Every firmware PR must include verification proportional to its risk:
+
+- Native ESP-IDF build passes from a clean checkout.
+- Deterministic logic has host or component tests where practical.
+- Changed faces are flashed, displayed on the physical watch, captured, and
+  visually evaluated.
+- Audio, touch, power, charging, USB, Wi-Fi, storage, and OTA changes receive
+  physical-device tests.
+- Failure states include offline, expired authentication, low storage, low
+  battery, and interrupted operations where relevant.
+- Logs are checked for credentials and private captured content.
+
+Useful current target tools include:
+
+```bash
+./scripts/astrolabe175c_run.sh --help
+./scripts/astrolabe175c_voice_e2e.sh --help
+python3 ./scripts/astrolabe175c_voice_soak.py --help
+python3 ./scripts/astrolabe175c_voice_validate.py --help
+```
+
+Store physical QA evidence under `artifacts/qa/`; do not commit generated QA
+artifacts unless a release record explicitly requires them.
+
+## Pull request
+
+Before opening a PR:
+
+1. Bring the current `integration` branch into the issue branch.
+2. Build the affected native target.
+3. Run relevant tests and record exact commands/results.
+4. Complete physical QA for hardware-facing changes.
+5. Update docs and the backlog.
+6. Confirm the diff contains no secrets, generated build trees, or unrelated
+   user changes.
+
+Merge the PR into `integration` after review and green required checks.
+
+## Promotion to `main`
+
+Firmware on `main` represents a physically verified release line. Before
+promotion:
+
+1. Build the exact `integration` commit that will be promoted.
+2. Flash that commit to the canonical device.
+3. Run the release smoke test and feature-specific hardware tests.
+4. Verify recovery/OTA behavior when it changed.
+5. Record the commit, device identity, build, flash, and test result.
+6. Promote only after the gate is green:
+
+```bash
 ./scripts/promote-integration.sh --flash-ok
 ```
 
-GitHub: set the repo **default branch for pull requests** to **`integration`** (Settings → General → Pull Requests).
+Do not use the promotion script for documentation-only GitHub Pages updates.
 
-**Branch protection (recommended)** on `integration`:
+## Hardware QA for faces
 
-- Required status checks: **Firmware build** + **Integration sim gate** (`ENABLE_INTEGRATION_SIM_GATE=true`)
-- **Integration device gate** runs on m1 after each build but is **not** a merge requirement — it gates promotion to **`main`**
-- **Deploy GitHub Pages** publishes the static site from `docs/` on pushes to **`integration`** or **`main`**; this is exempt from the hardware flash gate because it does not change device firmware.
+For every new or changed face:
 
-## Roles
+1. Flash the native `astrolabe175c` build.
+2. Navigate to the face using the supported serial or touch controls.
+3. Capture the physical display through the current screen/QA facility.
+4. Inspect clipping, safe area, typography, contrast, stale/error states, and
+   gesture ownership.
+5. Exercise sleep/wake, offline mode, and a representative error.
+6. Attach or link the evidence in the issue or PR.
 
-| Artifact | Role |
-|----------|------|
-| [`docs/BACKLOG.md`](BACKLOG.md) | Roadmap: priorities, specs, done history |
-| **GitHub Issue** | Actionable unit of work; discussion; links PRs |
-| **Branch** | Isolated implementation (`feature/…` or `fix/…`) |
-| **Pull request** | Into **`integration`**; CI; `Closes #N` |
-
-When you **start** a backlog item, **open or claim an issue** (do not implement large features only in markdown).
+Do not mark a face complete based only on compilation or a simulator.
 
 ## Starting work
 
@@ -299,3 +379,9 @@ Optional repo variables: `ENABLE_INTEGRATION_HW_QA=true`, `ASTROLABE_QA_ISSUE=2`
 ## PR checklist
 
 See [`.github/pull_request_template.md`](../.github/pull_request_template.md).
+## Dirty worktrees
+
+The shared workspace may contain device experiments and untracked QA artifacts.
+Preserve unrelated changes. Never use destructive reset/checkout operations to
+clean the tree. If another change overlaps the files required for an issue,
+coordinate before editing.

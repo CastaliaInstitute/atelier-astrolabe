@@ -6,6 +6,7 @@
 #include <string.h>
 #include <time.h>
 
+#include "esp_attr.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_spiffs.h"
@@ -91,7 +92,6 @@ static lv_obj_t *s_moon_image;
 static lv_obj_t *s_moon_fallback_disk;
 static lv_obj_t *s_moon_fallback_shadow;
 static lv_obj_t *s_moon_fallback_craters[9];
-static lv_obj_t *s_moon_phase_arc;
 static lv_obj_t *s_moon_phase_marker;
 static lv_obj_t *s_moon_day_ticks[28];
 static lv_point_precise_t s_moon_day_tick_points[28][2];
@@ -117,21 +117,21 @@ static lv_obj_t *s_runes_slot_labels[3];
 static lv_obj_t *s_runes_name_labels[3];
 static lv_obj_t *s_runes_keyword;
 static lv_obj_t *s_runes_glyph_lines[3][6];
-static lv_point_precise_t s_runes_glyph_points[3][6][2];
+EXT_RAM_BSS_ATTR static lv_point_precise_t s_runes_glyph_points[3][6][2];
 static int s_runes_loaded[3] = {-1, -1, -1};
 static lv_obj_t *s_aleth_screen;
 static lv_obj_t *s_aleth_outer;
 static lv_obj_t *s_aleth_inner;
 static lv_obj_t *s_aleth_center_rings[4];
 static lv_obj_t *s_aleth_center_spokes[12];
-static lv_point_precise_t s_aleth_spoke_points[12][2];
+EXT_RAM_BSS_ATTR static lv_point_precise_t s_aleth_spoke_points[12][2];
 static lv_obj_t *s_aleth_needles[4];
 static lv_point_precise_t s_aleth_needle_points[4][2];
 static lv_obj_t *s_aleth_answer;
 static lv_obj_t *s_aleth_question;
 static lv_obj_t *s_aleth_glyph_images[36];
 static uint8_t *s_aleth_glyph_pixels;
-static lv_image_dsc_t s_aleth_glyph_textures[36];
+EXT_RAM_BSS_ATTR static lv_image_dsc_t s_aleth_glyph_textures[36];
 static uint32_t s_aleth_glyph_colors[36];
 static float s_aleth_angles[4] = {-1.5708f, -0.7f, 1.1f, 2.2f};
 static float s_aleth_velocity[4];
@@ -142,7 +142,7 @@ static lv_obj_t *s_sky_screen;
 static lv_obj_t *s_sky_grid[5];
 static lv_obj_t *s_sky_stars[24];
 static lv_obj_t *s_sky_segments[16];
-static lv_point_precise_t s_sky_segment_points[16][2];
+EXT_RAM_BSS_ATTR static lv_point_precise_t s_sky_segment_points[16][2];
 static lv_obj_t *s_sky_label;
 #if FACULTY175_ENABLE_ALMANAC_FACES
 static lv_obj_t *s_almanac_screen;
@@ -188,8 +188,8 @@ static lv_obj_t *s_solar_cycle_marker;
 static lv_obj_t *s_solar_year_marker;
 static lv_obj_t *s_solar_cycle_ticks[11];
 static lv_obj_t *s_solar_year_ticks[12];
-static lv_point_precise_t s_solar_cycle_tick_points[11][2];
-static lv_point_precise_t s_solar_year_tick_points[12][2];
+EXT_RAM_BSS_ATTR static lv_point_precise_t s_solar_cycle_tick_points[11][2];
+EXT_RAM_BSS_ATTR static lv_point_precise_t s_solar_year_tick_points[12][2];
 static lv_obj_t *s_solar_corona[4];
 static lv_obj_t *s_solar_disk;
 static lv_obj_t *s_solar_limb;
@@ -212,12 +212,12 @@ static lv_obj_t *s_magnet_earth_limb;
 static lv_obj_t *s_magnet_earth_shadow;
 static lv_obj_t *s_magnet_bow;
 static lv_obj_t *s_magnet_tail[4];
-static lv_point_precise_t s_magnet_tail_points[4][5];
+EXT_RAM_BSS_ATTR static lv_point_precise_t s_magnet_tail_points[4][5];
 static lv_obj_t *s_magnet_field[8];
-static lv_point_precise_t s_magnet_field_points[8][11];
+EXT_RAM_BSS_ATTR static lv_point_precise_t s_magnet_field_points[8][11];
 static lv_obj_t *s_magnet_surface[7];
 static lv_obj_t *s_magnet_grid[6];
-static lv_point_precise_t s_magnet_grid_points[6][9];
+EXT_RAM_BSS_ATTR static lv_point_precise_t s_magnet_grid_points[6][9];
 static lv_obj_t *s_magnet_particles[9];
 static lv_obj_t *s_magnet_title;
 static lv_obj_t *s_magnet_status;
@@ -227,10 +227,10 @@ static float s_magnet_data_energy = 0.50f;
 static lv_obj_t *s_astrology_screen;
 static lv_obj_t *s_astrology_rings[4];
 static lv_obj_t *s_astrology_spokes[12];
-static lv_point_precise_t s_astrology_spoke_points[12][2];
+EXT_RAM_BSS_ATTR static lv_point_precise_t s_astrology_spoke_points[12][2];
 static lv_obj_t *s_astrology_signs[12];
 static lv_obj_t *s_astrology_glyph_lines[12][7];
-static lv_point_precise_t s_astrology_glyph_points[12][7][2];
+EXT_RAM_BSS_ATTR static lv_point_precise_t s_astrology_glyph_points[12][7][2];
 static lv_obj_t *s_astrology_bodies[7];
 static lv_obj_t *s_astrology_body_labels[7];
 static lv_obj_t *s_astrology_natal[7];
@@ -240,21 +240,27 @@ static lv_obj_t *s_astrology_source;
 static lv_obj_t *s_synastry_screen;
 static lv_obj_t *s_synastry_rings[5];
 static lv_obj_t *s_synastry_spokes[12];
-static lv_point_precise_t s_synastry_spoke_points[12][2];
+EXT_RAM_BSS_ATTR static lv_point_precise_t s_synastry_spoke_points[12][2];
 static lv_obj_t *s_synastry_bonds[SYNASTRY_ORRERY_MAX_BONDS];
-static lv_point_precise_t s_synastry_bond_points[SYNASTRY_ORRERY_MAX_BONDS][2];
+EXT_RAM_BSS_ATTR static lv_point_precise_t s_synastry_bond_points[SYNASTRY_ORRERY_MAX_BONDS][2];
 static lv_obj_t *s_synastry_people[SYNASTRY_ORRERY_MAX_PEOPLE];
 static lv_obj_t *s_synastry_people_labels[SYNASTRY_ORRERY_MAX_PEOPLE];
 static lv_obj_t *s_synastry_title;
 static lv_obj_t *s_synastry_names;
 static lv_obj_t *s_synastry_line;
 static lv_obj_t *s_synastry_wellness[3];
+static lv_obj_t *s_synastry_weather_days[10];
+static lv_obj_t *s_synastry_weather_symbols[10];
+static lv_obj_t *s_synastry_weather_day_labels[10];
+static lv_obj_t *s_synastry_weather_main;
+static lv_obj_t *s_synastry_weather_main_symbol;
+static lv_obj_t *s_synastry_weather_guidance;
 static lv_obj_t *s_transits_screen;
 static lv_obj_t *s_transits_rings[4];
 static lv_obj_t *s_transits_spokes[12];
-static lv_point_precise_t s_transits_spoke_points[12][2];
+EXT_RAM_BSS_ATTR static lv_point_precise_t s_transits_spoke_points[12][2];
 static lv_obj_t *s_transits_motion[7];
-static lv_point_precise_t s_transits_motion_points[7][2];
+EXT_RAM_BSS_ATTR static lv_point_precise_t s_transits_motion_points[7][2];
 static lv_obj_t *s_transits_now[7];
 static lv_obj_t *s_transits_next[7];
 static lv_obj_t *s_transits_labels[7];
@@ -263,7 +269,7 @@ static lv_obj_t *s_transits_line;
 static lv_obj_t *s_transits_clock;
 static lv_obj_t *s_lenormand_screen;
 static lv_obj_t *s_lenormand_ticks[36];
-static lv_point_precise_t s_lenormand_tick_points[36][2];
+EXT_RAM_BSS_ATTR static lv_point_precise_t s_lenormand_tick_points[36][2];
 static lv_obj_t *s_lenormand_number;
 static lv_obj_t *s_lenormand_title;
 static lv_obj_t *s_lenormand_keyword;
@@ -292,7 +298,7 @@ static lv_obj_t *s_instrument_status;
 static lv_obj_t *s_instrument_orbs[9];
 static lv_obj_t *s_instrument_bars[14];
 static lv_obj_t *s_instrument_lines[12];
-static lv_point_precise_t s_instrument_line_points[12][2];
+EXT_RAM_BSS_ATTR static lv_point_precise_t s_instrument_line_points[12][2];
 static lv_obj_t *s_instrument_labels[4];
 static lv_obj_t *s_oracle_screen;
 static lv_obj_t *s_oracle_title;
@@ -300,7 +306,7 @@ static lv_obj_t *s_oracle_status;
 static lv_obj_t *s_oracle_orbs[16];
 static lv_obj_t *s_oracle_bars[16];
 static lv_obj_t *s_oracle_lines[24];
-static lv_point_precise_t s_oracle_line_points[24][2];
+EXT_RAM_BSS_ATTR static lv_point_precise_t s_oracle_line_points[24][2];
 static lv_obj_t *s_oracle_labels[12];
 static lv_obj_t *s_utility_screen;
 static lv_obj_t *s_utility_title;
@@ -308,7 +314,7 @@ static lv_obj_t *s_utility_status;
 static lv_obj_t *s_utility_orbs[14];
 static lv_obj_t *s_utility_bars[16];
 static lv_obj_t *s_utility_lines[28];
-static lv_point_precise_t s_utility_line_points[28][2];
+EXT_RAM_BSS_ATTR static lv_point_precise_t s_utility_line_points[28][2];
 static lv_obj_t *s_utility_labels[14];
 static lv_obj_t *s_utility_qr;
 static lv_obj_t *s_rocket_image;
@@ -766,6 +772,25 @@ static lv_obj_t *make_circle(lv_obj_t *parent, int32_t size, uint32_t color, lv_
     return obj;
 }
 
+static void add_lunasay_settings_gear(lv_obj_t *parent)
+{
+#if defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
+    /* Keep this indicator text-only. The former collection of rounded LVGL
+     * objects entered the software arc renderer during a full-screen refresh
+     * and could monopolize the UI task long enough to trip the watchdog. */
+    lv_obj_t *gear = lv_label_create(parent);
+    lv_obj_remove_style_all(gear);
+    lv_label_set_text(gear, "SET");
+    lv_obj_set_style_text_color(gear, lv_color_hex(0xcfc6dd), 0);
+    lv_obj_set_style_text_opa(gear, 220, 0);
+    lv_obj_set_style_text_font(gear, LV_FONT_DEFAULT, 0);
+    lv_obj_align(gear, LV_ALIGN_TOP_RIGHT, -20, 22);
+    lv_obj_clear_flag(gear, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+#else
+    (void)parent;
+#endif
+}
+
 static lv_obj_t *make_arc_ring(lv_obj_t *parent, int32_t size, uint32_t color, int32_t width, lv_opa_t opa)
 {
     lv_obj_t *arc = lv_arc_create(parent);
@@ -1078,24 +1103,9 @@ static bool moon_texture_load(void)
     return true;
 }
 
-static lv_obj_t *create_moon_phase_arc(lv_obj_t *parent)
+bool faculty175_lvgl_preload_moon_texture(void)
 {
-    lv_obj_t *arc = lv_arc_create(parent);
-    lv_obj_remove_style(arc, NULL, LV_PART_KNOB);
-    lv_obj_set_size(arc, 432, 432);
-    lv_obj_center(arc);
-    lv_obj_clear_flag(arc, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_clear_flag(arc, LV_OBJ_FLAG_SCROLLABLE);
-    lv_arc_set_bg_angles(arc, 0, 360);
-    lv_arc_set_range(arc, 0, 1000);
-    lv_arc_set_rotation(arc, 270);
-    lv_obj_set_style_arc_width(arc, 2, LV_PART_MAIN);
-    lv_obj_set_style_arc_color(arc, lv_color_hex(0x303646), LV_PART_MAIN);
-    lv_obj_set_style_arc_opa(arc, 170, LV_PART_MAIN);
-    lv_obj_set_style_arc_width(arc, 4, LV_PART_INDICATOR);
-    lv_obj_set_style_arc_color(arc, lv_color_hex(0xaabdda), LV_PART_INDICATOR);
-    lv_obj_set_style_arc_opa(arc, 230, LV_PART_INDICATOR);
-    return arc;
+    return moon_texture_load();
 }
 
 static void create_moon_day_ticks(lv_obj_t *parent)
@@ -1124,9 +1134,6 @@ static void create_moon_day_ticks(lv_obj_t *parent)
 
 static void moon_update_phase_overlay(float phase)
 {
-    if (s_moon_phase_arc != NULL) {
-        lv_arc_set_value(s_moon_phase_arc, (int32_t)lrintf(phase * 1000.0f));
-    }
     if (s_moon_phase_marker != NULL) {
         const float a = phase * 6.28318530718f - 1.57079632679f;
         const int32_t cx = FACULTY175_LCD_W / 2;
@@ -1173,17 +1180,19 @@ static void create_moon_screen(void)
         s_moon_fallback_shadow = make_circle(s_moon_screen, 292, 0x020308, 238);
         lv_obj_center(s_moon_fallback_shadow);
     }
-    s_moon_phase_arc = create_moon_phase_arc(s_moon_screen);
     create_moon_day_ticks(s_moon_screen);
-    s_moon_phase_marker = make_circle(s_moon_screen, 11, 0xeee8d4, LV_OPA_COVER);
-    lv_obj_set_style_border_width(s_moon_phase_marker, 2, 0);
-    lv_obj_set_style_border_color(s_moon_phase_marker, lv_color_hex(0x0b0c10), 0);
-    lv_obj_set_style_border_opa(s_moon_phase_marker, 210, 0);
-    lv_obj_move_foreground(s_moon_phase_arc);
+    /* A glyph avoids sending even this small marker through LVGL's rounded
+     * border/arc path when the Moon screen becomes active. */
+    s_moon_phase_marker = lv_label_create(s_moon_screen);
+    lv_obj_remove_style_all(s_moon_phase_marker);
+    lv_label_set_text(s_moon_phase_marker, "*");
+    lv_obj_set_style_text_color(s_moon_phase_marker, lv_color_hex(0xeee8d4), 0);
+    lv_obj_set_style_text_font(s_moon_phase_marker, LV_FONT_DEFAULT, 0);
     for (int i = 0; i < 28; ++i) {
         lv_obj_move_foreground(s_moon_day_ticks[i]);
     }
     lv_obj_move_foreground(s_moon_phase_marker);
+    add_lunasay_settings_gear(s_moon_screen);
 }
 
 static bool draw_moon(uint32_t anim_ms)
@@ -5263,6 +5272,7 @@ static void create_sky_screen(void)
         native_obj_hidden(s_sky_stars[i], true);
     }
     s_sky_label = make_tarot_label(s_sky_screen, 396, 260, 0xa8b8e0);
+    add_lunasay_settings_gear(s_sky_screen);
 }
 
 static bool draw_sky(uint32_t anim_ms)
@@ -6046,6 +6056,7 @@ static void create_astrology_screen(void)
     lv_obj_set_style_text_align(s_astrology_line, LV_TEXT_ALIGN_CENTER, 0);
     s_astrology_source = make_tarot_label(s_astrology_screen, 394, 300, 0xbeaa70);
     native_obj_hidden(s_astrology_source, true);
+    add_lunasay_settings_gear(s_astrology_screen);
 }
 
 static bool draw_astrology(uint32_t anim_ms)
@@ -6645,6 +6656,118 @@ static void synastry_update_wellness_labels(void)
     lv_obj_set_style_text_color(s_synastry_wellness[2], lv_color_hex(0xaab4cc), 0);
 }
 
+typedef enum {
+    SYNASTRY_WEATHER_SUN = 0,
+    SYNASTRY_WEATHER_FAIR,
+    SYNASTRY_WEATHER_MIXED,
+    SYNASTRY_WEATHER_RAIN,
+    SYNASTRY_WEATHER_STORM,
+} synastry_weather_t;
+
+static double synastry_weather_sep(double a, double b)
+{
+    double d = fabs(synastry_norm360(a) - synastry_norm360(b));
+    return d > 180.0 ? 360.0 - d : d;
+}
+
+static synastry_weather_t synastry_weather_for_day(const faculty175_chart_positions_t *a,
+                                                   const faculty175_chart_positions_t *b,
+                                                   int day)
+{
+    faculty175_chart_positions_t transit = {};
+    time_t epoch = astrolabe_time_valid() ? astrolabe_time_now() : (time_t)1784246400;
+    if (!faculty175_charts_positions_at(epoch + (time_t)day * 86400, &transit)) {
+        return SYNASTRY_WEATHER_MIXED;
+    }
+    float score = 0.0f;
+    static const int aspects[] = {0, 60, 90, 120, 180};
+    static const float tone[] = {0.35f, 0.65f, -0.82f, 1.0f, -0.62f};
+    for (int body = 0; body < FACULTY175_CHART_BODY_COUNT; ++body) {
+        for (int person = 0; person < 2; ++person) {
+            const faculty175_chart_positions_t *natal = person == 0 ? a : b;
+            for (int natal_body = 0; natal_body < FACULTY175_CHART_BODY_COUNT; ++natal_body) {
+                const double sep = synastry_weather_sep(transit.lon[body], natal->lon[natal_body]);
+                for (size_t ai = 0; ai < sizeof(aspects) / sizeof(aspects[0]); ++ai) {
+                    const double orb = fabs(sep - aspects[ai]);
+                    if (orb <= 5.5) {
+                        const float exact = 1.0f - (float)(orb / 5.5);
+                        const float personal = (body < 2 || natal_body < 2) ? 1.3f : 0.72f;
+                        score += tone[ai] * exact * personal;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    if (score >= 3.0f) return SYNASTRY_WEATHER_SUN;
+    if (score >= 0.8f) return SYNASTRY_WEATHER_FAIR;
+    if (score > -1.1f) return SYNASTRY_WEATHER_MIXED;
+    if (score > -3.2f) return SYNASTRY_WEATHER_RAIN;
+    return SYNASTRY_WEATHER_STORM;
+}
+
+static uint32_t synastry_weather_color(synastry_weather_t weather)
+{
+    static const uint32_t colors[] = {0xffcc58, 0xa9d9ff, 0x9da9bc, 0x5d91c9, 0x9a72d6};
+    return colors[(int)weather];
+}
+
+static const char *synastry_weather_symbol(synastry_weather_t weather)
+{
+    static const char *const symbols[] = {"*", "+", "~", "|", "!"};
+    return symbols[(int)weather];
+}
+
+static const char *synastry_weather_name(synastry_weather_t weather)
+{
+    static const char *const names[] = {"OPEN SKIES", "FAIR", "CHANGEABLE", "TENDER RAIN", "STORM WATCH"};
+    return names[(int)weather];
+}
+
+static const char *synastry_weather_guidance(synastry_weather_t weather)
+{
+    static const char *const guidance[] = {
+        "Make the plan together",
+        "Easy warmth; say the kind thing",
+        "Stay curious and check assumptions",
+        "Slow down; make room for feelings",
+        "Protect the bond; pause before reacting",
+    };
+    return guidance[(int)weather];
+}
+
+static void synastry_update_weather(const faculty175_chart_positions_t *user,
+                                    const faculty175_chart_positions_t *target)
+{
+    const int cx = FACULTY175_LCD_W / 2;
+    const int cy = FACULTY175_LCD_H / 2 + 2;
+    for (int day = 0; day < 10; ++day) {
+        const synastry_weather_t weather = synastry_weather_for_day(user, target, day);
+        const float angle = -1.5707963f + (float)day * 6.2831853f / 10.0f;
+        const int x = cx + (int)lrintf(cosf(angle) * 184.0f);
+        const int y = cy + (int)lrintf(sinf(angle) * 184.0f);
+        lv_obj_set_style_bg_color(s_synastry_weather_days[day], lv_color_hex(synastry_weather_color(weather)), 0);
+        lv_obj_set_style_border_color(s_synastry_weather_days[day],
+                                      lv_color_hex(day == 0 ? 0xffffff : 0x33405a), 0);
+        lv_obj_set_style_border_width(s_synastry_weather_days[day], day == 0 ? 3 : 1, 0);
+        lv_obj_align(s_synastry_weather_days[day], LV_ALIGN_TOP_LEFT, x - 17, y - 17);
+        lv_label_set_text(s_synastry_weather_symbols[day], synastry_weather_symbol(weather));
+        lv_obj_center(s_synastry_weather_symbols[day]);
+        char label[4];
+        snprintf(label, sizeof(label), "%s%d", day == 0 ? "" : "+", day);
+        lv_label_set_text(s_synastry_weather_day_labels[day], label);
+        lv_obj_align(s_synastry_weather_day_labels[day], LV_ALIGN_TOP_LEFT, x - 10, y + 18);
+    }
+    const synastry_weather_t today = synastry_weather_for_day(user, target, 0);
+    lv_obj_set_style_bg_color(s_synastry_weather_main, lv_color_hex(synastry_weather_color(today)), 0);
+    lv_label_set_text(s_synastry_weather_main_symbol, synastry_weather_symbol(today));
+    lv_obj_center(s_synastry_weather_main_symbol);
+    char guidance[96];
+    snprintf(guidance, sizeof(guidance), "%s  -  %s", synastry_weather_name(today),
+             synastry_weather_guidance(today));
+    almanac_set_trimmed(s_synastry_weather_guidance, guidance, 48);
+}
+
 static void create_synastry_screen(void)
 {
     s_synastry_screen = lv_obj_create(NULL);
@@ -6694,6 +6817,22 @@ static void create_synastry_screen(void)
     lv_obj_t *hub = make_circle(s_synastry_screen, 64, 0x090a14, LV_OPA_COVER);
     lv_obj_center(hub);
 
+    for (int day = 0; day < 10; ++day) {
+        s_synastry_weather_days[day] = make_circle(s_synastry_screen, 34, 0x9da9bc, LV_OPA_COVER);
+        s_synastry_weather_symbols[day] = make_tarot_label(s_synastry_weather_days[day], 0, 28, 0x111522);
+        lv_obj_set_style_text_align(s_synastry_weather_symbols[day], LV_TEXT_ALIGN_CENTER, 0);
+        s_synastry_weather_day_labels[day] = make_tarot_label(s_synastry_screen, 0, 22, 0x9aa6bf);
+        lv_obj_set_style_text_align(s_synastry_weather_day_labels[day], LV_TEXT_ALIGN_CENTER, 0);
+    }
+    s_synastry_weather_main = make_circle(s_synastry_screen, 112, 0xffcc58, LV_OPA_COVER);
+    lv_obj_center(s_synastry_weather_main);
+    lv_obj_set_style_border_width(s_synastry_weather_main, 3, 0);
+    lv_obj_set_style_border_color(s_synastry_weather_main, lv_color_hex(0xf7e8bd), 0);
+    s_synastry_weather_main_symbol = make_tarot_label(s_synastry_weather_main, 0, 64, 0x131522);
+    lv_obj_set_style_text_align(s_synastry_weather_main_symbol, LV_TEXT_ALIGN_CENTER, 0);
+    s_synastry_weather_guidance = make_tarot_label(s_synastry_screen, 300, 410, 0xe1d9ef);
+    lv_obj_set_style_text_align(s_synastry_weather_guidance, LV_TEXT_ALIGN_CENTER, 0);
+
     s_synastry_title = make_tarot_label(s_synastry_screen, 48, 300, 0xe6e4f6);
     s_synastry_names = make_tarot_label(s_synastry_screen, 74, 360, 0xb2bcda);
     s_synastry_line = make_tarot_label(s_synastry_screen, 392, 360, 0xc4cce2);
@@ -6703,6 +6842,7 @@ static void create_synastry_screen(void)
     for (int i = 0; i < 3; ++i) {
         lv_obj_set_style_text_align(s_synastry_wellness[i], LV_TEXT_ALIGN_CENTER, 0);
     }
+    add_lunasay_settings_gear(s_synastry_screen);
 }
 
 static bool draw_synastry(uint32_t anim_ms)
@@ -6735,6 +6875,21 @@ static bool draw_synastry(uint32_t anim_ms)
         lv_timer_handler();
         return true;
     }
+
+    synastry_hide_orrery_objects();
+    for (int i = 0; i < 3; ++i) {
+        native_obj_hidden(s_synastry_wellness[i], true);
+    }
+    lv_label_set_text(s_synastry_title, "RELATIONSHIP WEATHER");
+    char weather_names[80];
+    snprintf(weather_names, sizeof(weather_names), "%s + %s", user.name, target.name);
+    almanac_set_trimmed(s_synastry_names, weather_names, 42);
+    lv_label_set_text(s_synastry_line, "10 DAY SYMBOLIC FORECAST");
+    synastry_update_weather(&user_pos, &target_pos);
+    lv_obj_invalidate(s_synastry_screen);
+    lvgl_tick(16);
+    lv_timer_handler();
+    return true;
 
     lvgl_synastry_aspect_t aspects[12] = {};
     const int aspect_count = synastry_rebuild_aspects(&user_pos, &target_pos, aspects, 12);
@@ -6886,6 +7041,7 @@ static void create_transits_screen(void)
     s_transits_title = make_tarot_label(s_transits_screen, 50, 300, 0xdcecff);
     s_transits_line = make_tarot_label(s_transits_screen, 372, 360, 0xb8c8de);
     s_transits_clock = make_tarot_label(s_transits_screen, 400, 320, 0x78d2fa);
+    add_lunasay_settings_gear(s_transits_screen);
 }
 
 static bool draw_transits(uint32_t anim_ms)
@@ -7429,7 +7585,10 @@ void faculty175_lvgl_force_full_refresh(void)
         return;
     }
     lv_obj_invalidate(screen);
-    lv_refr_now(s_display);
+    /* ui_task calls faculty175_lvgl_service() immediately after drawing.
+     * Let that normal timer pass flush the invalidated screen; forcing a
+     * synchronous full refresh here can spend multiple watchdog periods in
+     * LVGL's software arc masks after a rapid LunaSay face tour. */
 }
 
 bool faculty175_lvgl_draw_nav(const faculty175_face_desc_t *center,
@@ -7915,6 +8074,43 @@ static bool draw_face_descriptor(faculty175_face_id_t id, uint32_t anim_ms)
     return faculty175_lvgl_draw_native_face(&generated, anim_ms);
 }
 
+static void lunasay_release_inactive_screens(faculty175_face_id_t keep_id)
+{
+#if defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
+    struct {
+        faculty175_face_id_t id;
+        lv_obj_t **screen;
+    } const faces[] = {
+        {FACULTY175_FACE_MOON, &s_moon_screen},
+        {FACULTY175_FACE_ASTROLOGY, &s_astrology_screen},
+        {FACULTY175_FACE_TRANSITS, &s_transits_screen},
+        {FACULTY175_FACE_SYNASTRY, &s_synastry_screen},
+        {FACULTY175_FACE_SKY, &s_sky_screen},
+    };
+
+    for (size_t i = 0; i < sizeof(faces) / sizeof(faces[0]); ++i) {
+        if (faces[i].id == keep_id || *faces[i].screen == NULL) {
+            continue;
+        }
+        lv_obj_t *screen = *faces[i].screen;
+        if (lv_screen_active() == screen) {
+            lv_obj_t *idle = idle_screen();
+            if (idle == NULL) {
+                ESP_LOGW(TAG, "cannot release inactive LunaSay screen: idle allocation failed");
+                return;
+            }
+            lv_screen_load(idle);
+            lvgl_tick(1);
+            lv_timer_handler();
+        }
+        lv_obj_delete(screen);
+        *faces[i].screen = NULL;
+    }
+#else
+    (void)keep_id;
+#endif
+}
+
 bool faculty175_lvgl_draw_face(faculty175_face_id_t id, uint32_t anim_ms)
 {
     if (id == FACULTY175_FACE_DEATHSTAR || id == FACULTY175_FACE_TRON || id == FACULTY175_FACE_MAZE ||
@@ -7927,6 +8123,12 @@ bool faculty175_lvgl_draw_face(faculty175_face_id_t id, uint32_t anim_ms)
     if (!s_ready && faculty175_lvgl_init() != ESP_OK) {
         return false;
     }
+
+    /* The settings HTTP server leaves only a few KiB of internal RAM. Keeping
+     * every object-heavy LunaSay screen alive eventually makes LVGL object
+     * allocation fail while entering Synastry. Retain only the active face;
+     * its screen is rebuilt on the next visit. */
+    lunasay_release_inactive_screens(id);
 
     if (instrument_face_id(id)) {
         return draw_instrument(id, anim_ms);

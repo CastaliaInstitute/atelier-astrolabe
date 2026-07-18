@@ -13,6 +13,7 @@ extern "C" {
 #endif
 
 esp_err_t faculty175_lvgl_init(void);
+bool faculty175_lvgl_preload_moon_texture(void);
 bool faculty175_lvgl_ready(void);
 void faculty175_lvgl_service(uint32_t now_ms);
 bool faculty175_lvgl_face_supported(faculty175_face_id_t id);

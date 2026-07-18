@@ -14,6 +14,7 @@
 #include "astrolabe_round_bezel.h"
 #include "faculty175_board.h"
 #include "faculty175_cycle_arcs.h"
+#include "faculty175_km.h"
 #include "faculty175_lvgl.h"
 
 static const char *TAG = "faculty175_face_native";
@@ -708,14 +709,38 @@ static void draw_celestial(const faculty175_native_face_t *face, uint32_t anim_m
     const int cy = 238;
     if (face->id == FACULTY175_FACE_MOON) {
         const float phase = faculty175_cycle_lunar_phase(anim_ms);
-        faculty175_display_fill_circle(cx, cy, 126, rgb(178, 184, 190));
+        const uint16_t highland = rgb(190, 190, 181);
+        const uint16_t mare = rgb(112, 118, 120);
+        const uint16_t crater_floor = rgb(146, 148, 144);
+        const uint16_t crater_rim = rgb(220, 216, 202);
+        faculty175_display_fill_circle(cx, cy, 126, highland);
+
+        /* Broad, low-contrast maria establish recognizable lunar terrain. All
+         * features stay inside the disc; the phase shadow below clips them to
+         * the illuminated portion without requiring a framebuffer mask. */
+        faculty175_display_fill_circle(cx + 52, cy - 46, 31, mare);
+        faculty175_display_fill_circle(cx + 82, cy + 10, 23, rgb(126, 130, 128));
+        faculty175_display_fill_circle(cx + 42, cy + 55, 27, rgb(130, 133, 130));
+        faculty175_display_fill_circle(cx - 18, cy - 70, 20, rgb(132, 136, 136));
+
+        static const int8_t craters[][3] = {
+            {82, -58, 10}, {96, -22, 7}, {76, 39, 12}, {48, 82, 8},
+            {28, -92, 6}, {12, 68, 9}, {-38, -72, 8}, {-64, 18, 11},
+        };
+        for (size_t i = 0; i < sizeof(craters) / sizeof(craters[0]); ++i) {
+            const int x = cx + craters[i][0];
+            const int y = cy + craters[i][1];
+            const int r = craters[i][2];
+            faculty175_display_fill_circle(x, y, r, crater_floor);
+            faculty175_display_draw_circle(x, y, r, crater_rim);
+            faculty175_display_draw_circle(x + 1, y + 1, r > 6 ? r - 3 : r - 2, mare);
+        }
+
         const int shadow = -74 + (int)lrintf(phase * 148.0f);
         faculty175_display_fill_circle(cx + shadow, cy, 128, rgb(8, 10, 18));
-        for (int i = 0; i < 18; ++i) {
-            const float a = ((float)i / 18.0f) * 6.2831853f;
-            dot_polar(cx, cy, a, 36 + (i * 17) % 78, 2 + (i % 3), rgb(120, 126, 132));
-        }
+        faculty175_display_draw_circle(cx, cy, 126, rgb(224, 220, 208));
         faculty175_cycle_draw_lunar_arc(cx, cy, 212, anim_ms);
+        centered_at("WAXING / WANING", cx, 370, dim);
         return;
     }
     if (face->id == FACULTY175_FACE_GLOBE) {
@@ -873,14 +898,14 @@ static void draw_status(const faculty175_native_face_t *face, uint32_t anim_ms, 
         return;
     }
     if (face->id == FACULTY175_FACE_SETTINGS) {
-        static const char *items[] = {"WIFI", "OTA", "FACES", "AUDIO"};
+        static const char *items[] = {"BATTERY", "WIFI", "BLUETOOTH", "FAMILY / OTA"};
         for (int i = 0; i < 4; ++i) {
             const int y = 156 + i * 48;
             rect_outline(cx - 122, y - 12, 244, 28, rgb(42, 46, 58));
             faculty175_display_fill_rect(cx - 118, y - 8, 88 + i * 28, 20, tone(face->hue + i, 18));
             centered_at(items[i], cx - 66, y - 5, rgb(236, 238, 242));
         }
-        centered_at("NVS DEVICE FLAGS", cx, 370, dim);
+        centered_at("SWIPE UP TO RETURN", cx, 370, dim);
         return;
     }
     if (face->id == FACULTY175_FACE_BIOMETRICS) {
@@ -1002,6 +1027,11 @@ void faculty175_face_native_draw(const faculty175_native_face_t *face, uint32_t 
 
 bool faculty175_face_native_action(faculty175_face_id_t id, uint32_t seed_ms)
 {
+    if (id == FACULTY175_FACE_HID) {
+        const esp_err_t err = faculty175_km_install_pi_agent();
+        ESP_LOGI(TAG, "Pi agent installer action: %s", esp_err_to_name(err));
+        return true;
+    }
     if (id == FACULTY175_FACE_FOCUS) {
         s_focus_running = !s_focus_running;
         s_focus_started_ms = seed_ms;

@@ -10,6 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 FACES_H = ROOT / "astrolabe175c" / "main" / "faculty175_faces.h"
 LVGL_C = ROOT / "astrolabe175c" / "main" / "faculty175_lvgl.c"
+FACE_DISPATCH_C = ROOT / "astrolabe175c" / "main" / "faculty175_face_dispatch.c"
 MAIN_C = ROOT / "astrolabe175c" / "main" / "main.c"
 GESTURE_C = ROOT / "astrolabe175c" / "main" / "faculty175_gesture.c"
 MAGNET_RGB565 = ROOT / "astrolabe175c" / "storage_seed" / "space" / "magnetosphere_466.rgb565"
@@ -42,13 +43,20 @@ def function_body(text: str, name: str) -> str:
 def main() -> None:
     faces = face_tokens()
     lvgl = LVGL_C.read_text()
+    face_dispatch = FACE_DISPATCH_C.read_text()
     main_c = MAIN_C.read_text()
     gesture_c = GESTURE_C.read_text()
     magnet_refresh = MAGNET_REFRESH.read_text() if MAGNET_REFRESH.exists() else ""
     tarot_spiffs = TAROT_SPIFFS_CPP.read_text() if TAROT_SPIFFS_CPP.exists() else ""
     combined = lvgl + "\n" + main_c
 
-    missing_cases = [face for face in faces if re.search(rf"case\s+{face}\s*:", lvgl) is None]
+    dispatch_draw = re.search(
+        r"bool faculty175_face_dispatch_draw[\s\S]*?\n}\n\nbool faculty175_face_dispatch_action",
+        face_dispatch,
+    )
+    dispatch_draw_text = dispatch_draw.group(0) if dispatch_draw else ""
+    render_routes = lvgl + "\n" + dispatch_draw_text
+    missing_cases = [face for face in faces if re.search(rf"case\s+{face}\s*:", render_routes) is None]
     if missing_cases:
         fail("registered faces missing LVGL case coverage: " + ", ".join(missing_cases))
 
@@ -67,7 +75,8 @@ def main() -> None:
         in_utility = face in utility_body
         if in_utility and face not in draw_utility_text:
             utility_fallback_faces.append(face)
-        if not in_instrument and not in_oracle and not in_utility and face not in draw_face_text:
+        if (not in_instrument and not in_oracle and not in_utility
+                and face not in draw_face_text and face not in dispatch_draw_text):
             descriptor_fallback_faces.append(face)
     if descriptor_fallback_faces:
         fail("registered faces route to generated descriptor fallback: " + ", ".join(descriptor_fallback_faces))

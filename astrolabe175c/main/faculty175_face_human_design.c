@@ -6,6 +6,7 @@
 #include <time.h>
 
 #include "astrolabe_time.h"
+#include "esp_attr.h"
 #include "faculty175_board.h"
 #include "faculty175_charts.h"
 #include "faculty175_ephemeris.h"
@@ -194,7 +195,7 @@ static const uint8_t k_mandala_gate_order[64] = {
 };
 
 static hd_mode_t s_hd_mode = HD_MODE_TRANSIT;
-static hd_relationship_ctx_t s_hd_relationship;
+EXT_RAM_BSS_ATTR static hd_relationship_ctx_t s_hd_relationship;
 
 static uint16_t c(uint8_t r, uint8_t g, uint8_t b)
 {

@@ -31,9 +31,12 @@
 #endif
 
 static const char *TAG = "faculty175_voice";
-#define HTTP_TIMEOUT_MS 660000
+/* A failed cloud turn must return control to the UI in human-scale time. */
+#define HTTP_TIMEOUT_MS 60000
 #define VOICE_RESP_MAX_BYTES (768 * 1024)
-#define TTS_MP3_MAX_BYTES (384 * 1024)
+/* Roughly 25 seconds at the service's observed MP3 bitrate.  A runaway reply
+ * is rejected before playback so it cannot monopolize the duplex UI. */
+#define TTS_MP3_MAX_BYTES (72 * 1024)
 #define VOICE_STREAM_CT "application/vnd.astrolabe.voice-stream"
 #define VOICE_SPOOL_BASE "/voice"
 #define VOICE_SPOOL_PARTITION "voice_spool"
@@ -44,6 +47,7 @@ static const char *TAG = "faculty175_voice";
 #define VOICE_HEAP_MIN_INTERNAL_LARGEST (512)
 #define VOICE_HEAP_MIN_PSRAM_FREE (512 * 1024)
 #define VOICE_STREAM_CHUNK_BYTES 1024
+#define VOICE_PCM_CAPTURE_MAX_BYTES (15 * 16000 * sizeof(int16_t))
 #define VOICE_MP3_STREAM_BUFFER_BYTES (24 * 1024)
 #define VOICE_PLAY_TASK_TIMEOUT_MS 30000
 
@@ -59,6 +63,8 @@ EXT_RAM_BSS_ATTR static mp3dec_t s_voice_mp3_dec;
 typedef struct {
     bool open;
     size_t pcm_bytes;
+    uint8_t *pcm_buf;
+    size_t pcm_cap;
     char *meta_json;
     size_t meta_len;
     FILE *spool;
@@ -80,7 +86,7 @@ typedef struct {
     esp_err_t err;
 } faculty175_tts_speaker_stream_state_t;
 
-static faculty175_tts_speaker_stream_state_t s_tts_speaker_stream = {};
+EXT_RAM_BSS_ATTR static faculty175_tts_speaker_stream_state_t s_tts_speaker_stream = {};
 static volatile bool s_tts_playback_busy;
 
 static uint32_t voice_internal_free(void)
@@ -136,8 +142,6 @@ static bool voice_pipeline_http_fallback_url(char *out, size_t cap, const char *
     out[0] = '\0';
     if (MYNAH_VOICE_HTTP_URL[0] != '\0') {
         voice_pipeline_url_from_base(out, cap, MYNAH_VOICE_HTTP_URL);
-    } else if (strncmp(primary_url, "https://", 8) == 0) {
-        snprintf(out, cap, "http://%s", primary_url + 8);
     }
     return out[0] != '\0' && strcmp(out, primary_url) != 0;
 }
@@ -253,7 +257,7 @@ static char *json_escape_alloc(const char *src)
     if (src == NULL) {
         return strdup("");
     }
-    size_t cap = strlen(src) * 2 + 8;
+    size_t cap = strlen(src) * 6 + 8;
     char *out = heap_caps_malloc(cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (out == NULL) {
         out = malloc(cap);
@@ -263,13 +267,41 @@ static char *json_escape_alloc(const char *src)
     }
     size_t w = 0;
     for (const unsigned char *p = (const unsigned char *)src; *p != '\0'; ++p) {
-        if (w + 2 >= cap) {
+        switch (*p) {
+        case '\"':
+        case '\\':
+            out[w++] = '\\';
+            out[w++] = (char)*p;
+            break;
+        case '\b':
+            out[w++] = '\\';
+            out[w++] = 'b';
+            break;
+        case '\f':
+            out[w++] = '\\';
+            out[w++] = 'f';
+            break;
+        case '\n':
+            out[w++] = '\\';
+            out[w++] = 'n';
+            break;
+        case '\r':
+            out[w++] = '\\';
+            out[w++] = 'r';
+            break;
+        case '\t':
+            out[w++] = '\\';
+            out[w++] = 't';
+            break;
+        default:
+            if (*p < 0x20) {
+                snprintf(out + w, cap - w, "\\u%04x", (unsigned)*p);
+                w += 6;
+            } else {
+                out[w++] = (char)*p;
+            }
             break;
         }
-        if (*p == '\"' || *p == '\\') {
-            out[w++] = '\\';
-        }
-        out[w++] = (char)*p;
     }
     out[w] = '\0';
     return out;
@@ -470,6 +502,39 @@ static void capture_voice_response_headers(esp_http_client_handle_t client, facu
     }
 }
 
+static esp_err_t voice_http_event(esp_http_client_event_t *event)
+{
+    if (event == NULL || event->event_id != HTTP_EVENT_ON_HEADER || event->user_data == NULL ||
+        event->header_key == NULL || event->header_value == NULL) {
+        return ESP_OK;
+    }
+
+    faculty175_voice_result_t *result = (faculty175_voice_result_t *)event->user_data;
+    char *dst = NULL;
+    size_t cap = 0;
+    if (strcasecmp(event->header_key, "X-Voice-Route") == 0) {
+        dst = result->route;
+        cap = sizeof(result->route);
+    } else if (strcasecmp(event->header_key, "X-Faculty-Slug") == 0) {
+        dst = result->faculty_slug;
+        cap = sizeof(result->faculty_slug);
+    } else if (strcasecmp(event->header_key, "X-Faculty-Name") == 0) {
+        dst = result->faculty_name;
+        cap = sizeof(result->faculty_name);
+    } else if (strcasecmp(event->header_key, "X-Voice-Transcript") == 0) {
+        dst = result->transcript;
+        cap = sizeof(result->transcript);
+    } else if (strcasecmp(event->header_key, "X-Voice-Reply") == 0) {
+        dst = result->reply;
+        cap = sizeof(result->reply);
+    }
+    if (dst != NULL && dst[0] == '\0') {
+        strlcpy(dst, event->header_value, cap);
+        url_decode_in_place(dst);
+    }
+    return ESP_OK;
+}
+
 static esp_err_t http_set_supabase_headers(esp_http_client_handle_t client)
 {
     if (strlen(MYNAH_SUPABASE_ANON_KEY) > 0) {
@@ -486,57 +551,67 @@ static void stream_buffer_reset(void)
     if (s_stream.spool != NULL) {
         fclose(s_stream.spool);
     }
+    free(s_stream.pcm_buf);
     free(s_stream.meta_json);
     memset(&s_stream, 0, sizeof(s_stream));
 }
 
-static char *build_faculty_request_json(const char *faculty_slug,
+static char *build_faculty_request_json(const char *face,
+                                        const char *faculty_slug,
                                         const char *faculty_name,
+                                        const char *system_instruction,
                                         const char *history,
                                         size_t *out_len)
 {
+    const char *active_face = (face != NULL && face[0] != '\0') ? face : ASTROLABE_FACULTY_FACE_NAME;
     const char *active_slug =
         (faculty_slug != NULL && faculty_slug[0] != '\0') ? faculty_slug : ASTROLABE_FACULTY_DEFAULT_FACULTY_SLUG;
     const char *active_name =
         (faculty_name != NULL && faculty_name[0] != '\0') ? faculty_name : ASTROLABE_FACULTY_DEFAULT_FACULTY_NAME;
+    const char *base_system = (system_instruction != NULL && system_instruction[0] != '\0')
+                                  ? system_instruction
+                                  : ASTROLABE_FACULTY_SYSTEM_INSTRUCTION;
 
-    char sys[896];
-    snprintf(sys, sizeof(sys),
-             "%s If the user does not name a faculty member, continue with the active faculty (%s, %s). "
-             "Conversation history: %s",
-             ASTROLABE_FACULTY_SYSTEM_INSTRUCTION, active_name, active_slug,
-             history != NULL && history[0] != '\0' ? history : "(none yet)");
-
-    char *esc_sys = json_escape_alloc(sys);
+    char *esc_sys = json_escape_alloc(base_system);
+    char *esc_face = json_escape_alloc(active_face);
     char *esc_slug = json_escape_alloc(active_slug);
     char *esc_name = json_escape_alloc(active_name);
-    if (esc_sys == NULL || esc_slug == NULL || esc_name == NULL) {
+    char *esc_history = json_escape_alloc(history != NULL && history[0] != '\0' ? history : "(none yet)");
+    if (esc_sys == NULL || esc_face == NULL || esc_slug == NULL || esc_name == NULL || esc_history == NULL) {
         free(esc_sys);
+        free(esc_face);
         free(esc_slug);
         free(esc_name);
+        free(esc_history);
         return NULL;
     }
 
-    const size_t cap = strlen(esc_sys) + strlen(esc_slug) + strlen(esc_name) + 256;
+    const size_t cap = strlen(esc_sys) + strlen(esc_face) + strlen(esc_slug) + strlen(esc_name) +
+                       strlen(esc_history) + 320;
     char *json = heap_caps_malloc(cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (json == NULL) {
         json = malloc(cap);
     }
     if (json == NULL) {
         free(esc_sys);
+        free(esc_face);
         free(esc_slug);
         free(esc_name);
+        free(esc_history);
         return NULL;
     }
 
     const int json_len = snprintf(json, cap,
                                   "{\"languageCode\":\"en-US\",\"sampleRateHertz\":16000,"
                                   "\"face\":\"%s\",\"facultySlug\":\"%s\",\"facultyName\":\"%s\","
-                                  "\"systemInstruction\":\"%s\"}",
-                                  ASTROLABE_FACULTY_FACE_NAME, esc_slug, esc_name, esc_sys);
+                                  "\"systemInstruction\":\"%s\",\"conversationHistory\":\"%s\","
+                                  "\"responseFormat\":\"mp3\"}",
+                                  esc_face, esc_slug, esc_name, esc_sys, esc_history);
     free(esc_sys);
+    free(esc_face);
     free(esc_slug);
     free(esc_name);
+    free(esc_history);
     if (json_len <= 0 || (size_t)json_len >= cap) {
         free(json);
         return NULL;
@@ -888,6 +963,8 @@ static esp_err_t post_collect_file(const char *url,
         .crt_bundle_attach = esp_crt_bundle_attach,
         .buffer_size = 1024,
         .buffer_size_tx = 1024,
+        .event_handler = voice_http_event,
+        .user_data = result,
     };
     esp_http_client_handle_t client = esp_http_client_init(&config);
     if (client == NULL) {
@@ -988,6 +1065,8 @@ static esp_err_t post_collect_voice_file(const char *url,
         .crt_bundle_attach = esp_crt_bundle_attach,
         .buffer_size = 1024,
         .buffer_size_tx = 1024,
+        .event_handler = voice_http_event,
+        .user_data = result,
     };
     esp_http_client_handle_t client = esp_http_client_init(&config);
     if (client == NULL) {
@@ -1110,7 +1189,7 @@ esp_err_t faculty175_voice_post_pcm(const uint8_t *pcm,
     char sys[896];
     snprintf(sys, sizeof(sys),
              "%s If the user does not name a faculty member, continue with the active faculty (%s, %s). "
-             "Conversation history: %s",
+             "Never exceed 35 spoken words, even when the user asks for detail. Conversation history: %s",
              ASTROLABE_FACULTY_SYSTEM_INSTRUCTION, active_name, active_slug,
              history != NULL && history[0] != '\0' ? history : "(none yet)");
 
@@ -1389,8 +1468,10 @@ esp_err_t faculty175_voice_stt_stream_open(const faculty175_voice_stt_stream_con
         return err;
     }
 
+    const char *face = config != NULL ? config->face : NULL;
     const char *faculty_slug = config != NULL ? config->faculty_slug : NULL;
     const char *faculty_name = config != NULL ? config->faculty_name : NULL;
+    const char *system_instruction = config != NULL ? config->system_instruction : NULL;
     const char *history = config != NULL ? config->history : NULL;
     const char *active_slug =
         (faculty_slug != NULL && faculty_slug[0] != '\0') ? faculty_slug : ASTROLABE_FACULTY_DEFAULT_FACULTY_SLUG;
@@ -1398,7 +1479,7 @@ esp_err_t faculty175_voice_stt_stream_open(const faculty175_voice_stt_stream_con
         (faculty_name != NULL && faculty_name[0] != '\0') ? faculty_name : ASTROLABE_FACULTY_DEFAULT_FACULTY_NAME;
 
     size_t meta_len = 0;
-    char *meta_json = build_faculty_request_json(active_slug, active_name, history, &meta_len);
+    char *meta_json = build_faculty_request_json(face, active_slug, active_name, system_instruction, history, &meta_len);
     if (meta_json == NULL || meta_len == 0 || meta_len > 16384) {
         free(meta_json);
         return ESP_ERR_NO_MEM;
@@ -1412,6 +1493,12 @@ esp_err_t faculty175_voice_stt_stream_open(const faculty175_voice_stt_stream_con
         stream_buffer_reset();
         return ESP_FAIL;
     }
+    s_stream.pcm_buf = heap_caps_malloc(VOICE_PCM_CAPTURE_MAX_BYTES, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (s_stream.pcm_buf == NULL) {
+        stream_buffer_reset();
+        return ESP_ERR_NO_MEM;
+    }
+    s_stream.pcm_cap = VOICE_PCM_CAPTURE_MAX_BYTES;
     s_stream.open = true;
     s_stream.pcm_bytes = 0;
     strlcpy(s_stream.faculty_slug, active_slug, sizeof(s_stream.faculty_slug));
@@ -1428,16 +1515,16 @@ esp_err_t faculty175_voice_stt_stream_write(const int16_t *pcm, size_t sample_co
     if (!s_stream.open || pcm == NULL || sample_count == 0) {
         return ESP_ERR_INVALID_STATE;
     }
-    if (s_stream.spool == NULL) {
+    if (s_stream.spool == NULL || s_stream.pcm_buf == NULL) {
         faculty175_voice_stt_stream_close();
         return ESP_ERR_INVALID_STATE;
     }
     const size_t bytes = sample_count * sizeof(int16_t);
-    const size_t written = fwrite(pcm, 1, bytes, s_stream.spool);
-    if (written != bytes) {
+    if (s_stream.pcm_bytes + bytes > s_stream.pcm_cap) {
         faculty175_voice_stt_stream_close();
-        return ESP_FAIL;
+        return ESP_ERR_INVALID_SIZE;
     }
+    memcpy(s_stream.pcm_buf + s_stream.pcm_bytes, pcm, bytes);
     s_stream.pcm_bytes += bytes;
     return ESP_OK;
 }
@@ -1471,6 +1558,21 @@ esp_err_t faculty175_voice_stt_stream_commit_streaming(const faculty175_voice_tt
         return ESP_ERR_NO_MEM;
     }
     if (s_stream.spool != NULL) {
+        if (s_stream.pcm_buf == NULL) {
+            faculty175_voice_stt_stream_close();
+            return ESP_FAIL;
+        }
+        size_t flushed = 0;
+        while (flushed < s_stream.pcm_bytes) {
+            const size_t remaining = s_stream.pcm_bytes - flushed;
+            const size_t chunk = remaining > 4096u ? 4096u : remaining;
+            if (fwrite(s_stream.pcm_buf + flushed, 1, chunk, s_stream.spool) != chunk) {
+                faculty175_voice_stt_stream_close();
+                return ESP_FAIL;
+            }
+            flushed += chunk;
+            vTaskDelay(1);
+        }
         if (fflush(s_stream.spool) != 0) {
             faculty175_voice_stt_stream_close();
             return ESP_FAIL;
@@ -1741,7 +1843,11 @@ static esp_err_t voice_play_mp3_file_sync(const char *path, size_t mp3_len)
                                   (unsigned)FACULTY175_AUDIO_RATE);
         }
         if (info.channels == 1) {
-            int16_t *stereo = pcm + MINIMP3_MAX_SAMPLES_PER_FRAME;
+            /* minimp3 writes mono samples at the beginning of this 2x buffer.
+             * Expand backward in place; offsetting to the second half would
+             * write 2x samples beyond the allocation and corrupt PSRAM heap
+             * metadata during the mic-to-speaker transition. */
+            int16_t *stereo = pcm;
             for (int i = samples - 1; i >= 0; --i) {
                 stereo[i * 2] = pcm[i];
                 stereo[i * 2 + 1] = pcm[i];
@@ -1843,13 +1949,21 @@ static esp_err_t voice_play_mp3_async(const uint8_t *mp3, size_t mp3_len)
         return ESP_ERR_NO_MEM;
     }
 
-    if (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(VOICE_PLAY_TASK_TIMEOUT_MS)) == 0) {
+    /* OpenAI speech is commonly about 24 kbit/s (roughly 3 bytes/ms). A fixed
+     * 30 second deadline incorrectly times out longer but valid answers. */
+    uint32_t timeout_ms = 15000u + (uint32_t)(mp3_len / 3u);
+    if (timeout_ms < VOICE_PLAY_TASK_TIMEOUT_MS) {
+        timeout_ms = VOICE_PLAY_TASK_TIMEOUT_MS;
+    } else if (timeout_ms > 180000u) {
+        timeout_ms = 180000u;
+    }
+    if (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(timeout_ms)) == 0) {
         args->waiter = NULL;
         args->caller_owns_args = false;
         FACULTY175_LOG_STAGE_W(TAG,
                                "tts",
                                "play timeout after %ums mp3=%uB",
-                               (unsigned)VOICE_PLAY_TASK_TIMEOUT_MS,
+                               (unsigned)timeout_ms,
                                (unsigned)mp3_len);
         return ESP_ERR_TIMEOUT;
     }
@@ -1883,22 +1997,28 @@ esp_err_t faculty175_voice_play_mp3_file(const char *path, size_t mp3_len)
 
     const BaseType_t ok = xTaskCreateWithCaps(voice_play_mp3_file_task,
                                               "voice_file_play",
-                                              24576,
+                                              16384,
                                               args,
                                               6,
                                               NULL,
-                                              MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+                                              MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     if (ok != pdPASS) {
         free(args);
         return ESP_ERR_NO_MEM;
     }
-    if (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(VOICE_PLAY_TASK_TIMEOUT_MS)) == 0) {
+    uint32_t timeout_ms = 15000u + (uint32_t)(mp3_len / 3u);
+    if (timeout_ms < VOICE_PLAY_TASK_TIMEOUT_MS) {
+        timeout_ms = VOICE_PLAY_TASK_TIMEOUT_MS;
+    } else if (timeout_ms > 180000u) {
+        timeout_ms = 180000u;
+    }
+    if (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(timeout_ms)) == 0) {
         args->waiter = NULL;
         args->caller_owns_args = false;
         FACULTY175_LOG_STAGE_W(TAG,
                                "tts",
                                "file play timeout after %ums path=%s len=%u",
-                               (unsigned)VOICE_PLAY_TASK_TIMEOUT_MS,
+                               (unsigned)timeout_ms,
                                path,
                                (unsigned)mp3_len);
         return ESP_ERR_TIMEOUT;

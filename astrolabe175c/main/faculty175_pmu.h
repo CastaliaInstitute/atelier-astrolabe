@@ -18,7 +18,7 @@ typedef struct {
 extern "C" {
 #endif
 
-/** Enable Waveshare AXP2101 rails (MIC BLDO2, display BLDO1, core DC3, etc.). */
+/** Initialize the Waveshare AXP2101 and board power rails. */
 esp_err_t faculty175_pmu_init(void);
 
 /** Latest AXP2101 battery/USB snapshot; returns false when PMU init failed. */
@@ -26,6 +26,9 @@ bool faculty175_pmu_status(faculty175_pmu_status_t *out);
 
 /** True once when the AXP2101 PEKEY reports a long press. */
 bool faculty175_pmu_pekey_long_press(void);
+
+/** Disable only confirmed-unused PMU outputs before ESP32 deep sleep. */
+void faculty175_pmu_prepare_deep_sleep(void);
 
 #ifdef __cplusplus
 }

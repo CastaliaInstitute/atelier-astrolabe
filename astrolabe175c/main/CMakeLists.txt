@@ -1,6 +1,31 @@
 set(ASTROLABE_PNGDEC "${CMAKE_CURRENT_LIST_DIR}/../../lib/PNGdec/src")
 if(NOT EXISTS "${ASTROLABE_PNGDEC}/PNGdec.cpp")
-    message(FATAL_ERROR "Missing PNGdec. Run pio pkg install for waveshare_s3_175 or set ASTROLABE_PNGDEC.")
+    message(FATAL_ERROR "Missing lib/PNGdec/src. Restore the repository dependency or set ASTROLABE_PNGDEC.")
+endif()
+
+if(NOT DEFINED ASTROLABE175C_BUILD_VARIANT)
+    set(ASTROLABE175C_BUILD_VARIANT "faculty")
+endif()
+string(TOLOWER "${ASTROLABE175C_BUILD_VARIANT}" ASTROLABE175C_BUILD_VARIANT)
+if(NOT ASTROLABE175C_BUILD_VARIANT STREQUAL "faculty" AND
+   NOT ASTROLABE175C_BUILD_VARIANT STREQUAL "cyber" AND
+   NOT ASTROLABE175C_BUILD_VARIANT STREQUAL "lunasay")
+    message(FATAL_ERROR "ASTROLABE175C_BUILD_VARIANT must be faculty, cyber, or lunasay")
+endif()
+set(ASTROLABE175C_CYBER_FEATURES 0)
+set(ASTROLABE175C_FIRMWARE_VARIANT "Faculty")
+set(ASTROLABE175C_OTA_CHANNEL "astrolabe-faculty-amoled175")
+set(FACULTY175_EMBED_TXTFILES)
+if(ASTROLABE175C_BUILD_VARIANT STREQUAL "cyber")
+    set(ASTROLABE175C_CYBER_FEATURES 1)
+    set(ASTROLABE175C_FIRMWARE_VARIANT "Cyber")
+    set(ASTROLABE175C_OTA_CHANNEL "astrolabe-cyber-175")
+    list(APPEND FACULTY175_EMBED_TXTFILES
+        "faculty175_km_page.html"
+        "astrolabe-install.sh")
+elseif(ASTROLABE175C_BUILD_VARIANT STREQUAL "lunasay")
+    set(ASTROLABE175C_FIRMWARE_VARIANT "LunaSay")
+    set(ASTROLABE175C_OTA_CHANNEL "astrolabe-lunasay-175")
 endif()
 
 file(GLOB PNGDEC_SRCS "${ASTROLABE_PNGDEC}/*.cpp" "${ASTROLABE_PNGDEC}/*.c")
@@ -38,10 +63,15 @@ idf_component_register(
         "faculty175_touch.c"
         "faculty175_storage.c"
         "faculty175_usb.c"
+        "faculty175_usb_ncm.c"
+        "faculty175_km.c"
+        "faculty175_km_http.c"
+        "faculty175_usb_screen.c"
         "faculty175_gesture.c"
         "faculty175_motion.c"
         "faculty175_breath.c"
         "faculty175_pmu.cpp"
+        "faculty175_deep_sleep.c"
         "faculty175_power_metrics.c"
         "faculty175_power_history.c"
         "faculty175_serial.c"
@@ -67,6 +97,7 @@ idf_component_register(
         "faculty175_faces.c"
         "faculty175_face_profile.c"
         "faculty175_variant.c"
+        "faculty175_rotary_state.c"
         "../../lib/astrolabe_display_core/astrolabe_round_bezel.c"
         "faculty175_ota.c"
         "faculty175_qa.c"
@@ -84,6 +115,7 @@ idf_component_register(
     INCLUDE_DIRS "." "../../include" "../../lib/astrolabe_display_core/include" "${ASTROLABE_PNGDEC}"
     REQUIRES
         driver
+        esp_driver_usb_serial_jtag
         console
         esp_event
         esp_http_client
@@ -117,7 +149,15 @@ idf_component_register(
         "assets/maze_466.png"
         "assets/v5-a.darwin-right.png"
         "assets/v5-a.plato-right.png"
+    EMBED_TXTFILES
+        ${FACULTY175_EMBED_TXTFILES}
 )
+
+if(ASTROLABE175C_CYBER_FEATURES)
+    target_add_binary_data(${COMPONENT_LIB}
+        "${CMAKE_CURRENT_LIST_DIR}/../../scripts/astrolabe_pi_screen.py"
+        TEXT)
+endif()
 
 target_compile_definitions(${COMPONENT_LIB} PRIVATE XPOWERS_CHIP_AXP2101)
 target_compile_definitions(${COMPONENT_LIB} PUBLIC LV_CONF_INCLUDE_SIMPLE=1)
@@ -126,6 +166,8 @@ target_compile_definitions(${COMPONENT_LIB} PRIVATE __LINUX__ PNG_MAX_BUFFERED_P
 if(NOT DEFINED ASTROLABE_USB_OTA_DEMO_BOOT)
     set(ASTROLABE_USB_OTA_DEMO_BOOT 0)
 endif()
+set(ASTROLABE_USB_RUNTIME_ENABLED ${ASTROLABE175C_CYBER_FEATURES})
+set(ASTROLABE_KM_ENABLED ${ASTROLABE175C_CYBER_FEATURES})
 if(NOT DEFINED ASTROLABE_OTA_AUTO_INTERVAL_S)
     set(ASTROLABE_OTA_AUTO_INTERVAL_S 60)
 endif()
@@ -133,6 +175,16 @@ if(NOT ASTROLABE_OTA_AUTO_INTERVAL_S MATCHES "^[0-9]+$" OR ASTROLABE_OTA_AUTO_IN
     message(FATAL_ERROR "ASTROLABE_OTA_AUTO_INTERVAL_S must be an integer of at least 60 seconds")
 endif()
 target_compile_definitions(${COMPONENT_LIB} PRIVATE ASTROLABE_USB_OTA_DEMO_BOOT=${ASTROLABE_USB_OTA_DEMO_BOOT})
+target_compile_definitions(${COMPONENT_LIB} PRIVATE ASTROLABE_USB_RUNTIME_ENABLED=${ASTROLABE_USB_RUNTIME_ENABLED})
+target_compile_definitions(${COMPONENT_LIB} PRIVATE ASTROLABE_KM_ENABLED=${ASTROLABE_KM_ENABLED})
+target_compile_definitions(${COMPONENT_LIB} PRIVATE ASTROLABE_CYBER_FEATURES=${ASTROLABE175C_CYBER_FEATURES})
+target_compile_definitions(${COMPONENT_LIB} PRIVATE ASTROLABE_FIRMWARE_VARIANT="${ASTROLABE175C_FIRMWARE_VARIANT}")
+target_compile_definitions(${COMPONENT_LIB} PRIVATE ASTROLABE_FACULTY175_OTA_CHANNEL="${ASTROLABE175C_OTA_CHANNEL}")
+if(ASTROLABE175C_CYBER_FEATURES)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE ASTROLABE_FORCE_VARIANT_CYBER=1)
+elseif(ASTROLABE175C_BUILD_VARIANT STREQUAL "lunasay")
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE ASTROLABE_FORCE_VARIANT_LUNASAY=1)
+endif()
 target_compile_definitions(${COMPONENT_LIB} PRIVATE ASTROLABE_OTA_AUTO_INTERVAL_S=${ASTROLABE_OTA_AUTO_INTERVAL_S})
 if(DEFINED ASTROLABE_VOICE_HTTP_URL AND NOT "${ASTROLABE_VOICE_HTTP_URL}" STREQUAL "")
     target_compile_definitions(${COMPONENT_LIB} PRIVATE MYNAH_VOICE_HTTP_URL="${ASTROLABE_VOICE_HTTP_URL}")

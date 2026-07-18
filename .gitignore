@@ -1,6 +1,7 @@
 .DS_Store
 .env
 .env.*
+*.env.local
 
 include/secrets.local.h
 include/secrets.h

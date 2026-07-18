@@ -1,0 +1,101 @@
+{
+  "currency": "USD",
+  "hardware_rewards": [
+    {
+      "name": "Lughnasadh First Light",
+      "quantity": 50,
+      "price": 169
+    },
+    {
+      "name": "Early LunaSay",
+      "quantity": 150,
+      "price": 179
+    },
+    {
+      "name": "Kickstarter LunaSay",
+      "quantity": 300,
+      "price": 199
+    }
+  ],
+  "service_spare_rate": 0.05,
+  "fee_rates": {
+    "kickstarter_platform": 0.05,
+    "payment_processing_working_assumption": 0.04,
+    "failed_payment_reserve": 0.02
+  },
+  "cost_contingency_rate": 0.10,
+  "shipping_and_tax_collected_separately": true,
+  "per_reward_costs": {
+    "main_device": {
+      "amount": 40,
+      "source": "Founder assumption; written supplier quote required",
+      "applies_to_service_spares": true
+    },
+    "base_dock": {
+      "amount": 3,
+      "source": "Founder assumption; written supplier quote required",
+      "applies_to_service_spares": true
+    },
+    "enclosure_finish_and_assembly": {
+      "amount": null,
+      "source": "REQUIRED: written supplier quote",
+      "applies_to_service_spares": true
+    },
+    "provisioning_and_functional_test": {
+      "amount": null,
+      "source": "REQUIRED: manufacturing labor quote",
+      "applies_to_service_spares": true
+    },
+    "packaging_and_cable": {
+      "amount": null,
+      "source": "REQUIRED: packed BOM quote",
+      "applies_to_service_spares": false
+    },
+    "inbound_freight_duty_and_tariff": {
+      "amount": null,
+      "source": "REQUIRED: quote by production and fulfillment origin",
+      "applies_to_service_spares": true
+    },
+    "fulfillment_pick_and_pack": {
+      "amount": null,
+      "source": "REQUIRED: fulfillment quote; outbound postage is separate",
+      "applies_to_service_spares": false
+    },
+    "warranty_and_returns_reserve": {
+      "amount": null,
+      "source": "REQUIRED: reserve based on pilot yield and return assumption",
+      "applies_to_service_spares": false
+    },
+    "included_cloud_voice_allowance": {
+      "amount": null,
+      "source": "REQUIRED: measured STT, LLM, TTS usage and allowance",
+      "applies_to_service_spares": false
+    }
+  },
+  "fixed_costs": {
+    "engineering_and_enclosure_tooling": {
+      "amount": null,
+      "source": "REQUIRED: scoped engineering/tooling quote"
+    },
+    "compliance_battery_transport_and_legal": {
+      "amount": null,
+      "source": "REQUIRED: qualified lab/adviser scope"
+    },
+    "pilot_build_and_destructive_testing": {
+      "amount": null,
+      "source": "REQUIRED: pilot quantity and supplier quote"
+    },
+    "campaign_media_and_prototype_logistics": {
+      "amount": null,
+      "source": "REQUIRED: approved production budget"
+    },
+    "fulfillment_setup_and_support_inventory": {
+      "amount": null,
+      "source": "REQUIRED: partner quote and support plan"
+    },
+    "project_labor_not_in_unit_cost": {
+      "amount": null,
+      "source": "REQUIRED: owner, task, hours, and rate budget"
+    }
+  }
+}

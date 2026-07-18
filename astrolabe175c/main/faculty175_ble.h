@@ -66,6 +66,11 @@ bool faculty175_ble_enabled(void);
 bool faculty175_ble_advertising(void);
 bool faculty175_ble_scanning(void);
 esp_err_t faculty175_ble_set_enabled(bool enabled);
+/** Stop active BLE radio work for deep sleep without changing the NVS preference. */
+void faculty175_ble_prepare_deep_sleep(void);
+/** Start/stop BLE advertising for an attributable power test without NVS writes. */
+esp_err_t faculty175_ble_power_test_set(bool enabled);
+bool faculty175_ble_power_test_active(void);
 esp_err_t faculty175_ble_set_device_name(const char *name);
 const char *faculty175_ble_device_name(void);
 esp_err_t faculty175_ble_scan_start(uint32_t duration_ms);

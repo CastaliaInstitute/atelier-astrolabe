@@ -14,6 +14,7 @@ typedef enum {
     FACULTY175_FACE_PROFILE_OCARINA = 4,
     FACULTY175_FACE_PROFILE_LUNASAY = 5,
     FACULTY175_FACE_PROFILE_CAMEO = 6,
+    FACULTY175_FACE_PROFILE_CYBER = 7,
 } faculty175_face_profile_t;
 
 esp_err_t faculty175_face_profile_init(void);

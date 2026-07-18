@@ -7,10 +7,12 @@
 #include <strings.h>
 
 #include "cJSON.h"
+#include "esp_attr.h"
 #include "esp_crt_bundle.h"
 #include "esp_heap_caps.h"
 #include "esp_http_client.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
 #include "nvs.h"
 #include "nvs_flash.h"
 
@@ -25,7 +27,7 @@
 #define CHARTS_NVS_NS "astro"
 #define CHARTS_KEY_PRIMARY "primary"
 #define CHARTS_KEY_ACTIVE "active"
-#define CHARTS_KEY_SEEDED "fam_seed"
+#define CHARTS_KEY_SEEDED "fam_seed4"
 #define CHARTS_KEY_REPO_PATH "repo_path"
 #define CHARTS_KEY_REPO_SYNC "repo_sync"
 #define CASTALIA_NVS_NS "castalia"
@@ -35,7 +37,11 @@
 #define CHARTS_HTTP_MAX_BYTES (64 * 1024)
 
 #ifndef MYNAH_CASTALIA_INDIVIDUAL_DEFAULT
+#if defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
+#define MYNAH_CASTALIA_INDIVIDUAL_DEFAULT ""
+#else
 #define MYNAH_CASTALIA_INDIVIDUAL_DEFAULT "DanielCMcShan"
+#endif
 #endif
 #ifndef MYNAH_CASTALIA_REPO_OWNER
 #define MYNAH_CASTALIA_REPO_OWNER "CastaliaInstitute"
@@ -136,6 +142,7 @@ enum {
     BODY_SATURN,
 };
 
+#if !defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
 static const faculty175_birth_chart_t k_family_primary = {
     .name = "Daniel McShan",
     .role = FACULTY175_CHART_ROLE_SELF,
@@ -167,6 +174,20 @@ static const faculty175_birth_chart_t k_family_profiles[] = {
         .valid = true,
     },
     {
+        .name = "Finn",
+        .role = FACULTY175_CHART_ROLE_CHILD,
+        .year = 2024,
+        .month = 4,
+        .day = 30,
+        .hour = 12,
+        .minute = 0,
+        .lat_deg = 39.0917f,
+        .lon_deg = -104.8728f,
+        .tz_offset_sec = -6 * 3600,
+        .place = "Monument, CO",
+        .valid = true,
+    },
+    {
         .name = "Aleia",
         .role = FACULTY175_CHART_ROLE_CHILD,
         .year = 2025,
@@ -181,6 +202,7 @@ static const faculty175_birth_chart_t k_family_profiles[] = {
         .valid = true,
     },
 };
+#endif
 
 static bool chart_sane(const faculty175_birth_chart_t *b)
 {
@@ -196,6 +218,81 @@ static void profile_key(int slot, char *out, size_t cap)
 }
 
 static bool chart_sane(const faculty175_birth_chart_t *b);
+
+/* LunaSay's LVGL task uses a PSRAM stack to preserve scarce internal RAM.
+ * NVS operations temporarily disable the flash cache, and ESP-IDF cannot do
+ * that safely while the current stack lives in PSRAM. Hydrate chart state on
+ * the internal boot stack and serve render-time reads from this cache. */
+static portMUX_TYPE s_chart_cache_mux = portMUX_INITIALIZER_UNLOCKED;
+static bool s_chart_cache_ready;
+static bool s_chart_cache_primary_valid;
+static EXT_RAM_BSS_ATTR faculty175_birth_chart_t s_chart_cache_primary;
+static EXT_RAM_BSS_ATTR bool s_chart_cache_profile_valid[FACULTY175_CHART_PROFILE_SLOTS];
+static EXT_RAM_BSS_ATTR faculty175_birth_chart_t s_chart_cache_profiles[FACULTY175_CHART_PROFILE_SLOTS];
+static int s_chart_cache_active = -1;
+
+static bool charts_read_primary_nvs(faculty175_birth_chart_t *out)
+{
+    if (out == NULL) {
+        return false;
+    }
+    memset(out, 0, sizeof(*out));
+    nvs_handle_t nvs;
+    if (nvs_open(CHARTS_NVS_NS, NVS_READONLY, &nvs) != ESP_OK) {
+        return false;
+    }
+    size_t len = sizeof(*out);
+    const esp_err_t err = nvs_get_blob(nvs, CHARTS_KEY_PRIMARY, out, &len);
+    nvs_close(nvs);
+    return err == ESP_OK && len == sizeof(*out) && chart_sane(out);
+}
+
+static bool charts_read_profile_nvs(int slot, faculty175_birth_chart_t *out)
+{
+    if (slot < 0 || slot >= FACULTY175_CHART_PROFILE_SLOTS || out == NULL) {
+        return false;
+    }
+    memset(out, 0, sizeof(*out));
+    char key[16];
+    profile_key(slot, key, sizeof(key));
+    nvs_handle_t nvs;
+    if (nvs_open(CHARTS_NVS_NS, NVS_READONLY, &nvs) != ESP_OK) {
+        return false;
+    }
+    size_t len = sizeof(*out);
+    const esp_err_t err = nvs_get_blob(nvs, key, out, &len);
+    nvs_close(nvs);
+    return err == ESP_OK && len == sizeof(*out) && chart_sane(out);
+}
+
+static void charts_cache_reload_from_nvs(void)
+{
+    faculty175_birth_chart_t primary = {};
+    faculty175_birth_chart_t profiles[FACULTY175_CHART_PROFILE_SLOTS] = {};
+    bool valid[FACULTY175_CHART_PROFILE_SLOTS] = {};
+    const bool primary_valid = charts_read_primary_nvs(&primary);
+    for (int i = 0; i < FACULTY175_CHART_PROFILE_SLOTS; ++i) {
+        valid[i] = charts_read_profile_nvs(i, &profiles[i]);
+    }
+    int32_t active = -1;
+    nvs_handle_t nvs;
+    if (nvs_open(CHARTS_NVS_NS, NVS_READONLY, &nvs) == ESP_OK) {
+        (void)nvs_get_i32(nvs, CHARTS_KEY_ACTIVE, &active);
+        nvs_close(nvs);
+    }
+    if (active < 0 || active >= FACULTY175_CHART_PROFILE_SLOTS || !valid[active]) {
+        active = -1;
+    }
+
+    portENTER_CRITICAL(&s_chart_cache_mux);
+    s_chart_cache_primary = primary;
+    s_chart_cache_primary_valid = primary_valid;
+    memcpy(s_chart_cache_profiles, profiles, sizeof(profiles));
+    memcpy(s_chart_cache_profile_valid, valid, sizeof(valid));
+    s_chart_cache_active = (int)active;
+    s_chart_cache_ready = true;
+    portEXIT_CRITICAL(&s_chart_cache_mux);
+}
 
 static void copy_json_string(const cJSON *item, char *out, size_t cap)
 {
@@ -290,7 +387,7 @@ static bool chart_from_json(const cJSON *src, faculty175_birth_chart_t *out)
         copy_json_string(json_get_any(src, "title", "id", "slug"), out->name, sizeof(out->name));
     }
     char role[24] = "";
-    copy_json_string(cJSON_GetObjectItemCaseSensitive(src, "role"), role, sizeof(role));
+    copy_json_string(json_get_any(src, "role", "relationship", "family_role"), role, sizeof(role));
     out->role = parse_role(role);
 
     const cJSON *birth = chart_birth_object(src);
@@ -330,7 +427,13 @@ static bool chart_from_json(const cJSON *src, faculty175_birth_chart_t *out)
     out->lon_deg = (float)lon;
     copy_json_string(json_get_any(birth, "place", "location", "birthplace"), out->place, sizeof(out->place));
     if (out->place[0] == '\0') {
+        copy_json_string(cJSON_GetObjectItemCaseSensitive(birth, "birth_place"), out->place, sizeof(out->place));
+    }
+    if (out->place[0] == '\0') {
         copy_json_string(json_get_any(src, "place", "location", "birthplace"), out->place, sizeof(out->place));
+    }
+    if (out->place[0] == '\0') {
+        copy_json_string(cJSON_GetObjectItemCaseSensitive(src, "birth_place"), out->place, sizeof(out->place));
     }
     out->valid = true;
     return chart_sane(out);
@@ -360,6 +463,10 @@ void faculty175_charts_family_repo(char *out, size_t out_cap)
     }
     char individual[48];
     charts_repo_individual(individual, sizeof(individual));
+    if (individual[0] == '\0') {
+        out[0] = '\0';
+        return;
+    }
     snprintf(out, out_cap, "%s/%s%s", MYNAH_CASTALIA_REPO_OWNER, MYNAH_CASTALIA_REPO_PREFIX, individual);
 }
 
@@ -419,6 +526,7 @@ static esp_err_t fetch_text_url(const char *url, bool castalia_auth, bool github
         .crt_bundle_attach = esp_crt_bundle_attach,
         .keep_alive_enable = false,
         .buffer_size = CHARTS_HTTP_IO_BYTES,
+        .buffer_size_tx = 2048,
     };
     esp_http_client_handle_t client = esp_http_client_init(&cfg);
     if (client == NULL) {
@@ -533,8 +641,37 @@ static bool parse_family_json(const char *body, size_t len, faculty175_birth_cha
         return false;
     }
     bool have_primary = false;
+    const cJSON *guardians = cJSON_IsObject(root) ? cJSON_GetObjectItemCaseSensitive(root, "guardians") : NULL;
+    const cJSON *children = cJSON_IsObject(root) ? cJSON_GetObjectItemCaseSensitive(root, "children") : NULL;
+    if (cJSON_IsArray(guardians)) {
+        const cJSON *person = NULL;
+        cJSON_ArrayForEach(person, guardians) {
+            faculty175_birth_chart_t chart = {};
+            if (!chart_from_json(person, &chart)) {
+                continue;
+            }
+            if (!have_primary) {
+                chart.role = FACULTY175_CHART_ROLE_SELF;
+                *primary = chart;
+                have_primary = true;
+            } else if (*profile_count < FACULTY175_CHART_PROFILE_SLOTS) {
+                chart.role = FACULTY175_CHART_ROLE_PARTNER;
+                profiles[(*profile_count)++] = chart;
+            }
+        }
+    }
+    if (cJSON_IsArray(children)) {
+        const cJSON *person = NULL;
+        cJSON_ArrayForEach(person, children) {
+            faculty175_birth_chart_t chart = {};
+            if (chart_from_json(person, &chart) && *profile_count < FACULTY175_CHART_PROFILE_SLOTS) {
+                chart.role = FACULTY175_CHART_ROLE_CHILD;
+                profiles[(*profile_count)++] = chart;
+            }
+        }
+    }
     const cJSON *primary_obj = NULL;
-    if (cJSON_IsObject(root)) {
+    if (!have_primary && cJSON_IsObject(root)) {
         primary_obj = json_get_any(root, "primary", "self", "user");
         if (primary_obj == NULL) {
             primary_obj = cJSON_GetObjectItemCaseSensitive(root, "owner");
@@ -548,7 +685,7 @@ static bool parse_family_json(const char *body, size_t len, faculty175_birth_cha
             arr = cJSON_GetObjectItemCaseSensitive(root, "charts");
         }
     }
-    if (cJSON_IsArray(arr)) {
+    if (*profile_count == 0 && cJSON_IsArray(arr)) {
         const cJSON *item = NULL;
         cJSON_ArrayForEach(item, arr) {
             faculty175_birth_chart_t chart = {};
@@ -680,6 +817,7 @@ bool faculty175_charts_sync_family_repo(void)
     name[sizeof(name) - 1] = '\0';
 
     static const char *const k_paths[] = {
+        "castalia-family.json",
         "settings/family.json",
         "settings/charts.json",
         "family.json",
@@ -754,6 +892,14 @@ esp_err_t faculty175_charts_save_primary(const faculty175_birth_chart_t *chart)
         err = nvs_commit(nvs);
     }
     nvs_close(nvs);
+    if (err == ESP_OK) {
+        portENTER_CRITICAL(&s_chart_cache_mux);
+        if (s_chart_cache_ready) {
+            s_chart_cache_primary = *chart;
+            s_chart_cache_primary_valid = true;
+        }
+        portEXIT_CRITICAL(&s_chart_cache_mux);
+    }
     return err;
 }
 
@@ -762,15 +908,14 @@ bool faculty175_charts_primary(faculty175_birth_chart_t *out)
     if (out == NULL) {
         return false;
     }
-    memset(out, 0, sizeof(*out));
-    nvs_handle_t nvs;
-    if (nvs_open(CHARTS_NVS_NS, NVS_READONLY, &nvs) != ESP_OK) {
-        return false;
+    portENTER_CRITICAL(&s_chart_cache_mux);
+    const bool cached = s_chart_cache_ready;
+    const bool valid = s_chart_cache_primary_valid;
+    if (cached) {
+        *out = s_chart_cache_primary;
     }
-    size_t len = sizeof(*out);
-    const esp_err_t err = nvs_get_blob(nvs, CHARTS_KEY_PRIMARY, out, &len);
-    nvs_close(nvs);
-    return err == ESP_OK && len == sizeof(*out) && chart_sane(out);
+    portEXIT_CRITICAL(&s_chart_cache_mux);
+    return cached ? valid : charts_read_primary_nvs(out);
 }
 
 esp_err_t faculty175_charts_profile_save(int slot, const faculty175_birth_chart_t *chart)
@@ -790,6 +935,48 @@ esp_err_t faculty175_charts_profile_save(int slot, const faculty175_birth_chart_
         err = nvs_commit(nvs);
     }
     nvs_close(nvs);
+    if (err == ESP_OK) {
+        portENTER_CRITICAL(&s_chart_cache_mux);
+        if (s_chart_cache_ready) {
+            s_chart_cache_profiles[slot] = *chart;
+            s_chart_cache_profile_valid[slot] = true;
+        }
+        portEXIT_CRITICAL(&s_chart_cache_mux);
+    }
+    return err;
+}
+
+esp_err_t faculty175_charts_profile_clear(int slot)
+{
+    if (slot < 0 || slot >= FACULTY175_CHART_PROFILE_SLOTS) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    char key[16];
+    profile_key(slot, key, sizeof(key));
+    nvs_handle_t nvs;
+    esp_err_t err = nvs_open(CHARTS_NVS_NS, NVS_READWRITE, &nvs);
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = nvs_erase_key(nvs, key);
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
+        err = ESP_OK;
+    }
+    if (err == ESP_OK) {
+        err = nvs_commit(nvs);
+    }
+    nvs_close(nvs);
+    if (err == ESP_OK) {
+        portENTER_CRITICAL(&s_chart_cache_mux);
+        if (s_chart_cache_ready) {
+            memset(&s_chart_cache_profiles[slot], 0, sizeof(s_chart_cache_profiles[slot]));
+            s_chart_cache_profile_valid[slot] = false;
+            if (s_chart_cache_active == slot) {
+                s_chart_cache_active = -1;
+            }
+        }
+        portEXIT_CRITICAL(&s_chart_cache_mux);
+    }
     return err;
 }
 
@@ -798,17 +985,14 @@ bool faculty175_charts_profile_get(int slot, faculty175_birth_chart_t *out)
     if (slot < 0 || slot >= FACULTY175_CHART_PROFILE_SLOTS || out == NULL) {
         return false;
     }
-    memset(out, 0, sizeof(*out));
-    char key[16];
-    profile_key(slot, key, sizeof(key));
-    nvs_handle_t nvs;
-    if (nvs_open(CHARTS_NVS_NS, NVS_READONLY, &nvs) != ESP_OK) {
-        return false;
+    portENTER_CRITICAL(&s_chart_cache_mux);
+    const bool cached = s_chart_cache_ready;
+    const bool valid = s_chart_cache_profile_valid[slot];
+    if (cached) {
+        *out = s_chart_cache_profiles[slot];
     }
-    size_t len = sizeof(*out);
-    const esp_err_t err = nvs_get_blob(nvs, key, out, &len);
-    nvs_close(nvs);
-    return err == ESP_OK && len == sizeof(*out) && chart_sane(out);
+    portEXIT_CRITICAL(&s_chart_cache_mux);
+    return cached ? valid : charts_read_profile_nvs(slot, out);
 }
 
 int faculty175_charts_profile_count(void)
@@ -825,6 +1009,12 @@ int faculty175_charts_profile_count(void)
 
 void faculty175_charts_ensure_family_seed(void)
 {
+    portENTER_CRITICAL(&s_chart_cache_mux);
+    const bool cache_ready = s_chart_cache_ready;
+    portEXIT_CRITICAL(&s_chart_cache_mux);
+    if (cache_ready) {
+        return;
+    }
     nvs_handle_t nvs;
     if (nvs_open(CHARTS_NVS_NS, NVS_READWRITE, &nvs) != ESP_OK) {
         return;
@@ -832,6 +1022,7 @@ void faculty175_charts_ensure_family_seed(void)
     uint8_t seeded = 0;
     if (nvs_get_u8(nvs, CHARTS_KEY_SEEDED, &seeded) == ESP_OK && seeded != 0) {
         nvs_close(nvs);
+        charts_cache_reload_from_nvs();
         return;
     }
     nvs_close(nvs);
@@ -842,9 +1033,23 @@ void faculty175_charts_ensure_family_seed(void)
             (void)nvs_commit(nvs);
             nvs_close(nvs);
         }
+        charts_cache_reload_from_nvs();
         return;
     }
 
+#if defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
+    /* A retail LunaSay must never inherit the developer family's names or birth
+     * data from its firmware image. Existing NVS survives an app-only update;
+     * a fresh device remains empty until the owner configures or syncs it. */
+    if (nvs_open(CHARTS_NVS_NS, NVS_READWRITE, &nvs) == ESP_OK) {
+        (void)nvs_set_u8(nvs, CHARTS_KEY_SEEDED, 1);
+        (void)nvs_commit(nvs);
+        nvs_close(nvs);
+    }
+    charts_cache_reload_from_nvs();
+    ESP_LOGI(TAG, "LunaSay family charts await owner setup");
+    return;
+#else
     faculty175_birth_chart_t primary = {};
     if (!faculty175_charts_primary(&primary)) {
         (void)faculty175_charts_save_primary(&k_family_primary);
@@ -866,10 +1071,19 @@ void faculty175_charts_ensure_family_seed(void)
         (void)nvs_commit(nvs);
         nvs_close(nvs);
     }
+    charts_cache_reload_from_nvs();
+#endif
 }
 
 int faculty175_charts_active_slot(void)
 {
+    portENTER_CRITICAL(&s_chart_cache_mux);
+    const bool cached = s_chart_cache_ready;
+    const int cached_slot = s_chart_cache_active;
+    portEXIT_CRITICAL(&s_chart_cache_mux);
+    if (cached) {
+        return cached_slot;
+    }
     nvs_handle_t nvs;
     if (nvs_open(CHARTS_NVS_NS, NVS_READONLY, &nvs) != ESP_OK) {
         return -1;
@@ -896,6 +1110,13 @@ bool faculty175_charts_set_active_slot(int slot)
         (void)nvs_commit(nvs);
     }
     nvs_close(nvs);
+    if (err == ESP_OK) {
+        portENTER_CRITICAL(&s_chart_cache_mux);
+        if (s_chart_cache_ready) {
+            s_chart_cache_active = slot;
+        }
+        portEXIT_CRITICAL(&s_chart_cache_mux);
+    }
     return err == ESP_OK;
 }
 
@@ -1077,6 +1298,17 @@ static void compute_utc(const struct tm *utc, faculty175_chart_positions_t *out)
     planet_helio_geo(d, 113.6634, 2.4886, 339.3939, 9.55475, 0.055546, 316.9670, 2.38980e-5, -1.081e-7,
                      2.97661e-5, -9.499e-9, 0.0334442282, xs, ys, zs, &out->lon[BODY_SATURN]);
     out->ok = true;
+}
+
+bool faculty175_charts_positions_at(time_t epoch, faculty175_chart_positions_t *out)
+{
+    if (out == NULL || epoch <= 0) {
+        return false;
+    }
+    struct tm utc = {};
+    gmtime_r(&epoch, &utc);
+    compute_utc(&utc, out);
+    return out->ok;
 }
 
 bool faculty175_charts_birth_positions(const faculty175_birth_chart_t *birth, faculty175_chart_positions_t *out)

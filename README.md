@@ -1,130 +1,71 @@
-# Mynah Pocketwatch (firmware)
+# Astrolabe firmware
 
-PlatformIO firmware for the Waveshare **[ESP32-S3-Touch-AMOLED-1.75C](https://github.com/waveshareteam/ESP32-S3-Touch-AMOLED-1.75C)** class board. Product notes: [`docs/design/pocketwatch.md`](../docs/design/pocketwatch.md).
+Native ESP-IDF firmware for the Castalia Institute Astrolabe device family.
+The canonical round-pocketwatch implementation is
+[`astrolabe175c/`](astrolabe175c/), targeting the Waveshare
+ESP32-S3-Touch-AMOLED-1.75/1.75C hardware family.
 
-## Default sketch: Mynah Astrolabe
+The former Arduino/PlatformIO sketch implementation has been removed. New
+round-watch product work belongs in `astrolabe175c`; do not reintroduce a second
+firmware implementation.
 
-| Path | Role |
-|------|------|
-| [`sketches/Astrolabe/`](sketches/Astrolabe/) | **WiFi** + **NTP** hue clock faces (analog, Apocalypso, digital, Spotify, **Astrology**, **Moon**, **schedule** countdown, **Castalia** QR, **Settings**, **Notes** offline Commonplace capture); **PWR hold** = STT / notes, **BOOT** = replay last TTS (or CalDAV agenda on analog/digital/schedule); **voice-pipeline** with Castalia JWT. **Gestures**: swipe to change face. |
-| [`sketches/01_HelloWorld/`](sketches/01_HelloWorld/) | Minimal display sanity check; set `src_dir` in [`platformio.ini`](platformio.ini) to switch back. |
-| [`lib/waveshare_board_audio/`](lib/waveshare_board_audio/) | Vendor **ES7210** / **ES8311** sources from the Waveshare tree (MIT / Apache-2.0). |
-| [`lib/minimp3/`](lib/minimp3/) | [lieff/minimp3](https://github.com/lieff/minimp3) (public domain) for decoding TTS MP3. |
-| [`platformio.ini`](platformio.ini) | GFX **1.5.0**, `lewisxhe/SensorLib` (CST92xx touch), flash/PSRAM, optional `upload_port`. |
-| [`sketches/Astrolabe/pm_gesture.cpp`](sketches/Astrolabe/pm_gesture.cpp) | Software gesture + multitap on `pm_touch_sample()`; tunable `MYNAH_GESTURE_*` constants in-file. |
+## Projects
 
-GFX note: CO5300 is constructed with **`false`** for the IPS argument (GFX 1.5.0 vs Waveshare’s newer GFX).
+| Path | Hardware |
+|---|---|
+| [`astrolabe175c/`](astrolabe175c/) | 466×466 round AMOLED, ESP32-S3, ES7210/ES8311, AXP2101 |
+| [`astrolabe185b/`](astrolabe185b/) | 1.85-inch Astrolabe target |
+| [`faculty18/`](faculty18/) | 1.8-inch rectangular Faculty target |
+| [`facultyatom/`](facultyatom/) | M5 Atom Faculty target |
+| [`sensecap/`](sensecap/) | SenseCAP target |
 
-Optional: clone the full Waveshare repo into `vendor/` for LVGL demos (`vendor/` is gitignored).
+Shared native components live under [`lib/`](lib/) and shared contracts under
+[`include/`](include/).
+
+## Build the round Astrolabe
+
+ESP-IDF 5.5 or later is required.
 
 ```bash
-git clone --depth 1 https://github.com/waveshareteam/ESP32-S3-Touch-AMOLED-1.75C.git vendor/ESP32-S3-Touch-AMOLED-1.75C
+source ~/esp/esp-idf/export.sh
+cp include/secrets.example.h include/secrets.local.h
+./scripts/astrolabe175c_build.sh build
 ```
 
-## Build & upload
+Flash and monitor a connected device:
 
 ```bash
-pio run -e waveshare_s3_175
-pio run -e waveshare_s3_175 -t upload
-pio device monitor -e waveshare_s3_175
+./scripts/astrolabe175c_build.sh -p /dev/cu.usbmodem1101 flash monitor
 ```
 
-Pick the **Espressif CDC** serial device (e.g. macOS `/dev/cu.usbmodem1101`, USB **VID 303A** / **PID 1001**), or set `upload_port` / `monitor_port` in [`platformio.ini`](platformio.ini). Baud **115200**; `monitor_filters` include `esp32_exception_decoder` for backtraces.
-
-### Serial debug bring-up
-
-- Boot banners and `ESP_LOG*` tags print on the USB CDC port (`Serial` at 115200).
-- Raise verbosity: add `-DCORE_DEBUG_LEVEL=4` (or `5`) to `build_flags` in `platformio.ini`.
-- **JTAG**: same USB cable exposes ESP32-S3 native USB-JTAG/serial (303A:1001). Use `pio debug -e waveshare_s3_175` or OpenOCD + GDB from VS Code/Cursor; `debug_init_break = tbreak setup` is supported by the PlatformIO ESP32 debug target.
+See [`astrolabe175c/README.md`](astrolabe175c/README.md) for hardware,
+storage, OTA, voice, and board-identification details.
 
 ## Secrets
 
-1. Copy [`include/secrets.example.h`](include/secrets.example.h) to **`include/secrets.local.h`** (gitignored).
-2. Set **`MYNAH_WIFI_SSID`**, **`MYNAH_WIFI_PASSWORD`**, **`MYNAH_SUPABASE_URL`**, **`MYNAH_SUPABASE_ANON_KEY`** (same model as Android [`VoicePipelineClient.kt`](../android/app/src/main/java/institute/castalia/mynah/voice/VoicePipelineClient.kt): `Authorization: Bearer <anon>` + `apikey`).
+Copy [`include/secrets.example.h`](include/secrets.example.h) to
+`include/secrets.local.h`. The local file is ignored by Git. Never commit Wi-Fi
+credentials, Supabase keys, access tokens, or device-specific secrets.
 
-If `secrets.local.h` is missing, the build uses the example file (empty strings): WiFi and voice calls will not work until you add a local secrets file.
+Astrolabe uses the Castalia authentication and voice services when configured.
+Personal rhythm, profile, and other local-first state must remain on the device
+unless the user explicitly invokes an online feature.
 
-## Castalia auth modes
+## Product and workflow
 
-Mynah Astrolabe always sends Supabase's anon key as the `apikey` header. The
-`Authorization` bearer is selected by
-[`pm_castalia_auth`](sketches/Astrolabe/pm_castalia_auth.h):
+- [`docs/development-plan.md`](docs/development-plan.md) — campaign product roadmap
+- [`docs/marketing-strategy.md`](docs/marketing-strategy.md) — positioning and launch plan
+- [`docs/BACKLOG.md`](docs/BACKLOG.md) — detailed work ledger
+- [`docs/WORKFLOW.md`](docs/WORKFLOW.md) — issues, PRs, CI, and hardware QA
+- [`docs/pocketwatch.md`](docs/pocketwatch.md) — product notes
 
-- **Anonymous / not signed in**: `Authorization: Bearer <MYNAH_SUPABASE_ANON_KEY>`.
-  This is the bootstrapping mode used before the watch has a Castalia session.
-- **Signed in**: swipe to the
-  [`Castalia` sign-in face](sketches/Astrolabe/Astrolabe.ino), scan the QR
-  code, and complete Google sign-in on `castalia.institute`. The watch stores the
-  returned Supabase access and refresh tokens in NVS, refreshes stale sessions in
-  the background, and uses `Authorization: Bearer <Castalia JWT>` while the
-  access token is valid.
-- **Refresh failure / expired session**: the auth helper clears unusable session
-  state and falls back to the anon bearer. User-scoped functions may then return
-  `401` or empty/unconfigured data until you sign in again on the Castalia face.
+Issue branches start from `integration` and PRs target `integration`. Firmware is
+promoted to `main` only after the documented physical-device build and flash QA
+gate.
 
-Current service expectations:
+## Product safety baseline
 
-| Service | Anonymous mode | Signed-in mode |
-|---------|----------------|----------------|
-| **Voice** (`voice-pipeline`) | Uses the anon bearer for basic anonymous voice requests when the backend allows them. | Sends the Castalia JWT, letting the pipeline identify the Castalia user and use signed-in context. A `401` is shown as "sign in on Castalia face". |
-| **Commonplace** | Use only for public or anonymous flows. Do not write user-owned commonplace data with the anon bearer. | Required for user-owned commonplace reads/writes so Castalia can attach entries to the signed-in account. |
-| **Calcifer** (`calcifer-status` / CalDAV agenda) | Can reach the function but has no user CalDAV configuration; expect unavailable, unconfigured, or `401` responses. | Required for personalized CalDAV countdowns and BOOT spoken agenda briefs. |
-
-## Reflection Baseline
-
-Astrolabe treats face, biometrics, and sensor-derived cues as a mindfulness
-mirror. These signals may be included in `voice-pipeline` LLM/TTS turns, but
-only as uncertain observations for self-reflection. Baseline prompts must not
-infer identity, personality, truthfulness, diagnosis, intent, or stable mental
-state from face or sensor metrics.
-
-The shared wording lives in
-[`include/astrolabe_baseline.h`](include/astrolabe_baseline.h). The default face
-metrics endpoint is `https://face-api.castalia.institute/v1/face`; override
-`MYNAH_FACE_METRICS_URL` in `include/secrets.local.h` for local testing.
-
-## Cycle face
-
-The `Cycle` clock face is an on-device menstrual cycle wellness glance. The full ring maps to
-one configured cycle: day 1 starts at the top anchor, colored bands mark the period estimate,
-fertile/ovulation window, and luteal phase, and the bright marker shows today's position.
-
-Setup stays local in NVS only; there is no cloud sync for cycle data. This is calendar math for
-personal tracking, not a medical device or medical advice.
-
-- Tap the face to log "period started today" from the watch's local date.
-- Swipe up/down on the face to step through cycle length presets (default 28 days).
-- Serial commands:
-  - `cycle` or `cycle status`
-  - `cycle YYYY MM DD`
-  - `cycle today`
-  - `cycle length N`
-  - `cycle period N`
-  - `cycle clear`
-- Web settings (Settings face QR): `/settings/cycle` — last period, cycle/period length, pregnancy due date.
-
-Partner and child birth profiles (up to 8) are editable on the **Settings** face web UI
-(`/settings/family`) and stored in NVS for future synastry faces. Wi‑Fi SSID/password: `/settings/wifi`.
-
-## Development
-
-| Doc | Purpose |
-|-----|---------|
-| [`docs/BACKLOG.md`](docs/BACKLOG.md) | Roadmap |
-| [`docs/WORKFLOW.md`](docs/WORKFLOW.md) | Issues → PR to **`integration`** → promote to **`main`** (build + flash) |
-| [`docs/design/faculty-guided-astrolabe.md`](docs/design/faculty-guided-astrolabe.md) | Faculty-guided humane-interface contracts from *Inquirer* Volume IV |
-| [`docs/release/variant-plan.md`](docs/release/variant-plan.md) | Release matrix, NVS identity, and OTA size checks for Astrolabe variants |
-
-```bash
-./scripts/cloud-agent.sh <issue#>              # Cloud agent → PR to integration
-./scripts/ci-flash.sh                          # build + USB flash (self-hosted CI / local)
-./scripts/release-size-report.py --build        # build variants + check OTA fit
-./scripts/promote-integration.sh --flash-ok    # integration → main after flash QA
-```
-
-## Limits (MVP)
-
-- **HTTPS**: `WiFiClientSecure::setInsecure()` (no CA pin yet).
-- **Voice response**: prefers `audioBase64` MP3; text-only `reply` is shown on screen when audio is absent.
-- **HTTP body / response**: capped at ~1.5 MiB in `pm_voice.cpp`; very long TTS may fail.
-- **Time**: UTC only on the watch face.
+Astrolabe treats face, biometric, and sensor-derived signals as uncertain cues
+for reflection. It must not infer identity, personality, truthfulness,
+diagnosis, intent, or a stable mental state from those signals. The shared
+wording lives in [`include/astrolabe_baseline.h`](include/astrolabe_baseline.h).

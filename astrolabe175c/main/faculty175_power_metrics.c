@@ -1,6 +1,7 @@
 #include "faculty175_power_metrics.h"
 
 #include <stdio.h>
+#include <strings.h>
 #include <string.h>
 
 #include "freertos/FreeRTOS.h"
@@ -17,6 +18,103 @@ static uint32_t s_last_update_ms;
 static uint32_t s_last_stream_ms;
 static uint32_t s_discharge_started_ms;
 static int s_discharge_started_percent = -1;
+static uint32_t s_scenario_started_ms;
+static uint32_t s_scenario_duration_ms;
+
+const char *faculty175_power_scenario_name(faculty175_power_scenario_t scenario)
+{
+    switch (scenario) {
+        case FACULTY175_POWER_SCENARIO_FULL_WIFI: return "full-wifi";
+        case FACULTY175_POWER_SCENARIO_FULL_OFFLINE: return "full-offline";
+        case FACULTY175_POWER_SCENARIO_DIM_WIFI: return "dim-wifi";
+        case FACULTY175_POWER_SCENARIO_DIM_OFFLINE: return "dim-offline";
+        case FACULTY175_POWER_SCENARIO_OFF_WIFI: return "off-wifi";
+        case FACULTY175_POWER_SCENARIO_SLEEP_OFFLINE: return "sleep-offline";
+        case FACULTY175_POWER_SCENARIO_NORMAL:
+        default: return "normal";
+    }
+}
+
+bool faculty175_power_scenario_parse(const char *name, faculty175_power_scenario_t *out)
+{
+    if (name == NULL || out == NULL) return false;
+    for (int value = FACULTY175_POWER_SCENARIO_NORMAL;
+         value <= FACULTY175_POWER_SCENARIO_SLEEP_OFFLINE;
+         ++value) {
+        if (strcasecmp(name, faculty175_power_scenario_name((faculty175_power_scenario_t)value)) == 0) {
+            *out = (faculty175_power_scenario_t)value;
+            return true;
+        }
+    }
+    return false;
+}
+
+bool faculty175_power_scenario_wifi_enabled(faculty175_power_scenario_t scenario)
+{
+    return scenario == FACULTY175_POWER_SCENARIO_FULL_WIFI ||
+           scenario == FACULTY175_POWER_SCENARIO_DIM_WIFI ||
+           scenario == FACULTY175_POWER_SCENARIO_OFF_WIFI;
+}
+
+faculty175_power_mode_t faculty175_power_scenario_mode(faculty175_power_scenario_t scenario)
+{
+    if (scenario == FACULTY175_POWER_SCENARIO_DIM_WIFI ||
+        scenario == FACULTY175_POWER_SCENARIO_DIM_OFFLINE) {
+        return FACULTY175_POWER_DIMMED;
+    }
+    if (scenario == FACULTY175_POWER_SCENARIO_OFF_WIFI ||
+        scenario == FACULTY175_POWER_SCENARIO_SLEEP_OFFLINE) {
+        return FACULTY175_POWER_ASLEEP;
+    }
+    return FACULTY175_POWER_AWAKE;
+}
+
+static void scenario_expire_locked(uint32_t now_ms)
+{
+    if (s_metrics.scenario != FACULTY175_POWER_SCENARIO_NORMAL &&
+        s_scenario_duration_ms > 0u &&
+        now_ms - s_scenario_started_ms >= s_scenario_duration_ms) {
+        s_metrics.scenario = FACULTY175_POWER_SCENARIO_NORMAL;
+        s_scenario_started_ms = 0u;
+        s_scenario_duration_ms = 0u;
+        s_metrics.scenario_elapsed_ms = 0u;
+        s_metrics.scenario_remaining_ms = 0u;
+    }
+}
+
+bool faculty175_power_scenario_set(faculty175_power_scenario_t scenario,
+                                   uint32_t now_ms,
+                                   uint32_t duration_ms)
+{
+    if (scenario < FACULTY175_POWER_SCENARIO_NORMAL ||
+        scenario > FACULTY175_POWER_SCENARIO_SLEEP_OFFLINE ||
+        (scenario != FACULTY175_POWER_SCENARIO_NORMAL && duration_ms == 0u)) {
+        return false;
+    }
+    portENTER_CRITICAL(&s_power_metrics_mux);
+    s_metrics.scenario = scenario;
+    s_scenario_started_ms = scenario == FACULTY175_POWER_SCENARIO_NORMAL ? 0u : now_ms;
+    s_scenario_duration_ms = scenario == FACULTY175_POWER_SCENARIO_NORMAL ? 0u : duration_ms;
+    s_metrics.scenario_elapsed_ms = 0u;
+    s_metrics.scenario_remaining_ms = duration_ms;
+    s_metrics.scenario_awake_ms = 0u;
+    s_metrics.scenario_breathing_ms = 0u;
+    s_metrics.scenario_dimmed_ms = 0u;
+    s_metrics.scenario_asleep_ms = 0u;
+    s_discharge_started_ms = 0u;
+    s_discharge_started_percent = -1;
+    portEXIT_CRITICAL(&s_power_metrics_mux);
+    return true;
+}
+
+faculty175_power_scenario_t faculty175_power_scenario_get(uint32_t now_ms)
+{
+    portENTER_CRITICAL(&s_power_metrics_mux);
+    scenario_expire_locked(now_ms);
+    const faculty175_power_scenario_t scenario = s_metrics.scenario;
+    portEXIT_CRITICAL(&s_power_metrics_mux);
+    return scenario;
+}
 
 const char *faculty175_power_mode_name(faculty175_power_mode_t mode)
 {
@@ -32,9 +130,11 @@ const char *faculty175_power_mode_name(faculty175_power_mode_t mode)
 void faculty175_power_metrics_update(uint32_t now_ms,
                                      const faculty175_pmu_status_t *pmu,
                                      faculty175_power_mode_t mode,
-                                     bool wifi_active)
+                                     bool wifi_active,
+                                     bool ble_active)
 {
     portENTER_CRITICAL(&s_power_metrics_mux);
+    scenario_expire_locked(now_ms);
     if (s_started_ms == 0u) {
         s_started_ms = now_ms;
         s_last_update_ms = now_ms;
@@ -44,6 +144,7 @@ void faculty175_power_metrics_update(uint32_t now_ms,
     s_metrics.uptime_ms = now_ms - s_started_ms;
     s_metrics.mode = mode;
     s_metrics.wifi_active = wifi_active;
+    s_metrics.ble_active = ble_active;
     if (pmu != NULL) {
         s_metrics.pmu = *pmu;
     }
@@ -53,6 +154,17 @@ void faculty175_power_metrics_update(uint32_t now_ms,
         case FACULTY175_POWER_ASLEEP: s_metrics.asleep_ms += dt_ms; break;
         case FACULTY175_POWER_AWAKE:
         default: s_metrics.awake_ms += dt_ms; break;
+    }
+    if (s_metrics.scenario != FACULTY175_POWER_SCENARIO_NORMAL) {
+        s_metrics.scenario_elapsed_ms = now_ms - s_scenario_started_ms;
+        s_metrics.scenario_remaining_ms = s_scenario_duration_ms - s_metrics.scenario_elapsed_ms;
+        switch (mode) {
+            case FACULTY175_POWER_BREATHING: s_metrics.scenario_breathing_ms += dt_ms; break;
+            case FACULTY175_POWER_DIMMED: s_metrics.scenario_dimmed_ms += dt_ms; break;
+            case FACULTY175_POWER_ASLEEP: s_metrics.scenario_asleep_ms += dt_ms; break;
+            case FACULTY175_POWER_AWAKE:
+            default: s_metrics.scenario_awake_ms += dt_ms; break;
+        }
     }
 
     const bool on_battery = s_metrics.pmu.present && s_metrics.pmu.battery_present &&
@@ -133,7 +245,7 @@ void faculty175_power_metrics_stream_maybe_emit(uint32_t now_ms)
 
     const bool on_battery = status.pmu.present && status.pmu.battery_present &&
                             !status.pmu.vbus_in && !status.pmu.charging;
-    printf("power_csv,%lu,%s,%s,%d,%u,%d,%d,%d,%lu,%lu,%lu,%lu,%lu,%d,%lu,%.3f,%.2f,%d\n",
+    printf("power_csv,%lu,%s,%s,%d,%u,%d,%d,%d,%d,%lu,%lu,%lu,%lu,%lu,%d,%lu,%.3f,%.2f,%d\n",
            (unsigned long)now_ms,
            faculty175_power_mode_name(status.mode),
            on_battery ? "battery" : "usb",
@@ -142,6 +254,7 @@ void faculty175_power_metrics_stream_maybe_emit(uint32_t now_ms)
            status.pmu.charging ? 1 : 0,
            status.pmu.discharging ? 1 : 0,
            status.wifi_active ? 1 : 0,
+           status.ble_active ? 1 : 0,
            (unsigned long)(status.uptime_ms / 1000u),
            (unsigned long)(status.awake_ms / 1000u),
            (unsigned long)(status.breathing_ms / 1000u),

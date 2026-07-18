@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create a signed Faculty 1.75C OTA manifest."""
+"""Create a signed Astrolabe 1.75C OTA manifest."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ import tempfile
 from pathlib import Path
 
 
-CHANNEL = "astrolabe-faculty-amoled175"
+DEFAULT_CHANNEL = "astrolabe-faculty-amoled175"
 SIG_ALG = "ecdsa-p256-sha256"
 MAC_RE = re.compile(r"^[0-9a-f]{2}(:[0-9a-f]{2}){5}$")
 
@@ -41,9 +41,10 @@ def load_devices(values: list[str], devices_file: Path | None) -> list[str]:
     return normalized
 
 
-def canonical(channel: str, firmware_url: str, sha256: str, size: int, devices: list[str]) -> bytes:
+def canonical(channel: str, firmware_variant: str, firmware_url: str, sha256: str, size: int, devices: list[str]) -> bytes:
     return (
         f"ota_channel={channel}\n"
+        f"firmware_variant={firmware_variant}\n"
         f"firmware_url={firmware_url}\n"
         f"sha256={sha256}\n"
         f"bytes={size}\n"
@@ -74,6 +75,8 @@ def sign_payload(private_key: Path, payload: bytes) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--image", type=Path, required=True, help="Firmware .bin to describe.")
+    parser.add_argument("--channel", default=DEFAULT_CHANNEL, help="OTA channel embedded in and signed by the manifest.")
+    parser.add_argument("--firmware-variant", default="Faculty", help="Build variant embedded in and signed by the manifest.")
     parser.add_argument("--firmware-url", required=True, help="URL devices will fetch for the firmware .bin.")
     parser.add_argument("--private-key", type=Path, required=True, help="ECDSA P-256 PEM private key.")
     parser.add_argument("--out", type=Path, required=True, help="Manifest JSON output path.")
@@ -85,9 +88,10 @@ def main() -> None:
     size = image.stat().st_size
     digest = sha256_file(image)
     devices = load_devices(args.device_mac, args.devices_file)
-    payload = canonical(CHANNEL, args.firmware_url, digest, size, devices)
+    payload = canonical(args.channel, args.firmware_variant, args.firmware_url, digest, size, devices)
     manifest = {
-        "ota_channel": CHANNEL,
+        "ota_channel": args.channel,
+        "firmware_variant": args.firmware_variant,
         "firmware_url": args.firmware_url,
         "sha256": digest,
         "bytes": size,

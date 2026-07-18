@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include "esp_random.h"
+#include "esp_timer.h"
 #include "nvs.h"
 
 #include "faculty175_board.h"
@@ -17,6 +18,11 @@
 #define ALETH_NEEDLE_COUNT 4
 #define ALETH_QUESTION_MAX 192
 #define ALETH_SPOKEN_MAX 384
+#define ALETH_REVEAL_Q1_MS 250
+#define ALETH_REVEAL_Q2_MS 700
+#define ALETH_REVEAL_Q3_MS 1150
+#define ALETH_REVEAL_SEARCH_MS 1500
+#define ALETH_REVEAL_ANSWER_MS 3000
 
 typedef struct {
     const char *name;
@@ -32,10 +38,17 @@ static const aleth_symbol_t k_symbols[ALETH_SYMBOL_COUNT] = {
 };
 
 static int s_target[ALETH_NEEDLE_COUNT] = {0, 5, 17, 30};
+static int s_display_target[ALETH_NEEDLE_COUNT] = {0, 5, 17, 30};
 static float s_angle[ALETH_NEEDLE_COUNT] = {-1.5708f, -0.7f, 1.1f, 2.2f};
 static char s_question[ALETH_QUESTION_MAX];
 static char s_spoken[ALETH_SPOKEN_MAX];
 static bool s_loaded;
+static bool s_revealing;
+static bool s_searching;
+static int64_t s_reveal_started_us;
+static int64_t s_search_started_us;
+static int s_answer_search_start;
+static int s_search_start_target[ALETH_NEEDLE_COUNT];
 
 static uint16_t c(uint8_t r, uint8_t g, uint8_t b)
 {
@@ -113,6 +126,7 @@ static void load_targets(void)
             break;
         }
         s_target[i] = (int)v;
+        s_display_target[i] = s_target[i];
         s_angle[i] = symbol_angle(s_target[i]);
     }
     size_t len = sizeof(s_question);
@@ -129,6 +143,11 @@ static void load_targets(void)
     }
 }
 
+void faculty175_face_alethiometer_init(void)
+{
+    load_targets();
+}
+
 void faculty175_face_alethiometer_cast(uint32_t seed)
 {
     uint32_t x = seed != 0 ? seed : esp_random();
@@ -143,11 +162,72 @@ void faculty175_face_alethiometer_cast(uint32_t seed)
         }
         used[idx] = true;
         s_target[i] = idx;
+        s_display_target[i] = idx;
     }
     s_loaded = true;
     s_question[0] = '\0';
     s_spoken[0] = '\0';
+    s_revealing = false;
+    s_searching = false;
     save_targets();
+}
+
+void faculty175_face_alethiometer_begin_search(void)
+{
+    load_targets();
+    for (int i = 0; i < ALETH_NEEDLE_COUNT; ++i) {
+        s_search_start_target[i] = s_display_target[i];
+    }
+    s_search_started_us = esp_timer_get_time();
+    s_revealing = false;
+    s_searching = true;
+}
+
+void faculty175_face_alethiometer_cancel_search(void)
+{
+    s_searching = false;
+    for (int i = 0; i < ALETH_NEEDLE_COUNT; ++i) {
+        s_display_target[i] = s_target[i];
+    }
+}
+
+static void advance_reveal(void)
+{
+    if (s_searching) {
+        const int64_t elapsed_us = esp_timer_get_time() - s_search_started_us;
+        const uint32_t step = elapsed_us > 0 ? (uint32_t)(elapsed_us / 90000) : 0;
+        static const int k_search_stride[ALETH_NEEDLE_COUNT] = {1, -2, 3, -1};
+        for (int i = 0; i < ALETH_NEEDLE_COUNT; ++i) {
+            int target = s_search_start_target[i] + (int)step * k_search_stride[i];
+            target %= ALETH_SYMBOL_COUNT;
+            if (target < 0) {
+                target += ALETH_SYMBOL_COUNT;
+            }
+            s_display_target[i] = target;
+        }
+        return;
+    }
+    if (!s_revealing) {
+        return;
+    }
+    const int64_t elapsed_us = esp_timer_get_time() - s_reveal_started_us;
+    const uint32_t elapsed_ms = elapsed_us > 0 ? (uint32_t)(elapsed_us / 1000) : 0;
+    if (elapsed_ms >= ALETH_REVEAL_Q1_MS) {
+        s_display_target[0] = s_target[0];
+    }
+    if (elapsed_ms >= ALETH_REVEAL_Q2_MS) {
+        s_display_target[1] = s_target[1];
+    }
+    if (elapsed_ms >= ALETH_REVEAL_Q3_MS) {
+        s_display_target[2] = s_target[2];
+    }
+    if (elapsed_ms >= ALETH_REVEAL_ANSWER_MS) {
+        s_display_target[3] = s_target[3];
+        s_revealing = false;
+    } else if (elapsed_ms >= ALETH_REVEAL_SEARCH_MS) {
+        const uint32_t step = (elapsed_ms - ALETH_REVEAL_SEARCH_MS) / 90u;
+        s_display_target[3] = (s_answer_search_start + (int)step) % ALETH_SYMBOL_COUNT;
+    }
 }
 
 static bool parse_json_string_after(const char *json, const char *key, char *out, size_t cap)
@@ -270,6 +350,10 @@ bool faculty175_face_alethiometer_apply_reply(const char *question_text, const c
     s_target[1] = question[1];
     s_target[2] = question[2];
     s_target[3] = answer;
+    s_answer_search_start = (s_display_target[3] + 1) % ALETH_SYMBOL_COUNT;
+    s_reveal_started_us = esp_timer_get_time();
+    s_searching = false;
+    s_revealing = true;
     if (question_text != NULL) {
         strlcpy(s_question, question_text, sizeof(s_question));
     }
@@ -281,14 +365,20 @@ bool faculty175_face_alethiometer_apply_reply(const char *question_text, const c
     return true;
 }
 
+uint32_t faculty175_face_alethiometer_reveal_duration_ms(void)
+{
+    return ALETH_REVEAL_ANSWER_MS + 250u;
+}
+
 bool faculty175_face_alethiometer_current(int out_targets[4])
 {
     if (out_targets == NULL) {
         return false;
     }
     load_targets();
+    advance_reveal();
     for (int i = 0; i < ALETH_NEEDLE_COUNT; ++i) {
-        out_targets[i] = s_target[i];
+        out_targets[i] = s_display_target[i];
     }
     return true;
 }
@@ -299,8 +389,12 @@ bool faculty175_face_alethiometer_context(int out_targets[4],
                                           char *spoken,
                                           size_t spoken_cap)
 {
-    if (!faculty175_face_alethiometer_current(out_targets)) {
+    if (out_targets == NULL) {
         return false;
+    }
+    load_targets();
+    for (int i = 0; i < ALETH_NEEDLE_COUNT; ++i) {
+        out_targets[i] = s_target[i];
     }
     if (question != NULL && question_cap > 0) {
         strlcpy(question, s_question, question_cap);
@@ -319,8 +413,9 @@ const char *faculty175_face_alethiometer_symbol_name(int idx)
 static void animate_needles(uint32_t anim_ms)
 {
     (void)anim_ms;
+    advance_reveal();
     for (int i = 0; i < ALETH_NEEDLE_COUNT; ++i) {
-        const float target = symbol_angle(s_target[i]);
+        const float target = symbol_angle(s_display_target[i]);
         const float d = norm_angle(target - s_angle[i]);
         s_angle[i] = norm_angle(s_angle[i] + d * (i == 3 ? 0.12f : 0.09f));
     }
@@ -342,13 +437,13 @@ static void draw_ring(void)
         const int ty = cy + (int)lrintf(sinf(a) * 174.0f);
         bool hit = false;
         for (int n = 0; n < ALETH_NEEDLE_COUNT; ++n) {
-            hit = hit || s_target[n] == i;
+            hit = hit || s_display_target[n] == i;
         }
         if (hit) {
             faculty175_display_fill_circle(tx, ty, 13, c(26, 22, 22));
-            faculty175_display_draw_circle(tx, ty, 13, i == s_target[3] ? blue : gold);
+            faculty175_display_draw_circle(tx, ty, 13, i == s_display_target[3] ? blue : gold);
         }
-        faculty175_face_alethiometer_draw_glyph(tx, ty, i, hit ? (i == s_target[3] ? blue : gold) : ink, 1);
+        faculty175_face_alethiometer_draw_glyph(tx, ty, i, hit ? (i == s_display_target[3] ? blue : gold) : ink, 1);
     }
 }
 
@@ -393,10 +488,10 @@ void faculty175_face_alethiometer_draw(uint32_t anim_ms)
     faculty175_display_draw_centered_text("ALETHIOMETER", 44, c(228, 198, 128));
 
     char line[80];
-    snprintf(line, sizeof(line), "%s  %s  %s", k_symbols[s_target[0]].name, k_symbols[s_target[1]].name,
-             k_symbols[s_target[2]].name);
+    snprintf(line, sizeof(line), "%s  %s  %s", k_symbols[s_display_target[0]].name,
+             k_symbols[s_display_target[1]].name, k_symbols[s_display_target[2]].name);
     faculty175_display_draw_centered_text(line, 382, c(222, 206, 158));
-    snprintf(line, sizeof(line), "ANSWER %s", k_symbols[s_target[3]].name);
+    snprintf(line, sizeof(line), "ANSWER %s", k_symbols[s_display_target[3]].name);
     faculty175_display_draw_centered_text(line, 404, c(150, 194, 226));
     faculty175_display_flush();
 }

@@ -5,6 +5,9 @@ const localManifestUrl = new URL("../releases/integration/manifest.json", window
 const publicManifestUrl = new URL(
   "https://astrolabe.castalia.institute/releases/integration/manifest.json"
 );
+const query = new URLSearchParams(window.location.search);
+const requestedManifest = query.get("manifest");
+const bridgeManifestUrl = new URL("/bridge/manifest.json", window.location.href);
 const defaultAppSlotBytes = 0x300000;
 
 const els = {
@@ -28,6 +31,7 @@ const els = {
   refreshDiagnostics: document.querySelector("[data-refresh-diagnostics]"),
   webusbProbe: document.querySelector("[data-webusb-probe]"),
   webserialProbe: document.querySelector("[data-webserial-probe]"),
+  install: document.querySelector("[data-install]"),
 };
 
 let manifest = null;
@@ -35,6 +39,7 @@ let release = null;
 let port = null;
 let transport = null;
 let loader = null;
+let installPrompt = null;
 
 function log(line = "") {
   const stamp = new Date().toLocaleTimeString();
@@ -228,14 +233,36 @@ async function loadManifest() {
     els.connectWebUsb.disabled = true;
   }
 
-  log(`Loading ${localManifestUrl}`);
-  let response = await fetch(localManifestUrl, { cache: "no-store" });
-  if (!response.ok && ["127.0.0.1", "localhost"].includes(window.location.hostname)) {
-    log(`Local manifest unavailable; falling back to ${publicManifestUrl}`);
-    response = await fetch(publicManifestUrl, { cache: "no-store" });
+  const isLoopback = ["127.0.0.1", "localhost"].includes(window.location.hostname);
+  const candidates = [];
+  if (requestedManifest) {
+    candidates.push(new URL(requestedManifest, window.location.href));
+  } else if (isLoopback) {
+    candidates.push(bridgeManifestUrl);
   }
-  if (!response.ok) {
-    throw new Error(`Manifest fetch failed: HTTP ${response.status}`);
+  candidates.push(localManifestUrl);
+  if (isLoopback) {
+    candidates.push(publicManifestUrl);
+  }
+
+  let response = null;
+  let loadedUrl = null;
+  for (const candidate of candidates) {
+    log(`Loading ${candidate}`);
+    try {
+      const attempt = await fetch(candidate, { cache: "no-store" });
+      if (attempt.ok) {
+        response = attempt;
+        loadedUrl = candidate;
+        break;
+      }
+      log(`Manifest unavailable: HTTP ${attempt.status}`);
+    } catch (error) {
+      log(`Manifest unavailable: ${error.message || error}`);
+    }
+  }
+  if (!response) {
+    throw new Error("No firmware manifest is reachable");
   }
   manifest = await response.json();
   const releases = manifest.releases || [];
@@ -251,7 +278,7 @@ async function loadManifest() {
 
   release = releases[0] || null;
   renderReleaseSummary();
-  log(`Loaded ${releases.length} releases from ${manifest.git_ref}@${manifest.git_sha?.slice(0, 7)}`);
+  log(`Loaded ${releases.length} releases from ${manifest.git_ref}@${manifest.git_sha?.slice(0, 7)} (${loadedUrl})`);
 }
 
 async function connectWithSerialApi(serialApi, resetMode, sourceLabel, requestOptions = {}) {
@@ -452,6 +479,31 @@ els.clearLog.addEventListener("click", () => {
 els.refreshDiagnostics.addEventListener("click", renderDiagnostics);
 els.webusbProbe.addEventListener("click", probeWebUSB);
 els.webserialProbe.addEventListener("click", probeWebSerial);
+els.install?.addEventListener("click", async () => {
+  if (!installPrompt) return;
+  await installPrompt.prompt();
+  await installPrompt.userChoice;
+  installPrompt = null;
+  els.install.hidden = true;
+});
+
+window.addEventListener("beforeinstallprompt", (event) => {
+  event.preventDefault();
+  installPrompt = event;
+  els.install.hidden = false;
+});
+
+window.addEventListener("appinstalled", () => {
+  installPrompt = null;
+  els.install.hidden = true;
+  log("Astrolabe Flasher installed.");
+});
+
+if ("serviceWorker" in navigator && window.isSecureContext) {
+  navigator.serviceWorker.register("./service-worker.js").catch((error) => {
+    log(`PWA worker unavailable: ${error.message || error}`);
+  });
+}
 
 renderDiagnostics();
 loadManifest().catch((error) => {

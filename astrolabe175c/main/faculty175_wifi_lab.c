@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "esp_attr.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "esp_wifi.h"
@@ -58,13 +59,13 @@ typedef enum {
 static SemaphoreHandle_t s_lock;
 static lab_mode_t s_mode;
 static faculty175_face_id_t s_face = FACULTY175_FACE_COUNT;
-static faculty175_wifi_lab_state_t s_state;
+EXT_RAM_BSS_ATTR static faculty175_wifi_lab_state_t s_state;
 static uint32_t s_last_deauth_ms;
 static bool s_promiscuous;
 static bool s_saved_ps;
 static wifi_ps_type_t s_saved_ps_type = WIFI_PS_MIN_MODEM;
 static bool s_evil_twin_ap;
-static lab_pcap_frame_t s_pcap_frames[PCAP_FRAME_MAX];
+EXT_RAM_BSS_ATTR static lab_pcap_frame_t s_pcap_frames[PCAP_FRAME_MAX];
 static uint16_t s_pcap_count;
 static uint16_t s_pcap_next;
 

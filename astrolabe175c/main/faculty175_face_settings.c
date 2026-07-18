@@ -8,9 +8,9 @@ void faculty175_face_settings_draw(uint32_t anim_ms)
         .subtitle = "DEVICE",
         .style = FACULTY175_NATIVE_STATUS,
         .hue = 3,
-        .a = "WIFI / OTA / FACE",
-        .b = "123 fortune 443 secops",
-        .c = "175 cast 295 moon",
+        .a = "BATTERY / WIFI / BLE",
+        .b = "FAMILY / OTA / DIAGNOSTICS",
+        .c = "SWIPE UP TO RETURN",
     };
     faculty175_face_native_draw(&face, anim_ms);
 }

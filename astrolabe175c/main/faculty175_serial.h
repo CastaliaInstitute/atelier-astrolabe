@@ -15,9 +15,24 @@ extern "C" {
 void faculty175_serial_init(void);
 TaskHandle_t faculty175_serial_task_handle(void);
 
+typedef struct {
+    uint32_t sequence;
+    bool busy;
+    uint32_t capture_ms;
+    uint32_t started_ms;
+    uint32_t completed_ms;
+    esp_err_t err;
+    char transcript[192];
+    char reply[320];
+} faculty175_qa_voice_status_t;
+
+void faculty175_qa_voice_status(faculty175_qa_voice_status_t *out);
+
 /** Request a TTS reading of the current face. */
 bool faculty175_request_current_face_tts(void);
 esp_err_t faculty175_request_qa_stt(uint32_t capture_ms);
+/** Queue STT so app_main can release the HTTP server's internal-RAM stack first. */
+esp_err_t faculty175_request_qa_stt_deferred(uint32_t capture_ms);
 esp_err_t faculty175_request_streaming_capture(uint32_t capture_ms);
 esp_err_t faculty175_request_streaming_pipeline_stop(void);
 esp_err_t faculty175_request_streaming_pipeline_restart(void);

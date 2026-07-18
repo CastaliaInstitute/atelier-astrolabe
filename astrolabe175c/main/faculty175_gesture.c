@@ -494,3 +494,8 @@ void faculty175_gesture_start_task(void)
         s_task = NULL;
     }
 }
+
+TaskHandle_t faculty175_gesture_task_handle(void)
+{
+    return s_task;
+}

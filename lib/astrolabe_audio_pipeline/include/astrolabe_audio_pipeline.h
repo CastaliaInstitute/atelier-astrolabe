@@ -6,6 +6,7 @@
 
 #include "esp_err.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -104,6 +105,10 @@ typedef struct {
     UBaseType_t voice_priority;
     uint32_t listen_stack;
     uint32_t voice_stack;
+    /** Optional caller-owned internal-RAM storage for the flash-writing listener. */
+    StackType_t *listen_stack_storage;
+    StaticTask_t *listen_tcb_storage;
+    size_t listen_stack_storage_bytes;
 } astrolabe_audio_pipeline_config_t;
 
 typedef struct astrolabe_audio_pipeline astrolabe_audio_pipeline_t;

@@ -9,6 +9,7 @@
 
 #include "cJSON.h"
 #include "astrolabe_time.h"
+#include "esp_attr.h"
 #include "esp_log.h"
 #include "esp_random.h"
 #include "esp_timer.h"
@@ -124,17 +125,19 @@ static const ble_uuid128_t COLMI_UART_TX_UUID =
 
 static bool s_enabled = true;
 static bool s_started;
+static bool s_power_test_active;
+static bool s_power_test_previous_enabled;
 static bool s_synced;
 static bool s_advertising;
 static bool s_scanning;
 static uint8_t s_own_addr_type;
-static char s_json_rx[768];
+EXT_RAM_BSS_ATTR static char s_json_rx[768];
 static size_t s_json_rx_len;
 static bool s_json_rx_active;
 static char s_device_name[FACULTY175_BLE_PEER_NAME_MAX] = "Astrolabe Faculty";
-static faculty175_ble_peer_t s_peers[FACULTY175_BLE_PEER_MAX];
+EXT_RAM_BSS_ATTR static faculty175_ble_peer_t s_peers[FACULTY175_BLE_PEER_MAX];
 static portMUX_TYPE s_peer_lock = portMUX_INITIALIZER_UNLOCKED;
-static faculty175_ble_ring_telem_t s_ring_telem[FACULTY175_BLE_RING_TELEM_MAX];
+EXT_RAM_BSS_ATTR static faculty175_ble_ring_telem_t s_ring_telem[FACULTY175_BLE_RING_TELEM_MAX];
 static portMUX_TYPE s_ring_telem_lock = portMUX_INITIALIZER_UNLOCKED;
 static uint16_t s_paired_ring_id;
 static bool s_paired_ring_id_set;
@@ -1774,7 +1777,9 @@ esp_err_t faculty175_ble_init(void)
     esp_log_level_set("NimBLE", ESP_LOG_NONE);
     esp_log_level_set("BLE_INIT", ESP_LOG_NONE);
 
-    esp_err_t err = ble_nvs_get_enabled(&s_enabled);
+    bool configured_enabled = true;
+    esp_err_t err = ble_nvs_get_enabled(&configured_enabled);
+    s_enabled = s_power_test_active ? true : configured_enabled;
     uint16_t ring_id = 0;
     bool ring_id_set = false;
     const esp_err_t ring_id_err = ble_nvs_get_ring_id(&ring_id, &ring_id_set);
@@ -2052,6 +2057,69 @@ esp_err_t faculty175_ble_set_enabled(bool enabled)
     return ble_advertise();
 }
 
+void faculty175_ble_prepare_deep_sleep(void)
+{
+    if (s_advertising) {
+        (void)ble_gap_adv_stop();
+    }
+    if (s_scanning) {
+        (void)ble_gap_disc_cancel();
+    }
+    s_advertising = false;
+    s_scanning = false;
+    FACULTY175_LOG_STAGE(TAG, "ble", "radio quiesced for deep sleep");
+}
+
+esp_err_t faculty175_ble_power_test_set(bool enabled)
+{
+    if (enabled) {
+        if (s_power_test_active) {
+            return ESP_OK;
+        }
+        bool configured_enabled = true;
+        const esp_err_t read_err = ble_nvs_get_enabled(&configured_enabled);
+        if (read_err != ESP_OK) {
+            ESP_LOGW(TAG, "power-test preference read failed %s", esp_err_to_name(read_err));
+        }
+        s_power_test_previous_enabled = configured_enabled;
+        s_power_test_active = true;
+        s_enabled = true;
+        const esp_err_t init_err = faculty175_ble_init();
+        if (init_err != ESP_OK) {
+            s_power_test_active = false;
+            s_enabled = s_power_test_previous_enabled;
+            return init_err;
+        }
+        if (s_synced && !s_advertising && !s_scanning) {
+            return ble_advertise();
+        }
+        return ESP_OK;
+    }
+
+    if (!s_power_test_active) {
+        return ESP_OK;
+    }
+    if (s_advertising) {
+        (void)ble_gap_adv_stop();
+    }
+    if (s_scanning) {
+        (void)ble_gap_disc_cancel();
+    }
+    s_advertising = false;
+    s_scanning = false;
+    s_power_test_active = false;
+    s_enabled = s_power_test_previous_enabled;
+    if (s_enabled && s_started && s_synced) {
+        return ble_advertise();
+    }
+    return ESP_OK;
+}
+
+bool faculty175_ble_power_test_active(void)
+{
+    return s_power_test_active;
+}
+
 bool faculty175_ble_handle(const char *line)
 {
     if (line == NULL || (strcasecmp(line, "ble") != 0 && strncasecmp(line, "ble ", 4) != 0)) {
@@ -2071,13 +2139,25 @@ bool faculty175_ble_handle(const char *line)
     }
 
     if (*sub == '\0' || strcasecmp(sub, "status") == 0) {
-        printf("ble: enabled=%s started=%s synced=%s advertising=%s scanning=%s name=\"%s\"\n",
+        printf("ble: enabled=%s started=%s synced=%s advertising=%s scanning=%s power_test=%s name=\"%s\"\n",
                s_enabled ? "yes" : "no",
                s_started ? "yes" : "no",
                s_synced ? "yes" : "no",
                s_advertising ? "yes" : "no",
                s_scanning ? "yes" : "no",
+               s_power_test_active ? "yes" : "no",
                s_device_name);
+    } else if (strcasecmp(sub, "power-test on") == 0) {
+        const esp_err_t err = faculty175_ble_power_test_set(true);
+        printf("ble: power-test on %s\n", esp_err_to_name(err));
+    } else if (strcasecmp(sub, "power-test off") == 0) {
+        const esp_err_t err = faculty175_ble_power_test_set(false);
+        printf("ble: power-test off %s\n", esp_err_to_name(err));
+    } else if (strcasecmp(sub, "power-test status") == 0) {
+        printf("ble: power-test active=%s advertising=%s scanning=%s\n",
+               s_power_test_active ? "yes" : "no",
+               s_advertising ? "yes" : "no",
+               s_scanning ? "yes" : "no");
     } else if (strcasecmp(sub, "on") == 0 || strcasecmp(sub, "enable") == 0) {
         const esp_err_t err = faculty175_ble_set_enabled(true);
         printf("ble: enable %s\n", esp_err_to_name(err));

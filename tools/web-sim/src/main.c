@@ -18,6 +18,42 @@ static char s_voice_state[16];
 static char s_voice_detail[96];
 static uint32_t s_voice_until_ms;
 
+static faculty175_face_id_t websim_face_id_from_index(int index)
+{
+    if (index < 0) {
+        return FACULTY175_FACE_POCKETWATCH;
+    }
+    size_t offset = (size_t)index;
+    for (faculty175_face_id_t id = 0; id < FACULTY175_FACE_COUNT; ++id) {
+        if (faculty175_faces_get(id) == NULL) {
+            continue;
+        }
+        if (offset == 0) {
+            return id;
+        }
+        --offset;
+    }
+    return FACULTY175_FACE_POCKETWATCH;
+}
+
+static int websim_face_index_of_id(faculty175_face_id_t face_id)
+{
+    if (faculty175_faces_get(face_id) == NULL) {
+        return -1;
+    }
+    int index = 0;
+    for (faculty175_face_id_t id = 0; id < FACULTY175_FACE_COUNT; ++id) {
+        if (faculty175_faces_get(id) == NULL) {
+            continue;
+        }
+        if (id == face_id) {
+            return index;
+        }
+        ++index;
+    }
+    return -1;
+}
+
 static void draw_current_face(void)
 {
     if (s_voice_state[0] != '\0' && s_anim_ms < s_voice_until_ms) {
@@ -58,33 +94,36 @@ static void frame(void)
 
 EMSCRIPTEN_KEEPALIVE int astrolabe_web_face_count(void)
 {
-    return (int)faculty175_faces_count();
+    int count = 0;
+    for (faculty175_face_id_t id = 0; id < FACULTY175_FACE_COUNT; ++id) {
+        if (faculty175_faces_get(id) != NULL) {
+            ++count;
+        }
+    }
+    return count;
 }
 
 EMSCRIPTEN_KEEPALIVE const char *astrolabe_web_face_name(int face_id)
 {
-    const faculty175_face_desc_t *face = faculty175_faces_get((faculty175_face_id_t)face_id);
+    const faculty175_face_desc_t *face = faculty175_faces_get(websim_face_id_from_index(face_id));
     return face != NULL ? face->label : "";
 }
 
 EMSCRIPTEN_KEEPALIVE const char *astrolabe_web_face_slug(int face_id)
 {
-    const faculty175_face_desc_t *face = faculty175_faces_get((faculty175_face_id_t)face_id);
+    const faculty175_face_desc_t *face = faculty175_faces_get(websim_face_id_from_index(face_id));
     return face != NULL ? face->slug : "";
 }
 
 EMSCRIPTEN_KEEPALIVE void astrolabe_web_set_face(int face_id)
 {
-    if (face_id < 0 || face_id >= (int)faculty175_faces_count()) {
-        face_id = FACULTY175_FACE_POCKETWATCH;
-    }
-    s_face = (faculty175_face_id_t)face_id;
+    s_face = websim_face_id_from_index(face_id);
     draw_current_face();
 }
 
 EMSCRIPTEN_KEEPALIVE int astrolabe_web_current_face(void)
 {
-    return (int)s_face;
+    return websim_face_index_of_id(s_face);
 }
 
 EMSCRIPTEN_KEEPALIVE void astrolabe_web_voice_state(const char *state, const char *detail, int duration_ms)

@@ -11,6 +11,7 @@ extern "C" {
 #endif
 
 esp_err_t faculty175_storage_init(void);
+esp_err_t faculty175_storage_prepare_media_layout(void);
 bool faculty175_storage_ready(void);
 const char *faculty175_storage_base_path(void);
 const char *faculty175_storage_media_base_path(void);

@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "release_gate": {
+    "units_required": 2,
+    "endpoint": "automatic low-voltage shutdown",
+    "minimum_projection_hours": 1,
+    "minimum_projection_drop_percent": 2
+  },
+  "tests": [
+    {"id": "full_wifi_idle", "scenario": "full-wifi", "workload": "idle", "display": "100%", "radio": "wifi", "duration_min": 1440},
+    {"id": "full_offline_idle", "scenario": "full-offline", "workload": "idle", "display": "100%", "radio": "off", "duration_min": 1440},
+    {"id": "full_ble_idle", "scenario": "full-offline", "workload": "ble", "display": "100%", "radio": "ble", "duration_min": 1440},
+    {"id": "dim_wifi_idle", "scenario": "dim-wifi", "workload": "idle", "display": "10%", "radio": "wifi", "duration_min": 1440},
+    {"id": "dim_offline_idle", "scenario": "dim-offline", "workload": "idle", "display": "10%", "radio": "off", "duration_min": 1440},
+    {"id": "dim_ble_idle", "scenario": "dim-offline", "workload": "ble", "display": "10%", "radio": "ble", "duration_min": 1440},
+    {"id": "off_wifi_idle", "scenario": "off-wifi", "workload": "idle", "display": "off", "radio": "wifi", "duration_min": 1440},
+    {"id": "off_offline_idle", "scenario": "sleep-offline", "workload": "idle", "display": "off", "radio": "off", "duration_min": 1440},
+    {"id": "off_ble_idle", "scenario": "sleep-offline", "workload": "ble", "display": "off", "radio": "ble", "duration_min": 1440},
+    {"id": "conversation_dim_wifi", "scenario": "dim-wifi", "workload": "conversation", "display": "10%", "radio": "wifi", "duration_min": 480, "capture_ms": 7000},
+    {"id": "conversation_off_wifi", "scenario": "off-wifi", "workload": "conversation", "display": "off", "radio": "wifi", "duration_min": 480, "capture_ms": 7000},
+    {"id": "journal_off_wifi", "scenario": "off-wifi", "workload": "journal", "display": "off", "radio": "wifi", "duration_min": 480, "capture_ms": 20000, "journal_gap_s": 2},
+    {"id": "true_deep_sleep", "runner": "deep-sleep", "display": "rails-off", "radio": "off", "duration_min": 720}
+  ]
+}

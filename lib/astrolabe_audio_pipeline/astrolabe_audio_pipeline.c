@@ -89,6 +89,7 @@ struct astrolabe_audio_pipeline {
     StackType_t *listen_task_stack_storage;
     StaticTask_t *listen_task_tcb_storage;
     uint32_t listen_task_stack_words;
+    bool owns_listen_task_storage;
     StackType_t *voice_task_stack_storage;
     StaticTask_t *voice_task_tcb_storage;
     uint32_t voice_task_stack_words;
@@ -1514,6 +1515,13 @@ static esp_err_t rolling_stream_session_open(astrolabe_audio_pipeline_t *p)
         esp_websocket_client_is_connected(p->rolling_client)) {
         return ESP_OK;
     }
+    if (heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) < STREAM_WEBSOCKET_TASK_STACK) {
+        ESP_LOGW(TAG,
+                 "voice-stream websocket deferred: internal largest=%u need=%u; using flash HTTP fallback",
+                 (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+                 STREAM_WEBSOCKET_TASK_STACK);
+        return ESP_ERR_NO_MEM;
+    }
 
     char *face = json_escape_alloc(p->cfg.face);
     char *slug = json_escape_alloc(p->cfg.faculty_slug);
@@ -2786,9 +2794,21 @@ esp_err_t astrolabe_audio_pipeline_create(const astrolabe_audio_pipeline_config_
     }
     const uint32_t listen_stack_bytes = p->cfg.listen_stack ? p->cfg.listen_stack : DEFAULT_LISTEN_STACK;
     p->listen_task_stack_words = (listen_stack_bytes + sizeof(StackType_t) - 1u) / sizeof(StackType_t);
-    p->listen_task_stack_storage = pipeline_alloc_stack(p->listen_task_stack_words, false);
-    p->listen_task_tcb_storage =
-        heap_caps_malloc(sizeof(StaticTask_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    /* The listener writes directly to SPIFFS; its task stack must remain accessible
+     * while flash cache is disabled, so never fall back to PSRAM here. */
+    const size_t listen_storage_bytes = p->listen_task_stack_words * sizeof(StackType_t);
+    if (p->cfg.listen_stack_storage != NULL && p->cfg.listen_tcb_storage != NULL &&
+        p->cfg.listen_stack_storage_bytes >= listen_storage_bytes) {
+        p->listen_task_stack_storage = p->cfg.listen_stack_storage;
+        p->listen_task_tcb_storage = p->cfg.listen_tcb_storage;
+        p->owns_listen_task_storage = false;
+    } else {
+        p->listen_task_stack_storage =
+            heap_caps_malloc(listen_storage_bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        p->listen_task_tcb_storage =
+            heap_caps_malloc(sizeof(StaticTask_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        p->owns_listen_task_storage = true;
+    }
     const uint32_t voice_stack_bytes = p->cfg.voice_stack ? p->cfg.voice_stack : DEFAULT_VOICE_STACK;
     p->voice_task_stack_words = (voice_stack_bytes + sizeof(StackType_t) - 1u) / sizeof(StackType_t);
     p->voice_task_stack_storage = pipeline_alloc_stack(p->voice_task_stack_words, p->cfg.duplex);
@@ -2805,8 +2825,10 @@ esp_err_t astrolabe_audio_pipeline_create(const astrolabe_audio_pipeline_config_
                  (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
                  (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
                  (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-        free(p->listen_task_stack_storage);
-        free(p->listen_task_tcb_storage);
+        if (p->owns_listen_task_storage) {
+            free(p->listen_task_stack_storage);
+            free(p->listen_task_tcb_storage);
+        }
         free(p->voice_task_stack_storage);
         free(p->voice_task_tcb_storage);
         free(p);
@@ -2916,6 +2938,12 @@ esp_err_t astrolabe_audio_pipeline_start(astrolabe_audio_pipeline_t *p)
         p->running = false;
         return voice_err;
     }
+    if (rolling_websocket_enabled(p)) {
+        const esp_err_t stream_err = rolling_stream_session_open(p);
+        if (stream_err != ESP_OK) {
+            ESP_LOGW(TAG, "voice-stream preconnect deferred: %s", esp_err_to_name(stream_err));
+        }
+    }
     p->listen_should_run = true;
     esp_err_t listen_err = start_listen_task_if_needed(p);
     if (listen_err != ESP_OK) {
@@ -2971,8 +2999,10 @@ void astrolabe_audio_pipeline_destroy(astrolabe_audio_pipeline_t *p)
     // though the mounted spool itself is healthy.
     free(p->capture_ram);
     free(p->turn_pcm);
-    free(p->listen_task_stack_storage);
-    free(p->listen_task_tcb_storage);
+    if (p->owns_listen_task_storage) {
+        free(p->listen_task_stack_storage);
+        free(p->listen_task_tcb_storage);
+    }
     free(p->voice_task_stack_storage);
     free(p->voice_task_tcb_storage);
     free(p);
@@ -3007,6 +3037,17 @@ esp_err_t astrolabe_audio_pipeline_trigger_capture_for_ms(astrolabe_audio_pipeli
             ESP_LOGW(TAG, "voice task restart after prewarm failed: %s", esp_err_to_name(voice_err));
             return voice_err;
         }
+    }
+    if (p->speech_active || p->capture_fd >= 0) {
+        ESP_LOGI(TAG, "manual capture overrides active segment bytes=%u", (unsigned)p->capture_len_bytes);
+        if (p->capture_fd >= 0) {
+            close(p->capture_fd);
+            p->capture_fd = -1;
+        }
+        if (!capture_uses_ram(p) && p->capture_path[0] != '\0') {
+            remove(p->capture_path);
+        }
+        reset_capture(p);
     }
     p->manual_capture_hold_ms = hold_ms;
     p->manual_capture = true;

@@ -9,15 +9,14 @@
 
 #include "esp_log.h"
 #include "esp_heap_caps.h"
+#include "esp_app_desc.h"
 #include "esp_system.h"
 #include "esp_task_wdt.h"
 #include "esp_wifi.h"
 #include "driver/gpio.h"
 #include "driver/i2c_master.h"
-#if CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG_ENABLED
 #include "driver/usb_serial_jtag.h"
 #include "driver/usb_serial_jtag_vfs.h"
-#endif
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -27,10 +26,12 @@
 #include "faculty175_ble.h"
 #include "faculty175_charts.h"
 #include "faculty175_device_auth.h"
+#include "faculty175_deep_sleep.h"
 #include "faculty175_family.h"
 #include "faculty175_face_dispatch.h"
 #include "faculty175_faces.h"
 #include "faculty175_gesture.h"
+#include "faculty175_km.h"
 #include "faculty175_qa.h"
 #include "faculty175_ota.h"
 #include "faculty175_pocketwatch.h"
@@ -40,11 +41,12 @@
 #include "faculty175_rocket.h"
 #include "faculty175_touch.h"
 #include "faculty175_voice.h"
+#include "faculty175_usb_screen.h"
 #include "faculty175_wifi_monitor.h"
 #include "faculty175_wifi_settings.h"
 
 static const char *TAG = "faculty175_serial";
-static bool s_usb_serial_jtag_rx;
+#define FACULTY175_SERIAL_TASK_STACK 8192
 static TaskHandle_t s_serial_task;
 
 static void trim_inplace(char *line)
@@ -351,6 +353,17 @@ static bool handle_wifi_command(const char *line)
         return true;
     }
 
+    if (strcasecmp(sub, "reconnect") == 0) {
+        const esp_err_t disconnect_err = esp_wifi_disconnect();
+        vTaskDelay(pdMS_TO_TICKS(300));
+        const esp_err_t connect_err = esp_wifi_connect();
+        printf("wifi: reconnect disconnect=%s connect=%s\n",
+               esp_err_to_name(disconnect_err),
+               esp_err_to_name(connect_err));
+        fflush(stdout);
+        return true;
+    }
+
     if (strncasecmp(sub, "set ", 4) == 0 || strncasecmp(sub, "save ", 5) == 0 ||
         strncasecmp(sub, "add ", 4) == 0) {
         const char *args = strchr(sub, ' ');
@@ -404,6 +417,7 @@ static bool handle_wifi_command(const char *line)
     printf("  wifi status\n");
     printf("  wifi list\n");
     printf("  wifi scan\n");
+    printf("  wifi reconnect\n");
     printf("  wifi incidents | wifi incidents clear\n");
     printf("  wifi router on|off\n");
     printf("  wifi hostname [name|auto]  (persistent mDNS name and reboot)\n");
@@ -411,6 +425,104 @@ static bool handle_wifi_command(const char *line)
     printf("  wifi add \"SSID\" \"password\"  (save known network)\n");
     printf("  wifi remove \"SSID\"\n");
     printf("  wifi clear\n");
+    fflush(stdout);
+    return true;
+}
+
+static bool handle_km_command(const char *line)
+{
+    if (line == NULL || (strcasecmp(line, "km") != 0 && strncasecmp(line, "km ", 3) != 0)) {
+        return false;
+    }
+    const char *sub = line + 2;
+    while (isspace((unsigned char)*sub)) {
+        ++sub;
+    }
+    if (*sub == '\0' || strcasecmp(sub, "status") == 0) {
+        printf("km: enabled=%s usb=%s pair=%s wifi=/km\n",
+               faculty175_km_enabled() ? "yes" : "no",
+               faculty175_km_usb_ready() ? "mounted" : "waiting",
+               faculty175_km_pairing_code());
+        fflush(stdout);
+        return true;
+    }
+    if (strcasecmp(sub, "release") == 0 || strcasecmp(sub, "release-all") == 0) {
+        printf("km: release err=%s\n", esp_err_to_name(faculty175_km_release_all()));
+        fflush(stdout);
+        return true;
+    }
+    if (strcasecmp(sub, "install") == 0 || strcasecmp(sub, "install-pi") == 0) {
+        const esp_err_t err = faculty175_km_install_pi_agent();
+        printf("km: install %s err=%s\n",
+               err == ESP_ERR_NOT_FINISHED ? "armed; repeat within 10 seconds" : "requested",
+               esp_err_to_name(err));
+        fflush(stdout);
+        return true;
+    }
+    if (strncasecmp(sub, "type ", 5) == 0) {
+        char text[64] = {};
+        (void)parse_serial_arg(sub + 5, text, sizeof(text));
+        printf("km: type bytes=%u err=%s\n", (unsigned)strlen(text),
+               esp_err_to_name(faculty175_km_type_text(text)));
+        fflush(stdout);
+        return true;
+    }
+    if (strncasecmp(sub, "mouse ", 6) == 0) {
+        int dx = 0;
+        int dy = 0;
+        int wheel = 0;
+        unsigned buttons = 0;
+        const int parsed = sscanf(sub + 6, "%d %d %d %u", &dx, &dy, &wheel, &buttons);
+        const esp_err_t err = parsed >= 2
+            ? faculty175_km_mouse((int16_t)dx, (int16_t)dy,
+                                  (int8_t)(parsed >= 3 ? wheel : 0),
+                                  (uint8_t)(parsed >= 4 ? buttons : 0))
+            : ESP_ERR_INVALID_ARG;
+        printf("km: mouse err=%s\n", esp_err_to_name(err));
+        fflush(stdout);
+        return true;
+    }
+    if (strncasecmp(sub, "click", 5) == 0) {
+        unsigned button = 1;
+        (void)sscanf(sub + 5, "%u", &button);
+        const esp_err_t down_err = faculty175_km_mouse(0, 0, 0, (uint8_t)button);
+        const esp_err_t up_err = faculty175_km_mouse(0, 0, 0, 0);
+        printf("km: click down=%s up=%s\n", esp_err_to_name(down_err), esp_err_to_name(up_err));
+        fflush(stdout);
+        return true;
+    }
+    if (strncasecmp(sub, "key ", 4) == 0) {
+        char name[32] = {};
+        char action[12] = {};
+        unsigned modifiers = 0;
+        const char *args = parse_serial_arg(sub + 4, name, sizeof(name));
+        args = parse_serial_arg(args, action, sizeof(action));
+        if (args != NULL && *args != '\0') {
+            modifiers = (unsigned)strtoul(args, NULL, 0);
+        }
+        const uint8_t keycode = faculty175_km_keycode_from_dom(name);
+        esp_err_t err = keycode == 0 ? ESP_ERR_INVALID_ARG : ESP_OK;
+        if (err == ESP_OK && (action[0] == '\0' || strcasecmp(action, "tap") == 0)) {
+            err = faculty175_km_key(keycode, true, (uint8_t)modifiers);
+            if (err == ESP_OK) {
+                err = faculty175_km_key(keycode, false, 0);
+            }
+        } else if (err == ESP_OK) {
+            const bool down = strcasecmp(action, "down") == 0;
+            if (!down && strcasecmp(action, "up") != 0) {
+                err = ESP_ERR_INVALID_ARG;
+            } else {
+                err = faculty175_km_key(keycode, down, (uint8_t)modifiers);
+            }
+        }
+        printf("km: key code=%u err=%s\n", (unsigned)keycode, esp_err_to_name(err));
+        fflush(stdout);
+        return true;
+    }
+    printf("km commands:\n");
+    printf("  km status | km release | km install (twice) | km type \"text\"\n");
+    printf("  km mouse <dx> <dy> [wheel] [buttons]\n");
+    printf("  km click [buttons] | km key <DOM-code> [tap|down|up] [modifiers]\n");
     fflush(stdout);
     return true;
 }
@@ -637,6 +749,56 @@ static void write_b64_block(const uint8_t *data, size_t len)
     }
 }
 
+static void emit_voice_pcm_b64(void)
+{
+    static const char path[] = "/voice/voice-turn.pcm";
+    FILE *in = fopen(path, "rb");
+    if (in == NULL) {
+        printf("voice-pcm: error open %s\n", path);
+        fflush(stdout);
+        return;
+    }
+
+    if (fseek(in, 0, SEEK_END) != 0) {
+        fclose(in);
+        printf("voice-pcm: error size\n");
+        fflush(stdout);
+        return;
+    }
+    const long file_size = ftell(in);
+    if (file_size <= 0 || fseek(in, 0, SEEK_SET) != 0) {
+        fclose(in);
+        printf("voice-pcm: error empty\n");
+        fflush(stdout);
+        return;
+    }
+
+    const esp_log_level_t prev = esp_log_level_get("*");
+    const esp_log_level_t prev_wdt = esp_log_level_get("task_wdt");
+    esp_log_level_set("*", ESP_LOG_NONE);
+    esp_log_level_set("task_wdt", ESP_LOG_NONE);
+    printf("voice-pcm: BEGIN rate=16000 channels=1 format=s16le bytes=%ld encoding=base64\n", file_size);
+
+    /* A multiple of three keeps Base64 padding confined to the final block. */
+    uint8_t chunk[768];
+    size_t total = 0;
+    while (total < (size_t)file_size) {
+        const size_t got = fread(chunk, 1, sizeof(chunk), in);
+        if (got == 0) {
+            break;
+        }
+        write_b64_block(chunk, got);
+        total += got;
+    }
+    fclose(in);
+    printf("voice-pcm: END bytes=%u status=%s\n",
+           (unsigned)total,
+           total == (size_t)file_size ? "ESP_OK" : "ESP_FAIL");
+    fflush(stdout);
+    esp_log_level_set("task_wdt", prev_wdt);
+    esp_log_level_set("*", prev);
+}
+
 static void emit_face_raw565_b64(void)
 {
     const size_t pixels = faculty175_display_frame_pixel_count();
@@ -861,8 +1023,75 @@ static bool handle_power_command(const char *line)
     const char *args = line + (strncasecmp(line, "battery", 7) == 0 ? 7 : 5);
     char sub[24] = {0};
     char arg[24] = {0};
+    char arg2[24] = {0};
     args = parse_serial_arg(args, sub, sizeof(sub));
-    (void)parse_serial_arg(args, arg, sizeof(arg));
+    args = parse_serial_arg(args, arg, sizeof(arg));
+    (void)parse_serial_arg(args, arg2, sizeof(arg2));
+
+    if (strcasecmp(sub, "deep-sleep") == 0) {
+        if (strcasecmp(arg, "cancel") == 0) {
+            faculty175_deep_sleep_cancel();
+            printf("power: deep-sleep cancelled\n");
+        } else if (arg[0] != '\0' && strcasecmp(arg, "status") != 0) {
+            char *end = NULL;
+            const unsigned long minutes = strtoul(arg, &end, 10);
+            if (end == arg || *end != '\0' || minutes < 1u || minutes > 7u * 24u * 60u ||
+                !faculty175_deep_sleep_request((uint32_t)minutes * 60u)) {
+                printf("power: deep-sleep duration must be 1..10080 minutes\n");
+            } else {
+                printf("power: deep-sleep=%lu min armed; entry waits for battery/VBUS removal\n",
+                       minutes);
+            }
+        } else {
+            faculty175_deep_sleep_status_t sleep = {0};
+            faculty175_deep_sleep_status(&sleep);
+            printf("power: deep-sleep pending=%s retained=%s completed=%s requested_s=%lu "
+                   "start_pct=%d start_mv=%u start_epoch=%lu wake_cause=%d\n",
+                   sleep.pending ? "yes" : "no",
+                   sleep.retained ? "yes" : "no",
+                   sleep.completed ? "yes" : "no",
+                   (unsigned long)sleep.requested_sleep_s,
+                   sleep.start_battery_percent,
+                   (unsigned)sleep.start_battery_mv,
+                   (unsigned long)sleep.started_epoch_s,
+                   sleep.wake_cause);
+        }
+        fflush(stdout);
+        return true;
+    }
+
+    if (strcasecmp(sub, "scenario") == 0 && arg[0] != '\0' &&
+        strcasecmp(arg, "status") != 0) {
+        faculty175_power_scenario_t scenario;
+        if (!faculty175_power_scenario_parse(arg, &scenario)) {
+            printf("power: scenarios: normal full-wifi full-offline dim-wifi dim-offline off-wifi sleep-offline\n");
+            fflush(stdout);
+            return true;
+        }
+        uint32_t minutes = 24u * 60u;
+        if (scenario == FACULTY175_POWER_SCENARIO_NORMAL) {
+            minutes = 0u;
+        } else if (arg2[0] != '\0') {
+            char *end = NULL;
+            const unsigned long parsed = strtoul(arg2, &end, 10);
+            if (end == arg2 || *end != '\0' || parsed < 1u || parsed > 7u * 24u * 60u) {
+                printf("power: scenario duration must be 1..10080 minutes\n");
+                fflush(stdout);
+                return true;
+            }
+            minutes = (uint32_t)parsed;
+        }
+        const uint32_t now_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+        if (!faculty175_power_scenario_set(scenario, now_ms, minutes * 60000u)) {
+            printf("power: unable to set scenario\n");
+        } else {
+            printf("power: scenario=%s duration_min=%lu armed; applies while on battery\n",
+                   faculty175_power_scenario_name(scenario),
+                   (unsigned long)minutes);
+        }
+        fflush(stdout);
+        return true;
+    }
 
     if (strcasecmp(sub, "stream") == 0) {
         float hz = 0.2f;
@@ -899,16 +1128,25 @@ static bool handle_power_command(const char *line)
         return true;
     }
     const bool on_battery = st->battery_present && !st->vbus_in && !st->charging;
-    printf("power: source=%s battery=%s percent=%d mv=%u vbus=%s charging=%s discharging=%s mode=%s wifi=%s uptime_s=%lu awake_s=%lu breathing_s=%lu dimmed_s=%lu asleep_s=%lu discharge_drop=%d discharge_elapsed_s=%lu rate_pct_h=%.3f estimate=%s stream_hz=%.1f\n",
-           on_battery ? "battery" : "usb",
+    const bool docked = st->vbus_in || st->charging;
+    const esp_app_desc_t *app = esp_app_get_description();
+    printf("power: firmware=%s source=%s docked=%s battery=%s percent=%d mv=%u vbus=%s charging=%s discharging=%s power_savings=%s mode=%s wifi=%s ble=%s scenario=%s scenario_elapsed_s=%lu scenario_remaining_s=%lu uptime_s=%lu awake_s=%lu breathing_s=%lu dimmed_s=%lu asleep_s=%lu discharge_drop=%d discharge_elapsed_s=%lu rate_pct_h=%.3f estimate=%s stream_hz=%.1f\n",
+           app != NULL ? app->version : "unknown",
+           on_battery ? "battery" : (docked ? "dock" : "external"),
+           docked ? "yes" : "no",
            st->battery_present ? "present" : "absent",
            st->battery_percent,
            (unsigned)st->battery_mv,
            st->vbus_in ? "yes" : "no",
            st->charging ? "yes" : "no",
            st->discharging ? "yes" : "no",
+           on_battery ? "enabled" : "disabled",
            faculty175_power_mode_name(metrics.mode),
            metrics.wifi_active ? "on" : "off",
+           metrics.ble_active ? "on" : "off",
+           faculty175_power_scenario_name(metrics.scenario),
+           (unsigned long)(metrics.scenario_elapsed_ms / 1000u),
+           (unsigned long)(metrics.scenario_remaining_ms / 1000u),
            (unsigned long)(metrics.uptime_ms / 1000u),
            (unsigned long)(metrics.awake_ms / 1000u),
            (unsigned long)(metrics.breathing_ms / 1000u),
@@ -1169,12 +1407,15 @@ static bool handle_tts_command(const char *line)
         }
         const esp_err_t err = faculty175_request_qa_stt(capture_ms);
         printf("stt: capture_ms=%u %s\n", capture_ms, esp_err_to_name(err));
+    } else if (strcasecmp(sub, "pcm") == 0) {
+        emit_voice_pcm_b64();
     } else {
         printf("voice commands:\n");
         printf("  tts status\n");
         printf("  tts face\n");
         printf("  voice tts\n");
         printf("  voice stt [ms]\n");
+        printf("  voice pcm  (USB-only Base64 export of the last STT capture)\n");
     }
     fflush(stdout);
     return true;
@@ -1593,6 +1834,10 @@ static void handle_line(char *line)
         return;
     }
 
+    if (handle_km_command(line)) {
+        return;
+    }
+
     if (faculty175_qa_handle(line)) {
         return;
     }
@@ -1646,12 +1891,57 @@ static void handle_line(char *line)
     }
 
     if (strcasecmp(line, "help") == 0 || strcasecmp(line, "?") == 0) {
-        printf("serial: screen | face screen | breath status|reset|stream [hz|off] | gesture help | button press | tts face | stt [ms] | voice stt [ms] | family status | pipeline capture|status|stop|restart | wifi status|scan|set | time | watch status | power | audio status|ns | i2c scan | ble status | qa help | device help | ota help | faces help | charts help | almanac help | quotes help | rocket help | touch status\n");
+        printf("serial: screen | face screen | km help | breath status|reset|stream [hz|off] | gesture help | button press | tts face | stt [ms] | voice stt [ms] | family status | pipeline capture|status|stop|restart | wifi status|scan|set | time | watch status | power | audio status|ns | i2c scan | ble status | qa help | device help | ota help | faces help | charts help | almanac help | quotes help | rocket help | touch status\n");
         (void)faculty175_qa_handle("qa help");
         return;
     }
 
     ESP_LOGW(TAG, "unknown command: %s (try: screen)", line);
+}
+
+static ssize_t serial_read_byte(uint8_t *byte, TickType_t timeout)
+{
+    if (byte == NULL) {
+        return -1;
+    }
+    (void)timeout;
+    return read(STDIN_FILENO, byte, 1);
+}
+
+static void receive_screen_jpeg(size_t length)
+{
+    if (length < 64 || length > FACULTY175_USB_SCREEN_MAX_JPEG) {
+        printf("screen: ERROR invalid JPEG length max=%u\n", (unsigned)FACULTY175_USB_SCREEN_MAX_JPEG);
+        fflush(stdout);
+        return;
+    }
+    uint8_t *jpeg = heap_caps_malloc(length, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (jpeg == NULL) {
+        printf("screen: ERROR no memory\n");
+        fflush(stdout);
+        return;
+    }
+    printf("screen: READY bytes=%u\n", (unsigned)length);
+    fflush(stdout);
+    size_t received = 0;
+    const TickType_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(5000);
+    while (received < length && (int32_t)(deadline - xTaskGetTickCount()) > 0) {
+        uint8_t byte = 0;
+        if (serial_read_byte(&byte, pdMS_TO_TICKS(20)) > 0) {
+            jpeg[received++] = byte;
+        } else {
+            vTaskDelay(pdMS_TO_TICKS(1));
+        }
+    }
+    if (received != length) {
+        printf("screen: ERROR timeout received=%u expected=%u\n", (unsigned)received, (unsigned)length);
+    } else {
+        const esp_err_t err = faculty175_usb_screen_show_jpeg(jpeg, length);
+        printf("screen: %s err=%s bytes=%u\n", err == ESP_OK ? "OK" : "ERROR",
+               esp_err_to_name(err), (unsigned)length);
+    }
+    fflush(stdout);
+    heap_caps_free(jpeg);
 }
 
 static void serial_task(void *arg)
@@ -1664,15 +1954,7 @@ static void serial_task(void *arg)
 
     for (;;) {
         uint8_t byte = 0;
-        ssize_t n = -1;
-#if CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG_ENABLED
-        if (s_usb_serial_jtag_rx) {
-            n = usb_serial_jtag_read_bytes(&byte, 1, pdMS_TO_TICKS(20));
-        } else
-#endif
-        {
-            n = read(STDIN_FILENO, &byte, 1);
-        }
+        const ssize_t n = serial_read_byte(&byte, pdMS_TO_TICKS(20));
         if (n <= 0) {
             vTaskDelay(pdMS_TO_TICKS(20));
             continue;
@@ -1684,7 +1966,16 @@ static void serial_task(void *arg)
             }
             line[pos] = '\0';
             pos = 0;
-            handle_line(line);
+            unsigned jpeg_length = 0;
+            if (sscanf(line, "screen put jpeg %u", &jpeg_length) == 1) {
+                receive_screen_jpeg(jpeg_length);
+            } else if (strcasecmp(line, "screen stop") == 0) {
+                faculty175_usb_screen_stop();
+                printf("screen: stopped\n");
+                fflush(stdout);
+            } else {
+                handle_line(line);
+            }
             continue;
         }
         if (pos + 1 < sizeof(line)) {
@@ -1698,20 +1989,20 @@ void faculty175_serial_init(void)
     if (s_serial_task != NULL) {
         return;
     }
-#if CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG_ENABLED
-    usb_serial_jtag_driver_config_t usb_cfg = USB_SERIAL_JTAG_DRIVER_CONFIG_DEFAULT();
-    const esp_err_t usb_err = usb_serial_jtag_driver_install(&usb_cfg);
-    if (usb_err == ESP_OK || usb_err == ESP_ERR_INVALID_STATE) {
-        usb_serial_jtag_vfs_set_rx_line_endings(ESP_LINE_ENDINGS_CRLF);
-        usb_serial_jtag_vfs_set_tx_line_endings(ESP_LINE_ENDINGS_CRLF);
-        usb_serial_jtag_vfs_use_nonblocking();
-        s_usb_serial_jtag_rx = true;
-    } else {
-        ESP_LOGW(TAG, "USB Serial/JTAG driver install failed: %s", esp_err_to_name(usb_err));
-    }
-#endif
     setvbuf(stdout, NULL, _IONBF, 0);
     setvbuf(stdin, NULL, _IONBF, 0);
+#if CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG_ENABLED
+    usb_serial_jtag_driver_config_t usb_serial_config = {
+        .tx_buffer_size = 1024,
+        .rx_buffer_size = 1024,
+    };
+    const esp_err_t usb_serial_err = usb_serial_jtag_driver_install(&usb_serial_config);
+    if (usb_serial_err == ESP_OK) {
+        usb_serial_jtag_vfs_use_driver();
+    } else {
+        ESP_LOGW(TAG, "USB Serial/JTAG RX driver unavailable: %s", esp_err_to_name(usb_serial_err));
+    }
+#endif
     const int flags = fcntl(STDIN_FILENO, F_GETFL, 0);
     if (flags >= 0) {
         (void)fcntl(STDIN_FILENO, F_SETFL, flags | O_NONBLOCK);

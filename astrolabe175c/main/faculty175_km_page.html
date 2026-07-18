@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+  <title>Astrolabe KM</title>
+  <style>
+    :root{color-scheme:dark;font-family:system-ui,sans-serif;background:#070b11;color:#edf5ff}
+    *{box-sizing:border-box}body{margin:0}main{max-width:760px;margin:auto;padding:18px}
+    h1{font-size:1.4rem;margin:.2rem 0}.muted{color:#92a4b9}.row{display:flex;gap:10px;flex-wrap:wrap}
+    input,button{font:inherit;border:1px solid #34465c;border-radius:10px;background:#101925;color:#edf5ff;padding:12px}
+    button{touch-action:manipulation}button.primary{background:#65c7e8;color:#061017;border:0;font-weight:750}
+    #pair input{width:10rem;letter-spacing:.25em}#status{font-weight:650;color:#ffcc70}
+    #pad{height:46vh;min-height:260px;margin:16px 0;border:1px solid #34465c;border-radius:18px;
+      background:radial-gradient(circle at center,#18283a,#0b111a);touch-action:none;display:grid;place-items:center;
+      color:#7890aa;user-select:none;outline:none}
+    #text{flex:1;min-width:200px}.mouse button{flex:1;min-width:90px}.danger{border-color:#a95c67;color:#ffb8c0}
+    kbd{border:1px solid #52677f;border-radius:4px;padding:1px 5px}
+  </style>
+</head>
+<body><main>
+  <h1>Astrolabe Wi‑Fi KM</h1>
+  <p id="status">Disconnected</p>
+  <div id="pair" class="row"><input id="code" inputmode="numeric" maxlength="6" placeholder="pair code">
+    <button class="primary" id="connect">Pair</button></div>
+  <div id="pad" tabindex="0">Drag to move · tap to click<br>Keyboard is captured while focused</div>
+  <div class="row mouse"><button data-button="1">Left click</button><button data-button="4">Middle</button><button data-button="2">Right click</button></div>
+  <p class="muted">Press <kbd>Esc</kbd> twice or use Release All if a key becomes stuck.</p>
+  <div class="row"><input id="text" maxlength="63" placeholder="Type text on the Raspberry Pi"><button id="type">Type</button>
+    <button class="danger" id="release">Release all</button></div>
+</main>
+<script>
+let ws,authed=false,last,escAt=0;
+const $=id=>document.getElementById(id), status=$('status'), pad=$('pad');
+function setStatus(s,ok=false){status.textContent=s;status.style.color=ok?'#7de6b2':'#ffcc70'}
+function send(o){if(ws&&ws.readyState===1)ws.send(JSON.stringify(o))}
+function connect(){
+  const code=$('code').value.trim(); if(!/^\d{6}$/.test(code)){setStatus('Enter the six-digit code shown on Astrolabe');return}
+  sessionStorage.setItem('astrolabeKmCode',code); if(ws)ws.close();
+  ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/api/km/ws');
+  ws.onopen=()=>{setStatus('Pairing…');send({type:'auth',code})};
+  ws.onmessage=e=>{const r=JSON.parse(e.data);if(r.type==='auth'){authed=!!r.ok;setStatus(authed?'Paired · USB input active':'Pairing failed',authed);if(authed)pad.focus()}};
+  ws.onclose=()=>{authed=false;setStatus('Disconnected')}; ws.onerror=()=>setStatus('Connection error');
+}
+$('code').value=sessionStorage.getItem('astrolabeKmCode')||'';$('connect').onclick=connect;
+function mods(e){return(e.ctrlKey?1:0)|(e.shiftKey?2:0)|(e.altKey?4:0)|(e.metaKey?8:0)}
+pad.onkeydown=e=>{if(!authed)return;if(e.code==='Escape'){const n=Date.now();if(n-escAt<700){send({type:'release'});pad.blur()}escAt=n}
+  send({type:'key',code:e.code,down:true,modifiers:mods(e)});e.preventDefault()};
+pad.onkeyup=e=>{if(!authed)return;send({type:'key',code:e.code,down:false,modifiers:mods(e)});e.preventDefault()};
+pad.onpointerdown=e=>{if(!authed)return;pad.setPointerCapture(e.pointerId);last={x:e.clientX,y:e.clientY};pad.focus();send({type:'mouse',dx:0,dy:0,buttons:e.buttons})};
+pad.onpointermove=e=>{if(!last||!authed)return;const dx=Math.round(e.clientX-last.x),dy=Math.round(e.clientY-last.y);last={x:e.clientX,y:e.clientY};if(dx||dy)send({type:'mouse',dx,dy,buttons:e.buttons})};
+pad.onpointerup=e=>{last=null;send({type:'mouse',dx:0,dy:0,buttons:0})};pad.onpointercancel=pad.onpointerup;
+pad.onwheel=e=>{if(authed){send({type:'mouse',dx:0,dy:0,wheel:Math.sign(e.deltaY),buttons:0});e.preventDefault()} };
+document.querySelectorAll('[data-button]').forEach(b=>b.onclick=()=>{const n=+b.dataset.button;send({type:'mouse',dx:0,dy:0,buttons:n});send({type:'mouse',dx:0,dy:0,buttons:0})});
+$('type').onclick=()=>{if(authed&&$('text').value)send({type:'text',text:$('text').value})};
+$('release').onclick=()=>send({type:'release'});window.addEventListener('blur',()=>send({type:'release'}));
+if($('code').value)connect();
+</script></body></html>

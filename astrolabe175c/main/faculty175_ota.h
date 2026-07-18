@@ -12,6 +12,7 @@ void faculty175_ota_maybe_boot_product(void);
 void faculty175_ota_maybe_start_recovery_request(void);
 void faculty175_ota_start_auto_update_task(void);
 void faculty175_ota_set_auto_paused(bool paused);
+void faculty175_ota_set_network_ready(bool ready);
 bool faculty175_ota_active(void);
 
 #ifdef __cplusplus

@@ -30,8 +30,10 @@ typedef struct {
 } faculty175_voice_tts_stream_t;
 
 typedef struct {
+    const char *face;
     const char *faculty_slug;
     const char *faculty_name;
+    const char *system_instruction;
     const char *history;
 } faculty175_voice_stt_stream_config_t;
 

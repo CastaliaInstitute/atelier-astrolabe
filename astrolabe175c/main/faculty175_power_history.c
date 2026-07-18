@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "astrolabe_time.h"
+#include "esp_attr.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -17,7 +18,7 @@ static SemaphoreHandle_t s_lock;
 static bool s_loaded;
 static uint8_t s_head;
 static uint8_t s_count;
-static faculty175_power_history_sample_t s_samples[FACULTY175_POWER_HISTORY_CAPACITY];
+EXT_RAM_BSS_ATTR static faculty175_power_history_sample_t s_samples[FACULTY175_POWER_HISTORY_CAPACITY];
 
 static SemaphoreHandle_t history_lock(void)
 {

@@ -165,3 +165,20 @@ extern "C" bool faculty175_pmu_pekey_long_press(void)
     }
     return long_press;
 }
+
+extern "C" void faculty175_pmu_prepare_deep_sleep(void)
+{
+    if (!s_pmu_ready) {
+        return;
+    }
+    /* The official 1.75C schematic leaves BLDO1 and BLDO2 unconnected. Disable
+       those unused outputs, but do not infer peripheral rail ownership from
+       the related 1.8-inch board. Core and populated ALDO outputs remain on so
+       RTC retention and wake are not jeopardized. */
+    const bool bldo1_off = s_pmu.disableBLDO1();
+    const bool bldo2_off = s_pmu.disableBLDO2();
+    ESP_LOGI(TAG,
+             "deep sleep unused rails BLDO1=%s BLDO2=%s",
+             bldo1_off ? "off" : "error",
+             bldo2_off ? "off" : "error");
+}

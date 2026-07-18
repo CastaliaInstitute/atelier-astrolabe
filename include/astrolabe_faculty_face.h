@@ -5,7 +5,7 @@
  *
  * Used by dedicated faculty firmware (e.g. Waveshare ESP32-S3 Touch AMOLED 1.8″
  * under faculty18/, 1.75C under faculty175/, M5 AtomS3R under facultyatom/). Distinct from face=wand on the
- * round watch Wand face (sketches/Astrolabe/faces/wand/).
+ * round watch Faculty implementation (astrolabe175c/main/).
  */
 
 #define ASTROLABE_FACULTY_FACE_NAME "faculty"

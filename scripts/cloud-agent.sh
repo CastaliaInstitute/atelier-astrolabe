@@ -92,14 +92,14 @@ Read:
 - hardware-qa.mdc for clock face / UI changes
 
 Deliverables:
-- Code changes; ./scripts/build.sh must pass
+- Code changes; ./scripts/astrolabe175c_build.sh build must pass
 - Update docs/BACKLOG.md (In progress → Done with PR link)
 - Open a PR against integration with "Closes #${num}"
-- When Firmware build + Integration sim gate are green and scope is only this issue: push branch and merge PR into integration (face/UI included; no bench watch required to merge)
+- When required native ESP-IDF checks are green and scope is only this issue: push the branch and open or merge the PR into integration according to repository policy
 - Do not merge to main (promotion is ./scripts/promote-integration.sh --flash-ok after hardware device gate / flash QA)
 - Do not commit secrets
 
-Hardware note: cloud cannot flash the watch. Sim gate (QEMU) is the merge gate; bench flash/screen.bmp is for promotion to main or optional QA.
+Hardware note: cloud cannot flash the watch. Record that physical-device QA is still required for hardware-facing changes and before promotion to main.
 
 --- issue body ---
 ${body}

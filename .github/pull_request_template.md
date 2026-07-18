@@ -12,16 +12,16 @@ Closes #
 
 ## Test plan
 
-- [ ] `./scripts/build.sh` (or `pio run -e waveshare_s3_175`)
+- [ ] `source ~/esp/esp-idf/export.sh && ./scripts/astrolabe175c_build.sh build`
 - [ ] **Clock faces / touch / buttons touched?**
-  - [ ] **Integration sim gate** green (QEMU) — required to merge
-  - [ ] Optional before **main** promotion: **Integration device gate** on m1 or `./scripts/functional_test.py --flash`
+  - [ ] Native ESP-IDF tests recorded
+  - [ ] Physical-device face and interaction QA recorded
 - [ ] Flashed / smoke-tested on hardware before promoting to `main` (if applicable)
 - [ ] Optional visual QA: `screen.bmp` ([`hardware-qa.mdc`](.cursor/rules/hardware-qa.mdc))
 
 ## Gates
 
-<!-- Sim gate run (merge). Hardware device gate run (promotion to main). -->
+<!-- Native build/test evidence and physical-device gate for promotion to main. -->
 
 ## Notes
 

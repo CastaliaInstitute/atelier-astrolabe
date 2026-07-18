@@ -31,10 +31,14 @@
 #include "faculty175_charts.h"
 #include "faculty175_listen.h"
 #include "faculty175_lvgl.h"
+#include "faculty175_rotary_state.h"
 #include "faculty175_face_alethiometer.h"
 #include "faculty175_face_babel.h"
 #include "faculty175_face_dispatch.h"
 #include "faculty175_face_incidents.h"
+#if !defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
+#include "faculty175_face_psych_state.h"
+#endif
 #include "faculty175_face_native.h"
 #include "faculty175_face_runes.h"
 #include "faculty175_face_wifilab.h"
@@ -49,8 +53,10 @@
 #include "faculty175_touch.h"
 #include "faculty175_storage.h"
 #include "faculty175_usb.h"
+#include "faculty175_usb_screen.h"
 #include "faculty175_log.h"
 #include "faculty175_device_auth.h"
+#include "faculty175_deep_sleep.h"
 #include "faculty175_qa.h"
 #include "faculty175_ota.h"
 #include "faculty175_pmu.h"
@@ -96,7 +102,7 @@ static bool running_from_factory_partition(void)
 #define WIFI_CONNECTED_BIT BIT0
 #define WIFI_FAIL_BIT BIT1
 #define VOICE_WORKER_STACK_BYTES 7168
-#define FACULTY175_FACE_TTS_STACK 7168
+#define FACULTY175_FACE_TTS_STACK 32768
 #define FACE_SWIPE_SAVE_IDLE_MS 1500
 #define FACE_REDRAW_MS 250
 #define FACE_DEATHSTAR_REDRAW_MS 125
@@ -125,17 +131,27 @@ static bool running_from_factory_partition(void)
 #define FACULTY175_WIFI_START_STACK 6144
 #define FACULTY175_PIPELINE_LISTEN_STACK 4096
 #define FACULTY175_PIPELINE_VOICE_STACK 6144
-#define FACULTY175_UI_TASK_STACK 8192
+#define FACULTY175_UI_TASK_STACK 6144
+#if defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
+#define FACULTY175_INPUT_TASK_STACK 4096
+#else
 #define FACULTY175_INPUT_TASK_STACK 5376
+#endif
+#define FACULTY175_POWER_METRICS_TASK_STACK 3072
 #define FACULTY175_SERIAL_TASK_STACK 8192
 #define FACULTY175_BUTTON_REBOOT_STACK 3328
 #define FACULTY175_FACULTY_SAVE_STACK 2048
+#define FACULTY175_FACE_SAVE_STACK 2048
 
 static EventGroupHandle_t s_wifi_events;
+#if defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
+static StackType_t *s_lunasay_listen_stack;
+static StaticTask_t *s_lunasay_listen_tcb;
+#endif
 static faculty175_ui_state_t s_ui = FACULTY175_UI_LISTEN;
 static char s_faculty_slug[64] = ASTROLABE_FACULTY_DEFAULT_FACULTY_SLUG;
 static char s_faculty_name[96] = ASTROLABE_FACULTY_DEFAULT_FACULTY_NAME;
-static char s_history[512];
+EXT_RAM_BSS_ATTR static char s_history[512];
 static char s_detail[96];
 static faculty175_listen_t s_listen;
 static astrolabe_audio_pipeline_t *s_pipeline;
@@ -149,7 +165,7 @@ static char s_voice_commonplace_mode[16] = "conversation";
 static char s_voice_response_format[8] = "mp3";
 static char s_voice_system_instruction[2048] = ASTROLABE_FACULTY_SYSTEM_INSTRUCTION;
 static bool s_voice_skip_llm = false;
-static bool s_voice_log_to_commonplace = true;
+static bool s_voice_log_to_commonplace;
 static bool s_nav_mode = false;
 static volatile bool s_low_power_dimmed = false;
 static volatile bool s_low_power_asleep = false;
@@ -172,19 +188,33 @@ static uint32_t s_listen_cue_last_ms;
 static volatile bool s_faculty_ready;
 static volatile bool s_face_tts_busy;
 static volatile bool s_qa_stt_busy;
+static portMUX_TYPE s_qa_voice_status_mux = portMUX_INITIALIZER_UNLOCKED;
+static faculty175_qa_voice_status_t s_qa_voice_status;
+EXT_RAM_BSS_ATTR static volatile uint32_t s_qa_stt_pending_capture_ms;
+EXT_RAM_BSS_ATTR static bool s_qa_stt_deferred_active;
 static volatile bool s_pipeline_cfg_ready;
 static volatile bool s_pipeline_started;
 static char s_wifi_ssid[FACULTY175_WIFI_SSID_MAX + 1];
 static TaskHandle_t s_wifi_start_task;
 static TaskHandle_t s_ui_task;
 static TaskHandle_t s_input_task;
+#if defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
+/* input_task reads/writes NVS, so its stack must remain accessible while the
+ * flash cache is disabled. Reserve it statically to avoid late-boot heap
+ * fragmentation without placing it in PSRAM. */
+static StaticTask_t s_input_task_tcb;
+static StackType_t s_input_task_stack[(FACULTY175_INPUT_TASK_STACK + sizeof(StackType_t) - 1u) /
+                                      sizeof(StackType_t)];
+#endif
 static TaskHandle_t s_button_reboot_task;
 static TaskHandle_t s_pipeline_start_task;
 static TaskHandle_t s_faculty_save_task;
+static TaskHandle_t s_face_save_task;
 static TaskHandle_t s_face_tts_worker_task;
 static QueueHandle_t s_face_tts_queue;
 static void button_reboot_task_stop_for_pipeline(void);
 static void button_reboot_task_start_if_needed(void);
+static void save_current_face_async(void);
 
 typedef struct {
     char ssid[FACULTY175_WIFI_SSID_MAX + 1];
@@ -287,9 +317,16 @@ static void battery_arm_button_stt(uint32_t now_ms);
 static bool wifi_is_connected(void);
 
 #define FACULTY175_USB_OTA_DEMO_BOOT ASTROLABE_USB_OTA_DEMO_BOOT
-#define FACULTY175_USB_RUNTIME_ENABLED 0
+#ifndef ASTROLABE_USB_RUNTIME_ENABLED
+#define ASTROLABE_USB_RUNTIME_ENABLED 0
+#endif
+#define FACULTY175_USB_RUNTIME_ENABLED ASTROLABE_USB_RUNTIME_ENABLED
 #define FACULTY175_FACTORY_RECOVERY_BOOT_ENABLED 0
+#if defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
+#define FACULTY175_EARLY_WIFI_BOOT_ENABLED 1
+#else
 #define FACULTY175_EARLY_WIFI_BOOT_ENABLED 0
+#endif
 #define FACULTY175_WIFI_BOOT_ENABLED 1
 
 static void faculty175_usb_ota_demo_boot(void)
@@ -537,8 +574,23 @@ static void low_power_wifi_resume(void)
     }
 }
 
+static bool continuous_voice_face_active(void)
+{
+    const faculty175_face_desc_t *face = faculty175_faces_current();
+    return face != NULL && (face->id == FACULTY175_FACE_JOURNAL ||
+                            face->id == FACULTY175_FACE_CONVERSATION);
+}
+
 static bool low_power_wifi_allowed(void)
 {
+    const faculty175_power_scenario_t scenario = faculty175_power_scenario_get(
+        (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS));
+    if (s_power_on_battery && scenario != FACULTY175_POWER_SCENARIO_NORMAL) {
+        return faculty175_power_scenario_wifi_enabled(scenario);
+    }
+    if (s_power_on_battery && continuous_voice_face_active()) {
+        return true;
+    }
     return !s_power_on_battery || s_battery_network_active ||
            (!s_low_power_dimmed && !s_low_power_asleep);
 }
@@ -590,6 +642,11 @@ static bool low_power_on_battery(const faculty175_pmu_status_t *st)
     return st != NULL && st->present && st->battery_present && !st->vbus_in && !st->charging;
 }
 
+static bool low_power_is_docked(const faculty175_pmu_status_t *st)
+{
+    return st != NULL && st->present && (st->vbus_in || st->charging);
+}
+
 static void low_power_apply_awake(uint32_t now_ms, const char *reason)
 {
     const bool was_low_power = s_low_power_asleep || s_low_power_dimmed;
@@ -623,9 +680,12 @@ static void low_power_tick(uint32_t now_ms)
 {
     static uint32_t last_monitor_ms;
     static bool last_on_battery;
+    static bool last_docked;
     static bool last_have_status;
     static int last_pct = -2;
     static uint16_t last_mv;
+    static faculty175_power_scenario_t last_scenario = FACULTY175_POWER_SCENARIO_NORMAL;
+    static bool scenario_applied_on_battery;
 
     /* PMU reads share the I2C bus with touch and motion. During OTA, the
        display/UI pipeline is deliberately quiesced and internal RAM is tight;
@@ -639,22 +699,24 @@ static void low_power_tick(uint32_t now_ms)
         s_power_have_status = faculty175_pmu_status(&st);
         s_power_status = st;
         s_power_on_battery = low_power_on_battery(&st);
+        const bool docked = low_power_is_docked(&st);
         if (s_power_have_status) {
             faculty175_power_history_maybe_record(&st);
         }
         if (s_power_have_status &&
-            (s_power_on_battery != last_on_battery || !last_have_status ||
+            (s_power_on_battery != last_on_battery || docked != last_docked || !last_have_status ||
              st.battery_percent != last_pct || st.battery_mv != last_mv)) {
             FACULTY175_LOG_STAGE(TAG,
                                  "power",
                                  "%s batt=%d%% %umV vbus=%d charging=%d discharge=%d",
-                                 s_power_on_battery ? "battery" : "usb",
+                                 s_power_on_battery ? "battery" : (docked ? "dock" : "external"),
                                  st.battery_percent,
                                  (unsigned)st.battery_mv,
                                  st.vbus_in ? 1 : 0,
                                  st.charging ? 1 : 0,
                                  st.discharging ? 1 : 0);
             last_on_battery = s_power_on_battery;
+            last_docked = docked;
             last_have_status = true;
             last_pct = st.battery_percent;
             last_mv = st.battery_mv;
@@ -664,6 +726,60 @@ static void low_power_tick(uint32_t now_ms)
         }
     }
 
+    if (s_power_on_battery && faculty175_deep_sleep_request_pending() &&
+        !faculty175_ota_active() && !faculty175_qa_audio_busy()) {
+        low_power_wifi_pause();
+        faculty175_ble_prepare_deep_sleep();
+        vTaskDelay(pdMS_TO_TICKS(250));
+        faculty175_deep_sleep_enter(&s_power_status);
+    }
+
+    const faculty175_power_scenario_t scenario = faculty175_power_scenario_get(now_ms);
+    const bool scenario_active = s_power_on_battery &&
+                                 scenario != FACULTY175_POWER_SCENARIO_NORMAL;
+    if (scenario_active && (!scenario_applied_on_battery || scenario != last_scenario)) {
+        const faculty175_power_mode_t forced_mode = faculty175_power_scenario_mode(scenario);
+        s_low_power_dimmed = forced_mode != FACULTY175_POWER_AWAKE;
+        s_low_power_asleep = forced_mode == FACULTY175_POWER_ASLEEP;
+        if (scenario == FACULTY175_POWER_SCENARIO_FULL_WIFI ||
+            scenario == FACULTY175_POWER_SCENARIO_FULL_OFFLINE) {
+            faculty175_display_flush_suspended_set(false);
+            faculty175_board_display_on(true);
+            faculty175_board_set_backlight(100);
+            faculty175_audio_set_speaker_mute(false);
+        } else if (scenario == FACULTY175_POWER_SCENARIO_DIM_WIFI ||
+                   scenario == FACULTY175_POWER_SCENARIO_DIM_OFFLINE) {
+            faculty175_display_flush_suspended_set(false);
+            faculty175_board_display_on(true);
+            faculty175_board_set_backlight(10);
+            faculty175_audio_set_speaker_mute(false);
+        } else {
+            faculty175_board_set_backlight(0);
+            faculty175_board_display_on(false);
+            faculty175_display_flush_suspended_set(true);
+            faculty175_audio_set_speaker_mute(
+                scenario == FACULTY175_POWER_SCENARIO_SLEEP_OFFLINE);
+        }
+        if (faculty175_power_scenario_wifi_enabled(scenario)) {
+            low_power_wifi_resume();
+        } else {
+            low_power_wifi_pause();
+        }
+        FACULTY175_LOG_STAGE(TAG,
+                             "power",
+                             "scenario applied %s mode=%s wifi=%s",
+                             faculty175_power_scenario_name(scenario),
+                             faculty175_power_mode_name(forced_mode),
+                             faculty175_power_scenario_wifi_enabled(scenario) ? "on" : "off");
+        last_scenario = scenario;
+        scenario_applied_on_battery = true;
+    } else if (!scenario_active && scenario_applied_on_battery) {
+        scenario_applied_on_battery = false;
+        last_scenario = FACULTY175_POWER_SCENARIO_NORMAL;
+        s_low_power_last_activity_ms = now_ms;
+        low_power_apply_awake(now_ms, "power scenario ended");
+    }
+
     bool breathing_guide_active = false;
     const faculty175_face_desc_t *power_face = faculty175_faces_current();
     if (power_face != NULL && power_face->id == FACULTY175_FACE_IRONMAN) {
@@ -671,27 +787,29 @@ static void low_power_tick(uint32_t now_ms)
         faculty175_breath_status(&breath);
         breathing_guide_active = breath.guide_phase != FACULTY175_BREATH_GUIDE_NONE;
     }
-    const faculty175_power_mode_t power_mode = s_low_power_asleep
+    const faculty175_power_mode_t power_mode = scenario_active
+                                                   ? faculty175_power_scenario_mode(scenario)
+                                                   : (s_low_power_asleep
                                                    ? FACULTY175_POWER_ASLEEP
                                                    : (s_low_power_dimmed
                                                           ? FACULTY175_POWER_DIMMED
                                                           : (breathing_guide_active
                                                                  ? FACULTY175_POWER_BREATHING
-                                                                 : FACULTY175_POWER_AWAKE));
-    faculty175_power_metrics_update(now_ms,
-                                    s_power_have_status ? &s_power_status : NULL,
-                                    power_mode,
-                                    !s_wifi_low_power_paused && wifi_is_connected());
-    faculty175_power_metrics_stream_maybe_emit(now_ms);
+                                                                 : FACULTY175_POWER_AWAKE)));
+    (void)power_mode;
 
     if (s_battery_stt_armed && (int32_t)(now_ms - s_battery_stt_armed_until_ms) >= 0) {
         s_battery_stt_armed = false;
         FACULTY175_LOG_STAGE(TAG, "power", "battery button STT arm expired");
     }
 
+    if (scenario_active) {
+        return;
+    }
+
     if (!s_power_on_battery) {
         if (s_low_power_asleep || s_low_power_dimmed) {
-            low_power_apply_awake(now_ms, "usb");
+            low_power_apply_awake(now_ms, low_power_is_docked(&s_power_status) ? "dock" : "external power");
         } else {
             low_power_wifi_resume();
         }
@@ -713,18 +831,57 @@ static void low_power_tick(uint32_t now_ms)
     if (!s_low_power_asleep && idle_ms >= BATTERY_SLEEP_IDLE_MS) {
         s_low_power_asleep = true;
         s_low_power_dimmed = true;
-        faculty175_audio_set_speaker_mute(true);
+        const bool continuous_voice = continuous_voice_face_active();
+        faculty175_audio_set_speaker_mute(!continuous_voice);
         faculty175_board_set_backlight(0);
         faculty175_board_display_on(false);
         faculty175_display_flush_suspended_set(true);
-        low_power_wifi_pause();
-        FACULTY175_LOG_STAGE(TAG, "power", "battery sleep after %u ms idle", (unsigned)idle_ms);
+        if (continuous_voice) {
+            low_power_wifi_resume();
+        } else {
+            low_power_wifi_pause();
+        }
+        FACULTY175_LOG_STAGE(TAG,
+                             "power",
+                             "battery display off after %u ms idle continuous_voice=%d",
+                             (unsigned)idle_ms,
+                             continuous_voice ? 1 : 0);
         return;
     }
     if (!s_low_power_dimmed && idle_ms >= BATTERY_DIM_IDLE_MS) {
         s_low_power_dimmed = true;
         faculty175_board_set_backlight(10);
         FACULTY175_LOG_STAGE(TAG, "power", "battery dim after %u ms idle", (unsigned)idle_ms);
+    }
+}
+
+/* Measurement is intentionally independent of input/touch. Settings-mode HTTP
+ * transitions can pause the audio and interaction stack, but must not freeze a
+ * battery test. This sampler does no flash writes, so its stack may live in
+ * PSRAM without crossing a cache-disabled NVS operation. */
+static void power_metrics_task(void *arg)
+{
+    (void)arg;
+    while (true) {
+        const uint32_t now_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+        faculty175_pmu_status_t pmu = {.battery_percent = -1};
+        const bool have_pmu = !faculty175_ota_active() && faculty175_pmu_status(&pmu);
+        const faculty175_power_scenario_t scenario = faculty175_power_scenario_get(now_ms);
+        faculty175_power_mode_t mode = s_low_power_asleep
+                                           ? FACULTY175_POWER_ASLEEP
+                                           : (s_low_power_dimmed ? FACULTY175_POWER_DIMMED
+                                                                 : FACULTY175_POWER_AWAKE);
+        if (have_pmu && low_power_on_battery(&pmu) &&
+            scenario != FACULTY175_POWER_SCENARIO_NORMAL) {
+            mode = faculty175_power_scenario_mode(scenario);
+        }
+        faculty175_power_metrics_update(now_ms,
+                                        have_pmu ? &pmu : NULL,
+                                        mode,
+                                        !s_wifi_low_power_paused && wifi_is_connected(),
+                                        faculty175_ble_advertising() || faculty175_ble_scanning());
+        faculty175_power_metrics_stream_maybe_emit(now_ms);
+        vTaskDelay(pdMS_TO_TICKS(1000));
     }
 }
 
@@ -887,6 +1044,9 @@ static void ui_task(void *arg)
 
 static void append_history(const char *user, const char *reply)
 {
+    if (faculty175_face_profile_current() == FACULTY175_FACE_PROFILE_LUNASAY) {
+        return;
+    }
     char chunk[256];
     snprintf(chunk, sizeof(chunk), "User: %s | Faculty: %s", user != NULL ? user : "", reply != NULL ? reply : "");
     if (s_history[0] != '\0') {
@@ -912,6 +1072,27 @@ static void prompt_append(char *out, size_t cap, size_t *off, const char *fmt, .
     }
     const size_t add = (size_t)wrote;
     *off = add >= cap - *off ? cap - 1 : *off + add;
+}
+
+static void append_rotary_context(char *out, size_t cap, size_t *off)
+{
+    faculty175_rotary_state_t state = {};
+    if (!faculty175_rotary_state_get(&state) || !state.valid) {
+        prompt_append(out,
+                      cap,
+                      off,
+                      "No paired rotary source is currently available for psychological context. ");
+        return;
+    }
+    prompt_append(out,
+                  cap,
+                  off,
+                  "Closest paired source %s reports state %s (%s), signal %d dBm, age %ums. ",
+                  state.source,
+                  faculty175_rotary_state_emoji(state.state),
+                  faculty175_rotary_state_label(state.state),
+                  (int)state.rssi_dbm,
+                  (unsigned)state.age_ms);
 }
 
 static const char *face_category_label(uint32_t categories)
@@ -1189,6 +1370,10 @@ static void build_face_read_prompt(const faculty175_face_desc_t *face, char *out
             break;
         case FACULTY175_FACE_SYNASTRY:
             append_synastry_prompt(out, cap, &off);
+            prompt_append(out,
+                          cap,
+                          &off,
+                          "Tie emotional state context into compatibility and shared pattern cues. ");
             break;
         case FACULTY175_FACE_PARTNER_WELLNESS:
             append_family_wellness_prompt(out, cap, &off);
@@ -1215,6 +1400,12 @@ static void build_face_read_prompt(const faculty175_face_desc_t *face, char *out
         case FACULTY175_FACE_TRON:
             prompt_append(out, cap, &off,
                           "The visible data is a TRON light-cycle arena controlled by watch tilt; describe the neon trails, current motion, and whether either cycle has crashed. ");
+            break;
+        case FACULTY175_FACE_PSYCH_STATE:
+            prompt_append(out,
+                          cap,
+                          &off,
+                          "This is a psychological-state status face; state is already paired remotely and should be described briefly and accurately. ");
             break;
         case FACULTY175_FACE_RUNES: {
             int spread[3] = {};
@@ -1318,6 +1509,7 @@ static void build_face_read_prompt(const faculty175_face_desc_t *face, char *out
                           "Use only the supplied face name, category, and current time when live face-specific data is not available. ");
             break;
     }
+    append_rotary_context(out, cap, &off);
     prompt_append(out,
                   cap,
                   &off,
@@ -1416,17 +1608,47 @@ static void face_tts_worker_start(void)
     if (s_face_tts_queue == NULL || s_face_tts_worker_task != NULL) {
         return;
     }
-    const BaseType_t ok = xTaskCreateWithCaps(face_tts_worker_task,
-                                              "face_tts",
-                                              FACULTY175_FACE_TTS_STACK,
-                                              NULL,
-                                              4,
-                                              &s_face_tts_worker_task,
-                                              MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    BaseType_t ok = xTaskCreateWithCaps(face_tts_worker_task,
+                                        "face_tts",
+                                        FACULTY175_FACE_TTS_STACK,
+                                        NULL,
+                                        4,
+                                        &s_face_tts_worker_task,
+                                        MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (ok != pdPASS) {
+        s_face_tts_worker_task = NULL;
+        ok = xTaskCreateWithCaps(face_tts_worker_task,
+                                 "face_tts",
+                                 FACULTY175_FACE_TTS_STACK,
+                                 NULL,
+                                 4,
+                                 &s_face_tts_worker_task,
+                                 MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    }
     if (ok != pdPASS) {
         FACULTY175_LOG_STAGE_E(TAG, "tts-face", "worker create failed");
         s_face_tts_worker_task = NULL;
     }
+}
+
+static esp_err_t face_tts_worker_stop_for_pipeline(void)
+{
+    if (s_face_tts_busy) {
+        FACULTY175_LOG_STAGE_W(TAG, "tts-face", "cannot start duplex while face reading is active");
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (s_face_tts_worker_task != NULL) {
+        vTaskDelete(s_face_tts_worker_task);
+        s_face_tts_worker_task = NULL;
+        FACULTY175_LOG_STAGE(TAG, "tts-face", "worker released for duplex pipeline");
+    }
+    return ESP_OK;
+}
+
+static esp_err_t face_tts_stream_chunk(const uint8_t *mp3_chunk, size_t chunk_len, void *user)
+{
+    (void)user;
+    return faculty175_voice_tts_speaker_stream_write(mp3_chunk, chunk_len);
 }
 
 static esp_err_t face_tts_stream_post(const char *prompt,
@@ -1434,19 +1656,24 @@ static esp_err_t face_tts_stream_post(const char *prompt,
                                       const char *post_face,
                                       faculty175_voice_result_t *result)
 {
+    esp_err_t err = faculty175_voice_tts_speaker_stream_begin();
+    if (err != ESP_OK) {
+        return err;
+    }
     const faculty175_voice_tts_stream_t stream = {
-        .spool_path = "/voice/voice-reply.mp3",
+        .on_mp3_chunk = face_tts_stream_chunk,
     };
-    esp_err_t err = faculty175_voice_post_message_streaming(prompt,
-                                                            system,
-                                                            post_face,
-                                                            s_faculty_slug,
-                                                            s_faculty_name,
-                                                            s_history,
-                                                            &stream,
-                                                            result);
-    if (err == ESP_OK && result != NULL && result->mp3_path[0] != '\0') {
-        err = faculty175_voice_play_mp3_file(result->mp3_path, result->mp3_len);
+    err = faculty175_voice_post_message_streaming(prompt,
+                                                  system,
+                                                  post_face,
+                                                  s_faculty_slug,
+                                                  s_faculty_name,
+                                                  s_history,
+                                                  &stream,
+                                                  result);
+    const esp_err_t stream_err = faculty175_voice_tts_speaker_stream_end();
+    if (err == ESP_OK) {
+        err = stream_err;
     }
     return err;
 }
@@ -1517,8 +1744,10 @@ static esp_err_t pipeline_read(int16_t *samples, size_t sample_count, size_t *ou
         s_ui == FACULTY175_UI_THINK || s_ui == FACULTY175_UI_SPEAK;
 #endif
     if (faculty175_ota_active() || faculty175_qa_audio_busy() || faculty175_face_native_audio_busy() ||
-        faculty175_voice_tts_playback_busy() || ui_blocks_read || s_low_power_asleep ||
-        (s_power_on_battery && !s_battery_stt_armed && !astrolabe_audio_pipeline_speech_active(s_pipeline))) {
+        faculty175_voice_tts_playback_busy() || ui_blocks_read ||
+        (s_low_power_asleep && !continuous_voice_face_active()) ||
+        (s_power_on_battery && !continuous_voice_face_active() && !s_battery_stt_armed &&
+         !astrolabe_audio_pipeline_speech_active(s_pipeline))) {
         if (out_read != NULL) {
             *out_read = 0;
         }
@@ -1550,6 +1779,13 @@ static esp_err_t pipeline_set_rate(uint32_t sample_rate_hz, void *user)
 static esp_err_t pipeline_play_mp3(const uint8_t *mp3, size_t mp3_len, void *user)
 {
     (void)user;
+    const faculty175_face_desc_t *face = faculty175_faces_current();
+    if (face != NULL && face->id == FACULTY175_FACE_ALETHIOMETER) {
+        /* pipeline_result applies the two-call reading immediately before this
+         * callback. Give the three question hands and searching answer needle
+         * time to finish their staged reveal before speech begins. */
+        vTaskDelay(pdMS_TO_TICKS(faculty175_face_alethiometer_reveal_duration_ms()));
+    }
     return faculty175_voice_play_mp3_async(mp3, mp3_len);
 }
 
@@ -1632,6 +1868,10 @@ static void pipeline_event(astrolabe_audio_pipeline_event_t event, const char *d
                 low_power_wifi_resume_for_voice(10000);
             }
             ui_set(FACULTY175_UI_THINK, "Castalia...");
+            if (strcmp(s_voice_face, "alethiometer") == 0) {
+                faculty175_face_alethiometer_begin_search();
+                ui_redraw();
+            }
             FACULTY175_LOG_STAGE(TAG, "pipeline", "streaming capture to voice-stream (face=%s)",
                                   s_voice_face);
             pipeline_log_heap("thinking");
@@ -1666,7 +1906,7 @@ static void pipeline_event(astrolabe_audio_pipeline_event_t event, const char *d
         case ASTROLABE_AUDIO_PIPELINE_EVENT_TURN_DONE:
             s_battery_stt_armed = false;
             s_battery_network_active = false;
-            if (s_power_on_battery) {
+            if (s_power_on_battery && !continuous_voice_face_active()) {
                 low_power_wifi_pause();
             }
             ui_set(FACULTY175_UI_LISTEN, NULL);
@@ -1677,8 +1917,11 @@ static void pipeline_event(astrolabe_audio_pipeline_event_t event, const char *d
         case ASTROLABE_AUDIO_PIPELINE_EVENT_ERROR:
             s_battery_stt_armed = false;
             s_battery_network_active = false;
-            if (s_power_on_battery) {
+            if (s_power_on_battery && !continuous_voice_face_active()) {
                 low_power_wifi_pause();
+            }
+            if (strcmp(s_voice_face, "alethiometer") == 0) {
+                faculty175_face_alethiometer_cancel_search();
             }
             FACULTY175_LOG_STAGE_E(TAG, "pipeline", "%s", detail != NULL ? detail : "error");
             pipeline_log_heap("error");
@@ -1727,6 +1970,19 @@ static void qa_stt_task(void *arg)
     } else if (capture_ms > 15000) {
         capture_ms = 15000;
     }
+    portENTER_CRITICAL(&s_qa_voice_status_mux);
+    s_qa_voice_status.started_ms = faculty175_log_ms();
+    portEXIT_CRITICAL(&s_qa_voice_status_mux);
+
+    const bool restart_pipeline = s_pipeline != NULL || s_pipeline_started;
+    if (restart_pipeline) {
+        const esp_err_t stop_err = pipeline_stop_runtime();
+        if (stop_err != ESP_OK && stop_err != ESP_ERR_INVALID_STATE) {
+            FACULTY175_LOG_STAGE_W(TAG, "stt", "qa pipeline pause failed: %s", esp_err_to_name(stop_err));
+        } else {
+            FACULTY175_LOG_STAGE(TAG, "stt", "qa paused rolling pipeline for exclusive capture");
+        }
+    }
 
     int16_t *frame = heap_caps_malloc(FACULTY175_LISTEN_FRAME_SAMPLES * sizeof(int16_t),
                                       MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
@@ -1744,6 +2000,14 @@ static void qa_stt_task(void *arg)
         free(frame);
         free(result);
         s_qa_stt_busy = false;
+        portENTER_CRITICAL(&s_qa_voice_status_mux);
+        s_qa_voice_status.busy = false;
+        s_qa_voice_status.err = ESP_ERR_NO_MEM;
+        s_qa_voice_status.completed_ms = faculty175_log_ms();
+        portEXIT_CRITICAL(&s_qa_voice_status_mux);
+        if (restart_pipeline) {
+            (void)pipeline_ensure_ready();
+        }
         vTaskDeleteWithCaps(NULL);
         return;
     }
@@ -1751,12 +2015,37 @@ static void qa_stt_task(void *arg)
     sync_voice_context(NULL);
     ui_set(FACULTY175_UI_CAPTURE, "ask");
     faculty175_audio_set_speaker_mute(true);
+    /* Preserve consonants and softer word endings for cloud STT.  The simple
+     * frame gate is useful for VAD telemetry but was truncating speech. */
+    faculty175_audio_noise_suppression_set_enabled(false);
+    faculty175_audio_noise_suppression_reset();
+    const faculty175_voice_stt_stream_config_t stream_config = {
+        .face = s_voice_face,
+        .faculty_slug = s_faculty_slug,
+        .faculty_name = s_faculty_name,
+        .system_instruction = s_voice_system_instruction,
+        .history = s_history,
+    };
+    esp_err_t err = faculty175_voice_stt_stream_open(&stream_config);
+    if (err == ESP_OK) {
+        /* The first read switches I2S back from speaker playback to microphone
+         * capture.  Do that before advertising capture readiness so a prompt
+         * cannot be lost during the mode transition. */
+        size_t primed = 0;
+        err = faculty175_audio_read(frame, FACULTY175_LISTEN_FRAME_SAMPLES, &primed, 400);
+        if (err == ESP_OK && primed == 0) {
+            err = ESP_ERR_TIMEOUT;
+        }
+    }
     const uint32_t start_ms = faculty175_log_ms();
-    FACULTY175_LOG_STAGE(TAG, "stt", "qa capture begin ms=%u", (unsigned)capture_ms);
-    printf("qa: stt capture begin ms=%u\n", (unsigned)capture_ms);
-    fflush(stdout);
+    if (err == ESP_OK) {
+        FACULTY175_LOG_STAGE(TAG, "stt", "qa capture begin ms=%u", (unsigned)capture_ms);
+        printf("qa: stt capture begin ms=%u\n", (unsigned)capture_ms);
+        fflush(stdout);
+    } else {
+        FACULTY175_LOG_STAGE_W(TAG, "stt", "qa capture prepare failed: %s", esp_err_to_name(err));
+    }
 
-    esp_err_t err = faculty175_voice_stream_begin(s_faculty_slug, s_faculty_name, s_history);
     size_t frames = 0;
     int32_t peak_max = 0;
     uint32_t rms_max = 0;
@@ -1797,6 +2086,11 @@ static void qa_stt_task(void *arg)
            esp_err_to_name(err));
     fflush(stdout);
 
+    bool alethiometer_applied = false;
+    if (err == ESP_OK && strcmp(s_voice_face, "alethiometer") == 0) {
+        faculty175_face_alethiometer_begin_search();
+        ui_redraw();
+    }
     if (err == ESP_OK) {
         ui_set(FACULTY175_UI_THINK, "Castalia...");
         const faculty175_voice_tts_stream_t tts_stream = {
@@ -1804,6 +2098,12 @@ static void qa_stt_task(void *arg)
         };
         faculty175_audio_set_speaker_mute(false);
         err = faculty175_voice_stt_stream_commit_streaming(&tts_stream, result);
+        if (err == ESP_OK && strcmp(s_voice_face, "alethiometer") == 0 && result->reply[0] != '\0') {
+            alethiometer_applied = faculty175_face_alethiometer_apply_reply(result->transcript, result->reply);
+            if (alethiometer_applied) {
+                vTaskDelay(pdMS_TO_TICKS(faculty175_face_alethiometer_reveal_duration_ms()));
+            }
+        }
         if (err == ESP_OK && result->mp3_path[0] != '\0') {
             err = faculty175_voice_play_mp3_file(result->mp3_path, result->mp3_len);
         }
@@ -1817,6 +2117,9 @@ static void qa_stt_task(void *arg)
             printf("qa: stt transcript=\"%s\"\n", result->transcript);
         }
         if (result->reply[0] != '\0') {
+            if (strcmp(s_voice_face, "alethiometer") == 0 && !alethiometer_applied) {
+                (void)faculty175_face_alethiometer_apply_reply(result->transcript, result->reply);
+            }
             FACULTY175_LOG_STAGE(TAG, "reply", "qa %.160s", result->reply);
             printf("qa: stt reply=\"%s\"\n", result->reply);
             append_history(result->transcript, result->reply);
@@ -1829,11 +2132,33 @@ static void qa_stt_task(void *arg)
     printf("qa: stt done err=%s\n", esp_err_to_name(err));
     fflush(stdout);
     FACULTY175_LOG_STAGE(TAG, "stt", "qa done %s", esp_err_to_name(err));
+    portENTER_CRITICAL(&s_qa_voice_status_mux);
+    s_qa_voice_status.busy = false;
+    s_qa_voice_status.err = err;
+    s_qa_voice_status.completed_ms = faculty175_log_ms();
+    faculty175_strlcpy(s_qa_voice_status.transcript,
+                      result->transcript,
+                      sizeof(s_qa_voice_status.transcript));
+    faculty175_strlcpy(s_qa_voice_status.reply,
+                      result->reply,
+                      sizeof(s_qa_voice_status.reply));
+    portEXIT_CRITICAL(&s_qa_voice_status_mux);
     faculty175_voice_result_free(result);
     free(result);
     free(frame);
+    faculty175_audio_noise_suppression_set_enabled(true);
+    faculty175_audio_noise_suppression_reset();
+    if (err != ESP_OK && strcmp(s_voice_face, "alethiometer") == 0) {
+        faculty175_face_alethiometer_cancel_search();
+    }
     ui_set(FACULTY175_UI_LISTEN, NULL);
     s_qa_stt_busy = false;
+    if (restart_pipeline) {
+        const esp_err_t restart_err = pipeline_ensure_ready();
+        if (restart_err != ESP_OK) {
+            FACULTY175_LOG_STAGE_W(TAG, "stt", "qa pipeline resume failed: %s", esp_err_to_name(restart_err));
+        }
+    }
     vTaskDeleteWithCaps(NULL);
 }
 
@@ -1852,19 +2177,59 @@ static esp_err_t qa_trigger_stt(uint32_t capture_ms)
     }
     args->capture_ms = capture_ms;
     s_qa_stt_busy = true;
+    portENTER_CRITICAL(&s_qa_voice_status_mux);
+    s_qa_voice_status.sequence++;
+    s_qa_voice_status.busy = true;
+    s_qa_voice_status.capture_ms = capture_ms;
+    s_qa_voice_status.started_ms = 0u;
+    s_qa_voice_status.completed_ms = 0u;
+    s_qa_voice_status.err = ESP_ERR_INVALID_STATE;
+    s_qa_voice_status.transcript[0] = '\0';
+    s_qa_voice_status.reply[0] = '\0';
+    portEXIT_CRITICAL(&s_qa_voice_status_mux);
     const BaseType_t ok = xTaskCreateWithCaps(qa_stt_task, "qa_stt", VOICE_WORKER_STACK_BYTES,
                                               args, 4, NULL, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     if (ok != pdPASS) {
         free(args);
         s_qa_stt_busy = false;
+        portENTER_CRITICAL(&s_qa_voice_status_mux);
+        s_qa_voice_status.busy = false;
+        s_qa_voice_status.err = ESP_ERR_NO_MEM;
+        s_qa_voice_status.completed_ms = faculty175_log_ms();
+        portEXIT_CRITICAL(&s_qa_voice_status_mux);
         return ESP_ERR_NO_MEM;
     }
     return ESP_OK;
 }
 
+void faculty175_qa_voice_status(faculty175_qa_voice_status_t *out)
+{
+    if (out == NULL) return;
+    portENTER_CRITICAL(&s_qa_voice_status_mux);
+    *out = s_qa_voice_status;
+    portEXIT_CRITICAL(&s_qa_voice_status_mux);
+}
+
 esp_err_t faculty175_request_qa_stt(uint32_t capture_ms)
 {
     return qa_trigger_stt(capture_ms);
+}
+
+esp_err_t faculty175_request_qa_stt_deferred(uint32_t capture_ms)
+{
+    if (!faculty175_board_audio_ready()) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (s_qa_stt_busy || s_qa_stt_pending_capture_ms != 0) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (capture_ms < 1000) {
+        capture_ms = 1000;
+    } else if (capture_ms > 15000) {
+        capture_ms = 15000;
+    }
+    s_qa_stt_pending_capture_ms = capture_ms;
+    return ESP_OK;
 }
 
 esp_err_t faculty175_request_streaming_capture(uint32_t capture_ms)
@@ -1970,7 +2335,7 @@ void faculty175_streaming_pipeline_diag(bool *out_speech_active,
     }
 }
 
-static esp_err_t pipeline_stop_runtime(void)
+static esp_err_t pipeline_stop_runtime_impl(bool settings_mode)
 {
     if (s_pipeline_start_task != NULL) {
         FACULTY175_LOG_STAGE_W(TAG, "pipeline", "stop requested while start task is still running");
@@ -1981,16 +2346,28 @@ static esp_err_t pipeline_stop_runtime(void)
         return ESP_ERR_INVALID_STATE;
     }
     FACULTY175_LOG_STAGE(TAG, "pipeline", "stop requested");
+    faculty175_screen_http_wake_listener_stop();
+    if (settings_mode) {
+        (void)face_tts_worker_stop_for_pipeline();
+    }
     pipeline_log_heap("stop-entry");
     astrolabe_audio_pipeline_destroy(s_pipeline);
     s_pipeline = NULL;
     s_pipeline_started = false;
-    vTaskDelay(pdMS_TO_TICKS(120));
+    vTaskDelay(pdMS_TO_TICKS(settings_mode ? 600 : 120));
     faculty175_ota_set_auto_paused(false);
-    button_reboot_task_start_if_needed();
+    if (!settings_mode) {
+        button_reboot_task_start_if_needed();
+        face_tts_worker_start();
+    }
     (void)faculty175_screen_http_start(NULL);
     pipeline_log_heap("stop-done");
     return ESP_OK;
+}
+
+static esp_err_t pipeline_stop_runtime(void)
+{
+    return pipeline_stop_runtime_impl(false);
 }
 
 static esp_err_t pipeline_ensure_ready(void)
@@ -2007,7 +2384,21 @@ static esp_err_t pipeline_ensure_ready(void)
         faculty175_ota_set_auto_paused(true);
         faculty175_screen_http_stop();
         button_reboot_task_stop_for_pipeline();
+        const esp_err_t face_tts_err = face_tts_worker_stop_for_pipeline();
+        if (face_tts_err != ESP_OK) {
+            faculty175_ota_set_auto_paused(false);
+            button_reboot_task_start_if_needed();
+            (void)faculty175_screen_http_start(NULL);
+            return face_tts_err;
+        }
+#if defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
+        /* httpd_stop() deletes its task asynchronously. Give the idle task
+         * enough time to reclaim and coalesce the internal-RAM stack before
+         * the audio pipeline asks for its listen task stack. */
+        vTaskDelay(pdMS_TO_TICKS(600));
+#else
         vTaskDelay(pdMS_TO_TICKS(120));
+#endif
         sync_voice_context(NULL);
         const esp_err_t create_err = astrolabe_audio_pipeline_create(&s_pipeline_cfg, &s_pipeline);
         if (create_err != ESP_OK) {
@@ -2015,6 +2406,7 @@ static esp_err_t pipeline_ensure_ready(void)
             pipeline_log_heap("create-failed");
             faculty175_ota_set_auto_paused(false);
             button_reboot_task_start_if_needed();
+            face_tts_worker_start();
             (void)faculty175_screen_http_start(NULL);
             return create_err;
         }
@@ -2025,18 +2417,31 @@ static esp_err_t pipeline_ensure_ready(void)
     }
     faculty175_screen_http_stop();
     button_reboot_task_stop_for_pipeline();
+#if defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
+    vTaskDelay(pdMS_TO_TICKS(600));
+#else
     vTaskDelay(pdMS_TO_TICKS(120));
+#endif
     const esp_err_t start_err = astrolabe_audio_pipeline_start(s_pipeline);
     if (start_err != ESP_OK) {
         FACULTY175_LOG_STAGE_E(TAG, "pipeline", "start failed: %s", esp_err_to_name(start_err));
         pipeline_log_heap("start-failed");
+        astrolabe_audio_pipeline_destroy(s_pipeline);
+        s_pipeline = NULL;
         s_pipeline_started = false;
         faculty175_ota_set_auto_paused(false);
         button_reboot_task_start_if_needed();
+        face_tts_worker_start();
         (void)faculty175_screen_http_start(NULL);
         return start_err;
     }
     s_pipeline_started = true;
+#if defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
+    const esp_err_t wake_err = faculty175_screen_http_wake_listener_start();
+    if (wake_err != ESP_OK) {
+        FACULTY175_LOG_STAGE_W(TAG, "http", "wake listener start failed: %s", esp_err_to_name(wake_err));
+    }
+#endif
     pipeline_log_heap("start-ok");
     ui_set(FACULTY175_UI_LISTEN, NULL);
     faculty_log_ready();
@@ -2104,7 +2509,9 @@ static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, voi
         if (faculty175_wifi_settings_scan_suppressed()) {
             FACULTY175_LOG_STAGE(TAG, "wifi", "disconnect retry held for serial scan");
             xEventGroupClearBits(s_wifi_events, WIFI_CONNECTED_BIT);
+#if !defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
             faculty175_screen_http_stop();
+#endif
             return;
         }
         const wifi_event_sta_disconnected_t *disc = (const wifi_event_sta_disconnected_t *)data;
@@ -2121,7 +2528,9 @@ static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, voi
                                                     disc != NULL ? (int)disc->rssi : 0);
         FACULTY175_LOG_STAGE_W(TAG, "wifi", "disconnected reason=%d — retrying", reason);
         xEventGroupClearBits(s_wifi_events, WIFI_CONNECTED_BIT);
+#if !defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
         faculty175_screen_http_stop();
+#endif
         esp_wifi_connect();
     } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
         const ip_event_got_ip_t *event = (const ip_event_got_ip_t *)data;
@@ -2486,8 +2895,10 @@ static void qa_emit_tasks(void)
 {
     qa_emit_task_stack_line("wifi_start", s_wifi_start_task, FACULTY175_WIFI_START_STACK);
     qa_emit_task_stack_line("ui", s_ui_task, FACULTY175_UI_TASK_STACK);
+    qa_emit_task_stack_line("gesture", faculty175_gesture_task_handle(), 4096u);
     qa_emit_task_stack_line("input", s_input_task, FACULTY175_INPUT_TASK_STACK);
     qa_emit_task_stack_line("button_reboot", s_button_reboot_task, FACULTY175_BUTTON_REBOOT_STACK);
+    qa_emit_task_stack_line("face_save", s_face_save_task, FACULTY175_FACE_SAVE_STACK);
     qa_emit_task_stack_line("audio_pipe", s_pipeline_start_task, 4096u);
     qa_emit_task_stack_line("serial", faculty175_serial_task_handle(), FACULTY175_SERIAL_TASK_STACK);
     qa_emit_task_stack_line("fac_bust", faculty175_faculty_bust_task_handle(), 12288u);
@@ -2523,17 +2934,34 @@ static esp_err_t wifi_start(void)
     wifi_candidate_add(candidates, &candidate_count, "AstrolabeRouter", "astrolabe", "built-in");
 
     s_wifi_events = xEventGroupCreate();
-    ESP_ERROR_CHECK(esp_netif_init());
-    ESP_ERROR_CHECK(esp_event_loop_create_default());
+    esp_err_t err = esp_netif_init();
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+        FACULTY175_LOG_STAGE_E(TAG, "wifi", "netif init failed: %s", esp_err_to_name(err));
+        return err;
+    }
+    err = esp_event_loop_create_default();
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+        FACULTY175_LOG_STAGE_E(TAG, "wifi", "event loop init failed: %s", esp_err_to_name(err));
+        return err;
+    }
+#if defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
+    /* Reserve the settings PWA task before the Wi-Fi driver claims its DMA
+     * pools. Once an address arrives, the GOT_IP handler only updates s_ip. */
+    const esp_err_t http_err = faculty175_screen_http_start(NULL);
+    if (http_err != ESP_OK) {
+        FACULTY175_LOG_STAGE_W(TAG, "wifi", "early settings server failed: %s", esp_err_to_name(http_err));
+    }
+#endif
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     cfg.static_rx_buf_num = 2;
     cfg.dynamic_rx_buf_num = 8;
+    cfg.static_tx_buf_num = 4;
     cfg.dynamic_tx_buf_num = 8;
     cfg.rx_ba_win = 2;
     cfg.rx_mgmt_buf_num = 2;
     cfg.mgmt_sbuf_num = 6;
-    esp_err_t err = esp_wifi_init(&cfg);
+    err = esp_wifi_init(&cfg);
     if (err != ESP_OK) {
         FACULTY175_LOG_STAGE_E(TAG, "wifi", "init failed: %s", esp_err_to_name(err));
         faculty175_wifi_settings_clear_runtime();
@@ -2600,11 +3028,13 @@ static void wifi_start_task(void *arg)
     s_wifi_auto_apsta_enabled = false;
     const esp_err_t wifi_err = wifi_start();
     if (wifi_err != ESP_OK) {
+        faculty175_ota_set_network_ready(false);
         if (s_faculty_ready) {
             faculty175_faculty_set_network_fetch_enabled(false);
         }
         FACULTY175_LOG_STAGE_W(TAG, "wifi", "continuing offline: %s", esp_err_to_name(wifi_err));
     } else {
+        faculty175_ota_set_network_ready(true);
         if (s_faculty_ready) {
             faculty175_faculty_set_network_fetch_enabled(true);
         }
@@ -2708,6 +3138,13 @@ static void load_faculty_from_nvs(void)
         nvs_close(nvs);
     }
 
+#if defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
+    /* LunaSay faces are independent reflective turns. Never carry a previous
+     * product profile's conversation into the first cloud request. */
+    const bool had_persisted_history = s_history[0] != '\0';
+    s_history[0] = '\0';
+#endif
+
     if (!has_slug || strcmp(s_faculty_slug, "nabokov") == 0) {
         faculty175_faculty_roster_entry_t active = {};
         if (faculty175_faculty_roster_active(&active)) {
@@ -2724,6 +3161,11 @@ static void load_faculty_from_nvs(void)
         (void)faculty175_faculty_roster_set_active_index(0);
         save_faculty_to_nvs();
     }
+#if defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
+    else if (had_persisted_history) {
+        save_faculty_to_nvs();
+    }
+#endif
 }
 
 static void save_faculty_to_nvs(void)
@@ -2769,28 +3211,86 @@ static void save_faculty_to_nvs_async(void)
     (void)xTaskNotifyGive(s_faculty_save_task);
 }
 
+static void face_save_task(void *arg)
+{
+    (void)arg;
+    for (;;) {
+        (void)ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        const esp_err_t err = faculty175_faces_save_current();
+        if (err != ESP_OK) {
+            FACULTY175_LOG_STAGE(TAG, "faces", "save current failed %s", esp_err_to_name(err));
+        }
+    }
+}
+
+static void save_current_face_async(void)
+{
+    if (s_face_save_task != NULL) {
+        (void)xTaskNotifyGive(s_face_save_task);
+        return;
+    }
+    const BaseType_t ok = xTaskCreateWithCaps(face_save_task,
+                                              "face_save",
+                                              FACULTY175_FACE_SAVE_STACK,
+                                              NULL,
+                                              3,
+                                              &s_face_save_task,
+                                              MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (ok != pdPASS) {
+        s_face_save_task = NULL;
+        FACULTY175_LOG_STAGE_W(TAG, "faces", "save task create failed");
+        return;
+    }
+    (void)xTaskNotifyGive(s_face_save_task);
+}
+
 static void sync_voice_context(void *user)
 {
     (void)user;
     const faculty175_face_desc_t *face = faculty175_faces_current();
-    const bool notes_mode = face != NULL && face->id == FACULTY175_FACE_NOTES;
+    const bool journal_mode = face != NULL &&
+                              (face->id == FACULTY175_FACE_NOTES ||
+                               face->id == FACULTY175_FACE_JOURNAL);
+    const bool conversation_session = face != NULL && face->id == FACULTY175_FACE_CONVERSATION;
     const bool alethiometer_mode = face != NULL && face->id == FACULTY175_FACE_ALETHIOMETER;
     const bool crystal_ball_mode = face != NULL && face->id == FACULTY175_FACE_CRYSTAL_BALL;
-    faculty175_strlcpy(s_voice_face,
-                       notes_mode ? "notes" : (alethiometer_mode ? "alethiometer" : (crystal_ball_mode ? "crystal-ball" : ASTROLABE_FACULTY_FACE_NAME)),
-                       sizeof(s_voice_face));
-    faculty175_strlcpy(s_voice_interaction_mode, notes_mode ? "journal" : "conversation",
+    const bool lunasay_profile = faculty175_face_profile_current() == FACULTY175_FACE_PROFILE_LUNASAY;
+    const char *voice_face = ASTROLABE_FACULTY_FACE_NAME;
+    if (journal_mode) {
+        voice_face = face->id == FACULTY175_FACE_JOURNAL ? "journal" : "notes";
+    } else if (conversation_session) {
+        voice_face = "conversation";
+    } else if (alethiometer_mode) {
+        voice_face = "alethiometer";
+    } else if (crystal_ball_mode) {
+        voice_face = "crystal-ball";
+    } else if (lunasay_profile && face != NULL && face->slug != NULL && face->slug[0] != '\0') {
+        voice_face = face->slug;
+    }
+    faculty175_strlcpy(s_voice_face, voice_face, sizeof(s_voice_face));
+    faculty175_strlcpy(s_voice_interaction_mode, journal_mode ? "journal" : "conversation",
                        sizeof(s_voice_interaction_mode));
-    faculty175_strlcpy(s_voice_commonplace_mode, notes_mode ? "journal" : "conversation",
+    faculty175_strlcpy(s_voice_commonplace_mode,
+                       journal_mode ? "journal" : (conversation_session ? "conversation" :
+                                                    (lunasay_profile ? "off" : "conversation")),
                        sizeof(s_voice_commonplace_mode));
-    faculty175_strlcpy(s_voice_response_format, (notes_mode || alethiometer_mode || crystal_ball_mode) ? "json" : "mp3",
+    faculty175_strlcpy(s_voice_response_format, (journal_mode || alethiometer_mode || crystal_ball_mode) ? "json" : "mp3",
                        sizeof(s_voice_response_format));
     const char *base_instruction = crystal_ball_mode ? CRYSTAL_BALL_SYSTEM_INSTRUCTION
                                                      : (alethiometer_mode ? ALETHIOMETER_SYSTEM_INSTRUCTION
                                                                          : ASTROLABE_FACULTY_SYSTEM_INSTRUCTION);
     faculty175_strlcpy(s_voice_system_instruction, base_instruction, sizeof(s_voice_system_instruction));
+    if (!journal_mode && !alethiometer_mode && !crystal_ball_mode) {
+        const size_t used = strlen(s_voice_system_instruction);
+        snprintf(s_voice_system_instruction + used,
+                 sizeof(s_voice_system_instruction) - used,
+                 " Answer the user's exact watch-face question directly and accurately. "
+                 "When asked for a definition, give the neutral conventional definition without challenging its premise. "
+                 "Faculty persona may shape tone, but must never refuse because the historical person did not study the topic.");
+    }
     if (face != NULL &&
-        (face->id == FACULTY175_FACE_SYNASTRY || face->id == FACULTY175_FACE_PARTNER_WELLNESS)) {
+        (face->id == FACULTY175_FACE_PARTNER_WELLNESS ||
+         (!lunasay_profile && face->id == FACULTY175_FACE_SYNASTRY))) {
         char family_context[512];
         faculty175_family_format_voice_context(family_context, sizeof(family_context));
         const size_t used = strlen(s_voice_system_instruction);
@@ -2801,8 +3301,11 @@ static void sync_voice_context(void *user)
                      family_context);
         }
     }
-    s_voice_skip_llm = notes_mode;
-    s_voice_log_to_commonplace = true;
+    s_voice_skip_llm = journal_mode;
+    /* LunaSay voice is ephemeral by default. Notes remains an explicit journal
+     * action on profiles that expose it; ordinary LunaSay questions must not
+     * create a server-side Commonplace record as a side effect. */
+    s_voice_log_to_commonplace = journal_mode || conversation_session || !lunasay_profile;
 }
 
 static const faculty175_face_desc_t *nav_relative_delta(int delta)
@@ -3287,6 +3790,14 @@ static void input_task(void *arg)
 
     while (true) {
         const uint32_t now_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+        const faculty175_face_desc_t *usb_face = faculty175_faces_current();
+        const bool usb_screen_active = usb_face != NULL && usb_face->id == FACULTY175_FACE_USB_SCREEN;
+        if (usb_screen_active != faculty175_usb_screen_profile_active()) {
+            const esp_err_t usb_profile_err = faculty175_usb_set_screen_face_active(usb_screen_active);
+            if (usb_profile_err != ESP_OK) {
+                FACULTY175_LOG_STAGE_W(TAG, "usb", "profile switch failed: %s", esp_err_to_name(usb_profile_err));
+            }
+        }
         low_power_tick(now_ms);
         if (!s_nav_mode) {
             faculty175_ble_radar_tick(now_ms);
@@ -3328,6 +3839,20 @@ static void input_task(void *arg)
             const bool woke_from_low_power = s_low_power_asleep || s_low_power_dimmed;
             low_power_note_activity(now_ms, "gesture");
             const faculty175_face_desc_t *active_face = faculty175_faces_current();
+#if defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
+            if (gesture.kind == FACULTY175_GESTURE_LONG_TAP && gesture.x >= 340 && gesture.y <= 130 &&
+                (active_face == NULL || active_face->id != FACULTY175_FACE_SETTINGS)) {
+                ensure_settings_wifi_access();
+                if (faculty175_faces_set_runtime(FACULTY175_FACE_SETTINGS) == ESP_OK) {
+                    s_nav_mode = false;
+                    faculty175_display_nav_mode_set(false);
+                    draw_current_face_now(now_ms);
+                    FACULTY175_LOG_STAGE(TAG, "settings", "LunaSay gear opened");
+                }
+                faculty175_gesture_flush();
+                continue;
+            }
+#endif
             if (gesture.kind == FACULTY175_GESTURE_LONG_TAP) {
                 if (faculty175_faces_enabled_count() > 1) {
                     const char *enter_slug = active_face != NULL ? active_face->slug : "-";
@@ -3363,11 +3888,8 @@ static void input_task(void *arg)
                 uint32_t save_ms = 0;
                 if (face_save_pending) {
                     const uint32_t save_start_ms = faculty175_log_ms();
-                    const esp_err_t err = faculty175_faces_save_current();
+                    save_current_face_async();
                     save_ms = faculty175_log_ms() - save_start_ms;
-                    if (err != ESP_OK) {
-                        FACULTY175_LOG_STAGE(TAG, "faces", "save current failed %s", esp_err_to_name(err));
-                    }
                     face_save_pending = false;
                 }
                 FACULTY175_LOG_STAGE(TAG, "faces", "navigation mode off");
@@ -3387,7 +3909,7 @@ static void input_task(void *arg)
                     gesture.kind == FACULTY175_GESTURE_SWIPE_LEFT ||
                     gesture.kind == FACULTY175_GESTURE_SWIPE_RIGHT) {
                     const int delta = (gesture.kind == FACULTY175_GESTURE_BEZEL_ROTATE_CW ||
-                                       gesture.kind == FACULTY175_GESTURE_SWIPE_LEFT) ? 1 : -1;
+                                       gesture.kind == FACULTY175_GESTURE_SWIPE_RIGHT) ? 1 : -1;
                     const char *from_slug = active_face != NULL ? active_face->slug : "-";
                     const uint32_t select_start_ms = faculty175_log_ms();
                     const faculty175_face_desc_t *face = faculty175_faces_cycle_runtime(delta);
@@ -3467,7 +3989,7 @@ static void input_task(void *arg)
                        (active_face->id == FACULTY175_FACE_CHAKRA || active_face->id == FACULTY175_FACE_BOWL) &&
                        (gesture.kind == FACULTY175_GESTURE_SWIPE_LEFT ||
                         gesture.kind == FACULTY175_GESTURE_SWIPE_RIGHT)) {
-                const int delta = gesture.kind == FACULTY175_GESTURE_SWIPE_LEFT ? 1 : -1;
+                const int delta = gesture.kind == FACULTY175_GESTURE_SWIPE_RIGHT ? 1 : -1;
                 const uint32_t select_start_ms = faculty175_log_ms();
                 const faculty175_face_desc_t *face = faculty175_faces_cycle_runtime(delta);
                 const uint32_t select_ms = faculty175_log_ms() - select_start_ms;
@@ -3496,7 +4018,11 @@ static void input_task(void *arg)
                         (active_face->id == FACULTY175_FACE_SETTINGS &&
                          gesture.kind == FACULTY175_GESTURE_SWIPE_UP))) {
                 const faculty175_face_id_t target_id =
+#if defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
+                    active_face->id == FACULTY175_FACE_SETTINGS ? FACULTY175_FACE_MOON : FACULTY175_FACE_SETTINGS;
+#else
                     active_face->id == FACULTY175_FACE_POCKETWATCH ? FACULTY175_FACE_SETTINGS : FACULTY175_FACE_POCKETWATCH;
+#endif
                 const int delta = active_face->id == FACULTY175_FACE_POCKETWATCH ? -1 : 1;
                 const uint32_t select_start_ms = faculty175_log_ms();
                 if (target_id == FACULTY175_FACE_SETTINGS) {
@@ -3542,6 +4068,20 @@ static void input_task(void *arg)
                 if (faculty175_face_incidents_scroll(delta)) {
                     ui_redraw();
                 }
+                faculty175_gesture_flush();
+#if !defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
+            } else if (!s_nav_mode && active_face != NULL && active_face->id == FACULTY175_FACE_PSYCH_STATE &&
+                       (gesture.kind == FACULTY175_GESTURE_BEZEL_ROTATE_CW ||
+                        gesture.kind == FACULTY175_GESTURE_BEZEL_ROTATE_CCW ||
+                        gesture.kind == FACULTY175_GESTURE_SWIPE_UP ||
+                        gesture.kind == FACULTY175_GESTURE_SWIPE_DOWN)) {
+                const int delta = (gesture.kind == FACULTY175_GESTURE_BEZEL_ROTATE_CW ||
+                                   gesture.kind == FACULTY175_GESTURE_SWIPE_UP) ? 1 : -1;
+                if (faculty175_face_psych_state_style_delta(delta)) {
+                    ui_redraw();
+                }
+                faculty175_gesture_flush();
+#endif
             } else if (!s_nav_mode && active_face != NULL && false && faculty175_faces_vertical_group(active_face->id) &&
                        (gesture.kind == FACULTY175_GESTURE_SWIPE_UP ||
                         gesture.kind == FACULTY175_GESTURE_SWIPE_DOWN)) {
@@ -3571,7 +4111,7 @@ static void input_task(void *arg)
             } else if (!s_nav_mode && active_face != NULL && faculty175_faces_enabled_count() > 1 &&
                        (gesture.kind == FACULTY175_GESTURE_SWIPE_LEFT ||
                         gesture.kind == FACULTY175_GESTURE_SWIPE_RIGHT)) {
-                const int delta = gesture.kind == FACULTY175_GESTURE_SWIPE_LEFT ? 1 : -1;
+                const int delta = gesture.kind == FACULTY175_GESTURE_SWIPE_RIGHT ? 1 : -1;
                 const uint32_t select_start_ms = faculty175_log_ms();
                 const faculty175_face_desc_t *face = faculty175_faces_cycle_runtime(delta);
                 const uint32_t select_ms = faculty175_log_ms() - select_start_ms;
@@ -3596,6 +4136,13 @@ static void input_task(void *arg)
                 }
             } else if (!s_nav_mode && gesture.kind == FACULTY175_GESTURE_TAP) {
                 const faculty175_face_desc_t *face = faculty175_faces_current();
+#if !defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
+                if (face != NULL && face->id == FACULTY175_FACE_PSYCH_STATE &&
+                    faculty175_face_psych_state_tap(gesture.x, gesture.y)) {
+                    ui_redraw();
+                    faculty175_gesture_flush();
+                } else
+#endif
                 if (face != NULL && face->id == FACULTY175_FACE_POCKETWATCH) {
                     char profile_slug[24];
                     if (faculty175_pocketwatch_profile_tap(gesture.x, gesture.y, now_ms, profile_slug,
@@ -3618,6 +4165,8 @@ static void input_task(void *arg)
                         FACULTY175_LOG_STAGE(TAG, "faces", "tap no action");
                     }
                 } else if (face != NULL && faculty175_face_dispatch_action(face->id, now_ms)) {
+                    face_save_pending = true;
+                    last_face_swipe_ms = now_ms;
                     ui_redraw();
                 } else {
                     FACULTY175_LOG_STAGE(TAG, "faces", "tap no action");
@@ -3675,10 +4224,7 @@ static void input_task(void *arg)
         }
 
         if (face_save_pending && (now_ms - last_face_swipe_ms) >= FACE_SWIPE_SAVE_IDLE_MS) {
-            const esp_err_t err = faculty175_faces_save_current();
-            if (err != ESP_OK) {
-                FACULTY175_LOG_STAGE(TAG, "faces", "save current failed %s", esp_err_to_name(err));
-            }
+            save_current_face_async();
             face_save_pending = false;
         }
         vTaskDelay(pdMS_TO_TICKS(10));
@@ -3691,6 +4237,17 @@ void app_main(void)
     boot_probe_err(ESP_OK);
     esp_rom_printf("A0 app_main\n");
     FACULTY175_LOG_STAGE(TAG, "boot", "Astrolabe Faculty — Waveshare ESP32-S3 Touch AMOLED 1.75C");
+#if defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
+    /* Reserve the flash-safe listener storage while internal RAM is still
+     * contiguous. It is deliberately retained across audio/settings swaps. */
+    s_lunasay_listen_stack = heap_caps_malloc(FACULTY175_PIPELINE_LISTEN_STACK,
+                                              MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    s_lunasay_listen_tcb = heap_caps_malloc(sizeof(*s_lunasay_listen_tcb),
+                                            MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    ESP_ERROR_CHECK((s_lunasay_listen_stack != NULL && s_lunasay_listen_tcb != NULL)
+                        ? ESP_OK
+                        : ESP_ERR_NO_MEM);
+#endif
 
     boot_probe_stage(0xa1);
     esp_rom_printf("A1 nvs_init\n");
@@ -3702,6 +4259,9 @@ void app_main(void)
     }
     boot_probe_err(nvs_err);
     ESP_ERROR_CHECK(nvs_err);
+    /* Reserve the internal-RAM NVS worker before UI/audio allocations leave
+     * too little contiguous memory to create it on the first face gesture. */
+    save_current_face_async();
 #if FACULTY175_USB_OTA_DEMO_BOOT && FACULTY175_USB_RUNTIME_ENABLED
     boot_probe_stage(0xa2);
     esp_rom_printf("A2 usb_ota_demo_boot\n");
@@ -3742,6 +4302,23 @@ void app_main(void)
         (void)wifi_start_task_launch("early");
         wifi_wait_for_start_complete("early", 25000);
     }
+#if defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
+    /* Hydrate the family editor and Synastry face from NVS at boot. Existing
+     * charts win; on a demo unit, missing slots are populated from the bundled
+     * family seed while internal heap is still available for an optional repo
+     * sync. */
+    faculty175_charts_ensure_family_seed();
+#endif
+#if !defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
+    {
+        const esp_err_t rotary_err = faculty175_rotary_state_init();
+        if (rotary_err != ESP_OK) {
+            FACULTY175_LOG_STAGE_W(TAG, "rotary", "ESP-NOW init skipped: %s", esp_err_to_name(rotary_err));
+        } else {
+            FACULTY175_LOG_STAGE(TAG, "rotary", "ESP-NOW receiver initialized");
+        }
+    }
+#endif
 
     boot_probe_stage(0xa7);
     esp_rom_printf("A7 apocalypso\n");
@@ -3763,6 +4340,22 @@ void app_main(void)
     const esp_err_t faces_err = faculty175_faces_init();
     boot_probe_err(faces_err);
     ESP_ERROR_CHECK(faces_err);
+#if FACULTY175_USB_RUNTIME_ENABLED
+    /* TinyUSB needs a larger contiguous internal allocation than remains once
+     * the display/audio pipeline is fully initialized. If the forced Cyber
+     * profile starts on USB Screen, claim the USB peripheral while that memory
+     * is still available. Later face changes remain handled by input_task. */
+    const faculty175_face_desc_t *boot_face = faculty175_faces_current();
+    if (boot_face != NULL && boot_face->id == FACULTY175_FACE_USB_SCREEN) {
+        const esp_err_t usb_profile_err = faculty175_usb_set_screen_face_active(true);
+        if (usb_profile_err != ESP_OK) {
+            FACULTY175_LOG_STAGE_W(TAG,
+                                   "usb",
+                                   "early screen profile failed: %s",
+                                   esp_err_to_name(usb_profile_err));
+        }
+    }
+#endif
     boot_probe_stage(0xac);
     esp_rom_printf("A12 load_faculty\n");
     load_faculty_from_nvs();
@@ -3800,7 +4393,20 @@ void app_main(void)
     boot_probe_stage(0xb2);
     esp_rom_printf("A18 ui_queue\n");
     s_ui_queue = xQueueCreate(1, sizeof(faculty175_ui_msg_t));
-    face_tts_worker_start();
+    FACULTY175_LOG_STAGE(TAG, "boot", "board audio=%s", faculty175_board_audio_ready() ? "ok" : "off");
+
+    if (faculty_init_err == ESP_OK) {
+        s_faculty_ready = true;
+        faculty175_faculty_set_ui_notify(bust_ui_refresh);
+        faculty175_faculty_set_network_fetch_enabled(wifi_is_connected());
+    }
+
+#if defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
+    /* Preload before the UI starts so its render path never needs flash I/O. */
+    if (!faculty175_lvgl_preload_moon_texture()) {
+        FACULTY175_LOG_STAGE_W(TAG, "moon", "terrain preload unavailable; using procedural fallback");
+    }
+#endif
     BaseType_t ui_task_ok = xTaskCreateWithCaps(ui_task,
                                                 "ui",
                                                 FACULTY175_UI_TASK_STACK,
@@ -3810,17 +4416,37 @@ void app_main(void)
                                                 MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     if (ui_task_ok != pdPASS) {
         s_ui_task = NULL;
-        ui_task_ok = xTaskCreate(ui_task, "ui", FACULTY175_UI_TASK_STACK, NULL, 4, &s_ui_task);
+        ui_task_ok = xTaskCreateWithCaps(ui_task,
+                                         "ui",
+                                         FACULTY175_UI_TASK_STACK,
+                                         NULL,
+                                         4,
+                                         &s_ui_task,
+                                         MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     }
     if (ui_task_ok != pdPASS) {
         s_ui_task = NULL;
         FACULTY175_LOG_STAGE_E(TAG, "ui", "task create failed");
     }
+#if !defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
     const esp_err_t ble_boot_err = faculty175_ble_init();
     if (ble_boot_err != ESP_OK) {
         FACULTY175_LOG_STAGE_W(TAG, "ble", "boot start failed: %s", esp_err_to_name(ble_boot_err));
     }
+#else
+    FACULTY175_LOG_STAGE(TAG, "ble", "deferred on LunaSay to preserve boot memory");
+#endif
     (void)wifi_start_task_launch("background");
+#if defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
+    s_input_task = xTaskCreateStatic(input_task,
+                                     "input",
+                                     sizeof(s_input_task_stack) / sizeof(s_input_task_stack[0]),
+                                     NULL,
+                                     5,
+                                     s_input_task_stack,
+                                     &s_input_task_tcb);
+    BaseType_t input_task_ok = s_input_task != NULL ? pdPASS : pdFAIL;
+#else
     BaseType_t input_task_ok = xTaskCreateWithCaps(input_task,
                                                    "input",
                                                    FACULTY175_INPUT_TASK_STACK,
@@ -3828,6 +4454,7 @@ void app_main(void)
                                                    5,
                                                    &s_input_task,
                                                    MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+#endif
     if (input_task_ok != pdPASS) {
         s_input_task = NULL;
         input_task_ok = xTaskCreate(input_task, "input", FACULTY175_INPUT_TASK_STACK, NULL, 5, &s_input_task);
@@ -3835,6 +4462,15 @@ void app_main(void)
     if (input_task_ok != pdPASS) {
         s_input_task = NULL;
         FACULTY175_LOG_STAGE_E(TAG, "input", "task create failed");
+    }
+    if (xTaskCreateWithCaps(power_metrics_task,
+                            "power_metrics",
+                            FACULTY175_POWER_METRICS_TASK_STACK,
+                            NULL,
+                            3,
+                            NULL,
+                            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS) {
+        FACULTY175_LOG_STAGE_E(TAG, "power", "metrics task create failed");
     }
     button_reboot_task_start_if_needed();
     ui_set(FACULTY175_UI_LISTEN, NULL);
@@ -3894,13 +4530,19 @@ void app_main(void)
         .voice_priority = 4,
         .listen_stack = FACULTY175_PIPELINE_LISTEN_STACK,
         .voice_stack = FACULTY175_PIPELINE_VOICE_STACK,
+#if defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
+        .listen_stack_storage = s_lunasay_listen_stack,
+        .listen_tcb_storage = s_lunasay_listen_tcb,
+        .listen_stack_storage_bytes = FACULTY175_PIPELINE_LISTEN_STACK,
+#endif
     };
     s_pipeline_cfg_ready = true;
-    if (FACULTY175_AUDIO_PIPELINE_AUTOSTART) {
-        ESP_ERROR_CHECK(astrolabe_audio_pipeline_create(&s_pipeline_cfg, &s_pipeline));
-    } else {
-        s_pipeline = NULL;
+    const esp_err_t pipeline_prewarm_err = pipeline_ensure_ready();
+    if (pipeline_prewarm_err != ESP_OK) {
+        FACULTY175_LOG_STAGE_W(TAG, "pipeline", "boot prewarm failed: %s", esp_err_to_name(pipeline_prewarm_err));
     }
+
+    face_tts_worker_start();
     faculty175_qa_bind(&(faculty175_qa_bind_t){
         .listen = &s_listen,
         .ui = &s_ui,
@@ -3912,13 +4554,37 @@ void app_main(void)
         .trigger_stt = qa_trigger_stt,
         .emit_tasks = qa_emit_tasks,
     });
-    if (FACULTY175_AUDIO_PIPELINE_AUTOSTART && s_pipeline != NULL) {
-        xTaskCreate(pipeline_start_task, "audio_pipe", 4096, NULL, 4, &s_pipeline_start_task);
-    } else {
-        FACULTY175_LOG_STAGE_W(TAG, "pipeline", "audio capture autostart disabled for responsive instrument QA");
-    }
+    FACULTY175_LOG_STAGE(TAG, "pipeline", "boot prewarm %s",
+                         pipeline_prewarm_err == ESP_OK ? "ready" : "deferred");
     ui_set(FACULTY175_UI_LISTEN, NULL);
     while (true) {
+#if defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
+        if (s_qa_stt_pending_capture_ms != 0) {
+            const uint32_t capture_ms = s_qa_stt_pending_capture_ms;
+            s_qa_stt_pending_capture_ms = 0;
+            faculty175_screen_http_stop();
+            vTaskDelay(pdMS_TO_TICKS(600));
+            const esp_err_t stt_err = qa_trigger_stt(capture_ms);
+            if (stt_err == ESP_OK) {
+                s_qa_stt_deferred_active = true;
+            } else {
+                FACULTY175_LOG_STAGE_W(TAG, "stt", "deferred start failed: %s", esp_err_to_name(stt_err));
+                (void)faculty175_screen_http_start(NULL);
+            }
+        }
+        if (s_qa_stt_deferred_active && !s_qa_stt_busy) {
+            s_qa_stt_deferred_active = false;
+            (void)faculty175_screen_http_start(NULL);
+        }
+        if (faculty175_screen_http_take_wake_request()) {
+            FACULTY175_LOG_STAGE(TAG, "http", "browser wake requested; pausing audio for settings");
+            const esp_err_t stop_err = pipeline_stop_runtime_impl(true);
+            if (stop_err != ESP_OK) {
+                FACULTY175_LOG_STAGE_W(TAG, "http", "audio pause failed: %s", esp_err_to_name(stop_err));
+                (void)faculty175_screen_http_start(NULL);
+            }
+        }
+#endif
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
 }

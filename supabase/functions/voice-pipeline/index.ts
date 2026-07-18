@@ -47,6 +47,7 @@ import {
   scheduleMynahCommonplaceLog,
 } from "../_shared/commonplaceDirectus.ts";
 import { verifyAstrolabeDevice } from "../_shared/deviceAuth.ts";
+import { scheduleLunaSayGithubLog } from "../_shared/lunasayGithubLog.ts";
 import {
   checkVoiceUsageGate,
   estimateGeminiUsd,
@@ -333,6 +334,50 @@ function parseAlethiometerReply(text: string): AlethiometerReply {
   return { questionSymbols: question, answerSymbol: answer, spoken };
 }
 
+function parseAlethiometerQuestionSymbols(text: string): number[] {
+  const trimmed = text.trim()
+    .replace(/^```(?:json)?/i, "")
+    .replace(/```$/i, "")
+    .trim();
+  const parsed = JSON.parse(trimmed) as { questionSymbols?: unknown[] };
+  const question = Array.isArray(parsed.questionSymbols)
+    ? parsed.questionSymbols.map((v) => Number(v))
+    : [];
+  if (
+    question.length !== 3 || new Set(question).size !== 3 ||
+    !question.every((v) =>
+      Number.isInteger(v) && v >= 0 && v < ALETHIOMETER_SYMBOLS.length
+    )
+  ) {
+    throw new Error("Invalid alethiometer question symbols from Gemini");
+  }
+  return question;
+}
+
+function parseAlethiometerAnswer(
+  text: string,
+  questionSymbols: number[],
+): AlethiometerReply {
+  const trimmed = text.trim()
+    .replace(/^```(?:json)?/i, "")
+    .replace(/```$/i, "")
+    .trim();
+  const parsed = JSON.parse(trimmed) as {
+    answerSymbol?: unknown;
+    spoken?: unknown;
+  };
+  const answer = Number(parsed.answerSymbol);
+  const spoken = typeof parsed.spoken === "string" ? parsed.spoken.trim() : "";
+  if (
+    !Number.isInteger(answer) || answer < 0 ||
+    answer >= ALETHIOMETER_SYMBOLS.length ||
+    questionSymbols.includes(answer) || !spoken
+  ) {
+    throw new Error("Invalid alethiometer answer from Gemini");
+  }
+  return { questionSymbols, answerSymbol: answer, spoken };
+}
+
 function alethiometerFallback(question: string): AlethiometerReply {
   let hash = 2166136261;
   for (const ch of question) {
@@ -490,10 +535,21 @@ async function scheduleCommonplaceForVoice(
     reply?: string;
     facultySlug?: string | null;
     deviceLabel?: string;
+    face?: string;
   },
 ): Promise<boolean> {
   const mode = normalizedCommonplaceMode(body, payload.defaultMode);
   if (mode === "off") return false;
+  const face = (payload.face ?? body.face ?? "").trim().toLowerCase();
+  if (face === "journal" || face === "conversation") {
+    scheduleLunaSayGithubLog({
+      mode: face,
+      transcript: payload.transcript,
+      reply: payload.reply,
+      face,
+      route: payload.route,
+    });
+  }
   const authHdr = req.headers.get("Authorization") ?? "";
   const commonplacePayload = mode === "journal"
     ? {
@@ -663,6 +719,7 @@ async function voicePipelineOk(
     transcript: payload.transcript,
     reply: payload.reply,
     facultySlug: payload.facultySlug,
+    face: payload.face,
   });
 
   const ttsOverride = voiceFromUnknown(body.ttsVoice) ||
@@ -1310,6 +1367,7 @@ Deno.serve(async (req: Request) => {
         reply: "",
         facultySlug,
         deviceLabel: "Astrolabe FacultyAtom",
+        face,
       });
       return jsonResponse(
         200,
@@ -1398,6 +1456,111 @@ Deno.serve(async (req: Request) => {
         });
       }
       const alethPrompt = clientSystem || systemInstruction;
+      if (face === VOICE_FACE_ALETHIOMETER) {
+        const symbolTable = ALETHIOMETER_SYMBOLS.map((name, idx) => `${idx} ${name}`).join(", ");
+        const questionPrompt =
+          "You are the first stage of an alethiometer reading. Interpret the user's exact question and choose exactly three distinct symbols that encode the question, not its answer. " +
+          `Valid symbols are: ${symbolTable}. ` +
+          'Return only strict minified JSON using {"questionSymbols":[number,number,number]}.';
+        const questionInputTokens = estimateTokensFromChars(
+          questionPrompt.length + transcript.length,
+        );
+        const questionGate = await ensureVoiceBudget(
+          req,
+          estimateGeminiUsd(questionInputTokens, 192),
+        );
+        if (questionGate) return questionGate;
+
+        let questionSymbols: number[];
+        try {
+          const questionRaw = await meteredGeminiGenerate(req, {
+            apiKey: gemini,
+            model: geminiModel,
+            systemInstruction: questionPrompt,
+            userText: transcript,
+            route: `${face}:question`,
+            face,
+            facultySlug: body.facultySlug,
+          });
+          questionSymbols = parseAlethiometerQuestionSymbols(questionRaw);
+        } catch (e) {
+          console.warn(
+            "voice-pipeline: alethiometer question-symbol call failed; using deterministic symbols",
+            e instanceof Error ? e.message : String(e),
+          );
+          questionSymbols = alethiometerFallback(transcript).questionSymbols;
+        }
+
+        const fixedSymbols = questionSymbols.map((idx) =>
+          `${idx} ${ALETHIOMETER_SYMBOLS[idx]}`
+        ).join(", ");
+        const answerPrompt =
+          "You are the second stage of an alethiometer reading. The three question hands are already fixed and must not change. Choose one distinct answer symbol and interpret it as a concise answer to the exact question. " +
+          `The fixed question symbols are ${fixedSymbols}. Valid symbols are: ${symbolTable}. ` +
+          'Return only strict minified JSON using {"answerSymbol":number,"spoken":"one or two concise spoken sentences"}.';
+        const answerUserText = `Exact question: ${transcript}`;
+        const answerInputTokens = estimateTokensFromChars(
+          answerPrompt.length + answerUserText.length,
+        );
+        const answerGate = await ensureVoiceBudget(
+          req,
+          estimateGeminiUsd(answerInputTokens, 384),
+        );
+        if (answerGate) return answerGate;
+
+        let reading: AlethiometerReply;
+        try {
+          const answerRaw = await meteredGeminiGenerate(req, {
+            apiKey: gemini,
+            model: geminiModel,
+            systemInstruction: answerPrompt,
+            userText: answerUserText,
+            route: `${face}:answer`,
+            face,
+            facultySlug: body.facultySlug,
+          });
+          reading = parseAlethiometerAnswer(answerRaw, questionSymbols);
+        } catch (e) {
+          console.warn(
+            "voice-pipeline: alethiometer answer call failed; using deterministic answer",
+            e instanceof Error ? e.message : String(e),
+          );
+          const fallback = alethiometerFallback(transcript);
+          let answer = fallback.answerSymbol;
+          while (questionSymbols.includes(answer)) {
+            answer = (answer + 1) % ALETHIOMETER_SYMBOLS.length;
+          }
+          reading = {
+            questionSymbols,
+            answerSymbol: answer,
+            spoken: `With ${fixedSymbols.toLowerCase()} set around your question, ${ALETHIOMETER_SYMBOLS[answer].toLowerCase()} answers: move carefully, but move.`,
+          };
+        }
+        const reply = JSON.stringify(reading);
+        return await voicePipelineOk(req, body, {
+          transcript,
+          reply,
+          spokenReply: reading.spoken,
+          route: VOICE_FACE_ALETHIOMETER,
+          face,
+          extraJson: {
+            alethiometer: {
+              questionSymbols: reading.questionSymbols,
+              questionSymbolNames: reading.questionSymbols.map((idx) => ALETHIOMETER_SYMBOLS[idx]),
+              answerSymbol: reading.answerSymbol,
+              answerSymbolName: ALETHIOMETER_SYMBOLS[reading.answerSymbol],
+              spoken: reading.spoken,
+              llmCalls: 2,
+            },
+          },
+          extraHeaders: {
+            "x-mynah-route": VOICE_FACE_ALETHIOMETER,
+            "x-alethiometer-question-symbols": reading.questionSymbols.join(","),
+            "x-alethiometer-answer-symbol": String(reading.answerSymbol),
+            "x-alethiometer-llm-calls": "2",
+          },
+        });
+      }
       const inputTokens = estimateTokensFromChars(
         alethPrompt.length + transcript.length,
       );

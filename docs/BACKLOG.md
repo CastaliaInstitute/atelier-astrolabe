@@ -18,7 +18,7 @@ Edit this file when you start or finish work. Keep **In progress** to 1–3 item
 
 **Git:** **Commit between feature implementations** — one focused commit per completed backlog item (firmware + backlog update), then start the next feature. Merge via **PR** (`Closes #N`). Avoid stacking unrelated features in one branch or commit.
 
-**Hardware QA (agents):** After a **new or changed clock face**, flash the watch, show that face, **screenshot**, and **evaluate** before marking done. See [`.cursor/rules/hardware-qa.mdc`](../.cursor/rules/hardware-qa.mdc) and [`astrolabe-esp-mcp.mdc`](../.cursor/rules/astrolabe-esp-mcp.mdc).
+**Hardware QA (agents):** After a **new or changed clock face**, build and flash the native `astrolabe175c` target, show that face, **screenshot**, and **evaluate** before marking done. See [`.cursor/rules/hardware-qa.mdc`](../.cursor/rules/hardware-qa.mdc).
 
 **Git:** Issue branches merge via **PR → `integration`**; promote to **`main`** with `./scripts/promote-integration.sh --flash-ok` after build + flash QA. See [`WORKFLOW.md`](WORKFLOW.md).
 
@@ -54,7 +54,7 @@ Canonical design: [`design/faculty-guided-astrolabe.md`](design/faculty-guided-a
 
 - [ ] **P1** Astrology / transits face: full-screen chart + planet/sign icons — Issue [#3](https://github.com/CastaliaInstitute/astrolabe/issues/3); glyphs done; polish chrome / aspects TBD
 
-- [ ] **P1** **Castalia ephemeris server** (optional accuracy upgrade — **mynah / Supabase**, not firmware-only, and **not a Castalian Rhythms V0 blocker**) — host at [**ephemeris.castalia.institute**](https://ephemeris.castalia.institute): Swiss Ephemeris (or equivalent) Edge Function/API. Replace/refine on-watch approximations in [`pm_transit.cpp`](../sketches/Astrolabe/pm_transit.cpp) when online. API: birth datetime + lat/lon → natal longitudes, houses, synastry aspects between two charts. Astrolabe calls with Castalia JWT; cache briefly on device. Firmware: `pm_ephemeris_fetch` + fallback to local `pm_transit` when offline.
+- [ ] **P1** **Castalia ephemeris server** (optional accuracy upgrade — **mynah / Supabase**, not firmware-only, and **not a Castalian Rhythms V0 blocker**) — host at [**ephemeris.castalia.institute**](https://ephemeris.castalia.institute): Swiss Ephemeris (or equivalent) Edge Function/API. Replace/refine on-watch approximations in [`faculty175_ephemeris.c`](../astrolabe175c/main/faculty175_ephemeris.c) when online. API: birth datetime + lat/lon → natal longitudes, houses, synastry aspects between two charts. Astrolabe calls with Castalia JWT; cache briefly on device, with the native ephemeris as the offline fallback.
 
 ### Castalian Rhythms V0 (on-device-first) — **P1 priority**
 
@@ -79,7 +79,7 @@ Canonical design: [`castalian-rhythms.md`](castalian-rhythms.md). V0 defaults to
 
 ### Music / Spotify face (“Vinyl Queue”)
 
-Design: [`docs/mynah-spotify-face.md`](mynah-spotify-face.md). **Swipe explores, tap commits** — vertical album-art stream with center vinyl record; hub-built Music Stream + preprocessed RGB565 art. Replaces transport-bar MVP in [`pm_face_spotify.cpp`](../sketches/Astrolabe/faces/spotify/pm_face_spotify.cpp).
+Design: [`docs/mynah-spotify-face.md`](mynah-spotify-face.md). **Swipe explores, tap commits** — vertical album-art stream with center vinyl record; hub-built Music Stream + preprocessed RGB565 art. Native face implementation: [`faculty175_face_spotify.c`](../astrolabe175c/main/faculty175_face_spotify.c).
 
 - [ ] **P1** **Mynah Spotify Face — design doc + epic** ([#72](https://github.com/CastaliaInstitute/astrolabe/issues/72)) — canonical spec in `docs/mynah-spotify-face.md`; unblocks milestone work below
 - [x] **2026-05-20** **P1** **Spotify face M1–M2 (firmware)** — static vinyl layout + gesture prototype (swipe browse, tap commit, double-tap return, 15s browse timeout) on device; fake or stub stream; PR [#80](https://github.com/CastaliaInstitute/astrolabe/pull/80)
@@ -133,7 +133,7 @@ Derived from [README limits](../README.md#limits-mvp) and [open questions](pocke
 - [x] **P1** Voice: handle `voice-pipeline` responses without `audioBase64` (plain `ask-faculty`-only)
 - [ ] **P1** Auth: document anon-only vs signed-in behavior in README once Castalia flow is stable — Issue [#5](https://github.com/CastaliaInstitute/astrolabe/issues/5)
 - [x] **P1** Classic analog clock face: center dial on round display and use full-screen safe area (466×466); fix layout/offset in `Astrolabe.ino` analog draw path
-- [x] **P1** **Bugfix — Classic analog dial size** — enlarge analog clock to fill the round face **inside the 24h rainbow rim** on 466×466 (`draw_analog_clock` in `PocketMynah.ino`). Derive dial radius from rim inner edge (`R - 9`) minus tick inset; rescale hands/hub from prior r=138 layout.
+- [x] **P1** **Bugfix — Classic analog dial size** — legacy implementation milestone retained for history; the canonical round face now lives in `astrolabe175c/main/`.
 - [x] **P1** **Home face = Hue only** — `MYNAH_HUE_HOME_ONLY` (default 1): ClassicAnalog = ambient hue + 24h rainbow only; clock hands on DigitalLocal / Apocalypso.
 - [ ] **P1** **Charging ripples on rainbow rim** — Issue [#4](https://github.com/CastaliaInstitute/astrolabe/issues/4) — when **USB-C charging** detected (AXP2101 / PMU: `VBUS` or charge-status register via I2C, same bus as PWR key), animate **gentle ripples** along the **bottom arc** of the **24h rainbow ring** (`draw_circumference_rainbow_24h`); subtle amplitude, slow phase — ambient “filling” cue without bright alerts. Off when on battery only; works on home/Hue face and any face that shows the rim.
 - [x] **P1** Astrology chart glyphs — zodiac + planet alpha masks (`embed_*_glyphs.py`, `pm_zodiac_glyphs`); wheel radius `R−10`. Remaining: trim footer chrome, aspect lines, ephemeris server accuracy.
@@ -171,7 +171,7 @@ Derived from [README limits](../README.md#limits-mvp) and [open questions](pocke
 - [x] **2026-05-16** Voice: 1.5 MiB response cap, JSON completeness check, TTS playback drain/abort, text-only pipeline replies
 - [x] **2026-05-16** `pm_calcifer` + **CalciferCountdown** clock face; BOOT spoken agenda via `pm_voice_begin_clock_agenda`
 - [x] **2026-05-16** Gesture banners gated (`MYNAH_DEBUG_GESTURES`); analog dial centered on 466×466
-- [x] **2026-05-15** Phase 0: PlatformIO toolchain, `secrets.example.h`, Astrolabe flashes on ESP32-S3 1.75C class board
+- [x] **2026-05-15** Phase 0: initial prototype toolchain, `secrets.example.h`, and ESP32-S3 1.75C flash path; superseded by native `astrolabe175c`
 - [x] **2026-05-15** Phase 1: Wi‑Fi + NTP; `voice-pipeline` text (`message`) and PCM (`audioBase64` in); on-device MP3 via minimp3 + ES8311
 - [x] **2026-05-15** Hue clock faces: analog, Apocalypso, digital local; swipe gestures (`pm_gesture`)
 - [x] **2026-05-15** PTT hold-to-talk mic capture → `voice-pipeline` STT path

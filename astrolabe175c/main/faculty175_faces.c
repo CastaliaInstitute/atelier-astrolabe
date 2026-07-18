@@ -7,8 +7,14 @@
 #include "esp_log.h"
 #include "nvs.h"
 
+#include "faculty175_face_alethiometer.h"
+#include "faculty175_face_runes.h"
 #include "faculty175_face_profile.h"
 #include "faculty175_log.h"
+
+#ifndef ASTROLABE_CYBER_FEATURES
+#define ASTROLABE_CYBER_FEATURES 0
+#endif
 
 static const char *TAG = "faculty175_faces";
 
@@ -18,8 +24,8 @@ static const char *TAG = "faculty175_faces";
 #define FACES_NVS_NAV_COUNT "navcnt"
 #define FACES_NVS_NAV_MAP "navmap"
 #define FACE_KEY_CAP 8
-#define FACES_CONFIG_RESET_SCHEMA_VERSION 40
-#define FACES_SCHEMA_VERSION 40
+#define FACES_CONFIG_RESET_SCHEMA_VERSION 41
+#define FACES_SCHEMA_VERSION 41
 
 static const faculty175_face_desc_t k_faces[] = {
     { FACULTY175_FACE_FACULTY, "faculty", "Faculty", FACULTY175_FACE_CAT_HOME, true, true, 10 },
@@ -73,7 +79,7 @@ static const faculty175_face_desc_t k_faces[] = {
     { FACULTY175_FACE_PYTHIA, "pythia", "Pythia", FACULTY175_FACE_CAT_ORACLE, false, false, 165 },
     { FACULTY175_FACE_GEOMANCY, "geomancy", "Geomancy", FACULTY175_FACE_CAT_ORACLE, true, false, 170 },
     { FACULTY175_FACE_ENOCHIAN, "enochian", "Enochian Angel", FACULTY175_FACE_CAT_ORACLE, true, false, 175 },
-    { FACULTY175_FACE_HID, "hid", "HID Touchpad", FACULTY175_FACE_CAT_SYSTEM, true, false, 200 },
+    { FACULTY175_FACE_HID, "hid", "HID Touchpad", FACULTY175_FACE_CAT_SYSTEM, ASTROLABE_CYBER_FEATURES, false, 200 },
     { FACULTY175_FACE_BABEL, "babel", "Babel Fish", FACULTY175_FACE_CAT_COMMONPLACE, true, false, 205 },
     { FACULTY175_FACE_HUMAN_DESIGN, "human-design", "Human Design", FACULTY175_FACE_CAT_ORACLE, true, false, 176 },
     { FACULTY175_FACE_MAZE, "maze", "Maze", FACULTY175_FACE_CAT_HOME, true, true, 50 },
@@ -89,6 +95,10 @@ static const faculty175_face_desc_t k_faces[] = {
     { FACULTY175_FACE_SETTINGS, "settings", "Settings", FACULTY175_FACE_CAT_SYSTEM, true, true, 250 },
     { FACULTY175_FACE_POCKETWATCH, "pocketwatch", "Watch", FACULTY175_FACE_CAT_HOME, true, true, 0 },
     { FACULTY175_FACE_BATTERY, "battery", "Battery", FACULTY175_FACE_CAT_HOME | FACULTY175_FACE_CAT_SYSTEM, true, true, 152 },
+    { FACULTY175_FACE_PSYCH_STATE, "psych-state", "Psych State", FACULTY175_FACE_CAT_COMMONPLACE, true, false, 98 },
+    { FACULTY175_FACE_USB_SCREEN, "usb-screen", "USB Screen", FACULTY175_FACE_CAT_SYSTEM, ASTROLABE_CYBER_FEATURES, ASTROLABE_CYBER_FEATURES, 199 },
+    { FACULTY175_FACE_JOURNAL, "journal", "Journal", FACULTY175_FACE_CAT_COMMONPLACE, true, false, 227 },
+    { FACULTY175_FACE_CONVERSATION, "conversation", "Conversation", FACULTY175_FACE_CAT_COMMONPLACE, true, false, 228 },
 };
 
 static faculty175_face_id_t s_current = FACULTY175_FACE_IRONMAN;
@@ -211,8 +221,13 @@ static bool face_active_slot(size_t index)
 
 static bool face_is_nav_anchor(faculty175_face_id_t id)
 {
+#if defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
+    (void)id;
+    return false;
+#else
     return id == FACULTY175_FACE_FACULTY || id == FACULTY175_FACE_POCKETWATCH ||
            id == FACULTY175_FACE_IRONMAN;
+#endif
 }
 
 static uint32_t primary_face_category(uint32_t categories)
@@ -627,6 +642,8 @@ esp_err_t faculty175_faces_init(void)
     if (profile_err != ESP_OK) {
         FACULTY175_LOG_STAGE(TAG, "faces", "profile init: %s", esp_err_to_name(profile_err));
     }
+    faculty175_face_alethiometer_init();
+    faculty175_face_runes_init();
     return ESP_OK;
 }
 
@@ -675,24 +692,45 @@ esp_err_t faculty175_faces_set_runtime(faculty175_face_id_t id)
     return ESP_OK;
 }
 
-esp_err_t faculty175_faces_save_current(void)
+static esp_err_t persist_current_face(faculty175_face_id_t id)
 {
-    esp_err_t err = ESP_OK;
+    if (!face_valid(id)) {
+        return ESP_ERR_INVALID_ARG;
+    }
     nvs_handle_t nvs;
-    if (nvs_open(FACES_NVS_NS, NVS_READWRITE, &nvs) == ESP_OK) {
-        err = nvs_set_str(nvs, FACES_NVS_CURRENT, k_faces[s_current].slug);
-        if (err == ESP_OK) {
-            err = nvs_commit(nvs);
-        }
-        nvs_close(nvs);
+    esp_err_t err = nvs_open(FACES_NVS_NS, NVS_READWRITE, &nvs);
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = nvs_set_str(nvs, FACES_NVS_CURRENT, k_faces[id].slug);
+    if (err == ESP_OK) {
+        err = nvs_commit(nvs);
+    }
+    nvs_close(nvs);
+    if (err == ESP_OK) {
+        err = faculty175_face_runes_save();
     }
     return err;
 }
 
+esp_err_t faculty175_faces_save_current(void)
+{
+    return persist_current_face(s_current);
+}
+
 esp_err_t faculty175_faces_set(faculty175_face_id_t id)
 {
-    const esp_err_t err = faculty175_faces_set_runtime(id);
-    return err == ESP_OK ? faculty175_faces_save_current() : err;
+    if (!face_valid(id)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (!k_faces[id].ported || !faculty175_faces_enabled(id)) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    /* Persist before publishing s_current. USB Screen changes can immediately
+     * re-enumerate the native USB peripheral, and some hosts reset the S3 when
+     * Serial/JTAG returns. The selected non-USB face must already be durable. */
+    const esp_err_t err = persist_current_face(id);
+    return err == ESP_OK ? faculty175_faces_set_runtime(id) : err;
 }
 
 esp_err_t faculty175_faces_set_enabled(faculty175_face_id_t id, bool enabled)

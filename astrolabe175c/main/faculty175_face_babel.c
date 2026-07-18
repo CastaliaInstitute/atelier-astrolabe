@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "esp_attr.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -28,7 +29,7 @@ typedef struct {
 } babel_state_t;
 
 static portMUX_TYPE s_babel_mux = portMUX_INITIALIZER_UNLOCKED;
-static babel_state_t s_babel;
+EXT_RAM_BSS_ATTR static babel_state_t s_babel;
 
 static const babel_language_t s_languages[] = {
     { "spanish", "Spanish", "ES" },
