@@ -504,7 +504,7 @@ static const char k_battery_page[] =
     ".legend{display:flex;gap:14px;flex-wrap:wrap;color:var(--muted);font-size:.78rem;margin-top:8px}.foot{color:var(--muted);"
     "font-size:.78rem;margin-top:6px}@media(max-width:760px){.cards{grid-template-columns:repeat(2,1fr)}.plots{grid-template-columns:1fr}"
     ".charge{grid-row:auto}.charge canvas{height:270px}}</style></head><body><main><header><div><h1>ASTROLABE · BATTERY</h1>"
-    "<div class=\"foot\">24-hour flash history · 15-minute samples · discharge-based forecast</div></div><div id=\"status\" class=\"status\">Connecting…</div>"
+    "<div class=\"foot\">7-day flash history · 40-minute samples · discharge-based forecast</div></div><div id=\"status\" class=\"status\">Connecting…</div>"
     "</header><section class=\"cards\"><div class=\"card\"><div class=\"label\">Charge</div><div class=\"value\"><span id=\"percent\">—</span>%</div>"
     "</div><div class=\"card\"><div class=\"label\">Voltage</div><div class=\"value\"><span id=\"voltage\">—</span> V</div></div>"
     "<div class=\"card\"><div class=\"label\">Power</div><div id=\"source\" class=\"value\">—</div></div><div class=\"card\">"

@@ -6,9 +6,10 @@
 
 #include "faculty175_pmu.h"
 
-/* Fifteen-minute samples retain 60 hours, covering the expected active-mode
- * matrix without waking the HTTP server during battery-only runs. */
-#define FACULTY175_POWER_HISTORY_CAPACITY 240
+/* Forty-minute samples retain 170 hours, slightly longer than the seven-day
+ * qualification ceiling, without waking the HTTP server during battery-only
+ * runs. 255 is the largest ring representable by the persisted uint8 indices. */
+#define FACULTY175_POWER_HISTORY_CAPACITY 255
 
 typedef struct {
     uint32_t epoch_s;

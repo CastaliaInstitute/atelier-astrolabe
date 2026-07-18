@@ -10,8 +10,8 @@
 #include "freertos/semphr.h"
 #include "nvs.h"
 
-#define POWER_HISTORY_NAMESPACE "power_hist3"
-#define POWER_HISTORY_INTERVAL_S (15u * 60u)
+#define POWER_HISTORY_NAMESPACE "power_hist4"
+#define POWER_HISTORY_INTERVAL_S (40u * 60u)
 
 static const char *TAG = "faculty175_power_history";
 static SemaphoreHandle_t s_lock;

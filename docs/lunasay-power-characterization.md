@@ -25,8 +25,9 @@ projected runtime, and measured runtime to shutdown.
   to show that the requested display mode and Wi-Fi/BLE state dominated the
   attributed interval. A requested scenario name alone is not evidence that it
   was applied.
-- Firmware retains 240 fixed-cadence samples in NVS: 15-minute resolution for
-  up to 60 hours, plus source/charging transitions. Fetch the ring only after
+- Firmware retains 255 fixed-cadence samples in NVS: 40-minute resolution for
+  up to 170 hours (past the seven-day run ceiling), plus source/charging
+  transitions. Fetch the ring only after
   VBUS restoration so idle measurements do not wake the HTTP/audio stack.
 - Treat AXP2101 percentage as a coarse secondary signal and retain voltage for
   every point. Waveshare documents that its AXP2101 percentage estimate is
