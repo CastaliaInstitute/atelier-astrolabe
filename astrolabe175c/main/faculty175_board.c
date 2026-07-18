@@ -1642,6 +1642,10 @@ static esp_err_t faculty175_audio_init(void)
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
         .intr_type = GPIO_INTR_DISABLE,
     };
+    /* Deep sleep holds PA enable low so the amplifier cannot float on while
+       the digital GPIO domain is powered down. Release the per-pin hold before
+       restoring the normal awake level. */
+    gpio_hold_dis(FACULTY175_PA_GPIO);
     g_faculty175_boot_last_err = gpio_config(&pa_cfg);
     ESP_RETURN_ON_ERROR(g_faculty175_boot_last_err, TAG, "pa gpio");
     gpio_set_level(FACULTY175_PA_GPIO, 1);
@@ -1970,32 +1974,32 @@ void faculty175_board_display_on(bool on)
 esp_err_t faculty175_display_prepare_deep_sleep(void)
 {
     faculty175_display_flush_suspended_set(true);
-    if (s_panel == NULL || s_panel_io == NULL) {
-        return ESP_OK;
+    if (s_panel != NULL && s_panel_io != NULL) {
+        faculty175_display_lock();
+        faculty175_board_set_backlight(0);
+        esp_err_t result = esp_lcd_panel_disp_on_off(s_panel, false);
+        if (result == ESP_OK) {
+            /* CO5300 uses the QSPI write-command opcode. Display-off (0x28)
+               blanks emission; sleep-in (0x10) also shuts down panel analog
+               blocks before ESP32 deep sleep. */
+            uint32_t sleep_in_cmd = 0x10;
+            sleep_in_cmd <<= 8;
+            sleep_in_cmd |= 0x02u << 24;
+            result = esp_lcd_panel_io_tx_param(s_panel_io, sleep_in_cmd, NULL, 0);
+        }
+        faculty175_display_unlock();
+        if (result != ESP_OK) {
+            ESP_LOGE(TAG, "AMOLED deep-sleep command failed: %s", esp_err_to_name(result));
+            return result;
+        }
+
+        /* MIPI DCS requires the panel to settle after sleep-in. */
+        vTaskDelay(pdMS_TO_TICKS(120));
     }
 
-    faculty175_display_lock();
-    faculty175_board_set_backlight(0);
-    esp_err_t result = esp_lcd_panel_disp_on_off(s_panel, false);
-    if (result == ESP_OK) {
-        /* CO5300 uses the QSPI write-command opcode. Display-off (0x28)
-           blanks emission; sleep-in (0x10) also shuts down panel analog
-           blocks before ESP32 deep sleep. */
-        uint32_t sleep_in_cmd = 0x10;
-        sleep_in_cmd <<= 8;
-        sleep_in_cmd |= 0x02u << 24;
-        result = esp_lcd_panel_io_tx_param(s_panel_io, sleep_in_cmd, NULL, 0);
-    }
-    faculty175_display_unlock();
-    if (result != ESP_OK) {
-        ESP_LOGE(TAG, "AMOLED deep-sleep command failed: %s", esp_err_to_name(result));
-        return result;
-    }
-
-    /* MIPI DCS requires the panel to settle after sleep-in. Then hold the
-       shared LCD/touch reset asserted so neither peripheral can wake or float
-       during deep sleep. Cold boot releases the hold above. */
-    vTaskDelay(pdMS_TO_TICKS(120));
+    /* Hold the shared LCD/touch reset asserted even if panel initialization
+       failed, so neither peripheral can wake or float during deep sleep. Cold
+       boot releases the hold above. */
     gpio_set_direction(FACULTY175_LCD_PIN_RST, GPIO_MODE_OUTPUT);
     gpio_set_level(FACULTY175_LCD_PIN_RST, 0);
     ESP_RETURN_ON_ERROR(gpio_hold_en(FACULTY175_LCD_PIN_RST), TAG, "hold LCD reset");
@@ -2570,6 +2574,9 @@ esp_err_t faculty175_audio_prepare_deep_sleep(uint32_t timeout_ms)
         }
     }
     faculty175_audio_set_speaker_pa_level(false);
+    if (result == ESP_OK) {
+        result = gpio_hold_en(FACULTY175_PA_GPIO);
+    }
 
     if (s_audio_read_mux != NULL) {
         xSemaphoreGive(s_audio_read_mux);
