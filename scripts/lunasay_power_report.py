@@ -288,6 +288,14 @@ def largest_release_cohort(runs: list[dict]) -> list[dict]:
     return ranked[0][1]
 
 
+def workload_gate_passes(run: dict, test: dict) -> bool:
+    return bool(
+        int(run.get("successful_turns", 0)) >= int(test.get("minimum_successful_turns", 0))
+        and float(run.get("capture_coverage_ratio", 0))
+        >= float(test.get("minimum_capture_coverage_ratio", 0))
+    )
+
+
 def write_curves_svg(curves: list[dict], path: Path) -> None:
     """Write dependency-free percent/voltage discharge plots for all runs."""
     width, height = 1200, 680
@@ -850,6 +858,7 @@ def main() -> int:
                 qualifying = [
                     run for run in candidates
                     if run.get("evidence") == "measured-runtime"
+                    and workload_gate_passes(run, test)
                     and (
                         not require_direct_current
                         or (
@@ -884,10 +893,21 @@ def main() -> int:
             required_units = int(release_gate.get("units_required", 2))
             gate = "ready" if len(qualifying_units) >= required_units else "open"
             matrix_open_count += int(gate != "ready")
+            required_basis_label = (
+                "measured-runtime+direct-current"
+                if release_basis == "measured-runtime" and require_direct_current
+                else release_basis
+            )
+            if int(test.get("minimum_successful_turns", 0)) > 0:
+                required_basis_label += f"+≥{int(test['minimum_successful_turns'])}-turns"
+            if float(test.get("minimum_capture_coverage_ratio", 0)) > 0:
+                required_basis_label += (
+                    f"+≥{float(test['minimum_capture_coverage_ratio']) * 100:g}%-capture"
+                )
             lines.append(
                 f"| {test['id']} | {test.get('display', '—')} | {test.get('radio', '—')} | "
                 f"{test.get('workload', test.get('runner', '—'))} | {best_evidence} | "
-                f"{('measured-runtime+direct-current' if release_basis == 'measured-runtime' and require_direct_current else release_basis)} | "
+                f"{required_basis_label} | "
                 f"{len(qualifying_units)} | {gate} |"
             )
             if gate == "ready" and release_basis == "measured-runtime":
@@ -895,6 +915,12 @@ def main() -> int:
                 step_h = 0.5 if minimum_h >= 2.0 else 0.25
                 claim_h = math.floor(minimum_h / step_h) * step_h
                 if claim_h > 0:
+                    workload_claim = str(test.get("workload", "tested"))
+                    if float(test.get("minimum_capture_coverage_ratio", 0)) > 0:
+                        workload_claim += (
+                            f" at ≥{float(test['minimum_capture_coverage_ratio']) * 100:g}% "
+                            "audio-capture duty cycle"
+                        )
                     claim_rows.append({
                         "test": test["id"],
                         "basis": "measured full-to-shutdown + direct current",
@@ -902,7 +928,7 @@ def main() -> int:
                         "draft": (
                             f"At least {claim_h:g} hours with the display at "
                             f"{test.get('display', 'the tested level')}, {test.get('radio', 'tested radio')} "
-                            f"and {test.get('workload', 'tested')} workload."
+                            f"and {workload_claim} workload."
                         ),
                     })
             elif gate == "ready" and release_basis == "direct-projection":

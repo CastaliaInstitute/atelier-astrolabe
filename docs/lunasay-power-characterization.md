@@ -56,6 +56,14 @@ projected runtime, and measured runtime to shutdown.
 | BLE advertising | full, dim, or off | BLE only | CoreBluetooth liveness probe | BLE standby runtime |
 | BLE configuration | off or dim | BLE | periodic fetch/set | configuration-session cost |
 
+Conversation qualification uses repeated real STT→LLM→TTS turns and requires
+at least ten successful end-to-end turns before a runtime gate can open.
+Journaling uses back-to-back 30-second captures with no configured inter-segment
+gap; in addition to ten successful segments, at least 75% of the battery-only
+interval must be accepted audio-capture time. Reported journal energy is per
+captured minute, and any eventual claim states the measured capture duty cycle
+rather than implying gapless recording.
+
 Run every advertised mode to automatic low-voltage shutdown on one
 release-candidate unit, then repeat it on a second unit. Shorter runs may be used
 to tune firmware but are not final runtime evidence. Release readiness also
