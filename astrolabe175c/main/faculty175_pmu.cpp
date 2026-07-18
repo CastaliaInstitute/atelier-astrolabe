@@ -162,22 +162,25 @@ extern "C" bool faculty175_pmu_prepare_deep_sleep(void)
     if (!s_pmu_ready) {
         return false;
     }
-    /* ALDO1 supplies the audio-codec analog A3V3 net. Codecs and I2S are
-       already quiesced before this call, and cold boot restores ALDO1. The
-       other ALDO/BLDO outputs are unpopulated on the exact 1.75C schematic. */
-    const bool aldo1_off = s_pmu.disableALDO1();
+    /* ALDO1 supplies the audio-codec A3V3 net.  The codecs share SDA/SCL with
+       the AXP2101 and clamp SDA low when that rail is removed, leaving the
+       waking ESP32 unable to reach the PMU to restore ALDO1.  Keep the shared
+       bus powered; the codec streams, I2S channels, and speaker PA have
+       already been quiesced.  The remaining ALDO/BLDO outputs are unpopulated
+       on the exact 1.75C schematic and can still be shut down. */
+    const bool aldo1_on = s_pmu.enableALDO1();
     const bool aldo2_off = s_pmu.disableALDO2();
     const bool aldo3_off = s_pmu.disableALDO3();
     const bool aldo4_off = s_pmu.disableALDO4();
     const bool bldo1_off = s_pmu.disableBLDO1();
     const bool bldo2_off = s_pmu.disableBLDO2();
     ESP_LOGI(TAG,
-             "deep sleep LDOs ALDO1=%s ALDO2=%s ALDO3=%s ALDO4=%s BLDO1=%s BLDO2=%s",
-             aldo1_off ? "off" : "error",
+             "deep sleep LDOs ALDO1=%s(shared-I2C) ALDO2=%s ALDO3=%s ALDO4=%s BLDO1=%s BLDO2=%s",
+             aldo1_on ? "on" : "error",
              aldo2_off ? "off" : "error",
              aldo3_off ? "off" : "error",
              aldo4_off ? "off" : "error",
              bldo1_off ? "off" : "error",
              bldo2_off ? "off" : "error");
-    return aldo1_off && aldo2_off && aldo3_off && aldo4_off && bldo1_off && bldo2_off;
+    return aldo1_on && aldo2_off && aldo3_off && aldo4_off && bldo1_off && bldo2_off;
 }

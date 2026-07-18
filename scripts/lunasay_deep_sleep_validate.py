@@ -296,6 +296,10 @@ def main() -> int:
         print(json.dumps(row), flush=True)
 
     try:
+        # Keep arming and verification in separate serial transactions.  The
+        # console can still be draining the profile/power diagnostics when a
+        # burst reaches the deep-sleep command, which used to truncate the
+        # response before the status line and reject a successfully armed run.
         preflight = serial_commands(
             port,
             [
@@ -303,10 +307,18 @@ def main() -> int:
                 "power deep-sleep cancel",
                 "time",
                 "power",
-                f"power deep-sleep {args.duration_min}",
-                "power deep-sleep status",
             ],
             3.0,
+        )
+        preflight += serial_commands(
+            port,
+            [f"power deep-sleep {args.duration_min}"],
+            1.0,
+        )
+        preflight += serial_commands(
+            port,
+            ["power deep-sleep status"],
+            1.0,
         )
     except Exception:
         release_ota_test_lock()
