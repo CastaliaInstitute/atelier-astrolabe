@@ -264,7 +264,12 @@ def main() -> int:
             }
             state.setdefault("attempts", []).append(attempt)
             state_error = None
-            if result.returncode == 0 and child_firmware in (None, "", "unknown"):
+            if result.returncode == 0 and (
+                not article.get("firmware_provenance_complete")
+                or str(article.get("firmware_variant", "")).lower() != "lunasay"
+            ):
+                state_error = "passing child run did not report a complete LunaSay binary identity"
+            elif result.returncode == 0 and child_firmware in (None, "", "unknown"):
                 state_error = "passing child run did not report a firmware build"
             elif result.returncode == 0 and child_harness != harness_build:
                 state_error = (

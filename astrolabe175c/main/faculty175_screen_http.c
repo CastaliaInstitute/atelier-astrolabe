@@ -303,8 +303,15 @@ static esp_err_t api_battery_get(httpd_req_t *req)
     const esp_app_desc_t *app = esp_app_get_description();
     cJSON *firmware = cJSON_AddObjectToObject(root, "firmware");
     if (firmware != NULL && app != NULL) {
+        char elf_sha256[65];
+        for (size_t i = 0; i < sizeof(app->app_elf_sha256); ++i) {
+            snprintf(&elf_sha256[i * 2], 3, "%02x", app->app_elf_sha256[i]);
+        }
+        elf_sha256[sizeof(elf_sha256) - 1] = '\0';
         add_json_string(firmware, "project", app->project_name);
         add_json_string(firmware, "version", app->version);
+        add_json_string(firmware, "variant", ASTROLABE_FIRMWARE_VARIANT);
+        add_json_string(firmware, "elf_sha256", elf_sha256);
         add_json_string(firmware, "build_date", app->date);
         add_json_string(firmware, "build_time", app->time);
         add_json_string(firmware, "idf", app->idf_ver);

@@ -25,7 +25,7 @@ from urllib import error, request
 
 import serial
 
-from lunasay_power_common import parse_power_status, wait_for_charge_ready
+from lunasay_power_common import firmware_provenance, parse_power_status, wait_for_charge_ready
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -666,6 +666,10 @@ def main() -> int:
             record("postflight_battery", sample=final_battery)
         except Exception as exc:
             record("postflight_battery_unavailable", error=str(exc))
+    firmware_article = firmware_provenance(
+        final_battery,
+        preflight_power.get("firmware", "unknown"),
+    )
     endpoint = final_battery.get("battery", {}) if isinstance(final_battery, dict) else {}
     endpoint_percent = endpoint.get("percent")
     endpoint_voltage_mv = endpoint.get("voltage_mv")
@@ -775,9 +779,7 @@ def main() -> int:
             "ambient_c": args.ambient_c,
             "qualification_matrix_sha256": args.qualification_matrix_sha256 or None,
             "qualification_test_id": args.qualification_test_id or None,
-            "firmware_build": final_battery.get("firmware", {}).get(
-                "version", preflight_power.get("firmware", "unknown")
-            ),
+            **firmware_article,
             "harness_build": harness_build,
         },
         "charge_gate": charge_gate,

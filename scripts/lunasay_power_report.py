@@ -319,6 +319,8 @@ def release_build_key(run: dict) -> tuple[str, str, str] | None:
     firmware = str(run.get("firmware_build", "")).strip()
     harness = str(run.get("harness_build", "")).strip()
     hardware_revision = str(run.get("hardware_revision", "")).strip()
+    firmware_variant = str(run.get("firmware_variant", "")).strip()
+    firmware_elf_sha256 = str(run.get("firmware_elf_sha256", "")).strip().lower()
     if (
         not firmware
         or not harness
@@ -326,6 +328,10 @@ def release_build_key(run: dict) -> tuple[str, str, str] | None:
         or firmware == "unknown"
         or harness == "unknown"
         or hardware_revision.lower() in ("unknown", "unspecified")
+        or firmware_variant.lower() != "lunasay"
+        or len(firmware_elf_sha256) != 64
+        or any(char not in "0123456789abcdef" for char in firmware_elf_sha256)
+        or not run.get("firmware_provenance_complete")
         or "dirty" in firmware.lower()
         or "dirty" in harness.lower()
     ):
@@ -766,6 +772,10 @@ def main() -> int:
                 )
             },
             "firmware_build": article.get("firmware_build", "unknown"),
+            "firmware_version": article.get("firmware_version", "unknown"),
+            "firmware_variant": article.get("firmware_variant", "unknown"),
+            "firmware_elf_sha256": article.get("firmware_elf_sha256"),
+            "firmware_provenance_complete": bool(article.get("firmware_provenance_complete")),
             "harness_build": article.get("harness_build", "unknown"),
             "shutdown_basis": shutdown_basis,
             "turns": int(summary.get("turns", 0)),
@@ -928,6 +938,10 @@ def main() -> int:
             "qualification_test_id": article.get("qualification_test_id"),
             "requested_duration_min": summary.get("duration_min"),
             "firmware_build": article.get("firmware_build", "unknown"),
+            "firmware_version": article.get("firmware_version", "unknown"),
+            "firmware_variant": article.get("firmware_variant", "unknown"),
+            "firmware_elf_sha256": article.get("firmware_elf_sha256"),
+            "firmware_provenance_complete": bool(article.get("firmware_provenance_complete")),
             "harness_build": article.get("harness_build", "unknown"),
             "duration_h": duration_h,
             "percent_drop": drop,
@@ -945,7 +959,8 @@ def main() -> int:
         "qualification_matrix_sha256", "qualification_test_id", "requested_duration_min",
         "capture_ms", "turn_interval_s", "journal_gap_s", "turn_timeout_s", "say_rate", "say_volume",
         "ble_probe_interval_s", "ble_probe_timeout_s", "ble_config_write_interval_s",
-        "firmware_build", "harness_build",
+        "firmware_build", "firmware_version", "firmware_variant", "firmware_elf_sha256",
+        "firmware_provenance_complete", "harness_build",
         "turns", "accepted_captures", "successful_turns", "ble_probes", "successful_ble_probes",
         "ble_config_roundtrips",
         "captured_audio_s", "capture_coverage_ratio", "metered_successful_turns",
@@ -967,7 +982,8 @@ def main() -> int:
         "run_id", "scenario", "workload", "wake_source", "passed", "unit_id", "hardware_revision",
         "battery_id", "battery_mah", "battery_photo_sha256", "battery_cycle_count", "ambient_c",
         "qualification_matrix_sha256", "qualification_test_id", "requested_duration_min",
-        "firmware_build", "harness_build",
+        "firmware_build", "firmware_version", "firmware_variant", "firmware_elf_sha256",
+        "firmware_provenance_complete", "harness_build",
         "duration_h", "percent_drop", "projected_full_runtime_h",
         "median_current_ma", "average_current_ma", "peak_current_ma", "charge_mah", "energy_wh",
         "current_basis", "analyzer_samples", "analyzer_duration_h", "analyzer_coverage_ratio",
@@ -1320,8 +1336,8 @@ def main() -> int:
         )
     if any(release_build_key(run) is None for run in [*runs, *deep_runs]):
         limitations.append(
-            "At least one artifact has unknown/dirty firmware, harness, or hardware-revision "
-            "provenance and is excluded from release claims."
+            "At least one artifact lacks a clean LunaSay firmware version/full ELF SHA, committed "
+            "harness, or hardware revision and is excluded from release claims."
         )
     if any(
         run.get("qualification_matrix_sha256") != matrix_sha256

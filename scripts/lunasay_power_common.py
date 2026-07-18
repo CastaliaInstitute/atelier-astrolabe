@@ -12,6 +12,28 @@ from typing import Callable
 
 
 POWER_FIELD_RE = re.compile(r"\b([a-z_]+)=([^\s]+)")
+ELF_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+
+
+def firmware_provenance(sample: dict, fallback_version: object = "unknown") -> dict:
+    firmware = sample.get("firmware", {}) if isinstance(sample, dict) else {}
+    version = str(firmware.get("version", fallback_version) or "unknown").strip()
+    variant = str(firmware.get("variant", "unknown") or "unknown").strip()
+    elf_sha256 = str(firmware.get("elf_sha256", "") or "").strip().lower()
+    complete = bool(
+        version not in ("", "unknown")
+        and variant not in ("", "unknown")
+        and ELF_SHA256_RE.fullmatch(elf_sha256)
+    )
+    return {
+        "firmware_build": (
+            f"{version}|{variant}|{elf_sha256}" if complete else version
+        ),
+        "firmware_version": version,
+        "firmware_variant": variant,
+        "firmware_elf_sha256": elf_sha256 or None,
+        "firmware_provenance_complete": complete,
+    }
 
 
 def parse_power_status(output: str) -> dict:

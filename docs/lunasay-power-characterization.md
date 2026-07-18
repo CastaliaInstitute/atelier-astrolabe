@@ -10,7 +10,8 @@ projected runtime, and measured runtime to shutdown.
   [official 1.75C product documentation](https://docs.waveshare.com/ESP32-S3-Touch-AMOLED-1.75C)
   distinguishes “with battery” and “without battery” SKUs but does not publish
   the supplied cell capacity. Do not infer capacity from the enclosure or PMU.
-- Record firmware commit/build identifier, hardware revision, battery label and
+- Record firmware commit/build identifier, LunaSay build variant, full ELF
+  SHA-256, hardware revision, battery label and
   rated capacity, battery cycle count when known, ambient temperature, and unit
   identifier for every publishable run.
 - Charge to termination, allow 30 minutes of rest, record starting voltage and
@@ -71,7 +72,8 @@ to tune firmware but are not final runtime evidence. Release readiness also
 requires a synchronized battery-path analyzer trace covering at least 95% of
 each run and a recorded labeled cell capacity; runtime alone does not fully
 characterize power consumption. Both units contributing to a claim must share
-the same known hardware revision, firmware build, and committed harness build.
+the same known hardware revision, LunaSay firmware version/full ELF SHA-256,
+and committed harness build.
 
 The qualification matrix gives every full-runtime active test a seven-day
 safety ceiling, the longest scenario the firmware accepts. This is a ceiling,
