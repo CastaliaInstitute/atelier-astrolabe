@@ -244,7 +244,11 @@ python3 scripts/lunasay_power_matrix_run.py \
 The orchestrator resumes completed test IDs, binds its state to the matrix
 SHA-256, source/harness build, device firmware build, hardware revision, battery
 identity/cycle count, and ambient temperature; records each exact test definition
-and command; waits for charge termination and the required rest
+and command; and stamps every child artifact with the qualification matrix
+SHA-256, test ID, requested duration, capture/prompt cadence, macOS `say`
+settings, and BLE probe cadence. The report rejects manually similar or stale
+artifacts that are not bound to the current matrix definition. The orchestrator
+waits for charge termination and the required rest
 before every run; and stops at the first
 failure. A changed matrix requires a new state file rather than silently reusing
 stale completions. Use `--dry-run` to review all commands. `--allow-not-ready`

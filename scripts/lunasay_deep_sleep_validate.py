@@ -107,6 +107,8 @@ def main() -> int:
     parser.add_argument("--battery-photo", type=Path, default=None)
     parser.add_argument("--battery-cycle-count", type=int, default=None)
     parser.add_argument("--ambient-c", type=float, default=None)
+    parser.add_argument("--qualification-matrix-sha256", default="")
+    parser.add_argument("--qualification-test-id", default="")
     parser.add_argument("--rest-min", type=float, default=30.0)
     parser.add_argument("--charge-ready-timeout-min", type=float, default=360.0)
     parser.add_argument("--allow-not-ready", action="store_true",
@@ -345,6 +347,8 @@ def main() -> int:
             "battery_photo_sha256": battery_photo_sha256,
             "battery_cycle_count": args.battery_cycle_count,
             "ambient_c": args.ambient_c,
+            "qualification_matrix_sha256": args.qualification_matrix_sha256 or None,
+            "qualification_test_id": args.qualification_test_id or None,
             "firmware_build": wake_battery.get("firmware", {}).get(
                 "version", preflight_power.get("firmware", "unknown")
             ),

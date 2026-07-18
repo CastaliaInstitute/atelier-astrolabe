@@ -272,6 +272,8 @@ def main() -> int:
     parser.add_argument("--battery-photo", type=Path, default=None)
     parser.add_argument("--battery-cycle-count", type=int, default=None)
     parser.add_argument("--ambient-c", type=float, default=None)
+    parser.add_argument("--qualification-matrix-sha256", default="")
+    parser.add_argument("--qualification-test-id", default="")
     parser.add_argument("--rest-min", type=float, default=30.0)
     parser.add_argument("--charge-ready-timeout-min", type=float, default=360.0)
     parser.add_argument("--allow-not-ready", action="store_true",
@@ -697,6 +699,17 @@ def main() -> int:
         "scenario": args.scenario,
         "workload": args.workload,
         "requested_duration_min": args.duration_min,
+        "workload_config": {
+            "capture_ms": args.capture_ms,
+            "turn_interval_s": args.turn_interval_s,
+            "journal_gap_s": args.journal_gap_s,
+            "turn_timeout_s": args.turn_timeout_s,
+            "say_rate": args.say_rate,
+            "say_volume": args.say_volume,
+            "ble_probe_interval_s": args.ble_probe_interval_s,
+            "ble_probe_timeout_s": args.ble_probe_timeout_s,
+            "ble_config_write_interval_s": args.ble_config_write_interval_s,
+        },
         "elapsed_s": round(time.monotonic() - started_wall, 3),
         "battery_elapsed_s": round(battery_elapsed_s, 3),
         "turns": turns,
@@ -733,6 +746,8 @@ def main() -> int:
             "battery_photo_sha256": battery_photo_sha256,
             "battery_cycle_count": args.battery_cycle_count,
             "ambient_c": args.ambient_c,
+            "qualification_matrix_sha256": args.qualification_matrix_sha256 or None,
+            "qualification_test_id": args.qualification_test_id or None,
             "firmware_build": final_battery.get("firmware", {}).get(
                 "version", preflight_power.get("firmware", "unknown")
             ),

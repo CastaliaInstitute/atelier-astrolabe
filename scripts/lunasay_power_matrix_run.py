@@ -23,7 +23,7 @@ def save_json(path: Path, value: dict) -> None:
     temporary.replace(path)
 
 
-def common_args(args: argparse.Namespace, out_dir: Path) -> list[str]:
+def common_args(args: argparse.Namespace, out_dir: Path, test: dict) -> list[str]:
     values = [
         "--ip", args.ip,
         "--hub-location", args.hub_location,
@@ -35,6 +35,8 @@ def common_args(args: argparse.Namespace, out_dir: Path) -> list[str]:
         "--battery-id", args.battery_id,
         "--rest-min", str(args.rest_min),
         "--charge-ready-timeout-min", str(args.charge_ready_timeout_min),
+        "--qualification-matrix-sha256", args.matrix_sha256,
+        "--qualification-test-id", str(test["id"]),
     ]
     if args.port:
         values += ["--port", args.port]
@@ -59,7 +61,7 @@ def command_for(test: dict, args: argparse.Namespace, out_dir: Path) -> list[str
             str(ROOT / "scripts" / "lunasay_deep_sleep_validate.py"),
             "--duration-min", str(duration_min),
             "--wake-source", str(test.get("wake_source", "timer")),
-            *common_args(args, out_dir),
+            *common_args(args, out_dir, test),
         ]
     command = [
         sys.executable,
@@ -67,12 +69,15 @@ def command_for(test: dict, args: argparse.Namespace, out_dir: Path) -> list[str
         "--scenario", str(test["scenario"]),
         "--workload", str(test["workload"]),
         "--duration-min", str(duration_min),
-        *common_args(args, out_dir),
+        *common_args(args, out_dir, test),
     ]
     optional = {
         "capture_ms": "--capture-ms",
         "turn_interval_s": "--turn-interval-s",
         "journal_gap_s": "--journal-gap-s",
+        "turn_timeout_s": "--turn-timeout-s",
+        "say_rate": "--say-rate",
+        "say_volume": "--say-volume",
         "ble_probe_interval_s": "--ble-probe-interval-s",
         "ble_probe_timeout_s": "--ble-probe-timeout-s",
         "ble_config_write_interval_s": "--ble-config-write-interval-s",
@@ -130,6 +135,7 @@ def main() -> int:
 
     matrix_bytes = args.matrix.read_bytes()
     matrix_sha256 = hashlib.sha256(matrix_bytes).hexdigest()
+    args.matrix_sha256 = matrix_sha256
     matrix = json.loads(matrix_bytes)
     harness_build = subprocess.check_output(
         ["git", "describe", "--always", "--dirty"], cwd=ROOT, text=True

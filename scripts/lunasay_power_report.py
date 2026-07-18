@@ -323,6 +323,41 @@ def test_article_gate_passes(
     )
 
 
+def matrix_test_matches(run: dict, test: dict, matrix_sha256: str | None) -> bool:
+    """Require a child artifact to identify and reproduce the exact matrix test."""
+    if (
+        not matrix_sha256
+        or run.get("qualification_matrix_sha256") != matrix_sha256
+        or run.get("qualification_test_id") != test.get("id")
+    ):
+        return False
+    requested = run.get("requested_duration_min")
+    if not isinstance(requested, (int, float)) or not math.isclose(
+        float(requested), float(test.get("duration_min", -1)), rel_tol=0, abs_tol=1e-6
+    ):
+        return False
+    for key in (
+        "capture_ms",
+        "turn_interval_s",
+        "journal_gap_s",
+        "turn_timeout_s",
+        "say_rate",
+        "say_volume",
+        "ble_probe_interval_s",
+        "ble_probe_timeout_s",
+        "ble_config_write_interval_s",
+    ):
+        if key not in test:
+            continue
+        actual = run.get(key)
+        expected = test[key]
+        if not isinstance(actual, (int, float)) or not math.isclose(
+            float(actual), float(expected), rel_tol=0, abs_tol=1e-6
+        ):
+            return False
+    return True
+
+
 def largest_release_cohort(runs: list[dict]) -> list[dict]:
     """Keep only the same clean firmware/harness cohort with the most physical units."""
     cohorts: dict[tuple[str, str], list[dict]] = {}
@@ -473,6 +508,7 @@ def main() -> int:
             "error: analyzer shutdown threshold must be non-negative; sustain and maximum gap "
             "must be positive"
         )
+    matrix_sha256 = hashlib.sha256(args.matrix.read_bytes()).hexdigest() if args.matrix.is_file() else None
     analyzer_rows = load_analyzer_rows(args.analyzer_csv)
     analyzer_sources = [
         {
@@ -492,6 +528,7 @@ def main() -> int:
         validated_summary = dict(summary)
         validated_summary["passed"] = bool(summary.get("passed", False) and scenario_verified)
         article = summary.get("test_article", {})
+        workload_config = summary.get("workload_config", {})
         charge_gate = summary.get("charge_gate", {})
         charge_ready = bool(
             charge_gate.get("charge_terminated")
@@ -638,6 +675,17 @@ def main() -> int:
             "battery_photo_sha256": article.get("battery_photo_sha256"),
             "battery_cycle_count": article.get("battery_cycle_count"),
             "ambient_c": article.get("ambient_c"),
+            "qualification_matrix_sha256": article.get("qualification_matrix_sha256"),
+            "qualification_test_id": article.get("qualification_test_id"),
+            "requested_duration_min": summary.get("requested_duration_min"),
+            **{
+                key: workload_config.get(key)
+                for key in (
+                    "capture_ms", "turn_interval_s", "journal_gap_s", "turn_timeout_s",
+                    "say_rate", "say_volume", "ble_probe_interval_s", "ble_probe_timeout_s",
+                    "ble_config_write_interval_s",
+                )
+            },
             "firmware_build": article.get("firmware_build", "unknown"),
             "harness_build": article.get("harness_build", "unknown"),
             "shutdown_basis": shutdown_basis,
@@ -673,9 +721,7 @@ def main() -> int:
     report_config = {
         "artifact_root": str(args.artifact_root.resolve()),
         "matrix": str(args.matrix.resolve()),
-        "matrix_sha256": (
-            hashlib.sha256(args.matrix.read_bytes()).hexdigest() if args.matrix.is_file() else None
-        ),
+        "matrix_sha256": matrix_sha256,
         "minimum_estimate_hours": args.min_estimate_hours,
         "minimum_percent_drop": args.min_percent_drop,
         "battery_mah_override": args.battery_mah,
@@ -793,6 +839,9 @@ def main() -> int:
             "battery_photo_sha256": article.get("battery_photo_sha256"),
             "battery_cycle_count": article.get("battery_cycle_count"),
             "ambient_c": article.get("ambient_c"),
+            "qualification_matrix_sha256": article.get("qualification_matrix_sha256"),
+            "qualification_test_id": article.get("qualification_test_id"),
+            "requested_duration_min": summary.get("duration_min"),
             "firmware_build": article.get("firmware_build", "unknown"),
             "harness_build": article.get("harness_build", "unknown"),
             "duration_h": duration_h,
@@ -808,6 +857,9 @@ def main() -> int:
         "run_id", "scenario", "workload", "passed", "scenario_evidence_passed",
         "scenario_counter_passed", "scenario_history_passed", "unit_id", "hardware_revision",
         "battery_id", "battery_mah", "battery_photo_sha256", "battery_cycle_count", "ambient_c",
+        "qualification_matrix_sha256", "qualification_test_id", "requested_duration_min",
+        "capture_ms", "turn_interval_s", "journal_gap_s", "turn_timeout_s", "say_rate", "say_volume",
+        "ble_probe_interval_s", "ble_probe_timeout_s", "ble_config_write_interval_s",
         "firmware_build", "harness_build",
         "turns", "accepted_captures", "successful_turns", "ble_probes", "successful_ble_probes",
         "ble_config_roundtrips",
@@ -827,6 +879,7 @@ def main() -> int:
     deep_fields = [
         "run_id", "scenario", "workload", "wake_source", "passed", "unit_id", "hardware_revision",
         "battery_id", "battery_mah", "battery_photo_sha256", "battery_cycle_count", "ambient_c",
+        "qualification_matrix_sha256", "qualification_test_id", "requested_duration_min",
         "firmware_build", "harness_build",
         "duration_h", "percent_drop", "projected_full_runtime_h",
         "median_current_ma", "average_current_ma", "peak_current_ma", "charge_mah", "energy_wh",
@@ -975,11 +1028,16 @@ def main() -> int:
         )
         for test in matrix.get("tests", []):
             if test.get("runner") == "deep-sleep":
-                candidates = deep_runs
+                candidates = [
+                    run for run in deep_runs
+                    if matrix_test_matches(run, test, matrix_sha256)
+                ]
             else:
                 candidates = [
                     run for run in runs
-                    if run["scenario"] == test.get("scenario") and run["workload"] == test.get("workload")
+                    if run["scenario"] == test.get("scenario")
+                    and run["workload"] == test.get("workload")
+                    and matrix_test_matches(run, test, matrix_sha256)
                 ]
             best = max(candidates, key=lambda run: rank.get(run["evidence"], -1)) if candidates else None
             best_evidence = best["evidence"] if best is not None else "missing"
@@ -1141,6 +1199,15 @@ def main() -> int:
         limitations.append(
             "At least one artifact has unknown or dirty firmware/harness provenance and is excluded "
             "from release claims."
+        )
+    if any(
+        run.get("qualification_matrix_sha256") != matrix_sha256
+        or not known_text(run.get("qualification_test_id"))
+        for run in [*runs, *deep_runs]
+    ):
+        limitations.append(
+            "At least one artifact is not bound to this qualification matrix SHA/test ID and is "
+            "excluded from required-matrix coverage."
         )
     if not any(run.get("evidence") == "measured-runtime" for run in runs):
         limitations.append("No qualified active-mode run has yet reached confirmed automatic low-voltage shutdown.")
