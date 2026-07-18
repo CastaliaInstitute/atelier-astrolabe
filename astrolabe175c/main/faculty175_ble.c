@@ -2071,6 +2071,18 @@ void faculty175_ble_prepare_deep_sleep(void)
     FACULTY175_LOG_STAGE(TAG, "ble", "radio quiesced for deep sleep");
 }
 
+void faculty175_ble_resume_after_deep_sleep_abort(void)
+{
+    if (s_enabled && s_started && s_synced && !s_advertising && !s_scanning) {
+        const esp_err_t err = ble_advertise();
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "deep-sleep abort BLE restore failed: %s", esp_err_to_name(err));
+            return;
+        }
+    }
+    FACULTY175_LOG_STAGE(TAG, "ble", "deep-sleep abort restored radio preference");
+}
+
 esp_err_t faculty175_ble_power_test_set(bool enabled)
 {
     if (enabled) {

@@ -68,6 +68,8 @@ bool faculty175_ble_scanning(void);
 esp_err_t faculty175_ble_set_enabled(bool enabled);
 /** Stop active BLE radio work for deep sleep without changing the NVS preference. */
 void faculty175_ble_prepare_deep_sleep(void);
+/** Restore the configured BLE state if deep-sleep entry was rejected. */
+void faculty175_ble_resume_after_deep_sleep_abort(void);
 /** Start/stop BLE advertising for an attributable power test without NVS writes. */
 esp_err_t faculty175_ble_power_test_set(bool enabled);
 bool faculty175_ble_power_test_active(void);

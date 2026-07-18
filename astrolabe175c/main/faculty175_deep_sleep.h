@@ -34,8 +34,14 @@ void faculty175_deep_sleep_cancel(void);
 bool faculty175_deep_sleep_request_pending(void);
 void faculty175_deep_sleep_status(faculty175_deep_sleep_status_t *out);
 
-/** Consume an armed request and enter deep sleep. This function does not return. */
-void faculty175_deep_sleep_enter(const faculty175_pmu_status_t *pmu);
+/**
+ * Consume an armed request and enter deep sleep.
+ *
+ * Returns false only when the request or power preconditions are rejected
+ * before any board subsystem is quiesced. Once shutdown begins, the function
+ * either enters deep sleep or restarts on a preparation failure.
+ */
+bool faculty175_deep_sleep_enter(const faculty175_pmu_status_t *pmu);
 
 #ifdef __cplusplus
 }

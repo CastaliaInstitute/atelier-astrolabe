@@ -747,7 +747,13 @@ static void low_power_tick(uint32_t now_ms)
         low_power_wifi_pause();
         faculty175_ble_prepare_deep_sleep();
         vTaskDelay(pdMS_TO_TICKS(250));
-        faculty175_deep_sleep_enter(&s_power_status);
+        if (!faculty175_deep_sleep_enter(&s_power_status)) {
+            /* A cancel or PMU state change can invalidate the request between
+               the main-loop guard and entry. Do not strand an awake device
+               with its radios stopped when that happens. */
+            low_power_wifi_resume();
+            faculty175_ble_resume_after_deep_sleep_abort();
+        }
     }
 
     const faculty175_power_scenario_t scenario = faculty175_power_scenario_get(now_ms);

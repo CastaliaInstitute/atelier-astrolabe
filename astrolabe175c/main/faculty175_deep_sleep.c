@@ -76,11 +76,15 @@ void faculty175_deep_sleep_status(faculty175_deep_sleep_status_t *out)
     out->start_battery_percent = s_retained.start_battery_percent;
     out->start_battery_mv = s_retained.start_battery_mv;
     out->prepare_flags = s_retained.prepare_flags;
-    out->completed = out->wake_cause == ESP_SLEEP_WAKEUP_TIMER ||
-                     out->wake_cause == ESP_SLEEP_WAKEUP_EXT0;
+    const bool fully_prepared =
+        (out->prepare_flags & FACULTY175_DEEP_SLEEP_PREP_ALL) ==
+        FACULTY175_DEEP_SLEEP_PREP_ALL;
+    out->completed = fully_prepared &&
+                     (out->wake_cause == ESP_SLEEP_WAKEUP_TIMER ||
+                      out->wake_cause == ESP_SLEEP_WAKEUP_EXT0);
 }
 
-void faculty175_deep_sleep_enter(const faculty175_pmu_status_t *pmu)
+bool faculty175_deep_sleep_enter(const faculty175_pmu_status_t *pmu)
 {
     uint32_t sleep_s = 0;
     portENTER_CRITICAL(&s_request_mux);
@@ -94,7 +98,7 @@ void faculty175_deep_sleep_enter(const faculty175_pmu_status_t *pmu)
                  pmu != NULL && pmu->battery_present,
                  pmu != NULL && pmu->vbus_in,
                  pmu != NULL && pmu->charging);
-        return;
+        return false;
     }
 
     const time_t now = time(NULL);
@@ -108,9 +112,13 @@ void faculty175_deep_sleep_enter(const faculty175_pmu_status_t *pmu)
 
     const esp_err_t audio_err = faculty175_audio_prepare_deep_sleep(1000);
     if (audio_err != ESP_OK) {
-        ESP_LOGE(TAG, "deep sleep entry rejected: audio quiesce failed: %s",
+        /* Audio preparation can have closed codecs or disabled one I2S
+           channel before a later operation fails. Restart instead of leaving
+           an apparently awake device with a partially shut-down audio path. */
+        ESP_LOGE(TAG, "deep sleep entry rejected: audio quiesce failed: %s; restarting",
                  esp_err_to_name(audio_err));
-        return;
+        vTaskDelay(pdMS_TO_TICKS(100));
+        esp_restart();
     }
     s_retained.prepare_flags |= FACULTY175_DEEP_SLEEP_PREP_AUDIO;
     const esp_err_t display_err = faculty175_display_prepare_deep_sleep();
@@ -137,4 +145,5 @@ void faculty175_deep_sleep_enter(const faculty175_pmu_status_t *pmu)
              (unsigned long)sleep_s);
     vTaskDelay(pdMS_TO_TICKS(50));
     esp_deep_sleep_start();
+    return true;
 }
