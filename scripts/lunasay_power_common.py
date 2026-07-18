@@ -7,12 +7,34 @@ import json
 import math
 from pathlib import Path
 import re
+import struct
 import time
 from typing import Callable
 
 
 POWER_FIELD_RE = re.compile(r"\b([a-z_]+)=([^\s]+)")
 ELF_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+ESP_APP_DESC_MAGIC = 0xABCD5432
+
+
+def image_app_identity(path: Path) -> dict:
+    """Read the first ESP app descriptor without importing the IDF toolchain."""
+    with path.open("rb") as handle:
+        header = handle.read(24)
+        segment_header = handle.read(8)
+        descriptor = handle.read(176)
+    if len(header) != 24 or len(segment_header) != 8 or len(descriptor) != 176:
+        raise ValueError(f"firmware image is too short for an ESP app descriptor: {path}")
+    magic = struct.unpack_from("<I", descriptor, 0)[0]
+    if magic != ESP_APP_DESC_MAGIC:
+        raise ValueError(f"firmware app descriptor magic is invalid: 0x{magic:08x}")
+    decode = lambda data: data.split(b"\0", 1)[0].decode("utf-8", "strict")
+    version = decode(descriptor[16:48])
+    project = decode(descriptor[48:80])
+    elf_sha256 = descriptor[144:176].hex()
+    if not version or not project or not ELF_SHA256_RE.fullmatch(elf_sha256):
+        raise ValueError("firmware app descriptor identity is incomplete")
+    return {"project": project, "version": version, "elf_sha256": elf_sha256}
 
 
 def firmware_provenance(sample: dict, fallback_version: object = "unknown") -> dict:

@@ -19,7 +19,6 @@ import os
 from pathlib import Path
 import re
 import socket
-import struct
 import threading
 import time
 from urllib import request
@@ -27,12 +26,13 @@ from urllib import request
 import serial
 from serial import SerialException
 
+from lunasay_power_common import image_app_identity
+
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_IMAGE = ROOT / "astrolabe175c" / "build" / "astrolabe175c.bin"
 STATUS_RE = re.compile(r"ota: status .*running=(\S+) boot=(\S+)")
 CRASH_RE = re.compile(r"Guru Meditation|assert failed|CORRUPT HEAP|panic'ed", re.I)
-ESP_APP_DESC_MAGIC = 0xABCD5432
 
 
 def sha256_hex(path: Path) -> str:
@@ -41,26 +41,6 @@ def sha256_hex(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
-
-
-def image_app_identity(path: Path) -> dict:
-    """Read the first ESP app descriptor without importing the IDF toolchain."""
-    with path.open("rb") as handle:
-        header = handle.read(24)
-        segment_header = handle.read(8)
-        descriptor = handle.read(176)
-    if len(header) != 24 or len(segment_header) != 8 or len(descriptor) != 176:
-        raise ValueError(f"firmware image is too short for an ESP app descriptor: {path}")
-    magic = struct.unpack_from("<I", descriptor, 0)[0]
-    if magic != ESP_APP_DESC_MAGIC:
-        raise ValueError(f"firmware app descriptor magic is invalid: 0x{magic:08x}")
-    decode = lambda data: data.split(b"\0", 1)[0].decode("utf-8", "strict")
-    version = decode(descriptor[16:48])
-    project = decode(descriptor[48:80])
-    elf_sha256 = descriptor[144:176].hex()
-    if not version or not project or len(elf_sha256) != 64:
-        raise ValueError("firmware app descriptor identity is incomplete")
-    return {"project": project, "version": version, "elf_sha256": elf_sha256}
 
 
 def battery_firmware_identity(device_ip: str) -> dict:

@@ -205,6 +205,7 @@ smoke matrix before any charged qualification run:
 ```sh
 python3 scripts/lunasay_power_matrix_run.py \
   --matrix config/lunasay_power_smoke_matrix.json \
+  --firmware-image astrolabe175c/build/astrolabe175c.bin \
   --state artifacts/qa/lunasay-power-smoke-state.json \
   --unit-id luna-dev1 --battery-id smoke-cell --allow-not-ready
 ```
@@ -214,7 +215,9 @@ capture; real BLE settings reads and verified writes; cleanup after every hub
 cycle; and timed deep sleep. All six tests remain `functional-only`. Delete or
 choose a new state file after changing firmware so an earlier smoke completion
 cannot be reused; the matrix hash prevents reuse after the smoke definition
-itself changes. The physical BOOT/GPIO0 gate remains a separate operator action.
+itself changes, while the app-image SHA-256 and descriptor-derived
+version/LunaSay/full-ELF identity prevent reuse after the firmware file changes.
+The physical BOOT/GPIO0 gate remains a separate operator action.
 
 The board's separate PWR key connects to the AXP2101 `PWRON` input. Its `PWROK`
 output controls ESP32 reset, while `AXP_IRQ` is not routed to an ESP GPIO in the
@@ -246,13 +249,15 @@ sequentially with a dedicated state file for each physical unit and battery:
 
 ```sh
 python3 scripts/lunasay_power_matrix_run.py \
+  --firmware-image astrolabe175c/build/astrolabe175c.bin \
   --unit-id luna-rc1 --hardware-revision RC1 \
   --battery-id cell-serial-from-label --battery-cycle-count 0 --ambient-c 22 \
   --battery-mah CAPACITY_FROM_LABEL --battery-photo /path/to/battery-label.jpg
 ```
 
 The orchestrator resumes completed test IDs, binds its state to the matrix
-SHA-256, source/harness build, device firmware build, hardware revision, battery
+SHA-256, app-image SHA-256 and descriptor identity, source/harness build,
+device firmware build, hardware revision, battery
 identity/cycle count, and ambient temperature; records each exact test definition
 and command; and stamps every child artifact with the qualification matrix
 SHA-256, test ID, requested duration, capture/prompt cadence, macOS `say`

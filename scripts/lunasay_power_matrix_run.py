@@ -13,9 +13,12 @@ from pathlib import Path
 import subprocess
 import sys
 
+from lunasay_power_common import image_app_identity
+
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MATRIX = ROOT / "config" / "lunasay_power_matrix.json"
+DEFAULT_FIRMWARE_IMAGE = ROOT / "astrolabe175c" / "build" / "astrolabe175c.bin"
 
 
 def save_json(path: Path, value: dict) -> None:
@@ -92,6 +95,8 @@ def command_for(test: dict, args: argparse.Namespace, out_dir: Path) -> list[str
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--matrix", type=Path, default=DEFAULT_MATRIX)
+    parser.add_argument("--firmware-image", type=Path, default=DEFAULT_FIRMWARE_IMAGE,
+                        help="exact LunaSay app image expected on the device")
     parser.add_argument("--artifact-root", type=Path, default=ROOT / "artifacts" / "qa")
     parser.add_argument("--state", type=Path, default=ROOT / "artifacts" / "qa" / "lunasay-power-matrix-state.json")
     parser.add_argument("--only", default="", help="comma-separated test IDs")
@@ -130,6 +135,15 @@ def main() -> int:
         raise SystemExit("error: --battery-cycle-count must be non-negative")
     if args.battery_photo is not None and not args.battery_photo.is_file():
         raise SystemExit(f"error: battery label photo not found: {args.battery_photo}")
+    if not args.firmware_image.is_file():
+        raise SystemExit(f"error: firmware image not found: {args.firmware_image}")
+    image_identity = image_app_identity(args.firmware_image)
+    firmware_image_sha256 = hashlib.sha256(args.firmware_image.read_bytes()).hexdigest()
+    expected_firmware_build = (
+        f"{image_identity['version']}|LunaSay|{image_identity['elf_sha256']}"
+    )
+    if not args.allow_not_ready and "dirty" in image_identity["version"].lower():
+        raise SystemExit("error: qualified matrix runs require a clean firmware image version")
     if not args.allow_not_ready and (
         args.battery_mah is None
         or args.battery_photo is None
@@ -202,6 +216,14 @@ def main() -> int:
                 raise SystemExit(
                     "error: matrix changed since this state was created; choose a new --state"
                 )
+            if (
+                state.get("expected_firmware_build") != expected_firmware_build
+                or state.get("firmware_image_sha256") != firmware_image_sha256
+            ):
+                raise SystemExit(
+                    "error: firmware image identity changed since this state was created; "
+                    "choose a new --state"
+                )
             if state.get("harness_build") != harness_build:
                 raise SystemExit(
                     "error: source/harness build changed since this state was created; "
@@ -209,7 +231,7 @@ def main() -> int:
                 )
         else:
             state = {
-                "schema": 5,
+                "schema": 6,
                 "matrix": str(args.matrix.resolve()),
                 "matrix_schema": matrix.get("schema"),
                 "matrix_sha256": matrix_sha256,
@@ -222,6 +244,9 @@ def main() -> int:
                 "battery_cycle_count": args.battery_cycle_count,
                 "ambient_c": args.ambient_c,
                 "firmware_build": None,
+                "firmware_image": str(args.firmware_image.resolve()),
+                "firmware_image_sha256": firmware_image_sha256,
+                "expected_firmware_build": expected_firmware_build,
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "completed": [],
                 "attempts": [],
@@ -269,6 +294,11 @@ def main() -> int:
                 or str(article.get("firmware_variant", "")).lower() != "lunasay"
             ):
                 state_error = "passing child run did not report a complete LunaSay binary identity"
+            elif result.returncode == 0 and child_firmware != expected_firmware_build:
+                state_error = (
+                    f"device firmware {child_firmware!r} does not match expected image "
+                    f"{expected_firmware_build!r}"
+                )
             elif result.returncode == 0 and child_firmware in (None, "", "unknown"):
                 state_error = "passing child run did not report a firmware build"
             elif result.returncode == 0 and child_harness != harness_build:
