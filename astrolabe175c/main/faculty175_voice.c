@@ -82,6 +82,7 @@ static faculty175_voice_stream_t s_stream = {};
 typedef struct {
     bool open;
     bool configured;
+    uint32_t playback_rate_hz;
     uint32_t start_ms;
     size_t len;
     size_t off;
@@ -92,6 +93,50 @@ typedef struct {
 
 EXT_RAM_BSS_ATTR static faculty175_tts_speaker_stream_state_t s_tts_speaker_stream = {};
 static volatile bool s_tts_playback_busy;
+
+static esp_err_t voice_set_decoder_playback_rate(uint32_t decoder_rate_hz,
+                                                  uint32_t *playback_rate_hz)
+{
+    if (playback_rate_hz == NULL || decoder_rate_hz < 8000u || decoder_rate_hz > 48000u) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (*playback_rate_hz == decoder_rate_hz) {
+        return ESP_OK;
+    }
+
+    const esp_err_t err = faculty175_audio_set_sample_rate(decoder_rate_hz);
+    if (err != ESP_OK) {
+        FACULTY175_LOG_STAGE_W(TAG,
+                               "tts",
+                               "playback rate %u Hz configure failed: %s",
+                               (unsigned)decoder_rate_hz,
+                               esp_err_to_name(err));
+        return err;
+    }
+    *playback_rate_hz = decoder_rate_hz;
+    FACULTY175_LOG_STAGE(TAG,
+                         "tts",
+                         "playback rate configured=%u Hz",
+                         (unsigned)decoder_rate_hz);
+    return ESP_OK;
+}
+
+static esp_err_t voice_restore_capture_rate(uint32_t playback_rate_hz)
+{
+    (void)faculty175_audio_reset_speaker(1000);
+    if (playback_rate_hz != 0u && playback_rate_hz != FACULTY175_AUDIO_RATE) {
+        const esp_err_t rate_err = faculty175_audio_set_sample_rate(FACULTY175_AUDIO_RATE);
+        if (rate_err != ESP_OK) {
+            FACULTY175_LOG_STAGE_W(TAG,
+                                   "tts",
+                                   "capture rate %u Hz restore failed: %s",
+                                   (unsigned)FACULTY175_AUDIO_RATE,
+                                   esp_err_to_name(rate_err));
+            return rate_err;
+        }
+    }
+    return faculty175_audio_reset_capture(1000);
+}
 
 static uint32_t voice_internal_free(void)
 {
@@ -1697,6 +1742,7 @@ esp_err_t faculty175_voice_play_mp3(const uint8_t *mp3, size_t mp3_len)
     mp3dec_init(dec);
     size_t offset = 0;
     bool configured = false;
+    uint32_t playback_rate_hz = 0;
     uint32_t frame_index = 0;
     while (offset < mp3_len) {
         memset(&info, 0, sizeof(info));
@@ -1708,12 +1754,18 @@ esp_err_t faculty175_voice_play_mp3(const uint8_t *mp3, size_t mp3_len)
         if (samples <= 0 || info.hz <= 0) {
             continue;
         }
+        if (playback_rate_hz != (uint32_t)info.hz) {
+            result = voice_set_decoder_playback_rate((uint32_t)info.hz, &playback_rate_hz);
+            if (result != ESP_OK) {
+                break;
+            }
+        }
         if (!configured) {
             configured = true;
             FACULTY175_LOG_STAGE(TAG, "tts", "decoder %u Hz ch=%d playback_rate=%u",
                                   (unsigned)info.hz,
                                   info.channels,
-                                  (unsigned)FACULTY175_AUDIO_RATE);
+                                  (unsigned)playback_rate_hz);
         }
         ++frame_index;
         const uint32_t write_start_ms = faculty175_log_ms();
@@ -1772,8 +1824,10 @@ esp_err_t faculty175_voice_play_mp3(const uint8_t *mp3, size_t mp3_len)
         FACULTY175_LOG_STAGE_W(TAG, "tts", "play failed: no MP3 frames decoded");
         result = ESP_ERR_INVALID_RESPONSE;
     }
-    (void)faculty175_audio_reset_speaker(1000);
-    (void)faculty175_audio_reset_capture(1000);
+    const esp_err_t restore_err = voice_restore_capture_rate(playback_rate_hz);
+    if (result == ESP_OK && restore_err != ESP_OK) {
+        result = restore_err;
+    }
     FACULTY175_LOG_STAGE(TAG,
                          "tts",
                          "play done in %ums err=%s",
@@ -1824,6 +1878,7 @@ esp_err_t faculty175_voice_play_mp3_file_sync(const char *path, size_t mp3_len)
     size_t off = 0;
     bool eof = false;
     bool configured = false;
+    uint32_t playback_rate_hz = 0;
     esp_err_t result = ESP_OK;
     while (true) {
         if (!eof && (len - off) < 4096) {
@@ -1866,12 +1921,18 @@ esp_err_t faculty175_voice_play_mp3_file_sync(const char *path, size_t mp3_len)
         if (samples <= 0 || info.hz <= 0) {
             continue;
         }
+        if (playback_rate_hz != (uint32_t)info.hz) {
+            result = voice_set_decoder_playback_rate((uint32_t)info.hz, &playback_rate_hz);
+            if (result != ESP_OK) {
+                break;
+            }
+        }
         if (!configured) {
             configured = true;
             FACULTY175_LOG_STAGE(TAG, "tts", "decoder %u Hz ch=%d playback_rate=%u",
                                   (unsigned)info.hz,
                                   info.channels,
-                                  (unsigned)FACULTY175_AUDIO_RATE);
+                                  (unsigned)playback_rate_hz);
         }
         if (info.channels == 1) {
             /* minimp3 writes mono samples at the beginning of this 2x buffer.
@@ -1903,8 +1964,10 @@ esp_err_t faculty175_voice_play_mp3_file_sync(const char *path, size_t mp3_len)
     if (result == ESP_OK && !configured) {
         result = ESP_ERR_INVALID_RESPONSE;
     }
-    (void)faculty175_audio_reset_speaker(1000);
-    (void)faculty175_audio_reset_capture(1000);
+    const esp_err_t restore_err = voice_restore_capture_rate(playback_rate_hz);
+    if (result == ESP_OK && restore_err != ESP_OK) {
+        result = restore_err;
+    }
     s_tts_playback_busy = false;
     FACULTY175_LOG_STAGE(TAG,
                          "tts",
@@ -2090,6 +2153,14 @@ static bool tts_stream_decode_available(bool eof)
         if (samples <= 0 || info.hz <= 0) {
             continue;
         }
+        if (s_tts_speaker_stream.playback_rate_hz != (uint32_t)info.hz) {
+            s_tts_speaker_stream.err =
+                voice_set_decoder_playback_rate((uint32_t)info.hz,
+                                                &s_tts_speaker_stream.playback_rate_hz);
+            if (s_tts_speaker_stream.err != ESP_OK) {
+                break;
+            }
+        }
         if (!s_tts_speaker_stream.configured) {
             s_tts_speaker_stream.configured = true;
             FACULTY175_LOG_STAGE(TAG,
@@ -2097,7 +2168,7 @@ static bool tts_stream_decode_available(bool eof)
                                  "stream decoder %u Hz ch=%d playback_rate=%u",
                                  (unsigned)info.hz,
                                  info.channels,
-                                 (unsigned)FACULTY175_AUDIO_RATE);
+                                 (unsigned)s_tts_speaker_stream.playback_rate_hz);
         }
         if (info.channels == 1) {
             int16_t *stereo = pcm;
@@ -2204,8 +2275,11 @@ esp_err_t faculty175_voice_tts_speaker_stream_end(void)
         result = ESP_ERR_INVALID_RESPONSE;
     }
     s_tts_speaker_stream.open = false;
-    (void)faculty175_audio_reset_speaker(1000);
-    (void)faculty175_audio_reset_capture(1000);
+    const esp_err_t restore_err =
+        voice_restore_capture_rate(s_tts_speaker_stream.playback_rate_hz);
+    if (result == ESP_OK && restore_err != ESP_OK) {
+        result = restore_err;
+    }
     s_tts_playback_busy = false;
     FACULTY175_LOG_STAGE(TAG,
                          "tts",
