@@ -77,10 +77,13 @@ def direct_power_metrics(rows: list[dict]) -> dict | None:
         return None
     charge_mah = 0.0
     energy_mwh = 0.0
+    gaps_s: list[float] = []
     for previous, current in zip(rows, rows[1:]):
-        hours = (current["epoch_s"] - previous["epoch_s"]) / 3600.0
+        gap_s = current["epoch_s"] - previous["epoch_s"]
+        hours = gap_s / 3600.0
         if hours <= 0:
             continue
+        gaps_s.append(gap_s)
         mean_current = (previous["current_ma"] + current["current_ma"]) / 2.0
         previous_power_mw = previous["voltage_mv"] * previous["current_ma"] / 1000.0
         current_power_mw = current["voltage_mv"] * current["current_ma"] / 1000.0
@@ -90,6 +93,8 @@ def direct_power_metrics(rows: list[dict]) -> dict | None:
     return {
         "analyzer_samples": len(rows),
         "analyzer_duration_h": duration_h,
+        "analyzer_median_gap_s": median(gaps_s) if gaps_s else None,
+        "analyzer_max_gap_s": max(gaps_s) if gaps_s else None,
         "median_current_ma": median(row["current_ma"] for row in rows),
         "average_current_ma": charge_mah / duration_h if duration_h > 0 else None,
         "peak_current_ma": max(row["current_ma"] for row in rows),
@@ -390,10 +395,19 @@ def main() -> int:
                         help="maximum battery current considered electrically off")
     parser.add_argument("--shutdown-current-sustain-s", type=float, default=300.0,
                         help="required continuous near-zero tail for analyzer shutdown inference")
+    parser.add_argument("--analyzer-max-gap-s", type=float, default=60.0,
+                        help="largest accepted gap between direct-current samples")
     parser.add_argument("--matrix", type=Path, default=ROOT / "config" / "lunasay_power_matrix.json")
     args = parser.parse_args()
-    if args.shutdown_current_threshold_ma < 0 or args.shutdown_current_sustain_s <= 0:
-        raise SystemExit("error: analyzer shutdown threshold must be non-negative and sustain positive")
+    if (
+        args.shutdown_current_threshold_ma < 0
+        or args.shutdown_current_sustain_s <= 0
+        or args.analyzer_max_gap_s <= 0
+    ):
+        raise SystemExit(
+            "error: analyzer shutdown threshold must be non-negative; sustain and maximum gap "
+            "must be positive"
+        )
     analyzer_rows = load_analyzer_rows(args.analyzer_csv)
     analyzer_sources = [
         {
@@ -472,6 +486,8 @@ def main() -> int:
             "analyzer_samples": 0,
             "analyzer_duration_h": 0.0,
             "analyzer_coverage_ratio": 0.0,
+            "analyzer_median_gap_s": None,
+            "analyzer_max_gap_s": None,
             "median_current_ma": None,
             "peak_current_ma": None,
             "charge_mah": None,
@@ -486,6 +502,8 @@ def main() -> int:
             )
             if direct_metrics["analyzer_coverage_ratio"] < 0.95:
                 direct_metrics["current_basis"] = "direct-battery-analyzer-partial"
+            elif float(direct_metrics.get("analyzer_max_gap_s") or math.inf) > args.analyzer_max_gap_s:
+                direct_metrics["current_basis"] = "direct-battery-analyzer-gapped"
             metrics.update(direct_metrics)
         workload_events = [
             event for event in events if event.get("kind") in ("voice_turn", "journal_segment")
@@ -555,6 +573,23 @@ def main() -> int:
         json.dumps(analyzer_sources, indent=2) + "\n",
         encoding="utf-8",
     )
+    report_config = {
+        "artifact_root": str(args.artifact_root.resolve()),
+        "matrix": str(args.matrix.resolve()),
+        "matrix_sha256": (
+            hashlib.sha256(args.matrix.read_bytes()).hexdigest() if args.matrix.is_file() else None
+        ),
+        "minimum_estimate_hours": args.min_estimate_hours,
+        "minimum_percent_drop": args.min_percent_drop,
+        "battery_mah_override": args.battery_mah,
+        "analyzer_max_gap_s": args.analyzer_max_gap_s,
+        "shutdown_current_threshold_ma": args.shutdown_current_threshold_ma,
+        "shutdown_current_sustain_s": args.shutdown_current_sustain_s,
+    }
+    (args.out_dir / "report_config.json").write_text(
+        json.dumps(report_config, indent=2) + "\n",
+        encoding="utf-8",
+    )
     deep_runs: list[dict] = []
     for summary_path in sorted(args.artifact_root.glob("lunasay-deep-sleep-*/summary.json")):
         summary = load_json(summary_path)
@@ -614,6 +649,8 @@ def main() -> int:
             "analyzer_samples": 0,
             "analyzer_duration_h": 0.0,
             "analyzer_coverage_ratio": 0.0,
+            "analyzer_median_gap_s": None,
+            "analyzer_max_gap_s": None,
             "median_current_ma": None,
             "average_current_ma": None,
             "peak_current_ma": None,
@@ -628,6 +665,8 @@ def main() -> int:
             )
             if deep_direct["analyzer_coverage_ratio"] < 0.95:
                 deep_direct["current_basis"] = "direct-battery-analyzer-partial"
+            elif float(deep_direct.get("analyzer_max_gap_s") or math.inf) > args.analyzer_max_gap_s:
+                deep_direct["current_basis"] = "direct-battery-analyzer-gapped"
             deep_power.update(deep_direct)
         direct_runtime_h = (
             run_battery_mah / deep_power["average_current_ma"]
@@ -677,6 +716,7 @@ def main() -> int:
         "percent_per_hour", "voltage_drop_mv_per_hour", "projected_full_runtime_h",
         "measured_runtime_h", "median_current_ma", "average_current_ma", "peak_current_ma", "charge_mah", "energy_wh",
         "current_basis", "analyzer_samples", "analyzer_duration_h", "analyzer_coverage_ratio",
+        "analyzer_median_gap_s", "analyzer_max_gap_s",
         "shutdown_observed", "shutdown_basis", "charge_ready", "evidence",
     ]
     with (args.out_dir / "runs.csv").open("w", newline="", encoding="utf-8") as handle:
@@ -689,6 +729,7 @@ def main() -> int:
         "duration_h", "percent_drop", "projected_full_runtime_h",
         "median_current_ma", "average_current_ma", "peak_current_ma", "charge_mah", "energy_wh",
         "current_basis", "analyzer_samples", "analyzer_duration_h", "analyzer_coverage_ratio",
+        "analyzer_median_gap_s", "analyzer_max_gap_s",
         "evidence",
     ]
     with (args.out_dir / "deep_sleep_runs.csv").open("w", newline="", encoding="utf-8") as handle:
@@ -708,7 +749,8 @@ def main() -> int:
         "Generated from hub-controlled QA artifacts. Battery claims are withheld unless a run has "
         f"at least {args.min_estimate_hours:g} hour(s), three battery-only samples, and "
         f"a {args.min_percent_drop}% monotonic drop, and a completed full-charge/rest gate.",
-        "Analyzer input paths, sizes, and SHA-256 hashes are recorded in `analyzer_sources.json`.",
+        "Analyzer input paths, sizes, and SHA-256 hashes are recorded in `analyzer_sources.json`; "
+        "all report thresholds and the matrix hash are recorded in `report_config.json`.",
         "",
         "![Battery discharge curves](curves.svg)",
         "" if args.battery_mah is None else f"Average current uses the labeled {args.battery_mah:g} mAh cell capacity.",
@@ -737,13 +779,15 @@ def main() -> int:
             "",
             "## Direct battery-path power evidence",
             "",
-            "| Scenario | Workload | Samples | Coverage | Median | Average | Peak | Charge | Energy |",
-            "|---|---|---:|---:|---:|---:|---:|---:|---:|",
+            "| Scenario | Workload | Samples | Coverage | Median gap | Max gap | Median | Average | Peak | Charge | Energy |",
+            "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
         ])
         for run in direct_runs:
             lines.append(
                 f"| {run['scenario']} | {run['workload']} | {run['analyzer_samples']} | "
                 f"{fmt(run['analyzer_coverage_ratio'] * 100.0, 1)}% | "
+                f"{fmt(run['analyzer_median_gap_s'], 1)} s | "
+                f"{fmt(run['analyzer_max_gap_s'], 1)} s | "
                 f"{fmt(run['median_current_ma'])} mA | {fmt(run['average_current_ma'])} mA | "
                 f"{fmt(run['peak_current_ma'])} mA | {fmt(run['charge_mah'])} mAh | "
                 f"{fmt(run['energy_wh'], 3)} Wh |"
@@ -956,6 +1000,11 @@ def main() -> int:
         )
     if not analyzer_rows:
         limitations.append("No inline battery-path analyzer trace is present; direct current, mAh, and Wh remain unknown.")
+    if any(run.get("current_basis") == "direct-battery-analyzer-gapped" for run in [*runs, *deep_runs]):
+        limitations.append(
+            f"At least one analyzer trace exceeds the {args.analyzer_max_gap_s:g}-second maximum "
+            "sample gap and is excluded from release claims."
+        )
     if any(
         run.get("battery_mah") is None or not run.get("battery_photo_sha256")
         for run in [*runs, *deep_runs]

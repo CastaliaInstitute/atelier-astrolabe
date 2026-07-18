@@ -125,7 +125,12 @@ runtime is reported separately as
 `capacity-derived` current. A trace must span at least 95% of the attributed
 VBUS-off window to receive the `direct-battery-analyzer` label; shorter traces
 are retained but explicitly marked `direct-battery-analyzer-partial`, and their
-energy is not used for per-turn or per-recorded-minute claims.
+energy is not used for per-turn or per-recorded-minute claims. The default
+maximum gap between analyzer samples is 60 seconds. A trace exceeding it is
+marked `direct-battery-analyzer-gapped`, even if its first and last timestamps
+span the whole run, and is excluded from current, energy, and release claims.
+The report records actual median/maximum gaps and writes every threshold plus
+the matrix SHA-256 to `report_config.json`.
 
 Radio-off idle runs have no in-band liveness transport. For those runs only,
 the report may timestamp automatic shutdown from the first analyzer sample at
@@ -256,5 +261,6 @@ off` after recovery; neither power-test command changes the owner's saved BLE
 preference.
 
 The generated `report.md`, `runs.csv`, `deep_sleep_runs.csv`, `curves.csv`,
-`curves.svg`, and analyzer-input hash manifest `analyzer_sources.json` live under
+`curves.svg`, analyzer-input hash manifest `analyzer_sources.json`, and
+reproducibility manifest `report_config.json` live under
 `artifacts/qa/lunasay-power-report/` by default.
