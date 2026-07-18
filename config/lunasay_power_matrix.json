@@ -2,6 +2,7 @@
   "schema": 3,
   "release_gate": {
     "units_required": 2,
+    "batteries_required": 2,
     "endpoint": "automatic low-voltage shutdown",
     "require_direct_current": true,
     "require_analyzer_provenance": true,

@@ -296,10 +296,12 @@ def main() -> int:
         or args.battery_photo is None
         or not args.hardware_revision.strip()
         or args.ambient_c is None
+        or args.unit_id.strip().lower() in ("", "unknown", "unspecified")
+        or args.battery_id.strip().lower() in ("", "unknown", "unspecified", "unlabeled")
     ):
         raise SystemExit(
             "error: qualified runs require --battery-mah, --battery-photo, "
-            "--hardware-revision, and --ambient-c"
+            "--hardware-revision, --ambient-c, and identified --unit-id/--battery-id"
         )
     if not 1000 <= args.capture_ms <= 30000:
         raise SystemExit("error: --capture-ms must be 1000..30000")

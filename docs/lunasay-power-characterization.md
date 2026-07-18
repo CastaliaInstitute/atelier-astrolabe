@@ -64,8 +64,9 @@ interval must be accepted audio-capture time. Reported journal energy is per
 captured minute, and any eventual claim states the measured capture duty cycle
 rather than implying gapless recording.
 
-Run every advertised mode to automatic low-voltage shutdown on one
-release-candidate unit, then repeat it on a second unit. Shorter runs may be used
+Run every advertised mode to automatic low-voltage shutdown on one identified
+release-candidate unit/cell article, then repeat it on a second distinct
+identified unit/cell article. Shorter runs may be used
 to tune firmware but are not final runtime evidence. Release readiness also
 requires a synchronized battery-path analyzer trace covering at least 95% of
 each run and a recorded labeled cell capacity; runtime alone does not fully

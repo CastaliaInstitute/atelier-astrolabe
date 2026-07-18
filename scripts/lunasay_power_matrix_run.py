@@ -123,10 +123,12 @@ def main() -> int:
         or args.battery_photo is None
         or not args.hardware_revision.strip()
         or args.ambient_c is None
+        or args.unit_id.strip().lower() in ("", "unknown", "unspecified")
+        or args.battery_id.strip().lower() in ("", "unknown", "unspecified", "unlabeled")
     ):
         raise SystemExit(
             "error: qualified matrix runs require --battery-mah, --battery-photo, "
-            "--hardware-revision, and --ambient-c"
+            "--hardware-revision, --ambient-c, and identified --unit-id/--battery-id"
         )
     battery_photo_sha256 = (
         hashlib.sha256(args.battery_photo.read_bytes()).hexdigest()

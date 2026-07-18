@@ -130,10 +130,12 @@ def main() -> int:
         or args.battery_photo is None
         or not args.hardware_revision.strip()
         or args.ambient_c is None
+        or args.unit_id.strip().lower() in ("", "unknown", "unspecified")
+        or args.battery_id.strip().lower() in ("", "unknown", "unspecified", "unlabeled")
     ):
         raise SystemExit(
             "error: qualified runs require --battery-mah, --battery-photo, "
-            "--hardware-revision, and --ambient-c"
+            "--hardware-revision, --ambient-c, and identified --unit-id/--battery-id"
         )
     if args.wake_source == "gpio0" and args.duration_min * 60 <= args.boot_timeout_s:
         raise SystemExit(

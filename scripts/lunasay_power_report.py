@@ -334,7 +334,9 @@ def release_build_key(run: dict) -> tuple[str, str, str] | None:
 
 
 def known_text(value: object) -> bool:
-    return str(value or "").strip().lower() not in ("", "unknown", "unspecified")
+    return str(value or "").strip().lower() not in (
+        "", "unknown", "unspecified", "unlabeled", "none"
+    )
 
 
 def test_article_gate_passes(
@@ -344,7 +346,9 @@ def test_article_gate_passes(
     require_ambient_temperature: bool,
 ) -> bool:
     return bool(
-        (
+        known_text(run.get("unit_id"))
+        and known_text(run.get("battery_id"))
+        and (
             not require_labeled_capacity
             or (
                 isinstance(run.get("battery_mah"), (int, float))
@@ -1088,8 +1092,8 @@ def main() -> int:
             "",
             "## Required-matrix coverage",
             "",
-            "| Test | Display | Radio | Workload | Best evidence | Required basis | Units | Release gate |",
-            "|---|---|---|---|---|---|---:|---|",
+            "| Test | Display | Radio | Workload | Best evidence | Required basis | Units | Cells | Release gate |",
+            "|---|---|---|---|---|---|---:|---:|---|",
         ])
         release_gate = matrix.get("release_gate", {})
         require_direct_current = bool(release_gate.get("require_direct_current", False))
@@ -1182,8 +1186,18 @@ def main() -> int:
                 run.get("unit_id", "unknown") for run in qualifying
                 if run.get("unit_id") != "unknown"
             }
+            qualifying_batteries = {
+                run.get("battery_id", "unknown") for run in qualifying
+                if known_text(run.get("battery_id"))
+            }
             required_units = int(release_gate.get("units_required", 2))
-            gate = "ready" if len(qualifying_units) >= required_units else "open"
+            required_batteries = int(release_gate.get("batteries_required", required_units))
+            gate = (
+                "ready"
+                if len(qualifying_units) >= required_units
+                and len(qualifying_batteries) >= required_batteries
+                else "open"
+            )
             matrix_open_count += int(gate != "ready")
             required_basis_label = (
                 "measured-runtime+direct-current"
@@ -1202,7 +1216,7 @@ def main() -> int:
                 f"| {test['id']} | {test.get('display', '—')} | {test.get('radio', '—')} | "
                 f"{test.get('workload', test.get('runner', '—'))} | {best_evidence} | "
                 f"{required_basis_label} | "
-                f"{len(qualifying_units)} | {gate} |"
+                f"{len(qualifying_units)} | {len(qualifying_batteries)} | {gate} |"
             )
             if gate == "ready" and release_basis == "measured-runtime":
                 minimum_h = min(float(run["measured_runtime_h"]) for run in qualifying)
@@ -1275,6 +1289,14 @@ def main() -> int:
         limitations.append(
             "At least one test article lacks a hardware revision and is excluded from release claims."
         )
+    if any(
+        not known_text(run.get("unit_id")) or not known_text(run.get("battery_id"))
+        for run in [*runs, *deep_runs]
+    ):
+        limitations.append(
+            "At least one test article lacks an identified unit or battery and is excluded from "
+            "release claims."
+        )
     if any(not isinstance(run.get("ambient_c"), (int, float)) for run in [*runs, *deep_runs]):
         limitations.append(
             "At least one test article lacks ambient-temperature provenance and is excluded from "
@@ -1333,7 +1355,7 @@ def main() -> int:
         lines.extend(["No Kickstarter battery-life claim is evidence-ready yet.", ""])
     lines.extend([
         "Never publish a battery-life claim from a `functional-only` smoke test. Active-mode claims "
-        "require full-to-shutdown runs on two release-candidate units. Deep-sleep wording remains "
+        "require full-to-shutdown runs on two release-candidate unit/cell articles. Deep-sleep wording remains "
         "explicitly projected even when it is backed by labeled capacity and direct current traces.",
         "",
     ])
