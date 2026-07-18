@@ -448,12 +448,14 @@ def main() -> int:
                             operation = "settings-read"
                     else:
                         operation = "advertise"
+                    probe_started = time.monotonic()
                     sample = ble_probe(
                         ble_probe_binary,
                         args.ble_name_contains,
                         args.ble_probe_timeout_s,
                         operation,
                     )
+                    probe_wall_s = time.monotonic() - probe_started
                     ble_probes += 1
                     next_ble_probe = time.monotonic() + args.ble_probe_interval_s
                     probe_passed = bool(
@@ -476,11 +478,17 @@ def main() -> int:
                                 if sample.get("settings_read")
                                 else "ble_alive"
                             ),
+                            wall_s=round(probe_wall_s, 3),
                             sample=sample,
                         )
                     else:
                         consecutive_ble_failures += 1
-                        record("ble_probe_failed", consecutive=consecutive_ble_failures, sample=sample)
+                        record(
+                            "ble_probe_failed",
+                            consecutive=consecutive_ble_failures,
+                            wall_s=round(probe_wall_s, 3),
+                            sample=sample,
+                        )
                         if consecutive_ble_failures >= 3:
                             device_unreachable = True
                             record("device_unreachable", probable_battery_shutdown=True, transport="ble")

@@ -118,6 +118,11 @@ The CSV requires `run_id`, positive-discharge `current_ma`, one time column
 `voltage_v`). The report trapezoid-integrates charge and energy, records average
 and peak current, and calculates direct mWh per successful conversation turn,
 per recorded journal minute, or per scheduled BLE configuration-set interval.
+For those per-unit figures, both the beginning and end of each workload operation
+must fall inside the analyzer's actual first-to-last-sample window. Analyzer
+energy is divided only by these fully metered turns, recording minutes, or BLE
+roundtrips; whole-run counters are shown separately and are never used to make
+an incomplete analyzer window look more efficient.
 The BLE interval value includes intervening standby and settings reads; it is a
 workload-cycle value, not isolated GATT transaction energy.
 Without such a trace, those direct fields remain unknown; a labeled-capacity

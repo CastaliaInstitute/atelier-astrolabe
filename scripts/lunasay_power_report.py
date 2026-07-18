@@ -301,6 +301,22 @@ def workload_gate_passes(run: dict, test: dict) -> bool:
     )
 
 
+def events_fully_inside(events: list[dict], start_epoch_s: float, end_epoch_s: float) -> list[dict]:
+    """Return completed workload events whose entire measured operation is metered."""
+    inside: list[dict] = []
+    for event in events:
+        try:
+            completed_epoch_s = parse_time(str(event["at"]))
+            wall_s = float(event["wall_s"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if wall_s < 0:
+            continue
+        if completed_epoch_s - wall_s >= start_epoch_s and completed_epoch_s <= end_epoch_s:
+            inside.append(event)
+    return inside
+
+
 def write_curves_svg(curves: list[dict], path: Path) -> None:
     """Write dependency-free percent/voltage discharge plots for all runs."""
     width, height = 1200, 680
@@ -522,15 +538,41 @@ def main() -> int:
         ble_probes = int(summary.get("ble_probes", 0))
         successful_ble_probes = int(summary.get("successful_ble_probes", 0))
         ble_config_roundtrips = int(summary.get("ble_config_roundtrips", 0))
+        metered_events: list[dict] = []
+        if direct_rows:
+            analyzer_start_epoch_s = min(float(row["epoch_s"]) for row in direct_rows)
+            analyzer_end_epoch_s = max(float(row["epoch_s"]) for row in direct_rows)
+            metered_events = events_fully_inside(
+                events,
+                analyzer_start_epoch_s,
+                analyzer_end_epoch_s,
+            )
+        metered_successful_turns = sum(
+            int(event.get("kind") == "voice_turn" and bool(event.get("passed")))
+            for event in metered_events
+        )
+        metered_captured_audio_s = sum(
+            float(event.get("result", {}).get("capture_ms", 0)) / 1000.0
+            for event in metered_events
+            if event.get("kind") == "journal_segment"
+            and (
+                bool(event.get("accepted"))
+                or float(event.get("result", {}).get("capture_ms", 0)) > 0
+            )
+        )
+        metered_ble_config_roundtrips = sum(
+            int(event.get("kind") == "ble_config_roundtrip")
+            for event in metered_events
+        )
         energy_wh = metrics.get("energy_wh")
         energy_per_unit_mwh = None
         if isinstance(energy_wh, (int, float)) and metrics["current_basis"] == "direct-battery-analyzer":
-            if summary.get("workload") == "conversation" and successful_turns > 0:
-                energy_per_unit_mwh = float(energy_wh) * 1000.0 / successful_turns
-            elif summary.get("workload") == "journal" and captured_audio_s > 0:
-                energy_per_unit_mwh = float(energy_wh) * 1000.0 / (captured_audio_s / 60.0)
-            elif summary.get("workload") == "ble-config" and ble_config_roundtrips > 0:
-                energy_per_unit_mwh = float(energy_wh) * 1000.0 / ble_config_roundtrips
+            if summary.get("workload") == "conversation" and metered_successful_turns > 0:
+                energy_per_unit_mwh = float(energy_wh) * 1000.0 / metered_successful_turns
+            elif summary.get("workload") == "journal" and metered_captured_audio_s > 0:
+                energy_per_unit_mwh = float(energy_wh) * 1000.0 / (metered_captured_audio_s / 60.0)
+            elif summary.get("workload") == "ble-config" and metered_ble_config_roundtrips > 0:
+                energy_per_unit_mwh = float(energy_wh) * 1000.0 / metered_ble_config_roundtrips
         run_id = summary_path.parent.name
         runs.append({
             "run_id": run_id,
@@ -555,6 +597,9 @@ def main() -> int:
             "ble_config_roundtrips": ble_config_roundtrips,
             "captured_audio_s": captured_audio_s,
             "capture_coverage_ratio": capture_coverage_ratio,
+            "metered_successful_turns": metered_successful_turns,
+            "metered_captured_audio_s": metered_captured_audio_s,
+            "metered_ble_config_roundtrips": metered_ble_config_roundtrips,
             "energy_per_unit_mwh": energy_per_unit_mwh,
             **metrics,
         })
@@ -711,7 +756,8 @@ def main() -> int:
         "firmware_build", "harness_build",
         "turns", "accepted_captures", "successful_turns", "ble_probes", "successful_ble_probes",
         "ble_config_roundtrips",
-        "captured_audio_s", "capture_coverage_ratio", "energy_per_unit_mwh",
+        "captured_audio_s", "capture_coverage_ratio", "metered_successful_turns",
+        "metered_captured_audio_s", "metered_ble_config_roundtrips", "energy_per_unit_mwh",
         "duration_h", "sample_count", "percent_drop", "voltage_drop_mv", "percent_monotonic",
         "percent_per_hour", "voltage_drop_mv_per_hour", "projected_full_runtime_h",
         "measured_runtime_h", "median_current_ma", "average_current_ma", "peak_current_ma", "charge_mah", "energy_wh",
@@ -797,15 +843,21 @@ def main() -> int:
             "",
             "## Voice workload evidence",
             "",
-            "| Workload | Scenario | Attempts | Accepted captures | Successful | Captured audio | Coverage | Direct energy/unit |",
-            "|---|---|---:|---:|---:|---:|---:|---:|",
+            "| Workload | Scenario | Attempts | Accepted captures | Successful | Captured audio | Coverage | Metered denominator | Direct energy/unit |",
+            "|---|---|---:|---:|---:|---:|---:|---:|---:|",
         ])
         for run in voice_runs:
+            metered_denominator = (
+                f"{fmt(run['metered_captured_audio_s'], 1)} s"
+                if run["workload"] == "journal"
+                else f"{run['metered_successful_turns']} turns"
+            )
             lines.append(
                 f"| {run['workload']} | {run['scenario']} | {run['turns']} | "
                 f"{run['accepted_captures']} | {run['successful_turns']} | "
                 f"{fmt(run['captured_audio_s'], 1)} s | "
                 f"{fmt(run['capture_coverage_ratio'] * 100.0, 1)}% | "
+                f"{metered_denominator} | "
                 f"{fmt(run['energy_per_unit_mwh'], 2)} mWh |"
             )
     ble_runs = [run for run in runs if run["workload"] in ("ble", "ble-config")]
@@ -814,8 +866,8 @@ def main() -> int:
             "",
             "## BLE workload evidence",
             "",
-            "| Workload | Scenario | Probes | Successful | Success | Set roundtrips | Direct mWh/set interval |",
-            "|---|---|---:|---:|---:|---:|---:|",
+            "| Workload | Scenario | Probes | Successful | Success | Set roundtrips | Metered sets | Direct mWh/set interval |",
+            "|---|---|---:|---:|---:|---:|---:|---:|",
         ])
         for run in ble_runs:
             success_ratio = (
@@ -826,7 +878,8 @@ def main() -> int:
             lines.append(
                 f"| {run['workload']} | {run['scenario']} | {run['ble_probes']} | "
                 f"{run['successful_ble_probes']} | {fmt(success_ratio * 100.0, 1)}% | "
-                f"{run['ble_config_roundtrips']} | {fmt(config_energy, 2)} |"
+                f"{run['ble_config_roundtrips']} | {run['metered_ble_config_roundtrips']} | "
+                f"{fmt(config_energy, 2)} |"
             )
     if deep_runs:
         lines.extend([
