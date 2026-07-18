@@ -350,6 +350,12 @@ once only after the child runner prints `awaiting_gpio0`. That qualified,
 matrix-bound physical-wake artifact is required before the same unit's
 analyzer-backed timer projection can open a deep-sleep claim gate.
 
+Every matrix child also gets an independent hub-restore guard. The child still
+restores VBUS in its normal `finally` cleanup, but the detached guard forces the
+assigned port on after the child exits even if the runner or matrix parent was
+terminated before normal cleanup could run. A missing or failed guard makes the
+matrix attempt fail and is recorded in its resumable state.
+
 Qualified orchestration refuses a dirty host worktree. Claim generation rejects
 unknown or dirty firmware/harness identifiers and counts only the largest cohort
 of physical units running the exact same firmware and harness revisions. The

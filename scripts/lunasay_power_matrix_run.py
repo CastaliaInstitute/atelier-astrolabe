@@ -20,6 +20,7 @@ from lunasay_power_common import image_app_identity
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MATRIX = ROOT / "config" / "lunasay_power_matrix.json"
 DEFAULT_FIRMWARE_IMAGE = ROOT / "astrolabe175c" / "build" / "astrolabe175c.bin"
+HUB_RESTORE_GUARD = ROOT / "scripts" / "lunasay_hub_restore_guard.py"
 
 
 def save_json(path: Path, value: dict) -> None:
@@ -105,6 +106,22 @@ def command_for(test: dict, args: argparse.Namespace, out_dir: Path) -> list[str
         if key in test:
             command += [flag, str(test[key])]
     return command
+
+
+def hub_restore_guard_command(
+    args: argparse.Namespace,
+    out_dir: Path,
+    child_pid: int,
+) -> list[str]:
+    return [
+        sys.executable,
+        str(HUB_RESTORE_GUARD),
+        "--pid", str(child_pid),
+        "--uhubctl", args.uhubctl,
+        "--hub-location", args.hub_location,
+        "--hub-port", str(args.hub_port),
+        "--log", str(out_dir / "hub-restore-guard.log"),
+    ]
 
 
 def main() -> int:
@@ -352,7 +369,7 @@ def main() -> int:
                 )
         else:
             state = {
-                "schema": 7,
+                "schema": 8,
                 "matrix": str(args.matrix.resolve()),
                 "matrix_schema": matrix.get("schema"),
                 "matrix_sha256": matrix_sha256,
@@ -393,7 +410,54 @@ def main() -> int:
             if args.dry_run:
                 continue
             started_at = datetime.now(timezone.utc).isoformat()
-            result = subprocess.run(command, cwd=ROOT)
+            out_dir.mkdir(parents=True, exist_ok=True)
+            child = subprocess.Popen(command, cwd=ROOT, start_new_session=True)
+            guard_command = hub_restore_guard_command(args, out_dir, child.pid)
+            try:
+                guard = subprocess.Popen(
+                    guard_command,
+                    cwd=ROOT,
+                    start_new_session=True,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+            except Exception:
+                child.terminate()
+                try:
+                    child.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    child.kill()
+                    child.wait()
+                subprocess.run(
+                    [
+                        args.uhubctl,
+                        "-l", args.hub_location,
+                        "-p", str(args.hub_port),
+                        "-a", "on",
+                    ],
+                    check=False,
+                )
+                raise
+            try:
+                child_returncode = child.wait()
+            except KeyboardInterrupt:
+                child.terminate()
+                try:
+                    child.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    child.kill()
+                    child.wait()
+                child_returncode = 130
+            try:
+                guard_returncode = guard.wait(timeout=60)
+            except subprocess.TimeoutExpired:
+                guard.terminate()
+                try:
+                    guard.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    guard.kill()
+                    guard.wait()
+                guard_returncode = 124
             summary_path = out_dir / "summary.json"
             child_summary = (
                 json.loads(summary_path.read_text(encoding="utf-8"))
@@ -407,22 +471,26 @@ def main() -> int:
                 "test_id": test_id,
                 "started_at": started_at,
                 "finished_at": datetime.now(timezone.utc).isoformat(),
-                "returncode": result.returncode,
+                "returncode": child_returncode,
                 "out_dir": str(out_dir),
                 "test": test,
                 "command": command,
+                "hub_restore_guard_command": guard_command,
+                "hub_restore_guard_returncode": guard_returncode,
                 "firmware_build": child_firmware,
                 "harness_build": child_harness,
                 "analyzer_capture": child_analyzer,
             }
             state.setdefault("attempts", []).append(attempt)
             state_error = None
-            if result.returncode == 0 and (
+            if guard_returncode != 0:
+                state_error = f"hub restore guard failed with {guard_returncode}"
+            elif child_returncode == 0 and (
                 not article.get("firmware_provenance_complete")
                 or str(article.get("firmware_variant", "")).lower() != "lunasay"
             ):
                 state_error = "passing child run did not report a complete LunaSay binary identity"
-            elif result.returncode == 0 and require_firmware_continuity and not (
+            elif child_returncode == 0 and require_firmware_continuity and not (
                 child_summary.get("ota_test_lock_preflight")
                 and child_summary.get("firmware_identity_match")
                 and child_summary.get("final_firmware_identity_match")
@@ -431,22 +499,22 @@ def main() -> int:
                     "passing qualified child run did not prove OTA lock and exact firmware "
                     "identity continuity"
                 )
-            elif result.returncode == 0 and require_direct_current and not (
+            elif child_returncode == 0 and require_direct_current and not (
                 isinstance(child_analyzer, dict) and child_analyzer.get("passed")
             ):
                 state_error = "passing qualified child run did not report a valid analyzer capture"
-            elif result.returncode == 0 and child_firmware != expected_firmware_build:
+            elif child_returncode == 0 and child_firmware != expected_firmware_build:
                 state_error = (
                     f"device firmware {child_firmware!r} does not match expected image "
                     f"{expected_firmware_build!r}"
                 )
-            elif result.returncode == 0 and child_firmware in (None, "", "unknown"):
+            elif child_returncode == 0 and child_firmware in (None, "", "unknown"):
                 state_error = "passing child run did not report a firmware build"
-            elif result.returncode == 0 and child_harness != harness_build:
+            elif child_returncode == 0 and child_harness != harness_build:
                 state_error = (
                     f"child harness build {child_harness!r} does not match matrix {harness_build!r}"
                 )
-            elif result.returncode == 0 and state.get("firmware_build") not in (None, child_firmware):
+            elif child_returncode == 0 and state.get("firmware_build") not in (None, child_firmware):
                 state_error = (
                     f"device firmware changed from {state.get('firmware_build')!r} "
                     f"to {child_firmware!r}"
@@ -456,14 +524,14 @@ def main() -> int:
                 save_json(args.state, state)
                 print(f"matrix: STOP {test_id}: {state_error}", flush=True)
                 return 3
-            if result.returncode == 0:
+            if child_returncode == 0:
                 state["firmware_build"] = child_firmware
                 completed.add(test_id)
                 state["completed"] = sorted(completed)
             save_json(args.state, state)
-            if result.returncode != 0:
-                print(f"matrix: STOP {test_id} failed with {result.returncode}", flush=True)
-                return result.returncode
+            if child_returncode != 0:
+                print(f"matrix: STOP {test_id} failed with {child_returncode}", flush=True)
+                return child_returncode
 
         if args.dry_run:
             print(f"matrix: dry-run listed {len(tests)} test(s)")
