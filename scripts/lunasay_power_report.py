@@ -202,6 +202,30 @@ def analyzer_shutdown_epoch(
     return None
 
 
+def reconcile_shutdown_endpoint(
+    end: float | None,
+    shutdown_observed: bool,
+    inferred_shutdown: float | None,
+    recovery: dict,
+) -> tuple[float | None, bool, str]:
+    """Prefer an earlier electrical endpoint only with independent PMU recovery proof."""
+    electrical_endpoint_valid = bool(
+        inferred_shutdown is not None
+        and end is not None
+        and (not shutdown_observed or inferred_shutdown < end)
+        and recovery.get("reboot_confirmed")
+        and recovery.get("poweron_reset")
+        and recovery.get("pmu_under_voltage")
+    )
+    if electrical_endpoint_valid:
+        return (
+            inferred_shutdown,
+            True,
+            "analyzer-current-collapse+pmu-undervoltage-reset",
+        )
+    return end, shutdown_observed, "runner-confirmed" if shutdown_observed else "none"
+
+
 def linear_slope(points: list[tuple[float, float]]) -> float | None:
     """Return y units/hour for timestamped points, or None when underdetermined."""
     if len(points) < 2:
@@ -669,7 +693,6 @@ def main() -> int:
             run_battery_mah = float(article["battery_mah"])
         events = load_events(summary_path.parent / "events.jsonl")
         start, end, shutdown_observed = run_window(events, summary)
-        shutdown_basis = "runner-confirmed" if shutdown_observed else "none"
         window_analyzer_rows = [
             row for row in analyzer_rows
             if row["run_id"] == summary_path.parent.name
@@ -677,26 +700,17 @@ def main() -> int:
             and start <= row["epoch_s"] <= end
         ]
         recovery = summary.get("shutdown_evidence", {})
-        radio_off_idle = bool(
-            summary.get("workload") == "idle"
-            and summary.get("scenario") in ("full-offline", "dim-offline", "sleep-offline")
-        )
         inferred_shutdown = analyzer_shutdown_epoch(
             window_analyzer_rows,
             args.shutdown_current_threshold_ma,
             args.shutdown_current_sustain_s,
         )
-        if (
-            not shutdown_observed
-            and radio_off_idle
-            and inferred_shutdown is not None
-            and recovery.get("reboot_confirmed")
-            and recovery.get("poweron_reset")
-            and recovery.get("pmu_under_voltage")
-        ):
-            end = inferred_shutdown
-            shutdown_observed = True
-            shutdown_basis = "analyzer-current-collapse+pmu-undervoltage-reset"
+        end, shutdown_observed, shutdown_basis = reconcile_shutdown_endpoint(
+            end,
+            shutdown_observed,
+            inferred_shutdown,
+            recovery,
+        )
         samples = battery_samples(summary, start, end)
         metrics = classify(
             validated_summary,

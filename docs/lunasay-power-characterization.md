@@ -159,14 +159,17 @@ span the whole run, and is excluded from current, energy, and release claims.
 The report records actual median/maximum gaps and writes every threshold plus
 the matrix SHA-256 to `report_config.json`.
 
-Radio-off idle runs have no in-band liveness transport. For those runs only,
-the report may timestamp automatic shutdown from the first analyzer sample at
+The report may timestamp automatic shutdown from the first analyzer sample at
 or below `0.2 mA` when at least three near-zero samples remain near zero for
 five minutes. That electrical endpoint is accepted only when VBUS recovery also
 reports a reboot, power-on reset, and AXP2101 undervoltage power-off flag. Either
-signal alone is insufficient. The threshold and sustain window are explicit
-`lunasay_power_report.py` options and the resulting `shutdown_basis` is preserved
-in CSV and Markdown output.
+signal alone is insufficient. For connected or voice workloads, a qualifying
+electrical collapse earlier than the runner's network-loss event replaces the
+later software timestamp; this avoids adding ping retries or a voice timeout to
+battery runtime. Radio-off idle runs rely on the same electrical endpoint
+because they have no in-band liveness transport. The threshold and sustain
+window are explicit `lunasay_power_report.py` options and the resulting
+`shutdown_basis` is preserved in CSV and Markdown output.
 
 ## True deep sleep gate
 
