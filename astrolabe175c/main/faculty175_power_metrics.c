@@ -101,6 +101,9 @@ bool faculty175_power_scenario_set(faculty175_power_scenario_t scenario,
     s_metrics.scenario_breathing_ms = 0u;
     s_metrics.scenario_dimmed_ms = 0u;
     s_metrics.scenario_asleep_ms = 0u;
+    s_metrics.scenario_battery_ms = 0u;
+    s_metrics.scenario_wifi_ms = 0u;
+    s_metrics.scenario_ble_ms = 0u;
     s_discharge_started_ms = 0u;
     s_discharge_started_percent = -1;
     portEXIT_CRITICAL(&s_power_metrics_mux);
@@ -155,20 +158,25 @@ void faculty175_power_metrics_update(uint32_t now_ms,
         case FACULTY175_POWER_AWAKE:
         default: s_metrics.awake_ms += dt_ms; break;
     }
+    const bool on_battery = s_metrics.pmu.present && s_metrics.pmu.battery_present &&
+                            !s_metrics.pmu.vbus_in && !s_metrics.pmu.charging;
     if (s_metrics.scenario != FACULTY175_POWER_SCENARIO_NORMAL) {
         s_metrics.scenario_elapsed_ms = now_ms - s_scenario_started_ms;
         s_metrics.scenario_remaining_ms = s_scenario_duration_ms - s_metrics.scenario_elapsed_ms;
-        switch (mode) {
-            case FACULTY175_POWER_BREATHING: s_metrics.scenario_breathing_ms += dt_ms; break;
-            case FACULTY175_POWER_DIMMED: s_metrics.scenario_dimmed_ms += dt_ms; break;
-            case FACULTY175_POWER_ASLEEP: s_metrics.scenario_asleep_ms += dt_ms; break;
-            case FACULTY175_POWER_AWAKE:
-            default: s_metrics.scenario_awake_ms += dt_ms; break;
+        if (on_battery) {
+            s_metrics.scenario_battery_ms += dt_ms;
+            if (wifi_active) s_metrics.scenario_wifi_ms += dt_ms;
+            if (ble_active) s_metrics.scenario_ble_ms += dt_ms;
+            switch (mode) {
+                case FACULTY175_POWER_BREATHING: s_metrics.scenario_breathing_ms += dt_ms; break;
+                case FACULTY175_POWER_DIMMED: s_metrics.scenario_dimmed_ms += dt_ms; break;
+                case FACULTY175_POWER_ASLEEP: s_metrics.scenario_asleep_ms += dt_ms; break;
+                case FACULTY175_POWER_AWAKE:
+                default: s_metrics.scenario_awake_ms += dt_ms; break;
+            }
         }
     }
 
-    const bool on_battery = s_metrics.pmu.present && s_metrics.pmu.battery_present &&
-                            !s_metrics.pmu.vbus_in && !s_metrics.pmu.charging;
     const int percent = s_metrics.pmu.battery_percent;
     if (!on_battery || percent < 0 || percent > 100) {
         s_discharge_started_ms = 0u;

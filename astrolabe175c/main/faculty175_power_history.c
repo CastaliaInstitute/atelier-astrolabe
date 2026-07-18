@@ -10,7 +10,7 @@
 #include "freertos/semphr.h"
 #include "nvs.h"
 
-#define POWER_HISTORY_NAMESPACE "power_hist2"
+#define POWER_HISTORY_NAMESPACE "power_hist3"
 #define POWER_HISTORY_INTERVAL_S (15u * 60u)
 
 static const char *TAG = "faculty175_power_history";
@@ -79,15 +79,23 @@ static void load_locked(void)
     }
 }
 
-static uint8_t sample_flags(const faculty175_pmu_status_t *pmu)
+static uint8_t sample_flags(const faculty175_pmu_status_t *pmu,
+                            bool wifi_active,
+                            bool ble_active)
 {
     return (pmu->battery_present ? FACULTY175_POWER_HISTORY_BATTERY_PRESENT : 0) |
            (pmu->vbus_in ? FACULTY175_POWER_HISTORY_VBUS : 0) |
            (pmu->charging ? FACULTY175_POWER_HISTORY_CHARGING : 0) |
-           (pmu->discharging ? FACULTY175_POWER_HISTORY_DISCHARGING : 0);
+           (pmu->discharging ? FACULTY175_POWER_HISTORY_DISCHARGING : 0) |
+           (wifi_active ? FACULTY175_POWER_HISTORY_WIFI : 0) |
+           (ble_active ? FACULTY175_POWER_HISTORY_BLE : 0);
 }
 
-void faculty175_power_history_maybe_record(const faculty175_pmu_status_t *pmu)
+void faculty175_power_history_maybe_record(const faculty175_pmu_status_t *pmu,
+                                           uint8_t mode,
+                                           uint8_t scenario,
+                                           bool wifi_active,
+                                           bool ble_active)
 {
     if (pmu == NULL || !pmu->present || pmu->battery_percent < 0 ||
         pmu->battery_percent > 100 || !astrolabe_time_valid()) {
@@ -99,7 +107,7 @@ void faculty175_power_history_maybe_record(const faculty175_pmu_status_t *pmu)
     }
     load_locked();
     const uint32_t epoch_s = (uint32_t)astrolabe_time_now();
-    const uint8_t flags = sample_flags(pmu);
+    const uint8_t flags = sample_flags(pmu, wifi_active, ble_active);
     bool record = s_count == 0;
     if (!record) {
         const uint8_t newest = (uint8_t)((s_head + FACULTY175_POWER_HISTORY_CAPACITY - 1) %
@@ -109,7 +117,8 @@ void faculty175_power_history_maybe_record(const faculty175_pmu_status_t *pmu)
                                         FACULTY175_POWER_HISTORY_CHARGING |
                                         FACULTY175_POWER_HISTORY_DISCHARGING;
         record = epoch_s < last->epoch_s || epoch_s - last->epoch_s >= POWER_HISTORY_INTERVAL_S ||
-                 ((last->flags ^ flags) & transition_mask) != 0;
+                 ((last->flags ^ flags) & transition_mask) != 0 ||
+                 last->mode != mode || last->scenario != scenario;
     }
     if (!record) {
         xSemaphoreGive(lock);
@@ -122,6 +131,8 @@ void faculty175_power_history_maybe_record(const faculty175_pmu_status_t *pmu)
         .battery_mv = pmu->battery_mv,
         .battery_percent = (uint8_t)pmu->battery_percent,
         .flags = flags,
+        .mode = mode,
+        .scenario = scenario,
     };
     nvs_handle_t nvs;
     esp_err_t err = nvs_open(POWER_HISTORY_NAMESPACE, NVS_READWRITE, &nvs);

@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "purpose": "Post-flash hardware smoke gate; never valid for battery-life claims",
+  "release_gate": {
+    "units_required": 1,
+    "endpoint": "functional-only"
+  },
+  "tests": [
+    {"id": "smoke_conversation_full", "scenario": "full-wifi", "workload": "conversation", "display": "100%", "radio": "wifi", "duration_min": 2, "capture_ms": 7000, "turn_interval_s": 2},
+    {"id": "smoke_conversation_dim", "scenario": "dim-wifi", "workload": "conversation", "display": "10%", "radio": "wifi", "duration_min": 2, "capture_ms": 7000, "turn_interval_s": 2},
+    {"id": "smoke_conversation_off", "scenario": "off-wifi", "workload": "conversation", "display": "off", "radio": "wifi", "duration_min": 2, "capture_ms": 7000, "turn_interval_s": 2},
+    {"id": "smoke_journal_off", "scenario": "off-wifi", "workload": "journal", "display": "off", "radio": "wifi", "duration_min": 2, "capture_ms": 30000, "journal_gap_s": 0},
+    {"id": "smoke_ble_config_off", "scenario": "sleep-offline", "workload": "ble-config", "display": "off", "radio": "ble", "duration_min": 2, "ble_probe_interval_s": 30, "ble_probe_timeout_s": 12, "ble_config_write_interval_s": 60},
+    {"id": "smoke_deep_sleep_timer", "runner": "deep-sleep", "display": "rails-off", "radio": "off", "duration_min": 2, "wake_source": "timer"}
+  ]
+}

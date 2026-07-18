@@ -45,6 +45,9 @@ typedef struct {
     uint32_t scenario_breathing_ms;
     uint32_t scenario_dimmed_ms;
     uint32_t scenario_asleep_ms;
+    uint32_t scenario_battery_ms;
+    uint32_t scenario_wifi_ms;
+    uint32_t scenario_ble_ms;
 } faculty175_power_metrics_t;
 
 void faculty175_power_metrics_update(uint32_t now_ms,

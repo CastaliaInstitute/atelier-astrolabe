@@ -1130,7 +1130,7 @@ static bool handle_power_command(const char *line)
     const bool on_battery = st->battery_present && !st->vbus_in && !st->charging;
     const bool docked = st->vbus_in || st->charging;
     const esp_app_desc_t *app = esp_app_get_description();
-    printf("power: firmware=%s reset_reason=%d pmu_on=0x%02x pmu_off=0x%02x source=%s docked=%s battery=%s percent=%d mv=%u vbus=%s charging=%s discharging=%s power_savings=%s mode=%s wifi=%s ble=%s scenario=%s scenario_elapsed_s=%lu scenario_remaining_s=%lu uptime_s=%lu awake_s=%lu breathing_s=%lu dimmed_s=%lu asleep_s=%lu discharge_drop=%d discharge_elapsed_s=%lu rate_pct_h=%.3f estimate=%s stream_hz=%.1f\n",
+    printf("power: firmware=%s reset_reason=%d pmu_on=0x%02x pmu_off=0x%02x source=%s docked=%s battery=%s percent=%d mv=%u vbus=%s charging=%s discharging=%s power_savings=%s mode=%s wifi=%s ble=%s scenario=%s scenario_elapsed_s=%lu scenario_remaining_s=%lu uptime_s=%lu awake_s=%lu breathing_s=%lu dimmed_s=%lu asleep_s=%lu scenario_battery_s=%lu scenario_awake_s=%lu scenario_breathing_s=%lu scenario_dimmed_s=%lu scenario_asleep_s=%lu scenario_wifi_s=%lu scenario_ble_s=%lu discharge_drop=%d discharge_elapsed_s=%lu rate_pct_h=%.3f estimate=%s stream_hz=%.1f\n",
            app != NULL ? app->version : "unknown",
            (int)esp_reset_reason(),
            (unsigned)st->power_on_source_flags,
@@ -1155,6 +1155,13 @@ static bool handle_power_command(const char *line)
            (unsigned long)(metrics.breathing_ms / 1000u),
            (unsigned long)(metrics.dimmed_ms / 1000u),
            (unsigned long)(metrics.asleep_ms / 1000u),
+           (unsigned long)(metrics.scenario_battery_ms / 1000u),
+           (unsigned long)(metrics.scenario_awake_ms / 1000u),
+           (unsigned long)(metrics.scenario_breathing_ms / 1000u),
+           (unsigned long)(metrics.scenario_dimmed_ms / 1000u),
+           (unsigned long)(metrics.scenario_asleep_ms / 1000u),
+           (unsigned long)(metrics.scenario_wifi_ms / 1000u),
+           (unsigned long)(metrics.scenario_ble_ms / 1000u),
            metrics.discharge_drop_percent,
            (unsigned long)(metrics.discharge_elapsed_ms / 1000u),
            (double)metrics.discharge_percent_per_hour,

@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timezone
 import glob
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -102,6 +103,7 @@ def main() -> int:
     parser.add_argument("--unit-id", default="dev-unit-1")
     parser.add_argument("--battery-id", default="unlabeled")
     parser.add_argument("--battery-mah", type=float, default=None)
+    parser.add_argument("--battery-photo", type=Path, default=None)
     parser.add_argument("--ambient-c", type=float, default=None)
     parser.add_argument("--rest-min", type=float, default=30.0)
     parser.add_argument("--charge-ready-timeout-min", type=float, default=360.0)
@@ -113,6 +115,12 @@ def main() -> int:
     ).strip()
     if not 1 <= args.duration_min <= 10080:
         raise SystemExit("error: --duration-min must be 1..10080")
+    if args.battery_mah is not None and args.battery_mah <= 0:
+        raise SystemExit("error: --battery-mah must be positive")
+    if args.battery_photo is not None and not args.battery_photo.is_file():
+        raise SystemExit(f"error: battery label photo not found: {args.battery_photo}")
+    if not args.allow_not_ready and (args.battery_mah is None or args.battery_photo is None):
+        raise SystemExit("error: qualified runs require --battery-mah and --battery-photo")
     if args.wake_source == "gpio0" and args.duration_min * 60 <= args.boot_timeout_s:
         raise SystemExit(
             "error: GPIO0 safety timer must exceed --boot-timeout-s; increase --duration-min"
@@ -124,6 +132,14 @@ def main() -> int:
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     out_dir = Path(args.out_dir) if args.out_dir else ROOT / "artifacts" / "qa" / f"lunasay-deep-sleep-{stamp}"
     out_dir.mkdir(parents=True, exist_ok=True)
+    battery_photo_sha256: str | None = None
+    battery_photo_artifact: str | None = None
+    if args.battery_photo is not None:
+        photo_source = args.battery_photo.resolve()
+        photo_target = out_dir / f"battery-label{photo_source.suffix.lower()}"
+        shutil.copy2(photo_source, photo_target)
+        battery_photo_sha256 = hashlib.sha256(photo_target.read_bytes()).hexdigest()
+        battery_photo_artifact = photo_target.name
     events_path = out_dir / "events.jsonl"
     charge_gate: dict = {"skipped": args.allow_not_ready}
     if not args.allow_not_ready:
@@ -154,9 +170,17 @@ def main() -> int:
         3.0,
     )
     (out_dir / "preflight-serial.log").write_text(preflight, encoding="utf-8")
+    def cancel_preflight() -> None:
+        try:
+            serial_commands(port, ["power deep-sleep cancel"], 1.0)
+        except Exception:
+            pass
+
     if "deep-sleep pending=yes" not in preflight:
+        cancel_preflight()
         raise RuntimeError("firmware did not arm deep sleep")
     if "time: valid=yes" not in preflight:
+        cancel_preflight()
         raise RuntimeError("device wall clock is invalid; deep-sleep start time would be unavailable")
     preflight_power = parse_power_status(preflight)
     record("armed", duration_min=args.duration_min, wake_source=args.wake_source)
@@ -166,6 +190,8 @@ def main() -> int:
     woke_on_network = False
     network_wake_after_s: float | None = None
     wake_battery: dict = {}
+    run_error: str | None = None
+    cleanup_error: str | None = None
     try:
         set_hub_power(args.uhubctl, args.hub_location, args.hub_port, False)
         power_off = True
@@ -202,15 +228,36 @@ def main() -> int:
                     record("wake_battery_unavailable", error=str(exc))
                 break
             time.sleep(2.0)
+    except Exception as exc:
+        run_error = f"{type(exc).__name__}: {exc}"
+        record("runner_error", error=run_error)
     finally:
         if power_off:
-            set_hub_power(args.uhubctl, args.hub_location, args.hub_port, True)
-            record("vbus_on")
-            time.sleep(3.0)
+            try:
+                set_hub_power(args.uhubctl, args.hub_location, args.hub_port, True)
+                record("vbus_on")
+                time.sleep(3.0)
+            except Exception as exc:
+                cleanup_error = f"VBUS restore failed: {type(exc).__name__}: {exc}"
+                record("cleanup_failed", error=cleanup_error)
 
-    port = wait_for_port(20.0)
-    postflight = serial_commands(port, ["power deep-sleep status", "power"], 3.0)
+    postflight = ""
+    try:
+        port = wait_for_port(20.0)
+        postflight = serial_commands(
+            port,
+            ["power deep-sleep status", "power", "power deep-sleep cancel"],
+            3.0,
+        )
+    except Exception as exc:
+        state_error = f"deep-sleep cleanup failed: {type(exc).__name__}: {exc}"
+        cleanup_error = f"{cleanup_error}; {state_error}" if cleanup_error else state_error
+        record("cleanup_failed", error=state_error)
     (out_dir / "postflight-serial.log").write_text(postflight, encoding="utf-8")
+    if "power: deep-sleep cancelled" not in postflight:
+        confirmation_error = "firmware did not confirm deep-sleep cancellation"
+        cleanup_error = f"{cleanup_error}; {confirmation_error}" if cleanup_error else confirmation_error
+        record("cleanup_failed", error=confirmation_error)
     retained = "retained=yes" in postflight
     completed = "completed=yes" in postflight
     wake_match = re.search(r"wake_cause=(\d+)", postflight)
@@ -235,7 +282,9 @@ def main() -> int:
             network_wake_after_s is not None and network_wake_after_s < requested_s * 0.9
         )
     passed = bool(
-        became_unreachable
+        run_error is None
+        and cleanup_error is None
+        and became_unreachable
         and woke_on_network
         and retained
         and completed
@@ -255,6 +304,8 @@ def main() -> int:
         "expected_wake_cause": expected_wake_cause,
         "expected_wake": expected_wake,
         "telemetry_valid": telemetry_valid,
+        "run_error": run_error,
+        "cleanup_error": cleanup_error,
         "retained": retained,
         "completed": completed,
         "wake_battery": wake_battery,
@@ -262,6 +313,8 @@ def main() -> int:
             "unit_id": args.unit_id,
             "battery_id": args.battery_id,
             "battery_mah": args.battery_mah,
+            "battery_photo": battery_photo_artifact,
+            "battery_photo_sha256": battery_photo_sha256,
             "ambient_c": args.ambient_c,
             "firmware_build": wake_battery.get("firmware", {}).get(
                 "version", preflight_power.get("firmware", "unknown")

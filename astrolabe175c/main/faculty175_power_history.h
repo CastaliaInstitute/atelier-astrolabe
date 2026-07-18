@@ -15,6 +15,8 @@ typedef struct {
     uint16_t battery_mv;
     uint8_t battery_percent;
     uint8_t flags;
+    uint8_t mode;
+    uint8_t scenario;
 } faculty175_power_history_sample_t;
 
 typedef struct {
@@ -30,10 +32,16 @@ enum {
     FACULTY175_POWER_HISTORY_VBUS = 1u << 1,
     FACULTY175_POWER_HISTORY_CHARGING = 1u << 2,
     FACULTY175_POWER_HISTORY_DISCHARGING = 1u << 3,
+    FACULTY175_POWER_HISTORY_WIFI = 1u << 4,
+    FACULTY175_POWER_HISTORY_BLE = 1u << 5,
 };
 
 /** Persist a periodic or state-transition sample when wall-clock time is valid. */
-void faculty175_power_history_maybe_record(const faculty175_pmu_status_t *pmu);
+void faculty175_power_history_maybe_record(const faculty175_pmu_status_t *pmu,
+                                           uint8_t mode,
+                                           uint8_t scenario,
+                                           bool wifi_active,
+                                           bool ble_active);
 
 /** Copy retained samples oldest-first. */
 size_t faculty175_power_history_load(faculty175_power_history_sample_t *out, size_t capacity);

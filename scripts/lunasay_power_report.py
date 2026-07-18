@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import csv
 from datetime import datetime
+import hashlib
 from html import escape
 import json
 import math
@@ -321,11 +322,23 @@ def main() -> int:
     parser.add_argument("--matrix", type=Path, default=ROOT / "config" / "lunasay_power_matrix.json")
     args = parser.parse_args()
     analyzer_rows = load_analyzer_rows(args.analyzer_csv)
+    analyzer_sources = [
+        {
+            "path": str(path.resolve()),
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+            "bytes": path.stat().st_size,
+        }
+        for path in args.analyzer_csv
+    ]
 
     runs: list[dict] = []
     curves: list[dict] = []
     for summary_path in sorted(args.artifact_root.glob("lunasay-battery-*/summary.json")):
         summary = load_json(summary_path)
+        scenario_evidence = summary.get("scenario_evidence", {})
+        scenario_verified = bool(scenario_evidence.get("passed", False))
+        validated_summary = dict(summary)
+        validated_summary["passed"] = bool(summary.get("passed", False) and scenario_verified)
         article = summary.get("test_article", {})
         charge_gate = summary.get("charge_gate", {})
         charge_ready = bool(
@@ -339,7 +352,7 @@ def main() -> int:
         start, end, shutdown_observed = run_window(events, summary)
         samples = battery_samples(summary, start, end)
         metrics = classify(
-            summary,
+            validated_summary,
             samples,
             start,
             end,
@@ -388,6 +401,10 @@ def main() -> int:
         if capture_coverage_ratio <= 0 and metrics["duration_h"] > 0:
             capture_coverage_ratio = min(1.0, captured_audio_s / (metrics["duration_h"] * 3600.0))
         successful_turns = int(summary.get("successful_turns", 0))
+        accepted_captures = int(summary.get("accepted_captures", summary.get("turns", 0)))
+        ble_probes = int(summary.get("ble_probes", 0))
+        successful_ble_probes = int(summary.get("successful_ble_probes", 0))
+        ble_config_roundtrips = int(summary.get("ble_config_roundtrips", 0))
         energy_wh = metrics.get("energy_wh")
         energy_per_unit_mwh = None
         if isinstance(energy_wh, (int, float)) and metrics["current_basis"] == "direct-battery-analyzer":
@@ -395,19 +412,29 @@ def main() -> int:
                 energy_per_unit_mwh = float(energy_wh) * 1000.0 / successful_turns
             elif summary.get("workload") == "journal" and captured_audio_s > 0:
                 energy_per_unit_mwh = float(energy_wh) * 1000.0 / (captured_audio_s / 60.0)
+            elif summary.get("workload") == "ble-config" and ble_config_roundtrips > 0:
+                energy_per_unit_mwh = float(energy_wh) * 1000.0 / ble_config_roundtrips
         run_id = summary_path.parent.name
         runs.append({
             "run_id": run_id,
             "scenario": summary.get("scenario", "unknown"),
             "workload": summary.get("workload", "unknown"),
-            "passed": bool(summary.get("passed", False)),
+            "passed": bool(validated_summary.get("passed", False)),
+            "scenario_evidence_passed": scenario_verified,
+            "scenario_counter_passed": bool(scenario_evidence.get("counter_passed", False)),
+            "scenario_history_passed": bool(scenario_evidence.get("history_passed", False)),
             "unit_id": article.get("unit_id", "unknown"),
             "battery_id": article.get("battery_id", "unknown"),
             "battery_mah": run_battery_mah,
+            "battery_photo_sha256": article.get("battery_photo_sha256"),
             "firmware_build": article.get("firmware_build", "unknown"),
             "harness_build": article.get("harness_build", "unknown"),
             "turns": int(summary.get("turns", 0)),
+            "accepted_captures": accepted_captures,
             "successful_turns": successful_turns,
+            "ble_probes": ble_probes,
+            "successful_ble_probes": successful_ble_probes,
+            "ble_config_roundtrips": ble_config_roundtrips,
             "captured_audio_s": captured_audio_s,
             "capture_coverage_ratio": capture_coverage_ratio,
             "energy_per_unit_mwh": energy_per_unit_mwh,
@@ -424,6 +451,10 @@ def main() -> int:
             })
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
+    (args.out_dir / "analyzer_sources.json").write_text(
+        json.dumps(analyzer_sources, indent=2) + "\n",
+        encoding="utf-8",
+    )
     deep_runs: list[dict] = []
     for summary_path in sorted(args.artifact_root.glob("lunasay-deep-sleep-*/summary.json")):
         summary = load_json(summary_path)
@@ -522,6 +553,7 @@ def main() -> int:
             "unit_id": article.get("unit_id", "unknown"),
             "battery_id": article.get("battery_id", "unknown"),
             "battery_mah": run_battery_mah,
+            "battery_photo_sha256": article.get("battery_photo_sha256"),
             "duration_h": duration_h,
             "percent_drop": drop,
             "projected_full_runtime_h": projected_h,
@@ -532,9 +564,12 @@ def main() -> int:
             ),
         })
     run_fields = [
-        "run_id", "scenario", "workload", "passed", "unit_id", "battery_id", "battery_mah",
+        "run_id", "scenario", "workload", "passed", "scenario_evidence_passed",
+        "scenario_counter_passed", "scenario_history_passed", "unit_id", "battery_id", "battery_mah",
+        "battery_photo_sha256",
         "firmware_build", "harness_build",
-        "turns", "successful_turns",
+        "turns", "accepted_captures", "successful_turns", "ble_probes", "successful_ble_probes",
+        "ble_config_roundtrips",
         "captured_audio_s", "capture_coverage_ratio", "energy_per_unit_mwh",
         "duration_h", "sample_count", "percent_drop", "voltage_drop_mv", "percent_monotonic",
         "percent_per_hour", "voltage_drop_mv_per_hour", "projected_full_runtime_h",
@@ -548,7 +583,7 @@ def main() -> int:
         writer.writerows(runs)
     deep_fields = [
         "run_id", "scenario", "workload", "wake_source", "passed", "unit_id", "battery_id",
-        "battery_mah", "duration_h", "percent_drop", "projected_full_runtime_h",
+        "battery_mah", "battery_photo_sha256", "duration_h", "percent_drop", "projected_full_runtime_h",
         "median_current_ma", "average_current_ma", "peak_current_ma", "charge_mah", "energy_wh",
         "current_basis", "analyzer_samples", "analyzer_duration_h", "analyzer_coverage_ratio",
         "evidence",
@@ -570,6 +605,7 @@ def main() -> int:
         "Generated from hub-controlled QA artifacts. Battery claims are withheld unless a run has "
         f"at least {args.min_estimate_hours:g} hour(s), three battery-only samples, and "
         f"a {args.min_percent_drop}% monotonic drop, and a completed full-charge/rest gate.",
+        "Analyzer input paths, sizes, and SHA-256 hashes are recorded in `analyzer_sources.json`.",
         "",
         "![Battery discharge curves](curves.svg)",
         "" if args.battery_mah is None else f"Average current uses the labeled {args.battery_mah:g} mAh cell capacity.",
@@ -614,15 +650,36 @@ def main() -> int:
             "",
             "## Voice workload evidence",
             "",
-            "| Workload | Scenario | Segments/turns | Successful | Captured audio | Coverage | Direct energy/unit |",
-            "|---|---|---:|---:|---:|---:|---:|",
+            "| Workload | Scenario | Attempts | Accepted captures | Successful | Captured audio | Coverage | Direct energy/unit |",
+            "|---|---|---:|---:|---:|---:|---:|---:|",
         ])
         for run in voice_runs:
             lines.append(
                 f"| {run['workload']} | {run['scenario']} | {run['turns']} | "
-                f"{run['successful_turns']} | {fmt(run['captured_audio_s'], 1)} s | "
+                f"{run['accepted_captures']} | {run['successful_turns']} | "
+                f"{fmt(run['captured_audio_s'], 1)} s | "
                 f"{fmt(run['capture_coverage_ratio'] * 100.0, 1)}% | "
                 f"{fmt(run['energy_per_unit_mwh'], 2)} mWh |"
+            )
+    ble_runs = [run for run in runs if run["workload"] in ("ble", "ble-config")]
+    if ble_runs:
+        lines.extend([
+            "",
+            "## BLE workload evidence",
+            "",
+            "| Workload | Scenario | Probes | Successful | Success | Set roundtrips | Direct mWh/set interval |",
+            "|---|---|---:|---:|---:|---:|---:|",
+        ])
+        for run in ble_runs:
+            success_ratio = (
+                run["successful_ble_probes"] / run["ble_probes"]
+                if run["ble_probes"] > 0 else 0.0
+            )
+            config_energy = run["energy_per_unit_mwh"] if run["workload"] == "ble-config" else None
+            lines.append(
+                f"| {run['workload']} | {run['scenario']} | {run['ble_probes']} | "
+                f"{run['successful_ble_probes']} | {fmt(success_ratio * 100.0, 1)}% | "
+                f"{run['ble_config_roundtrips']} | {fmt(config_energy, 2)} |"
             )
     if deep_runs:
         lines.extend([
@@ -639,6 +696,8 @@ def main() -> int:
                 f"{fmt(run['average_current_ma'])} mA | {run['current_basis']} | {run['evidence']} |"
             )
 
+    claim_rows: list[dict] = []
+    matrix_open_count = 0
     if args.matrix.exists():
         matrix = load_json(args.matrix)
         rank = {"failed": 0, "insufficient-samples": 1, "unqualified-runtime": 2,
@@ -648,9 +707,12 @@ def main() -> int:
             "",
             "## Required-matrix coverage",
             "",
-            "| Test | Display | Radio | Workload | Best evidence | Units | Release gate |",
-            "|---|---|---|---|---|---:|---|",
+            "| Test | Display | Radio | Workload | Best evidence | Required basis | Units | Release gate |",
+            "|---|---|---|---|---|---|---:|---|",
         ])
+        release_gate = matrix.get("release_gate", {})
+        require_direct_current = bool(release_gate.get("require_direct_current", False))
+        require_labeled_capacity = bool(release_gate.get("require_labeled_capacity", False))
         for test in matrix.get("tests", []):
             if test.get("runner") == "deep-sleep":
                 candidates = deep_runs
@@ -661,26 +723,125 @@ def main() -> int:
                 ]
             best = max(candidates, key=lambda run: rank.get(run["evidence"], -1)) if candidates else None
             best_evidence = best["evidence"] if best is not None else "missing"
-            measured_units = {
-                run.get("unit_id", "unknown") for run in candidates
-                if run.get("evidence") == "measured-runtime" and run.get("unit_id") != "unknown"
+            release_basis = test.get("release_basis", "measured-runtime")
+            if release_basis == "direct-projection":
+                qualifying = [
+                    run for run in candidates
+                    if run.get("passed")
+                    and run.get("wake_source") == "timer"
+                    and run.get("current_basis") == "direct-battery-analyzer"
+                    and isinstance(run.get("projected_full_runtime_h"), (int, float))
+                    and isinstance(run.get("battery_mah"), (int, float))
+                    and bool(run.get("battery_photo_sha256"))
+                ]
+            elif release_basis == "direct-workload":
+                qualifying = [
+                    run for run in candidates
+                    if run.get("passed")
+                    and run.get("charge_ready")
+                    and run.get("current_basis") == "direct-battery-analyzer"
+                    and float(run.get("analyzer_coverage_ratio", 0)) >= 0.95
+                    and int(run.get("successful_ble_probes", 0)) > 0
+                    and int(run.get("ble_config_roundtrips", 0)) > 0
+                    and (
+                        not require_labeled_capacity
+                        or (
+                            isinstance(run.get("battery_mah"), (int, float))
+                            and bool(run.get("battery_photo_sha256"))
+                        )
+                    )
+                ]
+            else:
+                qualifying = [
+                    run for run in candidates
+                    if run.get("evidence") == "measured-runtime"
+                    and (
+                        not require_direct_current
+                        or (
+                            run.get("current_basis") == "direct-battery-analyzer"
+                            and float(run.get("analyzer_coverage_ratio", 0)) >= 0.95
+                        )
+                    )
+                    and (
+                        not require_labeled_capacity
+                        or (
+                            isinstance(run.get("battery_mah"), (int, float))
+                            and bool(run.get("battery_photo_sha256"))
+                        )
+                    )
+                ]
+            qualifying_units = {
+                run.get("unit_id", "unknown") for run in qualifying
+                if run.get("unit_id") != "unknown"
             }
-            required_units = int(matrix.get("release_gate", {}).get("units_required", 2))
-            gate = "ready" if len(measured_units) >= required_units else "open"
+            if release_basis == "direct-projection":
+                gpio0_units = {
+                    run.get("unit_id", "unknown") for run in deep_runs
+                    if run.get("passed")
+                    and run.get("wake_source") == "gpio0"
+                    and run.get("unit_id") != "unknown"
+                }
+                qualifying_units &= gpio0_units
+                qualifying = [
+                    run for run in qualifying if run.get("unit_id") in qualifying_units
+                ]
+            required_units = int(release_gate.get("units_required", 2))
+            gate = "ready" if len(qualifying_units) >= required_units else "open"
+            matrix_open_count += int(gate != "ready")
             lines.append(
                 f"| {test['id']} | {test.get('display', '—')} | {test.get('radio', '—')} | "
                 f"{test.get('workload', test.get('runner', '—'))} | {best_evidence} | "
-                f"{len(measured_units)} | {gate} |"
+                f"{('measured-runtime+direct-current' if release_basis == 'measured-runtime' and require_direct_current else release_basis)} | "
+                f"{len(qualifying_units)} | {gate} |"
             )
+            if gate == "ready" and release_basis == "measured-runtime":
+                minimum_h = min(float(run["measured_runtime_h"]) for run in qualifying)
+                step_h = 0.5 if minimum_h >= 2.0 else 0.25
+                claim_h = math.floor(minimum_h / step_h) * step_h
+                if claim_h > 0:
+                    claim_rows.append({
+                        "test": test["id"],
+                        "basis": "measured full-to-shutdown + direct current",
+                        "units": len(qualifying_units),
+                        "draft": (
+                            f"At least {claim_h:g} hours with the display at "
+                            f"{test.get('display', 'the tested level')}, {test.get('radio', 'tested radio')} "
+                            f"and {test.get('workload', 'tested')} workload."
+                        ),
+                    })
+            elif gate == "ready" and release_basis == "direct-projection":
+                minimum_h = min(float(run["projected_full_runtime_h"]) for run in qualifying)
+                if minimum_h >= 24.0:
+                    conservative = math.floor(minimum_h / 24.0)
+                    duration = f"approximately {conservative:g} days"
+                else:
+                    conservative = math.floor(minimum_h * 2.0) / 2.0
+                    duration = f"approximately {conservative:g} hours"
+                claim_rows.append({
+                    "test": test["id"],
+                    "basis": "labeled capacity + direct sleep current",
+                    "units": len(qualifying_units),
+                    "draft": f"Projected deep-sleep battery life is {duration}.",
+                })
     limitations: list[str] = []
     if not runs and not deep_runs:
         limitations.append("No completed hub-controlled runs were found.")
     if any(not run.get("charge_ready", False) for run in runs):
         limitations.append("One or more active-mode runs skipped or failed the full-charge/30-minute-rest gate.")
+    if any(not run.get("scenario_evidence_passed", False) for run in runs):
+        limitations.append(
+            "One or more active-mode runs lack verified battery-only display/radio scenario evidence."
+        )
     if not analyzer_rows:
         limitations.append("No inline battery-path analyzer trace is present; direct current, mAh, and Wh remain unknown.")
-    if any(run.get("battery_mah") is None for run in [*runs, *deep_runs]):
-        limitations.append("At least one test article lacks a photographed, labeled cell capacity; capacity-derived current is withheld.")
+    if any(
+        run.get("battery_mah") is None or not run.get("battery_photo_sha256")
+        for run in [*runs, *deep_runs]
+    ):
+        limitations.append(
+            "At least one test article lacks a labeled cell capacity or hashed label photo; "
+            "its release gate remains open."
+        )
     if not any(run.get("evidence") == "measured-runtime" for run in runs):
         limitations.append("No qualified active-mode run has yet reached confirmed automatic low-voltage shutdown.")
     if not any(run.get("passed") and run.get("wake_source") == "timer" for run in deep_runs):
@@ -693,15 +854,29 @@ def main() -> int:
     }
     if len(measured_units) < 2:
         limitations.append("The two-release-candidate-unit repetition gate is still open.")
+    if matrix_open_count:
+        limitations.append(f"{matrix_open_count} required matrix release gate(s) remain open.")
     lines.extend(["", "## Limitations", ""])
     lines.extend(f"- {limitation}" for limitation in limitations)
+    lines.extend(["", "## Claim status", ""])
+    if claim_rows:
+        lines.extend([
+            "The following conservative drafts have passed their per-mode evidence gates:",
+            "",
+            "| Test | Units | Basis | Conservative draft |",
+            "|---|---:|---|---|",
+        ])
+        for claim in claim_rows:
+            lines.append(
+                f"| {claim['test']} | {claim['units']} | {claim['basis']} | {claim['draft']} |"
+            )
+        lines.append("")
+    else:
+        lines.extend(["No Kickstarter battery-life claim is evidence-ready yet.", ""])
     lines.extend([
-        "",
-        "## Claim status",
-        "",
-        "No Kickstarter battery-life claim should be published from a `functional-only` smoke test. "
-        "A projected runtime is engineering evidence; the final public claim requires at least one "
-        "release-candidate run to shutdown in each advertised mode and a repeat run on a second unit.",
+        "Never publish a battery-life claim from a `functional-only` smoke test. Active-mode claims "
+        "require full-to-shutdown runs on two release-candidate units. Deep-sleep wording remains "
+        "explicitly projected even when it is backed by labeled capacity and direct current traces.",
         "",
     ])
     (args.out_dir / "report.md").write_text("\n".join(lines), encoding="utf-8")

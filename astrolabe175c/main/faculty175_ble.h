@@ -71,6 +71,9 @@ void faculty175_ble_prepare_deep_sleep(void);
 /** Start/stop BLE advertising for an attributable power test without NVS writes. */
 esp_err_t faculty175_ble_power_test_set(bool enabled);
 bool faculty175_ble_power_test_active(void);
+/** Temporarily stop/resume BLE for an isolated power scenario without changing NVS. */
+void faculty175_ble_power_scenario_suspend(bool suspended);
+bool faculty175_ble_power_scenario_suspended(void);
 esp_err_t faculty175_ble_set_device_name(const char *name);
 const char *faculty175_ble_device_name(void);
 esp_err_t faculty175_ble_scan_start(uint32_t duration_ms);

@@ -341,6 +341,9 @@ static esp_err_t api_battery_get(httpd_req_t *req)
             cJSON_AddNumberToObject(scenario_usage, "breathing_ms", status.scenario_breathing_ms);
             cJSON_AddNumberToObject(scenario_usage, "dimmed_ms", status.scenario_dimmed_ms);
             cJSON_AddNumberToObject(scenario_usage, "asleep_ms", status.scenario_asleep_ms);
+            cJSON_AddNumberToObject(scenario_usage, "battery_ms", status.scenario_battery_ms);
+            cJSON_AddNumberToObject(scenario_usage, "wifi_ms", status.scenario_wifi_ms);
+            cJSON_AddNumberToObject(scenario_usage, "ble_ms", status.scenario_ble_ms);
         }
     }
 
@@ -437,14 +440,15 @@ static esp_err_t api_battery_get(httpd_req_t *req)
     if (err == ESP_OK) {
         err = httpd_resp_send_chunk(req, ",\"history\":[", HTTPD_RESP_USE_STRLEN);
     }
-    char entry[192];
+    char entry[320];
     for (size_t i = 0; err == ESP_OK && i < history_count; ++i) {
         const faculty175_power_history_sample_t *sample = &samples[i];
         const int wrote = snprintf(
             entry,
             sizeof(entry),
             "%s{\"epoch_s\":%lu,\"percent\":%u,\"voltage_mv\":%u,"
-            "\"battery_present\":%s,\"vbus\":%s,\"charging\":%s,\"discharging\":%s}",
+            "\"battery_present\":%s,\"vbus\":%s,\"charging\":%s,\"discharging\":%s,"
+            "\"mode\":\"%s\",\"scenario\":\"%s\",\"wifi\":%s,\"ble\":%s}",
             i == 0 ? "" : ",",
             (unsigned long)sample->epoch_s,
             (unsigned)sample->battery_percent,
@@ -452,7 +456,11 @@ static esp_err_t api_battery_get(httpd_req_t *req)
             (sample->flags & FACULTY175_POWER_HISTORY_BATTERY_PRESENT) != 0 ? "true" : "false",
             (sample->flags & FACULTY175_POWER_HISTORY_VBUS) != 0 ? "true" : "false",
             (sample->flags & FACULTY175_POWER_HISTORY_CHARGING) != 0 ? "true" : "false",
-            (sample->flags & FACULTY175_POWER_HISTORY_DISCHARGING) != 0 ? "true" : "false");
+            (sample->flags & FACULTY175_POWER_HISTORY_DISCHARGING) != 0 ? "true" : "false",
+            faculty175_power_mode_name((faculty175_power_mode_t)sample->mode),
+            faculty175_power_scenario_name((faculty175_power_scenario_t)sample->scenario),
+            (sample->flags & FACULTY175_POWER_HISTORY_WIFI) != 0 ? "true" : "false",
+            (sample->flags & FACULTY175_POWER_HISTORY_BLE) != 0 ? "true" : "false");
         if (wrote < 0 || (size_t)wrote >= sizeof(entry)) {
             err = ESP_ERR_INVALID_SIZE;
             break;

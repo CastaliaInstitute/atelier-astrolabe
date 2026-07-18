@@ -21,6 +21,10 @@ projected runtime, and measured runtime to shutdown.
   may establish liveness but must not wake HTTP/audio services during idle runs.
 - Attribute only PMU samples between `vbus_off` and `vbus_on`. Never combine
   docked history or another scenario with the current discharge segment.
+- Require firmware battery-only scenario counters or retained history metadata
+  to show that the requested display mode and Wi-Fi/BLE state dominated the
+  attributed interval. A requested scenario name alone is not evidence that it
+  was applied.
 - Firmware retains 240 fixed-cadence samples in NVS: 15-minute resolution for
   up to 60 hours, plus source/charging transitions. Fetch the ring only after
   VBUS restoration so idle measurements do not wake the HTTP/audio stack.
@@ -46,21 +50,27 @@ projected runtime, and measured runtime to shutdown.
 | `off-wifi` | off | Wi-Fi | idle/listener | connected standby runtime |
 | `sleep-offline` | off | off | CPU awake | display-off baseline |
 | true deep sleep | off/unused rails quiesced | off | timer + BOOT (GPIO0) wake | sleep current/runtime |
-| conversation | dim, then off | Wi-Fi | repeated STT→LLM→TTS | successful turns and hours |
-| journal/meeting | off | Wi-Fi as needed | continuous recording/transcription | recording hours and upload duty cycle |
+| conversation | full, dim, and off | Wi-Fi | repeated STT→LLM→TTS | successful turns and hours |
+| journal/meeting | off | Wi-Fi as needed | repeated 30-second recording/transcription segments with no configured gap | recording hours and measured capture/upload duty cycle |
 | BLE advertising | full, dim, or off | BLE only | CoreBluetooth liveness probe | BLE standby runtime |
 | BLE configuration | off or dim | BLE | periodic fetch/set | configuration-session cost |
 
 Run every advertised mode to automatic low-voltage shutdown on one
 release-candidate unit, then repeat it on a second unit. Shorter runs may be used
-to tune firmware but are not final runtime evidence.
+to tune firmware but are not final runtime evidence. Release readiness also
+requires a synchronized battery-path analyzer trace covering at least 95% of
+each run and a recorded labeled cell capacity; runtime alone does not fully
+characterize power consumption.
 
 ## Current and energy measurement
 
 The on-board AXP2101 interface used by this board reports battery voltage,
 coarse fuel-gauge percentage, source, and charge/discharge state. It does not
-report instantaneous battery current. The controllable USB hub removes and
-restores VBUS reproducibly, but it is not a current meter. Consequently:
+report instantaneous battery current. The AXP2101 register specification's ADC
+table lists only VBAT, VBUS, VSYS, TS voltage, and die temperature; its PMU
+status register reports current *direction* but no current magnitude. The
+controllable USB hub removes and restores VBUS reproducibly, but it is not a
+current meter. Consequently:
 
 - `rated_capacity_mAh / measured_runtime_h` may be reported as a
   **capacity-derived average current** only after the physical cell label has
@@ -89,9 +99,12 @@ python3 scripts/lunasay_power_report.py --analyzer-csv analyzer.csv
 The CSV requires `run_id`, positive-discharge `current_ma`, one time column
 (`epoch_s` or ISO-8601 `timestamp`), and one voltage column (`voltage_mv` or
 `voltage_v`). The report trapezoid-integrates charge and energy, records average
-and peak current, and calculates direct mWh per successful conversation turn or
-per recorded journal minute. Without such a trace, those direct fields remain
-unknown; a labeled-capacity runtime is reported separately as
+and peak current, and calculates direct mWh per successful conversation turn,
+per recorded journal minute, or per scheduled BLE configuration-set interval.
+The BLE interval value includes intervening standby and settings reads; it is a
+workload-cycle value, not isolated GATT transaction energy.
+Without such a trace, those direct fields remain unknown; a labeled-capacity
+runtime is reported separately as
 `capacity-derived` current. A trace must span at least 95% of the attributed
 VBUS-off window to receive the `direct-battery-analyzer` label; shorter traces
 are retained but explicitly marked `direct-battery-analyzer-partial`, and their
@@ -131,7 +144,26 @@ python3 scripts/lunasay_deep_sleep_validate.py \
 
 Both gates require the device to disappear from the network, return on the
 expected wake cause, restore Wi-Fi and `/api/battery`, retain start telemetry,
-and wake within the permitted time window.
+and wake within the permitted time window. A deep-sleep claim requires a
+passing GPIO0 artifact for every unit contributing direct-current projection
+evidence; timer evidence alone cannot open the claim gate.
+
+After flashing a new release candidate, run the non-publishable post-flash
+smoke matrix before any charged qualification run:
+
+```sh
+python3 scripts/lunasay_power_matrix_run.py \
+  --matrix config/lunasay_power_smoke_matrix.json \
+  --state artifacts/qa/lunasay-power-smoke-state.json \
+  --unit-id luna-dev1 --battery-id smoke-cell --allow-not-ready
+```
+
+It exercises full, dim, and display-off STT→LLM→TTS; near-continuous journal
+capture; real BLE settings reads and verified writes; cleanup after every hub
+cycle; and timed deep sleep. All six tests remain `functional-only`. Delete or
+choose a new state file after changing firmware so an earlier smoke completion
+cannot be reused; the matrix hash prevents reuse after the smoke definition
+itself changes. The physical BOOT/GPIO0 gate remains a separate operator action.
 
 The board's separate PWR key connects to the AXP2101 `PWRON` input. Its `PWROK`
 output controls ESP32 reset, while `AXP_IRQ` is not routed to an ESP GPIO in the
@@ -141,7 +173,10 @@ ESP32 deep-sleep wake source; only BOOT/GPIO0 and the timer are asserted here.
 ## Evidence levels
 
 - **Functional only:** mode applied correctly, source reports `battery`, and the
-  expected display/radio/voice behavior works. No battery-life claim.
+  expected display/radio/voice behavior works. Firmware counters and retained
+  history prove the commanded display mode and radio state; they do not measure
+  panel luminance. Verify full and dim brightness visually (or with an optical
+  meter) during post-flash QA. No battery-life claim.
 - **Projected runtime:** at least one hour, at least three battery-only samples,
   and at least 2% monotonic fuel-gauge drop. Label it as a projection.
 - **Measured runtime:** elapsed time from rested full charge to automatic
@@ -160,19 +195,32 @@ sequentially with a dedicated state file for each physical unit and battery:
 
 ```sh
 python3 scripts/lunasay_power_matrix_run.py \
-  --unit-id luna-rc1 --battery-id cell-serial-from-label
+  --unit-id luna-rc1 --battery-id cell-serial-from-label \
+  --battery-mah CAPACITY_FROM_LABEL --battery-photo /path/to/battery-label.jpg
 ```
 
-The orchestrator resumes completed test IDs, waits for charge termination and
-the required rest before every run, and stops at the first failure. Use
-`--dry-run` to review all commands. `--allow-not-ready` is only for smoke tests
-and permanently classifies those artifacts as unqualified.
+The orchestrator resumes completed test IDs, binds its state to the matrix
+SHA-256, source/harness build, and device firmware build; records each exact test
+definition and command; waits for charge termination and the required rest
+before every run; and stops at the first
+failure. A changed matrix requires a new state file rather than silently reusing
+stale completions. Use `--dry-run` to review all commands. `--allow-not-ready`
+is only for smoke tests and permanently classifies those artifacts as
+unqualified. Qualified runners copy the battery-label photo into every artifact
+directory and store its SHA-256 with the labeled capacity.
 
 BLE-only runs use the non-persistent firmware command `ble power-test on` and
-the native `scripts/lunasay_ble_probe.swift` CoreBluetooth scanner. The runner
-must send `ble power-test off` after recovery; neither command changes the
-owner's saved BLE preference.
+the native `scripts/lunasay_ble_probe.swift` CoreBluetooth client. Advertising
+runs scan for liveness. The `ble-config` workload connects to the settings GATT
+service and fetches and validates the settings JSON every minute. Once per hour
+it writes only the current epoch, then reads it back; the lower write cadence
+avoids needless NVS wear while still testing a real setting transaction. It
+deliberately does not echo the returned Wi-Fi object,
+because the read representation omits the password and echoing it would replace
+a stored credential with an empty password. The runner sends `ble power-test
+off` after recovery; neither power-test command changes the owner's saved BLE
+preference.
 
-The generated `report.md`, `runs.csv`, `deep_sleep_runs.csv`, `curves.csv`, and
-`curves.svg` live under
+The generated `report.md`, `runs.csv`, `deep_sleep_runs.csv`, `curves.csv`,
+`curves.svg`, and analyzer-input hash manifest `analyzer_sources.json` live under
 `artifacts/qa/lunasay-power-report/` by default.

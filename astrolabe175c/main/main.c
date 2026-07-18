@@ -701,7 +701,21 @@ static void low_power_tick(uint32_t now_ms)
         s_power_on_battery = low_power_on_battery(&st);
         const bool docked = low_power_is_docked(&st);
         if (s_power_have_status) {
-            faculty175_power_history_maybe_record(&st);
+            const faculty175_power_scenario_t history_scenario =
+                faculty175_power_scenario_get(now_ms);
+            const faculty175_power_mode_t history_mode =
+                s_power_on_battery && history_scenario != FACULTY175_POWER_SCENARIO_NORMAL
+                    ? faculty175_power_scenario_mode(history_scenario)
+                    : (s_low_power_asleep
+                           ? FACULTY175_POWER_ASLEEP
+                           : (s_low_power_dimmed ? FACULTY175_POWER_DIMMED
+                                                : FACULTY175_POWER_AWAKE));
+            faculty175_power_history_maybe_record(
+                &st,
+                (uint8_t)history_mode,
+                (uint8_t)history_scenario,
+                !s_wifi_low_power_paused && wifi_is_connected(),
+                faculty175_ble_advertising() || faculty175_ble_scanning());
         }
         if (s_power_have_status &&
             (s_power_on_battery != last_on_battery || docked != last_docked || !last_have_status ||
@@ -767,6 +781,7 @@ static void low_power_tick(uint32_t now_ms)
         } else {
             low_power_wifi_pause();
         }
+        faculty175_ble_power_scenario_suspend(!faculty175_ble_power_test_active());
         FACULTY175_LOG_STAGE(TAG,
                              "power",
                              "scenario applied %s mode=%s wifi=%s",
@@ -778,6 +793,7 @@ static void low_power_tick(uint32_t now_ms)
     } else if (!scenario_active && scenario_applied_on_battery) {
         scenario_applied_on_battery = false;
         last_scenario = FACULTY175_POWER_SCENARIO_NORMAL;
+        faculty175_ble_power_scenario_suspend(false);
         s_low_power_last_activity_ms = now_ms;
         low_power_apply_awake(now_ms, "power scenario ended");
     }

@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timezone
 import fcntl
+import hashlib
 import json
 from pathlib import Path
 import subprocess
@@ -25,7 +26,6 @@ def save_json(path: Path, value: dict) -> None:
 def common_args(args: argparse.Namespace, out_dir: Path) -> list[str]:
     values = [
         "--ip", args.ip,
-        "--port", args.port,
         "--hub-location", args.hub_location,
         "--hub-port", str(args.hub_port),
         "--uhubctl", args.uhubctl,
@@ -35,8 +35,12 @@ def common_args(args: argparse.Namespace, out_dir: Path) -> list[str]:
         "--rest-min", str(args.rest_min),
         "--charge-ready-timeout-min", str(args.charge_ready_timeout_min),
     ]
+    if args.port:
+        values += ["--port", args.port]
     if args.battery_mah is not None:
         values += ["--battery-mah", str(args.battery_mah)]
+    if args.battery_photo is not None:
+        values += ["--battery-photo", str(args.battery_photo.resolve())]
     if args.ambient_c is not None:
         values += ["--ambient-c", str(args.ambient_c)]
     if args.allow_not_ready:
@@ -68,6 +72,7 @@ def command_for(test: dict, args: argparse.Namespace, out_dir: Path) -> list[str
         "journal_gap_s": "--journal-gap-s",
         "ble_probe_interval_s": "--ble-probe-interval-s",
         "ble_probe_timeout_s": "--ble-probe-timeout-s",
+        "ble_config_write_interval_s": "--ble-config-write-interval-s",
     }
     for key, flag in optional.items():
         if key in test:
@@ -92,12 +97,28 @@ def main() -> int:
     parser.add_argument("--unit-id", required=True)
     parser.add_argument("--battery-id", required=True)
     parser.add_argument("--battery-mah", type=float, default=None)
+    parser.add_argument("--battery-photo", type=Path, default=None)
     parser.add_argument("--ambient-c", type=float, default=None)
     parser.add_argument("--rest-min", type=float, default=30.0)
     parser.add_argument("--charge-ready-timeout-min", type=float, default=360.0)
     args = parser.parse_args()
+    if args.battery_mah is not None and args.battery_mah <= 0:
+        raise SystemExit("error: --battery-mah must be positive")
+    if args.battery_photo is not None and not args.battery_photo.is_file():
+        raise SystemExit(f"error: battery label photo not found: {args.battery_photo}")
+    if not args.allow_not_ready and (args.battery_mah is None or args.battery_photo is None):
+        raise SystemExit("error: qualified matrix runs require --battery-mah and --battery-photo")
+    battery_photo_sha256 = (
+        hashlib.sha256(args.battery_photo.read_bytes()).hexdigest()
+        if args.battery_photo is not None else None
+    )
 
-    matrix = json.loads(args.matrix.read_text(encoding="utf-8"))
+    matrix_bytes = args.matrix.read_bytes()
+    matrix_sha256 = hashlib.sha256(matrix_bytes).hexdigest()
+    matrix = json.loads(matrix_bytes)
+    harness_build = subprocess.check_output(
+        ["git", "describe", "--always", "--dirty"], cwd=ROOT, text=True
+    ).strip()
     tests = matrix.get("tests", [])
     selected = {item for item in args.only.split(",") if item}
     if selected:
@@ -122,12 +143,34 @@ def main() -> int:
             state = json.loads(args.state.read_text(encoding="utf-8"))
             if state.get("unit_id") != args.unit_id or state.get("battery_id") != args.battery_id:
                 raise SystemExit("error: state belongs to a different unit/battery; choose another --state")
+            if (
+                state.get("battery_mah") != args.battery_mah
+                or state.get("battery_photo_sha256") != battery_photo_sha256
+            ):
+                raise SystemExit(
+                    "error: battery capacity/photo differs from this state; choose a new --state"
+                )
+            if state.get("matrix_sha256") != matrix_sha256:
+                raise SystemExit(
+                    "error: matrix changed since this state was created; choose a new --state"
+                )
+            if state.get("harness_build") != harness_build:
+                raise SystemExit(
+                    "error: source/harness build changed since this state was created; "
+                    "choose a new --state"
+                )
         else:
             state = {
-                "schema": 1,
+                "schema": 4,
                 "matrix": str(args.matrix.resolve()),
+                "matrix_schema": matrix.get("schema"),
+                "matrix_sha256": matrix_sha256,
+                "harness_build": harness_build,
                 "unit_id": args.unit_id,
                 "battery_id": args.battery_id,
+                "battery_mah": args.battery_mah,
+                "battery_photo_sha256": battery_photo_sha256,
+                "firmware_build": None,
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "completed": [],
                 "attempts": [],
@@ -149,15 +192,45 @@ def main() -> int:
                 continue
             started_at = datetime.now(timezone.utc).isoformat()
             result = subprocess.run(command, cwd=ROOT)
+            summary_path = out_dir / "summary.json"
+            child_summary = (
+                json.loads(summary_path.read_text(encoding="utf-8"))
+                if summary_path.is_file() else {}
+            )
+            article = child_summary.get("test_article", {})
+            child_firmware = article.get("firmware_build")
+            child_harness = article.get("harness_build")
             attempt = {
                 "test_id": test_id,
                 "started_at": started_at,
                 "finished_at": datetime.now(timezone.utc).isoformat(),
                 "returncode": result.returncode,
                 "out_dir": str(out_dir),
+                "test": test,
+                "command": command,
+                "firmware_build": child_firmware,
+                "harness_build": child_harness,
             }
             state.setdefault("attempts", []).append(attempt)
+            state_error = None
+            if result.returncode == 0 and child_firmware in (None, "", "unknown"):
+                state_error = "passing child run did not report a firmware build"
+            elif result.returncode == 0 and child_harness != harness_build:
+                state_error = (
+                    f"child harness build {child_harness!r} does not match matrix {harness_build!r}"
+                )
+            elif result.returncode == 0 and state.get("firmware_build") not in (None, child_firmware):
+                state_error = (
+                    f"device firmware changed from {state.get('firmware_build')!r} "
+                    f"to {child_firmware!r}"
+                )
+            if state_error is not None:
+                attempt["state_error"] = state_error
+                save_json(args.state, state)
+                print(f"matrix: STOP {test_id}: {state_error}", flush=True)
+                return 3
             if result.returncode == 0:
+                state["firmware_build"] = child_firmware
                 completed.add(test_id)
                 state["completed"] = sorted(completed)
             save_json(args.state, state)

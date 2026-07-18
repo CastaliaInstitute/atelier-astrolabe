@@ -127,6 +127,7 @@ static bool s_enabled = true;
 static bool s_started;
 static bool s_power_test_active;
 static bool s_power_test_previous_enabled;
+static bool s_power_scenario_suspended;
 static bool s_synced;
 static bool s_advertising;
 static bool s_scanning;
@@ -1526,7 +1527,7 @@ static esp_err_t ble_nvs_set_enabled(bool enabled)
 
 static esp_err_t ble_advertise(void)
 {
-    if (!s_started || !s_synced || !s_enabled) {
+    if (!s_started || !s_synced || !s_enabled || s_power_scenario_suspended) {
         return ESP_ERR_INVALID_STATE;
     }
 
@@ -2083,6 +2084,7 @@ esp_err_t faculty175_ble_power_test_set(bool enabled)
         }
         s_power_test_previous_enabled = configured_enabled;
         s_power_test_active = true;
+        s_power_scenario_suspended = false;
         s_enabled = true;
         const esp_err_t init_err = faculty175_ble_init();
         if (init_err != ESP_OK) {
@@ -2120,6 +2122,38 @@ bool faculty175_ble_power_test_active(void)
     return s_power_test_active;
 }
 
+void faculty175_ble_power_scenario_suspend(bool suspended)
+{
+    if (suspended && s_power_test_active) {
+        return;
+    }
+    if (s_power_scenario_suspended == suspended) {
+        return;
+    }
+    s_power_scenario_suspended = suspended;
+    if (suspended) {
+        if (s_advertising) {
+            (void)ble_gap_adv_stop();
+        }
+        if (s_scanning) {
+            (void)ble_gap_disc_cancel();
+        }
+        s_advertising = false;
+        s_scanning = false;
+        FACULTY175_LOG_STAGE(TAG, "ble", "power scenario suspended radio");
+        return;
+    }
+    if (s_enabled && s_started && s_synced && !s_advertising && !s_scanning) {
+        (void)ble_advertise();
+    }
+    FACULTY175_LOG_STAGE(TAG, "ble", "power scenario restored radio preference");
+}
+
+bool faculty175_ble_power_scenario_suspended(void)
+{
+    return s_power_scenario_suspended;
+}
+
 bool faculty175_ble_handle(const char *line)
 {
     if (line == NULL || (strcasecmp(line, "ble") != 0 && strncasecmp(line, "ble ", 4) != 0)) {
@@ -2139,13 +2173,14 @@ bool faculty175_ble_handle(const char *line)
     }
 
     if (*sub == '\0' || strcasecmp(sub, "status") == 0) {
-        printf("ble: enabled=%s started=%s synced=%s advertising=%s scanning=%s power_test=%s name=\"%s\"\n",
+        printf("ble: enabled=%s started=%s synced=%s advertising=%s scanning=%s power_test=%s scenario_suspended=%s name=\"%s\"\n",
                s_enabled ? "yes" : "no",
                s_started ? "yes" : "no",
                s_synced ? "yes" : "no",
                s_advertising ? "yes" : "no",
                s_scanning ? "yes" : "no",
                s_power_test_active ? "yes" : "no",
+               s_power_scenario_suspended ? "yes" : "no",
                s_device_name);
     } else if (strcasecmp(sub, "power-test on") == 0) {
         const esp_err_t err = faculty175_ble_power_test_set(true);
