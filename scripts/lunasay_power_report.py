@@ -39,6 +39,14 @@ def load_events(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
+def file_manifest(path: Path) -> dict:
+    return {
+        "path": str(path.resolve()),
+        "bytes": path.stat().st_size,
+        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+    }
+
+
 def load_analyzer_rows(paths: list[Path]) -> list[dict]:
     """Load battery-path analyzer CSVs; positive current means discharge."""
     rows: list[dict] = []
@@ -572,6 +580,19 @@ def main() -> int:
         raise SystemExit("error: --min-percent-drop must be 1..100")
     matrix_sha256 = hashlib.sha256(args.matrix.read_bytes()).hexdigest() if args.matrix.is_file() else None
     analyzer_rows = load_analyzer_rows(args.analyzer_csv)
+    active_summary_paths = sorted(args.artifact_root.glob("lunasay-battery-*/summary.json"))
+    deep_summary_paths = sorted(args.artifact_root.glob("lunasay-deep-sleep-*/summary.json"))
+    consumed_artifact_paths: set[Path] = set()
+    for summary_path in [*active_summary_paths, *deep_summary_paths]:
+        consumed_artifact_paths.add(summary_path)
+        events_path = summary_path.parent / "events.jsonl"
+        if events_path.is_file():
+            consumed_artifact_paths.add(events_path)
+        consumed_artifact_paths.update(summary_path.parent.glob("battery-label*"))
+    artifact_sources = [
+        file_manifest(path)
+        for path in sorted(consumed_artifact_paths, key=lambda item: str(item.resolve()))
+    ]
     analyzer_sources = []
     for path in args.analyzer_csv:
         source_path = str(path.resolve())
@@ -600,7 +621,7 @@ def main() -> int:
 
     runs: list[dict] = []
     curves: list[dict] = []
-    for summary_path in sorted(args.artifact_root.glob("lunasay-battery-*/summary.json")):
+    for summary_path in active_summary_paths:
         summary = load_json(summary_path)
         scenario_evidence = summary.get("scenario_evidence", {})
         scenario_verified = bool(scenario_evidence.get("passed", False))
@@ -807,6 +828,10 @@ def main() -> int:
         json.dumps(analyzer_sources, indent=2) + "\n",
         encoding="utf-8",
     )
+    (args.out_dir / "artifact_sources.json").write_text(
+        json.dumps(artifact_sources, indent=2) + "\n",
+        encoding="utf-8",
+    )
     report_config = {
         "artifact_root": str(args.artifact_root.resolve()),
         "matrix": str(args.matrix.resolve()),
@@ -817,13 +842,15 @@ def main() -> int:
         "analyzer_max_gap_s": args.analyzer_max_gap_s,
         "shutdown_current_threshold_ma": args.shutdown_current_threshold_ma,
         "shutdown_current_sustain_s": args.shutdown_current_sustain_s,
+        "generator_path": str(Path(__file__).resolve()),
+        "generator_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
     }
     (args.out_dir / "report_config.json").write_text(
         json.dumps(report_config, indent=2) + "\n",
         encoding="utf-8",
     )
     deep_runs: list[dict] = []
-    for summary_path in sorted(args.artifact_root.glob("lunasay-deep-sleep-*/summary.json")):
+    for summary_path in deep_summary_paths:
         summary = load_json(summary_path)
         article = summary.get("test_article", {})
         charge_gate = summary.get("charge_gate", {})
@@ -1009,8 +1036,9 @@ def main() -> int:
         "Generated from hub-controlled QA artifacts. Battery claims are withheld unless a run has "
         f"at least {args.min_estimate_hours:g} hour(s), three battery-only samples, and "
         f"a {args.min_percent_drop}% monotonic drop, and a completed full-charge/rest gate.",
-        "Analyzer input paths, sizes, and SHA-256 hashes are recorded in `analyzer_sources.json`; "
-        "all report thresholds and the matrix hash are recorded in `report_config.json`.",
+        "Analyzer inputs are hashed in `analyzer_sources.json`; consumed QA artifacts are hashed "
+        "in `artifact_sources.json`; all thresholds, the matrix hash, and report-generator hash "
+        "are recorded in `report_config.json`.",
         "",
         "![Battery discharge curves](curves.svg)",
         "" if args.battery_mah is None else f"Average current uses the labeled {args.battery_mah:g} mAh cell capacity.",

@@ -302,6 +302,7 @@ off` after recovery; neither power-test command changes the owner's saved BLE
 preference.
 
 The generated `report.md`, `runs.csv`, `deep_sleep_runs.csv`, `curves.csv`,
-`curves.svg`, analyzer-input hash manifest `analyzer_sources.json`, and
-reproducibility manifest `report_config.json` live under
+`curves.svg`, analyzer-input hash manifest `analyzer_sources.json`, consumed-QA
+hash manifest `artifact_sources.json`, and reproducibility manifest
+`report_config.json` (including the report-generator SHA-256) live under
 `artifacts/qa/lunasay-power-report/` by default.
