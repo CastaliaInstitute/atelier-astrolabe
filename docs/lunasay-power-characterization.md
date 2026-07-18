@@ -228,12 +228,22 @@ unqualified until the hardware gates below pass:
 2. Mute the amplifier, stop I2S, hold its PA-enable GPIO low, stop Wi-Fi/BLE,
    send AMOLED display-off and sleep-in, hold the shared display/touch reset
    low through deep sleep, and quiesce safe AXP2101 peripheral rails without
-   disabling the ESP32 supply.
+   disabling the ESP32 supply. Keep ALDO1 enabled: it powers the audio codecs,
+   which share SDA/SCL with the AXP2101 and clamp that bus low when unpowered.
+   Audio sleep current must therefore be included in the measured deep-sleep
+   result rather than assumed away.
 3. Persist the test start, requested wake interval, starting voltage/percentage,
    firmware build, and wake reason across reset.
 4. Wake by BOOT/GPIO0 or timer, restore all required rails, and expose the completed
    interval in serial/API telemetry.
 5. Demonstrate BOOT-button wake and timed wake on battery before beginning a long run.
+
+Builds older than `eaf5ee6f` could disable ALDO1 before sleep. Because the
+battery keeps the AXP2101 state alive across ESP resets and USB app flashes,
+that legacy state cannot be repaired through the clamped I2C bus: disconnect
+and reconnect the battery once, then flash/run the current build. The validator
+now refuses to arm when `/api/battery` reports that the PMU or cell is absent.
+Hub VBUS cycling alone is not a substitute for the battery/PMU power cycle.
 
 Run the non-publishable timer smoke gate first:
 

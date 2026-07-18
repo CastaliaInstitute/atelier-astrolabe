@@ -253,11 +253,19 @@ def main() -> int:
     pre_vbus_identity = None
     charge_gate: dict = {"skipped": args.allow_not_ready}
     try:
-        if expected_identity is not None:
-            preflight_battery = wait_json_get(f"http://{args.ip}/api/battery")
-            (out_dir / "preflight-battery.json").write_text(
-                json.dumps(preflight_battery, indent=2) + "\n", encoding="utf-8"
+        preflight_battery = wait_json_get(f"http://{args.ip}/api/battery")
+        (out_dir / "preflight-battery.json").write_text(
+            json.dumps(preflight_battery, indent=2) + "\n", encoding="utf-8"
+        )
+        preflight_power = preflight_battery.get("battery", {})
+        if not preflight_power.get("pmu_present") or not preflight_power.get("present"):
+            raise RuntimeError(
+                "PMU/cell unavailable; do not arm deep sleep. If an older LunaSay build "
+                "disabled ALDO1, disconnect and reconnect the battery once before retrying"
             )
+        if not preflight_power.get("vbus"):
+            raise RuntimeError("device must be docked with VBUS present before the hub test")
+        if expected_identity is not None:
             preflight_identity = reported_firmware_identity(preflight_battery)
             firmware_identity_match = preflight_identity == expected_identity
             if not firmware_identity_match:
