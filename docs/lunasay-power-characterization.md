@@ -133,6 +133,28 @@ trace stored elsewhere with:
 python3 scripts/lunasay_power_report.py --analyzer-csv /path/to/analyzer.csv
 ```
 
+Qualified matrix execution requires an instrument-specific executable adapter.
+Add this argument fragment to the release-matrix command:
+
+```sh
+--analyzer-adapter /path/to/analyzer-adapter \
+--analyzer-model MODEL --analyzer-serial SERIAL \
+--analyzer-calibration-ref CALIBRATION_RECORD
+```
+
+The harness invokes the adapter after charge/rest and serial preflight with
+`--run-id`, `--output`, `--ready-file`, `--stop-file`,
+`--instrument-model`, `--instrument-serial`, and `--calibration-ref`. The
+adapter must begin sampling, write at least its first CSV sample, and only then
+create `--ready-file`; it continues until the harness creates `--stop-file`,
+flushes the final sample, and exits zero. The harness refuses to switch VBUS
+until ready, requires the resulting trace to bracket the complete VBUS-off
+interval, validates every sample and identity field, and fails cleanup if the
+adapter hangs or exits unsuccessfully. Matrix state binds the adapter SHA-256
+and instrument identity, while the child summary and report manifests bind the
+finished trace. The adapter is deliberately instrument-specific; do not
+substitute hub VBUS current because it is removed during battery testing.
+
 The CSV requires `run_id`, positive-discharge `current_ma`, one time column
 (`epoch_s` or ISO-8601 `timestamp`), and one voltage column (`voltage_mv` or
 `voltage_v`). Qualified direct-current evidence also requires the repeated

@@ -9,6 +9,7 @@ import fcntl
 import hashlib
 import json
 import math
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -55,6 +56,15 @@ def common_args(args: argparse.Namespace, out_dir: Path, test: dict) -> list[str
         values += ["--battery-cycle-count", str(args.battery_cycle_count)]
     if args.allow_not_ready:
         values.append("--allow-not-ready")
+    if args.analyzer_adapter is not None:
+        values += [
+            "--analyzer-adapter", str(args.analyzer_adapter.resolve()),
+            "--analyzer-model", args.analyzer_model,
+            "--analyzer-serial", args.analyzer_serial,
+            "--analyzer-calibration-ref", args.analyzer_calibration_ref,
+            "--analyzer-ready-timeout-s", str(args.analyzer_ready_timeout_s),
+            "--analyzer-stop-timeout-s", str(args.analyzer_stop_timeout_s),
+        ]
     return values
 
 
@@ -121,6 +131,12 @@ def main() -> int:
     parser.add_argument("--ambient-c", type=float, default=None)
     parser.add_argument("--rest-min", type=float, default=30.0)
     parser.add_argument("--charge-ready-timeout-min", type=float, default=360.0)
+    parser.add_argument("--analyzer-adapter", type=Path, default=None)
+    parser.add_argument("--analyzer-model", default="")
+    parser.add_argument("--analyzer-serial", default="")
+    parser.add_argument("--analyzer-calibration-ref", default="")
+    parser.add_argument("--analyzer-ready-timeout-s", type=float, default=30.0)
+    parser.add_argument("--analyzer-stop-timeout-s", type=float, default=30.0)
     args = parser.parse_args()
     if args.battery_mah is not None and (
         not math.isfinite(args.battery_mah) or args.battery_mah <= 0
@@ -139,6 +155,17 @@ def main() -> int:
         raise SystemExit("error: --battery-cycle-count must be non-negative")
     if args.battery_photo is not None and not args.battery_photo.is_file():
         raise SystemExit(f"error: battery label photo not found: {args.battery_photo}")
+    if (
+        not math.isfinite(args.analyzer_ready_timeout_s)
+        or not math.isfinite(args.analyzer_stop_timeout_s)
+        or args.analyzer_ready_timeout_s <= 0
+        or args.analyzer_stop_timeout_s <= 0
+    ):
+        raise SystemExit("error: analyzer ready/stop timeouts must be finite and positive")
+    if args.analyzer_adapter is not None and (
+        not args.analyzer_adapter.is_file() or not os.access(args.analyzer_adapter, os.X_OK)
+    ):
+        raise SystemExit(f"error: analyzer adapter is not executable: {args.analyzer_adapter}")
     if not args.firmware_image.is_file():
         raise SystemExit(f"error: firmware image not found: {args.firmware_image}")
     image_identity = image_app_identity(args.firmware_image)
@@ -170,6 +197,31 @@ def main() -> int:
     args.matrix_sha256 = matrix_sha256
     matrix = json.loads(matrix_bytes)
     release_gate = matrix.get("release_gate", {})
+    require_direct_current = bool(release_gate.get("require_direct_current", False))
+    analyzer_identity = {
+        "model": args.analyzer_model.strip(),
+        "serial": args.analyzer_serial.strip(),
+        "calibration_ref": args.analyzer_calibration_ref.strip(),
+    }
+    analyzer_placeholders = {"", "unknown", "unspecified", "none", "uncalibrated"}
+    if args.analyzer_adapter is not None and any(
+        value.lower() in analyzer_placeholders for value in analyzer_identity.values()
+    ):
+        raise SystemExit(
+            "error: analyzer adapter use requires --analyzer-model, --analyzer-serial, "
+            "and --analyzer-calibration-ref"
+        )
+    if not args.allow_not_ready and require_direct_current and (
+        args.analyzer_adapter is None
+    ):
+        raise SystemExit(
+            "error: qualified matrix requires --analyzer-adapter, --analyzer-model, "
+            "--analyzer-serial, and --analyzer-calibration-ref"
+        )
+    analyzer_adapter_sha256 = (
+        hashlib.sha256(args.analyzer_adapter.read_bytes()).hexdigest()
+        if args.analyzer_adapter is not None else None
+    )
     minimum_start_voltage_mv = release_gate.get("minimum_start_voltage_mv", 4100)
     if (
         not isinstance(minimum_start_voltage_mv, int)
@@ -287,9 +339,16 @@ def main() -> int:
                     "error: source/harness build changed since this state was created; "
                     "choose a new --state"
                 )
+            if (
+                state.get("analyzer_adapter_sha256") != analyzer_adapter_sha256
+                or state.get("analyzer_identity") != analyzer_identity
+            ):
+                raise SystemExit(
+                    "error: analyzer adapter/identity differs from this state; choose a new --state"
+                )
         else:
             state = {
-                "schema": 6,
+                "schema": 7,
                 "matrix": str(args.matrix.resolve()),
                 "matrix_schema": matrix.get("schema"),
                 "matrix_sha256": matrix_sha256,
@@ -305,6 +364,11 @@ def main() -> int:
                 "firmware_image": str(args.firmware_image.resolve()),
                 "firmware_image_sha256": firmware_image_sha256,
                 "expected_firmware_build": expected_firmware_build,
+                "analyzer_adapter": (
+                    str(args.analyzer_adapter.resolve()) if args.analyzer_adapter is not None else None
+                ),
+                "analyzer_adapter_sha256": analyzer_adapter_sha256,
+                "analyzer_identity": analyzer_identity,
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "completed": [],
                 "attempts": [],
@@ -332,6 +396,7 @@ def main() -> int:
                 if summary_path.is_file() else {}
             )
             article = child_summary.get("test_article", {})
+            child_analyzer = child_summary.get("analyzer_capture")
             child_firmware = article.get("firmware_build")
             child_harness = article.get("harness_build")
             attempt = {
@@ -344,6 +409,7 @@ def main() -> int:
                 "command": command,
                 "firmware_build": child_firmware,
                 "harness_build": child_harness,
+                "analyzer_capture": child_analyzer,
             }
             state.setdefault("attempts", []).append(attempt)
             state_error = None
@@ -352,6 +418,10 @@ def main() -> int:
                 or str(article.get("firmware_variant", "")).lower() != "lunasay"
             ):
                 state_error = "passing child run did not report a complete LunaSay binary identity"
+            elif result.returncode == 0 and require_direct_current and not (
+                isinstance(child_analyzer, dict) and child_analyzer.get("passed")
+            ):
+                state_error = "passing qualified child run did not report a valid analyzer capture"
             elif result.returncode == 0 and child_firmware != expected_firmware_build:
                 state_error = (
                     f"device firmware {child_firmware!r} does not match expected image "

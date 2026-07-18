@@ -1,11 +1,12 @@
 {
-  "schema": 7,
+  "schema": 8,
   "release_gate": {
     "units_required": 2,
     "batteries_required": 2,
     "endpoint": "automatic low-voltage shutdown",
     "require_direct_current": true,
     "require_analyzer_provenance": true,
+    "require_analyzer_adapter_capture": true,
     "require_labeled_capacity": true,
     "require_uniform_battery_capacity": true,
     "require_hardware_revision": true,

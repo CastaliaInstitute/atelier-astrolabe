@@ -25,6 +25,13 @@ from urllib import error, request
 
 import serial
 
+from lunasay_analyzer_session import (
+    AnalyzerSession,
+    PLACEHOLDERS as ANALYZER_IDENTITY_PLACEHOLDERS,
+    start_analyzer_session,
+    stop_analyzer_session,
+    validate_capture_window,
+)
 from lunasay_power_common import firmware_provenance, parse_power_status, wait_for_charge_ready
 
 
@@ -292,6 +299,12 @@ def main() -> int:
     parser.add_argument("--rest-min", type=float, default=30.0)
     parser.add_argument("--charge-ready-timeout-min", type=float, default=360.0)
     parser.add_argument("--charge-ready-min-mv", type=int, default=4100)
+    parser.add_argument("--analyzer-adapter", type=Path, default=None)
+    parser.add_argument("--analyzer-model", default="")
+    parser.add_argument("--analyzer-serial", default="")
+    parser.add_argument("--analyzer-calibration-ref", default="")
+    parser.add_argument("--analyzer-ready-timeout-s", type=float, default=30.0)
+    parser.add_argument("--analyzer-stop-timeout-s", type=float, default=30.0)
     parser.add_argument("--allow-not-ready", action="store_true",
                         help="skip full-charge/rest gate; smoke tests only")
     args = parser.parse_args()
@@ -363,6 +376,28 @@ def main() -> int:
         raise SystemExit(f"error: uhubctl not found: {args.uhubctl}")
     if args.workload in VOICE_WORKLOADS and not shutil.which("say"):
         raise SystemExit("error: voice workloads require macOS say")
+    if (
+        not math.isfinite(args.analyzer_ready_timeout_s)
+        or not math.isfinite(args.analyzer_stop_timeout_s)
+        or args.analyzer_ready_timeout_s <= 0
+        or args.analyzer_stop_timeout_s <= 0
+    ):
+        raise SystemExit("error: analyzer ready/stop timeouts must be finite and positive")
+    if args.analyzer_adapter is not None and (
+        not args.analyzer_adapter.is_file() or not os.access(args.analyzer_adapter, os.X_OK)
+    ):
+        raise SystemExit(f"error: analyzer adapter is not executable: {args.analyzer_adapter}")
+    if args.analyzer_adapter is not None and any(
+        value.strip().lower() in ANALYZER_IDENTITY_PLACEHOLDERS
+        for value in (
+            args.analyzer_model,
+            args.analyzer_serial,
+            args.analyzer_calibration_ref,
+        )
+    ):
+        raise SystemExit(
+            "error: analyzer adapter use requires model, serial, and calibration reference"
+        )
 
     ble_probe_binary: Path | None = None
     if args.workload in BLE_WORKLOADS:
@@ -468,12 +503,26 @@ def main() -> int:
     battery_ended_at: float | None = None
     battery_started_epoch: float | None = None
     battery_ended_epoch: float | None = None
+    analyzer_session: AnalyzerSession | None = None
+    analyzer_capture: dict | None = None
     try:
         if args.workload in VOICE_WORKLOADS:
             original_volume = int(subprocess.check_output(
                 ["osascript", "-e", "output volume of (get volume settings)"], text=True
             ).strip())
             subprocess.run(["osascript", "-e", f"set volume output volume {args.say_volume}"], check=True)
+
+        if args.analyzer_adapter is not None:
+            analyzer_session = start_analyzer_session(
+                args.analyzer_adapter,
+                out_dir,
+                out_dir.name,
+                args.analyzer_model,
+                args.analyzer_serial,
+                args.analyzer_calibration_ref,
+                args.analyzer_ready_timeout_s,
+            )
+            record("analyzer_ready", command=analyzer_session.command)
 
         hub_power(args.uhubctl, args.hub_location, args.hub_port, False)
         power_off = True
@@ -663,6 +712,23 @@ def main() -> int:
             except Exception as exc:
                 cleanup_error = f"VBUS restore failed: {type(exc).__name__}: {exc}"
                 record("cleanup_failed", error=cleanup_error)
+        if analyzer_session is not None:
+            try:
+                analyzer_capture = stop_analyzer_session(
+                    analyzer_session,
+                    args.analyzer_stop_timeout_s,
+                )
+                if battery_started_epoch is not None and battery_ended_epoch is not None:
+                    validate_capture_window(
+                        analyzer_capture,
+                        battery_started_epoch,
+                        battery_ended_epoch,
+                    )
+                record("analyzer_stopped", capture=analyzer_capture)
+            except Exception as exc:
+                analyzer_error = f"analyzer capture failed: {type(exc).__name__}: {exc}"
+                cleanup_error = f"{cleanup_error}; {analyzer_error}" if cleanup_error else analyzer_error
+                record("cleanup_failed", error=analyzer_error)
         if original_volume is not None:
             subprocess.run(["osascript", "-e", f"set volume output volume {original_volume}"], check=False)
         try:
@@ -822,6 +888,7 @@ def main() -> int:
             "harness_build": harness_build,
         },
         "charge_gate": charge_gate,
+        "analyzer_capture": analyzer_capture,
         "final_battery": final_battery,
         "preflight_serial": preflight,
         "postflight_serial": postflight,

@@ -47,6 +47,30 @@ def file_manifest(path: Path) -> dict:
     }
 
 
+def analyzer_capture_bound(summary_path: Path, capture: object) -> bool:
+    """Bind a validated adapter result to this run's exact analyzer.csv bytes."""
+    if not isinstance(capture, dict):
+        return False
+    adapter_sha256 = str(capture.get("adapter_sha256", "")).lower()
+    expected_path = summary_path.parent / "analyzer.csv"
+    try:
+        captured_path = Path(str(capture["path"]))
+        captured_sha256 = str(capture["sha256"]).lower()
+    except (KeyError, TypeError, ValueError):
+        return False
+    return bool(
+        capture.get("passed") is True
+        and capture.get("battery_window_bracketed") is True
+        and capture.get("run_id") == summary_path.parent.name
+        and expected_path.is_file()
+        and captured_path.name == "analyzer.csv"
+        and len(captured_sha256) == 64
+        and hashlib.sha256(expected_path.read_bytes()).hexdigest() == captured_sha256
+        and len(adapter_sha256) == 64
+        and all(char in "0123456789abcdef" for char in adapter_sha256)
+    )
+
+
 def analyzer_paths(explicit: list[Path], artifact_root: Path) -> list[Path]:
     """Combine explicit imports with conventional per-run captures without duplicates."""
     candidates = [*explicit, *sorted(artifact_root.glob("lunasay-*/analyzer.csv"))]
@@ -834,6 +858,8 @@ def main() -> int:
     for summary_path in active_summary_paths:
         summary = load_json(summary_path)
         scenario_evidence = summary.get("scenario_evidence", {})
+        analyzer_capture = summary.get("analyzer_capture")
+        analyzer_capture_is_bound = analyzer_capture_bound(summary_path, analyzer_capture)
         article = summary.get("test_article", {})
         workload_config = summary.get("workload_config", {})
         charge_gate = summary.get("charge_gate", {})
@@ -1007,6 +1033,11 @@ def main() -> int:
             "qualification_matrix_sha256": article.get("qualification_matrix_sha256"),
             "qualification_test_id": article.get("qualification_test_id"),
             "requested_duration_min": summary.get("requested_duration_min"),
+            "analyzer_capture_bound": analyzer_capture_is_bound,
+            "analyzer_adapter_sha256": (
+                analyzer_capture.get("adapter_sha256")
+                if isinstance(analyzer_capture, dict) else None
+            ),
             "rested_start_percent": charge_status.get("percent"),
             "rested_start_voltage_mv": charge_status.get("mv"),
             **{
@@ -1082,6 +1113,8 @@ def main() -> int:
     deep_runs: list[dict] = []
     for summary_path in deep_summary_paths:
         summary = load_json(summary_path)
+        analyzer_capture = summary.get("analyzer_capture")
+        analyzer_capture_is_bound = analyzer_capture_bound(summary_path, analyzer_capture)
         article = summary.get("test_article", {})
         charge_gate = summary.get("charge_gate", {})
         charge_status = charge_gate.get("status", {})
@@ -1198,6 +1231,11 @@ def main() -> int:
             "qualification_matrix_sha256": article.get("qualification_matrix_sha256"),
             "qualification_test_id": article.get("qualification_test_id"),
             "requested_duration_min": summary.get("duration_min"),
+            "analyzer_capture_bound": analyzer_capture_is_bound,
+            "analyzer_adapter_sha256": (
+                analyzer_capture.get("adapter_sha256")
+                if isinstance(analyzer_capture, dict) else None
+            ),
             "boot_timeout_s": summary.get("boot_timeout_s"),
             "rested_start_percent": charge_status.get("percent"),
             "rested_start_voltage_mv": charge_status.get("mv"),
@@ -1226,6 +1264,7 @@ def main() -> int:
         "scenario_counter_passed", "scenario_history_passed", "unit_id", "hardware_revision",
         "battery_id", "battery_mah", "battery_photo_sha256", "battery_cycle_count", "ambient_c",
         "qualification_matrix_sha256", "qualification_test_id", "requested_duration_min",
+        "analyzer_capture_bound", "analyzer_adapter_sha256",
         "rested_start_percent", "rested_start_voltage_mv",
         "capture_ms", "turn_interval_s", "journal_gap_s", "turn_timeout_s", "say_rate", "say_volume",
         "ble_probe_interval_s", "ble_probe_timeout_s", "ble_config_write_interval_s",
@@ -1253,6 +1292,7 @@ def main() -> int:
         "run_id", "scenario", "workload", "wake_source", "passed", "unit_id", "hardware_revision",
         "battery_id", "battery_mah", "battery_photo_sha256", "battery_cycle_count", "ambient_c",
         "qualification_matrix_sha256", "qualification_test_id", "requested_duration_min", "boot_timeout_s",
+        "analyzer_capture_bound", "analyzer_adapter_sha256",
         "rested_start_percent", "rested_start_voltage_mv",
         "firmware_build", "firmware_version", "firmware_variant", "firmware_elf_sha256",
         "firmware_provenance_complete", "harness_build", "charge_ready",
@@ -1317,15 +1357,17 @@ def main() -> int:
             "",
             "## Direct battery-path power evidence",
             "",
-            "| Scenario | Workload | Instrument | Calibration | Samples | Coverage | Median gap | Max gap | Median | Average | Peak | Charge | Energy |",
-            "|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+            "| Scenario | Workload | Instrument | Calibration | Adapter SHA | Samples | Coverage | Median gap | Max gap | Median | Average | Peak | Charge | Energy |",
+            "|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
         ])
         for run in direct_runs:
             lines.append(
                 f"| {run['scenario']} | {run['workload']} | "
                 f"{run.get('analyzer_instrument_model') or '—'} / "
                 f"{run.get('analyzer_instrument_serial') or '—'} | "
-                f"{run.get('analyzer_calibration_ref') or '—'} | {run['analyzer_samples']} | "
+                f"{run.get('analyzer_calibration_ref') or '—'} | "
+                f"{str(run.get('analyzer_adapter_sha256') or '—')[:12]} | "
+                f"{run['analyzer_samples']} | "
                 f"{fmt(run['analyzer_coverage_ratio'] * 100.0, 1)}% | "
                 f"{fmt(run['analyzer_median_gap_s'], 1)} s | "
                 f"{fmt(run['analyzer_max_gap_s'], 1)} s | "
@@ -1417,6 +1459,9 @@ def main() -> int:
         require_analyzer_provenance = bool(
             release_gate.get("require_analyzer_provenance", False)
         )
+        require_analyzer_adapter_capture = bool(
+            release_gate.get("require_analyzer_adapter_capture", False)
+        )
         require_labeled_capacity = bool(release_gate.get("require_labeled_capacity", False))
         require_hardware_revision = bool(release_gate.get("require_hardware_revision", False))
         require_ambient_temperature = bool(
@@ -1481,6 +1526,10 @@ def main() -> int:
                     and run.get("charge_ready")
                     and run.get("wake_source") == "timer"
                     and run.get("current_basis") == "direct-battery-analyzer"
+                    and (
+                        not require_analyzer_adapter_capture
+                        or run.get("analyzer_capture_bound")
+                    )
                     and isinstance(run.get("projected_full_runtime_h"), (int, float))
                     and test_article_gate_passes(
                         run,
@@ -1513,6 +1562,10 @@ def main() -> int:
                     and run.get("charge_ready")
                     and workload_gate_passes(run, test)
                     and run.get("current_basis") == "direct-battery-analyzer"
+                    and (
+                        not require_analyzer_adapter_capture
+                        or run.get("analyzer_capture_bound")
+                    )
                     and float(run.get("analyzer_coverage_ratio", 0)) >= 0.95
                     and int(run.get("successful_ble_probes", 0)) > 0
                     and int(run.get("ble_config_roundtrips", 0)) > 0
@@ -1530,6 +1583,10 @@ def main() -> int:
                     run for run in candidates
                     if run.get("evidence") == "measured-runtime"
                     and workload_gate_passes(run, test)
+                    and (
+                        not require_analyzer_adapter_capture
+                        or run.get("analyzer_capture_bound")
+                    )
                     and (
                         not require_direct_current
                         or (
@@ -1590,6 +1647,8 @@ def main() -> int:
             )
             if require_analyzer_provenance and release_basis != "functional-gate":
                 required_basis_label += "+meter-provenance"
+            if require_analyzer_adapter_capture and release_basis != "functional-gate":
+                required_basis_label += "+adapter-bound"
             if require_uniform_capacity:
                 required_basis_label += "+uniform-capacity"
             if require_ambient_temperature:
@@ -1665,6 +1724,15 @@ def main() -> int:
         )
     if not analyzer_rows:
         limitations.append("No inline battery-path analyzer trace is present; direct current, mAh, and Wh remain unknown.")
+    if any(
+        str(run.get("current_basis", "")).startswith("direct-battery-analyzer")
+        and not run.get("analyzer_capture_bound")
+        for run in [*runs, *deep_runs]
+    ):
+        limitations.append(
+            "At least one direct trace is not bound to a successful adapter capture that brackets "
+            "the VBUS-off window and is excluded from release claims."
+        )
     if any(run.get("current_basis") == "direct-battery-analyzer-gapped" for run in [*runs, *deep_runs]):
         limitations.append(
             f"At least one analyzer trace exceeds the {args.analyzer_max_gap_s:g}-second maximum "
