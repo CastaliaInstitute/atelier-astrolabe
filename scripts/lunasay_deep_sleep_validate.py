@@ -101,9 +101,11 @@ def main() -> int:
     parser.add_argument("--boot-timeout-s", type=float, default=120.0)
     parser.add_argument("--out-dir", default="")
     parser.add_argument("--unit-id", default="dev-unit-1")
+    parser.add_argument("--hardware-revision", default="")
     parser.add_argument("--battery-id", default="unlabeled")
     parser.add_argument("--battery-mah", type=float, default=None)
     parser.add_argument("--battery-photo", type=Path, default=None)
+    parser.add_argument("--battery-cycle-count", type=int, default=None)
     parser.add_argument("--ambient-c", type=float, default=None)
     parser.add_argument("--rest-min", type=float, default=30.0)
     parser.add_argument("--charge-ready-timeout-min", type=float, default=360.0)
@@ -117,10 +119,20 @@ def main() -> int:
         raise SystemExit("error: --duration-min must be 1..10080")
     if args.battery_mah is not None and args.battery_mah <= 0:
         raise SystemExit("error: --battery-mah must be positive")
+    if args.battery_cycle_count is not None and args.battery_cycle_count < 0:
+        raise SystemExit("error: --battery-cycle-count must be non-negative")
     if args.battery_photo is not None and not args.battery_photo.is_file():
         raise SystemExit(f"error: battery label photo not found: {args.battery_photo}")
-    if not args.allow_not_ready and (args.battery_mah is None or args.battery_photo is None):
-        raise SystemExit("error: qualified runs require --battery-mah and --battery-photo")
+    if not args.allow_not_ready and (
+        args.battery_mah is None
+        or args.battery_photo is None
+        or not args.hardware_revision.strip()
+        or args.ambient_c is None
+    ):
+        raise SystemExit(
+            "error: qualified runs require --battery-mah, --battery-photo, "
+            "--hardware-revision, and --ambient-c"
+        )
     if args.wake_source == "gpio0" and args.duration_min * 60 <= args.boot_timeout_s:
         raise SystemExit(
             "error: GPIO0 safety timer must exceed --boot-timeout-s; increase --duration-min"
@@ -326,10 +338,12 @@ def main() -> int:
         "wake_battery": wake_battery,
         "test_article": {
             "unit_id": args.unit_id,
+            "hardware_revision": args.hardware_revision.strip() or "unknown",
             "battery_id": args.battery_id,
             "battery_mah": args.battery_mah,
             "battery_photo": battery_photo_artifact,
             "battery_photo_sha256": battery_photo_sha256,
+            "battery_cycle_count": args.battery_cycle_count,
             "ambient_c": args.ambient_c,
             "firmware_build": wake_battery.get("firmware", {}).get(
                 "version", preflight_power.get("firmware", "unknown")

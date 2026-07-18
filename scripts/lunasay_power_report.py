@@ -297,6 +297,32 @@ def release_build_key(run: dict) -> tuple[str, str] | None:
     return firmware, harness
 
 
+def known_text(value: object) -> bool:
+    return str(value or "").strip().lower() not in ("", "unknown", "unspecified")
+
+
+def test_article_gate_passes(
+    run: dict,
+    require_labeled_capacity: bool,
+    require_hardware_revision: bool,
+    require_ambient_temperature: bool,
+) -> bool:
+    return bool(
+        (
+            not require_labeled_capacity
+            or (
+                isinstance(run.get("battery_mah"), (int, float))
+                and bool(run.get("battery_photo_sha256"))
+            )
+        )
+        and (not require_hardware_revision or known_text(run.get("hardware_revision")))
+        and (
+            not require_ambient_temperature
+            or isinstance(run.get("ambient_c"), (int, float))
+        )
+    )
+
+
 def largest_release_cohort(runs: list[dict]) -> list[dict]:
     """Keep only the same clean firmware/harness cohort with the most physical units."""
     cohorts: dict[tuple[str, str], list[dict]] = {}
@@ -606,9 +632,12 @@ def main() -> int:
             "scenario_counter_passed": bool(scenario_evidence.get("counter_passed", False)),
             "scenario_history_passed": bool(scenario_evidence.get("history_passed", False)),
             "unit_id": article.get("unit_id", "unknown"),
+            "hardware_revision": article.get("hardware_revision", "unknown"),
             "battery_id": article.get("battery_id", "unknown"),
             "battery_mah": run_battery_mah,
             "battery_photo_sha256": article.get("battery_photo_sha256"),
+            "battery_cycle_count": article.get("battery_cycle_count"),
+            "ambient_c": article.get("ambient_c"),
             "firmware_build": article.get("firmware_build", "unknown"),
             "harness_build": article.get("harness_build", "unknown"),
             "shutdown_basis": shutdown_basis,
@@ -758,9 +787,12 @@ def main() -> int:
             "wake_source": wake_source,
             "passed": bool(summary.get("passed", False)),
             "unit_id": article.get("unit_id", "unknown"),
+            "hardware_revision": article.get("hardware_revision", "unknown"),
             "battery_id": article.get("battery_id", "unknown"),
             "battery_mah": run_battery_mah,
             "battery_photo_sha256": article.get("battery_photo_sha256"),
+            "battery_cycle_count": article.get("battery_cycle_count"),
+            "ambient_c": article.get("ambient_c"),
             "firmware_build": article.get("firmware_build", "unknown"),
             "harness_build": article.get("harness_build", "unknown"),
             "duration_h": duration_h,
@@ -774,8 +806,8 @@ def main() -> int:
         })
     run_fields = [
         "run_id", "scenario", "workload", "passed", "scenario_evidence_passed",
-        "scenario_counter_passed", "scenario_history_passed", "unit_id", "battery_id", "battery_mah",
-        "battery_photo_sha256",
+        "scenario_counter_passed", "scenario_history_passed", "unit_id", "hardware_revision",
+        "battery_id", "battery_mah", "battery_photo_sha256", "battery_cycle_count", "ambient_c",
         "firmware_build", "harness_build",
         "turns", "accepted_captures", "successful_turns", "ble_probes", "successful_ble_probes",
         "ble_config_roundtrips",
@@ -793,8 +825,9 @@ def main() -> int:
         writer.writeheader()
         writer.writerows(runs)
     deep_fields = [
-        "run_id", "scenario", "workload", "wake_source", "passed", "unit_id", "battery_id",
-        "battery_mah", "battery_photo_sha256", "firmware_build", "harness_build",
+        "run_id", "scenario", "workload", "wake_source", "passed", "unit_id", "hardware_revision",
+        "battery_id", "battery_mah", "battery_photo_sha256", "battery_cycle_count", "ambient_c",
+        "firmware_build", "harness_build",
         "duration_h", "percent_drop", "projected_full_runtime_h",
         "median_current_ma", "average_current_ma", "peak_current_ma", "charge_mah", "energy_wh",
         "current_basis", "analyzer_samples", "analyzer_duration_h", "analyzer_coverage_ratio",
@@ -936,6 +969,10 @@ def main() -> int:
         release_gate = matrix.get("release_gate", {})
         require_direct_current = bool(release_gate.get("require_direct_current", False))
         require_labeled_capacity = bool(release_gate.get("require_labeled_capacity", False))
+        require_hardware_revision = bool(release_gate.get("require_hardware_revision", False))
+        require_ambient_temperature = bool(
+            release_gate.get("require_ambient_temperature", False)
+        )
         for test in matrix.get("tests", []):
             if test.get("runner") == "deep-sleep":
                 candidates = deep_runs
@@ -954,8 +991,12 @@ def main() -> int:
                     and run.get("wake_source") == "timer"
                     and run.get("current_basis") == "direct-battery-analyzer"
                     and isinstance(run.get("projected_full_runtime_h"), (int, float))
-                    and isinstance(run.get("battery_mah"), (int, float))
-                    and bool(run.get("battery_photo_sha256"))
+                    and test_article_gate_passes(
+                        run,
+                        require_labeled_capacity,
+                        require_hardware_revision,
+                        require_ambient_temperature,
+                    )
                 ]
             elif release_basis == "direct-workload":
                 qualifying = [
@@ -966,12 +1007,11 @@ def main() -> int:
                     and float(run.get("analyzer_coverage_ratio", 0)) >= 0.95
                     and int(run.get("successful_ble_probes", 0)) > 0
                     and int(run.get("ble_config_roundtrips", 0)) > 0
-                    and (
-                        not require_labeled_capacity
-                        or (
-                            isinstance(run.get("battery_mah"), (int, float))
-                            and bool(run.get("battery_photo_sha256"))
-                        )
+                    and test_article_gate_passes(
+                        run,
+                        require_labeled_capacity,
+                        require_hardware_revision,
+                        require_ambient_temperature,
                     )
                 ]
             else:
@@ -986,12 +1026,11 @@ def main() -> int:
                             and float(run.get("analyzer_coverage_ratio", 0)) >= 0.95
                         )
                     )
-                    and (
-                        not require_labeled_capacity
-                        or (
-                            isinstance(run.get("battery_mah"), (int, float))
-                            and bool(run.get("battery_photo_sha256"))
-                        )
+                    and test_article_gate_passes(
+                        run,
+                        require_labeled_capacity,
+                        require_hardware_revision,
+                        require_ambient_temperature,
                     )
                 ]
             if release_basis == "direct-projection":
@@ -1088,6 +1127,15 @@ def main() -> int:
         limitations.append(
             "At least one test article lacks a labeled cell capacity or hashed label photo; "
             "its release gate remains open."
+        )
+    if any(not known_text(run.get("hardware_revision")) for run in [*runs, *deep_runs]):
+        limitations.append(
+            "At least one test article lacks a hardware revision and is excluded from release claims."
+        )
+    if any(not isinstance(run.get("ambient_c"), (int, float)) for run in [*runs, *deep_runs]):
+        limitations.append(
+            "At least one test article lacks ambient-temperature provenance and is excluded from "
+            "release claims."
         )
     if any(release_build_key(run) is None for run in [*runs, *deep_runs]):
         limitations.append(

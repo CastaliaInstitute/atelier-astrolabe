@@ -236,13 +236,15 @@ sequentially with a dedicated state file for each physical unit and battery:
 
 ```sh
 python3 scripts/lunasay_power_matrix_run.py \
-  --unit-id luna-rc1 --battery-id cell-serial-from-label \
+  --unit-id luna-rc1 --hardware-revision RC1 \
+  --battery-id cell-serial-from-label --battery-cycle-count 0 --ambient-c 22 \
   --battery-mah CAPACITY_FROM_LABEL --battery-photo /path/to/battery-label.jpg
 ```
 
 The orchestrator resumes completed test IDs, binds its state to the matrix
-SHA-256, source/harness build, and device firmware build; records each exact test
-definition and command; waits for charge termination and the required rest
+SHA-256, source/harness build, device firmware build, hardware revision, battery
+identity/cycle count, and ambient temperature; records each exact test definition
+and command; waits for charge termination and the required rest
 before every run; and stops at the first
 failure. A changed matrix requires a new state file rather than silently reusing
 stale completions. Use `--dry-run` to review all commands. `--allow-not-ready`

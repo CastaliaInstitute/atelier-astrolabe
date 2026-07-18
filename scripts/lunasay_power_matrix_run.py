@@ -31,6 +31,7 @@ def common_args(args: argparse.Namespace, out_dir: Path) -> list[str]:
         "--uhubctl", args.uhubctl,
         "--out-dir", str(out_dir),
         "--unit-id", args.unit_id,
+        "--hardware-revision", args.hardware_revision,
         "--battery-id", args.battery_id,
         "--rest-min", str(args.rest_min),
         "--charge-ready-timeout-min", str(args.charge_ready_timeout_min),
@@ -43,6 +44,8 @@ def common_args(args: argparse.Namespace, out_dir: Path) -> list[str]:
         values += ["--battery-photo", str(args.battery_photo.resolve())]
     if args.ambient_c is not None:
         values += ["--ambient-c", str(args.ambient_c)]
+    if args.battery_cycle_count is not None:
+        values += ["--battery-cycle-count", str(args.battery_cycle_count)]
     if args.allow_not_ready:
         values.append("--allow-not-ready")
     return values
@@ -95,19 +98,31 @@ def main() -> int:
     parser.add_argument("--hub-port", type=int, default=1)
     parser.add_argument("--uhubctl", default="/opt/homebrew/bin/uhubctl")
     parser.add_argument("--unit-id", required=True)
+    parser.add_argument("--hardware-revision", default="")
     parser.add_argument("--battery-id", required=True)
     parser.add_argument("--battery-mah", type=float, default=None)
     parser.add_argument("--battery-photo", type=Path, default=None)
+    parser.add_argument("--battery-cycle-count", type=int, default=None)
     parser.add_argument("--ambient-c", type=float, default=None)
     parser.add_argument("--rest-min", type=float, default=30.0)
     parser.add_argument("--charge-ready-timeout-min", type=float, default=360.0)
     args = parser.parse_args()
     if args.battery_mah is not None and args.battery_mah <= 0:
         raise SystemExit("error: --battery-mah must be positive")
+    if args.battery_cycle_count is not None and args.battery_cycle_count < 0:
+        raise SystemExit("error: --battery-cycle-count must be non-negative")
     if args.battery_photo is not None and not args.battery_photo.is_file():
         raise SystemExit(f"error: battery label photo not found: {args.battery_photo}")
-    if not args.allow_not_ready and (args.battery_mah is None or args.battery_photo is None):
-        raise SystemExit("error: qualified matrix runs require --battery-mah and --battery-photo")
+    if not args.allow_not_ready and (
+        args.battery_mah is None
+        or args.battery_photo is None
+        or not args.hardware_revision.strip()
+        or args.ambient_c is None
+    ):
+        raise SystemExit(
+            "error: qualified matrix runs require --battery-mah, --battery-photo, "
+            "--hardware-revision, and --ambient-c"
+        )
     battery_photo_sha256 = (
         hashlib.sha256(args.battery_photo.read_bytes()).hexdigest()
         if args.battery_photo is not None else None
@@ -149,6 +164,14 @@ def main() -> int:
             if state.get("unit_id") != args.unit_id or state.get("battery_id") != args.battery_id:
                 raise SystemExit("error: state belongs to a different unit/battery; choose another --state")
             if (
+                state.get("hardware_revision") != (args.hardware_revision.strip() or "unknown")
+                or state.get("battery_cycle_count") != args.battery_cycle_count
+                or state.get("ambient_c") != args.ambient_c
+            ):
+                raise SystemExit(
+                    "error: test-article provenance differs from this state; choose a new --state"
+                )
+            if (
                 state.get("battery_mah") != args.battery_mah
                 or state.get("battery_photo_sha256") != battery_photo_sha256
             ):
@@ -166,15 +189,18 @@ def main() -> int:
                 )
         else:
             state = {
-                "schema": 4,
+                "schema": 5,
                 "matrix": str(args.matrix.resolve()),
                 "matrix_schema": matrix.get("schema"),
                 "matrix_sha256": matrix_sha256,
                 "harness_build": harness_build,
                 "unit_id": args.unit_id,
+                "hardware_revision": args.hardware_revision.strip() or "unknown",
                 "battery_id": args.battery_id,
                 "battery_mah": args.battery_mah,
                 "battery_photo_sha256": battery_photo_sha256,
+                "battery_cycle_count": args.battery_cycle_count,
+                "ambient_c": args.ambient_c,
                 "firmware_build": None,
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "completed": [],
