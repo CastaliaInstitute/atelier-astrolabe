@@ -76,9 +76,21 @@ def resolve_port(port: str | None) -> str:
     raise SystemExit(f"error: multiple serial ports found: {', '.join(ports)}")
 
 
-def host_speech_command(phrase: str) -> list[str]:
+def host_speech_command(phrase: str, rendered_path: Path | None = None) -> list[str]:
     say = shutil.which("say")
     if say is not None:
+        afplay = shutil.which("afplay")
+        if rendered_path is not None and afplay is not None:
+            render = subprocess.run(
+                [say, "-o", str(rendered_path), phrase],
+                text=True,
+                check=False,
+                capture_output=True,
+            )
+            if render.returncode == 0 and rendered_path.exists() and rendered_path.stat().st_size > 0:
+                # Software gain keeps the laptop-speaker fixture comfortably
+                # above the cloud STT floor without changing system volume.
+                return [afplay, "-v", "2", str(rendered_path)]
         return [say, phrase]
     spd_say = shutil.which("spd-say")
     if spd_say is not None:
@@ -342,6 +354,11 @@ def main() -> int:
         help="Test only faces in the active profile's swipe navigation roster",
     )
     parser.add_argument("--limit", type=int, default=0, help="Limit face count for shakedown runs")
+    parser.add_argument(
+        "--live-say",
+        action="store_true",
+        help="Invoke macOS say at capture time instead of replaying a pre-rendered prompt",
+    )
     parser.add_argument("--self-test", action="store_true", help="Run parser/verdict checks without hardware")
     parser.add_argument("--verify-summary", default="", help="Verify an existing summary.json and exit")
     parser.add_argument("--allow-limited", action="store_true", help="Allow --verify-summary to accept limited runs")
@@ -355,10 +372,13 @@ def main() -> int:
     if args.capture_ms < 1000 or args.capture_ms > 15000:
         raise SystemExit("error: --capture-ms must be between 1000 and 15000")
 
-    speech_cmd = host_speech_command(args.phrase)
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     out_dir = Path(args.out_dir) if args.out_dir else ROOT / "artifacts" / "qa" / f"stt-tts-face-tour-{stamp}"
     out_dir.mkdir(parents=True, exist_ok=True)
+    speech_cmd = host_speech_command(
+        args.phrase,
+        None if args.live_say else out_dir / "host-prompt.aiff",
+    )
     serial_log_path = out_dir / "serial-timestamped.log"
     summary_path = out_dir / "summary.json"
 
@@ -391,14 +411,22 @@ def main() -> int:
             start = time.perf_counter()
             write_cmd(ser, f"voice stt {args.capture_ms}")
             begin_rows = read_lines_until(ser, 8.0, ("qa: stt capture begin", "stt: capture_ms="))
-            all_rows.extend(begin_rows)
             trigger = TRIGGER_RE.search("\n".join(line for _, line in begin_rows))
+            trigger_failed = trigger is not None and trigger.group("err") != "ESP_OK"
+            capture_started = any("qa: stt capture begin" in line for _, line in begin_rows)
+            if not trigger_failed and not capture_started:
+                ready_rows = read_lines_until(ser, 20.0, ("qa: stt capture begin", "qa: stt done err="))
+                begin_rows.extend(ready_rows)
+                capture_started = any("qa: stt capture begin" in line for _, line in ready_rows)
+            all_rows.extend(begin_rows)
             speech_returncode = None
-            if trigger is None or trigger.group("err") == "ESP_OK":
+            if capture_started:
+                print(f"+ face={slug}", " ".join(speech_cmd), flush=True)
                 speech_returncode = subprocess.run(speech_cmd, text=True, check=False).returncode
                 turn_rows = read_lines_until(ser, args.turn_timeout_sec, ("qa: stt done err=",))
             else:
-                turn_rows = read_lines_until(ser, 2.0, ("qa: stt done err=",))
+                already_done = any("qa: stt done err=" in line for _, line in begin_rows)
+                turn_rows = [] if already_done else read_lines_until(ser, 2.0, ("qa: stt done err=",))
             all_rows.extend(turn_rows)
             result = summarize_turn(slug, set_rows, begin_rows, turn_rows,
                                     (time.perf_counter() - start) * 1000,

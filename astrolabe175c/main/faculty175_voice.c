@@ -34,9 +34,10 @@ static const char *TAG = "faculty175_voice";
 /* A failed cloud turn must return control to the UI in human-scale time. */
 #define HTTP_TIMEOUT_MS 60000
 #define VOICE_RESP_MAX_BYTES (768 * 1024)
-/* Roughly 25 seconds at the service's observed MP3 bitrate.  A runaway reply
- * is rejected before playback so it cannot monopolize the duplex UI. */
-#define TTS_MP3_MAX_BYTES (72 * 1024)
+/* Replies spool to flash, so this limit bounds playback time rather than RAM.
+ * 128 KiB accommodates normal face readings while still rejecting runaway
+ * responses before they can monopolize the duplex UI. */
+#define TTS_MP3_MAX_BYTES (128 * 1024)
 #define VOICE_STREAM_CT "application/vnd.astrolabe.voice-stream"
 #define VOICE_SPOOL_BASE "/voice"
 #define VOICE_SPOOL_PARTITION "voice_spool"
@@ -48,6 +49,7 @@ static const char *TAG = "faculty175_voice";
 #define VOICE_HEAP_MIN_PSRAM_FREE (512 * 1024)
 #define VOICE_STREAM_CHUNK_BYTES 1024
 #define VOICE_PCM_CAPTURE_MAX_BYTES (15 * 16000 * sizeof(int16_t))
+#define VOICE_FLASH_WRITE_BUFFER_BYTES 4096
 #define VOICE_MP3_STREAM_BUFFER_BYTES (24 * 1024)
 #define VOICE_FLASH_READ_BOUNCE_BYTES 4096
 #define VOICE_PLAY_TASK_TIMEOUT_MS 30000
@@ -57,7 +59,7 @@ static const char *TAG = "faculty175_voice";
 #endif
 
 EXT_RAM_BSS_ATTR static uint8_t s_voice_mp3_stream_buf[VOICE_MP3_STREAM_BUFFER_BYTES];
-static uint8_t s_voice_http_chunk[VOICE_STREAM_CHUNK_BYTES];
+EXT_RAM_BSS_ATTR static uint8_t s_voice_http_chunk[VOICE_STREAM_CHUNK_BYTES];
 EXT_RAM_BSS_ATTR static int16_t s_voice_mp3_pcm[MINIMP3_MAX_SAMPLES_PER_FRAME * 2];
 EXT_RAM_BSS_ATTR static mp3dec_t s_voice_mp3_dec;
 
@@ -66,6 +68,7 @@ typedef struct {
     size_t pcm_bytes;
     uint8_t *pcm_buf;
     size_t pcm_cap;
+    uint8_t *spool_buf;
     char *meta_json;
     size_t meta_len;
     FILE *spool;
@@ -553,6 +556,7 @@ static void stream_buffer_reset(void)
         fclose(s_stream.spool);
     }
     free(s_stream.pcm_buf);
+    free(s_stream.spool_buf);
     free(s_stream.meta_json);
     memset(&s_stream, 0, sizeof(s_stream));
 }
@@ -1101,13 +1105,12 @@ static esp_err_t post_collect_voice_file(const char *url,
         ret = write_all(client, meta_json, meta_len);
     }
 
-    uint8_t chunk[VOICE_STREAM_CHUNK_BYTES];
     while (ret == ESP_OK) {
-        const size_t n = fread(chunk, 1, sizeof(chunk), pcm);
+        const size_t n = fread(s_voice_http_chunk, 1, sizeof(s_voice_http_chunk), pcm);
         if (n > 0) {
-            ret = write_all(client, chunk, n);
+            ret = write_all(client, s_voice_http_chunk, n);
         }
-        if (n < sizeof(chunk)) {
+        if (n < sizeof(s_voice_http_chunk)) {
             if (ferror(pcm)) {
                 ret = ESP_FAIL;
             }
@@ -1494,7 +1497,17 @@ esp_err_t faculty175_voice_stt_stream_open(const faculty175_voice_stt_stream_con
         stream_buffer_reset();
         return ESP_FAIL;
     }
-    s_stream.pcm_buf = heap_caps_malloc(VOICE_PCM_CAPTURE_MAX_BYTES, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    s_stream.spool_buf = heap_caps_malloc(VOICE_FLASH_WRITE_BUFFER_BYTES, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (s_stream.spool_buf == NULL) {
+        stream_buffer_reset();
+        return ESP_ERR_NO_MEM;
+    }
+    if (setvbuf(s_stream.spool, (char *)s_stream.spool_buf, _IOFBF, VOICE_FLASH_WRITE_BUFFER_BYTES) != 0) {
+        stream_buffer_reset();
+        return ESP_FAIL;
+    }
+    s_stream.pcm_buf = heap_caps_malloc(VOICE_PCM_CAPTURE_MAX_BYTES,
+                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (s_stream.pcm_buf == NULL) {
         stream_buffer_reset();
         return ESP_ERR_NO_MEM;
@@ -1559,10 +1572,6 @@ esp_err_t faculty175_voice_stt_stream_commit_streaming(const faculty175_voice_tt
         return ESP_ERR_NO_MEM;
     }
     if (s_stream.spool != NULL) {
-        if (s_stream.pcm_buf == NULL) {
-            faculty175_voice_stt_stream_close();
-            return ESP_FAIL;
-        }
         size_t flushed = 0;
         while (flushed < s_stream.pcm_bytes) {
             const size_t remaining = s_stream.pcm_bytes - flushed;
@@ -1580,6 +1589,10 @@ esp_err_t faculty175_voice_stt_stream_commit_streaming(const faculty175_voice_tt
         }
         fclose(s_stream.spool);
         s_stream.spool = NULL;
+        free(s_stream.pcm_buf);
+        s_stream.pcm_buf = NULL;
+        free(s_stream.spool_buf);
+        s_stream.spool_buf = NULL;
     }
 
     char url[224];
@@ -1760,6 +1773,7 @@ esp_err_t faculty175_voice_play_mp3(const uint8_t *mp3, size_t mp3_len)
         result = ESP_ERR_INVALID_RESPONSE;
     }
     (void)faculty175_audio_reset_speaker(1000);
+    (void)faculty175_audio_reset_capture(1000);
     FACULTY175_LOG_STAGE(TAG,
                          "tts",
                          "play done in %ums err=%s",
@@ -1774,7 +1788,7 @@ bool faculty175_voice_tts_playback_busy(void)
     return s_tts_playback_busy;
 }
 
-static esp_err_t voice_play_mp3_file_sync(const char *path, size_t mp3_len)
+esp_err_t faculty175_voice_play_mp3_file_sync(const char *path, size_t mp3_len)
 {
     if (path == NULL || path[0] == '\0' || mp3_len < 64) {
         FACULTY175_LOG_STAGE_W(TAG, "tts", "file play skipped path=%s len=%u", path ? path : "-", (unsigned)mp3_len);
@@ -1890,6 +1904,7 @@ static esp_err_t voice_play_mp3_file_sync(const char *path, size_t mp3_len)
         result = ESP_ERR_INVALID_RESPONSE;
     }
     (void)faculty175_audio_reset_speaker(1000);
+    (void)faculty175_audio_reset_capture(1000);
     s_tts_playback_busy = false;
     FACULTY175_LOG_STAGE(TAG,
                          "tts",
@@ -1913,7 +1928,7 @@ static void voice_play_mp3_file_task(void *arg)
     voice_play_file_task_args_t *args = (voice_play_file_task_args_t *)arg;
     if (args != NULL) {
         if (args->path[0] != '\0') {
-            args->result = voice_play_mp3_file_sync(args->path, args->mp3_len);
+            args->result = faculty175_voice_play_mp3_file_sync(args->path, args->mp3_len);
         } else {
             args->result = faculty175_voice_play_mp3(args->mp3, args->mp3_len);
         }
@@ -2190,6 +2205,7 @@ esp_err_t faculty175_voice_tts_speaker_stream_end(void)
     }
     s_tts_speaker_stream.open = false;
     (void)faculty175_audio_reset_speaker(1000);
+    (void)faculty175_audio_reset_capture(1000);
     s_tts_playback_busy = false;
     FACULTY175_LOG_STAGE(TAG,
                          "tts",

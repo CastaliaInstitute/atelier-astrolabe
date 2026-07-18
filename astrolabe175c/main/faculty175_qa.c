@@ -86,6 +86,7 @@ static void qa_print_help(void)
     printf("  qa listen   VAD + waveform ring (passive)\n");
     printf("  qa stt [ms] trigger one fixed-window STT capture\n");
     printf("  qa audio    mic probe ~400ms (active read)\n");
+    printf("  qa mic-reset  fully reset ES7210 capture path\n");
     printf("  qa pcm [ms]  base64 raw mono s16le mic capture\n");
     printf("  qa pcm4 [ms]  base64 raw 4-slot ES7210 s16le capture\n");
     printf("  qa speaker [hz] [ms]  audible speaker tone\n");
@@ -1021,6 +1022,12 @@ bool faculty175_qa_handle(const char *line)
     }
     if (strcasecmp(sub, "audio") == 0) {
         qa_emit_audio();
+        return true;
+    }
+    if (strcasecmp(sub, "mic-reset") == 0) {
+        const esp_err_t err = faculty175_audio_reset_capture(1000);
+        printf("qa: mic-reset %s\n", esp_err_to_name(err));
+        fflush(stdout);
         return true;
     }
     if (strncasecmp(sub, "pa ", 3) == 0 || strcasecmp(sub, "pa") == 0) {

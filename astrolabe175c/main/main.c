@@ -101,8 +101,7 @@ static bool running_from_factory_partition(void)
 
 #define WIFI_CONNECTED_BIT BIT0
 #define WIFI_FAIL_BIT BIT1
-#define VOICE_WORKER_STACK_BYTES 7168
-#define FACULTY175_FACE_TTS_STACK 32768
+#define FACULTY175_FACE_TTS_STACK 20480
 #define FACE_SWIPE_SAVE_IDLE_MS 1500
 #define FACE_REDRAW_MS 250
 #define FACE_DEATHSTAR_REDRAW_MS 125
@@ -216,6 +215,7 @@ static QueueHandle_t s_face_tts_queue;
 static void button_reboot_task_stop_for_pipeline(void);
 static void button_reboot_task_start_if_needed(void);
 static void save_current_face_async(void);
+static void qa_stt_run(uint32_t capture_ms);
 
 typedef struct {
     char ssid[FACULTY175_WIFI_SSID_MAX + 1];
@@ -1543,8 +1543,15 @@ static void build_face_read_prompt(const faculty175_face_desc_t *face, char *out
                       : "Keep the spoken answer under forty words.");
 }
 
+typedef enum {
+    VOICE_WORK_FACE_READ = 0,
+    VOICE_WORK_QA_STT,
+} voice_work_type_t;
+
 typedef struct {
+    voice_work_type_t type;
     faculty175_face_id_t id;
+    uint32_t capture_ms;
 } face_tts_request_t;
 
 static void face_tts_run_one(faculty175_face_id_t id)
@@ -1620,7 +1627,11 @@ static void face_tts_worker_task(void *arg)
     face_tts_request_t req = {};
     while (true) {
         if (xQueueReceive(s_face_tts_queue, &req, portMAX_DELAY) == pdTRUE) {
-            face_tts_run_one(req.id);
+            if (req.type == VOICE_WORK_QA_STT) {
+                qa_stt_run(req.capture_ms);
+            } else {
+                face_tts_run_one(req.id);
+            }
         }
     }
 }
@@ -1641,17 +1652,9 @@ static void face_tts_worker_start(void)
                                         &s_face_tts_worker_task,
                                         MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     if (ok != pdPASS) {
-        s_face_tts_worker_task = NULL;
-        ok = xTaskCreateWithCaps(face_tts_worker_task,
-                                 "face_tts",
-                                 FACULTY175_FACE_TTS_STACK,
-                                 NULL,
-                                 4,
-                                 &s_face_tts_worker_task,
-                                 MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    }
-    if (ok != pdPASS) {
-        FACULTY175_LOG_STAGE_E(TAG, "tts-face", "worker create failed");
+        /* This task performs TLS and SPIFFS I/O. Either operation can suspend
+         * the external-memory cache, so a PSRAM-backed task stack is unsafe. */
+        FACULTY175_LOG_STAGE_E(TAG, "tts-face", "cache-safe worker create failed");
         s_face_tts_worker_task = NULL;
     }
 }
@@ -1662,18 +1665,21 @@ static esp_err_t face_tts_worker_stop_for_pipeline(void)
         FACULTY175_LOG_STAGE_W(TAG, "tts-face", "cannot start duplex while face reading is active");
         return ESP_ERR_INVALID_STATE;
     }
+    if (s_face_tts_worker_task == xTaskGetCurrentTaskHandle()) {
+        /* QA STT shares this cache-safe worker. Keep its one internal stack
+         * resident while it tears down or rebuilds the rolling pipeline. */
+        return ESP_OK;
+    }
+    if (s_qa_stt_busy) {
+        FACULTY175_LOG_STAGE_W(TAG, "tts-face", "cannot release voice worker during qa stt");
+        return ESP_ERR_INVALID_STATE;
+    }
     if (s_face_tts_worker_task != NULL) {
-        vTaskDelete(s_face_tts_worker_task);
+        vTaskDeleteWithCaps(s_face_tts_worker_task);
         s_face_tts_worker_task = NULL;
         FACULTY175_LOG_STAGE(TAG, "tts-face", "worker released for duplex pipeline");
     }
     return ESP_OK;
-}
-
-static esp_err_t face_tts_stream_chunk(const uint8_t *mp3_chunk, size_t chunk_len, void *user)
-{
-    (void)user;
-    return faculty175_voice_tts_speaker_stream_write(mp3_chunk, chunk_len);
 }
 
 static esp_err_t face_tts_stream_post(const char *prompt,
@@ -1681,24 +1687,21 @@ static esp_err_t face_tts_stream_post(const char *prompt,
                                       const char *post_face,
                                       faculty175_voice_result_t *result)
 {
-    esp_err_t err = faculty175_voice_tts_speaker_stream_begin();
-    if (err != ESP_OK) {
-        return err;
-    }
-    const faculty175_voice_tts_stream_t stream = {
-        .on_mp3_chunk = face_tts_stream_chunk,
-    };
-    err = faculty175_voice_post_message_streaming(prompt,
+    /* Do not play synchronously from the HTTP response callback. Audio output
+     * can back-pressure the response long enough to leave both the HTTP client
+     * and playback state wedged. Spool the bounded response to SPIFFS first,
+     * close the HTTP transaction, then use the cache-safe file player. */
+    esp_err_t err = faculty175_voice_post_message(prompt,
                                                   system,
                                                   post_face,
                                                   s_faculty_slug,
                                                   s_faculty_name,
                                                   s_history,
-                                                  &stream,
                                                   result);
-    const esp_err_t stream_err = faculty175_voice_tts_speaker_stream_end();
     if (err == ESP_OK) {
-        err = stream_err;
+        /* face_tts has a cache-safe internal stack, so play in place instead
+         * of allocating a second large internal task while TLS is resident. */
+        err = faculty175_voice_play_mp3_file_sync(result->mp3_path, result->mp3_len);
     }
     return err;
 }
@@ -1734,6 +1737,7 @@ static bool start_face_tts_read(const faculty175_face_desc_t *face)
     }
     s_face_tts_busy = true;
     const face_tts_request_t req = {
+        .type = VOICE_WORK_FACE_READ,
         .id = face->id,
     };
     if (xQueueSend(s_face_tts_queue, &req, 0) != pdTRUE) {
@@ -1956,10 +1960,6 @@ static void pipeline_event(astrolabe_audio_pipeline_event_t event, const char *d
     }
 }
 
-typedef struct {
-    uint32_t capture_ms;
-} qa_stt_args_t;
-
 static void qa_stt_frame_stats(const int16_t *samples, size_t count, int32_t *out_peak, uint32_t *out_rms)
 {
     int32_t peak = 0;
@@ -1982,11 +1982,8 @@ static void qa_stt_frame_stats(const int16_t *samples, size_t count, int32_t *ou
     }
 }
 
-static void qa_stt_task(void *arg)
+static void qa_stt_run(uint32_t capture_ms)
 {
-    qa_stt_args_t *args = (qa_stt_args_t *)arg;
-    uint32_t capture_ms = args != NULL ? args->capture_ms : 0;
-    free(args);
     if (capture_ms == 0) {
         capture_ms = 5000;
     }
@@ -2033,7 +2030,6 @@ static void qa_stt_task(void *arg)
         if (restart_pipeline) {
             (void)pipeline_ensure_ready();
         }
-        vTaskDeleteWithCaps(NULL);
         return;
     }
 
@@ -2051,7 +2047,10 @@ static void qa_stt_task(void *arg)
         .system_instruction = s_voice_system_instruction,
         .history = s_history,
     };
-    esp_err_t err = faculty175_voice_stt_stream_open(&stream_config);
+    esp_err_t err = faculty175_audio_reset_capture(1000);
+    if (err == ESP_OK) {
+        err = faculty175_voice_stt_stream_open(&stream_config);
+    }
     if (err == ESP_OK) {
         /* The first read switches I2S back from speaker playback to microphone
          * capture.  Do that before advertising capture readiness so a prompt
@@ -2130,7 +2129,14 @@ static void qa_stt_task(void *arg)
             }
         }
         if (err == ESP_OK && result->mp3_path[0] != '\0') {
-            err = faculty175_voice_play_mp3_file(result->mp3_path, result->mp3_len);
+            /* qa_stt owns the same cache-safe internal stack budget normally
+             * reserved for face_tts, so no second playback task is needed. */
+            const UBaseType_t pre_play_free = uxTaskGetStackHighWaterMark(NULL);
+            printf("qa: stt pre-play stack=%u free=%u used_peak=%u\n",
+                   (unsigned)FACULTY175_FACE_TTS_STACK,
+                   (unsigned)pre_play_free,
+                   (unsigned)(FACULTY175_FACE_TTS_STACK - pre_play_free));
+            err = faculty175_voice_play_mp3_file_sync(result->mp3_path, result->mp3_len);
         }
     } else {
         faculty175_voice_stream_cancel();
@@ -2154,6 +2160,12 @@ static void qa_stt_task(void *arg)
         ui_set(FACULTY175_UI_SPEAK, "qa stt");
     }
 
+    const UBaseType_t free_words = uxTaskGetStackHighWaterMark(NULL);
+    const uint32_t free_bytes = (uint32_t)free_words * (uint32_t)sizeof(StackType_t);
+    printf("qa: stt task stack=%u free=%u used_peak=%u\n",
+           (unsigned)FACULTY175_FACE_TTS_STACK,
+           (unsigned)free_bytes,
+           (unsigned)(FACULTY175_FACE_TTS_STACK - free_bytes));
     printf("qa: stt done err=%s\n", esp_err_to_name(err));
     fflush(stdout);
     FACULTY175_LOG_STAGE(TAG, "stt", "qa done %s", esp_err_to_name(err));
@@ -2184,7 +2196,6 @@ static void qa_stt_task(void *arg)
             FACULTY175_LOG_STAGE_W(TAG, "stt", "qa pipeline resume failed: %s", esp_err_to_name(restart_err));
         }
     }
-    vTaskDeleteWithCaps(NULL);
 }
 
 static esp_err_t qa_trigger_stt(uint32_t capture_ms)
@@ -2192,15 +2203,14 @@ static esp_err_t qa_trigger_stt(uint32_t capture_ms)
     if (!faculty175_board_audio_ready()) {
         return ESP_ERR_INVALID_STATE;
     }
-    if (s_qa_stt_busy) {
+    if (s_qa_stt_busy || s_face_tts_busy) {
         return ESP_ERR_INVALID_STATE;
     }
-    low_power_note_activity((uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS), "qa-stt");
-    qa_stt_args_t *args = calloc(1, sizeof(*args));
-    if (args == NULL) {
+    face_tts_worker_start();
+    if (s_face_tts_queue == NULL || s_face_tts_worker_task == NULL) {
         return ESP_ERR_NO_MEM;
     }
-    args->capture_ms = capture_ms;
+    low_power_note_activity((uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS), "qa-stt");
     s_qa_stt_busy = true;
     portENTER_CRITICAL(&s_qa_voice_status_mux);
     s_qa_voice_status.sequence++;
@@ -2212,17 +2222,18 @@ static esp_err_t qa_trigger_stt(uint32_t capture_ms)
     s_qa_voice_status.transcript[0] = '\0';
     s_qa_voice_status.reply[0] = '\0';
     portEXIT_CRITICAL(&s_qa_voice_status_mux);
-    const BaseType_t ok = xTaskCreateWithCaps(qa_stt_task, "qa_stt", VOICE_WORKER_STACK_BYTES,
-                                              args, 4, NULL, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    if (ok != pdPASS) {
-        free(args);
+    const face_tts_request_t req = {
+        .type = VOICE_WORK_QA_STT,
+        .capture_ms = capture_ms,
+    };
+    if (xQueueSend(s_face_tts_queue, &req, 0) != pdTRUE) {
         s_qa_stt_busy = false;
         portENTER_CRITICAL(&s_qa_voice_status_mux);
         s_qa_voice_status.busy = false;
         s_qa_voice_status.err = ESP_ERR_NO_MEM;
         s_qa_voice_status.completed_ms = faculty175_log_ms();
         portEXIT_CRITICAL(&s_qa_voice_status_mux);
-        return ESP_ERR_NO_MEM;
+        return ESP_ERR_TIMEOUT;
     }
     return ESP_OK;
 }
@@ -2923,6 +2934,7 @@ static void qa_emit_tasks(void)
     qa_emit_task_stack_line("gesture", faculty175_gesture_task_handle(), 4096u);
     qa_emit_task_stack_line("input", s_input_task, FACULTY175_INPUT_TASK_STACK);
     qa_emit_task_stack_line("power_metrics", s_power_metrics_task, FACULTY175_POWER_METRICS_TASK_STACK);
+    qa_emit_task_stack_line("face_tts", s_face_tts_worker_task, FACULTY175_FACE_TTS_STACK);
     qa_emit_task_stack_line("button_reboot", s_button_reboot_task, FACULTY175_BUTTON_REBOOT_STACK);
     qa_emit_task_stack_line("face_save", s_face_save_task, FACULTY175_FACE_SAVE_STACK);
     qa_emit_task_stack_line("audio_pipe", s_pipeline_start_task, 4096u);

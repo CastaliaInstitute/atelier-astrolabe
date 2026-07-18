@@ -64,6 +64,8 @@ esp_err_t faculty175_audio_read_tdm_raw(int16_t *samples,
                                         uint32_t timeout_ms);
 esp_err_t faculty175_audio_write_pcm(const int16_t *samples, size_t sample_count, uint32_t timeout_ms);
 esp_err_t faculty175_audio_reset_speaker(uint32_t timeout_ms);
+/** Reopen the ES7210 route and restart I2S RX after speaker playback. */
+esp_err_t faculty175_audio_reset_capture(uint32_t timeout_ms);
 esp_err_t faculty175_audio_set_sample_rate(uint32_t hz);
 void faculty175_audio_set_speaker_mute(bool mute);
 void faculty175_audio_set_speaker_pa_level(bool enabled);

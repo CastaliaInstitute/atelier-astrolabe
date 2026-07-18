@@ -39,7 +39,12 @@
 #include "astrolabe_time.h"
 
 static const char *TAG = "faculty_board";
-static const int32_t FACULTY175_MIC_MONO_GAIN = 1;
+/*
+ * The ES7210's line-level output is clean but too quiet for reliable cloud STT
+ * at normal conversational distance.  Apply modest gain while converting to
+ * mono; the 32-bit accumulator and explicit saturation below preserve headroom.
+ */
+static const int32_t FACULTY175_MIC_MONO_GAIN = 3;
 
 /* Waveshare ESP32-S3-Touch-AMOLED-1.75C — CO5300 466×466 QSPI (NOT 1.8″ SH8601).
  *
@@ -1459,6 +1464,22 @@ static esp_err_t faculty175_audio_restart_tx_locked(void)
     return ESP_OK;
 }
 
+static esp_err_t faculty175_audio_restart_rx_locked(void)
+{
+    if (s_i2s_rx == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    esp_err_t err = i2s_channel_disable(s_i2s_rx);
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+        return err;
+    }
+    err = i2s_channel_enable(s_i2s_rx);
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+        return err;
+    }
+    return ESP_OK;
+}
+
 static esp_err_t faculty175_audio_write_mono_from_stereo(const int16_t *samples,
                                                          size_t sample_count,
                                                          uint32_t timeout_ms)
@@ -2485,6 +2506,39 @@ esp_err_t faculty175_audio_reset_speaker(uint32_t timeout_ms)
         xSemaphoreGive(s_audio_read_mux);
     }
     return ESP_OK;
+}
+
+esp_err_t faculty175_audio_reset_capture(uint32_t timeout_ms)
+{
+    if (s_mic_codec == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (s_audio_read_mux != NULL &&
+        xSemaphoreTake(s_audio_read_mux, pdMS_TO_TICKS(timeout_ms == 0 ? 200 : timeout_ms)) != pdTRUE) {
+        ESP_LOGW(TAG, "mic reset mutex timeout open=%d", s_mic_open ? 1 : 0);
+        return ESP_ERR_TIMEOUT;
+    }
+
+    if (s_mic_open) {
+        (void)esp_codec_dev_close(s_mic_codec);
+        s_mic_open = false;
+    }
+    esp_err_t err = faculty175_codec_open(false, FACULTY175_AUDIO_RATE);
+    if (err == ESP_OK) {
+        faculty175_mic_apply_capture_config();
+        s_mic_open = true;
+        err = faculty175_audio_restart_rx_locked();
+    }
+    if (s_audio_read_mux != NULL) {
+        xSemaphoreGive(s_audio_read_mux);
+    }
+    if (err == ESP_OK) {
+        vTaskDelay(pdMS_TO_TICKS(80));
+        ESP_LOGI(TAG, "microphone capture path reset");
+    } else {
+        ESP_LOGW(TAG, "microphone capture reset failed: %s", esp_err_to_name(err));
+    }
+    return err;
 }
 
 esp_err_t faculty175_audio_set_sample_rate(uint32_t hz)

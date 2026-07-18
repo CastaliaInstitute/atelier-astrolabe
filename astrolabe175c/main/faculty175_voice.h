@@ -105,6 +105,8 @@ void faculty175_voice_stream_cancel(void);
 
 esp_err_t faculty175_voice_play_mp3(const uint8_t *mp3, size_t mp3_len);
 esp_err_t faculty175_voice_play_mp3_async(const uint8_t *mp3, size_t mp3_len);
+/** Play a spooled MP3 synchronously. The caller's task stack must be internal RAM. */
+esp_err_t faculty175_voice_play_mp3_file_sync(const char *path, size_t mp3_len);
 esp_err_t faculty175_voice_play_mp3_file(const char *path, size_t mp3_len);
 bool faculty175_voice_tts_playback_busy(void);
 
