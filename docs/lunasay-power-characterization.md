@@ -118,10 +118,12 @@ current meter. Consequently:
   an analyzer trace or labeled-capacity runtime exists, current and watt-hour
   fields remain unknown rather than inferred from voltage slope.
 
-Import a synchronized battery-path analyzer trace with:
+Store each synchronized matrix-run trace as `analyzer.csv` in that run's
+artifact directory; the report discovers those files automatically. Import a
+trace stored elsewhere with:
 
 ```sh
-python3 scripts/lunasay_power_report.py --analyzer-csv analyzer.csv
+python3 scripts/lunasay_power_report.py --analyzer-csv /path/to/analyzer.csv
 ```
 
 The CSV requires `run_id`, positive-discharge `current_ma`, one time column

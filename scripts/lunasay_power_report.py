@@ -47,6 +47,16 @@ def file_manifest(path: Path) -> dict:
     }
 
 
+def analyzer_paths(explicit: list[Path], artifact_root: Path) -> list[Path]:
+    """Combine explicit imports with conventional per-run captures without duplicates."""
+    candidates = [*explicit, *sorted(artifact_root.glob("lunasay-*/analyzer.csv"))]
+    unique: dict[Path, Path] = {}
+    for path in candidates:
+        resolved = path.resolve()
+        unique.setdefault(resolved, path)
+    return list(unique.values())
+
+
 def load_analyzer_rows(paths: list[Path]) -> list[dict]:
     """Load battery-path analyzer CSVs; positive current means discharge."""
     rows: list[dict] = []
@@ -559,8 +569,16 @@ def main() -> int:
     parser.add_argument("--min-percent-drop", type=int, default=DEFAULT_MIN_PERCENT_DROP)
     parser.add_argument("--battery-mah", type=float, default=None,
                         help="labeled cell capacity; omit when unknown")
-    parser.add_argument("--analyzer-csv", type=Path, action="append", default=[],
-                        help="battery-path CSV: run_id, epoch_s|timestamp, current_ma, voltage_mv|voltage_v")
+    parser.add_argument(
+        "--analyzer-csv",
+        type=Path,
+        action="append",
+        default=[],
+        help=(
+            "additional battery-path CSV; per-run lunasay-*/analyzer.csv files are discovered "
+            "automatically"
+        ),
+    )
     parser.add_argument("--shutdown-current-threshold-ma", type=float, default=0.2,
                         help="maximum battery current considered electrically off")
     parser.add_argument("--shutdown-current-sustain-s", type=float, default=300.0,
@@ -590,7 +608,8 @@ def main() -> int:
     if not 0 < args.min_percent_drop <= 100:
         raise SystemExit("error: --min-percent-drop must be 1..100")
     matrix_sha256 = hashlib.sha256(args.matrix.read_bytes()).hexdigest() if args.matrix.is_file() else None
-    analyzer_rows = load_analyzer_rows(args.analyzer_csv)
+    analyzer_input_paths = analyzer_paths(args.analyzer_csv, args.artifact_root)
+    analyzer_rows = load_analyzer_rows(analyzer_input_paths)
     active_summary_paths = sorted(args.artifact_root.glob("lunasay-battery-*/summary.json"))
     deep_summary_paths = sorted(args.artifact_root.glob("lunasay-deep-sleep-*/summary.json"))
     consumed_artifact_paths: set[Path] = set()
@@ -605,7 +624,7 @@ def main() -> int:
         for path in sorted(consumed_artifact_paths, key=lambda item: str(item.resolve()))
     ]
     analyzer_sources = []
-    for path in args.analyzer_csv:
+    for path in analyzer_input_paths:
         source_path = str(path.resolve())
         source_identities = sorted({
             (
@@ -852,6 +871,7 @@ def main() -> int:
         "minimum_estimate_hours": args.min_estimate_hours,
         "minimum_percent_drop": args.min_percent_drop,
         "battery_mah_override": args.battery_mah,
+        "analyzer_inputs": [str(path.resolve()) for path in analyzer_input_paths],
         "analyzer_max_gap_s": args.analyzer_max_gap_s,
         "shutdown_current_threshold_ma": args.shutdown_current_threshold_ma,
         "shutdown_current_sustain_s": args.shutdown_current_sustain_s,
