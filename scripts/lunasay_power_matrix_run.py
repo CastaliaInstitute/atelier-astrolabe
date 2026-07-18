@@ -168,6 +168,35 @@ def main() -> int:
     matrix_sha256 = hashlib.sha256(matrix_bytes).hexdigest()
     args.matrix_sha256 = matrix_sha256
     matrix = json.loads(matrix_bytes)
+    release_gate = matrix.get("release_gate", {})
+    ambient_c_min = release_gate.get("ambient_c_min")
+    ambient_c_max = release_gate.get("ambient_c_max")
+    for name, value in (("ambient_c_min", ambient_c_min), ("ambient_c_max", ambient_c_max)):
+        if value is not None and (
+            not isinstance(value, (int, float))
+            or isinstance(value, bool)
+            or not math.isfinite(float(value))
+        ):
+            raise SystemExit(f"error: matrix release_gate.{name} must be finite")
+    if (
+        ambient_c_min is not None
+        and ambient_c_max is not None
+        and float(ambient_c_min) > float(ambient_c_max)
+    ):
+        raise SystemExit("error: matrix ambient bounds are invalid")
+    if not args.allow_not_ready and args.ambient_c is not None and (
+        (ambient_c_min is not None and args.ambient_c < float(ambient_c_min))
+        or (ambient_c_max is not None and args.ambient_c > float(ambient_c_max))
+    ):
+        ambient_window = (
+            f"{float(ambient_c_min):g}..{float(ambient_c_max):g} C"
+            if ambient_c_min is not None and ambient_c_max is not None
+            else "configured ambient C"
+        )
+        raise SystemExit(
+            f"error: --ambient-c {args.ambient_c:g} is outside the qualified "
+            f"{ambient_window} window"
+        )
     harness_build = subprocess.check_output(
         ["git", "describe", "--always", "--dirty"], cwd=ROOT, text=True
     ).strip()

@@ -80,7 +80,11 @@ requires a synchronized battery-path analyzer trace covering at least 95% of
 each run and a recorded labeled cell capacity; runtime alone does not fully
 characterize power consumption. Both units contributing to a claim must share
 the same known hardware revision, LunaSay firmware version/full ELF SHA-256,
-and committed harness build.
+committed harness build, and labeled cell capacity. Release cohorts are limited
+to the matrix's 15–30 °C indoor test window and no more than 5 °C spread between
+their contributing runs. Every generated claim draft states the actual
+temperature range and labeled cell capacity; it is not evidence for operation
+outside those conditions.
 
 The qualification matrix gives every full-runtime active test a seven-day
 safety ceiling, the longest scenario the firmware accepts. This is a ceiling,

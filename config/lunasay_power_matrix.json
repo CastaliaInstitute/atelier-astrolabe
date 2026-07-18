@@ -1,5 +1,5 @@
 {
-  "schema": 5,
+  "schema": 6,
   "release_gate": {
     "units_required": 2,
     "batteries_required": 2,
@@ -7,8 +7,12 @@
     "require_direct_current": true,
     "require_analyzer_provenance": true,
     "require_labeled_capacity": true,
+    "require_uniform_battery_capacity": true,
     "require_hardware_revision": true,
     "require_ambient_temperature": true,
+    "ambient_c_min": 15,
+    "ambient_c_max": 30,
+    "maximum_cohort_ambient_spread_c": 5,
     "minimum_projection_hours": 1,
     "minimum_projection_drop_percent": 2
   },

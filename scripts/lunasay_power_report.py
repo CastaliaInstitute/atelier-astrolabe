@@ -392,7 +392,17 @@ def test_article_gate_passes(
     require_labeled_capacity: bool,
     require_hardware_revision: bool,
     require_ambient_temperature: bool,
+    ambient_c_min: float | None = None,
+    ambient_c_max: float | None = None,
 ) -> bool:
+    ambient_c = run.get("ambient_c")
+    ambient_valid = bool(
+        isinstance(ambient_c, (int, float))
+        and not isinstance(ambient_c, bool)
+        and math.isfinite(float(ambient_c))
+        and (ambient_c_min is None or float(ambient_c) >= ambient_c_min)
+        and (ambient_c_max is None or float(ambient_c) <= ambient_c_max)
+    )
     return bool(
         known_text(run.get("unit_id"))
         and known_text(run.get("battery_id"))
@@ -406,13 +416,7 @@ def test_article_gate_passes(
             )
         )
         and (not require_hardware_revision or known_text(run.get("hardware_revision")))
-        and (
-            not require_ambient_temperature
-            or (
-                isinstance(run.get("ambient_c"), (int, float))
-                and math.isfinite(float(run["ambient_c"]))
-            )
-        )
+        and (not require_ambient_temperature or ambient_valid)
     )
 
 
@@ -452,23 +456,73 @@ def matrix_test_matches(run: dict, test: dict, matrix_sha256: str | None) -> boo
     return True
 
 
-def largest_release_cohort(runs: list[dict]) -> list[dict]:
-    """Keep only the same clean firmware/harness cohort with the most physical units."""
-    cohorts: dict[tuple[str, str, str], list[dict]] = {}
+def largest_release_cohort(
+    runs: list[dict],
+    require_uniform_capacity: bool = False,
+    maximum_ambient_spread_c: float | None = None,
+) -> list[dict]:
+    """Keep the largest comparable build/cell/environment cohort."""
+    cohorts: dict[tuple, list[dict]] = {}
     for run in runs:
         key = release_build_key(run)
         if key is not None:
-            cohorts.setdefault(key, []).append(run)
+            cohort_key: tuple = key
+            if require_uniform_capacity:
+                capacity = run.get("battery_mah")
+                if not isinstance(capacity, (int, float)) or not math.isfinite(float(capacity)):
+                    continue
+                cohort_key = (*key, float(capacity))
+            cohorts.setdefault(cohort_key, []).append(run)
     if not cohorts:
         return []
+    comparable: list[tuple[tuple, list[dict]]] = []
+    for key, cohort in cohorts.items():
+        candidate = cohort
+        if maximum_ambient_spread_c is not None:
+            ordered = sorted(cohort, key=lambda run: float(run["ambient_c"]))
+            windows = [
+                [
+                    run for run in ordered
+                    if float(start["ambient_c"]) <= float(run["ambient_c"])
+                    <= float(start["ambient_c"]) + maximum_ambient_spread_c
+                ]
+                for start in ordered
+            ]
+            candidate = max(
+                windows,
+                key=lambda window: (
+                    len({run.get("unit_id") for run in window}),
+                    len({run.get("battery_id") for run in window}),
+                    len(window),
+                ),
+                default=[],
+            )
+        comparable.append((key, candidate))
     ranked = sorted(
-        cohorts.items(),
+        comparable,
         key=lambda item: (
             -len({run.get("unit_id") for run in item[1] if run.get("unit_id") != "unknown"}),
+            -len({run.get("battery_id") for run in item[1] if known_text(run.get("battery_id"))}),
             item[0],
         ),
     )
     return ranked[0][1]
+
+
+def claim_test_conditions(runs: list[dict]) -> str:
+    capacities = sorted({float(run["battery_mah"]) for run in runs})
+    temperatures = [float(run["ambient_c"]) for run in runs]
+    capacity = (
+        f"{capacities[0]:g} mAh"
+        if len(capacities) == 1
+        else f"{capacities[0]:g}–{capacities[-1]:g} mAh"
+    )
+    temperature = (
+        f"{temperatures[0]:g} °C"
+        if min(temperatures) == max(temperatures)
+        else f"{min(temperatures):g}–{max(temperatures):g} °C"
+    )
+    return f"Tested at {temperature} with labeled {capacity} cells."
 
 
 def workload_gate_passes(run: dict, test: dict) -> bool:
@@ -1220,6 +1274,35 @@ def main() -> int:
         require_ambient_temperature = bool(
             release_gate.get("require_ambient_temperature", False)
         )
+        require_uniform_capacity = bool(
+            release_gate.get("require_uniform_battery_capacity", False)
+        )
+        ambient_c_min = release_gate.get("ambient_c_min")
+        ambient_c_max = release_gate.get("ambient_c_max")
+        maximum_ambient_spread_c = release_gate.get("maximum_cohort_ambient_spread_c")
+        for name, value in (
+            ("ambient_c_min", ambient_c_min),
+            ("ambient_c_max", ambient_c_max),
+            ("maximum_cohort_ambient_spread_c", maximum_ambient_spread_c),
+        ):
+            if value is not None and (
+                not isinstance(value, (int, float))
+                or isinstance(value, bool)
+                or not math.isfinite(float(value))
+            ):
+                raise SystemExit(f"error: matrix release_gate.{name} must be finite")
+        ambient_c_min = float(ambient_c_min) if ambient_c_min is not None else None
+        ambient_c_max = float(ambient_c_max) if ambient_c_max is not None else None
+        maximum_ambient_spread_c = (
+            float(maximum_ambient_spread_c)
+            if maximum_ambient_spread_c is not None else None
+        )
+        if (
+            ambient_c_min is not None
+            and ambient_c_max is not None
+            and ambient_c_min > ambient_c_max
+        ) or (maximum_ambient_spread_c is not None and maximum_ambient_spread_c < 0):
+            raise SystemExit("error: matrix ambient bounds/spread are invalid")
         matrix_tests = matrix.get("tests", [])
         gpio_gate_tests = [
             matrix_test for matrix_test in matrix_tests
@@ -1256,6 +1339,8 @@ def main() -> int:
                         require_labeled_capacity,
                         require_hardware_revision,
                         require_ambient_temperature,
+                        ambient_c_min,
+                        ambient_c_max,
                     )
                 ]
             elif release_basis == "functional-gate":
@@ -1269,6 +1354,8 @@ def main() -> int:
                         require_labeled_capacity,
                         require_hardware_revision,
                         require_ambient_temperature,
+                        ambient_c_min,
+                        ambient_c_max,
                     )
                 ]
             elif release_basis == "direct-workload":
@@ -1286,6 +1373,8 @@ def main() -> int:
                         require_labeled_capacity,
                         require_hardware_revision,
                         require_ambient_temperature,
+                        ambient_c_min,
+                        ambient_c_max,
                     )
                 ]
             else:
@@ -1305,6 +1394,8 @@ def main() -> int:
                         require_labeled_capacity,
                         require_hardware_revision,
                         require_ambient_temperature,
+                        ambient_c_min,
+                        ambient_c_max,
                     )
                 ]
             if release_basis == "direct-projection":
@@ -1322,7 +1413,11 @@ def main() -> int:
                         for gate_run in deep_runs
                     )
                 ]
-            qualifying = largest_release_cohort(qualifying)
+            qualifying = largest_release_cohort(
+                qualifying,
+                require_uniform_capacity,
+                maximum_ambient_spread_c,
+            )
             qualifying_units = {
                 run.get("unit_id", "unknown") for run in qualifying
                 if run.get("unit_id") != "unknown"
@@ -1347,6 +1442,13 @@ def main() -> int:
             )
             if require_analyzer_provenance and release_basis != "functional-gate":
                 required_basis_label += "+meter-provenance"
+            if require_uniform_capacity:
+                required_basis_label += "+uniform-capacity"
+            if require_ambient_temperature:
+                if ambient_c_min is not None and ambient_c_max is not None:
+                    required_basis_label += f"+{ambient_c_min:g}–{ambient_c_max:g}°C"
+                if maximum_ambient_spread_c is not None:
+                    required_basis_label += f"+≤{maximum_ambient_spread_c:g}°C-spread"
             if int(test.get("minimum_successful_turns", 0)) > 0:
                 required_basis_label += f"+≥{int(test['minimum_successful_turns'])}-turns"
             if float(test.get("minimum_capture_coverage_ratio", 0)) > 0:
@@ -1368,6 +1470,7 @@ def main() -> int:
                 f"{len(qualifying_units)} | {len(qualifying_batteries)} | {gate} |"
             )
             if gate == "ready" and release_basis == "measured-runtime":
+                conditions = claim_test_conditions(qualifying)
                 minimum_h = min(float(run["measured_runtime_h"]) for run in qualifying)
                 step_h = 0.5 if minimum_h >= 2.0 else 0.25
                 claim_h = math.floor(minimum_h / step_h) * step_h
@@ -1385,10 +1488,11 @@ def main() -> int:
                         "draft": (
                             f"At least {claim_h:g} hours with the display at "
                             f"{test.get('display', 'the tested level')}, {test.get('radio', 'tested radio')} "
-                            f"and {workload_claim} workload."
+                            f"and {workload_claim} workload. {conditions}"
                         ),
                     })
             elif gate == "ready" and release_basis == "direct-projection":
+                conditions = claim_test_conditions(qualifying)
                 minimum_h = min(float(run["projected_full_runtime_h"]) for run in qualifying)
                 if minimum_h >= 24.0:
                     conservative = math.floor(minimum_h / 24.0)
@@ -1400,7 +1504,7 @@ def main() -> int:
                     "test": test["id"],
                     "basis": "labeled capacity + direct sleep current",
                     "units": len(qualifying_units),
-                    "draft": f"Projected deep-sleep battery life is {duration}.",
+                    "draft": f"Projected deep-sleep battery life is {duration}. {conditions}",
                 })
     limitations: list[str] = []
     if not runs and not deep_runs:
