@@ -104,7 +104,12 @@ void faculty175_deep_sleep_enter(const faculty175_pmu_status_t *pmu)
         .start_battery_mv = pmu->battery_mv,
     };
 
-    faculty175_audio_set_speaker_mute(true);
+    const esp_err_t audio_err = faculty175_audio_prepare_deep_sleep(1000);
+    if (audio_err != ESP_OK) {
+        ESP_LOGE(TAG, "deep sleep entry rejected: audio quiesce failed: %s",
+                 esp_err_to_name(audio_err));
+        return;
+    }
     faculty175_board_set_backlight(0);
     faculty175_board_display_on(false);
     faculty175_display_flush_suspended_set(true);

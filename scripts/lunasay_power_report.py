@@ -12,10 +12,11 @@ from __future__ import annotations
 import argparse
 import csv
 from datetime import datetime
+from html import escape
 import json
 import math
 from pathlib import Path
-from statistics import mean
+from statistics import mean, median
 
 
 DEFAULT_MIN_ESTIMATE_HOURS = 1.0
@@ -35,6 +36,66 @@ def load_events(path: Path) -> list[dict]:
     if not path.exists():
         return []
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def load_analyzer_rows(paths: list[Path]) -> list[dict]:
+    """Load battery-path analyzer CSVs; positive current means discharge."""
+    rows: list[dict] = []
+    for path in paths:
+        with path.open(newline="", encoding="utf-8") as handle:
+            for raw in csv.DictReader(handle):
+                if not raw.get("run_id") or not raw.get("current_ma"):
+                    raise ValueError(f"{path}: run_id and current_ma are required")
+                if raw.get("epoch_s"):
+                    epoch_s = float(raw["epoch_s"])
+                elif raw.get("timestamp"):
+                    epoch_s = parse_time(raw["timestamp"])
+                else:
+                    raise ValueError(f"{path}: epoch_s or timestamp is required")
+                current_ma = float(raw["current_ma"])
+                if current_ma < 0:
+                    raise ValueError(f"{path}: current_ma must be positive for discharge")
+                if raw.get("voltage_mv"):
+                    voltage_mv = float(raw["voltage_mv"])
+                elif raw.get("voltage_v"):
+                    voltage_mv = float(raw["voltage_v"]) * 1000.0
+                else:
+                    raise ValueError(f"{path}: voltage_mv or voltage_v is required")
+                rows.append({
+                    "run_id": raw["run_id"],
+                    "epoch_s": epoch_s,
+                    "current_ma": current_ma,
+                    "voltage_mv": voltage_mv,
+                })
+    return rows
+
+
+def direct_power_metrics(rows: list[dict]) -> dict | None:
+    rows = sorted(rows, key=lambda row: row["epoch_s"])
+    if len(rows) < 2 or rows[-1]["epoch_s"] <= rows[0]["epoch_s"]:
+        return None
+    charge_mah = 0.0
+    energy_mwh = 0.0
+    for previous, current in zip(rows, rows[1:]):
+        hours = (current["epoch_s"] - previous["epoch_s"]) / 3600.0
+        if hours <= 0:
+            continue
+        mean_current = (previous["current_ma"] + current["current_ma"]) / 2.0
+        previous_power_mw = previous["voltage_mv"] * previous["current_ma"] / 1000.0
+        current_power_mw = current["voltage_mv"] * current["current_ma"] / 1000.0
+        charge_mah += mean_current * hours
+        energy_mwh += (previous_power_mw + current_power_mw) / 2.0 * hours
+    duration_h = (rows[-1]["epoch_s"] - rows[0]["epoch_s"]) / 3600.0
+    return {
+        "analyzer_samples": len(rows),
+        "analyzer_duration_h": duration_h,
+        "median_current_ma": median(row["current_ma"] for row in rows),
+        "average_current_ma": charge_mah / duration_h if duration_h > 0 else None,
+        "peak_current_ma": max(row["current_ma"] for row in rows),
+        "charge_mah": charge_mah,
+        "energy_wh": energy_mwh / 1000.0,
+        "current_basis": "direct-battery-analyzer",
+    }
 
 
 def linear_slope(points: list[tuple[float, float]]) -> float | None:
@@ -167,6 +228,86 @@ def fmt(value: float | int | None, digits: int = 2) -> str:
     return f"{value:.{digits}f}"
 
 
+def write_curves_svg(curves: list[dict], path: Path) -> None:
+    """Write dependency-free percent/voltage discharge plots for all runs."""
+    width, height = 1200, 680
+    left, right = 78, 260
+    top, panel_h, gap = 72, 230, 76
+    plot_w = width - left - right
+    colors = ("#63d8ff", "#ffb86c", "#bd93f9", "#50fa7b", "#ff79c6", "#f1fa8c", "#8be9fd")
+    run_ids = list(dict.fromkeys(str(row["run_id"]) for row in curves))
+    max_h = max((float(row["elapsed_h"]) for row in curves), default=1.0)
+    max_h = max(max_h, 0.25)
+    voltages = [float(row["voltage_mv"]) for row in curves]
+    v_min = min(voltages, default=3200.0)
+    v_max = max(voltages, default=4300.0)
+    if v_max - v_min < 100:
+        midpoint = (v_min + v_max) / 2.0
+        v_min, v_max = midpoint - 50.0, midpoint + 50.0
+    else:
+        v_min -= 25.0
+        v_max += 25.0
+
+    def x_pos(hours: float) -> float:
+        return left + plot_w * hours / max_h
+
+    def y_percent(value: float) -> float:
+        return top + panel_h * (1.0 - value / 100.0)
+
+    voltage_top = top + panel_h + gap
+
+    def y_voltage(value: float) -> float:
+        return voltage_top + panel_h * (1.0 - (value - v_min) / (v_max - v_min))
+
+    svg = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
+        '<rect width="100%" height="100%" fill="#071018"/>',
+        '<style>text{font-family:ui-monospace,SFMono-Regular,monospace;fill:#dbeaf2} .grid{stroke:#24404d;stroke-width:1} .axis{stroke:#7fa0af;stroke-width:1.3}</style>',
+        '<text x="78" y="34" font-size="22" font-weight="700">LunaSay battery discharge</text>',
+        '<text x="78" y="56" font-size="12" fill="#8da8b5">Battery-only samples retained by firmware; elapsed time begins at VBUS removal.</text>',
+    ]
+    for panel_top, label in ((top, "Fuel gauge (%)"), (voltage_top, "Battery voltage (mV)")):
+        svg.append(f'<line class="axis" x1="{left}" y1="{panel_top}" x2="{left}" y2="{panel_top + panel_h}"/>')
+        svg.append(f'<line class="axis" x1="{left}" y1="{panel_top + panel_h}" x2="{left + plot_w}" y2="{panel_top + panel_h}"/>')
+        svg.append(f'<text x="{left}" y="{panel_top - 10}" font-size="14">{label}</text>')
+        for tick in range(5):
+            x = left + plot_w * tick / 4
+            elapsed = max_h * tick / 4
+            svg.append(f'<line class="grid" x1="{x:.1f}" y1="{panel_top}" x2="{x:.1f}" y2="{panel_top + panel_h}"/>')
+            svg.append(f'<text x="{x:.1f}" y="{panel_top + panel_h + 19}" text-anchor="middle" font-size="11">{elapsed:.1f}h</text>')
+    for tick in range(5):
+        pct = 100 - tick * 25
+        y = top + panel_h * tick / 4
+        svg.append(f'<line class="grid" x1="{left}" y1="{y:.1f}" x2="{left + plot_w}" y2="{y:.1f}"/>')
+        svg.append(f'<text x="{left - 10}" y="{y + 4:.1f}" text-anchor="end" font-size="11">{pct}</text>')
+        mv = v_max - (v_max - v_min) * tick / 4
+        vy = voltage_top + panel_h * tick / 4
+        svg.append(f'<line class="grid" x1="{left}" y1="{vy:.1f}" x2="{left + plot_w}" y2="{vy:.1f}"/>')
+        svg.append(f'<text x="{left - 10}" y="{vy + 4:.1f}" text-anchor="end" font-size="11">{mv:.0f}</text>')
+    for index, run_id in enumerate(run_ids):
+        color = colors[index % len(colors)]
+        rows = [row for row in curves if str(row["run_id"]) == run_id]
+        percent_points = " ".join(
+            f'{x_pos(float(row["elapsed_h"])):.1f},{y_percent(float(row["percent"])):.1f}' for row in rows
+        )
+        voltage_points = " ".join(
+            f'{x_pos(float(row["elapsed_h"])):.1f},{y_voltage(float(row["voltage_mv"])):.1f}' for row in rows
+        )
+        if len(rows) > 1:
+            svg.append(f'<polyline points="{percent_points}" fill="none" stroke="{color}" stroke-width="2.5"/>')
+            svg.append(f'<polyline points="{voltage_points}" fill="none" stroke="{color}" stroke-width="2.5"/>')
+        for row in rows:
+            svg.append(f'<circle cx="{x_pos(float(row["elapsed_h"])):.1f}" cy="{y_percent(float(row["percent"])):.1f}" r="3" fill="{color}"/>')
+            svg.append(f'<circle cx="{x_pos(float(row["elapsed_h"])):.1f}" cy="{y_voltage(float(row["voltage_mv"])):.1f}" r="3" fill="{color}"/>')
+        legend_y = 18 + index * 16
+        svg.append(f'<rect x="965" y="{legend_y - 9}" width="10" height="10" fill="{color}"/>')
+        svg.append(f'<text x="981" y="{legend_y}" font-size="10">{escape(run_id)}</text>')
+    if not curves:
+        svg.append('<text x="500" y="340" text-anchor="middle" font-size="18">No completed battery-only curves yet</text>')
+    svg.append('</svg>')
+    path.write_text("\n".join(svg) + "\n", encoding="utf-8")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--artifact-root", type=Path, default=Path("artifacts/qa"))
@@ -175,8 +316,11 @@ def main() -> int:
     parser.add_argument("--min-percent-drop", type=int, default=DEFAULT_MIN_PERCENT_DROP)
     parser.add_argument("--battery-mah", type=float, default=None,
                         help="labeled cell capacity; omit when unknown")
+    parser.add_argument("--analyzer-csv", type=Path, action="append", default=[],
+                        help="battery-path CSV: run_id, epoch_s|timestamp, current_ma, voltage_mv|voltage_v")
     parser.add_argument("--matrix", type=Path, default=ROOT / "config" / "lunasay_power_matrix.json")
     args = parser.parse_args()
+    analyzer_rows = load_analyzer_rows(args.analyzer_csv)
 
     runs: list[dict] = []
     curves: list[dict] = []
@@ -205,6 +349,32 @@ def main() -> int:
             args.min_percent_drop,
             run_battery_mah,
         )
+        direct_rows = [
+            row for row in analyzer_rows
+            if row["run_id"] == summary_path.parent.name
+            and start is not None and end is not None
+            and start <= row["epoch_s"] <= end
+        ]
+        direct_metrics = direct_power_metrics(direct_rows)
+        metrics.update({
+            "analyzer_samples": 0,
+            "analyzer_duration_h": 0.0,
+            "analyzer_coverage_ratio": 0.0,
+            "median_current_ma": None,
+            "peak_current_ma": None,
+            "charge_mah": None,
+            "energy_wh": None,
+            "current_basis": "capacity-derived" if metrics["average_current_ma"] is not None else "unknown",
+        })
+        if direct_metrics is not None:
+            direct_metrics["analyzer_coverage_ratio"] = min(
+                1.0,
+                direct_metrics["analyzer_duration_h"] / metrics["duration_h"]
+                if metrics["duration_h"] > 0 else 0.0,
+            )
+            if direct_metrics["analyzer_coverage_ratio"] < 0.95:
+                direct_metrics["current_basis"] = "direct-battery-analyzer-partial"
+            metrics.update(direct_metrics)
         workload_events = [
             event for event in events if event.get("kind") in ("voice_turn", "journal_segment")
         ]
@@ -217,6 +387,14 @@ def main() -> int:
         capture_coverage_ratio = float(summary.get("capture_coverage_ratio", 0))
         if capture_coverage_ratio <= 0 and metrics["duration_h"] > 0:
             capture_coverage_ratio = min(1.0, captured_audio_s / (metrics["duration_h"] * 3600.0))
+        successful_turns = int(summary.get("successful_turns", 0))
+        energy_wh = metrics.get("energy_wh")
+        energy_per_unit_mwh = None
+        if isinstance(energy_wh, (int, float)) and metrics["current_basis"] == "direct-battery-analyzer":
+            if summary.get("workload") == "conversation" and successful_turns > 0:
+                energy_per_unit_mwh = float(energy_wh) * 1000.0 / successful_turns
+            elif summary.get("workload") == "journal" and captured_audio_s > 0:
+                energy_per_unit_mwh = float(energy_wh) * 1000.0 / (captured_audio_s / 60.0)
         run_id = summary_path.parent.name
         runs.append({
             "run_id": run_id,
@@ -226,10 +404,13 @@ def main() -> int:
             "unit_id": article.get("unit_id", "unknown"),
             "battery_id": article.get("battery_id", "unknown"),
             "battery_mah": run_battery_mah,
+            "firmware_build": article.get("firmware_build", "unknown"),
+            "harness_build": article.get("harness_build", "unknown"),
             "turns": int(summary.get("turns", 0)),
-            "successful_turns": int(summary.get("successful_turns", 0)),
+            "successful_turns": successful_turns,
             "captured_audio_s": captured_audio_s,
             "capture_coverage_ratio": capture_coverage_ratio,
+            "energy_per_unit_mwh": energy_per_unit_mwh,
             **metrics,
         })
         for sample in samples:
@@ -255,8 +436,11 @@ def main() -> int:
         sample = summary.get("wake_battery", {})
         sleep = sample.get("deep_sleep", {})
         battery = sample.get("battery", {})
+        wake_source = summary.get("wake_source", "timer")
         requested_s = float(sleep.get("requested_s", summary.get("duration_min", 0) * 60))
-        duration_h = requested_s / 3600.0
+        observed_s = summary.get("network_wake_after_s")
+        duration_s = float(observed_s) if isinstance(observed_s, (int, float)) else requested_s
+        duration_h = duration_s / 3600.0
         start_percent = sleep.get("start_percent")
         end_percent = battery.get("percent")
         drop = (
@@ -266,6 +450,7 @@ def main() -> int:
         )
         valid_projection = bool(
             summary.get("passed")
+            and wake_source == "timer"
             and duration_h >= args.min_estimate_hours
             and drop >= args.min_percent_drop
         )
@@ -273,20 +458,74 @@ def main() -> int:
         run_battery_mah = args.battery_mah
         if run_battery_mah is None and isinstance(article.get("battery_mah"), (int, float)):
             run_battery_mah = float(article["battery_mah"])
+        deep_events = load_events(summary_path.parent / "events.jsonl")
+        deep_start = next(
+            (parse_time(event["at"]) for event in deep_events if event.get("kind") == "vbus_off"),
+            None,
+        )
+        deep_end = next(
+            (parse_time(event["at"]) for event in deep_events if event.get("kind") == "network_wake"),
+            None,
+        )
+        if deep_end is None:
+            deep_end = next(
+                (parse_time(event["at"]) for event in deep_events if event.get("kind") == "vbus_on"),
+                None,
+            )
+        deep_analyzer_rows = [
+            row for row in analyzer_rows
+            if row["run_id"] == summary_path.parent.name
+            and deep_start is not None and deep_end is not None
+            and deep_start <= row["epoch_s"] <= deep_end
+        ]
+        deep_direct = direct_power_metrics(deep_analyzer_rows)
+        deep_power = {
+            "analyzer_samples": 0,
+            "analyzer_duration_h": 0.0,
+            "analyzer_coverage_ratio": 0.0,
+            "median_current_ma": None,
+            "average_current_ma": None,
+            "peak_current_ma": None,
+            "charge_mah": None,
+            "energy_wh": None,
+            "current_basis": "unknown",
+        }
+        if deep_direct is not None:
+            deep_direct["analyzer_coverage_ratio"] = min(
+                1.0,
+                deep_direct["analyzer_duration_h"] / duration_h if duration_h > 0 else 0.0,
+            )
+            if deep_direct["analyzer_coverage_ratio"] < 0.95:
+                deep_direct["current_basis"] = "direct-battery-analyzer-partial"
+            deep_power.update(deep_direct)
+        direct_runtime_h = (
+            run_battery_mah / deep_power["average_current_ma"]
+            if run_battery_mah is not None
+            and deep_power["current_basis"] == "direct-battery-analyzer"
+            and isinstance(deep_power["average_current_ma"], (int, float))
+            and deep_power["average_current_ma"] > 0
+            else None
+        )
+        if direct_runtime_h is not None:
+            projected_h = direct_runtime_h
+            valid_projection = bool(summary.get("passed"))
+        elif deep_power["average_current_ma"] is None and run_battery_mah is not None and projected_h:
+            deep_power["average_current_ma"] = run_battery_mah / projected_h
+            deep_power["current_basis"] = "capacity-derived"
         deep_runs.append({
             "run_id": summary_path.parent.name,
             "runner": "deep-sleep",
+            "scenario": "true-deep-sleep",
+            "workload": wake_source,
+            "wake_source": wake_source,
             "passed": bool(summary.get("passed", False)),
             "unit_id": article.get("unit_id", "unknown"),
             "battery_id": article.get("battery_id", "unknown"),
+            "battery_mah": run_battery_mah,
             "duration_h": duration_h,
             "percent_drop": drop,
             "projected_full_runtime_h": projected_h,
-            "average_current_ma": (
-                run_battery_mah / projected_h
-                if run_battery_mah is not None and projected_h is not None and projected_h > 0
-                else None
-            ),
+            **deep_power,
             "evidence": "runtime-estimate" if valid_projection and charge_ready else (
                 "unqualified-runtime" if valid_projection else
                 "functional-only" if summary.get("passed") else "failed"
@@ -294,21 +533,36 @@ def main() -> int:
         })
     run_fields = [
         "run_id", "scenario", "workload", "passed", "unit_id", "battery_id", "battery_mah",
+        "firmware_build", "harness_build",
         "turns", "successful_turns",
-        "captured_audio_s", "capture_coverage_ratio",
+        "captured_audio_s", "capture_coverage_ratio", "energy_per_unit_mwh",
         "duration_h", "sample_count", "percent_drop", "voltage_drop_mv", "percent_monotonic",
         "percent_per_hour", "voltage_drop_mv_per_hour", "projected_full_runtime_h",
-        "measured_runtime_h", "average_current_ma", "shutdown_observed", "charge_ready", "evidence",
+        "measured_runtime_h", "median_current_ma", "average_current_ma", "peak_current_ma", "charge_mah", "energy_wh",
+        "current_basis", "analyzer_samples", "analyzer_duration_h", "analyzer_coverage_ratio",
+        "shutdown_observed", "charge_ready", "evidence",
     ]
     with (args.out_dir / "runs.csv").open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=run_fields)
         writer.writeheader()
         writer.writerows(runs)
+    deep_fields = [
+        "run_id", "scenario", "workload", "wake_source", "passed", "unit_id", "battery_id",
+        "battery_mah", "duration_h", "percent_drop", "projected_full_runtime_h",
+        "median_current_ma", "average_current_ma", "peak_current_ma", "charge_mah", "energy_wh",
+        "current_basis", "analyzer_samples", "analyzer_duration_h", "analyzer_coverage_ratio",
+        "evidence",
+    ]
+    with (args.out_dir / "deep_sleep_runs.csv").open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=deep_fields)
+        writer.writeheader()
+        writer.writerows(deep_runs)
     curve_fields = ["run_id", "scenario", "workload", "elapsed_h", "percent", "voltage_mv"]
     with (args.out_dir / "curves.csv").open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=curve_fields)
         writer.writeheader()
         writer.writerows(curves)
+    write_curves_svg(curves, args.out_dir / "curves.svg")
 
     lines = [
         "# LunaSay power evidence report",
@@ -316,10 +570,12 @@ def main() -> int:
         "Generated from hub-controlled QA artifacts. Battery claims are withheld unless a run has "
         f"at least {args.min_estimate_hours:g} hour(s), three battery-only samples, and "
         f"a {args.min_percent_drop}% monotonic drop, and a completed full-charge/rest gate.",
+        "",
+        "![Battery discharge curves](curves.svg)",
         "" if args.battery_mah is None else f"Average current uses the labeled {args.battery_mah:g} mAh cell capacity.",
         "",
-        "| Scenario | Workload | Duration | Samples | Drop | Rate | Projected | Measured | Avg current | Evidence |",
-        "|---|---|---:|---:|---:|---:|---:|---:|---:|---|",
+        "| Scenario | Workload | Duration | Samples | Drop | Rate | Projected | Measured | Avg current | Current basis | Energy | Evidence |",
+        "|---|---|---:|---:|---:|---:|---:|---:|---:|---|---:|---|",
     ]
     for run in runs:
         lines.append(
@@ -327,38 +583,60 @@ def main() -> int:
             f"{run['sample_count']} | {run['percent_drop']}% | "
             f"{fmt(run['percent_per_hour'])}%/h | {fmt(run['projected_full_runtime_h'])} h | "
             f"{fmt(run['measured_runtime_h'])} h | {fmt(run['average_current_ma'])} mA | "
+            f"{run['current_basis']} | {fmt(run['energy_wh'], 3)} Wh | "
             f"{run['evidence']} |"
         )
     if not runs:
-        lines.append("| — | — | — | — | — | — | — | — | — | no completed runs |")
+        lines.append("| — | — | — | — | — | — | — | — | — | — | — | no completed runs |")
     voice_runs = [run for run in runs if run["workload"] in ("conversation", "journal")]
+    direct_runs = [
+        run for run in [*runs, *deep_runs]
+        if str(run["current_basis"]).startswith("direct-battery-analyzer")
+    ]
+    if direct_runs:
+        lines.extend([
+            "",
+            "## Direct battery-path power evidence",
+            "",
+            "| Scenario | Workload | Samples | Coverage | Median | Average | Peak | Charge | Energy |",
+            "|---|---|---:|---:|---:|---:|---:|---:|---:|",
+        ])
+        for run in direct_runs:
+            lines.append(
+                f"| {run['scenario']} | {run['workload']} | {run['analyzer_samples']} | "
+                f"{fmt(run['analyzer_coverage_ratio'] * 100.0, 1)}% | "
+                f"{fmt(run['median_current_ma'])} mA | {fmt(run['average_current_ma'])} mA | "
+                f"{fmt(run['peak_current_ma'])} mA | {fmt(run['charge_mah'])} mAh | "
+                f"{fmt(run['energy_wh'], 3)} Wh |"
+            )
     if voice_runs:
         lines.extend([
             "",
             "## Voice workload evidence",
             "",
-            "| Workload | Scenario | Segments/turns | Successful | Captured audio | Coverage |",
-            "|---|---|---:|---:|---:|---:|",
+            "| Workload | Scenario | Segments/turns | Successful | Captured audio | Coverage | Direct energy/unit |",
+            "|---|---|---:|---:|---:|---:|---:|",
         ])
         for run in voice_runs:
             lines.append(
                 f"| {run['workload']} | {run['scenario']} | {run['turns']} | "
                 f"{run['successful_turns']} | {fmt(run['captured_audio_s'], 1)} s | "
-                f"{fmt(run['capture_coverage_ratio'] * 100.0, 1)}% |"
+                f"{fmt(run['capture_coverage_ratio'] * 100.0, 1)}% | "
+                f"{fmt(run['energy_per_unit_mwh'], 2)} mWh |"
             )
     if deep_runs:
         lines.extend([
             "",
             "## True deep-sleep evidence",
             "",
-            "| Unit | Duration | Drop | Projected runtime | Avg current | Evidence |",
-            "|---|---:|---:|---:|---:|---|",
+            "| Unit | Wake | Duration | Drop | Projected runtime | Avg current | Current basis | Evidence |",
+            "|---|---|---:|---:|---:|---:|---|---|",
         ])
         for run in deep_runs:
             lines.append(
-                f"| {run['unit_id']} | {fmt(run['duration_h'])} h | "
+                f"| {run['unit_id']} | {run['wake_source']} | {fmt(run['duration_h'])} h | "
                 f"{fmt(run['percent_drop'])}% | {fmt(run['projected_full_runtime_h'])} h | "
-                f"{fmt(run['average_current_ma'])} mA | {run['evidence']} |"
+                f"{fmt(run['average_current_ma'])} mA | {run['current_basis']} | {run['evidence']} |"
             )
 
     if args.matrix.exists():
@@ -394,6 +672,29 @@ def main() -> int:
                 f"{test.get('workload', test.get('runner', '—'))} | {best_evidence} | "
                 f"{len(measured_units)} | {gate} |"
             )
+    limitations: list[str] = []
+    if not runs and not deep_runs:
+        limitations.append("No completed hub-controlled runs were found.")
+    if any(not run.get("charge_ready", False) for run in runs):
+        limitations.append("One or more active-mode runs skipped or failed the full-charge/30-minute-rest gate.")
+    if not analyzer_rows:
+        limitations.append("No inline battery-path analyzer trace is present; direct current, mAh, and Wh remain unknown.")
+    if any(run.get("battery_mah") is None for run in [*runs, *deep_runs]):
+        limitations.append("At least one test article lacks a photographed, labeled cell capacity; capacity-derived current is withheld.")
+    if not any(run.get("evidence") == "measured-runtime" for run in runs):
+        limitations.append("No qualified active-mode run has yet reached confirmed automatic low-voltage shutdown.")
+    if not any(run.get("passed") and run.get("wake_source") == "timer" for run in deep_runs):
+        limitations.append("Timed deep-sleep wake has not yet passed on hardware.")
+    if not any(run.get("passed") and run.get("wake_source") == "gpio0" for run in deep_runs):
+        limitations.append("Physical BOOT/GPIO0 deep-sleep wake has not yet passed on hardware.")
+    measured_units = {
+        run.get("unit_id") for run in runs
+        if run.get("evidence") == "measured-runtime" and run.get("unit_id") not in (None, "unknown")
+    }
+    if len(measured_units) < 2:
+        limitations.append("The two-release-candidate-unit repetition gate is still open.")
+    lines.extend(["", "## Limitations", ""])
+    lines.extend(f"- {limitation}" for limitation in limitations)
     lines.extend([
         "",
         "## Claim status",

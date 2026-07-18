@@ -21,10 +21,19 @@ projected runtime, and measured runtime to shutdown.
   may establish liveness but must not wake HTTP/audio services during idle runs.
 - Attribute only PMU samples between `vbus_off` and `vbus_on`. Never combine
   docked history or another scenario with the current discharge segment.
+- Firmware retains 240 fixed-cadence samples in NVS: 15-minute resolution for
+  up to 60 hours, plus source/charging transitions. Fetch the ring only after
+  VBUS restoration so idle measurements do not wake the HTTP/audio stack.
 - Treat AXP2101 percentage as a coarse secondary signal and retain voltage for
   every point. Waveshare documents that its AXP2101 percentage estimate is
   voltage-based, nonlinear, and prone to fluctuations after load or charger
   changes; rested voltage and complete runtime are therefore required.
+- Do not infer shutdown from lost pings. After restoring VBUS, require either a
+  low recovered endpoint (≤5% or ≤3400 mV), or all three independent reset
+  signals: an uptime discontinuity, ESP power-on reset, and AXP2101
+  `PWROFF_STATUS` bit 3 (VSYS undervoltage). The
+  [AXP2101 register specification](https://files.waveshare.com/wiki/common/X-power-AXP2101_SWcharge_V1.0.pdf)
+  defines register `0x21` bit 3 as the undervoltage power-off source.
 
 ## Required matrix
 
@@ -46,12 +55,55 @@ Run every advertised mode to automatic low-voltage shutdown on one
 release-candidate unit, then repeat it on a second unit. Shorter runs may be used
 to tune firmware but are not final runtime evidence.
 
+## Current and energy measurement
+
+The on-board AXP2101 interface used by this board reports battery voltage,
+coarse fuel-gauge percentage, source, and charge/discharge state. It does not
+report instantaneous battery current. The controllable USB hub removes and
+restores VBUS reproducibly, but it is not a current meter. Consequently:
+
+- `rated_capacity_mAh / measured_runtime_h` may be reported as a
+  **capacity-derived average current** only after the physical cell label has
+  been photographed and recorded. It is not a direct current measurement, and
+  its uncertainty includes cell tolerance, age, temperature, conversion loss,
+  and the cutoff voltage.
+- Direct active-mode power requires an inline battery-path power analyzer or
+  coulomb counter. Record voltage, current, and accumulated mAh/Wh at a fixed
+  cadence while the hub controls VBUS. Measuring the USB input while charging
+  does not isolate device load from charger current.
+- Deep-sleep current must be measured with a microamp-capable instrument whose
+  burden voltage does not reset the board. Fuel-gauge percentage alone is too
+  coarse for a short sleep test; use a long battery-runtime test only as a
+  secondary cross-check.
+- For each scenario, report steady-state median current, peak current, energy
+  per voice turn or recorded minute where applicable, and full runtime. Until
+  an analyzer trace or labeled-capacity runtime exists, current and watt-hour
+  fields remain unknown rather than inferred from voltage slope.
+
+Import a synchronized battery-path analyzer trace with:
+
+```sh
+python3 scripts/lunasay_power_report.py --analyzer-csv analyzer.csv
+```
+
+The CSV requires `run_id`, positive-discharge `current_ma`, one time column
+(`epoch_s` or ISO-8601 `timestamp`), and one voltage column (`voltage_mv` or
+`voltage_v`). The report trapezoid-integrates charge and energy, records average
+and peak current, and calculates direct mWh per successful conversation turn or
+per recorded journal minute. Without such a trace, those direct fields remain
+unknown; a labeled-capacity runtime is reported separately as
+`capacity-derived` current. A trace must span at least 95% of the attributed
+VBUS-off window to receive the `direct-battery-analyzer` label; shorter traces
+are retained but explicitly marked `direct-battery-analyzer-partial`, and their
+energy is not used for per-turn or per-recorded-minute claims.
+
 ## True deep sleep gate
 
 The current ESP-IDF `sleep-offline` scenario is a display-off, radio-off idle
 baseline; the CPU remains awake. It must not be called deep sleep in reports.
 The previous Arduino implementation used ESP32 timer wake plus active-low GPIO0
-wake. The ESP-IDF port must additionally:
+wake. The ESP-IDF port now implements the following behavior, but it remains
+unqualified until the hardware gates below pass:
 
 1. Reject entry while VBUS is present or a voice/OTA/write transaction is active.
 2. Mute the amplifier, stop I2S, stop Wi-Fi/BLE, blank the AMOLED, and quiesce
@@ -61,6 +113,25 @@ wake. The ESP-IDF port must additionally:
 4. Wake by BOOT/GPIO0 or timer, restore all required rails, and expose the completed
    interval in serial/API telemetry.
 5. Demonstrate BOOT-button wake and timed wake on battery before beginning a long run.
+
+Run the non-publishable timer smoke gate first:
+
+```sh
+python3 scripts/lunasay_deep_sleep_validate.py \
+  --duration-min 2 --wake-source timer --allow-not-ready
+```
+
+Then run the physical wake gate and press BOOT only after the runner prints
+`awaiting_gpio0`:
+
+```sh
+python3 scripts/lunasay_deep_sleep_validate.py \
+  --duration-min 5 --wake-source gpio0 --boot-timeout-s 120 --allow-not-ready
+```
+
+Both gates require the device to disappear from the network, return on the
+expected wake cause, restore Wi-Fi and `/api/battery`, retain start telemetry,
+and wake within the permitted time window.
 
 The board's separate PWR key connects to the AXP2101 `PWRON` input. Its `PWROK`
 output controls ESP32 reset, while `AXP_IRQ` is not routed to an ESP GPIO in the
@@ -84,10 +155,24 @@ Generate the current evidence table and curve data with:
 python3 scripts/lunasay_power_report.py
 ```
 
+After flashing and completing the short timer/BOOT wake gates, run the matrix
+sequentially with a dedicated state file for each physical unit and battery:
+
+```sh
+python3 scripts/lunasay_power_matrix_run.py \
+  --unit-id luna-rc1 --battery-id cell-serial-from-label
+```
+
+The orchestrator resumes completed test IDs, waits for charge termination and
+the required rest before every run, and stops at the first failure. Use
+`--dry-run` to review all commands. `--allow-not-ready` is only for smoke tests
+and permanently classifies those artifacts as unqualified.
+
 BLE-only runs use the non-persistent firmware command `ble power-test on` and
 the native `scripts/lunasay_ble_probe.swift` CoreBluetooth scanner. The runner
 must send `ble power-test off` after recovery; neither command changes the
 owner's saved BLE preference.
 
-The generated `report.md`, `runs.csv`, and `curves.csv` live under
+The generated `report.md`, `runs.csv`, `deep_sleep_runs.csv`, `curves.csv`, and
+`curves.svg` live under
 `artifacts/qa/lunasay-power-report/` by default.

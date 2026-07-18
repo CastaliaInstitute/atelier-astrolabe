@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate LunaSay timed deep sleep on battery through a switched USB hub."""
+"""Validate LunaSay timer or BOOT/GPIO0 deep-sleep wake on switched battery power."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 import glob
 import json
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import time
@@ -15,7 +16,7 @@ from urllib import request
 
 import serial
 
-from lunasay_power_common import wait_for_charge_ready
+from lunasay_power_common import parse_power_status, wait_for_charge_ready
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -64,6 +65,19 @@ def json_get(url: str, timeout_s: float = 5.0) -> dict:
         return json.loads(response.read())
 
 
+def wait_json_get(url: str, timeout_s: float = 30.0) -> dict:
+    """Retry through the thin listener's intentional first-request wake."""
+    deadline = time.monotonic() + timeout_s
+    last_error: Exception | None = None
+    while time.monotonic() < deadline:
+        try:
+            return json_get(url)
+        except Exception as exc:
+            last_error = exc
+            time.sleep(1.0)
+    raise RuntimeError(f"battery API did not return after wake: {last_error}")
+
+
 def wait_for_port(timeout_s: float) -> str:
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
@@ -77,6 +91,7 @@ def wait_for_port(timeout_s: float) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--duration-min", type=int, default=2)
+    parser.add_argument("--wake-source", choices=("timer", "gpio0"), default="timer")
     parser.add_argument("--ip", default="192.168.86.72")
     parser.add_argument("--port", default="")
     parser.add_argument("--hub-location", default="0-1.3")
@@ -93,8 +108,15 @@ def main() -> int:
     parser.add_argument("--allow-not-ready", action="store_true",
                         help="skip full-charge/rest gate; smoke tests only")
     args = parser.parse_args()
+    harness_build = subprocess.check_output(
+        ["git", "describe", "--always", "--dirty"], cwd=ROOT, text=True
+    ).strip()
     if not 1 <= args.duration_min <= 10080:
         raise SystemExit("error: --duration-min must be 1..10080")
+    if args.wake_source == "gpio0" and args.duration_min * 60 <= args.boot_timeout_s:
+        raise SystemExit(
+            "error: GPIO0 safety timer must exceed --boot-timeout-s; increase --duration-min"
+        )
     if not shutil.which(args.uhubctl):
         raise SystemExit(f"error: uhubctl not found: {args.uhubctl}")
 
@@ -124,6 +146,7 @@ def main() -> int:
         [
             "faces profile lunasay",
             "power deep-sleep cancel",
+            "time",
             "power",
             f"power deep-sleep {args.duration_min}",
             "power deep-sleep status",
@@ -133,11 +156,15 @@ def main() -> int:
     (out_dir / "preflight-serial.log").write_text(preflight, encoding="utf-8")
     if "deep-sleep pending=yes" not in preflight:
         raise RuntimeError("firmware did not arm deep sleep")
-    record("armed", duration_min=args.duration_min)
+    if "time: valid=yes" not in preflight:
+        raise RuntimeError("device wall clock is invalid; deep-sleep start time would be unavailable")
+    preflight_power = parse_power_status(preflight)
+    record("armed", duration_min=args.duration_min, wake_source=args.wake_source)
 
     power_off = False
     became_unreachable = False
     woke_on_network = False
+    network_wake_after_s: float | None = None
     wake_battery: dict = {}
     try:
         set_hub_power(args.uhubctl, args.hub_location, args.hub_port, False)
@@ -155,16 +182,21 @@ def main() -> int:
         if not became_unreachable:
             record("sleep_not_observed")
 
-        earliest_timer_wake = off_at + args.duration_min * 60.0
-        if time.monotonic() < earliest_timer_wake:
-            time.sleep(earliest_timer_wake - time.monotonic())
-        wake_deadline = earliest_timer_wake + args.boot_timeout_s
+        if args.wake_source == "timer":
+            earliest_timer_wake = off_at + args.duration_min * 60.0
+            if time.monotonic() < earliest_timer_wake:
+                time.sleep(earliest_timer_wake - time.monotonic())
+            wake_deadline = earliest_timer_wake + args.boot_timeout_s
+        else:
+            record("awaiting_gpio0", instruction="press the BOOT button once")
+            wake_deadline = time.monotonic() + args.boot_timeout_s
         while time.monotonic() < wake_deadline:
             if ping(args.ip):
                 woke_on_network = True
-                record("network_wake", after_vbus_off_s=round(time.monotonic() - off_at, 3))
+                network_wake_after_s = time.monotonic() - off_at
+                record("network_wake", after_vbus_off_s=round(network_wake_after_s, 3))
                 try:
-                    wake_battery = json_get(f"http://{args.ip}/api/battery")
+                    wake_battery = wait_json_get(f"http://{args.ip}/api/battery")
                     record("wake_battery", sample=wake_battery)
                 except Exception as exc:
                     record("wake_battery_unavailable", error=str(exc))
@@ -181,12 +213,48 @@ def main() -> int:
     (out_dir / "postflight-serial.log").write_text(postflight, encoding="utf-8")
     retained = "retained=yes" in postflight
     completed = "completed=yes" in postflight
-    passed = became_unreachable and retained and completed
+    wake_match = re.search(r"wake_cause=(\d+)", postflight)
+    wake_cause = int(wake_match.group(1)) if wake_match else None
+    # Public esp_sleep_wakeup_cause_t values: EXT0=2, TIMER=4.
+    expected_wake_cause = 4 if args.wake_source == "timer" else 2
+    expected_wake = wake_cause == expected_wake_cause
+    telemetry_valid = bool(
+        wake_battery.get("battery", {}).get("present")
+        and wake_battery.get("deep_sleep", {}).get("completed")
+        and wake_battery.get("deep_sleep", {}).get("wake_cause") == expected_wake_cause
+    )
+    requested_s = args.duration_min * 60.0
+    if args.wake_source == "timer":
+        wake_timing_valid = bool(
+            network_wake_after_s is not None
+            and network_wake_after_s >= requested_s * 0.9
+            and network_wake_after_s <= requested_s + args.boot_timeout_s
+        )
+    else:
+        wake_timing_valid = bool(
+            network_wake_after_s is not None and network_wake_after_s < requested_s * 0.9
+        )
+    passed = bool(
+        became_unreachable
+        and woke_on_network
+        and retained
+        and completed
+        and expected_wake
+        and wake_timing_valid
+        and telemetry_valid
+    )
     summary = {
         "passed": passed,
         "duration_min": args.duration_min,
+        "wake_source": args.wake_source,
         "became_unreachable": became_unreachable,
         "woke_on_network": woke_on_network,
+        "network_wake_after_s": network_wake_after_s,
+        "wake_timing_valid": wake_timing_valid,
+        "wake_cause": wake_cause,
+        "expected_wake_cause": expected_wake_cause,
+        "expected_wake": expected_wake,
+        "telemetry_valid": telemetry_valid,
         "retained": retained,
         "completed": completed,
         "wake_battery": wake_battery,
@@ -195,9 +263,10 @@ def main() -> int:
             "battery_id": args.battery_id,
             "battery_mah": args.battery_mah,
             "ambient_c": args.ambient_c,
-            "firmware_build": subprocess.check_output(
-                ["git", "describe", "--always", "--dirty"], cwd=ROOT, text=True
-            ).strip(),
+            "firmware_build": wake_battery.get("firmware", {}).get(
+                "version", preflight_power.get("firmware", "unknown")
+            ),
+            "harness_build": harness_build,
         },
         "charge_gate": charge_gate,
         "elapsed_s": round(time.monotonic() - started, 3),

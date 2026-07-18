@@ -57,22 +57,13 @@ static void faculty175_pmu_apply_rails(void)
     s_pmu.disableDLDO1();
     s_pmu.disableDLDO2();
 
-    s_pmu.setDC3Voltage(3300);
-    s_pmu.enableDC3();
+    /* Exact 1.75C schematic: DCDC1 is VCC3V3 and ALDO1 is A3V3 for the
+       ES8311/ES7210 analog domains. The AMOLED connector also uses VCC3V3.
+       ALDO2..4 and BLDO1..2 have no downstream consumers on this board. */
     s_pmu.setDC1Voltage(3300);
     s_pmu.enableDC1();
-    s_pmu.setALDO1Voltage(1800);
+    s_pmu.setALDO1Voltage(3300);
     s_pmu.enableALDO1();
-    s_pmu.setALDO2Voltage(2800);
-    s_pmu.enableALDO2();
-    s_pmu.setALDO4Voltage(3000);
-    s_pmu.enableALDO4();
-    s_pmu.setALDO3Voltage(3300);
-    s_pmu.enableALDO3();
-    s_pmu.setBLDO1Voltage(3300);
-    s_pmu.enableBLDO1();
-    s_pmu.setBLDO2Voltage(3300);
-    s_pmu.enableBLDO2();
 
     s_pmu.disableTSPinMeasure();
     s_pmu.disableIRQ(XPOWERS_AXP2101_ALL_IRQ);
@@ -110,23 +101,21 @@ extern "C" esp_err_t faculty175_pmu_init(void)
     faculty175_pmu_apply_rails();
     vTaskDelay(pdMS_TO_TICKS(60));
 
-    /* Cold-boot I2C writes can silently drop — gently re-assert just the OLED
-       rail (BLDO1) until it reads back at voltage, without touching core rails. */
-    uint16_t bldo1 = s_pmu.getBLDO1Voltage();
-    for (int attempt = 0; attempt < 12 && bldo1 < 3000; ++attempt) {
-        ESP_LOGW(TAG, "AXP2101 BLDO1=%u mV — re-asserting OLED rail (%d)", bldo1, attempt + 1);
-        s_pmu.setBLDO1Voltage(3300);
-        s_pmu.enableBLDO1();
+    /* Cold-boot I2C writes can silently drop. Re-assert the populated audio
+       analog rail without toggling the ESP32's DCDC1 supply. */
+    uint16_t aldo1 = s_pmu.getALDO1Voltage();
+    for (int attempt = 0; attempt < 12 && aldo1 < 3000; ++attempt) {
+        ESP_LOGW(TAG, "AXP2101 ALDO1=%u mV — re-asserting A3V3 rail (%d)", aldo1, attempt + 1);
+        s_pmu.setALDO1Voltage(3300);
+        s_pmu.enableALDO1();
         vTaskDelay(pdMS_TO_TICKS(50));
-        bldo1 = s_pmu.getBLDO1Voltage();
+        aldo1 = s_pmu.getALDO1Voltage();
     }
 
     const uint16_t dc1 = s_pmu.getDC1Voltage();
-    const uint16_t dc3 = s_pmu.getDC3Voltage();
-    const uint16_t bldo2 = s_pmu.getBLDO2Voltage();
-    ESP_LOGI(TAG, "AXP2101 rails: DC1=%u DC3=%u BLDO1=%u BLDO2=%u mV", dc1, dc3, bldo1, bldo2);
-    if (bldo1 < 3000) {
-        ESP_LOGE(TAG, "BLDO1 still low — OLED rail off, display will be dark");
+    ESP_LOGI(TAG, "AXP2101 populated rails: DC1/VCC3V3=%u ALDO1/A3V3=%u mV", dc1, aldo1);
+    if (dc1 < 3000 || aldo1 < 3000) {
+        ESP_LOGE(TAG, "required 3.3 V rail is low");
         return ESP_FAIL;
     }
     s_pmu_ready = true;
@@ -150,6 +139,8 @@ extern "C" bool faculty175_pmu_status(faculty175_pmu_status_t *out)
     out->discharging = s_pmu.isDischarge();
     out->battery_percent = s_pmu.getBatteryPercent();
     out->battery_mv = s_pmu.getBattVoltage();
+    out->power_on_source_flags = static_cast<uint8_t>(s_pmu.getPowerOnSource());
+    out->power_off_source_flags = static_cast<uint8_t>(s_pmu.getPowerOffSource());
     return true;
 }
 
@@ -171,14 +162,21 @@ extern "C" void faculty175_pmu_prepare_deep_sleep(void)
     if (!s_pmu_ready) {
         return;
     }
-    /* The official 1.75C schematic leaves BLDO1 and BLDO2 unconnected. Disable
-       those unused outputs, but do not infer peripheral rail ownership from
-       the related 1.8-inch board. Core and populated ALDO outputs remain on so
-       RTC retention and wake are not jeopardized. */
+    /* ALDO1 supplies the audio-codec analog A3V3 net. Codecs and I2S are
+       already quiesced before this call, and cold boot restores ALDO1. The
+       other ALDO/BLDO outputs are unpopulated on the exact 1.75C schematic. */
+    const bool aldo1_off = s_pmu.disableALDO1();
+    const bool aldo2_off = s_pmu.disableALDO2();
+    const bool aldo3_off = s_pmu.disableALDO3();
+    const bool aldo4_off = s_pmu.disableALDO4();
     const bool bldo1_off = s_pmu.disableBLDO1();
     const bool bldo2_off = s_pmu.disableBLDO2();
     ESP_LOGI(TAG,
-             "deep sleep unused rails BLDO1=%s BLDO2=%s",
+             "deep sleep LDOs ALDO1=%s ALDO2=%s ALDO3=%s ALDO4=%s BLDO1=%s BLDO2=%s",
+             aldo1_off ? "off" : "error",
+             aldo2_off ? "off" : "error",
+             aldo3_off ? "off" : "error",
+             aldo4_off ? "off" : "error",
              bldo1_off ? "off" : "error",
              bldo2_off ? "off" : "error");
 }

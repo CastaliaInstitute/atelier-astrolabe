@@ -66,6 +66,8 @@ esp_err_t faculty175_audio_set_sample_rate(uint32_t hz);
 void faculty175_audio_set_speaker_mute(bool mute);
 void faculty175_audio_set_speaker_pa_level(bool enabled);
 void faculty175_audio_set_speaker_volume(uint8_t volume);
+/** Quiesce codecs, amplifier, and both I2S channels immediately before deep sleep. */
+esp_err_t faculty175_audio_prepare_deep_sleep(uint32_t timeout_ms);
 void faculty175_audio_noise_suppression_set_enabled(bool enabled);
 void faculty175_audio_noise_suppression_reset(void);
 void faculty175_audio_noise_suppression_status(faculty175_audio_noise_status_t *out);

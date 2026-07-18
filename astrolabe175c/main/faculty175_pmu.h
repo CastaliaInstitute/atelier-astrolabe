@@ -12,6 +12,8 @@ typedef struct {
     bool discharging;
     int battery_percent;
     uint16_t battery_mv;
+    uint8_t power_on_source_flags;
+    uint8_t power_off_source_flags;
 } faculty175_pmu_status_t;
 
 #ifdef __cplusplus

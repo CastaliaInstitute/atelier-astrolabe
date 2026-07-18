@@ -1,0 +1,178 @@
+#!/usr/bin/env python3
+"""Run the LunaSay power matrix sequentially with resumable, attributable artifacts."""
+
+from __future__ import annotations
+
+import argparse
+from datetime import datetime, timezone
+import fcntl
+import json
+from pathlib import Path
+import subprocess
+import sys
+
+
+ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_MATRIX = ROOT / "config" / "lunasay_power_matrix.json"
+
+
+def save_json(path: Path, value: dict) -> None:
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
+    temporary.replace(path)
+
+
+def common_args(args: argparse.Namespace, out_dir: Path) -> list[str]:
+    values = [
+        "--ip", args.ip,
+        "--port", args.port,
+        "--hub-location", args.hub_location,
+        "--hub-port", str(args.hub_port),
+        "--uhubctl", args.uhubctl,
+        "--out-dir", str(out_dir),
+        "--unit-id", args.unit_id,
+        "--battery-id", args.battery_id,
+        "--rest-min", str(args.rest_min),
+        "--charge-ready-timeout-min", str(args.charge_ready_timeout_min),
+    ]
+    if args.battery_mah is not None:
+        values += ["--battery-mah", str(args.battery_mah)]
+    if args.ambient_c is not None:
+        values += ["--ambient-c", str(args.ambient_c)]
+    if args.allow_not_ready:
+        values.append("--allow-not-ready")
+    return values
+
+
+def command_for(test: dict, args: argparse.Namespace, out_dir: Path) -> list[str]:
+    duration_min = int(test["duration_min"])
+    if test.get("runner") == "deep-sleep":
+        return [
+            sys.executable,
+            str(ROOT / "scripts" / "lunasay_deep_sleep_validate.py"),
+            "--duration-min", str(duration_min),
+            "--wake-source", str(test.get("wake_source", "timer")),
+            *common_args(args, out_dir),
+        ]
+    command = [
+        sys.executable,
+        str(ROOT / "scripts" / "lunasay_battery_validate.py"),
+        "--scenario", str(test["scenario"]),
+        "--workload", str(test["workload"]),
+        "--duration-min", str(duration_min),
+        *common_args(args, out_dir),
+    ]
+    optional = {
+        "capture_ms": "--capture-ms",
+        "turn_interval_s": "--turn-interval-s",
+        "journal_gap_s": "--journal-gap-s",
+        "ble_probe_interval_s": "--ble-probe-interval-s",
+        "ble_probe_timeout_s": "--ble-probe-timeout-s",
+    }
+    for key, flag in optional.items():
+        if key in test:
+            command += [flag, str(test[key])]
+    return command
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--matrix", type=Path, default=DEFAULT_MATRIX)
+    parser.add_argument("--artifact-root", type=Path, default=ROOT / "artifacts" / "qa")
+    parser.add_argument("--state", type=Path, default=ROOT / "artifacts" / "qa" / "lunasay-power-matrix-state.json")
+    parser.add_argument("--only", default="", help="comma-separated test IDs")
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--allow-not-ready", action="store_true",
+                        help="smoke-test only; skip charge termination/rest")
+    parser.add_argument("--ip", default="192.168.86.72")
+    parser.add_argument("--port", default="")
+    parser.add_argument("--hub-location", default="0-1.3")
+    parser.add_argument("--hub-port", type=int, default=1)
+    parser.add_argument("--uhubctl", default="/opt/homebrew/bin/uhubctl")
+    parser.add_argument("--unit-id", required=True)
+    parser.add_argument("--battery-id", required=True)
+    parser.add_argument("--battery-mah", type=float, default=None)
+    parser.add_argument("--ambient-c", type=float, default=None)
+    parser.add_argument("--rest-min", type=float, default=30.0)
+    parser.add_argument("--charge-ready-timeout-min", type=float, default=360.0)
+    args = parser.parse_args()
+
+    matrix = json.loads(args.matrix.read_text(encoding="utf-8"))
+    tests = matrix.get("tests", [])
+    selected = {item for item in args.only.split(",") if item}
+    if selected:
+        known = {str(test["id"]) for test in tests}
+        unknown = selected - known
+        if unknown:
+            raise SystemExit(f"error: unknown test IDs: {', '.join(sorted(unknown))}")
+        tests = [test for test in tests if str(test["id"]) in selected]
+    if not tests:
+        raise SystemExit("error: no matrix tests selected")
+
+    args.artifact_root.mkdir(parents=True, exist_ok=True)
+    args.state.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = args.state.with_suffix(args.state.suffix + ".lock")
+    with lock_path.open("w", encoding="utf-8") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise SystemExit(f"error: matrix runner already holds {lock_path}") from exc
+
+        if args.state.exists():
+            state = json.loads(args.state.read_text(encoding="utf-8"))
+            if state.get("unit_id") != args.unit_id or state.get("battery_id") != args.battery_id:
+                raise SystemExit("error: state belongs to a different unit/battery; choose another --state")
+        else:
+            state = {
+                "schema": 1,
+                "matrix": str(args.matrix.resolve()),
+                "unit_id": args.unit_id,
+                "battery_id": args.battery_id,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "completed": [],
+                "attempts": [],
+            }
+        completed = set(state.get("completed", []))
+
+        for test in tests:
+            test_id = str(test["id"])
+            if test_id in completed:
+                print(f"matrix: SKIP completed {test_id}", flush=True)
+                continue
+            stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+            prefix = "lunasay-deep-sleep" if test.get("runner") == "deep-sleep" else "lunasay-battery"
+            out_dir = args.artifact_root / f"{prefix}-{test_id}-{stamp}"
+            command = command_for(test, args, out_dir)
+            print("matrix: RUN " + test_id, flush=True)
+            print("matrix: CMD " + " ".join(command), flush=True)
+            if args.dry_run:
+                continue
+            started_at = datetime.now(timezone.utc).isoformat()
+            result = subprocess.run(command, cwd=ROOT)
+            attempt = {
+                "test_id": test_id,
+                "started_at": started_at,
+                "finished_at": datetime.now(timezone.utc).isoformat(),
+                "returncode": result.returncode,
+                "out_dir": str(out_dir),
+            }
+            state.setdefault("attempts", []).append(attempt)
+            if result.returncode == 0:
+                completed.add(test_id)
+                state["completed"] = sorted(completed)
+            save_json(args.state, state)
+            if result.returncode != 0:
+                print(f"matrix: STOP {test_id} failed with {result.returncode}", flush=True)
+                return result.returncode
+
+        if args.dry_run:
+            print(f"matrix: dry-run listed {len(tests)} test(s)")
+        else:
+            state["finished_at"] = datetime.now(timezone.utc).isoformat()
+            save_json(args.state, state)
+            print(f"matrix: COMPLETE {len(completed)} test(s)")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

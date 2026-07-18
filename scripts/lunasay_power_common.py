@@ -18,9 +18,9 @@ def parse_power_status(output: str) -> dict:
     if not lines:
         raise RuntimeError(f"power status line missing from serial output: {output[-500:]}")
     fields = dict(POWER_FIELD_RE.findall(lines[-1]))
-    for key in ("percent", "mv"):
+    for key in ("percent", "mv", "uptime_s", "reset_reason", "pmu_on", "pmu_off"):
         if key in fields:
-            fields[key] = int(fields[key])
+            fields[key] = int(fields[key], 0)
     return fields
 
 

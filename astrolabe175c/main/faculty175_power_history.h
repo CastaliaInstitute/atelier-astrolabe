@@ -6,7 +6,9 @@
 
 #include "faculty175_pmu.h"
 
-#define FACULTY175_POWER_HISTORY_CAPACITY 96
+/* Fifteen-minute samples retain 60 hours, covering the expected active-mode
+ * matrix without waking the HTTP server during battery-only runs. */
+#define FACULTY175_POWER_HISTORY_CAPACITY 240
 
 typedef struct {
     uint32_t epoch_s;

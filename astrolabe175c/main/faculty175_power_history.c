@@ -10,7 +10,7 @@
 #include "freertos/semphr.h"
 #include "nvs.h"
 
-#define POWER_HISTORY_NAMESPACE "power_hist"
+#define POWER_HISTORY_NAMESPACE "power_hist2"
 #define POWER_HISTORY_INTERVAL_S (15u * 60u)
 
 static const char *TAG = "faculty175_power_history";
@@ -28,9 +28,9 @@ static SemaphoreHandle_t history_lock(void)
     return s_lock;
 }
 
-static void slot_key(char key[4], uint8_t slot)
+static void slot_key(char key[5], uint8_t slot)
 {
-    snprintf(key, 4, "s%02u", (unsigned)slot);
+    snprintf(key, 5, "s%02u", (unsigned)slot);
 }
 
 static void load_locked(void)
@@ -57,7 +57,7 @@ static void load_locked(void)
                                      FACULTY175_POWER_HISTORY_CAPACITY);
     for (uint8_t i = 0; i < count; ++i) {
         const uint8_t slot = (uint8_t)((oldest + i) % FACULTY175_POWER_HISTORY_CAPACITY);
-        char key[4];
+        char key[5];
         slot_key(key, slot);
         size_t size = sizeof(s_samples[slot]);
         if (nvs_get_blob(nvs, key, &s_samples[slot], &size) == ESP_OK &&
@@ -109,7 +109,6 @@ void faculty175_power_history_maybe_record(const faculty175_pmu_status_t *pmu)
                                         FACULTY175_POWER_HISTORY_CHARGING |
                                         FACULTY175_POWER_HISTORY_DISCHARGING;
         record = epoch_s < last->epoch_s || epoch_s - last->epoch_s >= POWER_HISTORY_INTERVAL_S ||
-                 last->battery_percent != (uint8_t)pmu->battery_percent ||
                  ((last->flags ^ flags) & transition_mask) != 0;
     }
     if (!record) {
@@ -127,7 +126,7 @@ void faculty175_power_history_maybe_record(const faculty175_pmu_status_t *pmu)
     nvs_handle_t nvs;
     esp_err_t err = nvs_open(POWER_HISTORY_NAMESPACE, NVS_READWRITE, &nvs);
     if (err == ESP_OK) {
-        char key[4];
+        char key[5];
         slot_key(key, slot);
         const uint8_t next_head = (uint8_t)((slot + 1) % FACULTY175_POWER_HISTORY_CAPACITY);
         const uint8_t next_count = s_count < FACULTY175_POWER_HISTORY_CAPACITY

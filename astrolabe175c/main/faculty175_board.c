@@ -2497,6 +2497,47 @@ void faculty175_audio_set_speaker_volume(uint8_t volume)
     (void)esp_codec_dev_set_out_vol(s_spk_codec, volume);
 }
 
+esp_err_t faculty175_audio_prepare_deep_sleep(uint32_t timeout_ms)
+{
+    if (s_audio_read_mux != NULL &&
+        xSemaphoreTake(s_audio_read_mux,
+                       pdMS_TO_TICKS(timeout_ms == 0 ? 500 : timeout_ms)) != pdTRUE) {
+        ESP_LOGW(TAG, "deep-sleep audio mutex timeout");
+        return ESP_ERR_TIMEOUT;
+    }
+
+    faculty175_audio_set_speaker_mute(true);
+    if (s_spk_open && s_spk_codec != NULL) {
+        (void)esp_codec_dev_close(s_spk_codec);
+        s_spk_open = false;
+    }
+    if (s_mic_open && s_mic_codec != NULL) {
+        (void)esp_codec_dev_close(s_mic_codec);
+        s_mic_open = false;
+    }
+
+    esp_err_t result = ESP_OK;
+    if (s_i2s_tx != NULL) {
+        const esp_err_t err = i2s_channel_disable(s_i2s_tx);
+        if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+            result = err;
+        }
+    }
+    if (s_i2s_rx != NULL) {
+        const esp_err_t err = i2s_channel_disable(s_i2s_rx);
+        if (err != ESP_OK && err != ESP_ERR_INVALID_STATE && result == ESP_OK) {
+            result = err;
+        }
+    }
+    faculty175_audio_set_speaker_pa_level(false);
+
+    if (s_audio_read_mux != NULL) {
+        xSemaphoreGive(s_audio_read_mux);
+    }
+    ESP_LOGI(TAG, "deep-sleep audio quiesced: %s", esp_err_to_name(result));
+    return result;
+}
+
 void faculty175_display_fill_rgb565(uint16_t color)
 {
     if (s_fb == NULL) {

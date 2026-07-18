@@ -727,7 +727,9 @@ static void low_power_tick(uint32_t now_ms)
     }
 
     if (s_power_on_battery && faculty175_deep_sleep_request_pending() &&
-        !faculty175_ota_active() && !faculty175_qa_audio_busy()) {
+        !faculty175_ota_active() && !faculty175_qa_audio_busy() &&
+        !faculty175_voice_tts_playback_busy() && !faculty175_face_native_audio_busy() &&
+        !ui_state_modal(s_ui)) {
         low_power_wifi_pause();
         faculty175_ble_prepare_deep_sleep();
         vTaskDelay(pdMS_TO_TICKS(250));

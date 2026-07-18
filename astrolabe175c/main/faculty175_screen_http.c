@@ -294,6 +294,7 @@ static esp_err_t api_battery_get(httpd_req_t *req)
                            "epoch_s",
                            astrolabe_time_valid() ? (double)astrolabe_time_now() : 0);
     cJSON_AddNumberToObject(root, "uptime_ms", status.uptime_ms);
+    cJSON_AddNumberToObject(root, "reset_reason", esp_reset_reason());
     add_json_string(root, "mode", faculty175_power_mode_name(status.mode));
     add_json_string(root, "source", on_battery ? "battery" : "usb");
     cJSON_AddBoolToObject(root, "wifi_active", status.wifi_active);
@@ -352,6 +353,8 @@ static esp_err_t api_battery_get(httpd_req_t *req)
         cJSON_AddBoolToObject(battery, "vbus", status.pmu.vbus_in);
         cJSON_AddBoolToObject(battery, "charging", status.pmu.charging);
         cJSON_AddBoolToObject(battery, "discharging", status.pmu.discharging);
+        cJSON_AddNumberToObject(battery, "power_on_source_flags", status.pmu.power_on_source_flags);
+        cJSON_AddNumberToObject(battery, "power_off_source_flags", status.pmu.power_off_source_flags);
     }
     cJSON *usage = cJSON_AddObjectToObject(root, "usage");
     if (usage != NULL) {
@@ -413,43 +416,56 @@ static esp_err_t api_battery_get(httpd_req_t *req)
         add_json_string(estimate, "basis", estimate_basis);
     }
 
-    cJSON *history = cJSON_AddArrayToObject(root, "history");
-    if (history != NULL) {
-        for (size_t i = 0; i < history_count; ++i) {
-            const faculty175_power_history_sample_t *sample = &samples[i];
-            cJSON *entry = cJSON_CreateObject();
-            if (entry == NULL) {
-                break;
-            }
-            cJSON_AddNumberToObject(entry, "epoch_s", sample->epoch_s);
-            cJSON_AddNumberToObject(entry, "percent", sample->battery_percent);
-            cJSON_AddNumberToObject(entry, "voltage_mv", sample->battery_mv);
-            cJSON_AddBoolToObject(entry,
-                                  "battery_present",
-                                  (sample->flags & FACULTY175_POWER_HISTORY_BATTERY_PRESENT) != 0);
-            cJSON_AddBoolToObject(entry,
-                                  "vbus",
-                                  (sample->flags & FACULTY175_POWER_HISTORY_VBUS) != 0);
-            cJSON_AddBoolToObject(entry,
-                                  "charging",
-                                  (sample->flags & FACULTY175_POWER_HISTORY_CHARGING) != 0);
-            cJSON_AddBoolToObject(entry,
-                                  "discharging",
-                                  (sample->flags & FACULTY175_POWER_HISTORY_DISCHARGING) != 0);
-            cJSON_AddItemToArray(history, entry);
-        }
-    }
-    free(samples);
-
     char *body = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
     if (body == NULL) {
+        free(samples);
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "json print");
         return ESP_FAIL;
     }
+    const size_t body_len = strlen(body);
+    if (body_len == 0 || body[body_len - 1] != '}') {
+        free(samples);
+        free(body);
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "json shape");
+        return ESP_FAIL;
+    }
+    body[body_len - 1] = '\0';
     set_api_headers(req);
-    const esp_err_t err = httpd_resp_send(req, body, HTTPD_RESP_USE_STRLEN);
+    esp_err_t err = httpd_resp_send_chunk(req, body, body_len - 1);
     free(body);
+    if (err == ESP_OK) {
+        err = httpd_resp_send_chunk(req, ",\"history\":[", HTTPD_RESP_USE_STRLEN);
+    }
+    char entry[192];
+    for (size_t i = 0; err == ESP_OK && i < history_count; ++i) {
+        const faculty175_power_history_sample_t *sample = &samples[i];
+        const int wrote = snprintf(
+            entry,
+            sizeof(entry),
+            "%s{\"epoch_s\":%lu,\"percent\":%u,\"voltage_mv\":%u,"
+            "\"battery_present\":%s,\"vbus\":%s,\"charging\":%s,\"discharging\":%s}",
+            i == 0 ? "" : ",",
+            (unsigned long)sample->epoch_s,
+            (unsigned)sample->battery_percent,
+            (unsigned)sample->battery_mv,
+            (sample->flags & FACULTY175_POWER_HISTORY_BATTERY_PRESENT) != 0 ? "true" : "false",
+            (sample->flags & FACULTY175_POWER_HISTORY_VBUS) != 0 ? "true" : "false",
+            (sample->flags & FACULTY175_POWER_HISTORY_CHARGING) != 0 ? "true" : "false",
+            (sample->flags & FACULTY175_POWER_HISTORY_DISCHARGING) != 0 ? "true" : "false");
+        if (wrote < 0 || (size_t)wrote >= sizeof(entry)) {
+            err = ESP_ERR_INVALID_SIZE;
+            break;
+        }
+        err = httpd_resp_send_chunk(req, entry, (ssize_t)wrote);
+    }
+    free(samples);
+    if (err == ESP_OK) {
+        err = httpd_resp_send_chunk(req, "]}", 2);
+    }
+    if (err == ESP_OK) {
+        err = httpd_resp_send_chunk(req, NULL, 0);
+    }
     return err;
 }
 

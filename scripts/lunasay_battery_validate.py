@@ -24,7 +24,7 @@ from urllib import error, request
 
 import serial
 
-from lunasay_power_common import wait_for_charge_ready
+from lunasay_power_common import parse_power_status, wait_for_charge_ready
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -154,6 +154,9 @@ def main() -> int:
     parser.add_argument("--allow-not-ready", action="store_true",
                         help="skip full-charge/rest gate; smoke tests only")
     args = parser.parse_args()
+    harness_build = subprocess.check_output(
+        ["git", "describe", "--always", "--dirty"], cwd=ROOT, text=True
+    ).strip()
 
     if args.duration_min <= 0:
         raise SystemExit("error: --duration-min must be positive")
@@ -220,6 +223,7 @@ def main() -> int:
             *(["ble power-test on", "ble status"] if args.workload == "ble" else []),
             "power stream off",
             f"power scenario {args.scenario} {firmware_minutes}",
+            "time",
             "power",
         ],
         settle_s=3.0,
@@ -229,6 +233,9 @@ def main() -> int:
         if args.workload == "ble":
             serial_commands(port, ["ble power-test off"], settle_s=1.0)
         raise RuntimeError(f"firmware did not confirm scenario {args.scenario}")
+    if "time: valid=yes" not in preflight:
+        raise RuntimeError("device wall clock is invalid; retained battery history would be unusable")
+    preflight_power = parse_power_status(preflight)
     if args.workload == "ble" and "ble: power-test on ESP_OK" not in preflight:
         serial_commands(port, ["ble power-test off"], settle_s=1.0)
         raise RuntimeError("firmware did not enable BLE power-test mode")
@@ -368,6 +375,7 @@ def main() -> int:
         settle_s=2.0,
     )
     (out_dir / "postflight-serial.log").write_text(postflight, encoding="utf-8")
+    postflight_power = parse_power_status(postflight)
     if not final_battery:
         try:
             wake_api(args.ip)
@@ -378,11 +386,17 @@ def main() -> int:
     endpoint = final_battery.get("battery", {}) if isinstance(final_battery, dict) else {}
     endpoint_percent = endpoint.get("percent")
     endpoint_voltage_mv = endpoint.get("voltage_mv")
+    postflight_uptime_s = int(postflight_power.get("uptime_s", 0))
+    expected_uptime_s = int(preflight_power.get("uptime_s", 0)) + int(time.monotonic() - started_wall)
+    reboot_confirmed = postflight_uptime_s + 120 < expected_uptime_s
+    poweron_reset = int(postflight_power.get("reset_reason", 0)) == 1
+    pmu_under_voltage = bool(int(postflight_power.get("pmu_off", 0)) & (1 << 3))
     shutdown_confirmed = bool(
         device_unreachable
         and (
             (isinstance(endpoint_percent, (int, float)) and endpoint_percent <= 5)
             or (isinstance(endpoint_voltage_mv, (int, float)) and endpoint_voltage_mv <= 3400)
+            or (reboot_confirmed and poweron_reset and pmu_under_voltage)
         )
     )
     if device_unreachable:
@@ -391,6 +405,9 @@ def main() -> int:
             confirmed=shutdown_confirmed,
             percent=endpoint_percent,
             voltage_mv=endpoint_voltage_mv,
+            reboot_confirmed=reboot_confirmed,
+            poweron_reset=poweron_reset,
+            pmu_under_voltage=pmu_under_voltage,
         )
     summary = {
         "passed": ((not device_unreachable) or shutdown_confirmed)
@@ -409,14 +426,24 @@ def main() -> int:
         ),
         "device_unreachable": device_unreachable,
         "shutdown_confirmed": shutdown_confirmed,
+        "shutdown_evidence": {
+            "endpoint_percent": endpoint_percent,
+            "endpoint_voltage_mv": endpoint_voltage_mv,
+            "reboot_confirmed": reboot_confirmed,
+            "poweron_reset": poweron_reset,
+            "pmu_under_voltage": pmu_under_voltage,
+            "preflight_uptime_s": preflight_power.get("uptime_s"),
+            "postflight_uptime_s": postflight_uptime_s,
+        },
         "test_article": {
             "unit_id": args.unit_id,
             "battery_id": args.battery_id,
             "battery_mah": args.battery_mah,
             "ambient_c": args.ambient_c,
-            "firmware_build": subprocess.check_output(
-                ["git", "describe", "--always", "--dirty"], cwd=ROOT, text=True
-            ).strip(),
+            "firmware_build": final_battery.get("firmware", {}).get(
+                "version", preflight_power.get("firmware", "unknown")
+            ),
+            "harness_build": harness_build,
         },
         "charge_gate": charge_gate,
         "final_battery": final_battery,
