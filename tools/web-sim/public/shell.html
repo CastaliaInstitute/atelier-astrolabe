@@ -78,6 +78,9 @@
         display: none;
       }
 
+      #codex-live { position: absolute; inset: 0; border-radius: 50%; pointer-events: none; }
+      #codex-live[hidden] { display: none; }
+
       .controls {
         width: min(466px, calc(100vw - 32px));
         display: grid;
@@ -356,6 +359,7 @@
         <div class="watch">
           <canvas id="astrolabe-canvas" width="466" height="466"></canvas>
           <img id="tarot-art" class="face-art-overlay" alt="" hidden />
+          <canvas id="codex-live" width="466" height="466" hidden aria-label="Live Codex task dial"></canvas>
         </div>
         <aside id="psychometer-panel" class="psychometer-panel" aria-label="Psychometer facial and affect estimates" hidden>
           <div class="psychometer-heading">
@@ -510,6 +514,10 @@
       const BLE_SERVICE_UUID = "01000000-5017-0065-6261-6c6f72747341";
       const BLE_SETTINGS_UUID = "03000000-5017-0065-6261-6c6f72747341";
       const tarotArt = document.querySelector("#tarot-art");
+      const codexLive = document.querySelector("#codex-live");
+      const codexCtx = codexLive.getContext("2d");
+      let codexState = null;
+      let codexFetchBusy = false;
       const psychometerPanel = document.querySelector("#psychometer-panel");
       const psychometerReadout = {
         valence: document.querySelector("#psych-valence"),
@@ -555,6 +563,7 @@
         Module.ccall("astrolabe_web_set_face", null, ["number"], [normalized]);
         updateTarotArt();
         updatePsychometerPanel();
+        drawLiveCodex();
       }
 
       function currentFaceMeta() {
@@ -593,6 +602,52 @@
         psychometerPanel.hidden = currentFaceMeta().slug !== "psych-state";
       }
 
+      function codexBaseUrl() {
+        return (controls.deviceUrl.value || window.location.origin).replace(/\/$/, "");
+      }
+
+      function codexColor(model) {
+        const value = String(model || "TERRA").toUpperCase();
+        return value === "SOL" ? "#f4c96b" : value === "LUNA" ? "#b0b8c4" : "#62b8ff";
+      }
+
+      function drawLiveCodex() {
+        const live = currentFaceMeta().slug === "codex";
+        codexLive.hidden = !live;
+        if (!live) return;
+        codexCtx.clearRect(0, 0, 466, 466);
+        codexCtx.fillStyle = "#040b12"; codexCtx.fillRect(0, 0, 466, 466);
+        codexCtx.strokeStyle = "#0c2534"; codexCtx.lineWidth = 20;
+        codexCtx.beginPath(); codexCtx.arc(233, 236, 188, 0, Math.PI * 2); codexCtx.stroke();
+        const tasks = codexState && Array.isArray(codexState.tasks) ? codexState.tasks : [];
+        const selected = codexState && Number.isInteger(codexState.selectedIndex) ? codexState.selectedIndex : 0;
+        tasks.slice(0, 12).forEach((task, index) => {
+          const angle = -Math.PI / 2 + index * Math.PI * 2 / Math.max(tasks.length, 1);
+          const x = 233 + Math.cos(angle) * 188, y = 236 + Math.sin(angle) * 188;
+          const speed = String(task.speed || "ADAPTIVE").toUpperCase();
+          codexCtx.globalAlpha = speed === "FAST" ? 1 : speed === "THOROUGH" ? .45 : .72;
+          codexCtx.fillStyle = codexColor(task.model);
+          codexCtx.beginPath(); codexCtx.arc(x, y, index === selected ? 25 : 20, 0, Math.PI * 2); codexCtx.fill();
+          codexCtx.globalAlpha = 1; codexCtx.font = `${index === selected ? 25 : 20}px system-ui, sans-serif`;
+          codexCtx.textAlign = "center"; codexCtx.textBaseline = "middle"; codexCtx.fillText(task.emoji || "🤖", x, y);
+        });
+        codexCtx.fillStyle = "#eefaff"; codexCtx.font = "700 15px system-ui, sans-serif"; codexCtx.textAlign = "center";
+        codexCtx.fillText(tasks[selected] ? tasks[selected].title : "LIVE CODEX · PAIR A DEVICE", 233, 360);
+        codexCtx.fillStyle = "#7891a3"; codexCtx.font = "11px system-ui, sans-serif";
+        codexCtx.fillText(tasks[selected] ? `${tasks[selected].model || "TERRA"} · ${tasks[selected].speed || "ADAPTIVE"}` : codexBaseUrl(), 233, 382);
+      }
+
+      async function pollCodexState() {
+        if (codexFetchBusy || currentFaceMeta().slug !== "codex") return;
+        codexFetchBusy = true;
+        try {
+          const response = await fetch(`${codexBaseUrl()}/api/codex/state`, { cache: "no-store" });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          codexState = await response.json();
+        } catch (_) { codexState = null; }
+        codexFetchBusy = false; drawLiveCodex();
+      }
+
       function updatePsychometerSample() {
         if (psychometerPanel.hidden) {
           return;
@@ -615,6 +670,7 @@
       }
 
       window.setInterval(updatePsychometerSample, 450);
+      window.setInterval(pollCodexState, 1500);
 
       function setVoiceState(state, detail, durationMs = 1800) {
         if (!Module.ccall) {
@@ -624,6 +680,7 @@
       }
 
       faceSelect.addEventListener("change", () => setFace(Number(faceSelect.value)));
+      controls.deviceUrl.addEventListener("change", pollCodexState);
       controls.prev.addEventListener("click", () => setFace(Number(faceSelect.value) - 1));
       controls.next.addEventListener("click", () => setFace(Number(faceSelect.value) + 1));
 

@@ -56,6 +56,7 @@
 #include "faculty175_usb_screen.h"
 #include "faculty175_log.h"
 #include "faculty175_device_auth.h"
+#include "faculty175_codex.h"
 #include "faculty175_deep_sleep.h"
 #include "faculty175_qa.h"
 #include "faculty175_ota.h"
@@ -3736,6 +3737,15 @@ static void button_reboot_task(void *arg)
         const bool grace_elapsed = now_ms - boot_ms >= BUTTON_REBOOT_GRACE_MS;
         const bool pmu_long_press = faculty175_pmu_pekey_long_press();
 
+        const faculty175_face_desc_t *button_face = faculty175_faces_current();
+        if (button_face != NULL && button_face->id == FACULTY175_FACE_CODEX) {
+            button_was_down = false;
+            reset_armed = false;
+            down_since_ms = 0;
+            vTaskDelay(pdMS_TO_TICKS(25));
+            continue;
+        }
+
         if (button_down) {
             if (!button_was_down) {
                 down_since_ms = now_ms;
@@ -3891,7 +3901,17 @@ static void input_task(void *arg)
                 continue;
             }
 #endif
-            if (gesture.kind == FACULTY175_GESTURE_LONG_TAP) {
+            if (!s_nav_mode && active_face != NULL && active_face->id == FACULTY175_FACE_CODEX &&
+                gesture.kind == FACULTY175_GESTURE_LONG_TAP) {
+                if (faculty175_codex_task_settings_is_open()) {
+                    faculty175_codex_task_settings_close();
+                } else {
+                    (void)faculty175_codex_select_dial_at(gesture.x, gesture.y);
+                    (void)faculty175_codex_task_settings_open();
+                }
+                ui_redraw();
+                faculty175_gesture_flush();
+            } else if (gesture.kind == FACULTY175_GESTURE_LONG_TAP) {
                 if (faculty175_faces_enabled_count() > 1) {
                     const char *enter_slug = active_face != NULL ? active_face->slug : "-";
                     const uint32_t enter_start_ms = faculty175_log_ms();
@@ -4006,6 +4026,38 @@ static void input_task(void *arg)
                                              (unsigned)(faculty175_log_ms() - gesture_ms));
                     }
                 }
+            } else if (!s_nav_mode && active_face != NULL && active_face->id == FACULTY175_FACE_CODEX &&
+                       faculty175_codex_task_settings_is_open() && gesture.kind == FACULTY175_GESTURE_TAP) {
+                const int section = gesture.y >= 265 ? 2 : gesture.y >= 230 ? 1 : 0;
+                const int delta = gesture.x >= 240 ? 1 : -1;
+                if (faculty175_codex_task_settings_adjust(section, delta)) ui_redraw();
+                faculty175_gesture_flush();
+            } else if (!s_nav_mode && active_face != NULL && active_face->id == FACULTY175_FACE_CODEX &&
+                       faculty175_codex_task_settings_is_open() &&
+                       (gesture.kind == FACULTY175_GESTURE_SWIPE_UP ||
+                        gesture.kind == FACULTY175_GESTURE_SWIPE_DOWN)) {
+                const int section = gesture.y >= 265 ? 2 : gesture.y >= 230 ? 1 : 0;
+                const int delta = gesture.kind == FACULTY175_GESTURE_SWIPE_UP ? 1 : -1;
+                if (faculty175_codex_task_settings_adjust(section, delta)) ui_redraw();
+                faculty175_gesture_flush();
+            } else if (!s_nav_mode && active_face != NULL && active_face->id == FACULTY175_FACE_CODEX &&
+                       !faculty175_codex_task_settings_is_open() &&
+                       (gesture.kind == FACULTY175_GESTURE_SWIPE_UP ||
+                        gesture.kind == FACULTY175_GESTURE_SWIPE_DOWN)) {
+                const int delta = gesture.kind == FACULTY175_GESTURE_SWIPE_UP ? 1 : -1;
+                if (faculty175_codex_select_delta(delta)) ui_redraw();
+                faculty175_gesture_flush();
+            } else if (!s_nav_mode && active_face != NULL && active_face->id == FACULTY175_FACE_CODEX &&
+                       (gesture.kind == FACULTY175_GESTURE_TAP ||
+                        gesture.kind == FACULTY175_GESTURE_BEZEL_TAP)) {
+                (void)faculty175_codex_select_dial_at(gesture.x, gesture.y);
+                faculty175_codex_state_t codex_state;
+                faculty175_codex_get(&codex_state);
+                const bool approval = button_down && codex_state.task_count > 0 &&
+                    codex_state.selected_index < codex_state.task_count &&
+                    codex_state.tasks[codex_state.selected_index].status == FACULTY175_CODEX_TASK_WAITING_APPROVAL;
+                if (faculty175_codex_queue_action(approval ? "approve" : "open")) ui_redraw();
+                faculty175_gesture_flush();
             } else if (!s_nav_mode && active_face != NULL && active_face->id == FACULTY175_FACE_FACULTY &&
                        (gesture.kind == FACULTY175_GESTURE_SWIPE_UP ||
                         gesture.kind == FACULTY175_GESTURE_SWIPE_DOWN)) {
@@ -4228,6 +4280,20 @@ static void input_task(void *arg)
                 continue;
             }
             const faculty175_face_desc_t *face = faculty175_faces_current();
+            if (face != NULL && face->id == FACULTY175_FACE_CODEX) {
+                faculty175_codex_state_t codex_state;
+                faculty175_codex_get(&codex_state);
+                if (strcmp(codex_state.pending_action, "approve") != 0 &&
+                    codex_state.task_count > 0 && codex_state.selected_index < codex_state.task_count) {
+                    const faculty175_codex_task_status_t status =
+                        codex_state.tasks[codex_state.selected_index].status;
+                    const char *action = status == FACULTY175_CODEX_TASK_WAITING_APPROVAL ? "approve" :
+                        (status == FACULTY175_CODEX_TASK_RUNNING ? "interrupt" : "voice");
+                    (void)faculty175_codex_queue_action(action);
+                    ui_redraw();
+                }
+                continue;
+            }
 #if FACULTY175_BUTTON_USES_DUPLEX_PIPELINE
             if (s_pipeline_cfg_ready && s_voice_stream_url[0] != '\0' && faculty175_board_audio_ready()) {
                 const esp_err_t err = faculty175_request_streaming_capture(FACULTY175_DUPLEX_CAPTURE_UNTIL_SILENCE_MS);
@@ -4324,6 +4390,8 @@ void app_main(void)
     const esp_err_t device_auth_err = faculty175_device_auth_init();
     boot_probe_err(device_auth_err);
     ESP_ERROR_CHECK(device_auth_err);
+    esp_rom_printf("A5 codex_state\n");
+    ESP_ERROR_CHECK(faculty175_codex_init());
     boot_probe_stage(0xa6);
     esp_rom_printf("A6 ota_init\n");
     faculty175_ota_init();

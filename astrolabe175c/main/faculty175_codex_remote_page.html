@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+  <meta name="theme-color" content="#07111b">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <title>Astrolabe Codex Remote</title>
+  <style>
+    :root{color-scheme:dark;font-family:Inter,ui-sans-serif,system-ui,sans-serif;background:#05090e;color:#edf7ff}
+    *{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(circle at 50% -15%,#14314a,#05090e 54%)}
+    main{width:min(680px,100%);margin:auto;padding:22px 18px max(36px,env(safe-area-inset-bottom))}
+    header{display:flex;justify-content:space-between;align-items:start;gap:16px}h1{font-size:1.45rem;margin:0;letter-spacing:.04em}
+    .eyebrow{color:#73d9ff;font-size:.72rem;letter-spacing:.16em;text-transform:uppercase;margin-bottom:5px}
+    .badge{border:1px solid #31516a;border-radius:999px;padding:6px 9px;color:#9cb5c7;font-size:.72rem;white-space:nowrap}
+    .panel{margin-top:18px;border:1px solid #20394d;border-radius:20px;background:#09131df2;padding:16px;box-shadow:0 18px 60px #0007}
+    #view{position:relative;aspect-ratio:1;border-radius:16px;overflow:hidden;background:#020507;display:grid;place-items:center}
+    video{width:100%;height:100%;object-fit:cover}#view.idle:after{content:'CODEX';font-size:2rem;letter-spacing:.35em;color:#29465b;margin-left:.35em}
+    .target{position:absolute;inset:16%;border:2px solid #78ddff;border-radius:20px;box-shadow:0 0 0 999px #02070b77,0 0 28px #62d9ff55;pointer-events:none}
+    .target:before,.target:after{content:'';position:absolute;inset:12px;border:1px solid #d8f7ff44;border-radius:13px}.target:after{inset:46% 10%;border-width:1px 0 0}
+    #status{min-height:46px;margin:13px 2px 0;color:#a9bdca;line-height:1.45}.good{color:#78e8b1!important}.bad{color:#ff9ba5!important}
+    .row{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}button,input{font:inherit;border-radius:12px;border:1px solid #31516a;background:#101e2a;color:#edf7ff;padding:12px}
+    button{cursor:pointer;font-weight:700;touch-action:manipulation}button.primary{background:#72dfff;border:0;color:#061018;flex:1}button.secondary{flex:1}
+    button:disabled{opacity:.48;cursor:wait}input{width:100%;font-size:.9rem}label{display:block;color:#8ca6b8;font-size:.78rem;margin:18px 2px 7px}
+    details{margin-top:16px;color:#94aabd}summary{cursor:pointer}.note{font-size:.8rem;line-height:1.5;color:#7891a3}
+    #photo{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}a{color:#76ddff}
+    .section-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.section-head h2{font-size:1.05rem;margin:0}
+    #connection{color:#7891a3;font-size:.75rem}.task-list{display:grid;gap:9px;margin-top:13px;touch-action:pan-x;user-select:none}
+    .task-row{display:grid;grid-template-columns:48px minmax(0,1fr) 48px;gap:8px}.task-pin,.task-emoji{min-height:64px;padding:0;font-size:1.35rem}.task-pin{color:#7891a3}.task-pin[aria-pressed="true"]{color:#f4cf6b;border-color:#826f36;background:#241f11}.task-emoji.custom{border-color:#72dfff;background:#102635}
+    .task{display:grid;grid-template-columns:1fr auto;gap:5px 10px;width:100%;text-align:left;padding:12px;background:#0d1a25;border-color:#203b50}
+    .task.selected{border-color:#72dfff;box-shadow:0 0 0 1px #72dfff55}.task-title{font-weight:750;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .task-meta{font-size:.72rem;color:#819bad;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.task-status{font-size:.66rem;letter-spacing:.08em;color:#79dfff}.task-model{font-size:.66rem;letter-spacing:.08em;font-weight:800}.model-sol{color:#f4c96b}.model-terra{color:#62b8ff}.model-luna{color:#b0b8c4}.speed-fast{filter:brightness(1.35)}.speed-thorough{filter:brightness(.72)}
+    .pin{color:#f4cf6b}.empty{padding:24px 8px;text-align:center;color:#7891a3;font-size:.86rem}.controls button{min-width:0;flex:1;padding:10px 7px;font-size:.78rem}
+    #pending{margin-top:11px;min-height:20px;color:#f4cf6b;font-size:.76rem}.hint{color:#7891a3;font-size:.72rem;margin:9px 1px 0}
+    dialog{width:min(390px,calc(100% - 28px));border:1px solid #31516a;border-radius:20px;background:#09131d;color:#edf7ff;padding:16px;box-shadow:0 24px 90px #000c}dialog::backdrop{background:#020507c9}.dialog-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.dialog-head h2{margin:0;font-size:1rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dialog-close{padding:8px 11px}.emoji-grid{display:grid;grid-template-columns:repeat(8,1fr);gap:6px;margin:15px 0}.emoji-option{padding:0;min-height:39px;font-size:1.35rem}.emoji-auto{width:100%}
+  </style>
+</head>
+<body><main>
+  <header><div><div class="eyebrow">Astrolabe · Cyber</div><h1>Pair Codex Remote</h1></div><div class="badge">DEVICE-SERVED PWA</div></header>
+  <section class="panel" id="remote">
+    <div class="section-head"><h2>Remote tasks</h2><span id="connection">Connecting…</span></div>
+    <div id="tasks" class="task-list"><div class="empty">Waiting for a Codex companion…</div></div>
+    <div id="pending"></div>
+    <div class="row controls"><button id="interruptTask">Interrupt</button><button id="openTask" class="primary">Open</button><button id="pinTask">Pin</button><button id="approveTask">Approve</button></div>
+    <label for="prompt">Send to selected task</label>
+    <div class="row"><input id="prompt" maxlength="191" placeholder="Ask Codex…" style="flex:4"><button id="sendPrompt" class="primary">Send</button></div>
+    <p class="hint">Swipe up/down to switch quickly. Pinned tasks stay at the top. Actions are relayed by the paired desktop companion.</p>
+  </section>
+  <section class="panel">
+    <div id="view" class="idle"><video id="camera" playsinline muted hidden></video><div id="target" class="target" hidden></div></div>
+    <p id="status">On the Mac, choose <b>Set up Remote</b> in Codex Desktop. Then scan its QR code here.</p>
+    <div class="row"><button id="scan" class="primary">Scan desktop QR</button><button id="choose" class="secondary">Choose QR photo</button></div>
+    <input id="photo" type="file" accept="image/*" capture="environment">
+    <label for="payload">Or paste the pairing link</label>
+    <input id="payload" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="ChatGPT Remote pairing link">
+    <div class="row"><button id="continue" class="primary">Continue in ChatGPT</button><button id="stop" class="secondary" disabled>Stop camera</button></div>
+    <details><summary>How this works</summary><p class="note">The QR is created by Codex Desktop Remote Control. Astrolabe reads it locally, validates that it targets ChatGPT or OpenAI, and opens the official setup flow. Account, workspace, MFA, SSO, and passkey checks remain in ChatGPT. Astrolabe does not store the pairing secret.</p></details>
+  </section>
+</main>
+<dialog id="emojiDialog"><div class="dialog-head"><h2 id="emojiDialogTitle">Task emoji</h2><button id="emojiClose" class="dialog-close" type="button" aria-label="Close emoji picker">Close</button></div><div id="emojiOptions" class="emoji-grid" aria-label="Task emoji choices"></div><button id="emojiAuto" class="emoji-auto" type="button">Use AI choice</button></dialog>
+<script>
+(() => {
+  'use strict';
+  const $=id=>document.getElementById(id),video=$('camera'),view=$('view'),target=$('target'),status=$('status');
+  const emojiCatalog=['💻','🛠️','🐛','🚀','🔬','📝','🔍','🎨','🔒','🌐','🗄️','📊','🤖','🧠','✨','🔥','📦','📱','📷','🎙️','⏱️','✅','⚠️','🌍','📚','💡','💬','📁','☁️','🔗','❤️','⭐'];
+  const scan=$('scan'),stop=$('stop'),photo=$('photo'),payload=$('payload'),tasks=$('tasks'),connection=$('connection'),pending=$('pending');
+  const emojiDialog=$('emojiDialog'),emojiDialogTitle=$('emojiDialogTitle'),emojiOptions=$('emojiOptions'),emojiAuto=$('emojiAuto');
+  let stream=null,detector=null,frame=0,busy=false;
+  let remoteState=null,touchY=null,emojiTaskId=null;
+  function message(text,kind=''){status.textContent=text;status.className=kind}
+  function accepted(raw){
+    const value=String(raw||'').trim();
+    if(!value||value.length>4096)throw Error('The QR does not contain a usable pairing link.');
+    let url;try{url=new URL(value)}catch(_){throw Error('This is not a Codex Remote pairing link. Use the QR shown by Codex Desktop.');}
+    const scheme=url.protocol.toLowerCase();
+    if(scheme==='https:'){
+      const host=url.hostname.toLowerCase();
+      if(!(host==='chatgpt.com'||host.endsWith('.chatgpt.com')||host==='openai.com'||host.endsWith('.openai.com')))
+        throw Error('For safety, Astrolabe only opens ChatGPT or OpenAI pairing links.');
+    }else if(scheme!=='chatgpt:'&&scheme!=='codex:'){
+      throw Error('Unsupported QR destination: '+scheme);
+    }
+    return url.href;
+  }
+  function finish(raw){
+    try{payload.value=accepted(raw);stopCamera();message('Codex Remote QR recognized. Continue in ChatGPT to approve this phone.','good');}
+    catch(err){message(err.message,'bad');}
+  }
+  async function barcodeDetector(){
+    if(!('BarcodeDetector' in window))throw Error('QR recognition is unavailable in this browser. Paste the pairing link, or try a current Chrome/Android browser.');
+    if(BarcodeDetector.getSupportedFormats){const formats=await BarcodeDetector.getSupportedFormats();if(!formats.includes('qr_code'))throw Error('This browser cannot recognize QR codes.');}
+    return new BarcodeDetector({formats:['qr_code']});
+  }
+  async function tick(){
+    if(!stream||busy)return;busy=true;
+    try{const codes=await detector.detect(video);if(codes.length){finish(codes[0].rawValue);return;}}
+    catch(err){message('Camera scan stopped: '+err.message,'bad');stopCamera();return}
+    finally{busy=false}
+    frame=requestAnimationFrame(tick);
+  }
+  async function startCamera(){
+    try{
+      detector=await barcodeDetector();
+      if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)throw Error('Live camera access requires HTTPS. Use Choose QR photo on this local connection.');
+      stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:1280}},audio:false});
+      video.srcObject=stream;video.hidden=false;target.hidden=false;view.classList.remove('idle');await video.play();
+      scan.disabled=true;stop.disabled=false;message('Point the camera at the QR code shown by Codex Desktop.');frame=requestAnimationFrame(tick);
+    }catch(err){message(err.message,'bad');stopCamera();}
+  }
+  function stopCamera(){
+    if(frame)cancelAnimationFrame(frame);frame=0;if(stream)stream.getTracks().forEach(track=>track.stop());stream=null;
+    video.srcObject=null;video.hidden=true;target.hidden=true;view.classList.add('idle');scan.disabled=false;stop.disabled=true;
+  }
+  async function decodePhoto(file){
+    if(!file)return;
+    try{detector=await barcodeDetector();message('Reading QR photo…');const bitmap=await createImageBitmap(file);const codes=await detector.detect(bitmap);bitmap.close();
+      if(!codes.length)throw Error('No QR code was found in that photo.');finish(codes[0].rawValue);
+    }catch(err){message(err.message,'bad');}
+  }
+  function continuePairing(){try{const destination=accepted(payload.value);message('Opening the official ChatGPT Remote setup…','good');setTimeout(()=>{location.href=destination},120)}catch(err){message(err.message,'bad')}}
+  function statusLabel(value){return String(value||'idle').replace('waiting-','').replace('-', ' ').toUpperCase()}
+  function hostName(id){const host=remoteState&&remoteState.hosts.find(item=>item.id===id);return host?host.name:'Unknown machine'}
+  function compactTokens(value){const n=Number(value)||0;if(n>=1e6)return (n/1e6).toFixed(n>=1e7?0:1)+'M';if(n>=1e3)return (n/1e3).toFixed(n>=1e4?0:1)+'k';return String(Math.round(n))}
+  function usageLabel(usage){if(!usage||!usage.available||!usage.totalTokens)return '';const rate=Number(usage.rateTokensPerMinute)||0;return compactTokens(usage.totalTokens)+' tokens'+(rate?' · '+compactTokens(rate)+'/min':'')}
+  function openEmojiPicker(task){emojiTaskId=task.id;emojiDialogTitle.textContent='Emoji · '+task.title;emojiAuto.disabled=!task.emojiOverridden;emojiAuto.textContent=task.emojiOverridden?'Use AI choice':'Using AI choice';emojiDialog.showModal()}
+  function setTaskEmoji(index){if(!emojiTaskId)return;remoteAction('emoji-set',{taskId:emojiTaskId,emojiIndex:index}).then(ok=>{if(ok)emojiDialog.close()})}
+  function renderRemote(state){
+    remoteState=state;tasks.replaceChildren();
+    const online=(state.hosts||[]).filter(host=>host.online).length;
+    connection.textContent=(state.hosts||[]).length?online+'/'+state.hosts.length+' machines online':'No machines synced';
+    (state.tasks||[]).forEach((task,index)=>{
+      const row=document.createElement('div');row.className='task-row';
+      const item=document.createElement('button');item.className='task'+(index===state.selectedIndex?' selected':'');item.dataset.id=task.id;
+      const emoji=document.createElement('button');emoji.className='task-emoji'+(task.emojiOverridden?' custom':'');emoji.type='button';emoji.textContent=emojiCatalog[task.emojiIndex]||'🤖';emoji.setAttribute('aria-label','Change emoji for '+task.title+(task.emojiOverridden?' (custom)':' (AI-selected)'));
+      const title=document.createElement('span');title.className='task-title';title.textContent=(task.pinned?'★ ':'')+task.title;
+      const statusNode=document.createElement('span');statusNode.className='task-status';statusNode.textContent=statusLabel(task.status);
+      const modelNode=document.createElement('span');const model=String(task.model||'TERRA').toLowerCase();const speed=String(task.speed||'ADAPTIVE').toLowerCase();modelNode.className='task-model model-'+model+' speed-'+speed;modelNode.textContent=(task.model||'TERRA')+' · '+(task.speed||'ADAPTIVE');
+      const meta=document.createElement('span');meta.className='task-meta';meta.textContent=hostName(task.hostId)+(usageLabel(task.usage)?' · '+usageLabel(task.usage):'');meta.title=task.usage&&task.usage.available?'Input '+compactTokens(task.usage.inputTokens)+' · cached '+compactTokens(task.usage.cachedInputTokens)+' · output '+compactTokens(task.usage.outputTokens)+' · reasoning '+compactTokens(task.usage.reasoningOutputTokens):'';
+      const pin=document.createElement('button');pin.className='task-pin';pin.type='button';pin.textContent=task.pinned?'★':'☆';pin.setAttribute('aria-pressed',String(!!task.pinned));pin.setAttribute('aria-label',(task.pinned?'Unpin ':'Pin ')+task.title);
+      if(task.pinned)title.classList.add('pin');item.append(title,statusNode,modelNode,meta);item.addEventListener('click',()=>remoteAction('select',{taskId:task.id}));emoji.addEventListener('click',()=>openEmojiPicker(task));pin.addEventListener('click',()=>remoteAction('pin-toggle',{taskId:task.id}));row.append(emoji,item,pin);tasks.append(row);
+    });
+    if(!(state.tasks||[]).length){const empty=document.createElement('div');empty.className='empty';empty.textContent='Pair Codex, then start the desktop companion to see tasks here.';tasks.append(empty)}
+    const action=state.pendingAction||{};pending.textContent=action.action?'Queued '+action.action+' for the desktop companion · #'+action.sequence:'';
+    const selected=(state.tasks||[])[state.selectedIndex];$('pinTask').textContent=selected&&selected.pinned?'Unpin':'Pin';
+    $('approveTask').disabled=!selected||selected.status!=='waiting-approval';
+  }
+  async function loadRemote(){
+    try{const response=await fetch('/api/codex/state',{cache:'no-store'});if(!response.ok)throw Error('HTTP '+response.status);renderRemote(await response.json())}
+    catch(_){connection.textContent='Astrolabe unavailable'}
+  }
+  async function remoteAction(action,extra={}){
+    try{const response=await fetch('/api/codex/action',{method:'POST',headers:{'Content-Type':'application/json','X-Astrolabe-Codex':'sync-v1'},body:JSON.stringify({action,...extra})});
+      if(!response.ok)throw Error('HTTP '+response.status);const state=await response.json();if(state.ok===false)throw Error(state.error||'Action unavailable');renderRemote(state);return true;
+    }catch(err){pending.textContent='Action failed: '+err.message;return false}
+  }
+  function sendPrompt(){const input=$('prompt').value.trim();if(!input)return;remoteAction('prompt',{input}).then(ok=>{if(ok)$('prompt').value=''})}
+  scan.addEventListener('click',startCamera);stop.addEventListener('click',stopCamera);$('choose').addEventListener('click',()=>photo.click());
+  photo.addEventListener('change',()=>decodePhoto(photo.files&&photo.files[0]));$('continue').addEventListener('click',continuePairing);
+  $('interruptTask').addEventListener('click',()=>remoteAction('interrupt'));$('openTask').addEventListener('click',()=>remoteAction('open'));
+  $('pinTask').addEventListener('click',()=>remoteAction('pin-toggle'));$('approveTask').addEventListener('click',()=>remoteAction('approve'));
+  emojiCatalog.forEach((emoji,index)=>{const option=document.createElement('button');option.className='emoji-option';option.type='button';option.textContent=emoji;option.setAttribute('aria-label','Use '+emoji);option.addEventListener('click',()=>setTaskEmoji(index));emojiOptions.append(option)});
+  $('emojiClose').addEventListener('click',()=>emojiDialog.close());emojiAuto.addEventListener('click',()=>setTaskEmoji(-1));emojiDialog.addEventListener('close',()=>{emojiTaskId=null});
+  $('sendPrompt').addEventListener('click',sendPrompt);$('prompt').addEventListener('keydown',event=>{if(event.key==='Enter')sendPrompt()});
+  tasks.addEventListener('touchstart',event=>{touchY=event.touches[0].clientY},{passive:true});tasks.addEventListener('touchend',event=>{if(touchY===null)return;const dy=event.changedTouches[0].clientY-touchY;touchY=null;if(Math.abs(dy)>42)remoteAction(dy<0?'next':'previous')},{passive:true});
+  payload.addEventListener('keydown',event=>{if(event.key==='Enter')continuePairing()});addEventListener('pagehide',stopCamera);loadRemote();setInterval(loadRemote,1800);
+})();
+</script></body></html>

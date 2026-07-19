@@ -161,6 +161,12 @@ volume, and boot-protocol keyboard and mouse interfaces. The HID face shows a
 per-boot Wi-Fi pairing code; the paired `/km` page provides a remote touchpad
 and keyboard. Other faces restore the fixed USB Serial/JTAG console.
 
+The Cyber firmware also provides a Codex task face and serves `/codex`, a
+phone-friendly PWA that scans the QR code shown by Codex Desktop's **Set up
+Remote** flow. A local companion supplies pinned-first multi-machine task state
+without sending Codex credentials to Astrolabe. See
+[`../docs/CODEX_REMOTE_PWA.md`](../docs/CODEX_REMOTE_PWA.md).
+
 For a Raspberry Pi OS desktop that does not yet have the optional screen agent, wait for the
 installer volume containing the `ASTROLABE` directory to mount and tap the HID face twice within ten seconds. Astrolabe opens a
 terminal and runs the installer from the MSC volume. The first tap only arms the action, so an

@@ -16,13 +16,20 @@ set(ASTROLABE175C_CYBER_FEATURES 0)
 set(ASTROLABE175C_FIRMWARE_VARIANT "Faculty")
 set(ASTROLABE175C_OTA_CHANNEL "astrolabe-faculty-amoled175")
 set(FACULTY175_EMBED_TXTFILES)
+set(FACULTY175_EMBED_FILES
+    "assets/pocketwatch_default.rgb565"
+    "assets/maze_466.png"
+    "assets/v5-a.darwin-right.png"
+    "assets/v5-a.plato-right.png")
 if(ASTROLABE175C_BUILD_VARIANT STREQUAL "cyber")
     set(ASTROLABE175C_CYBER_FEATURES 1)
     set(ASTROLABE175C_FIRMWARE_VARIANT "Cyber")
     set(ASTROLABE175C_OTA_CHANNEL "astrolabe-cyber-175")
     list(APPEND FACULTY175_EMBED_TXTFILES
+        "faculty175_codex_remote_page.html"
         "faculty175_km_page.html"
         "astrolabe-install.sh")
+    list(APPEND FACULTY175_EMBED_FILES "assets/codex_noto_emoji_40_argb.bin")
 elseif(ASTROLABE175C_BUILD_VARIANT STREQUAL "lunasay")
     set(ASTROLABE175C_FIRMWARE_VARIANT "LunaSay")
     set(ASTROLABE175C_OTA_CHANNEL "astrolabe-lunasay-175")
@@ -65,7 +72,9 @@ idf_component_register(
         "faculty175_usb.c"
         "faculty175_usb_ncm.c"
         "faculty175_km.c"
+        "faculty175_codex.c"
         "faculty175_km_http.c"
+        "faculty175_codex_remote_http.c"
         "faculty175_usb_screen.c"
         "faculty175_gesture.c"
         "faculty175_motion.c"
@@ -145,10 +154,7 @@ idf_component_register(
         bt
         wear_levelling
     EMBED_FILES
-        "assets/pocketwatch_default.rgb565"
-        "assets/maze_466.png"
-        "assets/v5-a.darwin-right.png"
-        "assets/v5-a.plato-right.png"
+        ${FACULTY175_EMBED_FILES}
     EMBED_TXTFILES
         ${FACULTY175_EMBED_TXTFILES}
 )

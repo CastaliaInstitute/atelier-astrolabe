@@ -27,6 +27,7 @@
 #include "faculty175_board.h"
 #include "faculty175_breath.h"
 #include "faculty175_charts.h"
+#include "faculty175_codex_remote_http.h"
 #include "faculty175_device_settings.h"
 #include "faculty175_deep_sleep.h"
 #include "faculty175_face_profile.h"
@@ -57,6 +58,12 @@ static atomic_bool s_wake_requested;
 #define FACULTY175_SCREEN_HTTP_FALLBACK_STACK_SIZE 4096
 #endif
 #define FACULTY175_SCREEN_HTTP_START_ATTEMPTS 4
+
+#if ASTROLABE_CYBER_FEATURES
+#define FACULTY175_CODEX_REMOTE_LINK "| <a style=\"color:#8cf\" href=\"/codex\">Codex Remote</a> "
+#else
+#define FACULTY175_CODEX_REMOTE_LINK ""
+#endif
 
 static void add_json_string(cJSON *obj, const char *key, const char *value);
 static err_t wake_listener_release(struct tcp_pcb *pcb);
@@ -702,6 +709,7 @@ static esp_err_t root_get(httpd_req_t *req)
              "| <a style=\"color:#8cf\" href=\"/wifi\">wifi settings</a> "
              "| <a style=\"color:#8cf\" href=\"/breathing\">breathing monitor</a> "
              "| <a style=\"color:#8cf\" href=\"/battery\">battery monitor</a> "
+             FACULTY175_CODEX_REMOTE_LINK
              "| <a style=\"color:#8cf\" href=\"/screen.bmp\">screen.bmp</a></p>"
              "<img src=\"/screen.bmp\" style=\"width:100%%;max-width:466px;height:auto;display:block;margin:0 auto\" "
              "alt=\"screen\"></body></html>");
@@ -2194,6 +2202,10 @@ esp_err_t faculty175_screen_http_start(const esp_ip4_addr_t *ip)
     if (km_err != ESP_OK && km_err != ESP_ERR_NOT_SUPPORTED) {
         ESP_LOGW(TAG, "KM HTTP unavailable: %s", esp_err_to_name(km_err));
     }
+    const esp_err_t codex_err = faculty175_codex_remote_http_register(s_httpd);
+    if (codex_err != ESP_OK && codex_err != ESP_ERR_NOT_SUPPORTED) {
+        ESP_LOGW(TAG, "Codex Remote launcher unavailable: %s", esp_err_to_name(codex_err));
+    }
 
     ESP_LOGI(TAG, "ready http://" IPSTR "/ (GET /screen.bmp, /wifi, /api/faces, /api/breath)", IP2STR(&s_ip));
     printf("Astrolabe WiFi settings: http://" IPSTR "/wifi\n", IP2STR(&s_ip));
@@ -2203,6 +2215,9 @@ esp_err_t faculty175_screen_http_start(const esp_ip4_addr_t *ip)
     printf("Breathing metrics over WiFi: http://" IPSTR "/api/breath\n", IP2STR(&s_ip));
     printf("Arc Reactor monitor: http://%s.local/breathing\n", s_mdns_hostname);
     printf("Keyboard/mouse over WiFi: http://" IPSTR "/km\n", IP2STR(&s_ip));
+#if ASTROLABE_CYBER_FEATURES
+    printf("Codex Desktop Remote pairing: http://" IPSTR "/codex\n", IP2STR(&s_ip));
+#endif
     printf("LunaSay family setup: http://" IPSTR "/family\n", IP2STR(&s_ip));
     fflush(stdout);
     return ESP_OK;

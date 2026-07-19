@@ -19,6 +19,7 @@
 #include "faculty175_board.h"
 #include "faculty175_apocalypso.h"
 #include "faculty175_charts.h"
+#include "faculty175_codex.h"
 #include "faculty175_device_settings.h"
 #include "faculty175_face_alethiometer.h"
 #include "faculty175_face_alethiometer_glyphs.h"
@@ -317,6 +318,19 @@ static lv_obj_t *s_utility_lines[28];
 EXT_RAM_BSS_ATTR static lv_point_precise_t s_utility_line_points[28][2];
 static lv_obj_t *s_utility_labels[14];
 static lv_obj_t *s_utility_qr;
+#if ASTROLABE_CYBER_FEATURES
+static lv_obj_t *s_codex_emoji_images[FACULTY175_CODEX_TASK_MAX];
+static lv_obj_t *s_codex_emoji_halos[FACULTY175_CODEX_TASK_MAX];
+static lv_obj_t *s_codex_pinned_segments[FACULTY175_CODEX_SEGMENT_COUNT];
+static lv_obj_t *s_codex_weekly_gauge;
+static lv_obj_t *s_codex_credits_gauge;
+EXT_RAM_BSS_ATTR static lv_image_dsc_t s_codex_emoji_textures[FACULTY175_CODEX_TASK_MAX];
+static const uint8_t *s_codex_emoji_pixels;
+static bool s_codex_emoji_pack_checked;
+static bool s_codex_emoji_pack_ready;
+extern const uint8_t s_codex_emoji_pack_start[] asm("_binary_codex_noto_emoji_40_argb_bin_start");
+extern const uint8_t s_codex_emoji_pack_end[] asm("_binary_codex_noto_emoji_40_argb_bin_end");
+#endif
 static lv_obj_t *s_rocket_image;
 static uint16_t *s_rocket_image_pixels;
 static lv_image_dsc_t s_rocket_image_texture;
@@ -3126,6 +3140,7 @@ static bool utility_face_id(faculty175_face_id_t id)
         case FACULTY175_FACE_BIOMETRICS:
         case FACULTY175_FACE_WATCHER:
         case FACULTY175_FACE_HID:
+        case FACULTY175_FACE_CODEX:
         case FACULTY175_FACE_BABEL:
         case FACULTY175_FACE_WSCAN:
         case FACULTY175_FACE_DEAUTH:
@@ -3161,6 +3176,7 @@ static const char *utility_title(faculty175_face_id_t id)
         case FACULTY175_FACE_BATTERY: return "";
         case FACULTY175_FACE_WATCHER: return "WATCHER";
         case FACULTY175_FACE_HID: return "HID";
+        case FACULTY175_FACE_CODEX: return "CODEX";
         case FACULTY175_FACE_WSCAN: return "WIFI SCAN";
         case FACULTY175_FACE_DEAUTH: return "DEAUTH";
         case FACULTY175_FACE_EVILTWIN: return "EVIL TWIN";
@@ -3199,6 +3215,8 @@ static void utility_set_orb(int idx, int32_t x, int32_t y, int32_t size, uint32_
     lv_obj_set_style_bg_color(s_utility_orbs[idx], lv_color_hex(color), 0);
     lv_obj_set_style_bg_opa(s_utility_orbs[idx], opa, 0);
     lv_obj_set_style_border_width(s_utility_orbs[idx], 0, 0);
+    lv_obj_set_style_outline_width(s_utility_orbs[idx], 0, 0);
+    lv_obj_set_style_shadow_width(s_utility_orbs[idx], 0, 0);
     lv_obj_align(s_utility_orbs[idx], LV_ALIGN_TOP_LEFT, x - size / 2, y - size / 2);
     native_obj_hidden(s_utility_orbs[idx], false);
 }
@@ -3253,6 +3271,17 @@ static void utility_clear_objects(void)
     for (int i = 0; i < 14; ++i) {
         native_obj_hidden(s_utility_labels[i], true);
     }
+#if ASTROLABE_CYBER_FEATURES
+    for (int i = 0; i < FACULTY175_CODEX_TASK_MAX; ++i) {
+        native_obj_hidden(s_codex_emoji_images[i], true);
+        native_obj_hidden(s_codex_emoji_halos[i], true);
+    }
+    for (int i = 0; i < FACULTY175_CODEX_SEGMENT_COUNT; ++i) {
+        native_obj_hidden(s_codex_pinned_segments[i], true);
+    }
+    native_obj_hidden(s_codex_weekly_gauge, true);
+    native_obj_hidden(s_codex_credits_gauge, true);
+#endif
     native_obj_hidden(s_utility_qr, true);
 }
 
@@ -3633,6 +3662,50 @@ static void create_utility_screen(void)
         s_utility_labels[i] = make_tarot_label(s_utility_screen, 0, 120, 0xd8e2f0);
         native_obj_hidden(s_utility_labels[i], true);
     }
+#if ASTROLABE_CYBER_FEATURES
+    for (int i = 0; i < FACULTY175_CODEX_SEGMENT_COUNT; ++i) {
+        s_codex_pinned_segments[i] = lv_arc_create(s_utility_screen);
+        lv_obj_remove_style(s_codex_pinned_segments[i], NULL, LV_PART_KNOB);
+        lv_obj_set_size(s_codex_pinned_segments[i], 398, 398);
+        lv_obj_center(s_codex_pinned_segments[i]);
+        lv_arc_set_range(s_codex_pinned_segments[i], 0, 100);
+        lv_arc_set_value(s_codex_pinned_segments[i], 100);
+        lv_arc_set_rotation(s_codex_pinned_segments[i], 270);
+        lv_obj_clear_flag(s_codex_pinned_segments[i], LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_style_arc_width(s_codex_pinned_segments[i], 20, LV_PART_MAIN);
+        lv_obj_set_style_arc_width(s_codex_pinned_segments[i], 0, LV_PART_INDICATOR);
+        lv_obj_set_style_arc_rounded(s_codex_pinned_segments[i], false, LV_PART_MAIN);
+        lv_obj_set_style_arc_opa(s_codex_pinned_segments[i], 0, LV_PART_INDICATOR);
+        native_obj_hidden(s_codex_pinned_segments[i], true);
+    }
+    lv_obj_t **gauges[] = {&s_codex_weekly_gauge, &s_codex_credits_gauge};
+    const int gauge_sizes[] = {462, 438};
+    for (int i = 0; i < 2; ++i) {
+        *gauges[i] = lv_arc_create(s_utility_screen);
+        lv_obj_remove_style(*gauges[i], NULL, LV_PART_KNOB);
+        lv_obj_set_size(*gauges[i], gauge_sizes[i], gauge_sizes[i]);
+        lv_obj_center(*gauges[i]);
+        lv_arc_set_range(*gauges[i], 0, 100);
+        lv_arc_set_value(*gauges[i], 0);
+        lv_arc_set_rotation(*gauges[i], 270);
+        lv_arc_set_bg_angles(*gauges[i], i == 0 ? 205 : 25, i == 0 ? 335 : 155);
+        lv_obj_set_style_arc_width(*gauges[i], 4, LV_PART_MAIN);
+        lv_obj_set_style_arc_width(*gauges[i], 5, LV_PART_INDICATOR);
+        lv_obj_set_style_arc_color(*gauges[i], lv_color_hex(0x294352), LV_PART_MAIN);
+        lv_obj_set_style_arc_color(*gauges[i], lv_color_hex(i == 0 ? 0x48d89b : 0x62b8ff), LV_PART_INDICATOR);
+        lv_obj_set_style_arc_opa(*gauges[i], 42, LV_PART_MAIN);
+        lv_obj_set_style_arc_opa(*gauges[i], 30, LV_PART_INDICATOR);
+        native_obj_hidden(*gauges[i], true);
+    }
+    for (int i = 0; i < FACULTY175_CODEX_TASK_MAX; ++i) {
+        s_codex_emoji_halos[i] = lv_image_create(s_utility_screen);
+        lv_obj_set_size(s_codex_emoji_halos[i], FACULTY175_CODEX_EMOJI_W, FACULTY175_CODEX_EMOJI_H);
+        native_obj_hidden(s_codex_emoji_halos[i], true);
+        s_codex_emoji_images[i] = lv_image_create(s_utility_screen);
+        lv_obj_set_size(s_codex_emoji_images[i], FACULTY175_CODEX_EMOJI_W, FACULTY175_CODEX_EMOJI_H);
+        native_obj_hidden(s_codex_emoji_images[i], true);
+    }
+#endif
     s_rocket_image = lv_image_create(s_utility_screen);
     native_obj_hidden(s_rocket_image, true);
     s_utility_qr = lv_qrcode_create(s_utility_screen);
@@ -4305,6 +4378,289 @@ static void draw_utility_hid(uint32_t anim_ms)
     }
 }
 
+static const char *codex_host_name(const faculty175_codex_state_t *state, const char *host_id)
+{
+    for (size_t i = 0; i < state->host_count; ++i) {
+        if (strcmp(state->hosts[i].id, host_id) == 0) return state->hosts[i].name;
+    }
+    return "HOST";
+}
+
+static uint32_t codex_status_color(faculty175_codex_task_status_t status)
+{
+    switch (status) {
+        case FACULTY175_CODEX_TASK_RUNNING: return 0x48d89b;
+        case FACULTY175_CODEX_TASK_WAITING_APPROVAL: return 0xf4c96b;
+        case FACULTY175_CODEX_TASK_WAITING_INPUT: return 0x62b8ff;
+        case FACULTY175_CODEX_TASK_DONE: return 0x48d89b;
+        case FACULTY175_CODEX_TASK_ERROR: return 0xff7185;
+        case FACULTY175_CODEX_TASK_IDLE:
+        default: return 0x62b8ff;
+    }
+}
+
+/* Usage is intentionally logarithmic: a task that has spent millions of
+ * tokens should read as "hotter" without making smaller tasks disappear. */
+static uint32_t codex_usage_color(const faculty175_codex_task_t *task)
+{
+    if (task == NULL || !task->usage_available || task->total_tokens == 0) return 0x294352;
+    if (task->total_tokens >= 1000000ULL) return 0xff7185;
+    if (task->total_tokens >= 100000ULL) return 0xffa35c;
+    if (task->total_tokens >= 10000ULL) return 0xf4c96b;
+    if (task->total_tokens >= 1000ULL) return 0x48d89b;
+    return 0x62b8ff;
+}
+
+static uint32_t codex_model_color(const faculty175_codex_task_t *task)
+{
+    if (task == NULL) return 0x294352;
+    if (strcasecmp(task->model, "SOL") == 0) return 0xf4c96b;
+    if (strcasecmp(task->model, "LUNA") == 0) return 0xb0b8c4;
+    return 0x62b8ff; /* TERRA and unknown/provider defaults */
+}
+
+static lv_opa_t codex_speed_opacity(const faculty175_codex_task_t *task)
+{
+    if (task == NULL) return 80;
+    if (strcasecmp(task->speed, "FAST") == 0) return 235;
+    if (strcasecmp(task->speed, "THOROUGH") == 0) return 105;
+    return 165; /* adaptive */
+}
+
+static lv_opa_t codex_usage_opacity(const faculty175_codex_task_t *task, uint32_t anim_ms)
+{
+    if (task == NULL || !task->usage_available || task->total_tokens == 0) return 22;
+    const uint32_t rate = task->token_rate_per_minute;
+    if (rate == 0) return 78;
+    /* Higher observed spend rates flash faster, while remaining legible. */
+    const uint32_t period = rate >= 10000U ? 180U : (rate >= 1000U ? 360U : 720U);
+    return (lv_opa_t)(48U + ((anim_ms / period) & 1U) * 88U);
+}
+
+static void codex_usage_text(const faculty175_codex_task_t *task, char *out, size_t capacity)
+{
+    if (capacity == 0) return;
+    out[0] = '\0';
+    if (task == NULL || !task->usage_available || task->total_tokens == 0) return;
+    const unsigned long long total = (unsigned long long)task->total_tokens;
+    if (task->token_rate_per_minute > 0) {
+        const unsigned long rate = (unsigned long)task->token_rate_per_minute;
+        if (total >= 1000000ULL) snprintf(out, capacity, "TOK %lluM · %lu/M", total / 1000000ULL, rate / 1000UL);
+        else if (total >= 1000ULL) snprintf(out, capacity, "TOK %lluk · %lu/M", total / 1000ULL, rate / 1000UL);
+        else snprintf(out, capacity, "TOK %llu · %lu/M", total, rate);
+    } else if (total >= 1000000ULL) {
+        snprintf(out, capacity, "TOK %lluM", total / 1000000ULL);
+    } else if (total >= 1000ULL) {
+        snprintf(out, capacity, "TOK %lluk", total / 1000ULL);
+    } else {
+        snprintf(out, capacity, "TOK %llu", total);
+    }
+}
+
+#if ASTROLABE_CYBER_FEATURES
+static bool codex_emoji_pack_open(void)
+{
+    if (s_codex_emoji_pack_checked) return s_codex_emoji_pack_ready;
+    s_codex_emoji_pack_checked = true;
+    const size_t len = (size_t)(s_codex_emoji_pack_end - s_codex_emoji_pack_start);
+    const size_t expected = 20u + (size_t)FACULTY175_CODEX_EMOJI_COUNT * FACULTY175_CODEX_EMOJI_BYTES;
+    if (len != expected || memcmp(s_codex_emoji_pack_start, "CODEXEM1", 8) != 0 ||
+        lenormand_read_le16(&s_codex_emoji_pack_start[8]) != FACULTY175_CODEX_EMOJI_W ||
+        lenormand_read_le16(&s_codex_emoji_pack_start[10]) != FACULTY175_CODEX_EMOJI_H ||
+        lenormand_read_le16(&s_codex_emoji_pack_start[12]) != FACULTY175_CODEX_EMOJI_ROW_BYTES ||
+        lenormand_read_le16(&s_codex_emoji_pack_start[14]) != FACULTY175_CODEX_EMOJI_COUNT ||
+        lenormand_read_le32(&s_codex_emoji_pack_start[16]) != FACULTY175_CODEX_EMOJI_BYTES) {
+        ESP_LOGE(TAG, "invalid embedded Codex Noto emoji pack len=%u", (unsigned)len);
+        return false;
+    }
+    s_codex_emoji_pixels = s_codex_emoji_pack_start + 20;
+    for (int i = 0; i < FACULTY175_CODEX_TASK_MAX; ++i) {
+        s_codex_emoji_textures[i] = (lv_image_dsc_t) {
+            .header = {
+                .magic = LV_IMAGE_HEADER_MAGIC,
+                .cf = LV_COLOR_FORMAT_ARGB8888,
+                .flags = 0,
+                .w = FACULTY175_CODEX_EMOJI_W,
+                .h = FACULTY175_CODEX_EMOJI_H,
+                .stride = FACULTY175_CODEX_EMOJI_ROW_BYTES,
+                .reserved_2 = 0,
+            },
+            .data_size = FACULTY175_CODEX_EMOJI_BYTES,
+            .data = s_codex_emoji_pixels,
+            .reserved = NULL,
+            .reserved_2 = NULL,
+        };
+    }
+    s_codex_emoji_pack_ready = true;
+    return true;
+}
+#endif
+
+static void codex_task_monogram(const char *title, char out[3])
+{
+    out[0] = 'C';
+    out[1] = '\0';
+    out[2] = '\0';
+    if (title == NULL || title[0] == '\0') return;
+    size_t count = 0;
+    bool word_start = true;
+    for (const char *p = title; *p != '\0' && count < 2; ++p) {
+        const char c = *p;
+        const bool alpha = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+                           (c >= '0' && c <= '9');
+        if (alpha && word_start) {
+            out[count++] = c >= 'a' && c <= 'z' ? (char)(c - 'a' + 'A') : c;
+            word_start = false;
+        } else if (!alpha) {
+            word_start = true;
+        }
+    }
+    if (count == 0) out[count++] = 'C';
+    out[count] = '\0';
+}
+
+static void draw_utility_codex(uint32_t anim_ms)
+{
+    faculty175_codex_state_t state;
+    faculty175_codex_get(&state);
+    native_obj_hidden(s_utility_status, true);
+    lv_obj_set_style_bg_color(s_utility_screen, lv_color_hex(0x040b12), 0);
+    lv_obj_set_style_text_color(s_utility_title, lv_color_hex(0x8ee8ff), 0);
+    lv_label_set_text(s_utility_title, "CODEX TASK DIAL");
+    lv_obj_set_width(s_utility_title, 300);
+    lv_obj_align(s_utility_title, LV_ALIGN_TOP_MID, 0, 132);
+    utility_set_orb(12, FACULTY175_CODEX_DIAL_CX, FACULTY175_CODEX_DIAL_CY, 286, 0x07121c, LV_OPA_COVER);
+    utility_set_orb(13, FACULTY175_CODEX_DIAL_CX, FACULTY175_CODEX_DIAL_CY, 264, 0x0c2534, 220);
+
+    if (faculty175_codex_task_settings_is_open()) {
+#if ASTROLABE_CYBER_FEATURES
+        for (size_t i = 0; i < FACULTY175_CODEX_SEGMENT_COUNT; ++i) native_obj_hidden(s_codex_pinned_segments[i], true);
+        for (size_t i = 0; i < FACULTY175_CODEX_TASK_MAX; ++i) {
+            native_obj_hidden(s_codex_emoji_images[i], true);
+            native_obj_hidden(s_codex_emoji_halos[i], true);
+        }
+#endif
+        if (state.task_count == 0) return;
+        const faculty175_codex_task_t *task = &state.tasks[state.selected_index < state.task_count ? state.selected_index : 0];
+        lv_label_set_text(s_utility_title, "TASK CONTROLS");
+        utility_set_label(12, task->title, 70, 166, 326, 0xeefaff);
+        lv_obj_set_style_text_align(s_utility_labels[12], LV_TEXT_ALIGN_CENTER, 0);
+        static const char *const names[] = {"MODEL", "CONTEXT", "SPEED"};
+        for (int i = 0; i < 3; ++i) {
+            char line[64];
+            snprintf(line, sizeof(line), "%s   %s", names[i], faculty175_codex_task_settings_label(i));
+            utility_set_label(9 + i, line, 62, 214 + i * 34, 344, i == 0 ? 0x73ddff : 0xb9d7e6);
+            lv_obj_set_style_text_align(s_utility_labels[9 + i], LV_TEXT_ALIGN_CENTER, 0);
+        }
+        utility_set_label(13, "TAP ROW · SWIPE TO CHANGE · LONG PRESS TO EXIT", 45, 332, 376, 0x7891a3);
+        lv_obj_set_style_text_align(s_utility_labels[13], LV_TEXT_ALIGN_CENTER, 0);
+        return;
+    }
+
+#if ASTROLABE_CYBER_FEATURES
+    native_obj_hidden(s_codex_weekly_gauge, false);
+    native_obj_hidden(s_codex_credits_gauge, false);
+#endif
+
+#if ASTROLABE_CYBER_FEATURES
+    size_t pinned_count = 0;
+    for (size_t i = 0; i < state.task_count && i < FACULTY175_CODEX_SEGMENT_COUNT; ++i) {
+        if (state.tasks[i].pinned) ++pinned_count;
+    }
+    for (size_t i = 0; i < FACULTY175_CODEX_SEGMENT_COUNT; ++i) {
+        const bool occupied = i < pinned_count;
+        const uint32_t color = occupied ? codex_model_color(&state.tasks[i]) : 0x294352;
+        lv_opa_t opacity = occupied ? codex_speed_opacity(&state.tasks[i]) : 22;
+        if (occupied && state.tasks[i].usage_available && state.tasks[i].token_rate_per_minute > 0) {
+            const lv_opa_t pulse = codex_usage_opacity(&state.tasks[i], anim_ms);
+            opacity = (lv_opa_t)((opacity + pulse) / 2);
+        }
+        const int16_t start = (int16_t)(i * 30 + 3);
+        const int16_t end = (int16_t)((i + 1) * 30 - 3);
+        lv_arc_set_bg_angles(s_codex_pinned_segments[i], start, end);
+        lv_obj_set_style_arc_color(s_codex_pinned_segments[i], lv_color_hex(color), LV_PART_MAIN);
+        lv_obj_set_style_arc_opa(s_codex_pinned_segments[i], opacity, LV_PART_MAIN);
+        native_obj_hidden(s_codex_pinned_segments[i], false);
+    }
+#endif
+
+    if (state.task_count == 0) {
+        utility_set_label(12, "NO REMOTE TASKS", 78, 184, 310, 0xe8f8ff);
+        utility_set_label(13, "OPEN /codex · SCAN QR", 75, 238, 316, 0x73ddff);
+        lv_obj_set_style_text_align(s_utility_labels[12], LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_style_text_align(s_utility_labels[13], LV_TEXT_ALIGN_CENTER, 0);
+        return;
+    }
+
+    const size_t selected = state.selected_index < state.task_count ? state.selected_index : 0;
+    const float pi = 3.14159265358979323846f;
+    const float step = 2.0f * pi / (float)state.task_count;
+    for (size_t i = 0; i < state.task_count; ++i) {
+        const faculty175_codex_task_t *dial_task = &state.tasks[i];
+        const float angle = -0.5f * pi + step * (float)i;
+        const int32_t x = FACULTY175_CODEX_DIAL_CX +
+            (int32_t)lrintf(cosf(angle) * FACULTY175_CODEX_DIAL_RADIUS);
+        const int32_t y = FACULTY175_CODEX_DIAL_CY +
+            (int32_t)lrintf(sinf(angle) * FACULTY175_CODEX_DIAL_RADIUS);
+        const bool highlighted = i == selected;
+        const int32_t pulse = highlighted ? (int32_t)((anim_ms / 180u) % 2u) * 2 : 0;
+        const uint32_t status_color = codex_status_color(dial_task->status);
+        bool emoji_drawn = false;
+#if ASTROLABE_CYBER_FEATURES
+        if (codex_emoji_pack_open() && s_codex_emoji_images[i] != NULL && s_codex_emoji_halos[i] != NULL &&
+            dial_task->emoji_index < FACULTY175_CODEX_EMOJI_COUNT) {
+            s_codex_emoji_textures[i].data = s_codex_emoji_pixels +
+                (size_t)dial_task->emoji_index * FACULTY175_CODEX_EMOJI_BYTES;
+            lv_image_set_src(s_codex_emoji_halos[i], &s_codex_emoji_textures[i]);
+            lv_image_set_src(s_codex_emoji_images[i], &s_codex_emoji_textures[i]);
+            lv_obj_align(s_codex_emoji_halos[i], LV_ALIGN_TOP_LEFT,
+                         x - FACULTY175_CODEX_EMOJI_W / 2,
+                         y - FACULTY175_CODEX_EMOJI_H / 2);
+            lv_obj_align(s_codex_emoji_images[i], LV_ALIGN_TOP_LEFT,
+                         x - FACULTY175_CODEX_EMOJI_W / 2,
+                         y - FACULTY175_CODEX_EMOJI_H / 2);
+            lv_obj_set_style_image_recolor(s_codex_emoji_halos[i], lv_color_hex(status_color), 0);
+            lv_obj_set_style_image_recolor_opa(s_codex_emoji_halos[i], LV_OPA_COVER, 0);
+            lv_obj_set_style_opa(s_codex_emoji_halos[i], highlighted ? LV_OPA_COVER : 190, 0);
+            lv_image_set_scale(s_codex_emoji_halos[i],
+                               highlighted ? (uint32_t)(320 + pulse * 4) : (dial_task->pinned ? 304u : 288u));
+            lv_image_set_scale(s_codex_emoji_images[i], highlighted ? (uint32_t)(272 + pulse * 2) : 256u);
+            native_obj_hidden(s_codex_emoji_halos[i], false);
+            native_obj_hidden(s_codex_emoji_images[i], false);
+            lv_obj_move_foreground(s_codex_emoji_halos[i]);
+            lv_obj_move_foreground(s_codex_emoji_images[i]);
+            emoji_drawn = true;
+        }
+#endif
+        if (!emoji_drawn) {
+            char monogram[3];
+            codex_task_monogram(dial_task->title, monogram);
+            utility_set_label((int)i, monogram, x - 22, y - 11, 44,
+                              highlighted ? 0xeefcff : 0xf3fbff);
+            lv_obj_set_style_text_align(s_utility_labels[i], LV_TEXT_ALIGN_CENTER, 0);
+            lv_obj_move_foreground(s_utility_labels[i]);
+        }
+    }
+
+    const faculty175_codex_task_t *task = &state.tasks[selected];
+    utility_set_label(12, task->title, 93, 186, 280, 0xeefaff);
+    lv_obj_set_style_text_align(s_utility_labels[12], LV_TEXT_ALIGN_CENTER, 0);
+    char detail[96];
+    snprintf(detail, sizeof(detail), "%s%s · %s · %s/%s", task->pinned ? "PINNED · " : "",
+             faculty175_codex_status_label(task->status), codex_host_name(&state, task->host_id),
+             task->model[0] ? task->model : "TERRA", task->speed[0] ? task->speed : "ADAPTIVE");
+    char usage[32];
+    codex_usage_text(task, usage, sizeof(usage));
+    if (usage[0] != '\0') {
+        const size_t used = strlen(detail);
+        if (used + 3 + strlen(usage) < sizeof(detail)) {
+            snprintf(detail + used, sizeof(detail) - used, " · %s", usage);
+        }
+    }
+    utility_set_label(13, detail, 88, 240, 290, codex_status_color(task->status));
+    lv_obj_set_style_text_align(s_utility_labels[13], LV_TEXT_ALIGN_CENTER, 0);
+}
+
 static void draw_utility_settings(uint32_t anim_ms)
 {
     (void)anim_ms;
@@ -4729,6 +5085,8 @@ static bool draw_utility(faculty175_face_id_t id, uint32_t anim_ms)
         draw_utility_biometrics(anim_ms);
     } else if (id == FACULTY175_FACE_HID) {
         draw_utility_hid(anim_ms);
+    } else if (id == FACULTY175_FACE_CODEX) {
+        draw_utility_codex(anim_ms);
     } else if (id == FACULTY175_FACE_SETTINGS) {
         draw_utility_settings(anim_ms);
     } else if (id == FACULTY175_FACE_WATCHER) {
@@ -7511,6 +7869,7 @@ bool faculty175_lvgl_face_supported(faculty175_face_id_t id)
         case FACULTY175_FACE_GEOMANCY:
         case FACULTY175_FACE_ENOCHIAN:
         case FACULTY175_FACE_HID:
+        case FACULTY175_FACE_CODEX:
         case FACULTY175_FACE_WSCAN:
         case FACULTY175_FACE_DEAUTH:
         case FACULTY175_FACE_EVILTWIN:
@@ -7939,6 +8298,7 @@ static faculty175_native_style_t descriptor_style_for_face(const faculty175_face
             return FACULTY175_NATIVE_RADAR;
         case FACULTY175_FACE_SETTINGS:
         case FACULTY175_FACE_HID:
+        case FACULTY175_FACE_CODEX:
         case FACULTY175_FACE_BIOMETRICS:
         case FACULTY175_FACE_IRONMAN:
         case FACULTY175_FACE_WATCHER:
@@ -8024,6 +8384,7 @@ static const char *descriptor_subtitle_for_face(const faculty175_face_desc_t *de
         case FACULTY175_FACE_ENOCHIAN: return "Angel table";
         case FACULTY175_FACE_HUMAN_DESIGN: return "Bodygraph";
         case FACULTY175_FACE_HID: return "Touchpad";
+        case FACULTY175_FACE_CODEX: return "Remote tasks";
         case FACULTY175_FACE_WSCAN: return "Broad network scan";
         case FACULTY175_FACE_DEAUTH: return "802.11 deauth lab";
         case FACULTY175_FACE_EVILTWIN: return "Credential capture lab";

@@ -2,6 +2,7 @@
 
 #include "faculty175_face_alethiometer.h"
 #include "faculty175_face_crystal_ball.h"
+#include "faculty175_codex.h"
 #include "faculty175_face_incidents.h"
 #include "faculty175_face_wifilab.h"
 #include "faculty175_lvgl.h"
@@ -119,6 +120,8 @@ bool faculty175_face_dispatch_draw(faculty175_face_id_t id, uint32_t anim_ms)
         case FACULTY175_FACE_BATTERY: faculty175_face_battery_draw(anim_ms); return true;
         case FACULTY175_FACE_JOURNAL: faculty175_face_journal_draw(anim_ms); return true;
         case FACULTY175_FACE_CONVERSATION: faculty175_face_conversation_draw(anim_ms); return true;
+        case FACULTY175_FACE_CODEX:
+            return false;
         case FACULTY175_FACE_FACULTY:
         case FACULTY175_FACE_COUNT:
         default:
@@ -170,6 +173,7 @@ bool faculty175_face_dispatch_action(faculty175_face_id_t id, uint32_t seed_ms)
         case FACULTY175_FACE_BATTERY:
         case FACULTY175_FACE_JOURNAL:
         case FACULTY175_FACE_CONVERSATION:
+        case FACULTY175_FACE_CODEX:
         case FACULTY175_FACE_COUNT:
             return false;
         default:
