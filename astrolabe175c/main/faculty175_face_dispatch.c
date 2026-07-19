@@ -17,6 +17,7 @@ void faculty175_face_classic_draw(uint32_t anim_ms);
 void faculty175_face_apocalypso_draw(uint32_t anim_ms);
 void faculty175_face_digital_draw(uint32_t anim_ms);
 void faculty175_face_spotify_draw(uint32_t anim_ms);
+bool faculty175_face_spotify_action(void);
 void faculty175_face_moon_draw(uint32_t anim_ms);
 void faculty175_face_calcifer_draw(uint32_t anim_ms);
 void faculty175_face_castalia_draw(uint32_t anim_ms);
@@ -138,6 +139,8 @@ bool faculty175_face_dispatch_action(faculty175_face_id_t id, uint32_t seed_ms)
         case FACULTY175_FACE_CRYSTAL_BALL:
             faculty175_face_crystal_ball_cast(seed_ms);
             return true;
+        case FACULTY175_FACE_SPOTIFY:
+            return faculty175_face_spotify_action();
         case FACULTY175_FACE_TAROT:
             faculty175_face_tarot_draw_card(seed_ms);
             return true;

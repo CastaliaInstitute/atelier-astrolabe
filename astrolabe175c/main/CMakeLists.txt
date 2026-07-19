@@ -92,6 +92,7 @@ idf_component_register(
         "faculty175_apocalypso.c"
         "faculty175_device_auth.c"
         "faculty175_device_settings.c"
+        "faculty175_spotify.c"
         ${FACULTY175_FACE_SRCS}
         "faculty175_face_human_design.c"
         "faculty175_faces.c"

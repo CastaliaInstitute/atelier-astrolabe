@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#100f16" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <title>Skype — Pair Spotify with Astrolabe</title>
+    <meta
+      name="description"
+      content="Authorize Spotify and locally pass playback-control access to a nearby Astrolabe over Bluetooth."
+    />
+    <link rel="canonical" href="https://astrolabe.castalia.institute/skype/" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" href="../flasher/icon-192.png" sizes="192x192" />
+    <link rel="apple-touch-icon" href="../flasher/icon-192.png" />
+    <link rel="preconnect" href="https://accounts.spotify.com" />
+    <link rel="stylesheet" href="skype.css?v=20260718a" />
+  </head>
+  <body>
+    <main class="shell">
+      <nav class="topbar" aria-label="Primary">
+        <a href="../" class="brand">Astrolabe</a>
+        <button type="button" class="install-button" data-install hidden>Install</button>
+      </nav>
+
+      <section class="hero" aria-labelledby="page-title">
+        <p class="eyebrow">Spotify pairing</p>
+        <h1 id="page-title">Skype</h1>
+        <p class="lede">
+          Let Astrolabe read what is playing and control Spotify Connect devices directly over Wi-Fi.
+        </p>
+      </section>
+
+      <ol class="steps" aria-label="Pairing progress">
+        <li data-step="spotify" class="step active">
+          <span class="step-number">1</span>
+          <div>
+            <strong>Authorize Spotify</strong>
+            <small>Grant playback read and control access.</small>
+          </div>
+        </li>
+        <li data-step="astrolabe" class="step">
+          <span class="step-number">2</span>
+          <div>
+            <strong>Choose Astrolabe</strong>
+            <small>Send the refresh credential over nearby Bluetooth.</small>
+          </div>
+        </li>
+        <li data-step="ready" class="step">
+          <span class="step-number">3</span>
+          <div>
+            <strong>Play</strong>
+            <small>Use the Spotify face to control the active speaker.</small>
+          </div>
+        </li>
+      </ol>
+
+      <section class="pair-card" aria-live="polite" aria-busy="false" data-card>
+        <div class="record" aria-hidden="true"><span></span></div>
+        <div class="pair-copy">
+          <p class="status-kicker" data-kicker>Ready to begin</p>
+          <h2 data-title>Connect your Spotify account</h2>
+          <p data-message>
+            Spotify will ask permission to see playback state and control your existing Spotify devices.
+          </p>
+        </div>
+        <div class="actions">
+          <button type="button" class="primary" data-authorize>Continue with Spotify</button>
+          <button type="button" class="primary" data-pair hidden>Pair nearby Astrolabe</button>
+          <button type="button" class="secondary" data-retry hidden>Start again</button>
+        </div>
+        <p class="detail" data-detail></p>
+      </section>
+
+      <section class="privacy-note">
+        <h2>What crosses the threshold</h2>
+        <p>
+          The Spotify login stays on Spotify. Skype sends the resulting refresh credential only to the
+          Astrolabe you select over Bluetooth; it does not send that credential to Castalia.
+        </p>
+        <p>
+          Playback commands require Spotify Premium and act on an active Spotify app or Spotify Connect
+          speaker. Astrolabe is the remote control, not the audio endpoint.
+        </p>
+      </section>
+    </main>
+
+    <script type="module" src="skype.js?v=20260718a"></script>
+  </body>
+</html>

@@ -30,8 +30,10 @@
 
 #include "faculty175_log.h"
 #include "faculty175_device_settings.h"
+#include "faculty175_faces.h"
 #include "faculty175_motion.h"
 #include "faculty175_ring.h"
+#include "faculty175_spotify.h"
 #include "faculty175_wifi_settings.h"
 
 void ble_store_config_init(void);
@@ -1429,6 +1431,23 @@ static esp_err_t ble_apply_settings_json(const char *body)
             cJSON_free(ring_json);
             if (ring_err != ESP_OK && ring_err != ESP_ERR_NOT_FOUND) {
                 err = ring_err;
+            }
+        }
+    }
+    const cJSON *spotify = cJSON_GetObjectItemCaseSensitive(root, "spotify");
+    if (err == ESP_OK && cJSON_IsObject(spotify)) {
+        const cJSON *client_id = cJSON_GetObjectItemCaseSensitive(spotify, "clientId");
+        const cJSON *refresh_token = cJSON_GetObjectItemCaseSensitive(spotify, "refreshToken");
+        if (!cJSON_IsString(client_id) || client_id->valuestring == NULL ||
+            !cJSON_IsString(refresh_token) || refresh_token->valuestring == NULL) {
+            err = ESP_ERR_INVALID_ARG;
+        } else {
+            err = faculty175_spotify_configure(client_id->valuestring, refresh_token->valuestring);
+            if (err == ESP_OK) {
+                err = faculty175_faces_set_enabled(FACULTY175_FACE_SPOTIFY, true);
+            }
+            if (err == ESP_OK) {
+                err = faculty175_faces_set_navigation_enabled(FACULTY175_FACE_SPOTIFY, true);
             }
         }
     }

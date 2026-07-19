@@ -35,6 +35,7 @@
 #include "faculty175_pocketwatch.h"
 #include "faculty175_quotes.h"
 #include "faculty175_rocket.h"
+#include "faculty175_spotify.h"
 #include "faculty175_touch.h"
 #include "faculty175_wifi_settings.h"
 #include "faculty175_wifi_lab.h"
@@ -4067,6 +4068,9 @@ static void draw_utility_qday(uint32_t anim_ms)
 
 static void draw_utility_spotify(uint32_t anim_ms)
 {
+    faculty175_spotify_poll();
+    faculty175_spotify_status_t status = {};
+    faculty175_spotify_status(&status);
     native_obj_hidden(s_utility_title, true);
     native_obj_hidden(s_utility_status, true);
 
@@ -4090,6 +4094,17 @@ static void draw_utility_spotify(uint32_t anim_ms)
     }
 
     utility_set_orb(11, 284, 320, 12, 0xf4fff8, 154);
+
+    const char *headline = status.track[0] != '\0' ? status.track : (status.configured ? "OPEN SPOTIFY" : "PAIR AT /SKYPE");
+    const char *byline = status.artist[0] != '\0' ? status.artist : status.error;
+    utility_set_label(0, headline, 54, 336, 358, 0xf4fff8);
+    lv_obj_set_style_text_align(s_utility_labels[0], LV_TEXT_ALIGN_CENTER, 0);
+    utility_set_label(1, byline, 72, 370, 322, status.configured ? 0x92d9aa : 0xf2c68f);
+    lv_obj_set_style_text_align(s_utility_labels[1], LV_TEXT_ALIGN_CENTER, 0);
+    if (status.device[0] != '\0') {
+        utility_set_label(2, status.device, 98, 404, 270, 0x8fa79a);
+        lv_obj_set_style_text_align(s_utility_labels[2], LV_TEXT_ALIGN_CENTER, 0);
+    }
 }
 
 static void draw_utility_rocket(uint32_t anim_ms)
