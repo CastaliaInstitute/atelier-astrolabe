@@ -21,15 +21,17 @@ failures instead of allowing a polished single take to conceal them.
 The default sequence is:
 
 1. Wake into a current, readable Moon face.
-2. Display the consent-safe test profile's natal chart.
-3. Display current transits and verify one named aspect against the approved
+2. Open the settings gear and verify battery, Wi-Fi, BLE, and device status are
+   visible.
+3. Display the consent-safe test profile's natal chart.
+4. Display current transits and verify one named aspect against the approved
    reference.
-4. Compare two consent-safe test profiles in Synastry and verify one named
+5. Compare two consent-safe test profiles in Synastry and verify one named
    aspect.
-5. Hold to ask, “What is most active in my chart tonight?”, release, and allow
+6. Hold to ask, “What is most active in my chart tonight?”, release, and allow
    the real answer and latency to remain evident. The validator uses the Mac's
    `say` command as the user so every run receives the same spoken prompt.
-6. Return to Moon or the dock without unsolicited audio, a feed, or a stuck
+7. Return to Moon or the dock without unsolicited audio, a feed, or a stuck
    listening state.
 
 ## Run it

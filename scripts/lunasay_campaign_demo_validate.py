@@ -43,6 +43,7 @@ PREFLIGHT_CHECKS = (
 
 CORE_CHECKS = (
     Check("wake_moon", "Wake into Moon", "Wake the device and verify the Moon face is readable and current."),
+    Check("settings", "Settings", "Open the settings gear and verify battery, Wi-Fi, BLE, and device status are visible."),
     Check("natal_chart", "Natal chart", "Open the saved test profile and verify the intended natal chart renders clearly."),
     Check("live_transits", "Live transits", "Open current transits and verify one named aspect against the approved reference."),
     Check("synastry", "Synastry", "Compare the two test profiles and verify one named relationship/aspect."),
