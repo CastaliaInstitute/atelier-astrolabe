@@ -242,6 +242,14 @@ void faculty175_display_lock(void)
     }
 }
 
+bool faculty175_display_lock_timeout(uint32_t timeout_ms)
+{
+    if (s_display_lock == NULL) {
+        return true;
+    }
+    return xSemaphoreTakeRecursive(s_display_lock, pdMS_TO_TICKS(timeout_ms)) == pdTRUE;
+}
+
 void faculty175_display_unlock(void)
 {
     if (s_display_lock != NULL) {
@@ -1996,7 +2004,10 @@ esp_err_t faculty175_display_prepare_deep_sleep(void)
 {
     faculty175_display_flush_suspended_set(true);
     if (s_panel != NULL && s_panel_io != NULL) {
-        faculty175_display_lock();
+        if (!faculty175_display_lock_timeout(2000)) {
+            ESP_LOGE(TAG, "display mutex timeout during deep-sleep preparation");
+            return ESP_ERR_TIMEOUT;
+        }
         faculty175_board_set_backlight(0);
         esp_err_t result = esp_lcd_panel_disp_on_off(s_panel, false);
         if (result == ESP_OK) {

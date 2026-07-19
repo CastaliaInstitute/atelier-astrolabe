@@ -75,7 +75,16 @@ def firmware_provenance(sample: dict, fallback_version: object = "unknown") -> d
 
 
 def parse_power_status(output: str) -> dict:
-    lines = [line for line in output.splitlines() if line.startswith("power: ") and "percent=" in line]
+    # USB re-enumeration can splice the first command response onto the tail
+    # of an asynchronous firmware log line.  Locate the status marker within
+    # each line so valid retained scenario counters are not discarded merely
+    # because the serial boundary was missing a newline.
+    lines = []
+    marker = "power: firmware="
+    for raw_line in output.splitlines():
+        marker_at = raw_line.find(marker)
+        if marker_at >= 0 and "percent=" in raw_line[marker_at:]:
+            lines.append(raw_line[marker_at:])
     if not lines:
         raise RuntimeError(f"power status line missing from serial output: {output[-500:]}")
     fields = dict(POWER_FIELD_RE.findall(lines[-1]))

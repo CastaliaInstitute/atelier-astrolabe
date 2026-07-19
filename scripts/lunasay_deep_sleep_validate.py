@@ -81,13 +81,27 @@ def json_get(url: str, timeout_s: float = 5.0) -> dict:
         return json.loads(response.read())
 
 
-def wait_json_get(url: str, timeout_s: float = 30.0) -> dict:
+def wait_json_get(url: str, timeout_s: float = 30.0, require_ready: bool = False) -> dict:
     """Retry through the thin listener's intentional first-request wake."""
     deadline = time.monotonic() + timeout_s
     last_error: Exception | None = None
     while time.monotonic() < deadline:
         try:
-            return json_get(url)
+            sample = json_get(url)
+            if require_ready:
+                battery = sample.get("battery", {})
+                if not (
+                    int(sample.get("uptime_ms", 0)) > 0
+                    and sample.get("wifi_active")
+                    and battery.get("pmu_present")
+                    and battery.get("present")
+                ):
+                    last_error = RuntimeError(
+                        "battery API answered before board/PMU initialization completed"
+                    )
+                    time.sleep(1.0)
+                    continue
+            return sample
         except Exception as exc:
             last_error = exc
             time.sleep(1.0)
@@ -408,7 +422,11 @@ def main() -> int:
                 network_wake_after_s = time.monotonic() - off_at
                 record("network_wake", after_vbus_off_s=round(network_wake_after_s, 3))
                 try:
-                    wake_battery = wait_json_get(f"http://{args.ip}/api/battery")
+                    wake_battery = wait_json_get(
+                        f"http://{args.ip}/api/battery",
+                        timeout_s=45.0,
+                        require_ready=True,
+                    )
                     record("wake_battery", sample=wake_battery)
                 except Exception as exc:
                     record("wake_battery_unavailable", error=str(exc))

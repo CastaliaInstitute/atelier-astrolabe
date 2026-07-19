@@ -196,6 +196,8 @@ static volatile bool s_pipeline_started;
 static char s_wifi_ssid[FACULTY175_WIFI_SSID_MAX + 1];
 static TaskHandle_t s_wifi_start_task;
 static TaskHandle_t s_ui_task;
+static volatile bool s_ui_deep_sleep_quiesce;
+static volatile bool s_ui_deep_sleep_quiesced;
 static TaskHandle_t s_input_task;
 static TaskHandle_t s_power_metrics_task;
 #if defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
@@ -745,6 +747,20 @@ static void low_power_tick(uint32_t now_ms)
         !faculty175_ota_active() && !faculty175_qa_audio_busy() &&
         !faculty175_voice_tts_playback_busy() && !faculty175_face_native_audio_busy() &&
         !ui_state_modal(s_ui)) {
+        faculty175_display_flush_suspended_set(true);
+        s_ui_deep_sleep_quiesce = true;
+        const TickType_t ui_quiesce_deadline = xTaskGetTickCount() + pdMS_TO_TICKS(5000);
+        while (!s_ui_deep_sleep_quiesced &&
+               (int32_t)(ui_quiesce_deadline - xTaskGetTickCount()) > 0) {
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
+        if (!s_ui_deep_sleep_quiesced) {
+            ESP_LOGE(TAG, "deep sleep entry rejected: UI quiesce timeout");
+            faculty175_deep_sleep_cancel();
+            s_ui_deep_sleep_quiesce = false;
+            faculty175_display_flush_suspended_set(false);
+            return;
+        }
         low_power_wifi_pause();
         faculty175_ble_prepare_deep_sleep();
         vTaskDelay(pdMS_TO_TICKS(250));
@@ -754,6 +770,8 @@ static void low_power_tick(uint32_t now_ms)
                with its radios stopped when that happens. */
             low_power_wifi_resume();
             faculty175_ble_resume_after_deep_sleep_abort();
+            s_ui_deep_sleep_quiesce = false;
+            faculty175_display_flush_suspended_set(false);
         }
     }
 
@@ -983,6 +1001,15 @@ static void ui_task(void *arg)
     time_t last_pocketwatch_second = (time_t)-1;
     faculty175_face_id_t last_face_id = FACULTY175_FACE_COUNT;
     while (true) {
+        if (s_ui_deep_sleep_quiesce) {
+            /* Acknowledge only between frames, after every display-lock path
+               has completed. Deep-sleep preparation may then command the
+               panel without racing the renderer. */
+            s_ui_deep_sleep_quiesced = true;
+            vTaskDelay(pdMS_TO_TICKS(20));
+            continue;
+        }
+        s_ui_deep_sleep_quiesced = false;
         bool force_draw = false;
         if (xQueueReceive(s_ui_queue, &msg, pdMS_TO_TICKS(100)) == pdTRUE) {
             s_ui = msg.state;

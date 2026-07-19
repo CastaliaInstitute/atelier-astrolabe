@@ -33,6 +33,19 @@ RTC_DATA_ATTR static retained_sleep_t s_retained;
 static portMUX_TYPE s_request_mux = portMUX_INITIALIZER_UNLOCKED;
 static uint32_t s_pending_sleep_s;
 
+static void deep_sleep_recovery_restart(const char *subsystem, esp_err_t err)
+{
+    /* Preparation can leave codecs, radios, or display state partially shut
+       down. Invalidate the attempt before restarting so stale RTC telemetry
+       cannot be mistaken for a completed sleep cycle. */
+    s_retained.magic = 0;
+    s_retained.prepare_flags = 0;
+    ESP_LOGE(TAG, "deep sleep entry rejected: %s quiesce failed: %s; restarting",
+             subsystem, esp_err_to_name(err));
+    vTaskDelay(pdMS_TO_TICKS(100));
+    esp_restart();
+}
+
 bool faculty175_deep_sleep_request(uint32_t sleep_s)
 {
     if (sleep_s < DEEP_SLEEP_MIN_S || sleep_s > DEEP_SLEEP_MAX_S) {
@@ -115,24 +128,16 @@ bool faculty175_deep_sleep_enter(const faculty175_pmu_status_t *pmu)
         /* Audio preparation can have closed codecs or disabled one I2S
            channel before a later operation fails. Restart instead of leaving
            an apparently awake device with a partially shut-down audio path. */
-        ESP_LOGE(TAG, "deep sleep entry rejected: audio quiesce failed: %s; restarting",
-                 esp_err_to_name(audio_err));
-        vTaskDelay(pdMS_TO_TICKS(100));
-        esp_restart();
+        deep_sleep_recovery_restart("audio", audio_err);
     }
     s_retained.prepare_flags |= FACULTY175_DEEP_SLEEP_PREP_AUDIO;
     const esp_err_t display_err = faculty175_display_prepare_deep_sleep();
     if (display_err != ESP_OK) {
-        ESP_LOGE(TAG, "deep sleep entry rejected: display quiesce failed: %s; restarting",
-                 esp_err_to_name(display_err));
-        vTaskDelay(pdMS_TO_TICKS(100));
-        esp_restart();
+        deep_sleep_recovery_restart("display", display_err);
     }
     s_retained.prepare_flags |= FACULTY175_DEEP_SLEEP_PREP_DISPLAY;
     if (!faculty175_pmu_prepare_deep_sleep()) {
-        ESP_LOGE(TAG, "deep sleep entry rejected: PMU rail quiesce failed; restarting");
-        vTaskDelay(pdMS_TO_TICKS(100));
-        esp_restart();
+        deep_sleep_recovery_restart("PMU rail", ESP_FAIL);
     }
     s_retained.prepare_flags |= FACULTY175_DEEP_SLEEP_PREP_PMU;
 

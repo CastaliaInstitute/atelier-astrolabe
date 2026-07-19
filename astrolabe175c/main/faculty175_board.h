@@ -129,6 +129,7 @@ void faculty175_display_waveform_update(const uint8_t *waveform,
 void faculty175_display_nav_mode_set(bool enabled);
 void faculty175_display_touch_visual_update(int16_t x, int16_t y, bool down, uint32_t now_ms);
 void faculty175_display_lock(void);
+bool faculty175_display_lock_timeout(uint32_t timeout_ms);
 void faculty175_display_unlock(void);
 size_t faculty175_display_bmp_size(void);
 int faculty175_display_write_bmp(FILE *out);
