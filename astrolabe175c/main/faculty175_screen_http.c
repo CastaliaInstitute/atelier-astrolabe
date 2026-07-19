@@ -35,6 +35,7 @@
 #include "faculty175_power_history.h"
 #include "faculty175_km_http.h"
 #include "faculty175_serial.h"
+#include "faculty175_usb.h"
 #include "faculty175_wifi_lab.h"
 #include "faculty175_wifi_monitor.h"
 #include "faculty175_wifi_settings.h"
@@ -46,6 +47,8 @@ static bool s_mdns_started;
 static char s_mdns_hostname[FACULTY175_WIFI_HOSTNAME_MAX + 1] = "astrolabe-0000";
 static struct tcp_pcb *s_wake_listener;
 static atomic_bool s_wake_requested;
+static TaskHandle_t s_http_usb_tether_task;
+static TaskHandle_t s_http_usb_reboot_task;
 
 // The 1.75C QA path relies on the lightweight screen/settings HTTP server.
 #define FACULTY175_SCREEN_HTTP_RUNTIME_ENABLED 1
@@ -215,6 +218,69 @@ static esp_err_t api_options(httpd_req_t *req)
 {
     set_api_headers(req);
     return httpd_resp_send(req, "", 0);
+}
+
+static void http_usb_tether_task(void *arg)
+{
+    (void)arg;
+    const esp_err_t err = faculty175_usb_tether_start();
+    const esp_ip4_addr_t *ip = faculty175_usb_tether_ip();
+    if (err == ESP_OK && ip != NULL) {
+        ESP_LOGI(TAG, "USB tether requested by WiFi API; url=http://" IPSTR "/settings", IP2STR(ip));
+    } else {
+        ESP_LOGW(TAG, "USB tether requested by WiFi API failed: %s", esp_err_to_name(err));
+    }
+    s_http_usb_tether_task = NULL;
+    vTaskDelete(NULL);
+}
+
+static esp_err_t http_usb_tether_start_async(void)
+{
+    if (s_http_usb_tether_task != NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    const BaseType_t ok = xTaskCreatePinnedToCore(http_usb_tether_task,
+                                                  "http_usb_tether",
+                                                  8192,
+                                                  NULL,
+                                                  tskIDLE_PRIORITY + 2,
+                                                  &s_http_usb_tether_task,
+                                                  0);
+    if (ok != pdPASS) {
+        s_http_usb_tether_task = NULL;
+        return ESP_ERR_NO_MEM;
+    }
+    return ESP_OK;
+}
+
+static void http_usb_reboot_task(void *arg)
+{
+    (void)arg;
+    vTaskDelay(pdMS_TO_TICKS(750));
+    esp_restart();
+}
+
+static esp_err_t http_usb_reboot_tether_async(void)
+{
+    if (s_http_usb_reboot_task != NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    esp_err_t err = faculty175_usb_auto_tether_set_enabled(true);
+    if (err != ESP_OK) {
+        return err;
+    }
+    const BaseType_t ok = xTaskCreatePinnedToCore(http_usb_reboot_task,
+                                                  "http_usb_reboot",
+                                                  2048,
+                                                  NULL,
+                                                  tskIDLE_PRIORITY + 1,
+                                                  &s_http_usb_reboot_task,
+                                                  0);
+    if (ok != pdPASS) {
+        s_http_usb_reboot_task = NULL;
+        return ESP_ERR_NO_MEM;
+    }
+    return ESP_OK;
 }
 
 static esp_err_t api_breath_get(httpd_req_t *req)
@@ -1353,15 +1419,38 @@ static esp_err_t settings_page_get(httpd_req_t *req)
         "<!doctype html><meta name=viewport content='width=device-width,initial-scale=1'><meta name=theme-color content='#4e3568'>"
         "<link rel=manifest href='/manifest.webmanifest'><title>LunaSay Settings</title><style>body{font:16px system-ui;max-width:760px;margin:auto;padding:24px;background:#0e0b17;color:#f5effa}"
         "h1{color:#f0d7ff}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}.card{display:block;text-decoration:none;color:#fff;border:1px solid #5c4b6d;border-radius:16px;padding:18px;background:#1a1423}"
-        ".card b{display:block;font-size:20px;margin-bottom:6px}.card span,#status{color:#bdaec8}@media(max-width:520px){.grid{grid-template-columns:1fr}}</style>"
+        ".card b{display:block;font-size:20px;margin-bottom:6px}.card span,#status{color:#bdaec8}button{appearance:none;border:1px solid #8f7aa4;background:#2b2138;color:#fff;border-radius:10px;padding:10px 12px;font:inherit;margin-top:10px;width:100%}@media(max-width:520px){.grid{grid-template-columns:1fr}}</style>"
         "<h1>LunaSay Settings</h1><p id=status>Connecting to LunaSay...</p><div class=grid>"
         "<a class=card href='/battery'><b>Battery</b><span>Charge, power source, and history</span></a>"
         "<a class=card href='/wifi'><b>Wi-Fi</b><span>Network and travel-router setup</span></a>"
         "<a class=card href='/family'><b>Family</b><span>Birth charts for Synastry</span></a>"
         "<a class=card href='/'><b>Faces</b><span>Screen preview and face control</span></a>"
         "<a class=card href='/api/settings'><b>Bluetooth</b><span id=ble>Checking status...</span></a>"
+        "<div class=card><b>USB Tether</b><span id=usb>Checking status...</span><button id=tether>Boot USB tether</button></div>"
         "<a class=card href='/api/faces'><b>Diagnostics</b><span>Firmware face inventory</span></a></div>"
-        "<script>fetch('/api/settings').then(r=>r.json()).then(s=>{status.textContent='LunaSay - '+(s.wifi?.status||'local device');ble.textContent=s.ble?.enabled?(s.ble.advertising?'Enabled and advertising':'Enabled'):'Disabled'}).catch(()=>status.textContent='LunaSay is offline')</script>";
+        "<script>async function usbStatus(){try{const u=await fetch('/api/usb').then(r=>r.json());usb.textContent=(u.ready?'Ready ':'Not ready ')+(u.url||'')+' '+u.stage+'/'+u.lastError;tether.disabled=!!u.pending}catch{usb.textContent='USB status unavailable'}}"
+        "fetch('/api/settings').then(r=>r.json()).then(s=>{status.textContent='LunaSay - '+(s.wifi?.status||'local device');ble.textContent=s.ble?.enabled?(s.ble.advertising?'Enabled and advertising':'Enabled'):'Disabled'}).catch(()=>status.textContent='LunaSay is offline');"
+        "tether.onclick=async()=>{tether.disabled=true;usb.textContent='Rebooting into USB tether...';await fetch('/api/usb',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'boot-tether'})}).catch(()=>{});setTimeout(usbStatus,1200)};usbStatus();setInterval(usbStatus,3000)</script>";
+    httpd_resp_set_type(req, "text/html; charset=utf-8");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    return httpd_resp_send(req, page, HTTPD_RESP_USE_STRLEN);
+}
+
+static esp_err_t captive_portal_get(httpd_req_t *req)
+{
+    httpd_resp_set_status(req, "302 Found");
+    httpd_resp_set_hdr(req, "Location", "/settings");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    return httpd_resp_send(req, "Open LunaSay settings", HTTPD_RESP_USE_STRLEN);
+}
+
+static esp_err_t apple_hotspot_get(httpd_req_t *req)
+{
+    static const char page[] =
+        "<!doctype html><meta name=viewport content='width=device-width,initial-scale=1'>"
+        "<meta http-equiv=refresh content='0;url=/settings'><title>LunaSay</title>"
+        "<body style='font:17px system-ui;background:#0e0b17;color:#f5effa;padding:24px'>"
+        "<p><a style='color:#f0d7ff' href='/settings'>Open LunaSay settings</a></p></body>";
     httpd_resp_set_type(req, "text/html; charset=utf-8");
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
     return httpd_resp_send(req, page, HTTPD_RESP_USE_STRLEN);
@@ -1452,6 +1541,98 @@ static esp_err_t api_settings_send(httpd_req_t *req, esp_err_t apply_err)
 static esp_err_t api_settings_get(httpd_req_t *req)
 {
     return api_settings_send(req, ESP_OK);
+}
+
+static esp_err_t api_usb_send(httpd_req_t *req, esp_err_t apply_err)
+{
+    cJSON *root = cJSON_CreateObject();
+    if (root == NULL) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "json alloc");
+        return ESP_FAIL;
+    }
+    cJSON_AddBoolToObject(root, "ok", apply_err == ESP_OK);
+    add_json_string(root, "err", esp_err_to_name(apply_err));
+    cJSON_AddBoolToObject(root, "profileActive", faculty175_usb_screen_profile_active());
+    cJSON_AddBoolToObject(root, "tetherMode", faculty175_usb_tether_mode_active());
+    cJSON_AddBoolToObject(root, "ready", faculty175_usb_tether_ready());
+    cJSON_AddBoolToObject(root, "auto", faculty175_usb_auto_tether_enabled());
+    cJSON_AddBoolToObject(root, "pending", s_http_usb_tether_task != NULL);
+    cJSON_AddBoolToObject(root, "rebootPending", s_http_usb_reboot_task != NULL);
+    cJSON_AddBoolToObject(root, "storageReady", faculty175_usb_storage_ready());
+    cJSON_AddBoolToObject(root, "storageMounted", faculty175_usb_storage_mounted());
+    add_json_string(root, "profile", faculty175_usb_screen_profile_active() ? "tinyusb" : "serial-jtag");
+    add_json_string(root, "stage", faculty175_usb_tether_last_stage());
+    add_json_string(root, "lastError", esp_err_to_name(faculty175_usb_tether_last_error()));
+    cJSON_AddNumberToObject(root, "attempts", (double)faculty175_usb_tether_attempt_count());
+    cJSON_AddNumberToObject(root, "lastUptimeMs", (double)faculty175_usb_tether_last_uptime_ms());
+    cJSON_AddNumberToObject(root, "bootResetReason", (double)faculty175_usb_tether_boot_reset_reason());
+
+    const esp_ip4_addr_t *ip = faculty175_usb_tether_ip();
+    if (ip != NULL) {
+        char ip_text[16];
+        char url[48];
+        snprintf(ip_text, sizeof(ip_text), IPSTR, IP2STR(ip));
+        snprintf(url, sizeof(url), "http://" IPSTR "/settings", IP2STR(ip));
+        add_json_string(root, "ip", ip_text);
+        add_json_string(root, "url", url);
+    } else {
+        add_json_string(root, "ip", "");
+        add_json_string(root, "url", "http://172.31.77.1/settings");
+    }
+
+    char *body = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    if (body == NULL) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "json print");
+        return ESP_FAIL;
+    }
+    set_api_headers(req);
+    esp_err_t err = httpd_resp_send(req, body, HTTPD_RESP_USE_STRLEN);
+    free(body);
+    return err;
+}
+
+static esp_err_t api_usb_get(httpd_req_t *req)
+{
+    return api_usb_send(req, ESP_OK);
+}
+
+static esp_err_t api_usb_post(httpd_req_t *req)
+{
+    char body[256];
+    esp_err_t err = read_request_body(req, body, sizeof(body));
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    cJSON *root = cJSON_Parse(body);
+    if (root == NULL) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "invalid json");
+        return ESP_FAIL;
+    }
+
+    const cJSON *auto_enabled = cJSON_GetObjectItemCaseSensitive(root, "auto");
+    if (cJSON_IsBool(auto_enabled)) {
+        err = faculty175_usb_auto_tether_set_enabled(cJSON_IsTrue(auto_enabled));
+    }
+
+    const cJSON *action = cJSON_GetObjectItemCaseSensitive(root, "action");
+    if (err == ESP_OK && cJSON_IsString(action) && action->valuestring != NULL) {
+        if (strcasecmp(action->valuestring, "start") == 0 ||
+            strcasecmp(action->valuestring, "tether") == 0 ||
+            strcasecmp(action->valuestring, "ncm") == 0) {
+            err = http_usb_tether_start_async();
+        } else if (strcasecmp(action->valuestring, "boot") == 0 ||
+                   strcasecmp(action->valuestring, "boot-tether") == 0 ||
+                   strcasecmp(action->valuestring, "reboot-tether") == 0) {
+            err = http_usb_reboot_tether_async();
+        } else if (strcasecmp(action->valuestring, "status") != 0) {
+            err = ESP_ERR_INVALID_ARG;
+        }
+    }
+
+    cJSON_Delete(root);
+    return api_usb_send(req, err);
 }
 
 static esp_err_t api_settings_post(httpd_req_t *req)
@@ -1952,7 +2133,7 @@ esp_err_t faculty175_screen_http_start(const esp_ip4_addr_t *ip)
     config.server_port = 80;
     config.stack_size = FACULTY175_SCREEN_HTTP_STACK_SIZE;
     config.max_open_sockets = 4;
-    config.max_uri_handlers = 40;
+    config.max_uri_handlers = 48;
     config.lru_purge_enable = true;
 
     esp_err_t err = ESP_FAIL;
@@ -2106,6 +2287,24 @@ esp_err_t faculty175_screen_http_start(const esp_ip4_addr_t *ip)
         .handler = api_options,
         .user_ctx = NULL,
     };
+    const httpd_uri_t api_usb_get_uri = {
+        .uri = "/api/usb",
+        .method = HTTP_GET,
+        .handler = api_usb_get,
+        .user_ctx = NULL,
+    };
+    const httpd_uri_t api_usb_post_uri = {
+        .uri = "/api/usb",
+        .method = HTTP_POST,
+        .handler = api_usb_post,
+        .user_ctx = NULL,
+    };
+    const httpd_uri_t api_usb_options_uri = {
+        .uri = "/api/usb",
+        .method = HTTP_OPTIONS,
+        .handler = api_options,
+        .user_ctx = NULL,
+    };
     const httpd_uri_t family_page_uri = {
         .uri = "/family",
         .method = HTTP_GET,
@@ -2116,6 +2315,48 @@ esp_err_t faculty175_screen_http_start(const esp_ip4_addr_t *ip)
         .uri = "/settings",
         .method = HTTP_GET,
         .handler = settings_page_get,
+        .user_ctx = NULL,
+    };
+    const httpd_uri_t apple_hotspot_uri = {
+        .uri = "/hotspot-detect.html",
+        .method = HTTP_GET,
+        .handler = apple_hotspot_get,
+        .user_ctx = NULL,
+    };
+    const httpd_uri_t apple_success_uri = {
+        .uri = "/library/test/success.html",
+        .method = HTTP_GET,
+        .handler = apple_hotspot_get,
+        .user_ctx = NULL,
+    };
+    const httpd_uri_t generate_204_uri = {
+        .uri = "/generate_204",
+        .method = HTTP_GET,
+        .handler = captive_portal_get,
+        .user_ctx = NULL,
+    };
+    const httpd_uri_t gen_204_uri = {
+        .uri = "/gen_204",
+        .method = HTTP_GET,
+        .handler = captive_portal_get,
+        .user_ctx = NULL,
+    };
+    const httpd_uri_t connecttest_uri = {
+        .uri = "/connecttest.txt",
+        .method = HTTP_GET,
+        .handler = captive_portal_get,
+        .user_ctx = NULL,
+    };
+    const httpd_uri_t ncsi_uri = {
+        .uri = "/ncsi.txt",
+        .method = HTTP_GET,
+        .handler = captive_portal_get,
+        .user_ctx = NULL,
+    };
+    const httpd_uri_t canonical_uri = {
+        .uri = "/canonical.html",
+        .method = HTTP_GET,
+        .handler = captive_portal_get,
         .user_ctx = NULL,
     };
     const httpd_uri_t api_family_get_uri = {
@@ -2181,8 +2422,18 @@ esp_err_t faculty175_screen_http_start(const esp_ip4_addr_t *ip)
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &api_settings_get_uri), TAG, "register GET /api/settings");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &api_settings_post_uri), TAG, "register POST /api/settings");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &api_settings_options_uri), TAG, "register OPTIONS /api/settings");
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &api_usb_get_uri), TAG, "register GET /api/usb");
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &api_usb_post_uri), TAG, "register POST /api/usb");
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &api_usb_options_uri), TAG, "register OPTIONS /api/usb");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &family_page_uri), TAG, "register GET /family");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &settings_page_uri), TAG, "register GET /settings");
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &apple_hotspot_uri), TAG, "register GET /hotspot-detect.html");
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &apple_success_uri), TAG, "register GET /library/test/success.html");
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &generate_204_uri), TAG, "register GET /generate_204");
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &gen_204_uri), TAG, "register GET /gen_204");
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &connecttest_uri), TAG, "register GET /connecttest.txt");
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &ncsi_uri), TAG, "register GET /ncsi.txt");
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &canonical_uri), TAG, "register GET /canonical.html");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &api_family_get_uri), TAG, "register GET /api/family");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &api_family_post_uri), TAG, "register POST /api/family");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &api_family_options_uri), TAG, "register OPTIONS /api/family");

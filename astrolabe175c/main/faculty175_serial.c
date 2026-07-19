@@ -1,6 +1,7 @@
 #include "faculty175_serial.h"
 
 #include <ctype.h>
+#include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -41,6 +42,7 @@
 #include "faculty175_rocket.h"
 #include "faculty175_touch.h"
 #include "faculty175_voice.h"
+#include "faculty175_usb.h"
 #include "faculty175_usb_screen.h"
 #include "faculty175_wifi_monitor.h"
 #include "faculty175_wifi_settings.h"
@@ -48,6 +50,7 @@
 static const char *TAG = "faculty175_serial";
 #define FACULTY175_SERIAL_TASK_STACK 8192
 static TaskHandle_t s_serial_task;
+static TaskHandle_t s_usb_tether_task;
 
 static void trim_inplace(char *line)
 {
@@ -425,6 +428,106 @@ static bool handle_wifi_command(const char *line)
     printf("  wifi add \"SSID\" \"password\"  (save known network)\n");
     printf("  wifi remove \"SSID\"\n");
     printf("  wifi clear\n");
+    fflush(stdout);
+    return true;
+}
+
+static void usb_tether_task(void *arg)
+{
+    (void)arg;
+    (void)faculty175_usb_tether_start();
+    s_usb_tether_task = NULL;
+    vTaskDelete(NULL);
+}
+
+static bool handle_usb_command(const char *line)
+{
+    if (line == NULL || (strcasecmp(line, "usb") != 0 && strncasecmp(line, "usb ", 4) != 0)) {
+        return false;
+    }
+
+    const char *sub = line + 3;
+    while (*sub != '\0' && isspace((unsigned char)*sub)) {
+        ++sub;
+    }
+    if (*sub == '\0' || strcasecmp(sub, "status") == 0) {
+        const esp_ip4_addr_t *ip = faculty175_usb_tether_ip();
+        printf("usb: profile=%s tether=%s auto=%s storage=%s mounted=%s",
+               faculty175_usb_screen_profile_active() ? "tinyusb" : "serial-jtag",
+               faculty175_usb_tether_ready() ? "ready" : "not-ready",
+               faculty175_usb_auto_tether_enabled() ? "on" : "off",
+               faculty175_usb_storage_ready() ? "ready" : "not-ready",
+               faculty175_usb_storage_mounted() ? "yes" : "no");
+        if (ip != NULL) {
+            printf(" url=http://" IPSTR "/settings", IP2STR(ip));
+        }
+        printf("\n");
+        printf("usb: tether attempts=%" PRIu32 " last_stage=%s last_err=%s last_t=%" PRIu32 "ms reset=%d\n",
+               faculty175_usb_tether_attempt_count(),
+               faculty175_usb_tether_last_stage(),
+               esp_err_to_name(faculty175_usb_tether_last_error()),
+               faculty175_usb_tether_last_uptime_ms(),
+               (int)faculty175_usb_tether_boot_reset_reason());
+        fflush(stdout);
+        return true;
+    }
+    if (strncasecmp(sub, "auto", 4) == 0 && (sub[4] == '\0' || isspace((unsigned char)sub[4]))) {
+        const char *arg = sub + 4;
+        while (*arg != '\0' && isspace((unsigned char)*arg)) {
+            ++arg;
+        }
+        if (*arg == '\0' || strcasecmp(arg, "status") == 0) {
+            printf("usb: auto=%s\n", faculty175_usb_auto_tether_enabled() ? "on" : "off");
+            fflush(stdout);
+            return true;
+        }
+        if (strcasecmp(arg, "on") == 0 || strcasecmp(arg, "1") == 0 || strcasecmp(arg, "true") == 0) {
+            const esp_err_t err = faculty175_usb_auto_tether_set_enabled(true);
+            printf("usb: auto on %s\n", esp_err_to_name(err));
+            fflush(stdout);
+            return true;
+        }
+        if (strcasecmp(arg, "off") == 0 || strcasecmp(arg, "0") == 0 || strcasecmp(arg, "false") == 0) {
+            const esp_err_t err = faculty175_usb_auto_tether_set_enabled(false);
+            printf("usb: auto off %s\n", esp_err_to_name(err));
+            fflush(stdout);
+            return true;
+        }
+        printf("usb: usage: usb auto [on|off|status]\n");
+        fflush(stdout);
+        return true;
+    }
+    if (strcasecmp(sub, "tether") == 0 || strcasecmp(sub, "pwa") == 0 || strcasecmp(sub, "ncm") == 0) {
+        if (s_usb_tether_task != NULL) {
+            printf("usb: tether pending\n");
+            fflush(stdout);
+            return true;
+        }
+        const BaseType_t ok = xTaskCreatePinnedToCore(usb_tether_task,
+                                                      "usb_tether",
+                                                      8192,
+                                                      NULL,
+                                                      tskIDLE_PRIORITY + 2,
+                                                      &s_usb_tether_task,
+                                                      0);
+        if (ok != pdPASS) {
+            s_usb_tether_task = NULL;
+            printf("usb: tether ESP_ERR_NO_MEM url=http://172.31.77.1/settings\n");
+        } else {
+            printf("usb: tether starting url=http://172.31.77.1/settings\n");
+        }
+        fflush(stdout);
+        return true;
+    }
+    if (strcasecmp(sub, "help") == 0) {
+        printf("usb commands:\n");
+        printf("  usb status\n");
+        printf("  usb auto [on|off|status]\n");
+        printf("  usb tether    # expose local PWA over USB NCM at http://172.31.77.1/settings\n");
+        fflush(stdout);
+        return true;
+    }
+    printf("usb: unknown command (try: usb help)\n");
     fflush(stdout);
     return true;
 }
@@ -1444,9 +1547,19 @@ static bool handle_family_command(const char *line)
     while (*sub == ' ') {
         ++sub;
     }
+    if (strcasecmp(sub, "send") == 0) {
+        const esp_err_t err = faculty175_family_send_now();
+        printf("family: send %s tx=%lu rx=%lu\n",
+               esp_err_to_name(err),
+               (unsigned long)faculty175_family_tx_count(),
+               (unsigned long)faculty175_family_rx_count());
+        fflush(stdout);
+        return true;
+    }
     if (*sub != '\0' && strcasecmp(sub, "status") != 0 && strcasecmp(sub, "wellness") != 0) {
         printf("family commands:\n");
         printf("  family status\n");
+        printf("  family send\n");
         printf("  wellness\n");
         fflush(stdout);
         return true;
@@ -1454,9 +1567,15 @@ static bool handle_family_command(const char *line)
 
     faculty175_family_wellness_t states[FACULTY175_FAMILY_SUBJECT_MAX] = {};
     const size_t count = faculty175_family_snapshot(states, FACULTY175_FAMILY_SUBJECT_MAX);
-    printf("family: espnow=%s channel=%d subjects=%u\n",
+    char local_name[FACULTY175_FAMILY_SUBJECT_NAME_MAX] = {};
+    const uint8_t local_id = faculty175_family_local_subject(local_name, sizeof(local_name));
+    printf("family: espnow=%s channel=%d local=%u \"%s\" tx=%lu rx=%lu subjects=%u\n",
            faculty175_family_ready() ? "ready" : "waiting",
            faculty175_family_channel(),
+           local_id,
+           local_name,
+           (unsigned long)faculty175_family_tx_count(),
+           (unsigned long)faculty175_family_rx_count(),
            (unsigned)count);
     if (count == 0) {
         char summary[128];
@@ -1845,6 +1964,10 @@ static void handle_line(char *line)
         return;
     }
 
+    if (handle_usb_command(line)) {
+        return;
+    }
+
     if (handle_km_command(line)) {
         return;
     }
@@ -1902,7 +2025,7 @@ static void handle_line(char *line)
     }
 
     if (strcasecmp(line, "help") == 0 || strcasecmp(line, "?") == 0) {
-        printf("serial: screen | face screen | km help | breath status|reset|stream [hz|off] | gesture help | button press | tts face | stt [ms] | voice stt [ms] | family status | pipeline capture|status|stop|restart | wifi status|scan|set | time | watch status | power | audio status|ns | i2c scan | ble status | qa help | device help | ota help | faces help | charts help | almanac help | quotes help | rocket help | touch status\n");
+        printf("serial: screen | face screen | km help | breath status|reset|stream [hz|off] | gesture help | button press | tts face | stt [ms] | voice stt [ms] | family status | pipeline capture|status|stop|restart | wifi status|scan|set | usb status|auto|tether | time | watch status | power | audio status|ns | i2c scan | ble status | qa help | device help | ota help | faces help | charts help | almanac help | quotes help | rocket help | touch status\n");
         (void)faculty175_qa_handle("qa help");
         return;
     }
@@ -1915,7 +2038,12 @@ static ssize_t serial_read_byte(uint8_t *byte, TickType_t timeout)
     if (byte == NULL) {
         return -1;
     }
-    (void)timeout;
+#if CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG_ENABLED
+    const int got = usb_serial_jtag_read_bytes(byte, 1, timeout);
+    if (got > 0) {
+        return got;
+    }
+#endif
     return read(STDIN_FILENO, byte, 1);
 }
 

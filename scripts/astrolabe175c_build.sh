@@ -22,6 +22,10 @@ ASTROLABE175C_CMAKE_ARGS=(
   -D "ASTROLABE_VOICE_HTTP_URL=${ASTROLABE175C_VOICE_HTTP_URL:-}"
   -D "ASTROLABE_VOICE_STREAM_URL=${ASTROLABE175C_VOICE_STREAM_URL:-}"
 )
+ASTROLABE175C_SDKCONFIG_DEFAULTS="sdkconfig.defaults"
+if [[ "${ASTROLABE175C_VARIANT}" == "lunasay" ]]; then
+  ASTROLABE175C_SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.lunasay.defaults"
+fi
 ASTROLABE175C_FORCE_RECONFIGURE=1
 if [[ -n "${ASTROLABE175C_OTA_AUTO_INTERVAL_S:-}" ]]; then
   ASTROLABE175C_FORCE_RECONFIGURE=1
@@ -64,6 +68,7 @@ astrolabe175c_idf_python() {
   fi
   local candidate
   for candidate in \
+    "${HOME}/.espressif/python_env/idf5.5_py3.12_env/bin/python" \
     "${HOME}/.espressif/python_env/idf5.5_py3.14_env/bin/python" \
     "${HOME}/.espressif/python_env/idf5.5_py3.13_env/bin/python" \
     "${HOME}/.espressif/python_env/idf5.4_py3.13_env/bin/python" \
@@ -195,11 +200,11 @@ if resolved_py="$(astrolabe175c_idf_python)"; then
 fi
 
 if [[ ! -f sdkconfig ]]; then
-  "${IDF_PY[@]}" "${ASTROLABE175C_CMAKE_ARGS[@]+"${ASTROLABE175C_CMAKE_ARGS[@]}"}" -D SDKCONFIG_DEFAULTS=sdkconfig.defaults set-target esp32s3
+  "${IDF_PY[@]}" "${ASTROLABE175C_CMAKE_ARGS[@]+"${ASTROLABE175C_CMAKE_ARGS[@]}"}" -D "SDKCONFIG_DEFAULTS=${ASTROLABE175C_SDKCONFIG_DEFAULTS}" set-target esp32s3
 else
-  "${IDF_PY[@]}" "${ASTROLABE175C_CMAKE_ARGS[@]+"${ASTROLABE175C_CMAKE_ARGS[@]}"}" -D SDKCONFIG_DEFAULTS=sdkconfig.defaults reconfigure >/dev/null 2>&1 || true
+  "${IDF_PY[@]}" "${ASTROLABE175C_CMAKE_ARGS[@]+"${ASTROLABE175C_CMAKE_ARGS[@]}"}" -D "SDKCONFIG_DEFAULTS=${ASTROLABE175C_SDKCONFIG_DEFAULTS}" reconfigure >/dev/null 2>&1 || true
   if [[ "${ASTROLABE175C_FORCE_RECONFIGURE}" == "1" ]]; then
-    "${IDF_PY[@]}" "${ASTROLABE175C_CMAKE_ARGS[@]+"${ASTROLABE175C_CMAKE_ARGS[@]}"}" reconfigure
+    "${IDF_PY[@]}" "${ASTROLABE175C_CMAKE_ARGS[@]+"${ASTROLABE175C_CMAKE_ARGS[@]}"}" -D "SDKCONFIG_DEFAULTS=${ASTROLABE175C_SDKCONFIG_DEFAULTS}" reconfigure
   fi
 fi
 
