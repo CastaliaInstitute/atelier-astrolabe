@@ -2732,7 +2732,7 @@ static esp_err_t wifi_start_setup_ap(const char *reason)
     faculty175_strlcpy((char *)ap.ap.ssid, ap_ssid, sizeof(ap.ap.ssid));
     faculty175_strlcpy((char *)ap.ap.password, ap_pass, sizeof(ap.ap.password));
     ap.ap.ssid_len = strlen(ap_ssid);
-    ap.ap.channel = FACULTY175_FAMILY_MESH_FALLBACK_CHANNEL;
+    ap.ap.channel = 6;
     ap.ap.max_connection = 4;
     ap.ap.authmode = WIFI_AUTH_WPA2_PSK;
     ap.ap.beacon_interval = 100;
@@ -2790,7 +2790,7 @@ static esp_err_t wifi_configure_setup_ap_for_apsta(const char *reason)
     faculty175_strlcpy((char *)ap.ap.ssid, ap_ssid, sizeof(ap.ap.ssid));
     faculty175_strlcpy((char *)ap.ap.password, ap_pass, sizeof(ap.ap.password));
     ap.ap.ssid_len = strlen(ap_ssid);
-    ap.ap.channel = FACULTY175_FAMILY_MESH_FALLBACK_CHANNEL;
+    ap.ap.channel = 6;
     ap.ap.max_connection = 4;
     ap.ap.authmode = WIFI_AUTH_WPA2_PSK;
     ap.ap.beacon_interval = 100;
@@ -2956,11 +2956,8 @@ static esp_err_t wifi_connect_candidate(const wifi_candidate_t *candidate)
     (void)esp_wifi_disconnect();
     if (!router_mode) {
         faculty175_screen_http_stop();
-        (void)esp_wifi_set_channel(FACULTY175_FAMILY_MESH_FALLBACK_CHANNEL, WIFI_SECOND_CHAN_NONE);
-        FACULTY175_LOG_STAGE_W(TAG,
-                               "wifi",
-                               "keeping STA radio up on channel %u for family mesh",
-                               (unsigned)FACULTY175_FAMILY_MESH_FALLBACK_CHANNEL);
+        (void)esp_wifi_set_channel(1, WIFI_SECOND_CHAN_NONE);
+        FACULTY175_LOG_STAGE_W(TAG, "wifi", "keeping STA radio up on channel 1 for family mesh");
     }
     xEventGroupClearBits(s_wifi_events, WIFI_CONNECTED_BIT | WIFI_FAIL_BIT);
     return ESP_ERR_TIMEOUT;
@@ -3956,13 +3953,6 @@ static void input_task(void *arg)
         if (!s_nav_mode) {
             faculty175_ble_radar_tick(now_ms);
         }
-        if ((s_low_power_asleep || s_low_power_dimmed) && faculty175_ble_ring_near_wave_consume()) {
-            low_power_note_activity(now_ms, "ring wave");
-            faculty175_gesture_flush();
-            vTaskDelay(pdMS_TO_TICKS(10));
-            continue;
-        }
-
         const faculty175_touch_state_t touch = faculty175_touch_state_get();
         if ((s_low_power_asleep || s_low_power_dimmed) &&
             (touch.down || faculty175_touch_int_active())) {
