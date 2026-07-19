@@ -4440,7 +4440,7 @@ void app_main(void)
     const esp_err_t usb_init_err = faculty175_usb_init();
     boot_probe_err(usb_init_err);
     ESP_ERROR_CHECK(usb_init_err);
-#if defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
+#if FACULTY175_USB_RUNTIME_ENABLED
     usb_auto_tether_maybe_launch();
 #endif
 #endif
