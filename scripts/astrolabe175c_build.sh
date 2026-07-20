@@ -135,6 +135,7 @@ PY
 astrolabe175c_reset_stale_sdkconfig() {
   local sdkconfig_file="$1"
   local project_dir="$2"
+  local defaults_file="$3"
   if [[ ! -f "${sdkconfig_file}" ]]; then
     return 0
   fi
@@ -143,6 +144,20 @@ astrolabe175c_reset_stale_sdkconfig() {
   partition_file="$(sed -n 's/^CONFIG_PARTITION_TABLE_FILENAME="\(.*\)"$/\1/p' "${sdkconfig_file}" | tail -1)"
   if [[ -n "${partition_file}" && ! -f "${project_dir}/${partition_file}" ]]; then
     echo "astrolabe175c_build: removing stale sdkconfig with missing partition table ${partition_file}" >&2
+    rm -f "${sdkconfig_file}"
+    return 0
+  fi
+
+  # A generated sdkconfig retains a previous choice value even when a checked-in
+  # default changes it. In particular, an old USB-NCM selection must not survive
+  # after tethering is disabled for a release build.
+  local configured_net_mode=""
+  local default_net_mode=""
+  configured_net_mode="$(sed -n 's/^CONFIG_TINYUSB_NET_MODE_\([A-Z_]*\)=y$/\1/p' "${sdkconfig_file}" | tail -1)"
+  default_net_mode="$(sed -n 's/^CONFIG_TINYUSB_NET_MODE_\([A-Z_]*\)=y$/\1/p' "${defaults_file}" | tail -1)"
+  if [[ -n "${configured_net_mode}" && -n "${default_net_mode}" &&
+        "${configured_net_mode}" != "${default_net_mode}" ]]; then
+    echo "astrolabe175c_build: removing stale sdkconfig USB network mode ${configured_net_mode} (default ${default_net_mode})" >&2
     rm -f "${sdkconfig_file}"
   fi
 }
@@ -177,7 +192,8 @@ fi
 
 astrolabe175c_reset_stale_sdkconfig \
   "${ROOT}/astrolabe175c/sdkconfig" \
-  "${ROOT}/astrolabe175c"
+  "${ROOT}/astrolabe175c" \
+  "${ROOT}/astrolabe175c/sdkconfig.defaults"
 astrolabe175c_reset_stale_cmake_cache \
   "${ROOT}/astrolabe175c/build/CMakeCache.txt" \
   "${ROOT}/astrolabe175c" \
