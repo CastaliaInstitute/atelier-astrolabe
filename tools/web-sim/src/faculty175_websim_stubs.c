@@ -12,21 +12,51 @@
 #include "esp_err.h"
 #include "esp_heap_caps.h"
 #include "esp_netif_ip_addr.h"
+#include "esp_partition.h"
 #include "esp_random.h"
 #include "esp_spiffs.h"
 #include "esp_timer.h"
 #include "faculty175_almanac.h"
+#include "faculty175_apocalypso.h"
 #include "faculty175_board.h"
+#include "faculty175_ble.h"
 #include "faculty175_charts.h"
+#include "faculty175_device_settings.h"
 #include "faculty175_face_native.h"
 #include "faculty175_face_tarot_image.h"
 #include "faculty175_face_tarot_spiffs_image.h"
 #include "faculty175_faces.h"
 #include "faculty175_faculty.h"
+#include "faculty175_family.h"
+#include "faculty175_lvgl.h"
 #include "faculty175_quotes.h"
+#include "faculty175_ring.h"
 #include "faculty175_rocket.h"
 #include "faculty175_touch.h"
 #include "faculty175_wifi_settings.h"
+#include "faculty175_wifi_lab.h"
+#include "faculty175_wifi_monitor.h"
+#if __has_include("faculty175_usb_screen.h")
+#include "faculty175_usb_screen.h"
+#endif
+#if __has_include("faculty175_rotary_state.h")
+#include "faculty175_rotary_state.h"
+#else
+#define FACULTY175_ROTARY_STATE_KIND_COUNT 8
+typedef struct {
+    bool valid;
+    uint8_t state;
+    int rssi_dbm;
+    const char *source;
+    uint32_t age_ms;
+    bool has_style;
+    uint8_t facial_hair;
+    uint8_t glasses;
+    uint8_t skin_tone;
+    uint8_t hair_color;
+    uint8_t eye_color;
+} faculty175_rotary_state_t;
+#endif
 #include "freertos/task.h"
 #include "nvs.h"
 
@@ -35,6 +65,8 @@ static bool s_flush_suspended;
 static uint32_t s_tick_ms;
 
 const uint8_t _binary_pocketwatch_default_rgb565_start[FACULTY175_LCD_W * FACULTY175_LCD_H * sizeof(uint16_t)] = {0};
+const uint8_t _binary_maze_466_png_start[1] = {0};
+const uint8_t _binary_maze_466_png_end[1] = {0};
 
 EM_JS(void, js_canvas_init, (int width, int height), {
   const canvas = document.querySelector('#astrolabe-canvas');
@@ -134,6 +166,16 @@ void faculty175_display_draw_rgb565(const uint16_t *pixels, int x, int y, int w,
         for (int xx = 0; xx < w; ++xx) {
             put_px(x + xx, y + yy, pixels[yy * w + xx]);
         }
+    }
+}
+
+void faculty175_display_draw_rgb565_stride(const uint16_t *pixels, int src_stride_pixels, int x, int y, int w, int h)
+{
+    if (pixels == NULL || src_stride_pixels <= 0 || w <= 0 || h <= 0) {
+        return;
+    }
+    for (int yy = 0; yy < h; ++yy) {
+        faculty175_display_draw_rgb565(pixels + yy * src_stride_pixels, x, y + yy, w, 1);
     }
 }
 
@@ -337,6 +379,73 @@ int faculty175_display_write_bmp(FILE *out) { (void)out; return 0; }
 size_t faculty175_display_bmp565_size(void) { return 0; }
 esp_err_t faculty175_display_write_bmp565(faculty175_display_write_cb_t write_cb, void *ctx) { (void)write_cb; (void)ctx; return ESP_FAIL; }
 
+static void websim_placeholder_face(const char *label, uint32_t anim_ms)
+{
+    faculty175_display_draw_status(FACULTY175_UI_LISTEN, label, "websim stub", anim_ms, NULL, NULL, 0);
+}
+
+void faculty175_face_native_draw(const faculty175_native_face_t *face, uint32_t anim_ms)
+{
+    const char *label = (face != NULL && face->title != NULL) ? face->title : "Native";
+    websim_placeholder_face(label, anim_ms);
+}
+
+bool faculty175_face_native_action(faculty175_face_id_t id, uint32_t seed_ms)
+{
+    (void)id;
+    (void)seed_ms;
+    return false;
+}
+
+bool faculty175_face_native_audio_busy(void)
+{
+    return false;
+}
+
+bool faculty175_face_native_chakra_delta(faculty175_face_id_t id, int delta)
+{
+    (void)id;
+    (void)delta;
+    return false;
+}
+
+const char *faculty175_face_native_chakra_name(void)
+{
+    return "chakra";
+}
+
+void faculty175_face_hid_draw(uint32_t anim_ms)
+{
+    websim_placeholder_face("HID", anim_ms);
+}
+
+void faculty175_usb_screen_draw_face(uint32_t anim_ms)
+{
+    websim_placeholder_face("USB Screen", anim_ms);
+}
+
+void faculty175_face_deathstar_draw(uint32_t anim_ms) { websim_placeholder_face("Death Star", anim_ms); }
+void faculty175_face_maze_draw(uint32_t anim_ms) { websim_placeholder_face("Maze", anim_ms); }
+void faculty175_face_watcher_draw(uint32_t anim_ms) { websim_placeholder_face("Watcher", anim_ms); }
+void faculty175_face_wifilab_draw(faculty175_face_id_t id, uint32_t anim_ms)
+{
+    const faculty175_face_desc_t *face = faculty175_faces_get(id);
+    websim_placeholder_face(face != NULL ? face->label : "Wi-Fi Lab", anim_ms);
+}
+bool faculty175_face_wifilab_action(faculty175_face_id_t id, uint32_t seed_ms)
+{
+    (void)id;
+    (void)seed_ms;
+    return false;
+}
+void faculty175_face_wifilab_tick(faculty175_face_id_t id, uint32_t now_ms) { (void)id; (void)now_ms; }
+void faculty175_face_wifilab_enter(faculty175_face_id_t id) { (void)id; }
+void faculty175_face_wifilab_leave(faculty175_face_id_t id) { (void)id; }
+void faculty175_face_incidents_draw(uint32_t anim_ms) { websim_placeholder_face("Incidents", anim_ms); }
+bool faculty175_face_incidents_action(uint32_t seed_ms) { (void)seed_ms; return false; }
+bool faculty175_face_incidents_scroll(int delta) { (void)delta; return false; }
+size_t faculty175_face_incidents_scroll_index(void) { return 0; }
+
 const char *esp_err_to_name(esp_err_t err)
 {
     switch (err) {
@@ -362,9 +471,21 @@ void *heap_caps_malloc(size_t size, unsigned caps)
     return malloc(size);
 }
 
+void *heap_caps_realloc(void *ptr, size_t size, unsigned caps)
+{
+    (void)caps;
+    return realloc(ptr, size);
+}
+
 void heap_caps_free(void *ptr)
 {
     free(ptr);
+}
+
+size_t heap_caps_get_free_size(unsigned caps)
+{
+    (void)caps;
+    return 8u * 1024u * 1024u;
 }
 
 int64_t esp_timer_get_time(void)
@@ -373,6 +494,26 @@ int64_t esp_timer_get_time(void)
 }
 
 esp_err_t esp_vfs_spiffs_register(const esp_vfs_spiffs_conf_t *conf) { (void)conf; return ESP_FAIL; }
+esp_err_t esp_spiffs_info(const char *partition_label, size_t *total, size_t *used)
+{
+    (void)partition_label;
+    if (total) {
+        *total = 0;
+    }
+    if (used) {
+        *used = 0;
+    }
+    return ESP_FAIL;
+}
+const esp_partition_t *esp_partition_find_first(esp_partition_type_t type,
+                                                esp_partition_subtype_t subtype,
+                                                const char *label)
+{
+    (void)type;
+    (void)subtype;
+    (void)label;
+    return NULL;
+}
 void vTaskDelay(TickType_t ticks) { (void)ticks; }
 TickType_t xTaskGetTickCount(void) { return (TickType_t)s_tick_ms; }
 
@@ -442,14 +583,160 @@ esp_err_t faculty175_wifi_settings_load(char *ssid, size_t ssid_cap, char *pass,
     return ESP_OK;
 }
 esp_err_t faculty175_wifi_settings_save(const char *ssid, const char *pass) { (void)ssid; (void)pass; return ESP_OK; }
+size_t faculty175_wifi_settings_load_known(faculty175_wifi_known_t *out, size_t cap)
+{
+    if (out != NULL && cap > 0) {
+        snprintf(out[0].ssid, sizeof(out[0].ssid), "Astrolabe-Websim");
+        snprintf(out[0].pass, sizeof(out[0].pass), "simulated");
+        return 1;
+    }
+    return 0;
+}
+esp_err_t faculty175_wifi_settings_add_known(const char *ssid, const char *pass, bool make_primary)
+{
+    (void)ssid;
+    (void)pass;
+    (void)make_primary;
+    return ESP_OK;
+}
+esp_err_t faculty175_wifi_settings_remove_known(const char *ssid) { (void)ssid; return ESP_OK; }
+esp_err_t faculty175_wifi_settings_clear_known(void) { return ESP_OK; }
+bool faculty175_wifi_settings_travel_router_enabled(void) { return false; }
+esp_err_t faculty175_wifi_settings_set_travel_router_enabled(bool enabled) { (void)enabled; return ESP_OK; }
 void faculty175_wifi_settings_set_sta(const char *ssid, const esp_ip4_addr_t *ip) { (void)ssid; (void)ip; }
 void faculty175_wifi_settings_set_ap(const char *ssid, const char *pass, const esp_ip4_addr_t *ip) { (void)ssid; (void)pass; (void)ip; }
+void faculty175_wifi_settings_set_router_upstream(const char *ssid, const esp_ip4_addr_t *ip) { (void)ssid; (void)ip; }
+void faculty175_wifi_settings_set_ap_client_count(unsigned count) { (void)count; }
 void faculty175_wifi_settings_clear_runtime(void) {}
+void faculty175_wifi_settings_set_scan_suppressed(bool suppressed) { (void)suppressed; }
 bool faculty175_wifi_settings_ap_active(void) { return true; }
+bool faculty175_wifi_settings_ap_client_connected(void) { return false; }
+bool faculty175_wifi_settings_scan_suppressed(void) { return false; }
 const char *faculty175_wifi_settings_ssid(void) { return "Astrolabe-Websim"; }
+const char *faculty175_wifi_settings_upstream_ssid(void) { return ""; }
 const char *faculty175_wifi_settings_url(void) { return "http://localhost:8088"; }
 const char *faculty175_wifi_settings_qr_payload(void) { return "WIFI:T:WPA;S:Astrolabe-Websim;P:simulated;;"; }
+const char *faculty175_wifi_settings_ap_qr_payload(void) { return "WIFI:T:WPA;S:Astrolabe-Websim;P:simulated;;"; }
+const char *faculty175_wifi_settings_page_qr_payload(void) { return "http://localhost:8088/astrolabe-web-sim.html"; }
 const char *faculty175_wifi_settings_status(void) { return "websim access point"; }
+
+void faculty175_wifi_monitor_record_connected(const wifi_ap_record_t *ap) { (void)ap; }
+void faculty175_wifi_monitor_record_disconnected(const char *ssid, const uint8_t bssid[6], int reason, int rssi)
+{
+    (void)ssid;
+    (void)bssid;
+    (void)reason;
+    (void)rssi;
+}
+void faculty175_wifi_monitor_record_ap_client(bool connected, int aid) { (void)connected; (void)aid; }
+void faculty175_wifi_monitor_record_scan(uint16_t count) { (void)count; }
+void faculty175_wifi_monitor_record_note(const char *type, const char *detail) { (void)type; (void)detail; }
+size_t faculty175_wifi_monitor_copy(faculty175_wifi_incident_t *out, size_t cap)
+{
+    if (out != NULL && cap > 0) {
+        memset(out, 0, sizeof(out[0]));
+        out[0].seq = 1;
+        out[0].uptime_ms = s_tick_ms;
+        snprintf(out[0].type, sizeof(out[0].type), "websim");
+        snprintf(out[0].ssid, sizeof(out[0].ssid), "Astrolabe-Websim");
+        snprintf(out[0].detail, sizeof(out[0].detail), "simulated Wi-Fi event");
+        out[0].rssi = -42;
+        out[0].channel = 6;
+        out[0].authmode = WIFI_AUTH_WPA2_PSK;
+        return 1;
+    }
+    return 0;
+}
+size_t faculty175_wifi_monitor_count(void) { return 1; }
+bool faculty175_wifi_monitor_get_newest(size_t offset, faculty175_wifi_incident_t *out)
+{
+    if (offset != 0 || out == NULL) {
+        return false;
+    }
+    return faculty175_wifi_monitor_copy(out, 1) == 1;
+}
+void faculty175_wifi_monitor_clear(void) {}
+
+bool faculty175_rotary_state_get(faculty175_rotary_state_t *out)
+{
+    if (out == NULL) {
+        return false;
+    }
+    *out = (faculty175_rotary_state_t){
+        .valid = false,
+        .state = 0,
+        .rssi_dbm = -127,
+        .source = "websim",
+        .age_ms = 0,
+        .has_style = false,
+        .facial_hair = 0,
+        .glasses = 0,
+        .skin_tone = 0,
+        .hair_color = 0,
+        .eye_color = 0,
+    };
+    return false;
+}
+
+const char *faculty175_rotary_state_label(uint8_t state)
+{
+    static const char *const k_labels[FACULTY175_ROTARY_STATE_KIND_COUNT] = {
+        "neutral",
+        "calm",
+        "energized",
+        "focused",
+        "hopeful",
+        "frustrated",
+        "anxious",
+        "heavy",
+    };
+    return state < FACULTY175_ROTARY_STATE_KIND_COUNT ? k_labels[state] : "neutral";
+}
+
+const char *faculty175_rotary_state_emoji(uint8_t state)
+{
+    static const char *const k_emojis[FACULTY175_ROTARY_STATE_KIND_COUNT] = {
+        ":-|",
+        ":-)",
+        ":-D",
+        ":-!",
+        ":-)",
+        ">:(",
+        ":-/",
+        ":'(",
+    };
+    return state < FACULTY175_ROTARY_STATE_KIND_COUNT ? k_emojis[state] : ":-|";
+}
+
+bool faculty175_wifi_lab_is_face(faculty175_face_id_t id)
+{
+    return id == FACULTY175_FACE_WSCAN || id == FACULTY175_FACE_DEAUTH ||
+           id == FACULTY175_FACE_EVILTWIN || id == FACULTY175_FACE_HANDSHAKE;
+}
+void faculty175_wifi_lab_on_enter(faculty175_face_id_t id) { (void)id; }
+void faculty175_wifi_lab_on_leave(faculty175_face_id_t id) { (void)id; }
+void faculty175_wifi_lab_tick(faculty175_face_id_t id, uint32_t now_ms) { (void)id; (void)now_ms; }
+bool faculty175_wifi_lab_tap(faculty175_face_id_t id) { (void)id; return true; }
+bool faculty175_wifi_lab_cycle_target(faculty175_face_id_t id, int delta) { (void)id; (void)delta; return true; }
+void faculty175_wifi_lab_get_state(faculty175_wifi_lab_state_t *out)
+{
+    if (!out) {
+        return;
+    }
+    memset(out, 0, sizeof(*out));
+    out->active = true;
+    snprintf(out->status, sizeof(out->status), "websim Wi-Fi lab");
+    snprintf(out->detail, sizeof(out->detail), "deterministic demo AP data");
+    out->ap_count = 1;
+    snprintf(out->aps[0].ssid, sizeof(out->aps[0].ssid), "Astrolabe-Websim");
+    out->aps[0].rssi = -42;
+    out->aps[0].channel = 6;
+    out->aps[0].authmode = WIFI_AUTH_WPA2_PSK;
+}
+void faculty175_wifi_lab_record_capture(const char *ssid, const char *pass) { (void)ssid; (void)pass; }
+esp_err_t faculty175_wifi_lab_scan(void) { return ESP_OK; }
+esp_err_t faculty175_wifi_lab_set_target_index(uint8_t index) { (void)index; return ESP_OK; }
+esp_err_t faculty175_wifi_lab_export_pcap(void) { return ESP_OK; }
 
 esp_err_t faculty175_quotes_init(void) { return ESP_OK; }
 void faculty175_quotes_start_auto_fetch_task(void) {}
@@ -581,6 +868,231 @@ void faculty175_faculty_bust_blit_origin(int area_x, int area_y, int area_w, int
     }
 }
 bool faculty175_faculty_draw_bust(int x, int y) { (void)x; (void)y; return false; }
+bool faculty175_faculty_copy_bust_argb8888(uint8_t *out_bgra, size_t out_cap, int *out_w, int *out_h, char *slug_out, size_t slug_cap)
+{
+    (void)out_bgra;
+    (void)out_cap;
+    if (out_w) {
+        *out_w = 0;
+    }
+    if (out_h) {
+        *out_h = 0;
+    }
+    if (slug_out && slug_cap) {
+        slug_out[0] = '\0';
+    }
+    return false;
+}
+
+esp_err_t faculty175_apocalypso_init(void) { return ESP_OK; }
+void faculty175_apocalypso_start_auto_fetch_task(void) {}
+void faculty175_apocalypso_request_refresh(void) {}
+bool faculty175_apocalypso_current(faculty175_apocalypso_status_t *out)
+{
+    if (!out) {
+        return false;
+    }
+    memset(out, 0, sizeof(*out));
+    out->ok = true;
+    out->demo = true;
+    snprintf(out->updated_at, sizeof(out->updated_at), "websim");
+    for (int i = 0; i < FACULTY175_APOCALYPSO_AXIS_COUNT; ++i) {
+        out->value[i] = 0.25f + 0.05f * (float)(i % 8);
+        snprintf(out->quality[i], sizeof(out->quality[i]), "demo");
+    }
+    return true;
+}
+const char *faculty175_apocalypso_state_name(void) { return "demo"; }
+const char *faculty175_apocalypso_last(void) { return "websim apocalypso"; }
+
+esp_err_t faculty175_ble_init(void) { return ESP_OK; }
+bool faculty175_ble_enabled(void) { return true; }
+bool faculty175_ble_advertising(void) { return true; }
+bool faculty175_ble_scanning(void) { return ((s_tick_ms / 2400u) % 2u) == 0u; }
+esp_err_t faculty175_ble_set_enabled(bool enabled) { (void)enabled; return ESP_OK; }
+esp_err_t faculty175_ble_set_device_name(const char *name) { (void)name; return ESP_OK; }
+const char *faculty175_ble_device_name(void) { return "Astrolabe WebSim"; }
+esp_err_t faculty175_ble_scan_start(uint32_t duration_ms) { (void)duration_ms; return ESP_OK; }
+void faculty175_ble_radar_tick(uint32_t now_ms) { (void)now_ms; }
+size_t faculty175_ble_peers_snapshot(faculty175_ble_peer_t *out, size_t cap)
+{
+    if (out == NULL || cap == 0) {
+        return 0;
+    }
+    const char *names[] = {"Astrolabe Camille", "Astrolabe Daniel", "COLMI R10"};
+    const int8_t rssi[] = {-58, -72, -66};
+    const bool astrolabe[] = {true, true, false};
+    const size_t count = cap < 3 ? cap : 3;
+    for (size_t i = 0; i < count; ++i) {
+        out[i] = (faculty175_ble_peer_t){
+            .valid = true,
+            .astrolabe = astrolabe[i],
+            .known = astrolabe[i],
+            .rssi = rssi[i],
+            .seen_ms = s_tick_ms,
+            .bearing_deg = (uint16_t)((s_tick_ms / 42u + i * 117u) % 360u),
+            .range_pct = (uint8_t)(34u + i * 18u),
+            .confidence_pct = (uint8_t)(88u - i * 13u),
+        };
+        snprintf(out[i].name, sizeof(out[i].name), "%s", names[i]);
+        for (int b = 0; b < 6; ++b) {
+            out[i].addr[b] = (uint8_t)(0x30 + i * 9 + b);
+        }
+    }
+    return count;
+}
+
+void faculty175_solar_image_request(bool force) { (void)force; }
+bool faculty175_solar_image_draw_cached(void) { return false; }
+bool faculty175_solar_image_copy_cached(uint16_t *out, size_t pixel_count, time_t *cached_epoch_out)
+{
+    if (out != NULL) {
+        memset(out, 0, pixel_count * sizeof(uint16_t));
+    }
+    if (cached_epoch_out != NULL) {
+        *cached_epoch_out = 0;
+    }
+    return false;
+}
+bool faculty175_solar_image_busy(void) { return false; }
+bool faculty175_solar_image_has_cached(void) { return false; }
+bool faculty175_solar_image_action(uint32_t seed_ms) { (void)seed_ms; return true; }
+const char *faculty175_solar_image_error(void) { return "websim solar"; }
+const char *faculty175_solar_image_channel(void) { return "AIA 171"; }
+time_t faculty175_solar_image_cached_epoch(void) { return 0; }
+
+void faculty175_ring_update_vitals(const faculty175_ring_vitals_t *vitals) { (void)vitals; }
+bool faculty175_ring_latest_vitals(faculty175_ring_vitals_t *out)
+{
+    if (out == NULL) {
+        return false;
+    }
+    memset(out, 0, sizeof(*out));
+    out->heart_rate_bpm = 72;
+    out->heart_rate_valid = true;
+    out->hrv_ms = 48;
+    out->hrv_valid = true;
+    out->battery_percent = 86;
+    out->battery_valid = true;
+    out->updated_ms = s_tick_ms;
+    return true;
+}
+esp_err_t faculty175_ring_handle_json(const char *json) { (void)json; return ESP_OK; }
+
+esp_err_t faculty175_family_init(void) { return ESP_OK; }
+void faculty175_family_tick(uint32_t now_ms) { (void)now_ms; }
+bool faculty175_family_ready(void) { return true; }
+int faculty175_family_channel(void) { return 6; }
+size_t faculty175_family_snapshot(faculty175_family_wellness_t *out, size_t cap)
+{
+    if (out == NULL || cap == 0) {
+        return 0;
+    }
+    memset(out, 0, sizeof(*out));
+    snprintf(out->subject_name, sizeof(out->subject_name), "Camille");
+    out->flags = FACULTY175_FAMILY_FLAG_STRESS_VALID | FACULTY175_FAMILY_FLAG_HRV_VALID |
+                 FACULTY175_FAMILY_FLAG_HR_VALID | FACULTY175_FAMILY_FLAG_SPO2_VALID |
+                 FACULTY175_FAMILY_FLAG_SLEEP_VALID | FACULTY175_FAMILY_FLAG_BATTERY_VALID;
+    out->stress = 42;
+    out->hrv_ms = 52;
+    out->heart_rate_bpm = 68;
+    out->spo2_percent = 98;
+    out->sleep_total_min = 430;
+    out->sleep_deep_min = 82;
+    out->sleep_rem_min = 96;
+    out->sleep_light_min = 230;
+    out->sleep_awake_min = 22;
+    out->battery_percent = 91;
+    out->age_ms = 8000;
+    return 1;
+}
+bool faculty175_family_primary_partner(faculty175_family_wellness_t *out)
+{
+    return faculty175_family_snapshot(out, 1) == 1;
+}
+const char *faculty175_family_guidance_cue(const faculty175_family_wellness_t *state)
+{
+    (void)state;
+    return "steady";
+}
+uint8_t faculty175_family_load_score(const faculty175_family_wellness_t *state)
+{
+    (void)state;
+    return 38;
+}
+uint16_t faculty175_family_sleep_debt_min(const faculty175_family_wellness_t *state)
+{
+    (void)state;
+    return 0;
+}
+void faculty175_family_format_summary(char *out, size_t cap)
+{
+    if (out != NULL && cap > 0) {
+        snprintf(out, cap, "Camille steady load 38");
+    }
+}
+void faculty175_family_format_day_summary(const faculty175_family_wellness_t *state, char *out, size_t cap)
+{
+    (void)state;
+    if (out != NULL && cap > 0) {
+        snprintf(out, cap, "sleep 7h10m hrv 52 spo2 98");
+    }
+}
+void faculty175_family_format_voice_context(char *out, size_t cap)
+{
+    if (out != NULL && cap > 0) {
+        snprintf(out, cap, "Family wellness is steady. Camille load 38.");
+    }
+}
+
+esp_err_t faculty175_location_settings_load(faculty175_location_settings_t *out)
+{
+    if (!out) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    memset(out, 0, sizeof(*out));
+    out->valid = true;
+    out->lat_deg = 39.7392;
+    out->lon_deg = -104.9903;
+    out->updated_epoch = (int64_t)astrolabe_time_now();
+    snprintf(out->source, sizeof(out->source), "websim");
+    return ESP_OK;
+}
+esp_err_t faculty175_location_settings_save(double lat_deg, double lon_deg, const char *source)
+{
+    (void)lat_deg;
+    (void)lon_deg;
+    (void)source;
+    return ESP_OK;
+}
+bool faculty175_location_settings_valid(double lat_deg, double lon_deg)
+{
+    return lat_deg >= -90.0 && lat_deg <= 90.0 && lon_deg >= -180.0 && lon_deg <= 180.0;
+}
+
+unsigned char *stbi_load_from_memory(const unsigned char *buffer,
+                                     int len,
+                                     int *x,
+                                     int *y,
+                                     int *channels_in_file,
+                                     int desired_channels)
+{
+    (void)buffer;
+    (void)len;
+    (void)desired_channels;
+    if (x) {
+        *x = 0;
+    }
+    if (y) {
+        *y = 0;
+    }
+    if (channels_in_file) {
+        *channels_in_file = 0;
+    }
+    return NULL;
+}
+const char *stbi_failure_reason(void) { return "websim image stub"; }
+void stbi_image_free(void *retval_from_stbi_load) { free(retval_from_stbi_load); }
 
 esp_err_t faculty175_almanac_init(void) { return ESP_OK; }
 void faculty175_almanac_start_auto_fetch_task(void) {}
@@ -616,38 +1128,116 @@ bool faculty175_almanac_cached_phenology(char *date, size_t date_cap, char *subj
     return true;
 }
 
+static const faculty175_birth_chart_t k_websim_family_mcshan[] = {
+    {
+        .name = "Camille",
+        .role = FACULTY175_CHART_ROLE_PARTNER,
+        .year = 1988,
+        .month = 6,
+        .day = 12,
+        .hour = 10,
+        .minute = 24,
+        .lat_deg = 39.7392f,
+        .lon_deg = -104.9903f,
+        .tz_offset_sec = -6 * 3600,
+        .place = "Denver, CO",
+        .valid = true,
+    },
+    {
+        .name = "Finn",
+        .role = FACULTY175_CHART_ROLE_CHILD,
+        .year = 2016,
+        .month = 3,
+        .day = 4,
+        .hour = 8,
+        .minute = 15,
+        .lat_deg = 39.7392f,
+        .lon_deg = -104.9903f,
+        .tz_offset_sec = -7 * 3600,
+        .place = "Denver, CO",
+        .valid = true,
+    },
+    {
+        .name = "Aleia",
+        .role = FACULTY175_CHART_ROLE_CHILD,
+        .year = 2019,
+        .month = 9,
+        .day = 18,
+        .hour = 14,
+        .minute = 42,
+        .lat_deg = 39.7392f,
+        .lon_deg = -104.9903f,
+        .tz_offset_sec = -6 * 3600,
+        .place = "Denver, CO",
+        .valid = true,
+    },
+};
+
 void faculty175_charts_ensure_family_seed(void) {}
 bool faculty175_charts_primary(faculty175_birth_chart_t *out)
 {
     if (out) {
-        snprintf(out->name, sizeof(out->name), "Ada");
-        out->valid = true;
+        *out = (faculty175_birth_chart_t) {
+            .name = "Daniel",
+            .role = FACULTY175_CHART_ROLE_SELF,
+            .year = 1986,
+            .month = 11,
+            .day = 2,
+            .hour = 6,
+            .minute = 30,
+            .lat_deg = 39.7392f,
+            .lon_deg = -104.9903f,
+            .tz_offset_sec = -7 * 3600,
+            .place = "Denver, CO",
+            .valid = true,
+        };
     }
     return true;
 }
 esp_err_t faculty175_charts_save_primary(const faculty175_birth_chart_t *chart) { (void)chart; return ESP_OK; }
-int faculty175_charts_profile_count(void) { return 2; }
-bool faculty175_charts_profile_get(int slot, faculty175_birth_chart_t *out) { (void)slot; return faculty175_charts_primary(out); }
+int faculty175_charts_profile_count(void) { return (int)(sizeof(k_websim_family_mcshan) / sizeof(k_websim_family_mcshan[0])); }
+bool faculty175_charts_profile_get(int slot, faculty175_birth_chart_t *out)
+{
+    if (slot < 0 || slot >= faculty175_charts_profile_count() || out == NULL) {
+        return false;
+    }
+    *out = k_websim_family_mcshan[slot];
+    return true;
+}
 esp_err_t faculty175_charts_profile_save(int slot, const faculty175_birth_chart_t *chart) { (void)slot; (void)chart; return ESP_OK; }
-int faculty175_charts_active_slot(void) { return 1; }
-bool faculty175_charts_set_active_slot(int slot) { (void)slot; return true; }
-bool faculty175_charts_cycle_active(int delta, int *slot_out, faculty175_birth_chart_t *profile_out) { (void)delta; if (slot_out) *slot_out = 1; return faculty175_charts_primary(profile_out); }
+int faculty175_charts_active_slot(void) { return 0; }
+bool faculty175_charts_set_active_slot(int slot) { return slot >= 0 && slot < faculty175_charts_profile_count(); }
+bool faculty175_charts_cycle_active(int delta, int *slot_out, faculty175_birth_chart_t *profile_out)
+{
+    const int count = faculty175_charts_profile_count();
+    int slot = (delta % count + count) % count;
+    if (slot_out) {
+        *slot_out = slot;
+    }
+    return faculty175_charts_profile_get(slot, profile_out);
+}
 bool faculty175_charts_active(faculty175_birth_chart_t *out)
 {
-    bool ok = faculty175_charts_primary(out);
-    if (out) {
-        snprintf(out->name, sizeof(out->name), "Hypatia");
-    }
-    return ok;
+    return faculty175_charts_profile_get(faculty175_charts_active_slot(), out);
 }
 bool faculty175_charts_birth_positions(const faculty175_birth_chart_t *birth, faculty175_chart_positions_t *out)
 {
-    (void)birth;
     if (!out) {
         return false;
     }
+    uint32_t hash = 2166136261u;
+    if (birth != NULL) {
+        for (const char *p = birth->name; *p != '\0'; ++p) {
+            hash ^= (uint8_t)*p;
+            hash *= 16777619u;
+        }
+        hash ^= birth->year;
+        hash *= 16777619u;
+        hash ^= ((uint32_t)birth->month << 8) | birth->day;
+        hash *= 16777619u;
+    }
     for (int i = 0; i < FACULTY175_CHART_BODY_COUNT; ++i) {
-        out->lon[i] = fmod((double)(s_tick_ms / 100u + i * 47), 360.0);
+        out->lon[i] = fmod((double)((hash >> (i % 4)) + i * 47u + s_tick_ms / 160u), 360.0);
     }
     out->ok = true;
     return true;

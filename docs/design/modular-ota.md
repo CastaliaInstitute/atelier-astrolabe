@@ -1,7 +1,7 @@
 # Recovery OTA And Modular Faces
 
 **Status:** design target for the next factory-flash line. `integration` still
-ships the current PlatformIO OTA layout for Astrolabe variants. Do not switch
+ships the native ESP-IDF OTA layout for Astrolabe variants. Do not switch
 active partition tables until the recovery app, rollback path, and factory flash
 workflow are validated end-to-end on hardware.
 

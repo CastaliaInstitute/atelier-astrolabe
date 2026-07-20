@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Print the PlatformIO upload port for an Espressif USB-JTAG/serial device (VID 303A, PID 1001).
+# Print the upload port for an Espressif USB-JTAG/serial device (VID 303A, PID 1001).
 # Set ASTROLABE_DEVICE_MAC to resolve a stable device identity. Set
 # ASTROLABE_UPLOAD_PORT only when intentionally bypassing MAC resolution.
 set -euo pipefail

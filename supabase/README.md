@@ -28,6 +28,7 @@ supabase functions deploy voice-stream
 supabase functions deploy ask-faculty-voice
 supabase functions deploy faculty-dreams
 supabase functions deploy faculty-bust
+supabase functions deploy astrolabe-device-lookup
 ```
 
 JWT verification is on (`config.toml`). The watch sends Supabase `apikey` + Castalia `Authorization` when signed in.
@@ -53,13 +54,32 @@ supabase secrets set ASTROLABE_DEVICE_AUTH_REQUIRED=true
 device provision
 
 # On workstation, using the printed mac/secret:
-./scripts/provision-faculty175-device.py \
+./scripts/provision-astrolabe175c-device.py \
   --mac a0:f2:62:e3:06:44 \
   --secret <64-hex-secret> \
   --label "faculty175 lab unit"
 ```
 
 This protects privileged Castalia pipeline access from arbitrary boards with only the public firmware. It does not replace ESP secure boot + flash encryption for physical attacker resistance.
+
+Provisioning also stores `short_id`, a four-hex display/lookup ID matching the
+firmware BLE radar hash. Override it only when repairing a registry collision:
+
+```bash
+./scripts/provision-astrolabe175c-device.py \
+  --mac a0:f2:62:e3:07:9c \
+  --secret <64-hex-secret> \
+  --label "Daniel Astrolabe" \
+  --short-id 1a2b
+```
+
+Authenticated clients can resolve a short ID without receiving the full MAC:
+
+```bash
+curl "$SUPABASE_URL/functions/v1/astrolabe-device-lookup?shortId=1a2b&channel=astrolabe-faculty-amoled175" \
+  -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
+  -H "apikey: $SUPABASE_ANON_KEY"
+```
 
 ## `voice-pipeline` contract
 
@@ -148,6 +168,41 @@ not be archived.
 Firmware should still write capture audio into a flash circular buffer before or
 while sending over the socket. See
 [`docs/design/streaming-audio-socket.md`](../docs/design/streaming-audio-socket.md).
+
+### Local `voice-stream` Mock QA
+
+For firmware and host-side rolling-buffer tests that should not depend on cloud
+STT/TTS latency, run the local mock WebSocket server:
+
+```bash
+python3 scripts/voice_stream_mock_relay.py --host 0.0.0.0 --port 8788
+```
+
+The mock accepts the same `session.update`, binary PCM frame, and
+`input_audio_buffer.commit` events as `voice-stream`, accumulates non-final
+segments with a configurable high cap, then emits transcript, text, MP3 audio
+delta, and `response.done` on the final commit.
+
+Host-side long-turn validation:
+
+```bash
+node scripts/voice_stream_persistent_validate.mjs \
+  --ws-url ws://127.0.0.1:8788/functions/v1/voice-stream \
+  --synthetic-seconds 70 \
+  --segments 140 \
+  --segment-pause-ms 0
+```
+
+For 1.75C device testing, build with a LAN-reachable URL:
+
+```bash
+ASTROLABE175C_VOICE_STREAM_URL=ws://<host-ip>:8788/functions/v1/voice-stream \
+./scripts/astrolabe175c_build.sh build
+```
+
+Then trigger `pipeline capture 0` over serial. The device should keep listening,
+roll flash-backed 500 ms capture slots, send non-final commits, receive a final
+mock TTS response, and play it without growing a full-turn PSRAM buffer.
 
 ## Watch-oriented TTS limits
 

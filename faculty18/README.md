@@ -2,7 +2,7 @@
 
 Native ESP-IDF target for the **[Waveshare ESP32-S3-Touch-AMOLED-1.8](https://www.waveshare.com/esp32-s3-touch-amoled-1.8.htm)**: always-on listen, **`face=faculty`** voice pipeline, full-screen faculty bust, transparent waveform overlay.
 
-This is **not** the M5 FacultyAtom pendant (`facultyatom/`). It matches the round watch **Faculty** face semantics (`ClockFace::Faculty` / `face=faculty` in the main sketch).
+This is **not** the M5 FacultyAtom pendant (`facultyatom/`). It matches the round watch **Faculty** face semantics (`face=faculty`) in `astrolabe175c`.
 
 ## Hardware
 
@@ -51,4 +51,4 @@ Flash size: **8 MB** on the Waveshare S3R8 module (`CONFIG_ESPTOOLPY_FLASHSIZE_8
 ## Related
 
 - M5 Atom FacultyAtom: [`facultyatom/`](../facultyatom/) + [`astrolabe_faculty_atom_face.h`](../include/astrolabe_faculty_atom_face.h)
-- Round watch faculty face: [`sketches/Astrolabe/faces/faculty/`](../sketches/Astrolabe/faces/faculty/)
+- Round watch target: [`astrolabe175c/`](../astrolabe175c/)

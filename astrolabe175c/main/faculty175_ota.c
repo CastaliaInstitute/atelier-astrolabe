@@ -10,6 +10,7 @@
 
 #include "esp_app_format.h"
 #include "esp_app_desc.h"
+#include "esp_attr.h"
 #include "esp_crt_bundle.h"
 #include "esp_err.h"
 #include "esp_heap_caps.h"
@@ -20,6 +21,7 @@
 #include "esp_ota_ops.h"
 #include "esp_partition.h"
 #include "esp_system.h"
+#include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "mbedtls/base64.h"
@@ -31,6 +33,7 @@
 
 #include "astrolabe_faculty175_face.h"
 #include "astrolabe_faculty175_ota_key.h"
+#include "faculty175_board.h"
 #include "faculty175_log.h"
 #include "faculty175_storage.h"
 #include "faculty175_usb.h"
@@ -54,15 +57,25 @@ static const char *TAG = "faculty175_ota";
 #define OTA_MANIFEST_MAX_BYTES 4096
 #define OTA_IO_BUFFER_BYTES 2048
 #define OTA_TASK_STACK_BYTES 6144
+#define OTA_AUTO_TASK_STACK_BYTES 6144
 #define OTA_MIN_INTERNAL_FREE (32 * 1024)
 #define OTA_MIN_LARGEST_BLOCK (16 * 1024)
 #define OTA_AUTO_MANIFEST_URL "https://astrolabe.castalia.institute/releases/integration/" ASTROLABE_FACULTY_OTA_CHANNEL "/ota-manifest.json"
 #define OTA_AUTO_INITIAL_DELAY_MS 20000
-#define OTA_AUTO_DEFAULT_INTERVAL_S (15 * 60)
+#ifndef ASTROLABE_OTA_AUTO_INTERVAL_S
+#define ASTROLABE_OTA_AUTO_INTERVAL_S 60
+#endif
+#ifndef ASTROLABE_FIRMWARE_VARIANT
+#define ASTROLABE_FIRMWARE_VARIANT "Faculty"
+#endif
+#define OTA_AUTO_DEFAULT_INTERVAL_S ASTROLABE_OTA_AUTO_INTERVAL_S
 #define OTA_AUTO_MIN_INTERVAL_S 60
 #define OTA_LOCAL_PATH_MAX 256
 #define OTA_LOCAL_DEFAULT_RELATIVE "update/astrolabe175c.bin"
-#define OTA_DEV_SKIP_TLS_SERVER_VERIFY 1
+/* Release OTA must authenticate its HTTPS peer before trusting even a signed
+ * manifest. The manifest signature protects content; TLS also protects the
+ * endpoint, redirects, error handling, and availability boundary. */
+#define OTA_DEV_SKIP_TLS_SERVER_VERIFY 0
 
 typedef enum {
     OTA_STATE_IDLE = 0,
@@ -74,8 +87,34 @@ typedef enum {
 static volatile ota_state_t s_ota_state;
 static char s_ota_last[160];
 static bool s_ota_auto_started;
+static volatile bool s_ota_auto_paused;
+/* Non-NVS QA lock. Unlike the audio-pipeline pause above, this is owned by
+   host power tests and cannot be cleared by pipeline lifecycle. RTC retention
+   keeps it asserted across a deliberate deep-sleep reset until postflight. */
+RTC_DATA_ATTR static volatile bool s_ota_test_locked;
+static volatile bool s_ota_network_ready;
+static wifi_ps_type_t s_ota_previous_wifi_ps = WIFI_PS_MIN_MODEM;
+static bool s_ota_wifi_ps_saved;
 
 static void set_last(const char *fmt, ...);
+
+static void ota_wifi_performance_begin(void)
+{
+    wifi_ps_type_t current = WIFI_PS_MIN_MODEM;
+    if (esp_wifi_get_ps(&current) == ESP_OK) {
+        s_ota_previous_wifi_ps = current;
+        s_ota_wifi_ps_saved = true;
+        (void)esp_wifi_set_ps(WIFI_PS_NONE);
+    }
+}
+
+static void ota_wifi_performance_end(void)
+{
+    if (s_ota_wifi_ps_saved) {
+        (void)esp_wifi_set_ps(s_ota_previous_wifi_ps);
+        s_ota_wifi_ps_saved = false;
+    }
+}
 
 static void *ota_scratch_malloc(size_t size)
 {
@@ -271,19 +310,22 @@ static esp_err_t manifest_devices_csv(const cJSON *devices, char *out, size_t ca
 static esp_err_t manifest_canonical(char *out,
                                     size_t cap,
                                     const char *channel,
+                                    const char *firmware_variant,
                                     const char *firmware_url,
                                     const char *sha256,
                                     int64_t bytes,
                                     const char *devices_csv)
 {
-    if (out == NULL || channel == NULL || firmware_url == NULL || sha256 == NULL || devices_csv == NULL ||
+    if (out == NULL || channel == NULL || firmware_variant == NULL || firmware_url == NULL ||
+        sha256 == NULL || devices_csv == NULL ||
         devices_csv[0] == '\0' || bytes <= 0) {
         return ESP_ERR_INVALID_ARG;
     }
     const int n = snprintf(out,
                            cap,
-                           "ota_channel=%s\nfirmware_url=%s\nsha256=%s\nbytes=%lld\ndevices=%s\n",
+                           "ota_channel=%s\nfirmware_variant=%s\nfirmware_url=%s\nsha256=%s\nbytes=%lld\ndevices=%s\n",
                            channel,
+                           firmware_variant,
                            firmware_url,
                            sha256,
                            bytes,
@@ -666,6 +708,9 @@ static esp_err_t fetch_manifest(const char *manifest_url, ota_job_t *job)
     if (!is_http_url(manifest_url) || job == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
+    if (!ota_heap_ready()) {
+        return ESP_ERR_NO_MEM;
+    }
     esp_http_client_config_t cfg = {
         .url = manifest_url,
         .timeout_ms = 12000,
@@ -729,6 +774,7 @@ static esp_err_t fetch_manifest(const char *manifest_url, ota_job_t *job)
             err = ESP_ERR_INVALID_RESPONSE;
         } else {
             const cJSON *channel = cJSON_GetObjectItemCaseSensitive(root, "ota_channel");
+            const cJSON *firmware_variant = cJSON_GetObjectItemCaseSensitive(root, "firmware_variant");
             const cJSON *url = cJSON_GetObjectItemCaseSensitive(root, "firmware_url");
             const cJSON *sha = cJSON_GetObjectItemCaseSensitive(root, "sha256");
             const cJSON *bytes = cJSON_GetObjectItemCaseSensitive(root, "bytes");
@@ -737,6 +783,10 @@ static esp_err_t fetch_manifest(const char *manifest_url, ota_job_t *job)
             const cJSON *signature = cJSON_GetObjectItemCaseSensitive(root, "signature");
             if (!cJSON_IsString(channel) || strcmp(channel->valuestring, ASTROLABE_FACULTY_OTA_CHANNEL) != 0) {
                 set_last("manifest wrong channel");
+                err = ESP_ERR_INVALID_VERSION;
+            } else if (!cJSON_IsString(firmware_variant) ||
+                       strcmp(firmware_variant->valuestring, ASTROLABE_FIRMWARE_VARIANT) != 0) {
+                set_last("manifest wrong firmware variant");
                 err = ESP_ERR_INVALID_VERSION;
             } else if (!cJSON_IsString(url) || !is_http_url(url->valuestring)) {
                 set_last("manifest missing firmware_url");
@@ -764,6 +814,7 @@ static esp_err_t fetch_manifest(const char *manifest_url, ota_job_t *job)
                     err = manifest_canonical(canonical,
                                              sizeof(canonical),
                                              channel->valuestring,
+                                             firmware_variant->valuestring,
                                              url->valuestring,
                                              sha->valuestring,
                                              expected_size,
@@ -811,10 +862,13 @@ static esp_err_t stream_install_url(const char *url,
 
     esp_http_client_config_t cfg = {
         .url = url,
-        .timeout_ms = 15000,
+        .timeout_ms = 60000,
         .buffer_size = OTA_IO_BUFFER_BYTES,
         .crt_bundle_attach = ota_crt_bundle_attach(),
-        .keep_alive_enable = false,
+        .keep_alive_enable = true,
+        .keep_alive_idle = 5,
+        .keep_alive_interval = 5,
+        .keep_alive_count = 6,
     };
     esp_http_client_handle_t client = esp_http_client_init(&cfg);
     if (client == NULL) {
@@ -1231,6 +1285,8 @@ static void ota_task(void *arg)
     } else {
         s_ota_state = OTA_STATE_ERROR;
         FACULTY175_LOG_STAGE_E(TAG, "ota", "install failed: %s (%s)", esp_err_to_name(err), s_ota_last);
+        ota_wifi_performance_end();
+        faculty175_display_resume_after_ota_error();
         if (job->from_recovery_request) {
             nvs_clear_pending_url();
         }
@@ -1247,8 +1303,20 @@ static esp_err_t start_install_job(const ota_job_t *src)
     if (src == NULL || src->url[0] == '\0' || (!src->local_file && !is_http_url(src->url))) {
         return ESP_ERR_INVALID_ARG;
     }
+    /* esp_http_client ultimately enters lwIP. Calling it before esp-netif and
+     * the Wi-Fi connection are ready asserts inside tcpip_send_msg_wait_sem
+     * instead of returning a recoverable network error. The serial console is
+     * available earlier in boot, so explicitly gate remote jobs. */
+    if (!src->local_file && !s_ota_network_ready) {
+        set_last("network not ready");
+        return ESP_ERR_INVALID_STATE;
+    }
+    ota_wifi_performance_begin();
+    const size_t released_dma_bytes = faculty175_display_prepare_ota();
     ota_job_t *job = calloc(1, sizeof(*job));
     if (job == NULL) {
+        ota_wifi_performance_end();
+        faculty175_display_resume_after_ota_error();
         return ESP_ERR_NO_MEM;
     }
     *job = *src;
@@ -1256,8 +1324,11 @@ static esp_err_t start_install_job(const ota_job_t *src)
     if (xTaskCreate(ota_task, "ota", OTA_TASK_STACK_BYTES, job, 6, NULL) != pdPASS) {
         s_ota_state = OTA_STATE_ERROR;
         free(job);
+        ota_wifi_performance_end();
+        faculty175_display_resume_after_ota_error();
         return ESP_ERR_NO_MEM;
     }
+    FACULTY175_LOG_STAGE(TAG, "ota", "worker started after releasing %u DMA bytes", (unsigned)released_dma_bytes);
     return ESP_OK;
 }
 
@@ -1281,7 +1352,8 @@ static void ota_auto_task(void *arg)
     vTaskDelay(pdMS_TO_TICKS(OTA_AUTO_INITIAL_DELAY_MS));
     while (true) {
         const uint32_t interval_s = nvs_get_auto_interval_s();
-        if (interval_s > 0 && s_ota_state != OTA_STATE_RUNNING) {
+        if (interval_s > 0 && !s_ota_auto_paused && !s_ota_test_locked &&
+            s_ota_state != OTA_STATE_RUNNING && ota_heap_ready()) {
             ota_job_t job = {
                 .manifest_url = true,
             };
@@ -1349,6 +1421,7 @@ static bool take_token(const char **cursor, char *out, size_t cap)
 void faculty175_ota_init(void)
 {
     s_ota_state = OTA_STATE_IDLE;
+    s_ota_network_ready = false;
     const esp_partition_t *running = esp_ota_get_running_partition();
     const esp_partition_t *boot = esp_ota_get_boot_partition();
     set_last("boot running=%s boot=%s", part_label(running), part_label(boot));
@@ -1386,6 +1459,16 @@ bool faculty175_ota_active(void)
     return s_ota_state == OTA_STATE_RUNNING;
 }
 
+void faculty175_ota_set_auto_paused(bool paused)
+{
+    s_ota_auto_paused = paused;
+}
+
+void faculty175_ota_set_network_ready(bool ready)
+{
+    s_ota_network_ready = ready;
+}
+
 void faculty175_ota_maybe_start_recovery_request(void)
 {
     const esp_partition_t *running = esp_ota_get_running_partition();
@@ -1414,7 +1497,7 @@ void faculty175_ota_start_auto_update_task(void)
         return;
     }
     s_ota_auto_started = true;
-    if (xTaskCreate(ota_auto_task, "ota_auto", 2048, NULL, 3, NULL) != pdPASS) {
+    if (xTaskCreate(ota_auto_task, "ota_auto", OTA_AUTO_TASK_STACK_BYTES, NULL, 3, NULL) != pdPASS) {
         s_ota_auto_started = false;
         set_last("auto task failed");
         FACULTY175_LOG_STAGE_W(TAG, "ota", "%s", s_ota_last);
@@ -1438,6 +1521,7 @@ bool faculty175_ota_handle(const char *line)
         printf("  ota usb [sha256]   # default: " OTA_LOCAL_DEFAULT_RELATIVE "\n");
         printf("  ota manifest <https-manifest-url>\n");
         printf("  ota recovery <https-url>\n");
+        printf("  ota test-lock <on|off|status>  # non-persistent power-test lock\n");
         printf("  ota auto <seconds|off|status>   # default: %u\n", (unsigned)OTA_AUTO_DEFAULT_INTERVAL_S);
         printf("  ota boot ota|factory|status\n");
         printf("  ota factory\n");
@@ -1456,6 +1540,25 @@ bool faculty175_ota_handle(const char *line)
             vTaskDelay(pdMS_TO_TICKS(250));
             esp_restart();
         }
+        return true;
+    }
+    if (strcasecmp(sub, "test-lock") == 0 || strncasecmp(sub, "test-lock ", 10) == 0) {
+        const char *value = skip_spaces(sub + 9);
+        esp_err_t err = ESP_OK;
+        if (*value == '\0' || strcasecmp(value, "status") == 0) {
+            /* status only */
+        } else if (strcasecmp(value, "on") == 0 || strcasecmp(value, "lock") == 0) {
+            s_ota_test_locked = true;
+        } else if (strcasecmp(value, "off") == 0 || strcasecmp(value, "unlock") == 0) {
+            s_ota_test_locked = false;
+        } else {
+            err = ESP_ERR_INVALID_ARG;
+        }
+        printf("ota: test-lock %s locked=%s active=%s\n",
+               esp_err_to_name(err),
+               s_ota_test_locked ? "yes" : "no",
+               s_ota_state == OTA_STATE_RUNNING ? "yes" : "no");
+        fflush(stdout);
         return true;
     }
     if (strncasecmp(sub, "boot ", 5) == 0) {

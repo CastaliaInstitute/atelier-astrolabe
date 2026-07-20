@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "esp_attr.h"
 #include "esp_timer.h"
 
 #include "faculty175_util.h"
@@ -10,7 +11,7 @@
 #define DISRUPTION_WINDOW_MS 60000u
 #define DISRUPTION_THRESHOLD 3u
 
-static faculty175_wifi_incident_t s_events[FACULTY175_WIFI_INCIDENT_MAX];
+EXT_RAM_BSS_ATTR static faculty175_wifi_incident_t s_events[FACULTY175_WIFI_INCIDENT_MAX];
 static uint32_t s_next_seq = 1;
 static size_t s_next_index;
 static size_t s_count;
@@ -166,4 +167,3 @@ void faculty175_wifi_monitor_clear(void)
     s_count = 0;
     s_disconnect_next = 0;
 }
-

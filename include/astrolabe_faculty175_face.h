@@ -4,11 +4,13 @@
  * Faculty175 — Waveshare ESP32-S3-Touch-AMOLED-1.75C round faculty pendant (face=faculty).
  *
  * Native ESP-IDF target: faculty175/. Distinct from faculty18 (1.8″ SH8601), facultyatom
- * (M5 AtomS3R), and the round watch Faculty face in sketches/Astrolabe/.
+ * (M5 AtomS3R), and the round watch Faculty face in astrolabe175c/main/.
  */
 
 #define ASTROLABE_FACULTY175_FACE_NAME "faculty"
+#ifndef ASTROLABE_FACULTY175_OTA_CHANNEL
 #define ASTROLABE_FACULTY175_OTA_CHANNEL "astrolabe-faculty-amoled175"
+#endif
 #define ASTROLABE_FACULTY175_DEFAULT_FACULTY_SLUG "a.darwin"
 #define ASTROLABE_FACULTY175_DEFAULT_FACULTY_NAME "Charles Darwin"
 

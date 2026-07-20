@@ -36,29 +36,38 @@ jobs:
         env:
           ASTROLABE175C_SKIP_LVGL_AUDIT: "1"
           FACULTY175_OTA_PRIVATE_KEY_PEM: ${{ secrets.FACULTY175_OTA_PRIVATE_KEY_PEM }}
-          FACULTY175_OTA_DEVICES: ${{ vars.FACULTY175_OTA_DEVICES || 'a0:f2:62:e3:06:44,44:1b:f6:85:52:74' }}
+          FACULTY175_OTA_DEVICES: ${{ vars.FACULTY175_OTA_DEVICES || 'a0:f2:62:e3:06:44,44:1b:f6:85:52:74,a4:cb:8f:d6:41:94' }}
         run: |
           test -n "$FACULTY175_OTA_PRIVATE_KEY_PEM"
-          docker run --rm \
-            -e ASTROLABE175C_SKIP_LVGL_AUDIT=1 \
-            -v "$GITHUB_WORKSPACE:/project" \
-            -w /project \
-            espressif/idf:v5.5.1 \
-            bash -lc 'git config --global --add safe.directory /project && ./scripts/astrolabe175c_build.sh build'
-          channel="astrolabe-faculty-amoled175"
-          out="docs/releases/integration/${channel}"
-          mkdir -p "$out"
-          cp astrolabe175c/build/astrolabe175c.bin "$out/firmware.bin"
           key="$(mktemp)"
           devices="$(mktemp)"
           printf '%s\n' "$FACULTY175_OTA_PRIVATE_KEY_PEM" > "$key"
           printf '%s\n' "$FACULTY175_OTA_DEVICES" | tr ', ' '\n\n' | sed '/^$/d' > "$devices"
-          python3 ./scripts/sign-astrolabe175c-ota-manifest.py \
-            --image "$out/firmware.bin" \
-            --firmware-url "https://astrolabe.castalia.institute/releases/integration/${channel}/firmware.bin" \
-            --private-key "$key" \
-            --devices-file "$devices" \
-            --out "$out/ota-manifest.json"
+          for spec in \
+            "faculty|Faculty|astrolabe-faculty-amoled175" \
+            "cyber|Cyber|astrolabe-cyber-175" \
+            "lunasay|LunaSay|astrolabe-lunasay-175"; do
+            IFS='|' read -r variant label channel <<< "$spec"
+            rm -rf astrolabe175c/build
+            docker run --rm \
+              -e ASTROLABE175C_SKIP_LVGL_AUDIT=1 \
+              -e "ASTROLABE175C_VARIANT=${variant}" \
+              -v "$GITHUB_WORKSPACE:/project" \
+              -w /project \
+              espressif/idf:v5.5.1 \
+              bash -lc 'git config --global --add safe.directory /project && ./scripts/astrolabe175c_build.sh build'
+            out="docs/releases/integration/${channel}"
+            mkdir -p "$out"
+            cp astrolabe175c/build/astrolabe175c.bin "$out/firmware.bin"
+            python3 ./scripts/sign-astrolabe175c-ota-manifest.py \
+              --image "$out/firmware.bin" \
+              --channel "$channel" \
+              --firmware-variant "$label" \
+              --firmware-url "https://astrolabe.castalia.institute/releases/integration/${channel}/firmware.bin" \
+              --private-key "$key" \
+              --devices-file "$devices" \
+              --out "$out/ota-manifest.json"
+          done
           rm -f "$key" "$devices"
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

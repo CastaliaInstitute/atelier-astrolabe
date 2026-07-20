@@ -1,6 +1,6 @@
 set(ASTROLABE_PNGDEC "${CMAKE_CURRENT_LIST_DIR}/../../lib/PNGdec/src")
 if(NOT EXISTS "${ASTROLABE_PNGDEC}/PNGdec.cpp")
-    message(FATAL_ERROR "Missing PNGdec. Run pio pkg install for waveshare_s3_175 or set ASTROLABE_PNGDEC.")
+    message(FATAL_ERROR "Missing lib/PNGdec/src. Restore the repository dependency or set ASTROLABE_PNGDEC.")
 endif()
 
 file(GLOB PNGDEC_SRCS "${ASTROLABE_PNGDEC}/*.cpp" "${ASTROLABE_PNGDEC}/*.c")

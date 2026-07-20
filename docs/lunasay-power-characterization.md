@@ -1,0 +1,408 @@
+# LunaSay power characterization
+
+This document defines the evidence required before LunaSay battery-life claims
+are used on Kickstarter. It deliberately separates functional smoke tests,
+projected runtime, and measured runtime to shutdown.
+
+## Test article and controls
+
+- Photograph the battery label before accepting any mAh-based calculation. The
+  [official 1.75C product documentation](https://docs.waveshare.com/ESP32-S3-Touch-AMOLED-1.75C)
+  distinguishes “with battery” and “without battery” SKUs but does not publish
+  the supplied cell capacity. Do not infer capacity from the enclosure or PMU.
+- Record firmware commit/build identifier, LunaSay build variant, full ELF
+  SHA-256, hardware revision, battery label and
+  rated capacity, battery cycle count when known, ambient temperature, and unit
+  identifier for every publishable run.
+- Charge to termination, then require a present cell, at least 99%, 4100–4400
+  mV, VBUS present, and charging inactive continuously throughout a 30-minute
+  docked rest. Record the final rested voltage and fuel-gauge percentage, then
+  remove VBUS with the controllable USB hub. Any condition leaving the window
+  restarts the timer.
+- Keep automatic brightness, face, Wi-Fi credentials, audio volume, prompt
+  cadence, and server/model configuration fixed for the whole run.
+- Acquire the firmware's non-NVS OTA test lock before the charge/rest gate and
+  retain it through VBUS restoration. The runner must refuse to begin if an OTA
+  job is already active and must confirm lock release during cleanup. The lock
+  survives deliberate deep sleep but does not change the owner's saved OTA
+  interval.
+- A runner must always restore VBUS on completion or failure. Network polling
+  may establish liveness but must not wake HTTP/audio services during idle runs.
+- Attribute only PMU samples between `vbus_off` and `vbus_on`. Never combine
+  docked history or another scenario with the current discharge segment.
+- Require firmware battery-only scenario counters or retained history metadata
+  to show that the requested display mode and Wi-Fi/BLE state dominated the
+  attributed interval. A requested scenario name alone is not evidence that it
+  was applied.
+- Firmware retains 255 fixed-cadence samples in NVS: 40-minute resolution for
+  up to 170 hours (past the seven-day run ceiling), plus source/charging
+  transitions. Fetch the ring only after
+  VBUS restoration so idle measurements do not wake the HTTP/audio stack.
+- Treat AXP2101 percentage as a coarse secondary signal and retain voltage for
+  every point. Waveshare documents that its AXP2101 percentage estimate is
+  voltage-based, nonlinear, and prone to fluctuations after load or charger
+  changes; rested voltage and complete runtime are therefore required.
+- Do not infer shutdown from lost pings. After restoring VBUS, require either a
+  low recovered endpoint (≤5% or ≤3400 mV), or all three independent reset
+  signals: an uptime discontinuity, ESP power-on reset, and AXP2101
+  `PWROFF_STATUS` bit 3 (VSYS undervoltage). The
+  [AXP2101 register specification](https://files.waveshare.com/wiki/common/X-power-AXP2101_SWcharge_V1.0.pdf)
+  defines register `0x21` bit 3 as the undervoltage power-off source.
+
+## Required matrix
+
+| Scenario | Display | Radios | Workload | Primary result |
+|---|---|---|---|---|
+| `full-wifi` | 100% | Wi-Fi | idle face | runtime to shutdown |
+| `full-offline` | 100% | off | idle face | display cost |
+| `dim-wifi` | 10% | Wi-Fi | idle face | runtime to shutdown |
+| `dim-offline` | 10% | off | idle face | display/radio separation |
+| `off-wifi` | off | Wi-Fi | idle/listener | connected standby runtime |
+| `sleep-offline` | off | off | CPU awake | display-off baseline |
+| true deep sleep | off/unused rails quiesced | off | timer + BOOT (GPIO0) wake | sleep current/runtime |
+| conversation | full, dim, and off | Wi-Fi | repeated STT→LLM→TTS | successful turns and hours |
+| journal/meeting | off | Wi-Fi as needed | repeated 30-second recording/transcription segments with no configured gap | recording hours and measured capture/upload duty cycle |
+| BLE advertising | full, dim, or off | BLE only | CoreBluetooth liveness probe | BLE standby runtime |
+| BLE configuration | off or dim | BLE | periodic fetch/set | configuration-session cost |
+
+Conversation qualification uses repeated real STT→LLM→TTS turns and requires
+at least ten successful end-to-end turns before a runtime gate can open.
+Journaling uses back-to-back 30-second captures with no configured inter-segment
+gap; in addition to ten successful segments, at least 75% of the battery-only
+interval must be accepted audio-capture time. Reported journal energy is per
+captured minute, and any eventual claim states the measured capture duty cycle
+rather than implying gapless recording.
+BLE runtime and configuration gates require at least 99% of scheduled
+CoreBluetooth probes to succeed. The eight-hour configuration test additionally
+requires at least four settings roundtrips completed wholly inside the analyzer
+window. A final incomplete Wi-Fi voice turn or the terminal BLE probe failures
+used to detect confirmed automatic low-voltage shutdown are treated as endpoint
+evidence, not workload failures; earlier completed operations must still
+satisfy their functional gates.
+
+Run every advertised mode to automatic low-voltage shutdown on one identified
+release-candidate unit/cell article, then repeat it on a second distinct
+identified unit/cell article. Shorter runs may be used
+to tune firmware but are not final runtime evidence. Release readiness also
+requires a synchronized battery-path analyzer trace covering at least 95% of
+each run and a recorded labeled cell capacity; runtime alone does not fully
+characterize power consumption. Both units contributing to a claim must share
+the same known hardware revision, LunaSay firmware version/full ELF SHA-256,
+committed harness build, and labeled cell capacity. Release cohorts are limited
+to the matrix's 15–30 °C indoor test window and no more than 5 °C spread between
+their contributing runs. Every generated claim draft states the actual
+temperature range and labeled cell capacity; it is not evidence for operation
+outside those conditions.
+
+The qualification matrix gives every full-runtime active test a seven-day
+safety ceiling, the longest scenario the firmware accepts. This is a ceiling,
+not the measurement endpoint: the runner stops as soon as confirmed automatic
+low-voltage shutdown occurs. A run that reaches the ceiling with the device
+still alive is projection evidence only and cannot satisfy a measured-runtime
+or Kickstarter-claim gate. The shorter BLE configuration test is explicitly a
+direct workload-energy test rather than a full-runtime test.
+
+## Current and energy measurement
+
+The on-board AXP2101 interface used by this board reports battery voltage,
+coarse fuel-gauge percentage, source, and charge/discharge state. It does not
+report instantaneous battery current. The AXP2101 register specification's ADC
+table lists only VBAT, VBUS, VSYS, TS voltage, and die temperature; its PMU
+status register reports current *direction* but no current magnitude. The
+controllable USB hub removes and restores VBUS reproducibly, but it is not a
+current meter. Consequently:
+
+- `rated_capacity_mAh / measured_runtime_h` may be reported as a
+  **capacity-derived average current** only after the physical cell label has
+  been photographed and recorded. It is not a direct current measurement, and
+  its uncertainty includes cell tolerance, age, temperature, conversion loss,
+  and the cutoff voltage.
+- Direct active-mode power requires an inline battery-path power analyzer or
+  coulomb counter. Record voltage, current, and accumulated mAh/Wh at a fixed
+  cadence while the hub controls VBUS. Measuring the USB input while charging
+  does not isolate device load from charger current.
+- Deep-sleep current must be measured with a microamp-capable instrument whose
+  burden voltage does not reset the board. Fuel-gauge percentage alone is too
+  coarse for a short sleep test; use a long battery-runtime test only as a
+  secondary cross-check.
+- For each scenario, report steady-state median current, peak current, energy
+  per voice turn or recorded minute where applicable, and full runtime. Until
+  an analyzer trace or labeled-capacity runtime exists, current and watt-hour
+  fields remain unknown rather than inferred from voltage slope.
+
+Store each synchronized matrix-run trace as `analyzer.csv` in that run's
+artifact directory; the report discovers those files automatically. Import a
+trace stored elsewhere with:
+
+```sh
+python3 scripts/lunasay_power_report.py --analyzer-csv /path/to/analyzer.csv
+```
+
+Qualified matrix execution requires an instrument-specific executable adapter.
+Add this argument fragment to the release-matrix command:
+
+```sh
+--analyzer-adapter /path/to/analyzer-adapter \
+--analyzer-model MODEL --analyzer-serial SERIAL \
+--analyzer-calibration-ref CALIBRATION_RECORD
+```
+
+The schema-9 release matrix also requires exact firmware continuity: the
+non-NVS OTA test lock, both docked identity checks, and the recovered/wake
+identity match must all be present in the child summary. Older artifacts that
+lack these fields cannot qualify even if they used an otherwise similar matrix.
+
+The harness invokes the adapter after charge/rest and serial preflight with
+`--run-id`, `--output`, `--ready-file`, `--stop-file`,
+`--instrument-model`, `--instrument-serial`, and `--calibration-ref`. The
+adapter must begin sampling, write at least its first CSV sample, and only then
+create `--ready-file`; it continues until the harness creates `--stop-file`,
+flushes the final sample, and exits zero. The harness refuses to switch VBUS
+until ready, requires the resulting trace to bracket the complete VBUS-off
+interval, validates every sample and identity field, and fails cleanup if the
+adapter hangs or exits unsuccessfully. Matrix state binds the adapter SHA-256
+and instrument identity, while the child summary and report manifests bind the
+finished trace. The adapter is deliberately instrument-specific; do not
+substitute hub VBUS current because it is removed during battery testing.
+
+The CSV requires `run_id`, positive-discharge `current_ma`, one time column
+(`epoch_s` or ISO-8601 `timestamp`), and one voltage column (`voltage_mv` or
+`voltage_v`). Qualified direct-current evidence also requires the repeated
+columns `instrument_model`, `instrument_serial`, and `calibration_ref`; the
+last value identifies the applicable certificate, factory-calibration record,
+or documented verification against a traceable reference. Missing, mixed, or
+placeholder instrument provenance is retained as
+`direct-battery-analyzer-unattributed` engineering data but cannot satisfy a
+release claim. Timestamps and electrical values must be finite, voltage must be
+positive, and current must be non-negative. Identical duplicate samples at
+chunk boundaries are deduplicated; conflicting samples for one run/timestamp
+reject the input. The report trapezoid-integrates charge and energy, records average
+and peak current, and calculates direct mWh per successful conversation turn,
+per recorded journal minute, or per scheduled BLE configuration-set interval.
+For those per-unit figures, both the beginning and end of each workload operation
+must fall inside the analyzer's actual first-to-last-sample window. Analyzer
+energy is divided only by these fully metered turns, recording minutes, or BLE
+roundtrips; whole-run counters are shown separately and are never used to make
+an incomplete analyzer window look more efficient.
+The BLE interval value includes intervening standby and settings reads; it is a
+workload-cycle value, not isolated GATT transaction energy.
+Without such a trace, those direct fields remain unknown; a labeled-capacity
+runtime is reported separately as
+`capacity-derived` current. A trace must span at least 95% of the attributed
+VBUS-off window to receive the `direct-battery-analyzer` label; shorter traces
+are retained but explicitly marked `direct-battery-analyzer-partial`, and their
+energy is not used for per-turn or per-recorded-minute claims. The default
+maximum gap between analyzer samples is 60 seconds. A trace exceeding it is
+marked `direct-battery-analyzer-gapped`, even if its first and last timestamps
+span the whole run, and is excluded from current, energy, and release claims.
+The report records actual median/maximum gaps and writes every threshold plus
+the matrix SHA-256 to `report_config.json`.
+
+The report may timestamp automatic shutdown from the first analyzer sample at
+or below `0.2 mA` when at least three near-zero samples remain near zero for
+five minutes. That electrical endpoint is accepted only when VBUS recovery also
+reports a reboot, power-on reset, and AXP2101 undervoltage power-off flag. Either
+signal alone is insufficient. For connected or voice workloads, a qualifying
+electrical collapse earlier than the runner's network-loss event replaces the
+later software timestamp; this avoids adding ping retries or a voice timeout to
+battery runtime. Radio-off idle runs rely on the same electrical endpoint
+because they have no in-band liveness transport. The threshold and sustain
+window are explicit `lunasay_power_report.py` options and the resulting
+`shutdown_basis` is preserved in CSV and Markdown output.
+For a radio-off run that remains physically disconnected until its safety
+ceiling, the report also recomputes firmware scenario-counter coverage against
+the confirmed electrical endpoint rather than counting the powered-off tail.
+It may restore an otherwise clean idle artifact only when the analyzer/PMU
+shutdown proof passes, runner and cleanup errors are absent, and the corrected
+display/radio counters or retained history prove the requested scenario.
+
+## True deep sleep gate
+
+The current ESP-IDF `sleep-offline` scenario is a display-off, radio-off idle
+baseline; the CPU remains awake. It must not be called deep sleep in reports.
+The previous Arduino implementation used ESP32 timer wake plus active-low GPIO0
+wake. The ESP-IDF port now implements the following behavior, but it remains
+unqualified until the hardware gates below pass:
+
+1. Reject entry while VBUS is present or a voice/OTA/write transaction is active.
+2. Mute the amplifier, stop I2S, hold its PA-enable GPIO low, stop Wi-Fi/BLE,
+   send AMOLED display-off and sleep-in, hold the shared display/touch reset
+   low through deep sleep, and quiesce safe AXP2101 peripheral rails without
+   disabling the ESP32 supply. Keep ALDO1 enabled: it powers the audio codecs,
+   which share SDA/SCL with the AXP2101 and clamp that bus low when unpowered.
+   Audio sleep current must therefore be included in the measured deep-sleep
+   result rather than assumed away.
+3. Persist the test start, requested wake interval, starting voltage/percentage,
+   firmware build, and wake reason across reset.
+4. Wake by BOOT/GPIO0 or timer, restore all required rails, and expose the completed
+   interval in serial/API telemetry.
+5. Demonstrate BOOT-button wake and timed wake on battery before beginning a long run.
+
+Builds older than `eaf5ee6f` could disable ALDO1 before sleep. Because the
+battery keeps the AXP2101 state alive across ESP resets and USB app flashes,
+that legacy state cannot be repaired through the clamped I2C bus: disconnect
+and reconnect the battery once, then flash/run the current build. The validator
+now refuses to arm when `/api/battery` reports that the PMU or cell is absent.
+Hub VBUS cycling alone is not a substitute for the battery/PMU power cycle.
+
+Run the non-publishable timer smoke gate first:
+
+```sh
+python3 scripts/lunasay_deep_sleep_validate.py \
+  --duration-min 2 --wake-source timer --allow-not-ready
+```
+
+Then run the physical wake gate and press BOOT only after the runner prints
+`awaiting_gpio0`:
+
+```sh
+python3 scripts/lunasay_deep_sleep_validate.py \
+  --duration-min 5 --wake-source gpio0 --boot-timeout-s 120 --allow-not-ready
+```
+
+Both gates require the device to disappear from the network, return on the
+expected wake cause, restore Wi-Fi and `/api/battery`, retain start telemetry,
+retain matching audio/AMOLED/PMU quiesce bits in both serial and API telemetry,
+and wake within the permitted time window. A deep-sleep claim requires a
+passing GPIO0 artifact for every unit contributing direct-current projection
+evidence; timer evidence alone cannot open the claim gate.
+
+After flashing a new release candidate, run the non-publishable post-flash
+smoke matrix before any charged qualification run:
+
+```sh
+python3 scripts/lunasay_power_matrix_run.py \
+  --matrix config/lunasay_power_smoke_matrix.json \
+  --firmware-image astrolabe175c/build/astrolabe175c.bin \
+  --state artifacts/qa/lunasay-power-smoke-state.json \
+  --unit-id luna-dev1 --battery-id smoke-cell --allow-not-ready
+```
+
+It exercises full, dim, and display-off STT→LLM→TTS; near-continuous journal
+capture; real BLE settings reads and verified writes; cleanup after every hub
+cycle; and timed deep sleep. All six tests remain `functional-only`. Delete or
+choose a new state file after changing firmware so an earlier smoke completion
+cannot be reused; the matrix hash prevents reuse after the smoke definition
+itself changes, while the app-image SHA-256 and descriptor-derived
+version/LunaSay/full-ELF identity prevent reuse after the firmware file changes.
+The physical BOOT/GPIO0 gate remains a separate operator action.
+
+Then run the acoustic Kickstarter face tour against the same exact image:
+
+```sh
+python3 scripts/lunasay_voice_soak.py --face-tour \
+  --firmware-image astrolabe175c/build/astrolabe175c.bin
+```
+
+It selects and completes STT→LLM→TTS on Moon, Astrology, Transits, Synastry,
+Tarot, Alethiometer, and Sky. The artifact records and requires the running
+device's project, version, `LunaSay` variant, and full ELF SHA-256 to match the
+supplied image before the first spoken turn.
+
+The board's separate PWR key connects to the AXP2101 `PWRON` input. Its `PWROK`
+output controls ESP32 reset, while `AXP_IRQ` is not routed to an ESP GPIO in the
+official schematic. Therefore firmware must not describe the PWR key as an
+ESP32 deep-sleep wake source; only BOOT/GPIO0 and the timer are asserted here.
+
+## Evidence levels
+
+- **Functional only:** mode applied correctly, source reports `battery`, and the
+  expected display/radio/voice behavior works. Firmware counters and retained
+  history prove the commanded display mode and radio state; they do not measure
+  panel luminance. Verify full and dim brightness visually (or with an optical
+  meter) during post-flash QA. No battery-life claim.
+- **Projected runtime:** at least one hour, at least three battery-only samples,
+  and at least 2% monotonic fuel-gauge drop. Label it as a projection.
+- **Measured runtime:** elapsed time from rested full charge to automatic
+  shutdown, with endpoint recovery confirmed when VBUS is restored.
+- **Kickstarter claim:** measured runtime repeated on a second release-candidate
+  unit. Publish a conservative rounded value and state the exact scenario.
+
+Generate the current evidence table and curve data with:
+
+```sh
+python3 scripts/lunasay_power_report.py
+```
+
+After flashing and completing the short smoke timer/BOOT wake gates, run the
+release matrix sequentially with a dedicated state file for each physical unit
+and battery:
+
+```sh
+python3 scripts/lunasay_power_matrix_run.py \
+  --firmware-image astrolabe175c/build/astrolabe175c.bin \
+  --unit-id luna-rc1 --hardware-revision RC1 \
+  --battery-id cell-serial-from-label --battery-cycle-count 0 --ambient-c 22 \
+  --battery-mah CAPACITY_FROM_LABEL --battery-photo /path/to/battery-label.jpg
+```
+
+The orchestrator resumes completed test IDs, binds its state to the matrix
+SHA-256, app-image SHA-256 and descriptor identity, source/harness build,
+device firmware build, hardware revision, battery
+identity/cycle count, and ambient temperature; records each exact test definition
+and command; and stamps every child artifact with the qualification matrix
+SHA-256, test ID, requested duration, capture/prompt cadence, macOS `say`
+settings, and BLE probe cadence. The report rejects manually similar or stale
+artifacts that are not bound to the current matrix definition. The orchestrator
+passes the exact app image to every child runner. Each child reads the docked
+device's project, version, LunaSay variant, and full ELF SHA-256 from the API
+before and after charge rest, and refuses to remove VBUS unless all four match
+that image. The recovered/wake identity must still match for the child to pass.
+The orchestrator then waits for charge termination and the required rest
+before every run; and stops at the first
+failure. A changed matrix requires a new state file rather than silently reusing
+stale completions. Use `--dry-run` to review all commands. `--allow-not-ready`
+is only for smoke tests and permanently classifies those artifacts as
+unqualified. Qualified runners copy the battery-label photo into every artifact
+directory and store its SHA-256 with the labeled capacity. The release matrix
+pauses at `true_deep_sleep_gpio0_gate`; press BOOT
+once only after the child runner prints `awaiting_gpio0`. That qualified,
+matrix-bound physical-wake artifact is required before the same unit's
+analyzer-backed timer projection can open a deep-sleep claim gate.
+
+Every matrix child also gets an independent hub-restore guard. The child still
+restores VBUS in its normal `finally` cleanup, but the detached guard forces the
+assigned port on after the child exits even if the runner or matrix parent was
+terminated before normal cleanup could run. A missing or failed guard makes the
+matrix attempt fail and is recorded in its resumable state.
+
+Qualified orchestration refuses a dirty host worktree. Claim generation rejects
+unknown or dirty firmware/harness identifiers and counts only the largest cohort
+of physical units running the exact same firmware and harness revisions. The
+GPIO0 wake artifact required for a deep-sleep claim must come from that same
+unit and build pair; evidence from another revision cannot be mixed in.
+
+BLE-only runs use the non-persistent firmware command `ble power-test on` and
+the native `scripts/lunasay_ble_probe.swift` CoreBluetooth client. Advertising
+runs scan for liveness. The `ble-config` workload connects to the settings GATT
+service and fetches and validates the settings JSON every minute. Once per hour
+it writes only the current epoch, then reads it back; the lower write cadence
+avoids needless NVS wear while still testing a real setting transaction. It
+deliberately does not echo the returned Wi-Fi object,
+because the read representation omits the password and echoing it would replace
+a stored credential with an empty password. The runner sends `ble power-test
+off` after recovery; neither power-test command changes the owner's saved BLE
+preference.
+
+The generated `report.md`, `runs.csv`, `deep_sleep_runs.csv`, `curves.csv`,
+`curves.svg`, analyzer-input hash manifest `analyzer_sources.json`, consumed-QA
+hash manifest `artifact_sources.json`, reproducibility manifest
+`report_config.json` (including the matrix and report-generator SHA-256), and
+sealed-output manifest `report_outputs.json` live under
+`artifacts/qa/lunasay-power-report/` by default. Verify the entire evidence
+chain after copying, archiving, or regenerating a report:
+
+`runs.csv` and `deep_sleep_runs.csv` preserve rested-start and battery-only
+start/end SOC and voltage. `curves.csv` preserves both absolute epoch time for
+analyzer alignment and elapsed time for plotting.
+
+```bash
+scripts/lunasay_power_report_verify.py \
+  --report-dir artifacts/qa/lunasay-power-report
+```
+
+Verification fails if a consumed QA/analyzer source, the qualification matrix,
+the report generator, or any generated CSV/SVG/Markdown/manifest output has
+changed. The hash manifests provide reproducibility and tamper detection, not
+authenticity; preserve them in a signed release artifact before publishing a
+claim.

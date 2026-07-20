@@ -1,0 +1,58 @@
+plugins {
+    id "com.android.application"
+}
+
+def repositoryRoot = rootProject.projectDir.parentFile.parentFile
+def generatedAssets = layout.buildDirectory.dir("generated/flasherAssets")
+
+android {
+    namespace "org.castaliainstitute.astrolabe.flasher"
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "org.castaliainstitute.astrolabe.flasher"
+        minSdk 21
+        targetSdk 35
+        versionCode 2
+        versionName "0.2.0"
+    }
+
+    sourceSets.main.assets.srcDir(generatedAssets)
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+tasks.register("prepareFlasherAssets", Exec) {
+    inputs.files(
+        file("${rootProject.projectDir}/prepare_assets.py"),
+        file("${repositoryRoot}/docs/flasher/index.html"),
+        file("${repositoryRoot}/docs/flasher/flasher.js"),
+        file("${repositoryRoot}/docs/flasher/manifest.webmanifest"),
+        file("${repositoryRoot}/docs/flasher/service-worker.js"),
+        file("${repositoryRoot}/docs/flasher/icon-192.png"),
+        file("${repositoryRoot}/docs/flasher/icon-512.png"),
+        file("${repositoryRoot}/docs/styles.css"),
+        file("${repositoryRoot}/docs/vendor/esptool-js-0.6.0.bundle.js"),
+        file("${rootProject.projectDir}/vendor/web-serial-polyfill.bundle.mjs"),
+        file("${rootProject.projectDir}/vendor/android-serial-bridge.mjs"),
+        file("${repositoryRoot}/astrolabe175c/build/flasher_args.json"),
+        file("${repositoryRoot}/astrolabe175c/build/bootloader/bootloader.bin"),
+        file("${repositoryRoot}/astrolabe175c/build/partition_table/partition-table.bin"),
+        file("${repositoryRoot}/astrolabe175c/build/ota_data_initial.bin"),
+        file("${repositoryRoot}/astrolabe175c/build/astrolabe175c.bin")
+    )
+    outputs.dir(generatedAssets)
+    commandLine(
+        "python3",
+        file("${rootProject.projectDir}/prepare_assets.py"),
+        repositoryRoot,
+        generatedAssets.get().asFile
+    )
+}
+
+tasks.named("preBuild").configure {
+    dependsOn("prepareFlasherAssets")
+}

@@ -37,14 +37,23 @@ static bool forced_profile(faculty175_face_profile_t *out)
 #elif defined(ASTROLABE_FORCE_VARIANT_CAMEO)
     *out = FACULTY175_FACE_PROFILE_CAMEO;
     return true;
+#elif defined(ASTROLABE_FORCE_VARIANT_CYBER)
+    *out = FACULTY175_FACE_PROFILE_CYBER;
+    return true;
 #elif defined(ASTROLABE_FORCE_VARIANT_LUOPAN) || defined(ASTROLABE_FORCE_VARIANT_ENSO) || \
-    defined(ASTROLABE_FORCE_VARIANT_SMART_SPEAKER) || defined(ASTROLABE_FORCE_VARIANT_BABEL_FISH)
+    defined(ASTROLABE_FORCE_VARIANT_SMART_SPEAKER) || defined(ASTROLABE_FORCE_VARIANT_BABEL_FISH) || \
+    defined(ASTROLABE_FORCE_VARIANT_ELECROW_128)
     *out = FACULTY175_FACE_PROFILE_DEFAULT;
     return true;
 #else
     (void)out;
     return false;
 #endif
+}
+
+bool faculty175_variant_forced_profile(faculty175_face_profile_t *out)
+{
+    return out != NULL && forced_profile(out);
 }
 
 static faculty175_face_profile_t default_profile(void)
@@ -57,6 +66,10 @@ static faculty175_face_profile_t default_profile(void)
     return FACULTY175_FACE_PROFILE_OCARINA;
 #elif defined(ASTROLABE_DEFAULT_VARIANT_CAMEO)
     return FACULTY175_FACE_PROFILE_CAMEO;
+#elif defined(ASTROLABE_DEFAULT_VARIANT_CYBER)
+    return FACULTY175_FACE_PROFILE_CYBER;
+#elif defined(ASTROLABE_DEFAULT_VARIANT_ELECROW_128)
+    return FACULTY175_FACE_PROFILE_CASTALIA;
 #else
     return FACULTY175_FACE_PROFILE_DEFAULT;
 #endif
@@ -71,6 +84,9 @@ static bool profile_from_variant(faculty175_variant_t variant, faculty175_face_p
         case FACULTY175_VARIANT_POCKET:
             *out = FACULTY175_FACE_PROFILE_DEFAULT;
             return true;
+        case FACULTY175_VARIANT_ELECROW_128:
+            *out = FACULTY175_FACE_PROFILE_CASTALIA;
+            return true;
         case FACULTY175_VARIANT_ASTROLABE:
             *out = FACULTY175_FACE_PROFILE_CASTALIA;
             return true;
@@ -82,6 +98,9 @@ static bool profile_from_variant(faculty175_variant_t variant, faculty175_face_p
             return true;
         case FACULTY175_VARIANT_CAMEO:
             *out = FACULTY175_FACE_PROFILE_CAMEO;
+            return true;
+        case FACULTY175_VARIANT_CYBER:
+            *out = FACULTY175_FACE_PROFILE_CYBER;
             return true;
         default:
             *out = FACULTY175_FACE_PROFILE_DEFAULT;
@@ -110,6 +129,9 @@ bool faculty175_variant_from_profile(faculty175_face_profile_t profile, faculty1
         case FACULTY175_FACE_PROFILE_CAMEO:
             *out = FACULTY175_VARIANT_CAMEO;
             return true;
+        case FACULTY175_FACE_PROFILE_CYBER:
+            *out = FACULTY175_VARIANT_CYBER;
+            return true;
         default:
             return false;
     }
@@ -134,6 +156,10 @@ const char *faculty175_variant_label(faculty175_variant_t variant)
             return "SmartSpeaker";
         case FACULTY175_VARIANT_BABEL_FISH:
             return "BabelFish";
+        case FACULTY175_VARIANT_ELECROW_128:
+            return "Elecrow128";
+        case FACULTY175_VARIANT_CYBER:
+            return "Cyber";
         default:
             return "Pocket";
     }
@@ -158,6 +184,10 @@ const char *faculty175_variant_ota_channel(faculty175_variant_t variant)
             return "astrolabe-smart-speaker-175";
         case FACULTY175_VARIANT_BABEL_FISH:
             return "astrolabe-babel-fish-175";
+        case FACULTY175_VARIANT_ELECROW_128:
+            return "astrolabe-elecrow-128-175";
+        case FACULTY175_VARIANT_CYBER:
+            return "astrolabe-cyber-175";
         default:
             return "dev";
     }
@@ -186,6 +216,14 @@ bool faculty175_variant_profile_from_slug(const char *slug, faculty175_face_prof
     }
     if (strcasecmp(slug, "Cameo") == 0) {
         *out = FACULTY175_FACE_PROFILE_CAMEO;
+        return true;
+    }
+    if (strcasecmp(slug, "Cyber") == 0) {
+        *out = FACULTY175_FACE_PROFILE_CYBER;
+        return true;
+    }
+    if (strcasecmp(slug, "Elecrow128") == 0 || strcasecmp(slug, "Elecrow") == 0) {
+        *out = FACULTY175_FACE_PROFILE_CASTALIA;
         return true;
     }
     return false;

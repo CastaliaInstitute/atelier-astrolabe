@@ -77,8 +77,16 @@ export async function speechRecognize(
   const data = JSON.parse(text) as {
     results?: Array<{ alternatives?: Array<{ transcript?: string }> }>;
   };
-  const first = data.results?.[0]?.alternatives?.[0]?.transcript?.trim() ?? "";
-  return first;
+  return combineSpeechTranscripts(data.results);
+}
+
+export function combineSpeechTranscripts(
+  results?: Array<{ alternatives?: Array<{ transcript?: string }> }>,
+): string {
+  return (results ?? [])
+    .map((result) => result.alternatives?.[0]?.transcript?.trim() ?? "")
+    .filter(Boolean)
+    .join(" ");
 }
 
 /** Default ~90s spoken at conversational pace (~2.5 words/s, ~15 chars/word). */
@@ -134,6 +142,16 @@ function geminiMaxOutputTokens(systemInstruction: string): number | undefined {
     s.includes("90 second") || s.includes("mini-reading") ||
     s.includes("under 90") || s.includes("tiny round watch")
   ) {
+    return 512;
+  }
+  if (
+    s.includes("under 25 seconds") || s.includes("under ~25 seconds") ||
+    s.includes("never exceed 35 spoken words")
+  ) {
+    /* Gemini 2.5 may spend part of maxOutputTokens on internal reasoning.
+     * A 128-token ceiling can therefore surface only the first few words of
+     * an otherwise simple watch answer. Spoken duration is bounded later by
+     * capTextForWatchTts, so retain enough generation headroom here. */
     return 512;
   }
   return undefined;

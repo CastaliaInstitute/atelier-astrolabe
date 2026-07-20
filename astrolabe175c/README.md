@@ -2,7 +2,7 @@
 
 Native ESP-IDF target for the **[Waveshare ESP32-S3-Touch-AMOLED-1.75C](https://www.waveshare.com/esp32-s3-touch-amoled-1.75c.htm)**. This is the renamed successor to `faculty175/` and remains the round 466x466 AMOLED ESP-IDF app for the 1.75/1.75C hardware family.
 
-This is **not** the 1.8″ board ([`faculty18/`](../faculty18/)), M5 FacultyAtom ([`facultyatom/`](../facultyatom/)), or the round watch Faculty face in the main sketch.
+This is **not** the 1.8″ board ([`faculty18/`](../faculty18/)) or M5 FacultyAtom ([`facultyatom/`](../facultyatom/)). It is the canonical round-watch implementation.
 
 ## Hardware
 
@@ -26,7 +26,47 @@ Reference: [waveshareteam/ESP32-S3-Touch-AMOLED-1.75C](https://github.com/wavesh
 
 - Pipeline: Supabase `voice-pipeline` with **`face=faculty`**
 - Contract: [`include/astrolabe_faculty175_face.h`](../include/astrolabe_faculty175_face.h)
-- OTA channel: `astrolabe-faculty-amoled175`
+- Faculty OTA channel: `astrolabe-faculty-amoled175`
+- Cyber OTA channel: `astrolabe-cyber-175`
+- LunaSay OTA channel: `astrolabe-lunasay-175`
+
+## Automatic OTA
+
+After Wi-Fi starts, baseline builds check the signed `integration` OTA manifest after 20 seconds and
+then every 60 seconds. Both `integration` and promoted `main` builds publish this baseline path.
+
+The interval is persistent and configurable per device from the serial console (minimum 60 seconds):
+
+```text
+ota auto status
+ota auto 300
+ota auto off
+```
+
+The compiled fallback can also be changed for a build:
+
+```bash
+ASTROLABE175C_OTA_AUTO_INTERVAL_S=300 ./scripts/astrolabe175c_build.sh build
+```
+
+## Automatic OTA
+
+After Wi-Fi starts, baseline builds check the signed `integration` OTA manifest after 20 seconds and
+then every 60 seconds. Both `integration` and promoted `main` builds publish this baseline path.
+
+The interval is persistent and configurable per device from the serial console (minimum 60 seconds):
+
+```text
+ota auto status
+ota auto 300
+ota auto off
+```
+
+The compiled fallback can also be changed for a build:
+
+```bash
+ASTROLABE175C_OTA_AUTO_INTERVAL_S=300 ./scripts/astrolabe175c_build.sh build
+```
 
 ## Build
 
@@ -36,6 +76,34 @@ cp include/secrets.example.h include/secrets.local.h   # WiFi + Supabase
 ./scripts/astrolabe175c_build.sh build
 ./scripts/astrolabe175c_build.sh -p /dev/cu.usbmodem1101 flash monitor
 ```
+
+To flash a local build from an Android phone over USB-C, use the installable
+[Android PWA flash bridge](../docs/flasher/README.md):
+
+```sh
+./scripts/android_flash_bridge.py --build
+```
+
+The default `faculty` variant excludes the USB KM/screen faces and their
+installer assets. Build the `cyber` variant to include them and force the Cyber
+face profile:
+
+```bash
+ASTROLABE175C_VARIANT=cyber ./scripts/astrolabe175c_build.sh build
+ASTROLABE175C_VARIANT=cyber ./scripts/astrolabe175c_build.sh -p /dev/cu.usbmodem1101 flash monitor
+```
+
+Build the Kickstarter LunaSay variant to force the LunaSay identity, face
+profile, and signed LunaSay OTA channel:
+
+```bash
+ASTROLABE175C_VARIANT=lunasay ./scripts/astrolabe175c_build.sh build
+ASTROLABE175C_VARIANT=lunasay ./scripts/astrolabe175c_build.sh -p /dev/cu.usbmodem1101 flash monitor
+```
+
+OTA publishing builds and signs all three variants independently. Firmware accepts
+only a manifest whose `channel` and `firmware_variant` match the running build,
+so a device cannot install another product variant's OTA.
 
 Requires ESP-IDF **5.5+** (matches Waveshare 1.75C examples). Clone vendor XPowersLib if missing:
 
@@ -85,6 +153,23 @@ python3 ./scripts/msc_ota_demo.py astrolabe175c \
 That script copies the built image onto the mounted MSC volume at `update/astrolabe175c.bin`,
 computes its SHA-256, and then issues `ota usb <sha256>` over the CDC console.
 
+## Raspberry Pi keyboard, mouse, and software screen
+
+These features are present only in the `cyber` build variant. Its `USB Screen`
+face presents one composite USB device with CDC serial, the `usbflash` MSC
+volume, and boot-protocol keyboard and mouse interfaces. The HID face shows a
+per-boot Wi-Fi pairing code; the paired `/km` page provides a remote touchpad
+and keyboard. Other faces restore the fixed USB Serial/JTAG console.
+
+For a Raspberry Pi OS desktop that does not yet have the optional screen agent, wait for the
+installer volume containing the `ASTROLABE` directory to mount and tap the HID face twice within ten seconds. Astrolabe opens a
+terminal and runs the installer from the MSC volume. The first tap only arms the action, so an
+ordinary accidental tap cannot type a command into the Pi.
+
+USB NCM is disabled in this composite configuration to stay within the ESP32-S3 USB endpoint
+budget. See [`../docs/raspberry-pi-km-screen.md`](../docs/raspberry-pi-km-screen.md) for pairing,
+CDC commands, installer behavior, and the software-screen protocol.
+
 ## Which board do I have?
 
 | Waveshare module | Flash | Display | I2C fingerprint | Astrolabe firmware |
@@ -111,4 +196,4 @@ If `TCA9554=1` or `guess=ESP32-S3-Touch-AMOLED-1.8`, stop — flash **`faculty18
 
 - 1.8″ rectangular faculty: [`faculty18/`](../faculty18/)
 - M5 Atom FacultyAtom: [`facultyatom/`](../facultyatom/)
-- Round watch faculty face: [`sketches/Astrolabe/faces/faculty/`](../sketches/Astrolabe/faces/faculty/)
+- Round watch faces: [`main/`](main/)

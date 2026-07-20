@@ -23,6 +23,8 @@ SOURCE_URL = "https://upload.wikimedia.org/wikipedia/commons/thumb/7/74/Moon_tex
 SOURCE = ROOT / "sketches" / "Astrolabe" / "assets" / "source_nasa_svs_moon_1280.jpg"
 OUT_SPIFFS_PNG = ROOT / "faculty175" / "storage_seed" / "moon" / "moon_466_gray.png"
 OUT_SPIFFS_RGB565 = ROOT / "faculty175" / "storage_seed" / "moon" / "moon_466_soft.rgb565"
+OUT_175C_SPIFFS_PNG = ROOT / "astrolabe175c" / "storage_seed" / "moon" / "moon_466_gray.png"
+OUT_175C_SPIFFS_RGB565 = ROOT / "astrolabe175c" / "storage_seed" / "moon" / "moon_466_soft.rgb565"
 OUT_PNG = ROOT / "sketches" / "Astrolabe" / "assets" / "moon_466_gray.png"
 OUT_H = ROOT / "sketches" / "Astrolabe" / "pm_moon_tex.h"
 OUT_C = ROOT / "sketches" / "Astrolabe" / "pm_moon_tex.c"
@@ -175,11 +177,15 @@ def main() -> None:
     gray = make_texture()
     write_png_gray(OUT_SPIFFS_PNG, SIZE, SIZE, gray)
     write_rgb565(OUT_SPIFFS_RGB565, gray)
+    write_png_gray(OUT_175C_SPIFFS_PNG, SIZE, SIZE, gray)
+    write_rgb565(OUT_175C_SPIFFS_RGB565, gray)
     write_png_gray(OUT_PNG, SIZE, SIZE, gray)
     emit_h()
     emit_c(gray)
     print(f"Wrote {OUT_SPIFFS_PNG} ({OUT_SPIFFS_PNG.stat().st_size} bytes)")
     print(f"Wrote {OUT_SPIFFS_RGB565} ({OUT_SPIFFS_RGB565.stat().st_size} bytes)")
+    print(f"Wrote {OUT_175C_SPIFFS_PNG} ({OUT_175C_SPIFFS_PNG.stat().st_size} bytes)")
+    print(f"Wrote {OUT_175C_SPIFFS_RGB565} ({OUT_175C_SPIFFS_RGB565.stat().st_size} bytes)")
     print(f"Wrote {OUT_PNG} ({OUT_PNG.stat().st_size} bytes)")
     print(f"Wrote {OUT_H}")
     print(f"Wrote {OUT_C} ({len(gray)} bytes PROGMEM)")

@@ -9,6 +9,8 @@ extern "C" {
 #endif
 
 esp_err_t faculty175_usb_init(void);
+esp_err_t faculty175_usb_set_screen_face_active(bool active);
+bool faculty175_usb_screen_profile_active(void);
 esp_err_t faculty175_usb_storage_claim(void);
 bool faculty175_usb_storage_ready(void);
 bool faculty175_usb_storage_mounted(void);

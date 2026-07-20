@@ -14,3 +14,9 @@ verify_jwt = true
 
 [functions.faculty-bust]
 verify_jwt = true
+
+[functions.astrolabe-device-lookup]
+verify_jwt = true
+
+[functions.mynah-family-repo]
+verify_jwt = true

@@ -9,6 +9,7 @@
 
 #include "cJSON.h"
 #include "esp_crt_bundle.h"
+#include "esp_attr.h"
 #include "esp_heap_caps.h"
 #include "esp_http_client.h"
 #include "esp_log.h"
@@ -38,7 +39,7 @@ typedef enum {
 } quotes_state_t;
 
 static SemaphoreHandle_t s_lock;
-static faculty175_quote_t s_current;
+EXT_RAM_BSS_ATTR static faculty175_quote_t s_current;
 static volatile quotes_state_t s_state;
 static char s_last[96];
 static bool s_storage_checked;

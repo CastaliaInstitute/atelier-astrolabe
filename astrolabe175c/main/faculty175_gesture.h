@@ -3,6 +3,9 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
 typedef enum {
     FACULTY175_GESTURE_NONE = 0,
     FACULTY175_GESTURE_SWIPE_LEFT,
@@ -38,3 +41,5 @@ bool faculty175_gesture_inject(faculty175_gesture_kind_t kind, int16_t x, int16_
 
 /** 100 Hz touch poll (call faculty175_gesture_consume from main loop). */
 void faculty175_gesture_start_task(void);
+
+TaskHandle_t faculty175_gesture_task_handle(void);

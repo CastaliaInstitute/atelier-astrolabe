@@ -24,12 +24,29 @@ def normalize_mac(value: str) -> str:
     return mac
 
 
+def short_id_from_mac(mac: str) -> str:
+    """Match firmware's FNV-1a hash over NimBLE address byte order."""
+    raw = bytes(int(part, 16) for part in mac.split(":"))
+    h = 2166136261
+    for b in reversed(raw):
+        h ^= b
+        h = (h * 16777619) & 0xFFFFFFFF
+    short_id = ((h >> 16) ^ h) & 0xFFFF
+    return f"{short_id:04x}"
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mac", required=True, help="Device MAC from `device provision`.")
     parser.add_argument("--secret", required=True, help="64-char hex device secret from `device provision`.")
     parser.add_argument("--channel", default="astrolabe-faculty-amoled175")
     parser.add_argument("--label", default="")
+    parser.add_argument(
+        "--short-id",
+        default="",
+        help="Optional 4-hex display ID. Defaults to the firmware-compatible hash of --mac.",
+    )
+    parser.add_argument("--kind", default="astrolabe")
     parser.add_argument("--disabled", action="store_true")
     parser.add_argument("--url", default=os.environ.get("MYNAH_SUPABASE_URL") or os.environ.get("SUPABASE_URL"))
     parser.add_argument(
@@ -45,10 +62,17 @@ def main() -> None:
     if not HEX64_RE.fullmatch(secret):
         raise SystemExit("secret must be 64 lowercase/uppercase hex characters")
 
+    mac = normalize_mac(args.mac)
+    short_id = args.short_id.strip().lower() or short_id_from_mac(mac)
+    if not re.fullmatch(r"[0-9a-f]{4}", short_id):
+        raise SystemExit("short ID must be four hex characters")
+
     row = {
-        "mac": normalize_mac(args.mac),
+        "mac": mac,
         "channel": args.channel.strip(),
         "device_secret": secret,
+        "short_id": short_id,
+        "kind": args.kind.strip() or "astrolabe",
         "enabled": not args.disabled,
     }
     if args.label:

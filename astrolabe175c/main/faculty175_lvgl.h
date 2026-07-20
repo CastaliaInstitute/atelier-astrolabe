@@ -13,10 +13,12 @@ extern "C" {
 #endif
 
 esp_err_t faculty175_lvgl_init(void);
+bool faculty175_lvgl_preload_moon_texture(void);
 bool faculty175_lvgl_ready(void);
 void faculty175_lvgl_service(uint32_t now_ms);
 bool faculty175_lvgl_face_supported(faculty175_face_id_t id);
 bool faculty175_lvgl_draw_face(faculty175_face_id_t id, uint32_t anim_ms);
+void faculty175_lvgl_force_full_refresh(void);
 bool faculty175_lvgl_draw_native_face(const faculty175_native_face_t *face, uint32_t anim_ms);
 bool faculty175_lvgl_draw_nav(const faculty175_face_desc_t *center,
                               const faculty175_face_desc_t *left,

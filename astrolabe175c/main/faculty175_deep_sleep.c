@@ -1,0 +1,154 @@
+#include "faculty175_deep_sleep.h"
+
+#include <string.h>
+#include <time.h>
+
+#include "driver/gpio.h"
+#include "driver/rtc_io.h"
+#include "esp_attr.h"
+#include "esp_log.h"
+#include "esp_sleep.h"
+#include "esp_system.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
+#include "faculty175_board.h"
+
+#define DEEP_SLEEP_MAGIC 0x4c534450u /* LSDP */
+#define DEEP_SLEEP_MIN_S 60u
+#define DEEP_SLEEP_MAX_S (7u * 24u * 60u * 60u)
+#define DEEP_SLEEP_WAKE_GPIO GPIO_NUM_0
+
+typedef struct {
+    uint32_t magic;
+    uint32_t requested_sleep_s;
+    uint32_t started_epoch_s;
+    int32_t start_battery_percent;
+    uint16_t start_battery_mv;
+    uint16_t prepare_flags;
+} retained_sleep_t;
+
+static const char *TAG = "faculty175_sleep";
+RTC_DATA_ATTR static retained_sleep_t s_retained;
+static portMUX_TYPE s_request_mux = portMUX_INITIALIZER_UNLOCKED;
+static uint32_t s_pending_sleep_s;
+
+static void deep_sleep_recovery_restart(const char *subsystem, esp_err_t err)
+{
+    /* Preparation can leave codecs, radios, or display state partially shut
+       down. Invalidate the attempt before restarting so stale RTC telemetry
+       cannot be mistaken for a completed sleep cycle. */
+    s_retained.magic = 0;
+    s_retained.prepare_flags = 0;
+    ESP_LOGE(TAG, "deep sleep entry rejected: %s quiesce failed: %s; restarting",
+             subsystem, esp_err_to_name(err));
+    vTaskDelay(pdMS_TO_TICKS(100));
+    esp_restart();
+}
+
+bool faculty175_deep_sleep_request(uint32_t sleep_s)
+{
+    if (sleep_s < DEEP_SLEEP_MIN_S || sleep_s > DEEP_SLEEP_MAX_S) {
+        return false;
+    }
+    portENTER_CRITICAL(&s_request_mux);
+    s_pending_sleep_s = sleep_s;
+    portEXIT_CRITICAL(&s_request_mux);
+    return true;
+}
+
+void faculty175_deep_sleep_cancel(void)
+{
+    portENTER_CRITICAL(&s_request_mux);
+    s_pending_sleep_s = 0;
+    portEXIT_CRITICAL(&s_request_mux);
+}
+
+bool faculty175_deep_sleep_request_pending(void)
+{
+    portENTER_CRITICAL(&s_request_mux);
+    const bool pending = s_pending_sleep_s != 0;
+    portEXIT_CRITICAL(&s_request_mux);
+    return pending;
+}
+
+void faculty175_deep_sleep_status(faculty175_deep_sleep_status_t *out)
+{
+    if (out == NULL) {
+        return;
+    }
+    memset(out, 0, sizeof(*out));
+    out->pending = faculty175_deep_sleep_request_pending();
+    out->wake_cause = (int)esp_sleep_get_wakeup_cause();
+    if (s_retained.magic != DEEP_SLEEP_MAGIC) {
+        return;
+    }
+    out->retained = true;
+    out->requested_sleep_s = s_retained.requested_sleep_s;
+    out->started_epoch_s = s_retained.started_epoch_s;
+    out->start_battery_percent = s_retained.start_battery_percent;
+    out->start_battery_mv = s_retained.start_battery_mv;
+    out->prepare_flags = s_retained.prepare_flags;
+    const bool fully_prepared =
+        (out->prepare_flags & FACULTY175_DEEP_SLEEP_PREP_ALL) ==
+        FACULTY175_DEEP_SLEEP_PREP_ALL;
+    out->completed = fully_prepared &&
+                     (out->wake_cause == ESP_SLEEP_WAKEUP_TIMER ||
+                      out->wake_cause == ESP_SLEEP_WAKEUP_EXT0);
+}
+
+bool faculty175_deep_sleep_enter(const faculty175_pmu_status_t *pmu)
+{
+    uint32_t sleep_s = 0;
+    portENTER_CRITICAL(&s_request_mux);
+    sleep_s = s_pending_sleep_s;
+    s_pending_sleep_s = 0;
+    portEXIT_CRITICAL(&s_request_mux);
+    if (sleep_s < DEEP_SLEEP_MIN_S || pmu == NULL || !pmu->present ||
+        !pmu->battery_present || pmu->vbus_in || pmu->charging) {
+        ESP_LOGE(TAG, "deep sleep entry rejected: request=%lu battery=%d vbus=%d charging=%d",
+                 (unsigned long)sleep_s,
+                 pmu != NULL && pmu->battery_present,
+                 pmu != NULL && pmu->vbus_in,
+                 pmu != NULL && pmu->charging);
+        return false;
+    }
+
+    const time_t now = time(NULL);
+    s_retained = (retained_sleep_t){
+        .magic = DEEP_SLEEP_MAGIC,
+        .requested_sleep_s = sleep_s,
+        .started_epoch_s = now > 1700000000 ? (uint32_t)now : 0,
+        .start_battery_percent = pmu->battery_percent,
+        .start_battery_mv = pmu->battery_mv,
+    };
+
+    const esp_err_t audio_err = faculty175_audio_prepare_deep_sleep(1000);
+    if (audio_err != ESP_OK) {
+        /* Audio preparation can have closed codecs or disabled one I2S
+           channel before a later operation fails. Restart instead of leaving
+           an apparently awake device with a partially shut-down audio path. */
+        deep_sleep_recovery_restart("audio", audio_err);
+    }
+    s_retained.prepare_flags |= FACULTY175_DEEP_SLEEP_PREP_AUDIO;
+    const esp_err_t display_err = faculty175_display_prepare_deep_sleep();
+    if (display_err != ESP_OK) {
+        deep_sleep_recovery_restart("display", display_err);
+    }
+    s_retained.prepare_flags |= FACULTY175_DEEP_SLEEP_PREP_DISPLAY;
+    if (!faculty175_pmu_prepare_deep_sleep()) {
+        deep_sleep_recovery_restart("PMU rail", ESP_FAIL);
+    }
+    s_retained.prepare_flags |= FACULTY175_DEEP_SLEEP_PREP_PMU;
+
+    ESP_ERROR_CHECK(esp_sleep_enable_timer_wakeup((uint64_t)sleep_s * 1000000ULL));
+    ESP_ERROR_CHECK(rtc_gpio_pullup_en(DEEP_SLEEP_WAKE_GPIO));
+    ESP_ERROR_CHECK(rtc_gpio_pulldown_dis(DEEP_SLEEP_WAKE_GPIO));
+    ESP_ERROR_CHECK(esp_sleep_enable_ext0_wakeup(DEEP_SLEEP_WAKE_GPIO, 0));
+    ESP_LOGI(TAG,
+             "entering deep sleep for %lu s; timer or GPIO0 wakes",
+             (unsigned long)sleep_s);
+    vTaskDelay(pdMS_TO_TICKS(50));
+    esp_deep_sleep_start();
+    return true;
+}

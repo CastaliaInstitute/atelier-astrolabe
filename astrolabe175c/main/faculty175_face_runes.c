@@ -38,6 +38,7 @@ static const rune_t k_runes[RUNE_COUNT] = {
 static const char *const k_slots[SPREAD_COUNT] = {"PAST", "NOW", "NEXT"};
 static int s_spread[SPREAD_COUNT] = {0, 10, 22};
 static bool s_loaded;
+static bool s_dirty;
 
 static uint16_t c(uint8_t r, uint8_t g, uint8_t b)
 {
@@ -118,19 +119,32 @@ static void draw_rune_glyph(int idx, int cx, int cy, uint16_t color)
     }
 }
 
-static void spread_save(void)
+esp_err_t faculty175_face_runes_save(void)
 {
+    if (!s_dirty) {
+        return ESP_OK;
+    }
     nvs_handle_t nvs;
-    if (nvs_open(RUNES_NVS_NS, NVS_READWRITE, &nvs) != ESP_OK) {
-        return;
+    esp_err_t err = nvs_open(RUNES_NVS_NS, NVS_READWRITE, &nvs);
+    if (err != ESP_OK) {
+        return err;
     }
     for (int i = 0; i < SPREAD_COUNT; ++i) {
         char key[4];
         snprintf(key, sizeof(key), "r%d", i);
-        (void)nvs_set_i32(nvs, key, s_spread[i]);
+        err = nvs_set_i32(nvs, key, s_spread[i]);
+        if (err != ESP_OK) {
+            break;
+        }
     }
-    (void)nvs_commit(nvs);
+    if (err == ESP_OK) {
+        err = nvs_commit(nvs);
+    }
     nvs_close(nvs);
+    if (err == ESP_OK) {
+        s_dirty = false;
+    }
+    return err;
 }
 
 static void spread_load(void)
@@ -161,6 +175,11 @@ static void spread_load(void)
     }
 }
 
+void faculty175_face_runes_init(void)
+{
+    spread_load();
+}
+
 void faculty175_face_runes_cast(void)
 {
     bool used[RUNE_COUNT] = {};
@@ -173,7 +192,7 @@ void faculty175_face_runes_cast(void)
         s_spread[i] = idx;
     }
     s_loaded = true;
-    spread_save();
+    s_dirty = true;
 }
 
 bool faculty175_face_runes_current(int out_spread[3])

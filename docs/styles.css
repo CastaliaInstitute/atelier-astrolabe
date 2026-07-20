@@ -1142,6 +1142,41 @@ section {
   padding: 0 0 2rem;
 }
 
+.faces-catalog-hero .lede { max-width: 760px; }
+.faces-catalog-stats { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 1.5rem; }
+.faces-catalog-stats span { border: 1px solid rgba(191, 163, 107, 0.3); border-radius: 999px; color: var(--muted); padding: 0.55rem 0.85rem; }
+.faces-catalog-stats strong { color: var(--text); }
+.faces-catalog-tools { align-items: end; background: rgba(255, 255, 255, 0.025); border: 1px solid var(--line); border-radius: 18px; display: grid; gap: 1rem; grid-template-columns: minmax(220px, 1fr) minmax(180px, 0.45fr) auto; margin: 2rem 0 1rem; padding: 1rem; }
+.faces-catalog-tools label:not(.faces-catalog-check) { display: grid; gap: 0.4rem; }
+.faces-catalog-tools label > span { color: var(--muted); font-size: 0.78rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
+.faces-catalog-tools input[type="search"], .faces-catalog-tools select { background: #0d1018; border: 1px solid var(--line); border-radius: 10px; color: var(--text); font: inherit; min-height: 44px; padding: 0.65rem 0.75rem; width: 100%; }
+.faces-catalog-check { align-items: center; display: flex; gap: 0.55rem; min-height: 44px; }
+.faces-catalog-result { color: var(--muted); font-size: 0.9rem; margin: 0 0 1rem; }
+.faces-catalog { display: grid; gap: 1rem; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.face-catalog-card { background: linear-gradient(145deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.012)); border: 1px solid var(--line); border-radius: 18px; display: flex; flex-direction: column; min-height: 310px; padding: 1.15rem; }
+.face-catalog-card__head { align-items: start; display: flex; gap: 0.75rem; justify-content: space-between; }
+.face-catalog-card__head .eyebrow { margin: 0.3rem 0 0; }
+.face-catalog-card h2 { font-family: "Instrument Serif", serif; font-size: clamp(1.55rem, 2.4vw, 2rem); font-weight: 400; line-height: 1; margin: 1rem 0 0.35rem; }
+.face-catalog-card h2 a { color: inherit; }
+.face-catalog-card__slug { color: var(--muted); margin: 0; }
+.face-catalog-card blockquote { border-left: 2px solid rgba(191, 163, 107, 0.55); color: #d9d5ca; flex: 1; font-family: "Instrument Serif", serif; font-size: 1.14rem; line-height: 1.4; margin: 1.2rem 0; padding-left: 0.85rem; }
+.face-status { border: 1px solid; border-radius: 999px; flex: 0 0 auto; font-size: 0.72rem; font-weight: 600; letter-spacing: 0.04em; padding: 0.28rem 0.52rem; text-transform: uppercase; }
+.face-status--available { border-color: rgba(115, 201, 156, 0.45); color: #8edbb2; }
+.face-status--planned { border-color: rgba(191, 163, 107, 0.45); color: #d3b978; }
+.face-tts-button { align-self: flex-start; cursor: pointer; }
+.face-tts-button[aria-pressed="true"] { border-color: rgba(115, 201, 156, 0.6); color: #8edbb2; }
+.faces-catalog-noscript { border: 1px solid var(--line); border-radius: 12px; padding: 1rem; }
+
+@media (max-width: 900px) {
+  .faces-catalog { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .faces-catalog-tools { grid-template-columns: 1fr 1fr; }
+}
+
+@media (max-width: 620px) {
+  .faces-catalog, .faces-catalog-tools { grid-template-columns: 1fr; }
+  .face-catalog-card { min-height: 0; }
+}
+
 .variant-section {
   display: grid;
   gap: 1rem;
@@ -1608,7 +1643,8 @@ body.tool-page {
 }
 
 .flasher-panel,
-.terminal-panel {
+.terminal-panel,
+.diagnostic-panel {
   border: 1px solid var(--line);
   border-radius: 10px;
   background: rgba(16, 22, 34, 0.86);
@@ -1616,7 +1652,8 @@ body.tool-page {
 }
 
 .flasher-panel--notes h2,
-.terminal-panel h2 {
+.terminal-panel h2,
+.diagnostic-panel h2 {
   font-family: "DM Sans", system-ui, sans-serif;
   font-size: 0.95rem;
   font-weight: 700;
@@ -1746,10 +1783,17 @@ body.tool-page {
   transform: none;
 }
 
+.flash-status {
+  margin-top: 1rem;
+  color: var(--text-muted);
+  font: 0.82rem/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  overflow-wrap: anywhere;
+}
+
 .flash-progress {
   width: 100%;
   height: 12px;
-  margin-top: 1rem;
+  margin-top: 0.45rem;
   accent-color: var(--gold);
 }
 
@@ -1759,6 +1803,11 @@ body.tool-page {
   overflow: hidden;
 }
 
+.diagnostic-panel {
+  margin-top: 1rem;
+}
+
+.diagnostic-panel__bar,
 .terminal-panel__bar {
   display: flex;
   align-items: center;
@@ -1768,10 +1817,16 @@ body.tool-page {
   padding: 0.75rem 1rem;
 }
 
+.diagnostic-panel__bar {
+  margin: -1.15rem -1.15rem 1rem;
+}
+
+.diagnostic-panel__bar h2,
 .terminal-panel__bar h2 {
   margin: 0;
 }
 
+.diagnostic-panel__bar button,
 .terminal-panel__bar button {
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -1780,6 +1835,43 @@ body.tool-page {
   padding: 0.4rem 0.65rem;
 }
 
+.diagnostic-grid {
+  border: 1px solid rgba(201, 168, 76, 0.18);
+  border-radius: 8px;
+  background: rgba(201, 168, 76, 0.06);
+  padding: 0.95rem;
+}
+
+.diagnostic-grid dl {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0;
+}
+
+.diagnostic-grid div {
+  display: grid;
+  grid-template-columns: 9rem minmax(0, 1fr);
+  gap: 0.6rem;
+}
+
+.diagnostic-grid dt {
+  color: var(--gold);
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.diagnostic-grid dd {
+  margin: 0;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.diagnostic-actions {
+  margin-top: 0.9rem;
+}
+
+.diagnostic-output,
 .terminal-panel pre {
   min-height: 240px;
   max-height: 460px;
@@ -1790,4 +1882,11 @@ body.tool-page {
   font: 0.82rem/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   padding: 1rem;
   white-space: pre-wrap;
+}
+
+.diagnostic-output {
+  min-height: 120px;
+  max-height: 260px;
+  margin-top: 1rem;
+  border-radius: 8px;
 }

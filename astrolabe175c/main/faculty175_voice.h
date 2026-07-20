@@ -30,8 +30,10 @@ typedef struct {
 } faculty175_voice_tts_stream_t;
 
 typedef struct {
+    const char *face;
     const char *faculty_slug;
     const char *faculty_name;
+    const char *system_instruction;
     const char *history;
 } faculty175_voice_stt_stream_config_t;
 
@@ -39,6 +41,9 @@ void faculty175_voice_result_free(faculty175_voice_result_t *result);
 
 /** True when internal heap is sufficient for TLS + streaming voice pipeline work. */
 bool faculty175_voice_heap_ready(const char *stage);
+
+/** True when the configured voice endpoint can be called. reason may be NULL. */
+bool faculty175_voice_config_ready(char *reason, size_t reason_cap);
 
 /** POST mono PCM @ 16 kHz to Castalia voice-pipeline (face=faculty). Allocates mp3 on success. */
 esp_err_t faculty175_voice_post_pcm(const uint8_t *pcm,
@@ -100,7 +105,10 @@ void faculty175_voice_stream_cancel(void);
 
 esp_err_t faculty175_voice_play_mp3(const uint8_t *mp3, size_t mp3_len);
 esp_err_t faculty175_voice_play_mp3_async(const uint8_t *mp3, size_t mp3_len);
+/** Play a spooled MP3 synchronously. The caller's task stack must be internal RAM. */
+esp_err_t faculty175_voice_play_mp3_file_sync(const char *path, size_t mp3_len);
 esp_err_t faculty175_voice_play_mp3_file(const char *path, size_t mp3_len);
+bool faculty175_voice_tts_playback_busy(void);
 
 esp_err_t faculty175_voice_tts_speaker_stream_begin(void);
 esp_err_t faculty175_voice_tts_speaker_stream_write(const uint8_t *mp3_chunk, size_t chunk_len);

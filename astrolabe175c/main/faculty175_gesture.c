@@ -23,7 +23,7 @@ static const char *TAG = "faculty_gesture";
 #define GESTURE_CENTER_LONG_TAP_MAX_R 150
 #define GESTURE_POLL_MS 16
 #define GESTURE_QUEUE_DEPTH 8
-#define GESTURE_NAV_MAX_AGE_MS 360
+#define GESTURE_NAV_MAX_AGE_MS 1000
 #define GESTURE_TAP_MAX_AGE_MS 650
 #define GESTURE_TASK_PRIO 5
 #define GESTURE_TASK_STACK 4096
@@ -493,4 +493,9 @@ void faculty175_gesture_start_task(void)
         ESP_LOGE(TAG, "gesture task start failed");
         s_task = NULL;
     }
+}
+
+TaskHandle_t faculty175_gesture_task_handle(void)
+{
+    return s_task;
 }

@@ -17,12 +17,22 @@ static faculty175_face_profile_t s_profile = FACULTY175_FACE_PROFILE_DEFAULT;
 
 static bool face_is_anchor(faculty175_face_id_t id)
 {
-    return id == FACULTY175_FACE_POCKETWATCH || id == FACULTY175_FACE_SETTINGS;
+    return id == FACULTY175_FACE_FACULTY || id == FACULTY175_FACE_POCKETWATCH ||
+           id == FACULTY175_FACE_IRONMAN || id == FACULTY175_FACE_SETTINGS;
 }
 
 static bool face_is_nav_anchor(faculty175_face_id_t id)
 {
-    return id == FACULTY175_FACE_POCKETWATCH;
+    return id == FACULTY175_FACE_FACULTY || id == FACULTY175_FACE_POCKETWATCH ||
+           id == FACULTY175_FACE_IRONMAN;
+}
+
+static bool profile_anchor_enabled(faculty175_face_profile_t profile, faculty175_face_id_t id)
+{
+    if (profile == FACULTY175_FACE_PROFILE_LUNASAY) {
+        return id == FACULTY175_FACE_SETTINGS;
+    }
+    return face_is_anchor(id);
 }
 
 static bool face_default_navigation_enabled(faculty175_face_id_t id)
@@ -44,6 +54,19 @@ static bool face_in_list(faculty175_face_id_t id, const faculty175_face_id_t *li
     return false;
 }
 
+static bool face_list_index(faculty175_face_id_t id, const faculty175_face_id_t *list, size_t count, size_t *out)
+{
+    for (size_t i = 0; i < count; ++i) {
+        if (list[i] == id) {
+            if (out != NULL) {
+                *out = i;
+            }
+            return true;
+        }
+    }
+    return false;
+}
+
 static const faculty175_face_id_t k_secops_faces[] = {
     FACULTY175_FACE_WSCAN,
     FACULTY175_FACE_DEAUTH,
@@ -54,6 +77,7 @@ static const faculty175_face_id_t k_secops_faces[] = {
 };
 
 static const faculty175_face_id_t k_fortune_faces[] = {
+    FACULTY175_FACE_SOLAR,
     FACULTY175_FACE_TAROT,
     FACULTY175_FACE_LENORMAND,
     FACULTY175_FACE_RUNES,
@@ -67,23 +91,32 @@ static const faculty175_face_id_t k_fortune_faces[] = {
 static const faculty175_face_id_t k_lunasay_faces[] = {
     FACULTY175_FACE_MOON,
     FACULTY175_FACE_ASTROLOGY,
-    FACULTY175_FACE_SYNASTRY,
     FACULTY175_FACE_TRANSITS,
-    FACULTY175_FACE_SKY,
+    FACULTY175_FACE_SYNASTRY,
     FACULTY175_FACE_TAROT,
-    FACULTY175_FACE_RUNES,
     FACULTY175_FACE_ALETHIOMETER,
-    FACULTY175_FACE_INQ,
-    FACULTY175_FACE_LENORMAND,
-    FACULTY175_FACE_GEOMANCY,
-    FACULTY175_FACE_PYTHIA,
-    FACULTY175_FACE_ENOCHIAN,
-    FACULTY175_FACE_HUMAN_DESIGN,
-    FACULTY175_FACE_ALMANAC,
-    FACULTY175_FACE_PHENOLOGY,
-    FACULTY175_FACE_SOLAR,
-    FACULTY175_FACE_MAGNETOSPHERE,
+    FACULTY175_FACE_SKY,
+    FACULTY175_FACE_JOURNAL,
+    FACULTY175_FACE_CONVERSATION,
 };
+
+static esp_err_t apply_lunasay_navigation_order(void)
+{
+    static const uint8_t k_first_order = 220;
+    esp_err_t err = ESP_OK;
+    for (size_t i = 0; i < sizeof(k_lunasay_faces) / sizeof(k_lunasay_faces[0]); ++i) {
+        const faculty175_face_id_t id = k_lunasay_faces[i];
+        const uint8_t order = (uint8_t)(k_first_order + i);
+        if (faculty175_faces_order(id) == order) {
+            continue;
+        }
+        const esp_err_t step = faculty175_faces_set_order(id, order);
+        if (step != ESP_OK && err == ESP_OK) {
+            err = step;
+        }
+    }
+    return err;
+}
 
 static const faculty175_face_id_t k_castalia_faces[] = {
     FACULTY175_FACE_CLASSIC,
@@ -91,20 +124,33 @@ static const faculty175_face_id_t k_castalia_faces[] = {
     FACULTY175_FACE_DIGITAL,
     FACULTY175_FACE_CALCIFER,
     FACULTY175_FACE_CASTALIA,
+    FACULTY175_FACE_SOLAR,
     FACULTY175_FACE_WEATHER,
     FACULTY175_FACE_GLOBE,
     FACULTY175_FACE_RADAR,
     FACULTY175_FACE_ROCKET,
     FACULTY175_FACE_FOCUS,
     FACULTY175_FACE_BIOMETRICS,
+    FACULTY175_FACE_IRONMAN,
     FACULTY175_FACE_WATCHER,
     FACULTY175_FACE_LEVEL,
     FACULTY175_FACE_MAZE,
     FACULTY175_FACE_DEATHSTAR,
     FACULTY175_FACE_TRON,
+    FACULTY175_FACE_PSYCH_STATE,
     FACULTY175_FACE_SCALE,
-    FACULTY175_FACE_HID,
     FACULTY175_FACE_SPOTIFY,
+};
+
+static const faculty175_face_id_t k_cyber_faces[] = {
+    FACULTY175_FACE_CLASSIC,
+    FACULTY175_FACE_DIGITAL,
+    FACULTY175_FACE_TRON,
+    FACULTY175_FACE_WATCHER,
+    FACULTY175_FACE_WSCAN,
+    FACULTY175_FACE_INCIDENTS,
+    FACULTY175_FACE_HID,
+    FACULTY175_FACE_USB_SCREEN,
 };
 
 static const faculty175_face_id_t k_ocarina_faces[] = {
@@ -156,6 +202,9 @@ static const faculty175_face_id_t *profile_faces(faculty175_face_profile_t profi
         case FACULTY175_FACE_PROFILE_CAMEO:
             *count_out = sizeof(k_cameo_faces) / sizeof(k_cameo_faces[0]);
             return k_cameo_faces;
+        case FACULTY175_FACE_PROFILE_CYBER:
+            *count_out = sizeof(k_cyber_faces) / sizeof(k_cyber_faces[0]);
+            return k_cyber_faces;
         default:
             *count_out = 0;
             return NULL;
@@ -195,6 +244,10 @@ static esp_err_t restore_default_faces(void)
         if (step != ESP_OK && err == ESP_OK) {
             err = step;
         }
+        step = faculty175_faces_set_order(id, face->default_order);
+        if (step != ESP_OK && err == ESP_OK) {
+            err = step;
+        }
     }
     return err;
 }
@@ -213,10 +266,12 @@ static esp_err_t apply_profile_faces(faculty175_face_profile_t profile)
 
         bool enable = false;
         bool nav = false;
-        if (face_is_anchor(id)) {
+        if (profile_anchor_enabled(profile, id)) {
             enable = true;
             nav = face_is_nav_anchor(id);
-        } else if (allowed != NULL && face_in_list(id, allowed, count)) {
+        }
+        size_t profile_index = 0;
+        if (!enable && allowed != NULL && face_list_index(id, allowed, count, &profile_index)) {
             enable = true;
             nav = true;
         }
@@ -229,6 +284,16 @@ static esp_err_t apply_profile_faces(faculty175_face_profile_t profile)
         if (step != ESP_OK && err == ESP_OK) {
             err = step;
         }
+        if (enable && nav && !face_is_anchor(id)) {
+            const uint8_t order = profile_index < 220u ? (uint8_t)(20u + profile_index) : 239u;
+            step = faculty175_faces_set_order(id, order);
+            if (step != ESP_OK && err == ESP_OK) {
+                err = step;
+            }
+        }
+    }
+    if (err == ESP_OK && profile == FACULTY175_FACE_PROFILE_LUNASAY) {
+        err = apply_lunasay_navigation_order();
     }
     return err;
 }
@@ -236,7 +301,7 @@ static esp_err_t apply_profile_faces(faculty175_face_profile_t profile)
 bool faculty175_face_profile_face_allowed(faculty175_face_profile_t profile, faculty175_face_id_t id)
 {
     if (face_is_anchor(id)) {
-        return true;
+        return profile_anchor_enabled(profile, id);
     }
     if (profile == FACULTY175_FACE_PROFILE_DEFAULT) {
         const faculty175_face_desc_t *face = faculty175_faces_get(id);
@@ -255,35 +320,47 @@ faculty175_face_id_t faculty175_face_profile_home_face(faculty175_face_profile_t
         case FACULTY175_FACE_PROFILE_FORTUNE:
             return FACULTY175_FACE_TAROT;
         case FACULTY175_FACE_PROFILE_CASTALIA:
-            return FACULTY175_FACE_CLASSIC;
+            return FACULTY175_FACE_SOLAR;
         case FACULTY175_FACE_PROFILE_OCARINA:
             return FACULTY175_FACE_OCARINA;
         case FACULTY175_FACE_PROFILE_LUNASAY:
             return FACULTY175_FACE_MOON;
         case FACULTY175_FACE_PROFILE_CAMEO:
             return FACULTY175_FACE_FACULTY;
+        case FACULTY175_FACE_PROFILE_CYBER:
+            return FACULTY175_FACE_USB_SCREEN;
         default:
-            return FACULTY175_FACE_POCKETWATCH;
+            return FACULTY175_FACE_IRONMAN;
     }
 }
 
 esp_err_t faculty175_face_profile_apply(faculty175_face_profile_t profile, bool persist)
 {
-    if (profile > FACULTY175_FACE_PROFILE_CAMEO) {
+    if (profile > FACULTY175_FACE_PROFILE_CYBER) {
         return ESP_ERR_INVALID_ARG;
     }
 
     esp_err_t err = profile == FACULTY175_FACE_PROFILE_DEFAULT ? restore_default_faces()
                                                                : apply_profile_faces(profile);
-    if (err != ESP_OK) {
+    if (err != ESP_OK && profile != FACULTY175_FACE_PROFILE_LUNASAY) {
         return err;
+    }
+    if (err != ESP_OK) {
+        FACULTY175_LOG_STAGE(TAG,
+                             "profile",
+                             "LunaSay navigation applied with persistence warning: %s",
+                             esp_err_to_name(err));
     }
 
     s_profile = profile;
     const faculty175_face_id_t home = faculty175_face_profile_home_face(profile);
     const faculty175_face_desc_t *current = faculty175_faces_current();
-    if (current != NULL && !faculty175_faces_navigation_enabled(current->id)) {
-        (void)faculty175_faces_set_runtime(home);
+    if (profile == FACULTY175_FACE_PROFILE_LUNASAY ||
+        (current != NULL && !faculty175_faces_navigation_enabled(current->id))) {
+        const esp_err_t home_err = faculty175_faces_set_runtime(home);
+        if (home_err != ESP_OK) {
+            FACULTY175_LOG_STAGE(TAG, "profile", "home face failed: %s", esp_err_to_name(home_err));
+        }
     }
 
     FACULTY175_LOG_STAGE(TAG,
@@ -291,7 +368,7 @@ esp_err_t faculty175_face_profile_apply(faculty175_face_profile_t profile, bool 
                          "apply %s (%s)",
                          faculty175_face_profile_slug(profile),
                          faculty175_face_profile_label(profile));
-    if (persist) {
+    if (persist && err == ESP_OK) {
         err = persist_profile(profile);
         if (err != ESP_OK) {
             return err;
@@ -322,6 +399,13 @@ esp_err_t faculty175_face_profile_init(void)
         return err;
     }
 
+    faculty175_face_profile_t forced = FACULTY175_FACE_PROFILE_DEFAULT;
+    if (faculty175_variant_forced_profile(&forced)) {
+        stored = (uint8_t)forced;
+        stored_found = true;
+        FACULTY175_LOG_STAGE(TAG, "profile", "build variant forces %s", faculty175_face_profile_slug(forced));
+    }
+
     if (!stored_found) {
         faculty175_face_profile_t migrated = FACULTY175_FACE_PROFILE_DEFAULT;
         bool migrated_found = false;
@@ -335,7 +419,7 @@ esp_err_t faculty175_face_profile_init(void)
         }
     }
 
-    if (stored > (uint8_t)FACULTY175_FACE_PROFILE_CAMEO) {
+    if (stored > (uint8_t)FACULTY175_FACE_PROFILE_CYBER) {
         stored = (uint8_t)FACULTY175_FACE_PROFILE_DEFAULT;
     }
     s_profile = (faculty175_face_profile_t)stored;
@@ -362,6 +446,8 @@ const char *faculty175_face_profile_slug(faculty175_face_profile_t profile)
             return "lunasay";
         case FACULTY175_FACE_PROFILE_CAMEO:
             return "cameo";
+        case FACULTY175_FACE_PROFILE_CYBER:
+            return "cyber";
         default:
             return "default";
     }
@@ -382,6 +468,8 @@ const char *faculty175_face_profile_label(faculty175_face_profile_t profile)
             return "LunaSay";
         case FACULTY175_FACE_PROFILE_CAMEO:
             return "Cameo";
+        case FACULTY175_FACE_PROFILE_CYBER:
+            return "Cyber";
         default:
             return "Default";
     }
@@ -414,6 +502,10 @@ bool faculty175_face_profile_from_slug(const char *slug, faculty175_face_profile
     }
     if (strcasecmp(slug, "cameo") == 0 || strcasecmp(slug, "camea") == 0) {
         *out = FACULTY175_FACE_PROFILE_CAMEO;
+        return true;
+    }
+    if (strcasecmp(slug, "cyber") == 0) {
+        *out = FACULTY175_FACE_PROFILE_CYBER;
         return true;
     }
     if (strcasecmp(slug, "default") == 0) {

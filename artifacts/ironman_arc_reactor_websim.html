@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Iron Man Arc Reactor Face Mock</title>
+  <style>
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      background: #05080d;
+      overflow: hidden;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    .watch {
+      width: 466px;
+      height: 466px;
+      position: absolute;
+      inset: 50%;
+      transform: translate(-50%, -50%);
+      border-radius: 50%;
+      background:
+        radial-gradient(circle at center, rgba(120, 244, 255, 0.16) 0 14%, transparent 15%),
+        radial-gradient(circle at center, #101722 0 43%, #070a10 64%, #020306 100%);
+      box-shadow: 0 0 0 5px #232b36, 0 0 50px rgba(80, 225, 255, 0.14);
+      color: #b9f8ff;
+    }
+
+    .reactor {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 390px;
+      height: 390px;
+      transform: translate(-50%, -50%);
+      border-radius: 50%;
+      background:
+        repeating-conic-gradient(from 8deg, rgba(192, 252, 255, 0.95) 0 9deg, rgba(23, 125, 150, 0.35) 10deg 18deg),
+        radial-gradient(circle, #efffff 0 8%, #75f3ff 9% 19%, #123244 20% 32%, transparent 33%);
+      box-shadow: 0 0 26px rgba(127, 244, 255, 0.88), 0 0 90px rgba(32, 186, 226, 0.45);
+      animation: heartbeat 820ms ease-out infinite;
+    }
+
+    .reactor::before,
+    .reactor::after {
+      content: "";
+      position: absolute;
+      inset: 54px;
+      border-radius: 50%;
+      border: 4px solid rgba(213, 254, 255, 0.88);
+      box-shadow: inset 0 0 18px rgba(118, 246, 255, 0.7), 0 0 18px rgba(118, 246, 255, 0.42);
+    }
+
+    .reactor::after {
+      inset: 154px;
+      background: #eaffff;
+      border-color: #ffffff;
+      box-shadow: 0 0 18px #dfffff, 0 0 42px #5defff;
+    }
+
+    .armor {
+      position: absolute;
+      inset: 52px;
+      border-radius: 50%;
+      background:
+        linear-gradient(128deg, transparent 0 22%, #781817 23% 25%, transparent 26%),
+        linear-gradient(232deg, transparent 0 22%, #781817 23% 25%, transparent 26%),
+        radial-gradient(circle, transparent 0 38%, rgba(184, 34, 28, 0.84) 39% 40%, transparent 41%),
+        radial-gradient(circle, transparent 0 56%, rgba(222, 168, 57, 0.84) 57% 58%, transparent 59%);
+      opacity: 0.86;
+    }
+
+    @keyframes heartbeat {
+      0% { transform: translate(-50%, -50%) scale(1.08); filter: brightness(1.35); }
+      18% { transform: translate(-50%, -50%) scale(1.0); filter: brightness(1.0); }
+      100% { transform: translate(-50%, -50%) scale(0.98); filter: brightness(0.86); }
+    }
+  </style>
+</head>
+<body>
+  <main class="watch">
+    <div class="armor"></div>
+    <div class="reactor"></div>
+  </main>
+</body>
+</html>

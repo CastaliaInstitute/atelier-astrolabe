@@ -16,10 +16,13 @@ typedef enum {
     FACULTY175_VARIANT_ENSO = 6,
     FACULTY175_VARIANT_SMART_SPEAKER = 7,
     FACULTY175_VARIANT_BABEL_FISH = 8,
-    FACULTY175_VARIANT_COUNT = 9,
+    FACULTY175_VARIANT_ELECROW_128 = 9,
+    FACULTY175_VARIANT_CYBER = 10,
+    FACULTY175_VARIANT_COUNT = 11,
 } faculty175_variant_t;
 
 bool faculty175_variant_profile_from_nvs(faculty175_face_profile_t *out, bool *found_out);
+bool faculty175_variant_forced_profile(faculty175_face_profile_t *out);
 bool faculty175_variant_from_profile(faculty175_face_profile_t profile, faculty175_variant_t *out);
 bool faculty175_variant_profile_from_slug(const char *slug, faculty175_face_profile_t *out);
 esp_err_t faculty175_variant_persist_for_profile(faculty175_face_profile_t profile);

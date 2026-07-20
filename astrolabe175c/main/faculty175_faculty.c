@@ -1407,6 +1407,9 @@ void faculty175_faculty_request_bust_download(const char *slug)
 faculty175_faculty_bust_status_t faculty175_faculty_bust_status(void)
 {
     faculty175_faculty_bust_status_t status = FACULTY175_FACULTY_BUST_IDLE;
+    if (s_bust_lock == NULL) {
+        return status;
+    }
     if (xSemaphoreTake(s_bust_lock, pdMS_TO_TICKS(100)) == pdTRUE) {
         status = s_status;
         xSemaphoreGive(s_bust_lock);

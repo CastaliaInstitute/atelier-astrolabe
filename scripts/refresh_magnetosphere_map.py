@@ -24,8 +24,8 @@ from PIL import Image, ImageEnhance, ImageOps
 
 SIZE = 466
 ROOT = Path(__file__).resolve().parents[1]
-OUT_PNG = ROOT / "faculty175" / "storage_seed" / "space" / "magnetosphere_466.png"
-OUT_RGB565 = ROOT / "faculty175" / "storage_seed" / "space" / "magnetosphere_466.rgb565"
+OUT_PNG = ROOT / "astrolabe175c" / "storage_seed" / "space" / "magnetosphere_466.png"
+OUT_RGB565 = ROOT / "astrolabe175c" / "storage_seed" / "space" / "magnetosphere_466.rgb565"
 CCMC_PAGE = "https://ccmc.gsfc.nasa.gov/cgi-bin/SWMFpred.cgi"
 CCMC_OVERVIEW_PAGE = "https://ccmc.gsfc.nasa.gov/cgi-bin/display/RT_t.cgi"
 SWMF2023_BASE = "https://iswa.ccmc.gsfc.nasa.gov/iswa_data_tree/model/geospace/SWMF2023-RT"

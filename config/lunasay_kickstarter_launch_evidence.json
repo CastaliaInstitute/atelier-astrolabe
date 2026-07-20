@@ -1,0 +1,68 @@
+{
+  "as_of": "2026-07-18",
+  "target_launch_date": "2026-08-01",
+  "kickstarter": {
+    "review_status": "not_submitted",
+    "project_preview_url": null,
+    "prelaunch_url": null,
+    "live_campaign_url": null,
+    "approved_funding_goal": null,
+    "campaign_duration_days": null
+  },
+  "demand": {
+    "price_qualified_day_one_commitments": 0,
+    "minimum_goal_coverage_rate": 0.30,
+    "evidence_path": null
+  },
+  "release_candidate": {
+    "git_revision": null,
+    "firmware_sha256": "2354311cccbe9e6fe1bd5668ef706a3b9c9673a177260e99cc55bca89056a794",
+    "device_id": "44:1b:f6:85:52:74",
+    "nvs_variant": "lunasay",
+    "build_command": "ASTROLABE175C_VARIANT=lunasay ./scripts/astrolabe175c_build.sh build"
+  },
+  "device_runtime": {
+    "observed_at": "2026-07-18T06:10:01-06:00",
+    "profile": "lunasay",
+    "time_synced": true,
+    "timezone": "MST7MDT,M3.2.0,M11.1.0",
+    "location_valid": true,
+    "location_lat": 39.074406,
+    "location_lon": -104.844221,
+    "location_source": "user-city:Monument,CO"
+  },
+  "physical_qa": {
+    "featured_face_voice_tour": "artifacts/qa/lunasay-voice-soak-20260718-051136/summary.json",
+    "privacy_hardening_voice_smoke": "artifacts/qa/lunasay-voice-soak-20260718-052205/summary.json",
+    "post_ota_settings_voice_smoke": "artifacts/qa/lunasay-voice-soak-20260718-060300/summary.json",
+    "campaign_20_run_report": null,
+    "battery_report": null,
+    "ota_recovery_report": "artifacts/qa/lunasay-ota-recovery-20260718-055849/summary.json",
+    "usb_recovery_documentation": "docs/lunasay-usb-ota-recovery.md"
+  },
+  "ota_release": {
+    "production_manifest_url": null,
+    "public_key_status": "development",
+    "signed_manifest_validation_report": null,
+    "interrupted_transfer_report": null
+  },
+  "manufacturing_quotes": {
+    "100_units": null,
+    "500_units": null,
+    "1000_units": null,
+    "fulfillment": null,
+    "compliance": null
+  },
+  "campaign_assets": {
+    "hero_video": null,
+    "moon_photo": null,
+    "astrology_photo": null,
+    "transits_photo": null,
+    "synastry_photo": null,
+    "tarot_photo": null,
+    "alethiometer_video": null,
+    "sky_photo": null,
+    "privacy_data_flow": "docs/lunasay-privacy-and-data-flow.md",
+    "budget_graphic": null
+  }
+}

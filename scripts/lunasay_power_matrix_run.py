@@ -1,0 +1,546 @@
+#!/usr/bin/env python3
+"""Run the LunaSay power matrix sequentially with resumable, attributable artifacts."""
+
+from __future__ import annotations
+
+import argparse
+from datetime import datetime, timezone
+import fcntl
+import hashlib
+import json
+import math
+import os
+from pathlib import Path
+import subprocess
+import sys
+
+from lunasay_power_common import image_app_identity
+
+
+ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_MATRIX = ROOT / "config" / "lunasay_power_matrix.json"
+DEFAULT_FIRMWARE_IMAGE = ROOT / "astrolabe175c" / "build" / "astrolabe175c.bin"
+HUB_RESTORE_GUARD = ROOT / "scripts" / "lunasay_hub_restore_guard.py"
+
+
+def save_json(path: Path, value: dict) -> None:
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
+    temporary.replace(path)
+
+
+def common_args(args: argparse.Namespace, out_dir: Path, test: dict) -> list[str]:
+    values = [
+        "--ip", args.ip,
+        "--hub-location", args.hub_location,
+        "--hub-port", str(args.hub_port),
+        "--uhubctl", args.uhubctl,
+        "--out-dir", str(out_dir),
+        "--firmware-image", str(args.firmware_image.resolve()),
+        "--unit-id", args.unit_id,
+        "--hardware-revision", args.hardware_revision,
+        "--battery-id", args.battery_id,
+        "--rest-min", str(args.rest_min),
+        "--charge-ready-timeout-min", str(args.charge_ready_timeout_min),
+        "--charge-ready-min-mv", str(args.charge_ready_min_mv),
+        "--qualification-matrix-sha256", args.matrix_sha256,
+        "--qualification-test-id", str(test["id"]),
+    ]
+    if args.port:
+        values += ["--port", args.port]
+    if args.battery_mah is not None:
+        values += ["--battery-mah", str(args.battery_mah)]
+    if args.battery_photo is not None:
+        values += ["--battery-photo", str(args.battery_photo.resolve())]
+    if args.ambient_c is not None:
+        values += ["--ambient-c", str(args.ambient_c)]
+    if args.battery_cycle_count is not None:
+        values += ["--battery-cycle-count", str(args.battery_cycle_count)]
+    if args.allow_not_ready:
+        values.append("--allow-not-ready")
+    if args.analyzer_adapter is not None:
+        values += [
+            "--analyzer-adapter", str(args.analyzer_adapter.resolve()),
+            "--analyzer-model", args.analyzer_model,
+            "--analyzer-serial", args.analyzer_serial,
+            "--analyzer-calibration-ref", args.analyzer_calibration_ref,
+            "--analyzer-ready-timeout-s", str(args.analyzer_ready_timeout_s),
+            "--analyzer-stop-timeout-s", str(args.analyzer_stop_timeout_s),
+        ]
+    return values
+
+
+def command_for(test: dict, args: argparse.Namespace, out_dir: Path) -> list[str]:
+    duration_min = int(test["duration_min"])
+    if test.get("runner") == "deep-sleep":
+        command = [
+            sys.executable,
+            str(ROOT / "scripts" / "lunasay_deep_sleep_validate.py"),
+            "--duration-min", str(duration_min),
+            "--wake-source", str(test.get("wake_source", "timer")),
+            *common_args(args, out_dir, test),
+        ]
+        if "boot_timeout_s" in test:
+            command += ["--boot-timeout-s", str(test["boot_timeout_s"])]
+        return command
+    command = [
+        sys.executable,
+        str(ROOT / "scripts" / "lunasay_battery_validate.py"),
+        "--scenario", str(test["scenario"]),
+        "--workload", str(test["workload"]),
+        "--duration-min", str(duration_min),
+        *common_args(args, out_dir, test),
+    ]
+    optional = {
+        "capture_ms": "--capture-ms",
+        "turn_interval_s": "--turn-interval-s",
+        "journal_gap_s": "--journal-gap-s",
+        "turn_timeout_s": "--turn-timeout-s",
+        "say_rate": "--say-rate",
+        "say_volume": "--say-volume",
+        "ble_probe_interval_s": "--ble-probe-interval-s",
+        "ble_probe_timeout_s": "--ble-probe-timeout-s",
+        "ble_config_write_interval_s": "--ble-config-write-interval-s",
+    }
+    for key, flag in optional.items():
+        if key in test:
+            command += [flag, str(test[key])]
+    return command
+
+
+def hub_restore_guard_command(
+    args: argparse.Namespace,
+    out_dir: Path,
+    child_pid: int,
+) -> list[str]:
+    return [
+        sys.executable,
+        str(HUB_RESTORE_GUARD),
+        "--pid", str(child_pid),
+        "--uhubctl", args.uhubctl,
+        "--hub-location", args.hub_location,
+        "--hub-port", str(args.hub_port),
+        "--log", str(out_dir / "hub-restore-guard.log"),
+    ]
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--matrix", type=Path, default=DEFAULT_MATRIX)
+    parser.add_argument("--firmware-image", type=Path, default=DEFAULT_FIRMWARE_IMAGE,
+                        help="exact LunaSay app image expected on the device")
+    parser.add_argument("--artifact-root", type=Path, default=ROOT / "artifacts" / "qa")
+    parser.add_argument("--state", type=Path, default=ROOT / "artifacts" / "qa" / "lunasay-power-matrix-state.json")
+    parser.add_argument("--only", default="", help="comma-separated test IDs")
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--allow-not-ready", action="store_true",
+                        help="smoke-test only; skip charge termination/rest")
+    parser.add_argument("--ip", default="192.168.86.72")
+    parser.add_argument("--port", default="")
+    parser.add_argument("--hub-location", default="0-1.3")
+    parser.add_argument("--hub-port", type=int, default=1)
+    parser.add_argument("--uhubctl", default="/opt/homebrew/bin/uhubctl")
+    parser.add_argument("--unit-id", required=True)
+    parser.add_argument("--hardware-revision", default="")
+    parser.add_argument("--battery-id", required=True)
+    parser.add_argument("--battery-mah", type=float, default=None)
+    parser.add_argument("--battery-photo", type=Path, default=None)
+    parser.add_argument("--battery-cycle-count", type=int, default=None)
+    parser.add_argument("--ambient-c", type=float, default=None)
+    parser.add_argument("--rest-min", type=float, default=30.0)
+    parser.add_argument("--charge-ready-timeout-min", type=float, default=360.0)
+    parser.add_argument("--analyzer-adapter", type=Path, default=None)
+    parser.add_argument("--analyzer-model", default="")
+    parser.add_argument("--analyzer-serial", default="")
+    parser.add_argument("--analyzer-calibration-ref", default="")
+    parser.add_argument("--analyzer-ready-timeout-s", type=float, default=30.0)
+    parser.add_argument("--analyzer-stop-timeout-s", type=float, default=30.0)
+    args = parser.parse_args()
+    if args.battery_mah is not None and (
+        not math.isfinite(args.battery_mah) or args.battery_mah <= 0
+    ):
+        raise SystemExit("error: --battery-mah must be finite and positive")
+    if args.ambient_c is not None and not math.isfinite(args.ambient_c):
+        raise SystemExit("error: --ambient-c must be finite")
+    if (
+        not math.isfinite(args.rest_min)
+        or not math.isfinite(args.charge_ready_timeout_min)
+        or args.rest_min < 0
+        or args.charge_ready_timeout_min <= 0
+    ):
+        raise SystemExit("error: charge rest/timeout must be finite and non-negative/positive")
+    if args.battery_cycle_count is not None and args.battery_cycle_count < 0:
+        raise SystemExit("error: --battery-cycle-count must be non-negative")
+    if args.battery_photo is not None and not args.battery_photo.is_file():
+        raise SystemExit(f"error: battery label photo not found: {args.battery_photo}")
+    if (
+        not math.isfinite(args.analyzer_ready_timeout_s)
+        or not math.isfinite(args.analyzer_stop_timeout_s)
+        or args.analyzer_ready_timeout_s <= 0
+        or args.analyzer_stop_timeout_s <= 0
+    ):
+        raise SystemExit("error: analyzer ready/stop timeouts must be finite and positive")
+    if args.analyzer_adapter is not None and (
+        not args.analyzer_adapter.is_file() or not os.access(args.analyzer_adapter, os.X_OK)
+    ):
+        raise SystemExit(f"error: analyzer adapter is not executable: {args.analyzer_adapter}")
+    if not args.firmware_image.is_file():
+        raise SystemExit(f"error: firmware image not found: {args.firmware_image}")
+    image_identity = image_app_identity(args.firmware_image)
+    firmware_image_sha256 = hashlib.sha256(args.firmware_image.read_bytes()).hexdigest()
+    expected_firmware_build = (
+        f"{image_identity['version']}|LunaSay|{image_identity['elf_sha256']}"
+    )
+    if not args.allow_not_ready and "dirty" in image_identity["version"].lower():
+        raise SystemExit("error: qualified matrix runs require a clean firmware image version")
+    if not args.allow_not_ready and (
+        args.battery_mah is None
+        or args.battery_photo is None
+        or not args.hardware_revision.strip()
+        or args.ambient_c is None
+        or args.unit_id.strip().lower() in ("", "unknown", "unspecified")
+        or args.battery_id.strip().lower() in ("", "unknown", "unspecified", "unlabeled")
+    ):
+        raise SystemExit(
+            "error: qualified matrix runs require --battery-mah, --battery-photo, "
+            "--hardware-revision, --ambient-c, and identified --unit-id/--battery-id"
+        )
+    battery_photo_sha256 = (
+        hashlib.sha256(args.battery_photo.read_bytes()).hexdigest()
+        if args.battery_photo is not None else None
+    )
+
+    matrix_bytes = args.matrix.read_bytes()
+    matrix_sha256 = hashlib.sha256(matrix_bytes).hexdigest()
+    args.matrix_sha256 = matrix_sha256
+    matrix = json.loads(matrix_bytes)
+    release_gate = matrix.get("release_gate", {})
+    require_direct_current = bool(release_gate.get("require_direct_current", False))
+    require_firmware_continuity = bool(
+        release_gate.get("require_firmware_continuity", False)
+    )
+    analyzer_identity = {
+        "model": args.analyzer_model.strip(),
+        "serial": args.analyzer_serial.strip(),
+        "calibration_ref": args.analyzer_calibration_ref.strip(),
+    }
+    analyzer_placeholders = {"", "unknown", "unspecified", "none", "uncalibrated"}
+    if args.analyzer_adapter is not None and any(
+        value.lower() in analyzer_placeholders for value in analyzer_identity.values()
+    ):
+        raise SystemExit(
+            "error: analyzer adapter use requires --analyzer-model, --analyzer-serial, "
+            "and --analyzer-calibration-ref"
+        )
+    if not args.allow_not_ready and require_direct_current and (
+        args.analyzer_adapter is None
+    ):
+        raise SystemExit(
+            "error: qualified matrix requires --analyzer-adapter, --analyzer-model, "
+            "--analyzer-serial, and --analyzer-calibration-ref"
+        )
+    analyzer_adapter_sha256 = (
+        hashlib.sha256(args.analyzer_adapter.read_bytes()).hexdigest()
+        if args.analyzer_adapter is not None else None
+    )
+    minimum_start_voltage_mv = release_gate.get("minimum_start_voltage_mv", 4100)
+    if (
+        not isinstance(minimum_start_voltage_mv, int)
+        or isinstance(minimum_start_voltage_mv, bool)
+        or not 3500 <= minimum_start_voltage_mv <= 4400
+    ):
+        raise SystemExit(
+            "error: matrix release_gate.minimum_start_voltage_mv must be 3500..4400"
+        )
+    args.charge_ready_min_mv = minimum_start_voltage_mv
+    minimum_charge_rest_min = release_gate.get("minimum_charge_rest_min", 30)
+    if (
+        not isinstance(minimum_charge_rest_min, (int, float))
+        or isinstance(minimum_charge_rest_min, bool)
+        or not math.isfinite(float(minimum_charge_rest_min))
+        or minimum_charge_rest_min < 0
+    ):
+        raise SystemExit(
+            "error: matrix release_gate.minimum_charge_rest_min must be finite and non-negative"
+        )
+    if not args.allow_not_ready and args.rest_min < float(minimum_charge_rest_min):
+        raise SystemExit(
+            f"error: --rest-min {args.rest_min:g} is below the qualified "
+            f"{float(minimum_charge_rest_min):g}-minute minimum"
+        )
+    ambient_c_min = release_gate.get("ambient_c_min")
+    ambient_c_max = release_gate.get("ambient_c_max")
+    for name, value in (("ambient_c_min", ambient_c_min), ("ambient_c_max", ambient_c_max)):
+        if value is not None and (
+            not isinstance(value, (int, float))
+            or isinstance(value, bool)
+            or not math.isfinite(float(value))
+        ):
+            raise SystemExit(f"error: matrix release_gate.{name} must be finite")
+    if (
+        ambient_c_min is not None
+        and ambient_c_max is not None
+        and float(ambient_c_min) > float(ambient_c_max)
+    ):
+        raise SystemExit("error: matrix ambient bounds are invalid")
+    if not args.allow_not_ready and args.ambient_c is not None and (
+        (ambient_c_min is not None and args.ambient_c < float(ambient_c_min))
+        or (ambient_c_max is not None and args.ambient_c > float(ambient_c_max))
+    ):
+        ambient_window = (
+            f"{float(ambient_c_min):g}..{float(ambient_c_max):g} C"
+            if ambient_c_min is not None and ambient_c_max is not None
+            else "configured ambient C"
+        )
+        raise SystemExit(
+            f"error: --ambient-c {args.ambient_c:g} is outside the qualified "
+            f"{ambient_window} window"
+        )
+    harness_build = subprocess.check_output(
+        ["git", "describe", "--always", "--dirty"], cwd=ROOT, text=True
+    ).strip()
+    if not args.allow_not_ready and (not harness_build or "dirty" in harness_build.lower()):
+        raise SystemExit(
+            "error: qualified matrix runs require a clean committed harness build; "
+            f"current build is {harness_build!r}"
+        )
+    tests = matrix.get("tests", [])
+    selected = {item for item in args.only.split(",") if item}
+    if selected:
+        known = {str(test["id"]) for test in tests}
+        unknown = selected - known
+        if unknown:
+            raise SystemExit(f"error: unknown test IDs: {', '.join(sorted(unknown))}")
+        tests = [test for test in tests if str(test["id"]) in selected]
+    if not tests:
+        raise SystemExit("error: no matrix tests selected")
+
+    args.artifact_root.mkdir(parents=True, exist_ok=True)
+    args.state.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = args.state.with_suffix(args.state.suffix + ".lock")
+    with lock_path.open("w", encoding="utf-8") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise SystemExit(f"error: matrix runner already holds {lock_path}") from exc
+
+        if args.state.exists():
+            state = json.loads(args.state.read_text(encoding="utf-8"))
+            if state.get("unit_id") != args.unit_id or state.get("battery_id") != args.battery_id:
+                raise SystemExit("error: state belongs to a different unit/battery; choose another --state")
+            if (
+                state.get("hardware_revision") != (args.hardware_revision.strip() or "unknown")
+                or state.get("battery_cycle_count") != args.battery_cycle_count
+                or state.get("ambient_c") != args.ambient_c
+            ):
+                raise SystemExit(
+                    "error: test-article provenance differs from this state; choose a new --state"
+                )
+            if (
+                state.get("battery_mah") != args.battery_mah
+                or state.get("battery_photo_sha256") != battery_photo_sha256
+            ):
+                raise SystemExit(
+                    "error: battery capacity/photo differs from this state; choose a new --state"
+                )
+            if state.get("matrix_sha256") != matrix_sha256:
+                raise SystemExit(
+                    "error: matrix changed since this state was created; choose a new --state"
+                )
+            if (
+                state.get("expected_firmware_build") != expected_firmware_build
+                or state.get("firmware_image_sha256") != firmware_image_sha256
+            ):
+                raise SystemExit(
+                    "error: firmware image identity changed since this state was created; "
+                    "choose a new --state"
+                )
+            if state.get("harness_build") != harness_build:
+                raise SystemExit(
+                    "error: source/harness build changed since this state was created; "
+                    "choose a new --state"
+                )
+            if (
+                state.get("analyzer_adapter_sha256") != analyzer_adapter_sha256
+                or state.get("analyzer_identity") != analyzer_identity
+            ):
+                raise SystemExit(
+                    "error: analyzer adapter/identity differs from this state; choose a new --state"
+                )
+        else:
+            state = {
+                "schema": 8,
+                "matrix": str(args.matrix.resolve()),
+                "matrix_schema": matrix.get("schema"),
+                "matrix_sha256": matrix_sha256,
+                "harness_build": harness_build,
+                "unit_id": args.unit_id,
+                "hardware_revision": args.hardware_revision.strip() or "unknown",
+                "battery_id": args.battery_id,
+                "battery_mah": args.battery_mah,
+                "battery_photo_sha256": battery_photo_sha256,
+                "battery_cycle_count": args.battery_cycle_count,
+                "ambient_c": args.ambient_c,
+                "firmware_build": None,
+                "firmware_image": str(args.firmware_image.resolve()),
+                "firmware_image_sha256": firmware_image_sha256,
+                "expected_firmware_build": expected_firmware_build,
+                "analyzer_adapter": (
+                    str(args.analyzer_adapter.resolve()) if args.analyzer_adapter is not None else None
+                ),
+                "analyzer_adapter_sha256": analyzer_adapter_sha256,
+                "analyzer_identity": analyzer_identity,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "completed": [],
+                "attempts": [],
+            }
+        completed = set(state.get("completed", []))
+
+        for test in tests:
+            test_id = str(test["id"])
+            if test_id in completed:
+                print(f"matrix: SKIP completed {test_id}", flush=True)
+                continue
+            stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+            prefix = "lunasay-deep-sleep" if test.get("runner") == "deep-sleep" else "lunasay-battery"
+            out_dir = args.artifact_root / f"{prefix}-{test_id}-{stamp}"
+            command = command_for(test, args, out_dir)
+            print("matrix: RUN " + test_id, flush=True)
+            print("matrix: CMD " + " ".join(command), flush=True)
+            if args.dry_run:
+                continue
+            started_at = datetime.now(timezone.utc).isoformat()
+            out_dir.mkdir(parents=True, exist_ok=True)
+            child = subprocess.Popen(command, cwd=ROOT, start_new_session=True)
+            guard_command = hub_restore_guard_command(args, out_dir, child.pid)
+            try:
+                guard = subprocess.Popen(
+                    guard_command,
+                    cwd=ROOT,
+                    start_new_session=True,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+            except Exception:
+                child.terminate()
+                try:
+                    child.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    child.kill()
+                    child.wait()
+                subprocess.run(
+                    [
+                        args.uhubctl,
+                        "-l", args.hub_location,
+                        "-p", str(args.hub_port),
+                        "-a", "on",
+                    ],
+                    check=False,
+                )
+                raise
+            try:
+                child_returncode = child.wait()
+            except KeyboardInterrupt:
+                child.terminate()
+                try:
+                    child.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    child.kill()
+                    child.wait()
+                child_returncode = 130
+            try:
+                guard_returncode = guard.wait(timeout=60)
+            except subprocess.TimeoutExpired:
+                guard.terminate()
+                try:
+                    guard.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    guard.kill()
+                    guard.wait()
+                guard_returncode = 124
+            summary_path = out_dir / "summary.json"
+            child_summary = (
+                json.loads(summary_path.read_text(encoding="utf-8"))
+                if summary_path.is_file() else {}
+            )
+            article = child_summary.get("test_article", {})
+            child_analyzer = child_summary.get("analyzer_capture")
+            child_firmware = article.get("firmware_build")
+            child_harness = article.get("harness_build")
+            attempt = {
+                "test_id": test_id,
+                "started_at": started_at,
+                "finished_at": datetime.now(timezone.utc).isoformat(),
+                "returncode": child_returncode,
+                "out_dir": str(out_dir),
+                "test": test,
+                "command": command,
+                "hub_restore_guard_command": guard_command,
+                "hub_restore_guard_returncode": guard_returncode,
+                "firmware_build": child_firmware,
+                "harness_build": child_harness,
+                "analyzer_capture": child_analyzer,
+            }
+            state.setdefault("attempts", []).append(attempt)
+            state_error = None
+            if guard_returncode != 0:
+                state_error = f"hub restore guard failed with {guard_returncode}"
+            elif child_returncode == 0 and (
+                not article.get("firmware_provenance_complete")
+                or str(article.get("firmware_variant", "")).lower() != "lunasay"
+            ):
+                state_error = "passing child run did not report a complete LunaSay binary identity"
+            elif child_returncode == 0 and require_firmware_continuity and not (
+                child_summary.get("ota_test_lock_preflight")
+                and child_summary.get("firmware_identity_match")
+                and child_summary.get("final_firmware_identity_match")
+            ):
+                state_error = (
+                    "passing qualified child run did not prove OTA lock and exact firmware "
+                    "identity continuity"
+                )
+            elif child_returncode == 0 and require_direct_current and not (
+                isinstance(child_analyzer, dict) and child_analyzer.get("passed")
+            ):
+                state_error = "passing qualified child run did not report a valid analyzer capture"
+            elif child_returncode == 0 and child_firmware != expected_firmware_build:
+                state_error = (
+                    f"device firmware {child_firmware!r} does not match expected image "
+                    f"{expected_firmware_build!r}"
+                )
+            elif child_returncode == 0 and child_firmware in (None, "", "unknown"):
+                state_error = "passing child run did not report a firmware build"
+            elif child_returncode == 0 and child_harness != harness_build:
+                state_error = (
+                    f"child harness build {child_harness!r} does not match matrix {harness_build!r}"
+                )
+            elif child_returncode == 0 and state.get("firmware_build") not in (None, child_firmware):
+                state_error = (
+                    f"device firmware changed from {state.get('firmware_build')!r} "
+                    f"to {child_firmware!r}"
+                )
+            if state_error is not None:
+                attempt["state_error"] = state_error
+                save_json(args.state, state)
+                print(f"matrix: STOP {test_id}: {state_error}", flush=True)
+                return 3
+            if child_returncode == 0:
+                state["firmware_build"] = child_firmware
+                completed.add(test_id)
+                state["completed"] = sorted(completed)
+            save_json(args.state, state)
+            if child_returncode != 0:
+                print(f"matrix: STOP {test_id} failed with {child_returncode}", flush=True)
+                return child_returncode
+
+        if args.dry_run:
+            print(f"matrix: dry-run listed {len(tests)} test(s)")
+        else:
+            state["finished_at"] = datetime.now(timezone.utc).isoformat()
+            save_json(args.state, state)
+            print(f"matrix: COMPLETE {len(completed)} test(s)")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -18,8 +18,8 @@ static const char *TAG = "faculty175_faces";
 #define FACES_NVS_NAV_COUNT "navcnt"
 #define FACES_NVS_NAV_MAP "navmap"
 #define FACE_KEY_CAP 8
-#define FACES_CONFIG_RESET_SCHEMA_VERSION 35
-#define FACES_SCHEMA_VERSION 36
+#define FACES_CONFIG_RESET_SCHEMA_VERSION 36
+#define FACES_SCHEMA_VERSION 37
 
 static const faculty175_face_id_t k_default_home_face = FACULTY175_FACE_MOON;
 
@@ -39,6 +39,7 @@ static const faculty175_face_desc_t k_faces[] = {
     { FACULTY175_FACE_INQ, "inq", "iNQ Card", FACULTY175_FACE_CAT_ORACLE, true, false, 250 },
     { FACULTY175_FACE_RUNES, "runes", "Runes", FACULTY175_FACE_CAT_ORACLE, true, false, 251 },
     { FACULTY175_FACE_ALETHIOMETER, "alethiometer", "Alethiometer", FACULTY175_FACE_CAT_ORACLE, true, true, 30 },
+    { FACULTY175_FACE_CRYSTAL_BALL, "crystal-ball", "Crystal Ball", FACULTY175_FACE_CAT_ORACLE, true, true, 35 },
     { FACULTY175_FACE_SPECTRUM, "spectrum", "Spectrum", FACULTY175_FACE_CAT_INSTRUMENT, true, false, 60 },
     { FACULTY175_FACE_CHAKRA, "chakra", "Chakra", FACULTY175_FACE_CAT_INSTRUMENT, true, false, 65 },
     { FACULTY175_FACE_BOWL, "bowl", "Tibetan Bowl", FACULTY175_FACE_CAT_INSTRUMENT, true, false, 66 },

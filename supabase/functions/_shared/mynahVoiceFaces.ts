@@ -9,6 +9,7 @@ export const VOICE_FACE_SYNASTRY = "synastry";
 export const VOICE_FACE_ASTRO = "astro";
 export const VOICE_FACE_BABEL_FISH = "babel_fish";
 export const VOICE_FACE_ALETHIOMETER = "alethiometer";
+export const VOICE_FACE_CRYSTAL_BALL = "crystal-ball";
 
 /** When `skipLlm` is false, Gemini rewrites schedule facts using this unless the client sends `systemInstruction`. */
 export const SYSTEM_VOICE_FACE_CLOCK_AGENDA =

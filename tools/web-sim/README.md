@@ -23,10 +23,34 @@ If Emscripten is not installed locally but Docker or Podman is running:
 ./tools/web-sim/serve.sh
 ```
 
+## Voice Testing
+
+The simulator includes browser-side voice controls so face behavior can be
+tested without flashing hardware:
+
+- **STT** uses the browser SpeechRecognition API when available. If the browser
+  does not expose STT, select **Manual transcript + Browser TTS** and edit the
+  transcript text directly.
+- **TTS** uses `speechSynthesis` and reports `tts.start`, `tts.end`, or
+  `tts.error` events in the voice report pane.
+- **Simulated STT/TTS** uses the prompt text as the transcript and completes TTS
+  locally without microphone or speaker access. Use it for automated browser
+  checks and CI-like smoke tests.
+- **Duplex** runs one listen/reply turn. Enable **Continuous** before pressing
+  **Duplex** to loop STT then TTS until **Stop** is pressed.
+- **Boot/TTS** simulates the firmware BOOT/TTS button for the selected face.
+- **All Faces** simulates BOOT/TTS for every face and writes pass/fail events
+  to the report pane. The same lines are exposed to browser automation through
+  `#voice-report[data-voice-report]`, `Module.astrolabeVoiceTestReport`, and,
+  in browsers that allow it, `window.astrolabeVoiceTestReport`.
+- Browser automation can set `window.astrolabeWebsimVoiceSink(text, detail)` to
+  simulate TTS completion in headless environments where native speech output is
+  unavailable or not mockable.
+
 ## Architecture
 
 - `tools/web-sim/CMakeLists.txt` globs and compiles
-  `faculty175/main/faculty175_face_*.c`, `faculty175_lvgl.c`, and
+  `astrolabe175c/main/faculty175_face_*.c`, `faculty175_lvgl.c`, and
   `faculty175_faces.c`.
 - `tools/web-sim/src/main.c` owns the Emscripten main loop, current face ID,
   dispatch call, and exported face catalog hooks used by the browser controls.

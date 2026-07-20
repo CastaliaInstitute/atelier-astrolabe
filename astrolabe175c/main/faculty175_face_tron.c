@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "esp_attr.h"
 #include "esp_random.h"
 
 #include "faculty175_board.h"
@@ -42,7 +43,7 @@ __attribute__((weak)) bool faculty175_motion_pitch_roll(float *pitch_deg, float 
     return false;
 }
 
-static uint8_t s_trail[TRON_GRID_W * TRON_GRID_H];
+EXT_RAM_BSS_ATTR static uint8_t s_trail[TRON_GRID_W * TRON_GRID_H];
 static tron_cycle_t s_player;
 static tron_cycle_t s_rival;
 static uint32_t s_last_step_ms;

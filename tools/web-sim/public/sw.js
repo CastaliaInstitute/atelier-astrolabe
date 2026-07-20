@@ -1,5 +1,14 @@
-const CACHE_NAME = "astrolabe-pwa-v1";
-const CORE = ["/", "/manifest.webmanifest", "/icon.svg"];
+const CACHE_NAME = "astrolabe-pwa-v3";
+const CORE = [
+  "/",
+  "/manifest.webmanifest",
+  "/icon.svg",
+  "/faculty-voice-sim.js",
+  "/ring-face-sim.js",
+  "/assets/faculty/a.einstein.png",
+  "/assets/faculty/hypatia.png",
+  "/assets/faculty/marie-curie.png",
+];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(CORE)).then(() => self.skipWaiting()));

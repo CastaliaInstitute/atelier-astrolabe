@@ -14,6 +14,9 @@ function parseArgs(argv) {
     segments: 3,
     rate: 170,
     segmentPauseMs: 400,
+    wsUrl: "",
+    apiKey: "",
+    syntheticSeconds: 0,
   };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -21,8 +24,11 @@ function parseArgs(argv) {
     else if (arg === "--segments") out.segments = Math.max(1, Number(argv[++i] || "3"));
     else if (arg === "--rate") out.rate = Math.max(80, Number(argv[++i] || "170"));
     else if (arg === "--segment-pause-ms") out.segmentPauseMs = Math.max(0, Number(argv[++i] || "400"));
+    else if (arg === "--ws-url") out.wsUrl = argv[++i] || "";
+    else if (arg === "--api-key") out.apiKey = argv[++i] || "";
+    else if (arg === "--synthetic-seconds") out.syntheticSeconds = Math.max(0, Number(argv[++i] || "0"));
     else if (arg === "--help") {
-      console.log("usage: node scripts/voice_stream_persistent_validate.mjs [--phrase TEXT] [--segments N] [--rate WPM]");
+      console.log("usage: node scripts/voice_stream_persistent_validate.mjs [--phrase TEXT] [--segments N] [--rate WPM] [--ws-url URL --api-key KEY] [--synthetic-seconds N]");
       process.exit(0);
     }
   }
@@ -77,6 +83,17 @@ function synthesizePcm(tempDir, phrase, rate) {
   return readFileSync(pcm);
 }
 
+function syntheticPcm(seconds, sampleRate = 16000) {
+  const sampleCount = Math.max(1, Math.floor(seconds * sampleRate));
+  const out = Buffer.alloc(sampleCount * 2);
+  for (let i = 0; i < sampleCount; i += 1) {
+    const tone = Math.sin((i / sampleRate) * Math.PI * 2 * 440);
+    const envelope = i % 320 < 240 ? 1 : 0.2;
+    out.writeInt16LE(Math.round(tone * envelope * 9000), i * 2);
+  }
+  return out;
+}
+
 function makeBinaryFrame(sequence, captureMs, pcmSlice) {
   const out = Buffer.alloc(9 + pcmSlice.length);
   out[0] = 0xa1;
@@ -92,14 +109,15 @@ function sleep(ms) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const supabaseUrl = readSecret("MYNAH_SUPABASE_URL");
-  const anonKey = readSecret("MYNAH_SUPABASE_ANON_KEY");
-  const wsUrl = supabaseWsUrl(supabaseUrl);
+  const anonKey = args.apiKey || (args.wsUrl ? "dummy" : readSecret("MYNAH_SUPABASE_ANON_KEY"));
+  const wsUrl = args.wsUrl || supabaseWsUrl(readSecret("MYNAH_SUPABASE_URL"));
   const tempDir = mkdtempSync(join(tmpdir(), "astrolabe-ws-"));
   const events = [];
 
   try {
-    const pcm = synthesizePcm(tempDir, args.phrase, args.rate);
+    const pcm = args.syntheticSeconds > 0
+      ? syntheticPcm(args.syntheticSeconds)
+      : synthesizePcm(tempDir, args.phrase, args.rate);
     const segmentBytes = Math.ceil(pcm.length / args.segments);
 
     const ws = new WebSocket(wsUrl, {

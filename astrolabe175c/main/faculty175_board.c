@@ -39,7 +39,12 @@
 #include "astrolabe_time.h"
 
 static const char *TAG = "faculty_board";
-static const int32_t FACULTY175_MIC_MONO_GAIN = 6;
+/*
+ * The ES7210's line-level output is clean but too quiet for reliable cloud STT
+ * at normal conversational distance.  Apply modest gain while converting to
+ * mono; the 32-bit accumulator and explicit saturation below preserve headroom.
+ */
+static const int32_t FACULTY175_MIC_MONO_GAIN = 3;
 
 /* Waveshare ESP32-S3-Touch-AMOLED-1.75C — CO5300 466×466 QSPI (NOT 1.8″ SH8601).
  *
@@ -47,9 +52,9 @@ static const int32_t FACULTY175_MIC_MONO_GAIN = 6;
  * ─────────────────────────────────────────────────
  * CO5300, 466×466, PCLK=38     SH8601, 368×448, PCLK=11
  * panel gap 6,0                gap 0,0 + 90° flush rotation
- * AXP2101 rails (BLDO1 OLED)   TCA9554 @ I2C 0x20 display power
+ * AXP2101 DCDC1 LCD/ALDO1 audio TCA9554 @ I2C 0x20 display power
  * ES7210 + ES8311              ES8311 only
- * LCD RST: GPIO1 (BSP)         LCD RST via TCA9554
+ * LCD/touch RST: GPIO2          LCD RST via TCA9554
  * RGB565 big-endian on wire    SH8601 byte-swapped wire format
  */
 #define FACULTY175_LCD_HOST SPI2_HOST
@@ -77,8 +82,6 @@ static const int32_t FACULTY175_MIC_MONO_GAIN = 6;
 #define FACULTY175_PA_GPIO GPIO_NUM_46
 #define FACULTY175_ES7210_ADDR ES7210_CODEC_DEFAULT_ADDR
 #define FACULTY175_ES7210_ADDR_7BIT (FACULTY175_ES7210_ADDR >> 1)
-#define FACULTY175_ES7210_MODE_CONFIG_REG08 0x08
-#define FACULTY175_ES7210_SDP_INTERFACE2_REG12 0x12
 #define FACULTY175_ES8311_ADDR ES8311_CODEC_DEFAULT_ADDR
 #define FACULTY175_ES8311_SYSTEM_REG0D 0x0D
 #define FACULTY175_ES8311_SDPIN_REG09 0x09
@@ -93,15 +96,19 @@ static const int32_t FACULTY175_MIC_MONO_GAIN = 6;
 #define FACULTY175_SPEAKER_VOLUME 100
 #define FACULTY175_AUDIO_MAX_READ_SAMPLES 1024
 #define FACULTY175_ES7210_CHANNELS 4
+#define FACULTY175_ES7210_CAPTURE_CHANNELS 1
 #define FACULTY175_ES7210_HALFWORD_GROUPS_PER_FRAME 2
-#define FACULTY175_ES7210_MIC_A_CH 0
-#define FACULTY175_ES7210_MIC_B_CH 2
-#define FACULTY175_ES7210_CHANNEL_MASK (ESP_CODEC_DEV_MAKE_CHANNEL_MASK(0) | ESP_CODEC_DEV_MAKE_CHANNEL_MASK(1) | \
-                                        ESP_CODEC_DEV_MAKE_CHANNEL_MASK(2) | ESP_CODEC_DEV_MAKE_CHANNEL_MASK(3))
+#define FACULTY175_ES7210_CHANNEL_MASK ESP_CODEC_DEV_MAKE_CHANNEL_MASK(0)
 #define FACULTY175_AEC_REF_SAMPLES 65536
+#define FACULTY175_I2S_DMA_DESC_NUM 3
+#define FACULTY175_I2S_DMA_FRAME_NUM 96
 #define FACULTY175_AEC_TAIL_MS 650
 #define FACULTY175_AEC_MIN_REF_RMS 80
 #define FACULTY175_AEC_MAX_GAIN_Q15 (2 * 32768)
+#define FACULTY175_NS_DEFAULT_FLOOR_RMS 96
+#define FACULTY175_NS_NOISE_UPDATE_MARGIN 180
+#define FACULTY175_NS_MIN_GAIN_Q8 64
+#define FACULTY175_NS_LOG_INTERVAL 100
 #define FACULTY175_HTTP_SCREEN_QA_SKIP_AUDIO 0
 #define FACULTY175_I2C_SCAN_CANDIDATES 0
 
@@ -139,23 +146,34 @@ static volatile uint32_t s_button_injected_presses;
 static uint16_t *s_flush_strip;
 static int s_flush_strip_h;
 static bool s_speaker_ready;
-static int16_t s_audio_read_tdm[FACULTY175_AUDIO_MAX_READ_SAMPLES * FACULTY175_ES7210_CHANNELS *
-                                FACULTY175_ES7210_HALFWORD_GROUPS_PER_FRAME];
+/* The production LunaSay path is mono and only needs one DMA-sized frame.
+ * Keep the legacy TDM QA scratch in PSRAM so it does not permanently consume
+ * 16 KiB of the scarce internal heap. */
+DMA_ATTR static int16_t s_audio_read_mono[FACULTY175_AUDIO_MAX_READ_SAMPLES *
+                                          FACULTY175_ES7210_CAPTURE_CHANNELS];
+EXT_RAM_BSS_ATTR static int16_t s_audio_read_tdm[FACULTY175_AUDIO_MAX_READ_SAMPLES *
+                                                 FACULTY175_ES7210_CHANNELS *
+                                                 FACULTY175_ES7210_HALFWORD_GROUPS_PER_FRAME];
 static uint32_t s_audio_read_frames;
 static int s_audio_selected_ch = -1;
 static SemaphoreHandle_t s_audio_read_mux;
-static int16_t *s_spk_mono_scratch;
-static size_t s_spk_mono_scratch_count;
 static bool s_spk_open;
+static bool s_mic_open;
 static uint32_t s_spk_rate_hz = FACULTY175_AUDIO_RATE;
 static int16_t *s_aec_ref;
 static uint32_t s_aec_ref_write;
 static uint32_t s_aec_ref_rate_hz = FACULTY175_AUDIO_RATE;
 static int64_t s_aec_ref_active_until_us;
 static uint32_t s_aec_frames;
+static bool s_noise_suppression_enabled = true;
+static uint32_t s_noise_floor_rms = FACULTY175_NS_DEFAULT_FLOOR_RMS;
+static uint32_t s_noise_last_rms;
+static uint32_t s_noise_last_gain_q8 = 256;
+static uint32_t s_noise_frames;
 
 static void draw_pixel_safe(int x, int y, uint16_t color);
 static portMUX_TYPE s_aec_mux = portMUX_INITIALIZER_UNLOCKED;
+static portMUX_TYPE s_noise_mux = portMUX_INITIALIZER_UNLOCKED;
 static portMUX_TYPE s_touch_visual_mux = portMUX_INITIALIZER_UNLOCKED;
 
 typedef struct {
@@ -196,6 +214,8 @@ static void boot_watch_task(void *arg);
 esp_err_t faculty175_board_play_boot_chime(void);
 static void faculty175_log_i2c_lines(const char *stage);
 static void faculty175_log_i2c_gpio_drive_test(const char *stage);
+static void faculty175_i2c_gpio_recover(const char *stage);
+static void faculty175_i2c_reset_bus(const char *stage);
 static const audio_codec_ctrl_if_t *faculty175_codec_ctrl_new(uint8_t addr_7bit);
 
 i2c_master_bus_handle_t faculty175_i2c_bus(void)
@@ -222,6 +242,14 @@ void faculty175_display_lock(void)
     }
 }
 
+bool faculty175_display_lock_timeout(uint32_t timeout_ms)
+{
+    if (s_display_lock == NULL) {
+        return true;
+    }
+    return xSemaphoreTakeRecursive(s_display_lock, pdMS_TO_TICKS(timeout_ms)) == pdTRUE;
+}
+
 void faculty175_display_unlock(void)
 {
     if (s_display_lock != NULL) {
@@ -229,7 +257,14 @@ void faculty175_display_unlock(void)
     }
 }
 
-#define FACULTY175_LCD_FLUSH_STRIP_H 24
+#if defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
+/* Preserve a contiguous internal block for the flash-safe voice worker. */
+#define FACULTY175_LCD_FLUSH_STRIP_H 4
+#else
+#define FACULTY175_LCD_FLUSH_STRIP_H 16
+#endif
+#define FACULTY175_LCD_FLUSH_BUFFER_COUNT 2
+#define FACULTY175_LCD_FLUSH_TIMEOUT_MS 100
 
 /* CO5300 QSPI (same class as SH8601) wants RGB565 high byte first on the wire. */
 static uint16_t rgb565_panel_wire(uint16_t logical565)
@@ -244,26 +279,93 @@ static bool faculty175_flush_strip_alloc(void)
     }
     const int candidates[] = {
         FACULTY175_LCD_FLUSH_STRIP_H,
-        16,
         12,
         8,
+        4,
+        2,
     };
     for (size_t i = 0; i < sizeof(candidates) / sizeof(candidates[0]); ++i) {
         const int h = candidates[i];
         const size_t strip_bytes = (size_t)FACULTY175_LCD_W * (size_t)h * sizeof(uint16_t);
-        /* Keep the panel strip in internal DMA memory; SPI color queueing rejects some PSRAM-backed buffers. */
-        s_flush_strip = heap_caps_malloc(strip_bytes, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+        const size_t allocation_bytes = strip_bytes * FACULTY175_LCD_FLUSH_BUFFER_COUNT;
+        /* Keep both panel strips in internal DMA memory. Alternating strips lets
+           the CPU prepare the next one while QSPI transmits the current one. */
+        s_flush_strip = heap_caps_malloc(allocation_bytes, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
         if (s_flush_strip == NULL) {
-            s_flush_strip = heap_caps_malloc(strip_bytes, MALLOC_CAP_DMA);
+            s_flush_strip = heap_caps_malloc(allocation_bytes, MALLOC_CAP_DMA);
         }
         if (s_flush_strip != NULL) {
             s_flush_strip_h = h;
-            ESP_LOGI(TAG, "lcd flush strip DMA alloc rows=%d bytes=%u", h, (unsigned)strip_bytes);
+            ESP_LOGI(TAG,
+                     "lcd flush DMA pipeline buffers=%d rows=%d bytes=%u",
+                     FACULTY175_LCD_FLUSH_BUFFER_COUNT,
+                     h,
+                     (unsigned)allocation_bytes);
             return true;
         }
     }
     ESP_LOGE(TAG, "lcd flush strip DMA alloc failed");
     return false;
+}
+
+static bool faculty175_flush_wait_one(unsigned *in_flight)
+{
+    if (*in_flight == 0) {
+        return true;
+    }
+    if (xSemaphoreTake(s_flush_done, pdMS_TO_TICKS(FACULTY175_LCD_FLUSH_TIMEOUT_MS)) != pdTRUE) {
+        ESP_LOGW(TAG, "lcd queued flush timeout in_flight=%u", *in_flight);
+        return false;
+    }
+    --(*in_flight);
+    return true;
+}
+
+static void faculty175_flush_wait_all(unsigned *in_flight)
+{
+    while (*in_flight > 0 && faculty175_flush_wait_one(in_flight)) {
+    }
+}
+
+static void faculty175_display_flush_region(int x, int y, int w, int h)
+{
+    const int max_strip_h = s_flush_strip_h > 0 ? s_flush_strip_h : FACULTY175_LCD_FLUSH_STRIP_H;
+    const size_t buffer_pixels = (size_t)FACULTY175_LCD_W * (size_t)max_strip_h;
+    unsigned in_flight = 0;
+    unsigned submitted = 0;
+
+    /* A completed callback from an earlier aborted transfer must not be mistaken
+       for completion of a buffer submitted by this flush. */
+    while (xSemaphoreTake(s_flush_done, 0) == pdTRUE) {
+    }
+
+    for (int row0 = 0; row0 < h; row0 += max_strip_h) {
+        int strip_h = h - row0;
+        if (strip_h > max_strip_h) {
+            strip_h = max_strip_h;
+        }
+        if (in_flight == FACULTY175_LCD_FLUSH_BUFFER_COUNT && !faculty175_flush_wait_one(&in_flight)) {
+            break;
+        }
+
+        uint16_t *strip = s_flush_strip + (submitted % FACULTY175_LCD_FLUSH_BUFFER_COUNT) * buffer_pixels;
+        for (int row = 0; row < strip_h; ++row) {
+            const uint16_t *src = &s_fb[(y + row0 + row) * FACULTY175_LCD_W + x];
+            uint16_t *dst = &strip[row * w];
+            for (int col = 0; col < w; ++col) {
+                dst[col] = rgb565_panel_wire(src[col]);
+            }
+        }
+        esp_err_t err = esp_lcd_panel_draw_bitmap(s_panel, x, y + row0, x + w, y + row0 + strip_h, strip);
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "lcd queue rect %d,%d %dx%d failed: %s", x, y + row0, w, strip_h, esp_err_to_name(err));
+            break;
+        }
+        ++in_flight;
+        ++submitted;
+    }
+
+    faculty175_flush_wait_all(&in_flight);
 }
 
 static void faculty175_display_flush_fb(void)
@@ -275,28 +377,7 @@ static void faculty175_display_flush_fb(void)
         return;
     }
 
-    const int strip_h = s_flush_strip_h > 0 ? s_flush_strip_h : FACULTY175_LCD_FLUSH_STRIP_H;
-    for (int y = 0; y < FACULTY175_LCD_H; y += strip_h) {
-        int h = strip_h;
-        if (y + h > FACULTY175_LCD_H) {
-            h = FACULTY175_LCD_H - y;
-        }
-        for (int row = 0; row < h; ++row) {
-            const uint16_t *src = &s_fb[(y + row) * FACULTY175_LCD_W];
-            uint16_t *dst = &s_flush_strip[row * FACULTY175_LCD_W];
-            for (int x = 0; x < FACULTY175_LCD_W; ++x) {
-                dst[x] = rgb565_panel_wire(src[x]);
-            }
-        }
-        (void)xSemaphoreTake(s_flush_done, 0);
-        if (esp_lcd_panel_draw_bitmap(s_panel, 0, y, FACULTY175_LCD_W, y + h, s_flush_strip) != ESP_OK) {
-            ESP_LOGW(TAG, "lcd flush strip y=%d failed", y);
-            break;
-        }
-        if (xSemaphoreTake(s_flush_done, pdMS_TO_TICKS(20)) != pdTRUE) {
-            ESP_LOGW(TAG, "lcd flush strip y=%d timeout", y);
-        }
-    }
+    faculty175_display_flush_region(0, 0, FACULTY175_LCD_W, FACULTY175_LCD_H);
 }
 
 static uint16_t lcd_pack565(uint8_t r, uint8_t g, uint8_t b)
@@ -510,6 +591,7 @@ static esp_err_t faculty175_i2c_init(void)
     if (s_i2c_bus != NULL) {
         return ESP_OK;
     }
+    faculty175_i2c_gpio_recover("i2c-gpio-recover");
     faculty175_log_i2c_lines("i2c-pre-recover");
     typedef struct {
         gpio_num_t sda;
@@ -690,6 +772,58 @@ static void faculty175_log_i2c_gpio_drive_test(const char *stage)
              gpio_get_level(FACULTY175_AUDIO_I2C_SCL));
 }
 
+static void faculty175_i2c_gpio_recover(const char *stage)
+{
+    const gpio_config_t od = {
+        .pin_bit_mask = (1ULL << s_i2c_sda) | (1ULL << s_i2c_scl),
+        .mode = GPIO_MODE_OUTPUT_OD,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    if (gpio_config(&od) != ESP_OK) {
+        return;
+    }
+
+    gpio_set_level(s_i2c_sda, 1);
+    gpio_set_level(s_i2c_scl, 1);
+    esp_rom_delay_us(20);
+
+    for (int i = 0; i < 18 && (!gpio_get_level(s_i2c_sda) || !gpio_get_level(s_i2c_scl)); ++i) {
+        gpio_set_level(s_i2c_scl, 0);
+        esp_rom_delay_us(8);
+        gpio_set_level(s_i2c_scl, 1);
+        esp_rom_delay_us(8);
+    }
+
+    gpio_set_level(s_i2c_sda, 0);
+    esp_rom_delay_us(8);
+    gpio_set_level(s_i2c_scl, 1);
+    esp_rom_delay_us(8);
+    gpio_set_level(s_i2c_sda, 1);
+    esp_rom_delay_us(20);
+
+    const gpio_config_t idle = {
+        .pin_bit_mask = (1ULL << s_i2c_sda) | (1ULL << s_i2c_scl),
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    (void)gpio_config(&idle);
+    vTaskDelay(pdMS_TO_TICKS(2));
+    faculty175_log_i2c_lines(stage != NULL ? stage : "i2c-recovered");
+}
+
+static void faculty175_i2c_reset_bus(const char *stage)
+{
+    if (s_i2c_bus != NULL) {
+        (void)i2c_del_master_bus(s_i2c_bus);
+        s_i2c_bus = NULL;
+    }
+    faculty175_i2c_gpio_recover(stage);
+}
+
 static int32_t sample_abs(int16_t s)
 {
     return s < 0 ? -(int32_t)s : (int32_t)s;
@@ -698,11 +832,6 @@ static int32_t sample_abs(int16_t s)
 static int16_t audio_sample_host_order(int16_t sample)
 {
     return sample;
-}
-
-static uint16_t codec_channel_mask(int ch)
-{
-    return ESP_CODEC_DEV_MAKE_CHANNEL_MASK(ch);
 }
 
 static uint32_t isqrt_u64(uint64_t value)
@@ -835,6 +964,98 @@ static void faculty175_aec_process(int16_t *samples, size_t sample_count)
     }
 }
 
+static void faculty175_noise_suppress(int16_t *samples, size_t sample_count)
+{
+    if (samples == NULL || sample_count == 0 || !s_noise_suppression_enabled) {
+        return;
+    }
+
+    uint64_t energy = 0;
+    uint32_t peak = 0;
+    for (size_t i = 0; i < sample_count; ++i) {
+        const int32_t sample = samples[i];
+        energy += (uint64_t)(sample * sample);
+        const uint32_t abs_sample = (uint32_t)(sample < 0 ? -sample : sample);
+        if (abs_sample > peak) {
+            peak = abs_sample;
+        }
+    }
+    const uint32_t rms = isqrt_u64(energy / sample_count);
+
+    portENTER_CRITICAL(&s_noise_mux);
+    uint32_t floor = s_noise_floor_rms == 0 ? FACULTY175_NS_DEFAULT_FLOOR_RMS : s_noise_floor_rms;
+    const bool likely_noise = rms < floor * 2u + FACULTY175_NS_NOISE_UPDATE_MARGIN && peak < floor * 12u + 800u;
+    if (likely_noise) {
+        floor = (floor * 31u + rms + 1u) / 32u;
+    } else if (rms < floor) {
+        floor = (floor * 7u + rms + 1u) / 8u;
+    }
+    if (floor < FACULTY175_NS_DEFAULT_FLOOR_RMS) {
+        floor = FACULTY175_NS_DEFAULT_FLOOR_RMS;
+    }
+    s_noise_floor_rms = floor;
+
+    const uint32_t threshold = floor * 2u + 180u;
+    const uint32_t open = floor * 5u + 900u;
+    uint32_t gain_q8 = 256;
+    if (rms <= threshold) {
+        gain_q8 = FACULTY175_NS_MIN_GAIN_Q8;
+    } else if (rms < open) {
+        gain_q8 = FACULTY175_NS_MIN_GAIN_Q8 +
+                  ((rms - threshold) * (256u - FACULTY175_NS_MIN_GAIN_Q8)) / (open - threshold);
+    }
+    s_noise_last_rms = rms;
+    s_noise_last_gain_q8 = gain_q8;
+    const uint32_t frame = ++s_noise_frames;
+    portEXIT_CRITICAL(&s_noise_mux);
+
+    if (gain_q8 < 256u) {
+        for (size_t i = 0; i < sample_count; ++i) {
+            samples[i] = (int16_t)(((int32_t)samples[i] * (int32_t)gain_q8) / 256);
+        }
+    }
+
+    if ((frame % FACULTY175_NS_LOG_INTERVAL) == 0u) {
+        ESP_LOGI(TAG,
+                 "noise suppression rms=%u floor=%u gain=%.2f peak=%u",
+                 (unsigned)rms,
+                 (unsigned)floor,
+                 (double)gain_q8 / 256.0,
+                 (unsigned)peak);
+    }
+}
+
+void faculty175_audio_noise_suppression_set_enabled(bool enabled)
+{
+    portENTER_CRITICAL(&s_noise_mux);
+    s_noise_suppression_enabled = enabled;
+    portEXIT_CRITICAL(&s_noise_mux);
+}
+
+void faculty175_audio_noise_suppression_reset(void)
+{
+    portENTER_CRITICAL(&s_noise_mux);
+    s_noise_floor_rms = FACULTY175_NS_DEFAULT_FLOOR_RMS;
+    s_noise_last_rms = 0;
+    s_noise_last_gain_q8 = 256;
+    s_noise_frames = 0;
+    portEXIT_CRITICAL(&s_noise_mux);
+}
+
+void faculty175_audio_noise_suppression_status(faculty175_audio_noise_status_t *out)
+{
+    if (out == NULL) {
+        return;
+    }
+    portENTER_CRITICAL(&s_noise_mux);
+    out->enabled = s_noise_suppression_enabled;
+    out->noise_rms = s_noise_floor_rms;
+    out->last_rms = s_noise_last_rms;
+    out->last_gain_q8 = s_noise_last_gain_q8;
+    out->frames = s_noise_frames;
+    portEXIT_CRITICAL(&s_noise_mux);
+}
+
 static esp_err_t faculty175_i2s_set_rate(uint32_t hz)
 {
     if (s_i2s_tx == NULL || s_i2s_rx == NULL) {
@@ -851,9 +1072,8 @@ static esp_err_t faculty175_i2s_set_rate(uint32_t hz)
     }
 
     i2s_std_clk_config_t clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(hz);
-    i2s_tdm_clk_config_t tdm_clk_cfg = I2S_TDM_CLK_DEFAULT_CONFIG(hz);
     ESP_RETURN_ON_ERROR(i2s_channel_reconfig_std_clock(s_i2s_tx, &clk_cfg), TAG, "i2s tx clk");
-    ESP_RETURN_ON_ERROR(i2s_channel_reconfig_tdm_clock(s_i2s_rx, &tdm_clk_cfg), TAG, "i2s rx clk");
+    ESP_RETURN_ON_ERROR(i2s_channel_reconfig_std_clock(s_i2s_rx, &clk_cfg), TAG, "i2s rx clk");
     ESP_RETURN_ON_ERROR(i2s_channel_enable(s_i2s_tx), TAG, "i2s tx en");
     ESP_RETURN_ON_ERROR(i2s_channel_enable(s_i2s_rx), TAG, "i2s rx en");
     return ESP_OK;
@@ -867,11 +1087,14 @@ static esp_err_t faculty175_i2s_init(uint32_t hz)
 
     i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(FACULTY175_I2S_PORT, I2S_ROLE_MASTER);
     chan_cfg.auto_clear = true;
-    ESP_RETURN_ON_ERROR(i2s_new_channel(&chan_cfg, &s_i2s_tx, &s_i2s_rx), TAG, "i2s chan");
+    chan_cfg.dma_desc_num = FACULTY175_I2S_DMA_DESC_NUM;
+    chan_cfg.dma_frame_num = FACULTY175_I2S_DMA_FRAME_NUM;
+    esp_err_t ret = i2s_new_channel(&chan_cfg, &s_i2s_tx, &s_i2s_rx);
+    ESP_GOTO_ON_ERROR(ret, fail, TAG, "i2s chan");
 
     i2s_std_config_t std_cfg = {
         .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(hz),
-        .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO),
+        .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO),
         .gpio_cfg = {
             .mclk = FACULTY175_I2S_MCLK,
             .bclk = FACULTY175_I2S_BCK,
@@ -887,34 +1110,18 @@ static esp_err_t faculty175_i2s_init(uint32_t hz)
     };
     std_cfg.slot_cfg.slot_bit_width = I2S_SLOT_BIT_WIDTH_16BIT;
     std_cfg.slot_cfg.ws_width = I2S_SLOT_BIT_WIDTH_16BIT;
-    ESP_RETURN_ON_ERROR(i2s_channel_init_std_mode(s_i2s_tx, &std_cfg), TAG, "i2s tx");
+    ret = i2s_channel_init_std_mode(s_i2s_tx, &std_cfg);
+    ESP_GOTO_ON_ERROR(ret, fail, TAG, "i2s tx");
 
-    i2s_tdm_config_t tdm_cfg = {
-        .clk_cfg = I2S_TDM_CLK_DEFAULT_CONFIG(hz),
-        .slot_cfg = I2S_TDM_PHILIPS_SLOT_DEFAULT_CONFIG(
-            I2S_DATA_BIT_WIDTH_16BIT,
-            I2S_SLOT_MODE_STEREO,
-            I2S_TDM_SLOT0 | I2S_TDM_SLOT1 | I2S_TDM_SLOT2 | I2S_TDM_SLOT3),
-        .gpio_cfg = {
-            .mclk = FACULTY175_I2S_MCLK,
-            .bclk = FACULTY175_I2S_BCK,
-            .ws = FACULTY175_I2S_WS,
-            .dout = I2S_GPIO_UNUSED,
-            .din = FACULTY175_I2S_DIN,
-            .invert_flags = {
-                .mclk_inv = false,
-                .bclk_inv = false,
-                .ws_inv = false,
-            },
-        },
-    };
-    tdm_cfg.slot_cfg.total_slot = FACULTY175_ES7210_CHANNELS;
-    tdm_cfg.slot_cfg.slot_bit_width = I2S_SLOT_BIT_WIDTH_32BIT;
-    tdm_cfg.slot_cfg.ws_width = I2S_SLOT_BIT_WIDTH_32BIT;
-    tdm_cfg.slot_cfg.left_align = true;
-    ESP_RETURN_ON_ERROR(i2s_channel_init_tdm_mode(s_i2s_rx, &tdm_cfg), TAG, "i2s rx tdm");
-    ESP_RETURN_ON_ERROR(i2s_channel_enable(s_i2s_tx), TAG, "i2s tx en");
-    ESP_RETURN_ON_ERROR(i2s_channel_enable(s_i2s_rx), TAG, "i2s rx en");
+    i2s_std_config_t rx_cfg = std_cfg;
+    rx_cfg.gpio_cfg.dout = I2S_GPIO_UNUSED;
+    rx_cfg.gpio_cfg.din = FACULTY175_I2S_DIN;
+    ret = i2s_channel_init_std_mode(s_i2s_rx, &rx_cfg);
+    ESP_GOTO_ON_ERROR(ret, fail, TAG, "i2s rx std");
+    ret = i2s_channel_enable(s_i2s_tx);
+    ESP_GOTO_ON_ERROR(ret, fail, TAG, "i2s tx en");
+    ret = i2s_channel_enable(s_i2s_rx);
+    ESP_GOTO_ON_ERROR(ret, fail, TAG, "i2s rx en");
 
     audio_codec_i2s_cfg_t i2s_cfg = {
         .port = FACULTY175_I2S_PORT,
@@ -922,8 +1129,19 @@ static esp_err_t faculty175_i2s_init(uint32_t hz)
         .tx_handle = s_i2s_tx,
     };
     s_i2s_data_if = audio_codec_new_i2s_data(&i2s_cfg);
-    ESP_RETURN_ON_FALSE(s_i2s_data_if != NULL, ESP_ERR_NO_MEM, TAG, "i2s data if");
+    ESP_GOTO_ON_FALSE(s_i2s_data_if != NULL, ESP_ERR_NO_MEM, fail, TAG, "i2s data if");
     return ESP_OK;
+
+fail:
+    if (s_i2s_rx != NULL) {
+        (void)i2s_del_channel(s_i2s_rx);
+        s_i2s_rx = NULL;
+    }
+    if (s_i2s_tx != NULL) {
+        (void)i2s_del_channel(s_i2s_tx);
+        s_i2s_tx = NULL;
+    }
+    return ret;
 }
 
 static esp_codec_dev_handle_t faculty175_spk_codec_init(void)
@@ -973,6 +1191,8 @@ static esp_codec_dev_handle_t faculty175_mic_codec_init(void)
 
     es7210_codec_cfg_t es7210_cfg = {
         .ctrl_if = i2c_ctrl_if,
+        /* Match Waveshare's Arduino example. ADC1/2 are the physical mics;
+         * ADC3/4 remain enabled for the board's analog echo-reference path. */
         .mic_selected = ES7210_SEL_MIC1 | ES7210_SEL_MIC2 | ES7210_SEL_MIC3 | ES7210_SEL_MIC4,
         .mclk_src = ES7210_MCLK_FROM_PAD,
     };
@@ -1001,6 +1221,18 @@ static bool faculty175_i2c_probe_silent(uint8_t addr_7bit, int timeout_ms)
         return false;
     }
     return i2c_master_probe(s_i2c_bus, addr_7bit, timeout_ms) == ESP_OK;
+}
+
+static bool faculty175_i2c_probe_recovering(uint8_t addr_7bit, int timeout_ms)
+{
+    for (int attempt = 0; attempt < 3; ++attempt) {
+        if (faculty175_i2c_probe_silent(addr_7bit, timeout_ms)) {
+            return true;
+        }
+        faculty175_i2c_reset_bus("i2c-probe-recover");
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+    return false;
 }
 
 typedef struct {
@@ -1097,15 +1329,43 @@ static const audio_codec_ctrl_if_t *faculty175_codec_ctrl_new(uint8_t addr_7bit)
     return &ctrl->base;
 }
 
-static void faculty175_es7210_apply_arduino_compat(void)
+static void faculty175_es7210_apply_board_capture_route(void)
 {
-    esp_err_t err = faculty175_es7210_write_reg(FACULTY175_ES7210_MODE_CONFIG_REG08, 0x20);
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "ES7210 reg08 compat write failed: %s", esp_err_to_name(err));
-    }
-    err = faculty175_es7210_write_reg(FACULTY175_ES7210_SDP_INTERFACE2_REG12, 0x02);
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "ES7210 reg12 compat write failed: %s", esp_err_to_name(err));
+    /* Exact 16 kHz slave-mode sequence from Waveshare's Arduino example.
+     * Espressif's generic driver deliberately skips the divider registers in
+     * slave mode, but this board's ES7210 needs them for live ADC output. */
+    static const struct {
+        uint8_t reg;
+        uint8_t value;
+    } route[] = {
+        {0x01, 0x14}, /* enable ADC1/2 and SDOUT1 clocks */
+        {0x02, 0xC1}, /* ADC divider, DLL and clock doubler */
+        {0x04, 0x01}, /* 16 kHz LRCK divider high */
+        {0x05, 0x00}, /* 16 kHz LRCK divider low */
+        {0x06, 0x00}, /* power up ADC */
+        {0x07, 0x20}, /* ADC oversampling ratio */
+        {0x12, 0x00}, /* ADC1/2 on SDOUT1, non-TDM */
+        {0x40, 0xC3}, /* board analog/VMID power state */
+        {0x41, 0x70}, /* MIC1/2 bias 2.87 V, matching Waveshare */
+        {0x42, 0x70}, /* keep unused MIC3/4 bias at board default */
+        {0x43, 0x1A}, /* MIC1 enabled, 30 dB gain for mono capture */
+        {0x44, 0x1A}, /* MIC2 enabled, 30 dB gain for mono capture */
+        {0x45, 0x1E}, /* MIC3 enabled, Arduino 37.5 dB gain */
+        {0x46, 0x1E}, /* MIC4 enabled, Arduino 37.5 dB gain */
+        {0x47, 0x00}, /* MIC1 ADC power */
+        {0x48, 0x00}, /* MIC2 ADC power */
+        {0x49, 0x00}, /* MIC3 ADC power */
+        {0x4A, 0x00}, /* MIC4 ADC power */
+        {0x4B, 0x00}, /* MIC1/2 analog power */
+        {0x4C, 0x00}, /* MIC3/4 analog power */
+    };
+    for (size_t i = 0; i < sizeof(route) / sizeof(route[0]); ++i) {
+        const esp_err_t err = faculty175_es7210_write_reg(route[i].reg, route[i].value);
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "ES7210 capture reg 0x%02x <- 0x%02x failed: %s",
+                     route[i].reg, route[i].value, esp_err_to_name(err));
+            return;
+        }
     }
 }
 
@@ -1145,9 +1405,11 @@ static void faculty175_mic_apply_capture_config(void)
     if (s_mic_codec == NULL) {
         return;
     }
-    (void)esp_codec_dev_set_in_channel_gain(s_mic_codec, codec_channel_mask(0) | codec_channel_mask(1), 24.0f);
-    (void)esp_codec_dev_set_in_channel_gain(s_mic_codec, codec_channel_mask(2) | codec_channel_mask(3), 37.5f);
-    faculty175_es7210_apply_arduino_compat();
+    /* Match Waveshare's 1.75C BSP: standard I2S with the MIC1/MIC2 pair. The
+     * previous four-channel TDM override produced one clock-noise lane and a
+     * second all-zero half-frame on this board. */
+    (void)esp_codec_dev_set_in_gain(s_mic_codec, 24.0f);
+    faculty175_es7210_apply_board_capture_route();
 }
 
 static esp_err_t faculty175_codec_open(bool out, uint32_t hz)
@@ -1158,7 +1420,7 @@ static esp_err_t faculty175_codec_open(bool out, uint32_t hz)
     }
     esp_codec_dev_sample_info_t fs = {
         .bits_per_sample = 16,
-        .channel = out ? 1 : FACULTY175_ES7210_CHANNELS,
+        .channel = 1,
         .channel_mask = out ? 0 : FACULTY175_ES7210_CHANNEL_MASK,
         .sample_rate = hz == 0 ? FACULTY175_AUDIO_RATE : hz,
     };
@@ -1170,38 +1432,95 @@ static esp_err_t faculty175_codec_open(bool out, uint32_t hz)
     return esp_codec_dev_open(dev, &fs);
 }
 
-static esp_err_t faculty175_audio_write_mono_from_stereo(const int16_t *samples, size_t sample_count)
+static esp_err_t faculty175_audio_prepare_capture_locked(void)
 {
-    if (sample_count < 2 || (sample_count & 1u) != 0u) {
-        const size_t bytes = sample_count * sizeof(int16_t);
-        return esp_codec_dev_write(s_spk_codec, (void *)samples, (int)bytes) == ESP_OK ? ESP_OK : ESP_FAIL;
+    if (s_mic_open) {
+        return ESP_OK;
+    }
+    esp_err_t open_err = faculty175_codec_open(false, FACULTY175_AUDIO_RATE);
+    if (open_err != ESP_OK) {
+        return open_err;
+    }
+    faculty175_mic_apply_capture_config();
+    s_mic_open = true;
+    return ESP_OK;
+}
+
+static bool faculty175_audio_suspend_capture_locked(void)
+{
+    if (s_mic_open && s_mic_codec != NULL) {
+        (void)esp_codec_dev_close(s_mic_codec);
+        s_mic_open = false;
+        return true;
+    }
+    return false;
+}
+
+static esp_err_t faculty175_audio_restart_tx_locked(void)
+{
+    if (s_i2s_tx == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    esp_err_t err = i2s_channel_disable(s_i2s_tx);
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+        return err;
+    }
+    err = i2s_channel_enable(s_i2s_tx);
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+        return err;
+    }
+    return ESP_OK;
+}
+
+static esp_err_t faculty175_audio_restart_rx_locked(void)
+{
+    if (s_i2s_rx == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    esp_err_t err = i2s_channel_disable(s_i2s_rx);
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+        return err;
+    }
+    err = i2s_channel_enable(s_i2s_rx);
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+        return err;
+    }
+    return ESP_OK;
+}
+
+static esp_err_t faculty175_audio_write_mono_from_stereo(const int16_t *samples,
+                                                         size_t sample_count,
+                                                         uint32_t timeout_ms)
+{
+    if (s_i2s_tx == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if ((sample_count & 1u) != 0u) {
+        return ESP_ERR_INVALID_SIZE;
     }
 
-    const size_t frames = sample_count / 2u;
-    if (s_spk_mono_scratch_count < frames) {
-        int16_t *next = heap_caps_realloc(s_spk_mono_scratch,
-                                          frames * sizeof(s_spk_mono_scratch[0]),
-                                          MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-        if (next == NULL) {
-            next = heap_caps_malloc(frames * sizeof(next[0]), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-            if (next != NULL) {
-                free(s_spk_mono_scratch);
-            }
+    const TickType_t ticks = pdMS_TO_TICKS(timeout_ms == 0 ? 200 : timeout_ms);
+    int16_t mono[256];
+    const size_t frame_count = sample_count / 2u;
+    for (size_t base = 0; base < frame_count; base += 256u) {
+        const size_t frames = (frame_count - base) < 256u ? (frame_count - base) : 256u;
+        for (size_t i = 0; i < frames; ++i) {
+            const int32_t left = samples[(base + i) * 2u];
+            const int32_t right = samples[(base + i) * 2u + 1u];
+            mono[i] = (int16_t)((left + right) / 2);
         }
-        if (next == NULL) {
-            return ESP_ERR_NO_MEM;
+        const size_t bytes = frames * sizeof(int16_t);
+        size_t written = 0;
+        const esp_err_t err = i2s_channel_write(s_i2s_tx, mono, bytes, &written, ticks);
+        if (err != ESP_OK) {
+            return err;
         }
-        s_spk_mono_scratch = next;
-        s_spk_mono_scratch_count = frames;
+        if (written != bytes) {
+            ESP_LOGW(TAG, "spk i2s short write %u/%u", (unsigned)written, (unsigned)bytes);
+            return ESP_ERR_TIMEOUT;
+        }
     }
-
-    for (size_t i = 0; i < frames; ++i) {
-        const int32_t l = samples[i * 2u];
-        const int32_t r = samples[i * 2u + 1u];
-        s_spk_mono_scratch[i] = (int16_t)((l + r) / 2);
-    }
-    const size_t bytes = frames * sizeof(s_spk_mono_scratch[0]);
-    return esp_codec_dev_write(s_spk_codec, (void *)s_spk_mono_scratch, (int)bytes) == ESP_OK ? ESP_OK : ESP_FAIL;
+    return ESP_OK;
 }
 
 esp_err_t faculty175_board_play_boot_chime(void)
@@ -1302,6 +1621,7 @@ static int32_t faculty175_audio_probe_peak(void)
         }
     }
     esp_codec_dev_close(s_mic_codec);
+    s_mic_open = false;
     return read_ok ? peak : 0;
 }
 
@@ -1311,8 +1631,8 @@ static esp_err_t faculty175_audio_init(void)
     g_faculty175_boot_last_err = faculty175_i2c_init();
     ESP_RETURN_ON_ERROR(g_faculty175_boot_last_err, TAG, "i2c");
     g_faculty175_boot_stage = 0xae42;
-    const bool spk_present = faculty175_i2c_probe_silent(FACULTY175_ES8311_ADDR >> 1, 25);
-    const bool mic_present = faculty175_i2c_probe_silent(FACULTY175_ES7210_ADDR_7BIT, 25);
+    const bool spk_present = faculty175_i2c_probe_recovering(FACULTY175_ES8311_ADDR >> 1, 25);
+    const bool mic_present = faculty175_i2c_probe_recovering(FACULTY175_ES7210_ADDR_7BIT, 25);
     if (!spk_present) {
         ESP_LOGW(TAG,
                  "speaker codec absent on I2C (ES8311=%d ES7210=%d); skipping codec init",
@@ -1351,6 +1671,10 @@ static esp_err_t faculty175_audio_init(void)
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
         .intr_type = GPIO_INTR_DISABLE,
     };
+    /* Deep sleep holds PA enable low so the amplifier cannot float on while
+       the digital GPIO domain is powered down. Release the per-pin hold before
+       restoring the normal awake level. */
+    gpio_hold_dis(FACULTY175_PA_GPIO);
     g_faculty175_boot_last_err = gpio_config(&pa_cfg);
     ESP_RETURN_ON_ERROR(g_faculty175_boot_last_err, TAG, "pa gpio");
     gpio_set_level(FACULTY175_PA_GPIO, 1);
@@ -1367,6 +1691,7 @@ static esp_err_t faculty175_audio_init(void)
 
     g_faculty175_boot_stage = 0xae48;
     s_spk_open = false;
+    s_mic_open = false;
     s_spk_rate_hz = FACULTY175_AUDIO_RATE;
     g_faculty175_boot_stage = 0xae4c;
     s_speaker_ready = true;
@@ -1376,6 +1701,8 @@ static esp_err_t faculty175_audio_init(void)
     }
 
     g_faculty175_boot_stage = 0xae4d;
+    g_faculty175_boot_last_err = faculty175_audio_prepare_capture_locked();
+    ESP_RETURN_ON_ERROR(g_faculty175_boot_last_err, TAG, "mic open");
     s_mic_probe_peak = 0;
     g_faculty175_boot_stage = 0xae4e;
     g_faculty175_boot_stage = 0xae50;
@@ -1384,6 +1711,10 @@ static esp_err_t faculty175_audio_init(void)
 
 static void faculty175_lcd_hardware_reset(void)
 {
+    /* Deep sleep holds the shared display/touch reset low. Release that hold
+       before the cold-boot reset sequence tries to drive the pin. */
+    gpio_deep_sleep_hold_dis();
+    gpio_hold_dis(FACULTY175_LCD_PIN_RST);
     const gpio_config_t cfg = {
         .pin_bit_mask = 1ULL << FACULTY175_LCD_PIN_RST,
         .mode = GPIO_MODE_OUTPUT,
@@ -1429,7 +1760,7 @@ static esp_err_t faculty175_lcd_init(void)
     g_faculty175_boot_stage = 0xae32;
 
     if (s_flush_done == NULL) {
-        s_flush_done = xSemaphoreCreateBinary();
+        s_flush_done = xSemaphoreCreateCounting(10, 0);
         ESP_RETURN_ON_FALSE(s_flush_done != NULL, ESP_ERR_NO_MEM, TAG, "flush sem");
     }
     if (s_display_lock == NULL) {
@@ -1440,7 +1771,9 @@ static esp_err_t faculty175_lcd_init(void)
 
     esp_lcd_panel_io_spi_config_t io_cfg = CO5300_PANEL_IO_QSPI_CONFIG(FACULTY175_LCD_PIN_CS, lcd_flush_done_cb, NULL);
     io_cfg.trans_queue_depth = 10;
-    io_cfg.pclk_hz = 20 * 1000 * 1000;
+    /* Use the CO5300 driver's supported 40 MHz QSPI rate. At 20 MHz with
+       eight-row DMA strips, full-frame navigation visibly scanned top-down. */
+    io_cfg.pclk_hz = 40 * 1000 * 1000;
     g_faculty175_boot_last_err =
         esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)FACULTY175_LCD_HOST, &io_cfg, &s_panel_io);
     ESP_RETURN_ON_ERROR(g_faculty175_boot_last_err, TAG, "lcd io");
@@ -1574,6 +1907,8 @@ esp_err_t faculty175_board_init(void)
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "i2c idle gpio failed: %s", esp_err_to_name(err));
     } else {
+        faculty175_lcd_hardware_reset();
+        faculty175_lcd_release_shared_reset();
         faculty175_log_i2c_lines("boot-pre-lcd");
         err = faculty175_i2c_init();
         g_faculty175_boot_last_err = err;
@@ -1583,6 +1918,16 @@ esp_err_t faculty175_board_init(void)
             i2c_ready = true;
         }
     }
+
+#if FACULTY175_HTTP_SCREEN_QA_SKIP_AUDIO
+    s_audio_ready = false;
+    ESP_LOGW(TAG, "audio init skipped for HTTP screen QA");
+#else
+    s_audio_ready = i2c_ready && faculty175_audio_init() == ESP_OK;
+    if (!s_audio_ready) {
+        ESP_LOGW(TAG, "audio init before LCD unavailable; will retry after display init");
+    }
+#endif
 
     g_faculty175_boot_stage = 0xae03;
     err = faculty175_lcd_init();
@@ -1595,12 +1940,9 @@ esp_err_t faculty175_board_init(void)
     }
 
     g_faculty175_boot_stage = 0xae04;
-#if FACULTY175_HTTP_SCREEN_QA_SKIP_AUDIO
-    s_audio_ready = false;
-    ESP_LOGW(TAG, "audio init skipped for HTTP screen QA");
-#else
-    s_audio_ready = i2c_ready && faculty175_audio_init() == ESP_OK;
-#endif
+    if (!s_audio_ready && i2c_ready) {
+        s_audio_ready = faculty175_audio_init() == ESP_OK;
+    }
     if (!s_audio_ready) {
         ESP_LOGW(TAG, "audio init unavailable — continuing without speaker/mic");
     }
@@ -1658,7 +2000,49 @@ void faculty175_board_display_on(bool on)
     }
 }
 
-esp_err_t faculty175_audio_read(int16_t *samples, size_t sample_count, size_t *out_read, uint32_t timeout_ms)
+esp_err_t faculty175_display_prepare_deep_sleep(void)
+{
+    faculty175_display_flush_suspended_set(true);
+    if (s_panel != NULL && s_panel_io != NULL) {
+        if (!faculty175_display_lock_timeout(2000)) {
+            ESP_LOGE(TAG, "display mutex timeout during deep-sleep preparation");
+            return ESP_ERR_TIMEOUT;
+        }
+        faculty175_board_set_backlight(0);
+        esp_err_t result = esp_lcd_panel_disp_on_off(s_panel, false);
+        if (result == ESP_OK) {
+            /* CO5300 uses the QSPI write-command opcode. Display-off (0x28)
+               blanks emission; sleep-in (0x10) also shuts down panel analog
+               blocks before ESP32 deep sleep. */
+            uint32_t sleep_in_cmd = 0x10;
+            sleep_in_cmd <<= 8;
+            sleep_in_cmd |= 0x02u << 24;
+            result = esp_lcd_panel_io_tx_param(s_panel_io, sleep_in_cmd, NULL, 0);
+        }
+        faculty175_display_unlock();
+        if (result != ESP_OK) {
+            ESP_LOGE(TAG, "AMOLED deep-sleep command failed: %s", esp_err_to_name(result));
+            return result;
+        }
+
+        /* MIPI DCS requires the panel to settle after sleep-in. */
+        vTaskDelay(pdMS_TO_TICKS(120));
+    }
+
+    /* Hold the shared LCD/touch reset asserted even if panel initialization
+       failed, so neither peripheral can wake or float during deep sleep. Cold
+       boot releases the hold above. */
+    gpio_set_direction(FACULTY175_LCD_PIN_RST, GPIO_MODE_OUTPUT);
+    gpio_set_level(FACULTY175_LCD_PIN_RST, 0);
+    ESP_RETURN_ON_ERROR(gpio_hold_en(FACULTY175_LCD_PIN_RST), TAG, "hold LCD reset");
+    gpio_deep_sleep_hold_en();
+    return ESP_OK;
+}
+
+static esp_err_t faculty175_audio_read_standard(int16_t *samples,
+                                                size_t sample_count,
+                                                size_t *out_read,
+                                                uint32_t timeout_ms)
 {
     if (!s_audio_ready || s_mic_codec == NULL || samples == NULL || sample_count == 0) {
         return ESP_ERR_INVALID_STATE;
@@ -1673,6 +2057,96 @@ esp_err_t faculty175_audio_read(int16_t *samples, size_t sample_count, size_t *o
         return ESP_ERR_TIMEOUT;
     }
 
+    esp_err_t err = faculty175_audio_prepare_capture_locked();
+    if (err != ESP_OK) {
+        if (s_audio_read_mux != NULL) {
+            xSemaphoreGive(s_audio_read_mux);
+        }
+        return err;
+    }
+
+    const size_t bytes = sample_count * FACULTY175_ES7210_CAPTURE_CHANNELS * sizeof(int16_t);
+    if (esp_codec_dev_read(s_mic_codec, s_audio_read_mono, bytes) != ESP_CODEC_DEV_OK) {
+        if (s_audio_read_mux != NULL) {
+            xSemaphoreGive(s_audio_read_mux);
+        }
+        return ESP_FAIL;
+    }
+
+    int64_t sum = 0;
+    for (size_t i = 0; i < sample_count; ++i) {
+        sum += audio_sample_host_order(s_audio_read_mono[i]);
+    }
+    const int32_t mean = (int32_t)(sum / (int64_t)sample_count);
+
+    uint64_t energy = 0;
+    uint32_t peak = 0;
+    for (size_t i = 0; i < sample_count; ++i) {
+        int32_t sample = (int32_t)audio_sample_host_order(s_audio_read_mono[i]) - mean;
+        energy += (uint64_t)(sample * sample);
+        if (sample < 0) {
+            sample = -sample;
+        }
+        if ((uint32_t)sample > peak) {
+            peak = (uint32_t)sample;
+        }
+    }
+
+    if (s_audio_selected_ch != 0) {
+        s_audio_selected_ch = 0;
+        ESP_LOGI(TAG, "mic selected ES7210 mono-I2S peak=%u", (unsigned)peak);
+    } else if ((++s_audio_read_frames % 25u) == 0u && peak > 96u) {
+        ESP_LOGI(TAG, "mic mono-I2S peak=%u e=%u",
+                 (unsigned)peak, (unsigned)(energy / sample_count));
+    }
+
+    for (size_t i = 0; i < sample_count; ++i) {
+        int32_t sample = (int32_t)audio_sample_host_order(s_audio_read_mono[i]) - mean;
+        sample *= FACULTY175_MIC_MONO_GAIN;
+        if (sample > INT16_MAX) {
+            sample = INT16_MAX;
+        } else if (sample < INT16_MIN) {
+            sample = INT16_MIN;
+        }
+        samples[i] = (int16_t)sample;
+    }
+
+    faculty175_aec_process(samples, sample_count);
+    faculty175_noise_suppress(samples, sample_count);
+    if (out_read != NULL) {
+        *out_read = sample_count;
+    }
+    if (s_audio_read_mux != NULL) {
+        xSemaphoreGive(s_audio_read_mux);
+    }
+    return ESP_OK;
+}
+
+esp_err_t faculty175_audio_read(int16_t *samples, size_t sample_count, size_t *out_read, uint32_t timeout_ms)
+{
+    return faculty175_audio_read_standard(samples, sample_count, out_read, timeout_ms);
+#if 0 /* Superseded four-channel TDM recovery path retained temporarily for bisect context. */
+    if (!s_audio_ready || s_mic_codec == NULL || samples == NULL || sample_count == 0) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    if (sample_count > FACULTY175_AUDIO_MAX_READ_SAMPLES) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+
+    if (s_audio_read_mux != NULL &&
+        xSemaphoreTake(s_audio_read_mux, pdMS_TO_TICKS(timeout_ms == 0 ? 200 : timeout_ms)) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
+
+    esp_err_t capture_err = faculty175_audio_prepare_capture_locked();
+    if (capture_err != ESP_OK) {
+        if (s_audio_read_mux != NULL) {
+            xSemaphoreGive(s_audio_read_mux);
+        }
+        return capture_err;
+    }
+
     const size_t groups = sample_count * FACULTY175_ES7210_HALFWORD_GROUPS_PER_FRAME;
     const size_t bytes = groups * FACULTY175_ES7210_CHANNELS * sizeof(int16_t);
     if (esp_codec_dev_read(s_mic_codec, s_audio_read_tdm, bytes) != ESP_OK) {
@@ -1683,12 +2157,14 @@ esp_err_t faculty175_audio_read(int16_t *samples, size_t sample_count, size_t *o
     }
 
     uint64_t group_energy[FACULTY175_ES7210_HALFWORD_GROUPS_PER_FRAME] = {0};
+    int64_t group_sum[FACULTY175_ES7210_HALFWORD_GROUPS_PER_FRAME][FACULTY175_ES7210_CHANNELS] = {0};
     for (size_t i = 0; i < sample_count; ++i) {
         for (size_t group = 0; group < FACULTY175_ES7210_HALFWORD_GROUPS_PER_FRAME; ++group) {
             const size_t frame_base = (i * FACULTY175_ES7210_HALFWORD_GROUPS_PER_FRAME + group) * FACULTY175_ES7210_CHANNELS;
             for (int ch = 0; ch < FACULTY175_ES7210_CHANNELS; ++ch) {
                 const int32_t sample = audio_sample_host_order(s_audio_read_tdm[frame_base + ch]);
                 group_energy[group] += (uint64_t)(sample * sample);
+                group_sum[group][ch] += sample;
             }
         }
     }
@@ -1699,18 +2175,27 @@ esp_err_t faculty175_audio_read(int16_t *samples, size_t sample_count, size_t *o
         }
     }
 
-    int64_t sum[FACULTY175_ES7210_CHANNELS] = {0};
-    for (size_t i = 0; i < sample_count; ++i) {
-        const size_t frame_base =
-            (i * FACULTY175_ES7210_HALFWORD_GROUPS_PER_FRAME + populated_group) * FACULTY175_ES7210_CHANNELS;
-        for (int ch = 0; ch < FACULTY175_ES7210_CHANNELS; ++ch) {
-            sum[ch] += audio_sample_host_order(s_audio_read_tdm[frame_base + ch]);
-        }
-    }
-
     int32_t mean[FACULTY175_ES7210_CHANNELS] = {0};
     for (int ch = 0; ch < FACULTY175_ES7210_CHANNELS; ++ch) {
-        mean[ch] = (int32_t)(sum[ch] / (int64_t)sample_count);
+        mean[ch] = (int32_t)(group_sum[populated_group][ch] / (int64_t)sample_count);
+    }
+
+    uint32_t lane_peak[FACULTY175_ES7210_HALFWORD_GROUPS_PER_FRAME][FACULTY175_ES7210_CHANNELS] = {0};
+    for (size_t i = 0; i < sample_count; ++i) {
+        for (size_t group = 0; group < FACULTY175_ES7210_HALFWORD_GROUPS_PER_FRAME; ++group) {
+            const size_t frame_base =
+                (i * FACULTY175_ES7210_HALFWORD_GROUPS_PER_FRAME + group) * FACULTY175_ES7210_CHANNELS;
+            for (int ch = 0; ch < FACULTY175_ES7210_CHANNELS; ++ch) {
+                const int32_t lane_mean = (int32_t)(group_sum[group][ch] / (int64_t)sample_count);
+                int32_t centered = (int32_t)audio_sample_host_order(s_audio_read_tdm[frame_base + ch]) - lane_mean;
+                if (centered < 0) {
+                    centered = -centered;
+                }
+                if ((uint32_t)centered > lane_peak[group][ch]) {
+                    lane_peak[group][ch] = (uint32_t)centered;
+                }
+            }
+        }
     }
 
     uint64_t energy[FACULTY175_ES7210_CHANNELS] = {0};
@@ -1730,8 +2215,25 @@ esp_err_t faculty175_audio_read(int16_t *samples, size_t sample_count, size_t *o
         }
     }
 
-    const int mic_a = FACULTY175_ES7210_MIC_A_CH;
-    const int mic_b = FACULTY175_ES7210_MIC_B_CH;
+    /* ES7210 TDM channel placement differs between codec/BSP revisions. Pick
+     * the two channels carrying the most energy instead of assuming 0/2; the
+     * former fixed mapping could select two empty slots and suppress real
+     * speech down to the noise floor. */
+    int mic_a = 0;
+    int mic_b = 1;
+    if (energy[mic_b] > energy[mic_a]) {
+        const int swap = mic_a;
+        mic_a = mic_b;
+        mic_b = swap;
+    }
+    for (int ch = 2; ch < FACULTY175_ES7210_CHANNELS; ++ch) {
+        if (energy[ch] > energy[mic_a]) {
+            mic_b = mic_a;
+            mic_a = ch;
+        } else if (energy[ch] > energy[mic_b]) {
+            mic_b = ch;
+        }
+    }
     uint64_t sum_mix_energy = 0;
     uint64_t diff_mix_energy = 0;
     uint32_t sum_mix_peak = 0;
@@ -1772,7 +2274,7 @@ esp_err_t faculty175_audio_read(int16_t *samples, size_t sample_count, size_t *o
 
     if (s_audio_selected_ch != -2) {
         s_audio_selected_ch = -2;
-        ESP_LOGI(TAG, "mic selected ES7210 group=%u dual ch%d/ch%d mode=%s peak=%u/%u",
+        ESP_LOGI(TAG, "mic selected ES7210 group=%u dual ch%d/ch%d mode=%s peak=%u/%u p=%u/%u/%u/%u",
                  (unsigned)populated_group,
                  mic_a,
                  mic_b,
@@ -1780,9 +2282,25 @@ esp_err_t faculty175_audio_read(int16_t *samples, size_t sample_count, size_t *o
                                : (mix_mode == 2 ? "chA"
                                                 : (mix_mode == 3 ? "chB" : (mix_mode == 4 ? "weighted" : "sum"))),
                  (unsigned)peak[mic_a],
-                 (unsigned)peak[mic_b]);
-    } else if ((++s_audio_read_frames % 25u) == 0u && mix_peak > 96u) {
-        ESP_LOGI(TAG, "mic mix group=%u ch%d/ch%d mode=%s peak=%u/%u p=%u/%u/%u/%u e=%u/%u/%u/%u",
+                 (unsigned)peak[mic_b],
+                 (unsigned)peak[0],
+                 (unsigned)peak[1],
+                 (unsigned)peak[2],
+                 (unsigned)peak[3]);
+    } else if ((++s_audio_read_frames % 25u) == 0u) {
+        ESP_LOGI(TAG, "mic lanes selected=%u g0=%u/%u/%u/%u g1=%u/%u/%u/%u mix=%u",
+                 (unsigned)populated_group,
+                 (unsigned)lane_peak[0][0],
+                 (unsigned)lane_peak[0][1],
+                 (unsigned)lane_peak[0][2],
+                 (unsigned)lane_peak[0][3],
+                 (unsigned)lane_peak[1][0],
+                 (unsigned)lane_peak[1][1],
+                 (unsigned)lane_peak[1][2],
+                 (unsigned)lane_peak[1][3],
+                 (unsigned)mix_peak);
+        if (mix_peak > 96u) {
+            ESP_LOGI(TAG, "mic mix group=%u ch%d/ch%d mode=%s peak=%u/%u p=%u/%u/%u/%u e=%u/%u/%u/%u",
                  (unsigned)populated_group,
                  mic_a,
                  mic_b,
@@ -1799,6 +2317,7 @@ esp_err_t faculty175_audio_read(int16_t *samples, size_t sample_count, size_t *o
                  (unsigned)(energy[1] / sample_count),
                  (unsigned)(energy[2] / sample_count),
                  (unsigned)(energy[3] / sample_count));
+        }
     }
 
     for (size_t i = 0; i < sample_count; ++i) {
@@ -1832,6 +2351,7 @@ esp_err_t faculty175_audio_read(int16_t *samples, size_t sample_count, size_t *o
         samples[i] = (int16_t)sample;
     }
     faculty175_aec_process(samples, sample_count);
+    faculty175_noise_suppress(samples, sample_count);
     if (out_read != NULL) {
         *out_read = sample_count;
     }
@@ -1839,6 +2359,23 @@ esp_err_t faculty175_audio_read(int16_t *samples, size_t sample_count, size_t *o
         xSemaphoreGive(s_audio_read_mux);
     }
     return ESP_OK;
+#endif
+}
+
+esp_err_t faculty175_audio_prepare_capture(uint32_t timeout_ms)
+{
+    if (!s_audio_ready || s_mic_codec == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (s_audio_read_mux != NULL &&
+        xSemaphoreTake(s_audio_read_mux, pdMS_TO_TICKS(timeout_ms == 0 ? 200 : timeout_ms)) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
+    esp_err_t err = faculty175_audio_prepare_capture_locked();
+    if (s_audio_read_mux != NULL) {
+        xSemaphoreGive(s_audio_read_mux);
+    }
+    return err;
 }
 
 esp_err_t faculty175_audio_read_tdm_raw(int16_t *samples,
@@ -1856,6 +2393,14 @@ esp_err_t faculty175_audio_read_tdm_raw(int16_t *samples,
     if (s_audio_read_mux != NULL &&
         xSemaphoreTake(s_audio_read_mux, pdMS_TO_TICKS(timeout_ms == 0 ? 200 : timeout_ms)) != pdTRUE) {
         return ESP_ERR_TIMEOUT;
+    }
+
+    esp_err_t capture_err = faculty175_audio_prepare_capture_locked();
+    if (capture_err != ESP_OK) {
+        if (s_audio_read_mux != NULL) {
+            xSemaphoreGive(s_audio_read_mux);
+        }
+        return capture_err;
     }
 
     const size_t groups = frame_count * FACULTY175_ES7210_HALFWORD_GROUPS_PER_FRAME;
@@ -1909,16 +2454,102 @@ esp_err_t faculty175_audio_write_pcm(const int16_t *samples, size_t sample_count
         return ESP_ERR_INVALID_STATE;
     }
 
-    faculty175_audio_set_speaker_mute(false);
+    if (s_audio_read_mux != NULL &&
+        xSemaphoreTake(s_audio_read_mux, pdMS_TO_TICKS(timeout_ms == 0 ? 200 : timeout_ms)) != pdTRUE) {
+        ESP_LOGW(TAG, "spk write mutex timeout samples=%u open=%d", (unsigned)sample_count, s_spk_open ? 1 : 0);
+        return ESP_ERR_TIMEOUT;
+    }
+
+    esp_err_t err = ESP_OK;
+    bool opened_speaker = false;
+    faculty175_audio_set_speaker_pa_level(true);
+    const bool suspended_capture = faculty175_audio_suspend_capture_locked();
     if (!s_spk_open) {
-        ESP_RETURN_ON_ERROR(faculty175_codec_open(true, s_spk_rate_hz), TAG, "spk open");
-        ESP_RETURN_ON_ERROR(esp_codec_dev_set_out_vol(s_spk_codec, FACULTY175_SPEAKER_VOLUME), TAG, "spk vol");
-        ESP_RETURN_ON_ERROR(esp_codec_dev_set_out_mute(s_spk_codec, false), TAG, "spk unmute");
+        err = faculty175_codec_open(true, s_spk_rate_hz);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "spk open: %s", esp_err_to_name(err));
+            goto out;
+        }
+        err = esp_codec_dev_set_out_vol(s_spk_codec, FACULTY175_SPEAKER_VOLUME);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "spk vol: %s", esp_err_to_name(err));
+            goto out;
+        }
+        err = esp_codec_dev_set_out_mute(s_spk_codec, false);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "spk unmute: %s", esp_err_to_name(err));
+            goto out;
+        }
         s_spk_open = true;
+        opened_speaker = true;
+    }
+    if (opened_speaker || suspended_capture) {
+        err = faculty175_audio_restart_tx_locked();
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "spk tx restart: %s", esp_err_to_name(err));
+            goto out;
+        }
     }
 
     faculty175_aec_push_reference(samples, sample_count);
-    return faculty175_audio_write_mono_from_stereo(samples, sample_count);
+    err = faculty175_audio_write_mono_from_stereo(samples, sample_count, timeout_ms);
+
+out:
+    if (s_audio_read_mux != NULL) {
+        xSemaphoreGive(s_audio_read_mux);
+    }
+    return err;
+}
+
+esp_err_t faculty175_audio_reset_speaker(uint32_t timeout_ms)
+{
+    if (s_spk_codec == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (s_audio_read_mux != NULL &&
+        xSemaphoreTake(s_audio_read_mux, pdMS_TO_TICKS(timeout_ms == 0 ? 200 : timeout_ms)) != pdTRUE) {
+        ESP_LOGW(TAG, "spk reset mutex timeout open=%d", s_spk_open ? 1 : 0);
+        return ESP_ERR_TIMEOUT;
+    }
+    (void)esp_codec_dev_close(s_spk_codec);
+    s_spk_open = false;
+    if (s_audio_read_mux != NULL) {
+        xSemaphoreGive(s_audio_read_mux);
+    }
+    return ESP_OK;
+}
+
+esp_err_t faculty175_audio_reset_capture(uint32_t timeout_ms)
+{
+    if (s_mic_codec == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (s_audio_read_mux != NULL &&
+        xSemaphoreTake(s_audio_read_mux, pdMS_TO_TICKS(timeout_ms == 0 ? 200 : timeout_ms)) != pdTRUE) {
+        ESP_LOGW(TAG, "mic reset mutex timeout open=%d", s_mic_open ? 1 : 0);
+        return ESP_ERR_TIMEOUT;
+    }
+
+    if (s_mic_open) {
+        (void)esp_codec_dev_close(s_mic_codec);
+        s_mic_open = false;
+    }
+    esp_err_t err = faculty175_codec_open(false, FACULTY175_AUDIO_RATE);
+    if (err == ESP_OK) {
+        faculty175_mic_apply_capture_config();
+        s_mic_open = true;
+        err = faculty175_audio_restart_rx_locked();
+    }
+    if (s_audio_read_mux != NULL) {
+        xSemaphoreGive(s_audio_read_mux);
+    }
+    if (err == ESP_OK) {
+        vTaskDelay(pdMS_TO_TICKS(80));
+        ESP_LOGI(TAG, "microphone capture path reset");
+    } else {
+        ESP_LOGW(TAG, "microphone capture reset failed: %s", esp_err_to_name(err));
+    }
+    return err;
 }
 
 esp_err_t faculty175_audio_set_sample_rate(uint32_t hz)
@@ -1932,17 +2563,26 @@ esp_err_t faculty175_audio_set_sample_rate(uint32_t hz)
     (void)esp_codec_dev_close(s_spk_codec);
     s_spk_open = false;
     (void)esp_codec_dev_close(s_mic_codec);
+    s_mic_open = false;
     faculty175_aec_reset(hz);
     ESP_RETURN_ON_ERROR(faculty175_i2s_set_rate(hz), TAG, "i2s rate");
     s_spk_rate_hz = hz;
     s_spk_open = false;
     ESP_RETURN_ON_ERROR(faculty175_codec_open(false, hz), TAG, "mic open");
+    s_mic_open = true;
     faculty175_mic_apply_capture_config();
     return ESP_OK;
 }
 
 void faculty175_audio_set_speaker_mute(bool mute)
 {
+    if (mute) {
+        /* Half-duplex STT has no speaker echo.  Retire any playback tail so
+         * the correlation search cannot consume microphone capture time. */
+        portENTER_CRITICAL(&s_aec_mux);
+        s_aec_ref_active_until_us = 0;
+        portEXIT_CRITICAL(&s_aec_mux);
+    }
     faculty175_audio_set_speaker_pa_level(!mute);
     if (s_spk_codec != NULL) {
         (void)esp_codec_dev_set_out_mute(s_spk_codec, mute);
@@ -1964,6 +2604,50 @@ void faculty175_audio_set_speaker_volume(uint8_t volume)
         volume = 100u;
     }
     (void)esp_codec_dev_set_out_vol(s_spk_codec, volume);
+}
+
+esp_err_t faculty175_audio_prepare_deep_sleep(uint32_t timeout_ms)
+{
+    if (s_audio_read_mux != NULL &&
+        xSemaphoreTake(s_audio_read_mux,
+                       pdMS_TO_TICKS(timeout_ms == 0 ? 500 : timeout_ms)) != pdTRUE) {
+        ESP_LOGW(TAG, "deep-sleep audio mutex timeout");
+        return ESP_ERR_TIMEOUT;
+    }
+
+    faculty175_audio_set_speaker_mute(true);
+    if (s_spk_open && s_spk_codec != NULL) {
+        (void)esp_codec_dev_close(s_spk_codec);
+        s_spk_open = false;
+    }
+    if (s_mic_open && s_mic_codec != NULL) {
+        (void)esp_codec_dev_close(s_mic_codec);
+        s_mic_open = false;
+    }
+
+    esp_err_t result = ESP_OK;
+    if (s_i2s_tx != NULL) {
+        const esp_err_t err = i2s_channel_disable(s_i2s_tx);
+        if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+            result = err;
+        }
+    }
+    if (s_i2s_rx != NULL) {
+        const esp_err_t err = i2s_channel_disable(s_i2s_rx);
+        if (err != ESP_OK && err != ESP_ERR_INVALID_STATE && result == ESP_OK) {
+            result = err;
+        }
+    }
+    faculty175_audio_set_speaker_pa_level(false);
+    if (result == ESP_OK) {
+        result = gpio_hold_en(FACULTY175_PA_GPIO);
+    }
+
+    if (s_audio_read_mux != NULL) {
+        xSemaphoreGive(s_audio_read_mux);
+    }
+    ESP_LOGI(TAG, "deep-sleep audio quiesced: %s", esp_err_to_name(result));
+    return result;
 }
 
 void faculty175_display_fill_rgb565(uint16_t color)
@@ -2009,6 +2693,45 @@ void faculty175_display_fill_rect(int x, int y, int w, int h, uint16_t color)
 void faculty175_display_draw_rgb565(const uint16_t *pixels, int x, int y, int w, int h)
 {
     faculty175_display_blit_rgb565_masked(pixels, NULL, x, y, w, h);
+}
+
+void faculty175_display_draw_rgb565_stride(const uint16_t *pixels, int src_stride_pixels, int x, int y, int w, int h)
+{
+    if (s_fb == NULL || pixels == NULL || src_stride_pixels <= 0 || w <= 0 || h <= 0) {
+        return;
+    }
+    if (src_stride_pixels == w) {
+        faculty175_display_draw_rgb565(pixels, x, y, w, h);
+        return;
+    }
+
+    int src_x = 0;
+    int src_y = 0;
+    if (x < 0) {
+        src_x = -x;
+        w += x;
+        x = 0;
+    }
+    if (y < 0) {
+        src_y = -y;
+        h += y;
+        y = 0;
+    }
+    if (x >= FACULTY175_LCD_W || y >= FACULTY175_LCD_H || w <= 0 || h <= 0) {
+        return;
+    }
+    if (x + w > FACULTY175_LCD_W) {
+        w = FACULTY175_LCD_W - x;
+    }
+    if (y + h > FACULTY175_LCD_H) {
+        h = FACULTY175_LCD_H - y;
+    }
+
+    for (int row = 0; row < h; ++row) {
+        memcpy(&s_fb[(y + row) * FACULTY175_LCD_W + x],
+               &pixels[(src_y + row) * src_stride_pixels + src_x],
+               (size_t)w * sizeof(uint16_t));
+    }
 }
 
 void faculty175_display_blit_rgb565_masked(const uint16_t *pixels, const uint8_t *opaque, int x, int y, int w, int h)
@@ -2786,6 +3509,30 @@ void faculty175_display_flush_suspended_set(bool suspended)
     s_flush_suspended = suspended;
 }
 
+size_t faculty175_display_prepare_ota(void)
+{
+    size_t released = 0;
+    faculty175_display_lock();
+    s_flush_suspended = true;
+    if (s_flush_strip != NULL && s_flush_strip_h > 0) {
+        released = (size_t)FACULTY175_LCD_W * (size_t)s_flush_strip_h * sizeof(uint16_t) *
+                   FACULTY175_LCD_FLUSH_BUFFER_COUNT;
+        heap_caps_free(s_flush_strip);
+        s_flush_strip = NULL;
+        s_flush_strip_h = 0;
+    }
+    faculty175_display_unlock();
+    ESP_LOGI(TAG, "OTA display pipeline paused; released %u DMA bytes", (unsigned)released);
+    return released;
+}
+
+void faculty175_display_resume_after_ota_error(void)
+{
+    faculty175_display_lock();
+    s_flush_suspended = false;
+    faculty175_display_unlock();
+}
+
 void faculty175_display_flush(void)
 {
     if (s_flush_suspended) {
@@ -2823,28 +3570,7 @@ void faculty175_display_flush_rect(int x, int y, int w, int h)
         h = FACULTY175_LCD_H - y;
     }
 
-    const int max_strip_h = s_flush_strip_h > 0 ? s_flush_strip_h : FACULTY175_LCD_FLUSH_STRIP_H;
-    for (int row0 = 0; row0 < h; row0 += max_strip_h) {
-        int strip_h = h - row0;
-        if (strip_h > max_strip_h) {
-            strip_h = max_strip_h;
-        }
-        for (int row = 0; row < strip_h; ++row) {
-            const uint16_t *src = &s_fb[(y + row0 + row) * FACULTY175_LCD_W + x];
-            uint16_t *dst = &s_flush_strip[row * w];
-            for (int col = 0; col < w; ++col) {
-                dst[col] = rgb565_panel_wire(src[col]);
-            }
-        }
-        (void)xSemaphoreTake(s_flush_done, 0);
-        if (esp_lcd_panel_draw_bitmap(s_panel, x, y + row0, x + w, y + row0 + strip_h, s_flush_strip) != ESP_OK) {
-            ESP_LOGW(TAG, "lcd flush rect %d,%d %dx%d failed", x, y + row0, w, strip_h);
-            break;
-        }
-        if (xSemaphoreTake(s_flush_done, pdMS_TO_TICKS(20)) != pdTRUE) {
-            ESP_LOGW(TAG, "lcd flush rect %d,%d %dx%d timeout", x, y + row0, w, strip_h);
-        }
-    }
+    faculty175_display_flush_region(x, y, w, h);
 }
 
 void faculty175_display_draw_circle(int cx, int cy, int r, uint16_t color)
@@ -3394,7 +4120,7 @@ esp_err_t faculty175_display_write_bmp565(faculty175_display_write_cb_t write_cb
 
     enum {
         HEADER_BYTES = 70,
-        ROWS_PER_CHUNK = 16,
+        ROWS_PER_CHUNK = 4,
     };
     const int w = FACULTY175_LCD_W;
     const int h = FACULTY175_LCD_H;

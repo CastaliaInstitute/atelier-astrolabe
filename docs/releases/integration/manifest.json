@@ -1,0 +1,54 @@
+{
+  "git_ref": "integration",
+  "git_sha": "a6b6171",
+  "releases": [
+    {
+      "release_id": "astrolabe-faculty-amoled175",
+      "product_name": "Astrolabe Faculty AMOLED 1.75",
+      "device_platform": "ESP32-S3 AMOLED 1.75",
+      "firmware_variant": "Faculty",
+      "pio_env": "waveshare_s3_175_astrolabe",
+      "ota_channel": "astrolabe-faculty-amoled175",
+      "git_ref": "integration",
+      "git_sha": "a6b6171",
+      "firmware_bytes": 2731648,
+      "app_slot_bytes": 3145728,
+      "sha256": "7a8cc4e182ad31f6af482e0a0520e2b71aff6f473f9e305d9004da4259c81347",
+      "firmware_url": "releases/integration/astrolabe-faculty-amoled175/firmware.bin",
+      "artifacts": [
+        {
+          "name": "bootloader.bin",
+          "bytes": 21056,
+          "sha256": "52ce65e71837ac44aafde51d503cd02161a184d475b016d1d88d4d6b680c5e03",
+          "address": "0x0",
+          "url": "releases/integration/astrolabe-faculty-amoled175/bootloader.bin",
+          "role": "bootloader"
+        },
+        {
+          "name": "partitions.bin",
+          "bytes": 3072,
+          "sha256": "6a6cd3e0fc7d2115f3eb4937cf43933400b3fba8fd55fc993d001e4ed1e5002f",
+          "address": "0x8000",
+          "url": "releases/integration/astrolabe-faculty-amoled175/partitions.bin",
+          "role": "partitions"
+        },
+        {
+          "name": "ota_data_initial.bin",
+          "bytes": 8192,
+          "sha256": "7d2c7ac4888bfd75cd5f56e8d61f69595121183afc81556c876732fd3782c62f",
+          "address": "0x1a000",
+          "url": "releases/integration/astrolabe-faculty-amoled175/ota_data_initial.bin",
+          "role": "otadata"
+        },
+        {
+          "name": "firmware.bin",
+          "bytes": 2731648,
+          "sha256": "7a8cc4e182ad31f6af482e0a0520e2b71aff6f473f9e305d9004da4259c81347",
+          "address": "0x20000",
+          "url": "releases/integration/astrolabe-faculty-amoled175/firmware.bin",
+          "role": "app"
+        }
+      ]
+    }
+  ]
+}

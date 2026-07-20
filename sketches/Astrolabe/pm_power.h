@@ -26,3 +26,5 @@ PmPowerState pm_power_state(uint32_t now_ms);
 void pm_power_cycle_dim_timeout(int delta);
 void pm_power_cycle_sleep_timeout(int delta);
 void pm_power_toggle_enabled(void);
+bool pm_power_should_deep_sleep(uint32_t now_ms);
+void pm_power_enter_deep_sleep(uint64_t sleep_us);

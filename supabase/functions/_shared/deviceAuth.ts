@@ -61,8 +61,8 @@ async function hmacSha256Hex(secretHex: string, payload: string): Promise<string
   return bytesToHex(new Uint8Array(sig));
 }
 
-export async function verifyAstrolabeDevice(req: Request): Promise<Response | null> {
-  if (!required()) return null;
+export async function verifyAstrolabeDevice(req: Request, enforce = false): Promise<Response | null> {
+  if (!enforce && !required()) return null;
 
   const url = Deno.env.get("SUPABASE_URL")?.trim() ?? "";
   const serviceRole = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")?.trim() ?? "";

@@ -1,0 +1,78 @@
+# Self-hosted: flash firmware, then run all-face STT/TTS voice QA.
+#
+# Runner labels: self-hosted, astrolabe-watch.
+# Requires Wi-Fi/Supabase secrets on the runner host or GitHub environment.
+#
+name: Firmware voice QA
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref to test
+        required: false
+        default: integration
+      limit:
+        description: Optional face count for shakedown runs; empty = all ported faces
+        required: false
+        default: ""
+      capture_ms:
+        description: STT capture window in milliseconds
+        required: false
+        default: "6500"
+      skip_flash:
+        description: Reuse currently flashed firmware
+        type: boolean
+        default: false
+
+concurrency:
+  group: astrolabe-watch-device
+  cancel-in-progress: false
+
+jobs:
+  voice-qa:
+    name: All-face STT/TTS tour
+    runs-on: [self-hosted, astrolabe-watch]
+    environment: astrolabe-watch
+    env:
+      PLATFORMIO_BUILD_DIR: /tmp/astrolabe-pio-build-${{ github.run_id }}
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-voice-${{ runner.os }}-${{ hashFiles('platformio.ini', 'scripts/build.sh') }}
+          restore-keys: |
+            pio-voice-${{ runner.os }}-
+
+      - name: Install tools
+        run: bash ./scripts/ci-install-tools.sh
+
+      - name: Voice QA tour
+        env:
+          MYNAH_WIFI_SSID: ${{ secrets.MYNAH_WIFI_SSID }}
+          MYNAH_WIFI_PASSWORD: ${{ secrets.MYNAH_WIFI_PASSWORD }}
+          MYNAH_SUPABASE_URL: ${{ secrets.MYNAH_SUPABASE_URL }}
+          MYNAH_SUPABASE_ANON_KEY: ${{ secrets.MYNAH_SUPABASE_ANON_KEY }}
+          ASTROLABE_VOICE_LIMIT: ${{ inputs.limit }}
+          ASTROLABE_VOICE_CAPTURE_MS: ${{ inputs.capture_ms }}
+        run: |
+          ARGS=()
+          if [[ "${{ inputs.skip_flash }}" == "true" ]]; then
+            ARGS+=(--no-flash)
+          fi
+          ./scripts/ci-voice-qa.sh "${ARGS[@]}"
+
+      - name: Upload voice QA artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: voice-qa-${{ github.run_id }}
+          path: artifacts/qa/
+          retention-days: 14
+          if-no-files-found: ignore

@@ -10,10 +10,35 @@ fi
 source "${IDF_PATH}/export.sh"
 
 ASTROLABE175C_FORCE_RECONFIGURE=0
-ASTROLABE175C_CMAKE_ARGS=()
-if [[ "${1:-}" == "usb-demo" ]]; then
+ASTROLABE175C_VARIANT="${ASTROLABE175C_VARIANT:-faculty}"
+case "${ASTROLABE175C_VARIANT}" in
+  faculty|cyber|lunasay) ;;
+  *) echo "error: ASTROLABE175C_VARIANT must be faculty, cyber, or lunasay" >&2; exit 2 ;;
+esac
+ASTROLABE175C_CMAKE_ARGS=(
+  -D ASTROLABE_USB_OTA_DEMO_BOOT=0
+  -D "ASTROLABE175C_BUILD_VARIANT=${ASTROLABE175C_VARIANT}"
+  -D "ASTROLABE_OTA_AUTO_INTERVAL_S=${ASTROLABE175C_OTA_AUTO_INTERVAL_S:-60}"
+  -D "ASTROLABE_VOICE_HTTP_URL=${ASTROLABE175C_VOICE_HTTP_URL:-}"
+  -D "ASTROLABE_VOICE_STREAM_URL=${ASTROLABE175C_VOICE_STREAM_URL:-}"
+)
+ASTROLABE175C_FORCE_RECONFIGURE=1
+if [[ -n "${ASTROLABE175C_OTA_AUTO_INTERVAL_S:-}" ]]; then
   ASTROLABE175C_FORCE_RECONFIGURE=1
-  ASTROLABE175C_CMAKE_ARGS=(-D ASTROLABE_USB_OTA_DEMO_BOOT=1)
+fi
+if [[ -n "${ASTROLABE175C_VOICE_HTTP_URL:-}" ]]; then
+  ASTROLABE175C_FORCE_RECONFIGURE=1
+fi
+if [[ -n "${ASTROLABE175C_VOICE_STREAM_URL:-}" ]]; then
+  ASTROLABE175C_FORCE_RECONFIGURE=1
+fi
+if [[ "${1:-}" == "usb-demo" ]]; then
+  if [[ "${ASTROLABE175C_VARIANT}" != "cyber" ]]; then
+    echo "error: usb-demo is a Cyber-only build; set ASTROLABE175C_VARIANT=cyber" >&2
+    exit 2
+  fi
+  ASTROLABE175C_FORCE_RECONFIGURE=1
+  ASTROLABE175C_CMAKE_ARGS+=(-D ASTROLABE_USB_OTA_DEMO_BOOT=1)
   shift
 fi
 
@@ -107,9 +132,39 @@ PY
   fi
 }
 
+astrolabe175c_reset_stale_sdkconfig() {
+  local sdkconfig_file="$1"
+  local project_dir="$2"
+  local defaults_file="$3"
+  if [[ ! -f "${sdkconfig_file}" ]]; then
+    return 0
+  fi
+
+  local partition_file=""
+  partition_file="$(sed -n 's/^CONFIG_PARTITION_TABLE_FILENAME="\(.*\)"$/\1/p' "${sdkconfig_file}" | tail -1)"
+  if [[ -n "${partition_file}" && ! -f "${project_dir}/${partition_file}" ]]; then
+    echo "astrolabe175c_build: removing stale sdkconfig with missing partition table ${partition_file}" >&2
+    rm -f "${sdkconfig_file}"
+    return 0
+  fi
+
+  # A generated sdkconfig retains a previous choice value even when a checked-in
+  # default changes it. In particular, an old USB-NCM selection must not survive
+  # after tethering is disabled for a release build.
+  local configured_net_mode=""
+  local default_net_mode=""
+  configured_net_mode="$(sed -n 's/^CONFIG_TINYUSB_NET_MODE_\([A-Z_]*\)=y$/\1/p' "${sdkconfig_file}" | tail -1)"
+  default_net_mode="$(sed -n 's/^CONFIG_TINYUSB_NET_MODE_\([A-Z_]*\)=y$/\1/p' "${defaults_file}" | tail -1)"
+  if [[ -n "${configured_net_mode}" && -n "${default_net_mode}" &&
+        "${configured_net_mode}" != "${default_net_mode}" ]]; then
+    echo "astrolabe175c_build: removing stale sdkconfig USB network mode ${configured_net_mode} (default ${default_net_mode})" >&2
+    rm -f "${sdkconfig_file}"
+  fi
+}
+
 astrolabe175c_flash_core() {
   local port="${1:-}"
-  "${IDF_PY[@]}" "${ASTROLABE175C_CMAKE_ARGS[@]}" build
+  "${IDF_PY[@]}" "${ASTROLABE175C_CMAKE_ARGS[@]+"${ASTROLABE175C_CMAKE_ARGS[@]}"}" build
   if [[ -z "${port}" ]]; then
     echo "error: flash-core requires -p/--port" >&2
     return 1
@@ -135,6 +190,10 @@ if [[ "${ASTROLABE175C_SKIP_LVGL_AUDIT:-0}" != "1" ]] && astrolabe175c_should_au
   "${PYTHON:-python3}" "${ROOT}/scripts/audit_lvgl_port.py"
 fi
 
+astrolabe175c_reset_stale_sdkconfig \
+  "${ROOT}/astrolabe175c/sdkconfig" \
+  "${ROOT}/astrolabe175c" \
+  "${ROOT}/astrolabe175c/sdkconfig.defaults"
 astrolabe175c_reset_stale_cmake_cache \
   "${ROOT}/astrolabe175c/build/CMakeCache.txt" \
   "${ROOT}/astrolabe175c" \

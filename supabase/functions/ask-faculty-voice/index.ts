@@ -92,12 +92,16 @@ function facultySystemInstruction(
   override?: string,
 ): string {
   const client = override?.trim();
-  if (client) return client;
+  let base = client;
   const voicePrompt = stringField(row?.voice_prompt);
-  if (voicePrompt) return voicePrompt;
+  if (!base && voicePrompt) base = voicePrompt;
   const persona = stringField(row?.agent_persona);
-  if (persona) return persona;
-  return defaultFacultySystem(facultyName);
+  if (!base && persona) base = persona;
+  if (!base) base = defaultFacultySystem(facultyName);
+  return base +
+    " Follow the user's explicit instructions about exact wording, answer length, and output format; " +
+    "those instructions override persona styling. If asked to reply with exactly specified content, " +
+    "output only that content.";
 }
 
 function resolveFacultyIdentity(

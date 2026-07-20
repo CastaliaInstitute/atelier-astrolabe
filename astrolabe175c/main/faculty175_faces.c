@@ -7,8 +7,14 @@
 #include "esp_log.h"
 #include "nvs.h"
 
+#include "faculty175_face_alethiometer.h"
+#include "faculty175_face_runes.h"
 #include "faculty175_face_profile.h"
 #include "faculty175_log.h"
+
+#ifndef ASTROLABE_CYBER_FEATURES
+#define ASTROLABE_CYBER_FEATURES 0
+#endif
 
 static const char *TAG = "faculty175_faces";
 
@@ -18,8 +24,8 @@ static const char *TAG = "faculty175_faces";
 #define FACES_NVS_NAV_COUNT "navcnt"
 #define FACES_NVS_NAV_MAP "navmap"
 #define FACE_KEY_CAP 8
-#define FACES_CONFIG_RESET_SCHEMA_VERSION 35
-#define FACES_SCHEMA_VERSION 36
+#define FACES_CONFIG_RESET_SCHEMA_VERSION 41
+#define FACES_SCHEMA_VERSION 41
 
 static const faculty175_face_desc_t k_faces[] = {
     { FACULTY175_FACE_FACULTY, "faculty", "Faculty", FACULTY175_FACE_CAT_HOME, true, true, 10 },
@@ -33,10 +39,12 @@ static const faculty175_face_desc_t k_faces[] = {
     { FACULTY175_FACE_CASTALIA, "castalia", "Castalia", FACULTY175_FACE_CAT_SYSTEM, true, false, 230 },
     { FACULTY175_FACE_ASTROLOGY, "astrology", "Astrology", FACULTY175_FACE_CAT_ORACLE, true, false, 240 },
     { FACULTY175_FACE_SYNASTRY, "synastry", "Synastry", FACULTY175_FACE_CAT_ORACLE, true, false, 245 },
+    { FACULTY175_FACE_PARTNER_WELLNESS, "partner-wellness", "Partner Wellness", FACULTY175_FACE_CAT_HOME | FACULTY175_FACE_CAT_ORACLE, true, true, 246 },
     { FACULTY175_FACE_TAROT, "tarot", "Tarot", FACULTY175_FACE_CAT_ORACLE, true, true, 40 },
     { FACULTY175_FACE_INQ, "inq", "iNQ Card", FACULTY175_FACE_CAT_ORACLE, true, false, 250 },
     { FACULTY175_FACE_RUNES, "runes", "Runes", FACULTY175_FACE_CAT_ORACLE, true, false, 251 },
     { FACULTY175_FACE_ALETHIOMETER, "alethiometer", "Alethiometer", FACULTY175_FACE_CAT_ORACLE, true, true, 30 },
+    { FACULTY175_FACE_CRYSTAL_BALL, "crystal-ball", "Crystal Ball", FACULTY175_FACE_CAT_ORACLE, true, true, 35 },
     { FACULTY175_FACE_SPECTRUM, "spectrum", "Spectrum", FACULTY175_FACE_CAT_INSTRUMENT, true, false, 60 },
     { FACULTY175_FACE_CHAKRA, "chakra", "Chakra", FACULTY175_FACE_CAT_INSTRUMENT, true, false, 65 },
     { FACULTY175_FACE_BOWL, "bowl", "Tibetan Bowl", FACULTY175_FACE_CAT_INSTRUMENT, true, false, 66 },
@@ -65,17 +73,18 @@ static const faculty175_face_desc_t k_faces[] = {
     { FACULTY175_FACE_QDAY, "qday", "Question Day", FACULTY175_FACE_CAT_COMMONPLACE, true, false, 140 },
     { FACULTY175_FACE_FOCUS, "focus", "Focus Timer", FACULTY175_FACE_CAT_HOME, true, false, 145 },
     { FACULTY175_FACE_BIOMETRICS, "bio", "Biometrics", FACULTY175_FACE_CAT_HOME, true, false, 150 },
+    { FACULTY175_FACE_IRONMAN, "arc-reactor", "Arc Reactor", FACULTY175_FACE_CAT_HOME, true, false, 151 },
     { FACULTY175_FACE_WATCHER, "watcher", "Watcher", FACULTY175_FACE_CAT_HOME, true, false, 155 },
     { FACULTY175_FACE_LENORMAND, "lenormand", "Lenormand", FACULTY175_FACE_CAT_ORACLE, true, false, 160 },
     { FACULTY175_FACE_PYTHIA, "pythia", "Pythia", FACULTY175_FACE_CAT_ORACLE, false, false, 165 },
     { FACULTY175_FACE_GEOMANCY, "geomancy", "Geomancy", FACULTY175_FACE_CAT_ORACLE, true, false, 170 },
     { FACULTY175_FACE_ENOCHIAN, "enochian", "Enochian Angel", FACULTY175_FACE_CAT_ORACLE, true, false, 175 },
-    { FACULTY175_FACE_HID, "hid", "HID Touchpad", FACULTY175_FACE_CAT_SYSTEM, true, false, 200 },
+    { FACULTY175_FACE_HID, "hid", "HID Touchpad", FACULTY175_FACE_CAT_SYSTEM, ASTROLABE_CYBER_FEATURES, false, 200 },
     { FACULTY175_FACE_BABEL, "babel", "Babel Fish", FACULTY175_FACE_CAT_COMMONPLACE, true, false, 205 },
     { FACULTY175_FACE_HUMAN_DESIGN, "human-design", "Human Design", FACULTY175_FACE_CAT_ORACLE, true, false, 176 },
     { FACULTY175_FACE_MAZE, "maze", "Maze", FACULTY175_FACE_CAT_HOME, true, true, 50 },
     { FACULTY175_FACE_DEATHSTAR, "deathstar", "Death Star", FACULTY175_FACE_CAT_HOME, true, true, 60 },
-    { FACULTY175_FACE_SOLAR, "solar", "Solar Activity", FACULTY175_FACE_CAT_HOME | FACULTY175_FACE_CAT_ORACLE, false, false, 92 },
+    { FACULTY175_FACE_SOLAR, "solar", "Solar Activity", FACULTY175_FACE_CAT_HOME | FACULTY175_FACE_CAT_ORACLE, true, true, 18 },
     { FACULTY175_FACE_MAGNETOSPHERE, "magnetosphere", "Magnetosphere", FACULTY175_FACE_CAT_HOME | FACULTY175_FACE_CAT_ORACLE, true, false, 93 },
     { FACULTY175_FACE_TRON, "tron", "TRON", FACULTY175_FACE_CAT_HOME, false, false, 65 },
     { FACULTY175_FACE_WSCAN, "wscan", "WiFi Scan", FACULTY175_FACE_CAT_SYSTEM, true, false, 201 },
@@ -85,9 +94,14 @@ static const faculty175_face_desc_t k_faces[] = {
     { FACULTY175_FACE_INCIDENTS, "incidents", "Incidents", FACULTY175_FACE_CAT_SYSTEM, true, false, 205 },
     { FACULTY175_FACE_SETTINGS, "settings", "Settings", FACULTY175_FACE_CAT_SYSTEM, true, true, 250 },
     { FACULTY175_FACE_POCKETWATCH, "pocketwatch", "Watch", FACULTY175_FACE_CAT_HOME, true, true, 0 },
+    { FACULTY175_FACE_BATTERY, "battery", "Battery", FACULTY175_FACE_CAT_HOME | FACULTY175_FACE_CAT_SYSTEM, true, true, 152 },
+    { FACULTY175_FACE_PSYCH_STATE, "psych-state", "Psych State", FACULTY175_FACE_CAT_COMMONPLACE, true, false, 98 },
+    { FACULTY175_FACE_USB_SCREEN, "usb-screen", "USB Screen", FACULTY175_FACE_CAT_SYSTEM, ASTROLABE_CYBER_FEATURES, ASTROLABE_CYBER_FEATURES, 199 },
+    { FACULTY175_FACE_JOURNAL, "journal", "Journal", FACULTY175_FACE_CAT_COMMONPLACE, true, false, 227 },
+    { FACULTY175_FACE_CONVERSATION, "conversation", "Conversation", FACULTY175_FACE_CAT_COMMONPLACE, true, false, 228 },
 };
 
-static faculty175_face_id_t s_current = FACULTY175_FACE_POCKETWATCH;
+static faculty175_face_id_t s_current = FACULTY175_FACE_IRONMAN;
 static uint8_t s_enabled_cache[FACULTY175_FACE_COUNT];
 static uint8_t s_nav_cache[FACULTY175_FACE_COUNT];
 static uint8_t s_order_cache[FACULTY175_FACE_COUNT];
@@ -207,7 +221,13 @@ static bool face_active_slot(size_t index)
 
 static bool face_is_nav_anchor(faculty175_face_id_t id)
 {
-    return id == FACULTY175_FACE_FACULTY || id == FACULTY175_FACE_POCKETWATCH;
+#if defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
+    (void)id;
+    return false;
+#else
+    return id == FACULTY175_FACE_FACULTY || id == FACULTY175_FACE_POCKETWATCH ||
+           id == FACULTY175_FACE_IRONMAN;
+#endif
 }
 
 static uint32_t primary_face_category(uint32_t categories)
@@ -520,7 +540,7 @@ esp_err_t faculty175_faces_init(void)
     size_t len = sizeof(current);
     err = nvs_get_str(nvs, FACES_NVS_CURRENT, current, &len);
     if (err == ESP_ERR_NVS_NOT_FOUND) {
-        err = nvs_set_str(nvs, FACES_NVS_CURRENT, k_faces[FACULTY175_FACE_POCKETWATCH].slug);
+        err = nvs_set_str(nvs, FACES_NVS_CURRENT, k_faces[FACULTY175_FACE_IRONMAN].slug);
         current[0] = '\0';
     }
     uint8_t schema = 0;
@@ -574,9 +594,9 @@ esp_err_t faculty175_faces_init(void)
             }
         }
         if (err == ESP_OK) {
-            err = nvs_set_str(nvs, FACES_NVS_CURRENT, k_faces[FACULTY175_FACE_POCKETWATCH].slug);
+            err = nvs_set_str(nvs, FACES_NVS_CURRENT, k_faces[FACULTY175_FACE_IRONMAN].slug);
             if (err == ESP_OK) {
-                strncpy(current, k_faces[FACULTY175_FACE_POCKETWATCH].slug, sizeof(current) - 1u);
+                strncpy(current, k_faces[FACULTY175_FACE_IRONMAN].slug, sizeof(current) - 1u);
                 current[sizeof(current) - 1u] = '\0';
             }
         }
@@ -612,7 +632,7 @@ esp_err_t faculty175_faces_init(void)
         return err;
     }
 
-    s_current = FACULTY175_FACE_POCKETWATCH;
+    s_current = FACULTY175_FACE_IRONMAN;
     const faculty175_face_desc_t *saved_current = faculty175_faces_find(current);
     if (saved_current != NULL && saved_current->ported && faculty175_faces_enabled(saved_current->id)) {
         s_current = saved_current->id;
@@ -622,6 +642,8 @@ esp_err_t faculty175_faces_init(void)
     if (profile_err != ESP_OK) {
         FACULTY175_LOG_STAGE(TAG, "faces", "profile init: %s", esp_err_to_name(profile_err));
     }
+    faculty175_face_alethiometer_init();
+    faculty175_face_runes_init();
     return ESP_OK;
 }
 
@@ -634,6 +656,9 @@ const faculty175_face_desc_t *faculty175_faces_find(const char *slug)
 {
     if (slug == NULL || slug[0] == '\0') {
         return NULL;
+    }
+    if (strcasecmp(slug, "ironman") == 0) {
+        slug = "arc-reactor";
     }
     for (size_t i = 0; i < FACULTY175_FACE_COUNT; ++i) {
         if (!face_active_slot(i)) {
@@ -667,24 +692,45 @@ esp_err_t faculty175_faces_set_runtime(faculty175_face_id_t id)
     return ESP_OK;
 }
 
-esp_err_t faculty175_faces_save_current(void)
+static esp_err_t persist_current_face(faculty175_face_id_t id)
 {
-    esp_err_t err = ESP_OK;
+    if (!face_valid(id)) {
+        return ESP_ERR_INVALID_ARG;
+    }
     nvs_handle_t nvs;
-    if (nvs_open(FACES_NVS_NS, NVS_READWRITE, &nvs) == ESP_OK) {
-        err = nvs_set_str(nvs, FACES_NVS_CURRENT, k_faces[s_current].slug);
-        if (err == ESP_OK) {
-            err = nvs_commit(nvs);
-        }
-        nvs_close(nvs);
+    esp_err_t err = nvs_open(FACES_NVS_NS, NVS_READWRITE, &nvs);
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = nvs_set_str(nvs, FACES_NVS_CURRENT, k_faces[id].slug);
+    if (err == ESP_OK) {
+        err = nvs_commit(nvs);
+    }
+    nvs_close(nvs);
+    if (err == ESP_OK) {
+        err = faculty175_face_runes_save();
     }
     return err;
 }
 
+esp_err_t faculty175_faces_save_current(void)
+{
+    return persist_current_face(s_current);
+}
+
 esp_err_t faculty175_faces_set(faculty175_face_id_t id)
 {
-    const esp_err_t err = faculty175_faces_set_runtime(id);
-    return err == ESP_OK ? faculty175_faces_save_current() : err;
+    if (!face_valid(id)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (!k_faces[id].ported || !faculty175_faces_enabled(id)) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    /* Persist before publishing s_current. USB Screen changes can immediately
+     * re-enumerate the native USB peripheral, and some hosts reset the S3 when
+     * Serial/JTAG returns. The selected non-USB face must already be durable. */
+    const esp_err_t err = persist_current_face(id);
+    return err == ESP_OK ? faculty175_faces_set_runtime(id) : err;
 }
 
 esp_err_t faculty175_faces_set_enabled(faculty175_face_id_t id, bool enabled)

@@ -6,6 +6,7 @@
 #include <time.h>
 
 #include "astrolabe_time.h"
+#include "esp_attr.h"
 #include "faculty175_board.h"
 #include "faculty175_charts.h"
 #include "faculty175_ephemeris.h"
@@ -43,9 +44,12 @@ typedef struct {
 } hd_point_t;
 
 typedef struct {
-    int a;
-    int b;
+    int center_a;
+    int center_b;
+    uint8_t gate_a;
+    uint8_t gate_b;
     const char *gates;
+    const char *circuit;
 } hd_channel_t;
 
 typedef struct {
@@ -63,7 +67,27 @@ typedef struct {
 typedef enum {
     HD_MODE_TRANSIT = 0,
     HD_MODE_NATAL,
+    HD_MODE_CONNECTION,
 } hd_mode_t;
+
+typedef enum {
+    HD_REL_NONE = 0,
+    HD_REL_DOMINANCE_A,
+    HD_REL_DOMINANCE_B,
+    HD_REL_COMPROMISE,
+    HD_REL_COMPANIONSHIP,
+    HD_REL_ELECTROMAGNETIC,
+} hd_relationship_t;
+
+typedef struct {
+    bool connection;
+    bool ok;
+    hd_gate_t person_a[HD_TRANSIT_BODY_COUNT * 2];
+    hd_gate_t person_b[HD_TRANSIT_BODY_COUNT * 2];
+    size_t person_a_count;
+    size_t person_b_count;
+    hd_relationship_t relationships[36];
+} hd_relationship_ctx_t;
 
 static float mandala_gate_start_deg(int slot);
 
@@ -112,15 +136,6 @@ static const hd_center_t k_centers[HD_CENTER_COUNT] = {
     {"ROOT", 233, 369, 206, 86, 86, true},
 };
 
-static const hd_channel_t k_channels[] = {
-    {HD_CENTER_THROAT, HD_CENTER_G, "1-8"},
-    {HD_CENTER_THROAT, HD_CENTER_G, "7-31"},
-    {HD_CENTER_THROAT, HD_CENTER_SPLEEN, "16-48"},
-    {HD_CENTER_G, HD_CENTER_SACRAL, "10-34"},
-    {HD_CENTER_SACRAL, HD_CENTER_SPLEEN, "34-57"},
-    {HD_CENTER_SACRAL, HD_CENTER_ROOT, "3-60"},
-};
-
 static const hd_point_t k_body_centers[HD_CENTER_COUNT] = {
     {0, -138},
     {0, -84},
@@ -134,28 +149,42 @@ static const hd_point_t k_body_centers[HD_CENTER_COUNT] = {
 };
 
 static const hd_channel_t k_body_channels[] = {
-    {HD_CENTER_HEAD, HD_CENTER_AJNA, "64-47"},
-    {HD_CENTER_HEAD, HD_CENTER_AJNA, "61-24"},
-    {HD_CENTER_HEAD, HD_CENTER_AJNA, "63-4"},
-    {HD_CENTER_AJNA, HD_CENTER_THROAT, "43-23"},
-    {HD_CENTER_AJNA, HD_CENTER_THROAT, "17-62"},
-    {HD_CENTER_AJNA, HD_CENTER_THROAT, "11-56"},
-    {HD_CENTER_THROAT, HD_CENTER_G, "1-8"},
-    {HD_CENTER_THROAT, HD_CENTER_G, "7-31"},
-    {HD_CENTER_THROAT, HD_CENTER_EGO, "21-45"},
-    {HD_CENTER_THROAT, HD_CENTER_SOLAR, "12-22"},
-    {HD_CENTER_THROAT, HD_CENTER_SPLEEN, "16-48"},
-    {HD_CENTER_G, HD_CENTER_SACRAL, "10-34"},
-    {HD_CENTER_G, HD_CENTER_SPLEEN, "57-10"},
-    {HD_CENTER_G, HD_CENTER_SOLAR, "13-33"},
-    {HD_CENTER_EGO, HD_CENTER_SOLAR, "37-40"},
-    {HD_CENTER_SACRAL, HD_CENTER_ROOT, "3-60"},
-    {HD_CENTER_SACRAL, HD_CENTER_ROOT, "9-52"},
-    {HD_CENTER_SACRAL, HD_CENTER_ROOT, "42-53"},
-    {HD_CENTER_SACRAL, HD_CENTER_SPLEEN, "34-57"},
-    {HD_CENTER_SACRAL, HD_CENTER_SOLAR, "59-6"},
-    {HD_CENTER_ROOT, HD_CENTER_SPLEEN, "58-18"},
-    {HD_CENTER_ROOT, HD_CENTER_SOLAR, "41-30"},
+    {HD_CENTER_HEAD, HD_CENTER_AJNA, 64, 47, "64-47", "abstract"},
+    {HD_CENTER_HEAD, HD_CENTER_AJNA, 61, 24, "61-24", "knowing"},
+    {HD_CENTER_HEAD, HD_CENTER_AJNA, 63, 4, "63-4", "logic"},
+    {HD_CENTER_AJNA, HD_CENTER_THROAT, 43, 23, "43-23", "knowing"},
+    {HD_CENTER_AJNA, HD_CENTER_THROAT, 17, 62, "17-62", "logic"},
+    {HD_CENTER_AJNA, HD_CENTER_THROAT, 11, 56, "11-56", "abstract"},
+    {HD_CENTER_THROAT, HD_CENTER_G, 1, 8, "1-8", "knowing"},
+    {HD_CENTER_THROAT, HD_CENTER_G, 7, 31, "7-31", "logic"},
+    {HD_CENTER_THROAT, HD_CENTER_G, 13, 33, "13-33", "abstract"},
+    {HD_CENTER_THROAT, HD_CENTER_G, 10, 20, "10-20", "integration"},
+    {HD_CENTER_THROAT, HD_CENTER_EGO, 21, 45, "21-45", "ego"},
+    {HD_CENTER_THROAT, HD_CENTER_SOLAR, 12, 22, "12-22", "knowing"},
+    {HD_CENTER_THROAT, HD_CENTER_SOLAR, 35, 36, "35-36", "abstract"},
+    {HD_CENTER_THROAT, HD_CENTER_SPLEEN, 16, 48, "16-48", "logic"},
+    {HD_CENTER_THROAT, HD_CENTER_SPLEEN, 20, 57, "20-57", "integration"},
+    {HD_CENTER_THROAT, HD_CENTER_SACRAL, 20, 34, "20-34", "integration"},
+    {HD_CENTER_G, HD_CENTER_SACRAL, 10, 34, "10-34", "integration"},
+    {HD_CENTER_G, HD_CENTER_SACRAL, 2, 14, "2-14", "knowing"},
+    {HD_CENTER_G, HD_CENTER_SACRAL, 5, 15, "5-15", "logic"},
+    {HD_CENTER_G, HD_CENTER_SACRAL, 29, 46, "29-46", "abstract"},
+    {HD_CENTER_G, HD_CENTER_SPLEEN, 57, 10, "57-10", "integration"},
+    {HD_CENTER_G, HD_CENTER_EGO, 25, 51, "25-51", "centering"},
+    {HD_CENTER_EGO, HD_CENTER_SOLAR, 37, 40, "37-40", "ego"},
+    {HD_CENTER_EGO, HD_CENTER_SPLEEN, 26, 44, "26-44", "ego"},
+    {HD_CENTER_SACRAL, HD_CENTER_ROOT, 3, 60, "3-60", "knowing"},
+    {HD_CENTER_SACRAL, HD_CENTER_ROOT, 9, 52, "9-52", "logic"},
+    {HD_CENTER_SACRAL, HD_CENTER_ROOT, 42, 53, "42-53", "abstract"},
+    {HD_CENTER_SACRAL, HD_CENTER_SPLEEN, 34, 57, "34-57", "integration"},
+    {HD_CENTER_SACRAL, HD_CENTER_SPLEEN, 27, 50, "27-50", "defense"},
+    {HD_CENTER_SACRAL, HD_CENTER_SOLAR, 59, 6, "59-6", "defense"},
+    {HD_CENTER_ROOT, HD_CENTER_SPLEEN, 58, 18, "58-18", "logic"},
+    {HD_CENTER_ROOT, HD_CENTER_SPLEEN, 38, 28, "38-28", "knowing"},
+    {HD_CENTER_ROOT, HD_CENTER_SPLEEN, 54, 32, "54-32", "ego"},
+    {HD_CENTER_ROOT, HD_CENTER_SOLAR, 41, 30, "41-30", "abstract"},
+    {HD_CENTER_ROOT, HD_CENTER_SOLAR, 39, 55, "39-55", "knowing"},
+    {HD_CENTER_ROOT, HD_CENTER_SOLAR, 19, 49, "19-49", "ego"},
 };
 
 static const uint8_t k_mandala_gate_order[64] = {
@@ -166,6 +195,7 @@ static const uint8_t k_mandala_gate_order[64] = {
 };
 
 static hd_mode_t s_hd_mode = HD_MODE_TRANSIT;
+EXT_RAM_BSS_ATTR static hd_relationship_ctx_t s_hd_relationship;
 
 static uint16_t c(uint8_t r, uint8_t g, uint8_t b)
 {
@@ -289,6 +319,112 @@ static bool build_natal_gates(hd_gate_t *personality,
         *design_count = d_count;
     }
     return p_count > 0;
+}
+
+static bool build_chart_gates(const faculty175_birth_chart_t *birth,
+                              hd_gate_t *out,
+                              size_t cap,
+                              size_t *out_count)
+{
+    if (out_count != NULL) {
+        *out_count = 0;
+    }
+    if (birth == NULL || out == NULL || cap == 0) {
+        return false;
+    }
+    time_t birth_epoch = 0;
+    if (!faculty175_charts_birth_to_utc(birth, &birth_epoch)) {
+        return false;
+    }
+    size_t count = build_ephemeris_gates(birth_epoch, out, cap);
+    if (count < cap) {
+        count += build_ephemeris_gates(birth_epoch - (time_t)(88 * 86400), out + count, cap - count);
+    }
+    if (out_count != NULL) {
+        *out_count = count;
+    }
+    return count > 0;
+}
+
+static bool gate_present(const hd_gate_t *gates, size_t count, uint8_t gate)
+{
+    for (size_t i = 0; i < count; ++i) {
+        if (gates[i].gate == gate) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static hd_relationship_t classify_relationship_channel(const hd_channel_t *channel,
+                                                        const hd_gate_t *a,
+                                                        size_t a_count,
+                                                        const hd_gate_t *b,
+                                                        size_t b_count)
+{
+    if (channel == NULL) {
+        return HD_REL_NONE;
+    }
+    const bool a0 = gate_present(a, a_count, channel->gate_a);
+    const bool a1 = gate_present(a, a_count, channel->gate_b);
+    const bool b0 = gate_present(b, b_count, channel->gate_a);
+    const bool b1 = gate_present(b, b_count, channel->gate_b);
+    const bool a_full = a0 && a1;
+    const bool b_full = b0 && b1;
+    const bool a_half = a0 != a1;
+    const bool b_half = b0 != b1;
+
+    if (a_full && b_full) {
+        return HD_REL_COMPANIONSHIP;
+    }
+    if ((a0 && b1 && !a1 && !b0) || (a1 && b0 && !a0 && !b1)) {
+        return HD_REL_ELECTROMAGNETIC;
+    }
+    if ((a_full && b_half) || (b_full && a_half)) {
+        return HD_REL_COMPROMISE;
+    }
+    if (a_full && !b0 && !b1) {
+        return HD_REL_DOMINANCE_A;
+    }
+    if (b_full && !a0 && !a1) {
+        return HD_REL_DOMINANCE_B;
+    }
+    return HD_REL_NONE;
+}
+
+static bool build_connection_context(hd_relationship_ctx_t *ctx)
+{
+    if (ctx == NULL) {
+        return false;
+    }
+    memset(ctx, 0, sizeof(*ctx));
+    ctx->connection = true;
+    faculty175_charts_ensure_family_seed();
+    faculty175_birth_chart_t primary = {};
+    faculty175_birth_chart_t target = {};
+    if (!faculty175_charts_primary(&primary) || !faculty175_charts_active(&target)) {
+        return false;
+    }
+    const bool primary_ok = build_chart_gates(&primary,
+                                              ctx->person_a,
+                                              sizeof(ctx->person_a) / sizeof(ctx->person_a[0]),
+                                              &ctx->person_a_count);
+    const bool target_ok = build_chart_gates(&target,
+                                             ctx->person_b,
+                                             sizeof(ctx->person_b) / sizeof(ctx->person_b[0]),
+                                             &ctx->person_b_count);
+    if (!primary_ok || !target_ok) {
+        return false;
+    }
+    for (size_t i = 0; i < sizeof(k_body_channels) / sizeof(k_body_channels[0]); ++i) {
+        ctx->relationships[i] = classify_relationship_channel(&k_body_channels[i],
+                                                              ctx->person_a,
+                                                              ctx->person_a_count,
+                                                              ctx->person_b,
+                                                              ctx->person_b_count);
+    }
+    ctx->ok = true;
+    return true;
 }
 
 static void draw_tiny_digit(int digit, int x, int y, uint16_t color)
@@ -586,7 +722,8 @@ static void draw_body_segment(hd_point_t a, hd_point_t b, float t0, float t1, ui
 
 static bool same_channel_pair(const hd_channel_t *a, const hd_channel_t *b)
 {
-    return a != NULL && b != NULL && ((a->a == b->a && a->b == b->b) || (a->a == b->b && a->b == b->a));
+    return a != NULL && b != NULL && ((a->center_a == b->center_a && a->center_b == b->center_b) ||
+                                      (a->center_a == b->center_b && a->center_b == b->center_a));
 }
 
 static int channel_lane_offset(const hd_channel_t *channels, size_t count, size_t index)
@@ -607,37 +744,60 @@ static int channel_lane_offset(const hd_channel_t *channels, size_t count, size_
 
 static void draw_channels(const hd_palette_t *pal)
 {
+    (void)pal;
     const uint16_t inactive_fill = c(229, 226, 216);
     const uint16_t inactive_outline = c(112, 87, 42);
     for (size_t i = 0; i < sizeof(k_body_channels) / sizeof(k_body_channels[0]); ++i) {
         const hd_channel_t *channel = &k_body_channels[i];
         const int offset = channel_lane_offset(k_body_channels, sizeof(k_body_channels) / sizeof(k_body_channels[0]), i);
-        const hd_point_t a = body_center_pos(channel->a);
-        const hd_point_t b = body_center_pos(channel->b);
+        const hd_point_t a = body_center_pos(channel->center_a);
+        const hd_point_t b = body_center_pos(channel->center_b);
         fill_body_band(a, b, body_s(7), offset, inactive_fill, inactive_outline);
-    }
-    for (size_t i = 0; i < sizeof(k_channels) / sizeof(k_channels[0]); ++i) {
-        const hd_channel_t *channel = &k_channels[i];
-        const hd_point_t a = body_center_pos(channel->a);
-        const hd_point_t b = body_center_pos(channel->b);
-        const int offset = channel_lane_offset(k_channels, sizeof(k_channels) / sizeof(k_channels[0]), i);
-        fill_body_band(a, b, body_s(10), offset, c(244, 238, 226), inactive_outline);
-        draw_body_segment(a, b, 0.0f, 0.50f, pal->design, body_s(6), offset);
-        draw_body_segment(a, b, 0.50f, 1.0f, pal->personality, body_s(6), offset);
-        faculty175_display_fill_circle((a.x + b.x) / 2, (a.y + b.y) / 2, body_s(4), pal->accent);
     }
 }
 
-static void draw_channel_overlay(const hd_palette_t *pal)
+static uint16_t relationship_color(hd_relationship_t rel, const hd_palette_t *pal)
 {
-    for (size_t i = 0; i < sizeof(k_channels) / sizeof(k_channels[0]); ++i) {
-        const hd_channel_t *channel = &k_channels[i];
-        const int offset = channel_lane_offset(k_channels, sizeof(k_channels) / sizeof(k_channels[0]), i);
-        const hd_point_t a = body_center_pos(channel->a);
-        const hd_point_t b = body_center_pos(channel->b);
-        draw_body_segment(a, b, 0.0f, 0.50f, pal->design, body_s(4), offset);
-        draw_body_segment(a, b, 0.50f, 1.0f, pal->personality, body_s(4), offset);
-        faculty175_display_fill_circle((a.x + b.x) / 2, (a.y + b.y) / 2, body_s(3), pal->accent);
+    switch (rel) {
+        case HD_REL_ELECTROMAGNETIC:
+            return c(255, 210, 72);
+        case HD_REL_COMPANIONSHIP:
+            return c(118, 214, 154);
+        case HD_REL_COMPROMISE:
+            return c(242, 124, 88);
+        case HD_REL_DOMINANCE_A:
+            return pal->design;
+        case HD_REL_DOMINANCE_B:
+            return pal->personality;
+        case HD_REL_NONE:
+        default:
+            return pal->dim;
+    }
+}
+
+static void draw_channel_overlay(const hd_palette_t *pal, const hd_relationship_ctx_t *ctx)
+{
+    if (ctx == NULL || !ctx->connection || !ctx->ok) {
+        return;
+    }
+    for (size_t i = 0; i < sizeof(k_body_channels) / sizeof(k_body_channels[0]); ++i) {
+        const hd_relationship_t rel = ctx->relationships[i];
+        if (rel == HD_REL_NONE) {
+            continue;
+        }
+        const hd_channel_t *channel = &k_body_channels[i];
+        const int offset = channel_lane_offset(k_body_channels, sizeof(k_body_channels) / sizeof(k_body_channels[0]), i);
+        const hd_point_t a = body_center_pos(channel->center_a);
+        const hd_point_t b = body_center_pos(channel->center_b);
+        const uint16_t color = relationship_color(rel, pal);
+        fill_body_band(a, b, body_s(rel == HD_REL_ELECTROMAGNETIC ? 11 : 9), offset, c(250, 246, 232), color);
+        if (rel == HD_REL_ELECTROMAGNETIC) {
+            draw_body_segment(a, b, 0.0f, 0.50f, pal->design, body_s(5), offset);
+            draw_body_segment(a, b, 0.50f, 1.0f, pal->personality, body_s(5), offset);
+        } else {
+            draw_body_segment(a, b, 0.0f, 1.0f, color, body_s(5), offset);
+        }
+        faculty175_display_fill_circle((a.x + b.x) / 2, (a.y + b.y) / 2, body_s(3), color);
     }
 }
 
@@ -965,6 +1125,7 @@ static void set_gate_state(hd_gate_state_t *states, uint8_t gate, bool design)
 
 static void draw_mandala_grid(const hd_palette_t *pal, uint32_t anim_ms)
 {
+    memset(&s_hd_relationship, 0, sizeof(s_hd_relationship));
     hd_gate_t natal_personality[HD_TRANSIT_BODY_COUNT] = {};
     hd_gate_t natal_design[HD_TRANSIT_BODY_COUNT] = {};
     hd_gate_t realtime[HD_TRANSIT_BODY_COUNT] = {};
@@ -973,6 +1134,7 @@ static void draw_mandala_grid(const hd_palette_t *pal, uint32_t anim_ms)
     const hd_gate_t *personality = realtime;
     size_t personality_count = 0;
     bool natal_ok = false;
+    bool connection_ok = false;
     if (s_hd_mode == HD_MODE_NATAL) {
         personality = natal_personality;
         natal_ok = build_natal_gates(natal_personality,
@@ -981,13 +1143,21 @@ static void draw_mandala_grid(const hd_palette_t *pal, uint32_t anim_ms)
                                      natal_design,
                                      sizeof(natal_design) / sizeof(natal_design[0]),
                                      &design_count);
+    } else if (s_hd_mode == HD_MODE_CONNECTION) {
+        connection_ok = build_connection_context(&s_hd_relationship);
+        if (connection_ok) {
+            design = s_hd_relationship.person_a;
+            design_count = s_hd_relationship.person_a_count;
+            personality = s_hd_relationship.person_b;
+            personality_count = s_hd_relationship.person_b_count;
+        }
     }
-    if (!natal_ok && s_hd_mode == HD_MODE_TRANSIT) {
+    if (!natal_ok && !connection_ok && s_hd_mode == HD_MODE_TRANSIT) {
         design = NULL;
         design_count = 0;
         personality = realtime;
         personality_count = build_realtime_transits(anim_ms, realtime, sizeof(realtime) / sizeof(realtime[0]));
-    } else if (!natal_ok) {
+    } else if (!natal_ok && !connection_ok) {
         design = NULL;
         design_count = 0;
         personality = realtime;
@@ -1116,14 +1286,21 @@ static void draw_mandala_grid(const hd_palette_t *pal, uint32_t anim_ms)
     faculty175_display_draw_circle(HD_CX, HD_CY, HD_PIE_OUTER_R, line_grid);
     draw_radial_line(mandala_gate_start_deg(64), HD_PIE_OUTER_R, HD_QUARTER_OUTER_R, major_grid);
 
-    const char *mode = s_hd_mode == HD_MODE_NATAL && natal_ok ? "NATAL" : "TRANSIT";
+    const char *mode = s_hd_mode == HD_MODE_CONNECTION && connection_ok ? "CONNECT" :
+                       (s_hd_mode == HD_MODE_NATAL && natal_ok ? "NATAL" : "TRANSIT");
     faculty175_display_draw_text(mode, HD_CX - (int)strlen(mode) * 3, 58, pal->subtext);
 }
 
 bool faculty175_face_human_design_action(uint32_t seed_ms)
 {
     (void)seed_ms;
-    s_hd_mode = s_hd_mode == HD_MODE_TRANSIT ? HD_MODE_NATAL : HD_MODE_TRANSIT;
+    if (s_hd_mode == HD_MODE_TRANSIT) {
+        s_hd_mode = HD_MODE_NATAL;
+    } else if (s_hd_mode == HD_MODE_NATAL) {
+        s_hd_mode = HD_MODE_CONNECTION;
+    } else {
+        s_hd_mode = HD_MODE_TRANSIT;
+    }
     return true;
 }
 
@@ -1156,10 +1333,10 @@ void faculty175_face_human_design_draw(uint32_t anim_ms)
     draw_body_aura(&pal);
     draw_body_silhouette(&pal);
     draw_channels(&pal);
+    draw_channel_overlay(&pal, &s_hd_relationship);
     for (int i = 0; i < HD_CENTER_COUNT; ++i) {
         draw_body_center(i, &pal);
     }
-    draw_channel_overlay(&pal);
 
     faculty175_display_flush();
 }

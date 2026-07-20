@@ -23,11 +23,21 @@ FetchContent_MakeAvailable(lvgl)
 file(GLOB FACULTY175_FACE_SRCS
   "${CMAKE_CURRENT_SOURCE_DIR}/../../astrolabe175c/main/faculty175_face_*.c"
 )
+list(REMOVE_ITEM FACULTY175_FACE_SRCS
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../astrolabe175c/main/faculty175_face_deathstar.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../astrolabe175c/main/faculty175_face_incidents.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../astrolabe175c/main/faculty175_face_maze.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../astrolabe175c/main/faculty175_face_watcher.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../astrolabe175c/main/faculty175_face_wifilab.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../astrolabe175c/main/faculty175_face_hid.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../astrolabe175c/main/faculty175_face_native.c"
+)
 
 add_executable(astrolabe-web-sim
   src/main.c
   src/faculty175_websim_stubs.c
   ${FACULTY175_FACE_SRCS}
+  ../../astrolabe175c/main/faculty175_cycle_arcs.c
   ../../astrolabe175c/main/faculty175_lvgl.c
   ../../astrolabe175c/main/faculty175_faces.c
   ../../lib/astrolabe_display_core/astrolabe_round_bezel.c
@@ -58,7 +68,7 @@ target_compile_options(astrolabe-web-sim PRIVATE
 
 target_link_options(astrolabe-web-sim PRIVATE
   "SHELL:-s WASM=1"
-  "SHELL:-s EXPORTED_FUNCTIONS=['_main','_astrolabe_web_set_face','_astrolabe_web_face_count','_astrolabe_web_face_name']"
+  "SHELL:-s EXPORTED_FUNCTIONS=['_main','_astrolabe_web_set_face','_astrolabe_web_face_count','_astrolabe_web_face_name','_astrolabe_web_face_slug','_astrolabe_web_current_face','_astrolabe_web_voice_state','_astrolabe_web_button_press']"
   "SHELL:-s EXPORTED_RUNTIME_METHODS=['ccall','UTF8ToString']"
   "SHELL:-s ALLOW_MEMORY_GROWTH=1"
   "SHELL:--shell-file ${CMAKE_CURRENT_SOURCE_DIR}/public/shell.html"

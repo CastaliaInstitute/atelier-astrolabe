@@ -4,7 +4,7 @@
  * FacultyAtom — M5 AtomS3R + Atomic Voice Base faculty pendant (face=faculty).
  *
  * Native ESP-IDF target: facultyatom/. Distinct from the round watch Wand face
- * (face=wand, sketches/Astrolabe/faces/wand/) and Waveshare 1.8″ faculty18/.
+ * (astrolabe175c/main/) and Waveshare 1.8″ faculty18/.
  */
 
 #define ASTROLABE_FACULTY_ATOM_FACE_NAME "faculty"
