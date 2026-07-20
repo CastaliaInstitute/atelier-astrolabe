@@ -163,6 +163,13 @@ static void queue_gesture(faculty175_gesture_kind_t kind, int16_t cx, int16_t cy
         .queued_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS),
     };
     if (xQueueSend(s_queue, &gesture, 0) != pdTRUE) {
+        /* A noisy controller can report many tap releases while a real swipe
+         * is being classified.  Never let one of those low-value taps evict
+         * a queued navigation step; otherwise a perfectly valid swipe can
+         * disappear before input_task gets its next time slice. */
+        if (!gesture_is_navigation_step(kind)) {
+            return;
+        }
         faculty175_gesture_t dropped = {};
         (void)xQueueReceive(s_queue, &dropped, 0);
         (void)xQueueSend(s_queue, &gesture, 0);
