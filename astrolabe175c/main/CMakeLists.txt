@@ -129,7 +129,6 @@ idf_component_register(
         waveshare__esp_lcd_touch_cst9217
         esp_netif
         esp-tls
-        esp_coex
         esp_wifi
         fatfs
         app_update
@@ -168,12 +167,8 @@ target_compile_definitions(${COMPONENT_LIB} PRIVATE __LINUX__ PNG_MAX_BUFFERED_P
 if(NOT DEFINED ASTROLABE_USB_OTA_DEMO_BOOT)
     set(ASTROLABE_USB_OTA_DEMO_BOOT 0)
 endif()
-if(NOT DEFINED ASTROLABE_USB_RUNTIME_ENABLED)
-    set(ASTROLABE_USB_RUNTIME_ENABLED 1)
-endif()
-if(NOT DEFINED ASTROLABE_KM_ENABLED)
-    set(ASTROLABE_KM_ENABLED ${ASTROLABE175C_CYBER_FEATURES})
-endif()
+set(ASTROLABE_USB_RUNTIME_ENABLED ${ASTROLABE175C_CYBER_FEATURES})
+set(ASTROLABE_KM_ENABLED ${ASTROLABE175C_CYBER_FEATURES})
 if(NOT DEFINED ASTROLABE_OTA_AUTO_INTERVAL_S)
     set(ASTROLABE_OTA_AUTO_INTERVAL_S 60)
 endif()

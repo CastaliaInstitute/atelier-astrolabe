@@ -650,45 +650,6 @@ static bool low_power_is_docked(const faculty175_pmu_status_t *st)
     return st != NULL && st->present && (st->vbus_in || st->charging);
 }
 
-#if FACULTY175_USB_RUNTIME_ENABLED
-static TaskHandle_t s_usb_auto_tether_task;
-
-static void usb_auto_tether_task(void *arg)
-{
-    (void)arg;
-    vTaskDelay(pdMS_TO_TICKS(250));
-    const esp_err_t err = faculty175_usb_tether_start();
-    const esp_ip4_addr_t *ip = faculty175_usb_tether_ip();
-    if (err == ESP_OK && ip != NULL) {
-        ESP_LOGI(TAG, "USB auto tether ready at http://" IPSTR "/settings", IP2STR(ip));
-    } else {
-        ESP_LOGW(TAG, "USB auto tether skipped: %s", esp_err_to_name(err));
-    }
-    s_usb_auto_tether_task = NULL;
-    vTaskDelete(NULL);
-}
-
-static void usb_auto_tether_maybe_launch(void)
-{
-    if (!faculty175_usb_auto_tether_enabled() ||
-        faculty175_usb_screen_profile_active() ||
-        s_usb_auto_tether_task != NULL) {
-        return;
-    }
-    const BaseType_t ok = xTaskCreatePinnedToCore(usb_auto_tether_task,
-                                                  "usb_auto_tether",
-                                                  8192,
-                                                  NULL,
-                                                  tskIDLE_PRIORITY + 2,
-                                                  &s_usb_auto_tether_task,
-                                                  0);
-    if (ok != pdPASS) {
-        s_usb_auto_tether_task = NULL;
-        ESP_LOGW(TAG, "USB auto tether task allocation failed");
-    }
-}
-#endif
-
 static void low_power_apply_awake(uint32_t now_ms, const char *reason)
 {
     const bool was_low_power = s_low_power_asleep || s_low_power_dimmed;
@@ -742,12 +703,6 @@ static void low_power_tick(uint32_t now_ms)
         s_power_status = st;
         s_power_on_battery = low_power_on_battery(&st);
         const bool docked = low_power_is_docked(&st);
-#if FACULTY175_USB_RUNTIME_ENABLED
-        const bool docked_rising = s_power_have_status && docked && last_have_status && !last_docked;
-#if !CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG_ENABLED
-        const bool docked_initial = s_power_have_status && docked && !last_have_status;
-#endif
-#endif
         if (s_power_have_status) {
             const faculty175_power_scenario_t history_scenario =
                 faculty175_power_scenario_get(now_ms);
@@ -765,16 +720,6 @@ static void low_power_tick(uint32_t now_ms)
                 !s_wifi_low_power_paused && wifi_is_connected(),
                 faculty175_ble_advertising() || faculty175_ble_scanning());
         }
-#if FACULTY175_USB_RUNTIME_ENABLED
-        if (docked_rising
-#if !CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG_ENABLED
-            || docked_initial
-#endif
-        ) {
-            ESP_LOGI(TAG, "USB power attached; launching auto PWA tether");
-            usb_auto_tether_maybe_launch();
-        }
-#endif
         if (s_power_have_status &&
             (s_power_on_battery != last_on_battery || docked != last_docked || !last_have_status ||
              st.battery_percent != last_pct || st.battery_mv != last_mv)) {
@@ -906,36 +851,10 @@ static void low_power_tick(uint32_t now_ms)
     }
 
     if (!s_power_on_battery) {
-        low_power_wifi_resume();
-        if (!low_power_is_docked(&s_power_status)) {
-            if (s_low_power_asleep || s_low_power_dimmed) {
-                low_power_apply_awake(now_ms, "external power");
-            }
-            return;
-        }
-        if (ui_state_modal(s_ui) || faculty175_ota_active() || faculty175_qa_audio_busy()) {
-            low_power_note_activity(now_ms, "dock busy");
-            return;
-        }
-        if (breathing_guide_active) {
-            low_power_note_activity(now_ms, "breathing");
-            return;
-        }
-        const uint32_t idle_ms = now_ms - s_low_power_last_activity_ms;
-        if (!s_low_power_asleep && idle_ms >= BATTERY_SLEEP_IDLE_MS) {
-            s_low_power_asleep = true;
-            s_low_power_dimmed = true;
-            faculty175_audio_set_speaker_mute(true);
-            faculty175_board_set_backlight(0);
-            faculty175_board_display_on(false);
-            faculty175_display_flush_suspended_set(true);
-            FACULTY175_LOG_STAGE(TAG, "power", "dock display off after %u ms idle", (unsigned)idle_ms);
-            return;
-        }
-        if (!s_low_power_dimmed && idle_ms >= BATTERY_DIM_IDLE_MS) {
-            s_low_power_dimmed = true;
-            faculty175_board_set_backlight(10);
-            FACULTY175_LOG_STAGE(TAG, "power", "dock dim after %u ms idle", (unsigned)idle_ms);
+        if (s_low_power_asleep || s_low_power_dimmed) {
+            low_power_apply_awake(now_ms, low_power_is_docked(&s_power_status) ? "dock" : "external power");
+        } else {
+            low_power_wifi_resume();
         }
         return;
     }
@@ -2580,16 +2499,12 @@ static esp_err_t pipeline_ensure_ready(void)
         return start_err;
     }
     s_pipeline_started = true;
-    const esp_err_t http_err = faculty175_screen_http_start(NULL);
-    if (http_err != ESP_OK) {
-        FACULTY175_LOG_STAGE_W(TAG, "http", "settings restart after pipeline failed: %s", esp_err_to_name(http_err));
 #if defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
-        const esp_err_t wake_err = faculty175_screen_http_wake_listener_start();
-        if (wake_err != ESP_OK) {
-            FACULTY175_LOG_STAGE_W(TAG, "http", "wake listener start failed: %s", esp_err_to_name(wake_err));
-        }
-#endif
+    const esp_err_t wake_err = faculty175_screen_http_wake_listener_start();
+    if (wake_err != ESP_OK) {
+        FACULTY175_LOG_STAGE_W(TAG, "http", "wake listener start failed: %s", esp_err_to_name(wake_err));
     }
+#endif
     pipeline_log_heap("start-ok");
     ui_set(FACULTY175_UI_LISTEN, NULL);
     faculty_log_ready();
@@ -3942,9 +3857,8 @@ static void input_task(void *arg)
         const uint32_t now_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
         const faculty175_face_desc_t *usb_face = faculty175_faces_current();
         const bool usb_screen_active = usb_face != NULL && usb_face->id == FACULTY175_FACE_USB_SCREEN;
-        const bool usb_profile_desired = usb_screen_active || faculty175_usb_tether_mode_active();
-        if (usb_profile_desired != faculty175_usb_screen_profile_active()) {
-            const esp_err_t usb_profile_err = faculty175_usb_set_screen_face_active(usb_profile_desired);
+        if (usb_screen_active != faculty175_usb_screen_profile_active()) {
+            const esp_err_t usb_profile_err = faculty175_usb_set_screen_face_active(usb_screen_active);
             if (usb_profile_err != ESP_OK) {
                 FACULTY175_LOG_STAGE_W(TAG, "usb", "profile switch failed: %s", esp_err_to_name(usb_profile_err));
             }
@@ -4430,9 +4344,6 @@ void app_main(void)
     const esp_err_t usb_init_err = faculty175_usb_init();
     boot_probe_err(usb_init_err);
     ESP_ERROR_CHECK(usb_init_err);
-#if FACULTY175_USB_RUNTIME_ENABLED
-    usb_auto_tether_maybe_launch();
-#endif
 #endif
     boot_probe_stage(0xa5);
     esp_rom_printf("A5 device_auth\n");

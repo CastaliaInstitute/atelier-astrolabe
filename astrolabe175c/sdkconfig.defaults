@@ -96,9 +96,6 @@ CONFIG_TINYUSB_DESC_MSC_STRING="Astrolabe USBFLASH"
 # the PHY temporarily and re-enumerates as TinyUSB CDC+MSC+HID.
 CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
 CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
-# USB PWA tethering uses NCM so phones and laptops can reach
-# http://172.31.77.1/settings as a local network accessory.
-# CONFIG_TINYUSB_NET_MODE_NONE is not set
-CONFIG_TINYUSB_NET_MODE_NCM=y
+CONFIG_TINYUSB_NET_MODE_NONE=y
 CONFIG_TINYUSB_HID_COUNT=1
 CONFIG_HTTPD_WS_SUPPORT=y
