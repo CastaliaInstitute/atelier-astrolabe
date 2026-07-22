@@ -33,7 +33,8 @@ permissions:
 
 concurrency:
   group: pages-deploy
-  cancel-in-progress: false
+  # A newer integration release supersedes an older unpublished manifest.
+  cancel-in-progress: true
 
 jobs:
   deploy:
