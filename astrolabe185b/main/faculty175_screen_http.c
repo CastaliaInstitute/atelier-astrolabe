@@ -6,11 +6,13 @@
 
 #include "esp_check.h"
 #include "esp_http_server.h"
+#include "esp_mac.h"
 #include "esp_log.h"
 #include "esp_system.h"
 #include "esp_timer.h"
 #include "esp_wifi.h"
 #include "cJSON.h"
+#include "mdns.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -28,6 +30,7 @@
 static const char *TAG = "faculty175_screen_http";
 static httpd_handle_t s_httpd;
 static esp_ip4_addr_t s_ip;
+static bool s_mdns_started;
 
 static esp_err_t send_chunk_cb(void *ctx, const uint8_t *data, size_t len)
 {
@@ -991,6 +994,34 @@ esp_err_t faculty175_screen_http_start(const esp_ip4_addr_t *ip)
         return ESP_OK;
     }
 
+    if (!s_mdns_started) {
+        char hostname[32] = "astrolabe-device";
+        uint8_t sta_mac[6] = {};
+        if (esp_wifi_get_mac(WIFI_IF_STA, sta_mac) == ESP_OK) {
+            snprintf(hostname, sizeof(hostname), "astrolabe-%02x%02x", sta_mac[4], sta_mac[5]);
+        }
+        esp_err_t mdns_err = mdns_init();
+        if (mdns_err == ESP_OK) {
+            mdns_err = mdns_hostname_set(hostname);
+        }
+        if (mdns_err == ESP_OK) {
+            mdns_err = mdns_instance_name_set("Astrolabe 1.85B Cyber Device");
+        }
+        if (mdns_err == ESP_OK) {
+            mdns_err = mdns_service_add(NULL, "_http", "_tcp", 80, NULL, 0);
+        }
+        if (mdns_err == ESP_OK) {
+            mdns_err = mdns_service_txt_item_set("_http", "_tcp", "transport", "usb-ncm");
+        }
+        if (mdns_err != ESP_OK) {
+            ESP_LOGW(TAG, "mDNS start failed: %s", esp_err_to_name(mdns_err));
+            mdns_free();
+        } else {
+            s_mdns_started = true;
+            ESP_LOGI(TAG, "mDNS ready http://%s.local/ (NCM control endpoint)", hostname);
+        }
+    }
+
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = 80;
     config.stack_size = 8192;
@@ -1132,5 +1163,9 @@ void faculty175_screen_http_stop(void)
         httpd_handle_t httpd = s_httpd;
         s_httpd = NULL;
         (void)httpd_stop(httpd);
+    }
+    if (s_mdns_started) {
+        mdns_free();
+        s_mdns_started = false;
     }
 }

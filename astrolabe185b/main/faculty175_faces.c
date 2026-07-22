@@ -74,6 +74,7 @@ static const faculty175_face_desc_t k_faces[] = {
     { FACULTY175_FACE_GEOMANCY, "geomancy", "Geomancy", FACULTY175_FACE_CAT_ORACLE, true, false, 170 },
     { FACULTY175_FACE_ENOCHIAN, "enochian", "Enochian Angel", FACULTY175_FACE_CAT_ORACLE, true, false, 175 },
     { FACULTY175_FACE_HID, "hid", "HID Touchpad", FACULTY175_FACE_CAT_SYSTEM, true, false, 200 },
+    { FACULTY175_FACE_LINUX, "linux", "Linux Host", FACULTY175_FACE_CAT_SYSTEM, true, ASTROLABE185B_CYBER_FEATURES, 201 },
     { FACULTY175_FACE_BABEL, "babel", "Babel Fish", FACULTY175_FACE_CAT_COMMONPLACE, true, false, 205 },
     { FACULTY175_FACE_MAZE, "maze", "Maze", FACULTY175_FACE_CAT_HOME, true, true, 50 },
     { FACULTY175_FACE_DEATHSTAR, "deathstar", "Death Star", FACULTY175_FACE_CAT_HOME, true, true, 60 },

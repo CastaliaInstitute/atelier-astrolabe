@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#171022" />
+    <meta name="description" content="Private LunaSay companion settings." />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="stylesheet" href="app.css" />
+    <title>LunaSay</title>
+  </head>
+  <body>
+    <main class="shell">
+      <header class="hero">
+        <p class="eyebrow">LunaSay companion</p>
+        <div class="hero-row"><h1>Settings for a life in rhythm.</h1><button class="orb" id="connect" type="button">Connect</button></div>
+        <p id="connection" class="connection" aria-live="polite">Not connected · personal drafts stay in this browser.</p>
+      </header>
+
+      <nav class="tabs" aria-label="Settings pages">
+        <button class="tab active" data-page="today" type="button">Today</button>
+        <button class="tab" data-page="personal" type="button">You</button>
+        <button class="tab" data-page="cycle" type="button">Cycle</button>
+        <button class="tab" data-page="device" type="button">Device</button>
+      </nav>
+
+      <section class="page active" id="today">
+        <article class="moon-card"><p class="eyebrow">Cycle</p><div class="day"><span id="cycle-day">—</span><small id="cycle-total">set a start date</small></div><h2 id="cycle-phase">Your rhythm, on your terms.</h2><p id="cycle-summary">Connect LunaSay to read its private cycle estimate and ring signals.</p><div class="metrics"><span>HR <b id="hr">—</b></span><span>HRV <b id="hrv">—</b></span><span>SpO₂ <b id="spo2">—</b></span></div></article>
+        <article class="quiet-card"><h2>What stays private</h2><p>Cycle data is stored on LunaSay. Your personal draft is kept only in this browser until a future device profile sync is enabled.</p></article>
+      </section>
+
+      <section class="page" id="personal">
+        <div class="section-head"><p class="eyebrow">Personal context</p><h2>For your own sky.</h2><p>These details are saved only on this device/browser for now.</p></div>
+        <form id="personal-form" class="form-grid">
+          <label>Display name<input name="name" autocomplete="name" placeholder="How LunaSay should address you" /></label>
+          <label>Pronouns<input name="pronouns" autocomplete="off" placeholder="Optional" /></label>
+          <label>Birth date<input name="birthDate" type="date" /></label>
+          <label>Birth time<input name="birthTime" type="time" /></label>
+          <label class="wide">Birthplace<input name="birthplace" autocomplete="address-level2" placeholder="City, region, country" /></label>
+          <button class="primary wide" type="submit">Save personal draft</button>
+        </form>
+      </section>
+
+      <section class="page" id="cycle">
+        <div class="section-head"><p class="eyebrow">Menstrual cycle</p><h2>An estimate you can correct.</h2><p>Cycle estimates are not medical advice and do not determine fertility, pregnancy, or health.</p></div>
+        <div class="two-actions"><button class="action start" id="bleeding-start" type="button"><b>Bleeding started</b><span>Log today as day 1</span></button><button class="action stop" id="bleeding-stop" type="button"><b>Bleeding stopped</b><span>Update this cycle’s bleed length</span></button></div>
+        <form id="cycle-form" class="form-grid">
+          <label class="wide">Most recent bleeding start<input name="startDate" type="date" required /></label>
+          <label>Typical cycle length<input name="length" type="number" min="21" max="45" value="28" required /><small>21–45 days</small></label>
+          <label>Typical bleed length<input name="periodLength" type="number" min="1" max="14" value="5" required /><small>1–14 days</small></label>
+          <button class="primary wide" type="submit">Save cycle to LunaSay</button>
+        </form>
+      </section>
+
+      <section class="page" id="device">
+        <div class="section-head"><p class="eyebrow">LunaSay</p><h2>Connection & place.</h2></div>
+        <article class="quiet-card"><h2>Bluetooth connection</h2><p>Web Bluetooth works in Chrome and compatible browsers. iPhone Safari does not currently provide Web Bluetooth.</p><button class="primary" id="connect-secondary" type="button">Connect LunaSay</button></article>
+        <form id="device-form" class="form-grid">
+          <label class="wide">Time zone<input name="tz" id="tz" autocomplete="off" /></label>
+          <label class="wide">Location<input name="location" id="location" placeholder="Use current location, or enter latitude, longitude" /></label>
+          <button class="secondary wide" id="use-location" type="button">Use current location</button>
+          <button class="primary wide" type="submit">Sync time & place</button>
+        </form>
+      </section>
+    </main>
+    <footer>Private by default · LunaSay is a reflective instrument, not a medical device.</footer>
+    <script src="app.js"></script>
+  </body>
+</html>

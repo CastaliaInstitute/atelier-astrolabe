@@ -1,6 +1,7 @@
 #include "faculty175_usb.h"
 
 #include <stdbool.h>
+#include <stdlib.h>
 #include <stdio.h>
 #include <sys/stat.h>
 
@@ -9,11 +10,16 @@
 #include "esp_log.h"
 #include "esp_vfs_fat.h"
 #include "faculty175_storage.h"
+#if ASTROLABE185B_CYBER_FEATURES
+#include "faculty175_usb_ncm.h"
+#endif
 #include "sdmmc_cmd.h"
 #if CONFIG_TINYUSB_CDC_ENABLED || CONFIG_TINYUSB_MSC_ENABLED
 #include "tinyusb.h"
+#if CONFIG_TINYUSB_CDC_ENABLED
 #include "tusb_cdc_acm.h"
 #include "tusb_console.h"
+#endif
 #include "tusb_msc_storage.h"
 #endif
 
@@ -69,9 +75,16 @@ static void storage_mount_changed_cb(tinyusb_msc_event_t *event)
         return;
     }
     const bool host_mounted = event->mount_changed_data.is_mounted;
+#if ASTROLABE185B_CYBER_FEATURES
+    /* Cyber gives the host exclusive ownership of the SD card.  Never mount
+     * it through the app VFS while the host may be booting from it. */
+    s_storage_mounted = false;
+    ESP_LOGI(TAG, "SD MSC host mounted: %s", host_mounted ? "yes" : "no");
+#else
     ESP_LOGI(TAG, "usbflash host mounted: %s", host_mounted ? "yes" : "no");
     sync_usbflash_mount_for_owner(host_mounted);
     ESP_LOGI(TAG, "usbflash mounted to app: %s", s_storage_mounted ? "yes" : "no");
+#endif
 }
 #endif
 
@@ -103,6 +116,41 @@ static esp_err_t storage_init_sdmmc(void)
 #endif
     slot_config.flags |= SDMMC_SLOT_FLAG_INTERNAL_PULLUP;
 
+#if ASTROLABE185B_CYBER_FEATURES
+    /* MSC needs the raw card handle. Keep FatFS unmounted so the USB host has
+     * exclusive block-device ownership while it boots and runs Linux. */
+    s_sd_card = calloc(1, sizeof(*s_sd_card));
+    if (s_sd_card == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+    esp_err_t err = host.init();
+    if (err == ESP_OK) {
+        err = sdmmc_host_init_slot(host.slot, &slot_config);
+    }
+    if (err == ESP_OK) {
+        err = sdmmc_card_init(&host, s_sd_card);
+    }
+#if ASTROLABE185B_CYBER_FEATURES
+    if (err != ESP_OK && slot_config.width == 4) {
+        ESP_LOGW(TAG, "sdcard 4-bit init failed: %s; retrying 1-bit", esp_err_to_name(err));
+        (void)sdmmc_host_deinit_slot(host.slot);
+        slot_config.width = 1;
+        err = sdmmc_host_init_slot(host.slot, &slot_config);
+        if (err == ESP_OK) {
+            err = sdmmc_card_init(&host, s_sd_card);
+        }
+    }
+#endif
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "sdcard raw init failed: %s", esp_err_to_name(err));
+        free(s_sd_card);
+        s_sd_card = NULL;
+        return err;
+    }
+    s_sd_mounted = true;
+    sdmmc_card_print_info(stdout, s_sd_card);
+    return ESP_OK;
+#else
     const esp_vfs_fat_mount_config_t mount_cfg = {
         .format_if_mount_failed = false,
         .max_files = 8,
@@ -119,6 +167,7 @@ static esp_err_t storage_init_sdmmc(void)
     s_sd_mounted = true;
     sdmmc_card_print_info(stdout, s_sd_card);
     return ESP_OK;
+#endif
 }
 
 esp_err_t faculty175_usb_init(void)
@@ -141,6 +190,14 @@ esp_err_t faculty175_usb_init(void)
     return ESP_OK;
 #else
 
+#if ASTROLABE185B_CYBER_FEATURES
+    ESP_RETURN_ON_FALSE(s_sd_card != NULL, ESP_ERR_NOT_FOUND, TAG, "cyber MSC requires SD card");
+    const tinyusb_msc_sdmmc_config_t msc_cfg = {
+        .card = s_sd_card,
+    };
+    ESP_LOGI(TAG, "init cyber MSC from SD card");
+    ESP_RETURN_ON_ERROR(tinyusb_msc_storage_init_sdmmc(&msc_cfg), TAG, "msc sdcard init");
+#else
     const tinyusb_msc_spiflash_config_t msc_cfg = {
         .wl_handle = faculty175_storage_wl_handle(),
         .callback_mount_changed = storage_mount_changed_cb,
@@ -153,12 +210,21 @@ esp_err_t faculty175_usb_init(void)
     };
     ESP_LOGI(TAG, "init msc spiflash");
     ESP_RETURN_ON_ERROR(tinyusb_msc_storage_init_spiflash(&msc_cfg), TAG, "msc usbflash init");
-    ESP_LOGI(TAG, "register msc callback");
-    ESP_RETURN_ON_ERROR(tinyusb_msc_register_callback(TINYUSB_MSC_EVENT_MOUNT_CHANGED, storage_mount_changed_cb),
+#endif
+#if ASTROLABE185B_CYBER_FEATURES
+    ESP_LOGI(TAG, "register SD MSC callback");
+    ESP_RETURN_ON_ERROR(tinyusb_msc_register_callback(TINYUSB_MSC_EVENT_MOUNT_CHANGED,
+                                                       storage_mount_changed_cb),
                         TAG,
                         "msc callback");
-
+#else
+    ESP_LOGI(TAG, "register MSC callback");
+    ESP_RETURN_ON_ERROR(tinyusb_msc_register_callback(TINYUSB_MSC_EVENT_MOUNT_CHANGED,
+                                                       storage_mount_changed_cb),
+                        TAG,
+                        "msc callback");
     sync_usbflash_mount_for_owner(tinyusb_msc_storage_in_use_by_usb_host());
+#endif
 
     const tinyusb_config_t tusb_cfg = {
         .device_descriptor = NULL,
@@ -176,6 +242,11 @@ esp_err_t faculty175_usb_init(void)
     ESP_LOGI(TAG, "install tinyusb driver");
     ESP_RETURN_ON_ERROR(tinyusb_driver_install(&tusb_cfg), TAG, "tinyusb install");
 
+#if ASTROLABE185B_CYBER_FEATURES
+    ESP_RETURN_ON_ERROR(faculty175_usb_ncm_init(), TAG, "ncm init");
+#endif
+
+ #if CONFIG_TINYUSB_CDC_ENABLED
     const tinyusb_config_cdcacm_t cdc_cfg = {
         .usb_dev = TINYUSB_USBDEV_0,
         .cdc_port = TINYUSB_CDC_ACM_0,
@@ -189,6 +260,7 @@ esp_err_t faculty175_usb_init(void)
     ESP_RETURN_ON_ERROR(tusb_cdc_acm_init(&cdc_cfg), TAG, "cdc acm init");
     ESP_LOGI(TAG, "switch console to cdc");
     ESP_RETURN_ON_ERROR(esp_tusb_init_console(TINYUSB_CDC_ACM_0), TAG, "cdc console");
+ #endif
 
     s_storage_ready = true;
     s_usb_ready = true;

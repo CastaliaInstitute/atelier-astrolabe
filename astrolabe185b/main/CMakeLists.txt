@@ -38,6 +38,7 @@ idf_component_register(
         "faculty175_touch.c"
         "faculty175_storage.c"
         "faculty175_usb.c"
+        "../../astrolabe175c/main/faculty175_usb_ncm.c"
         "faculty175_gesture.c"
         "faculty175_motion.c"
         "faculty175_pmu.cpp"
@@ -71,13 +72,14 @@ idf_component_register(
         "faculty175_face_tarot_image.cpp"
         "faculty175_face_tarot_spiffs_image.cpp"
         ${PNGDEC_SRCS}
-    INCLUDE_DIRS "." "../../include" "../../lib/astrolabe_display_core/include" "${ASTROLABE_PNGDEC}"
+    INCLUDE_DIRS "." "../../include" "../../lib/astrolabe_display_core/include" "${ASTROLABE_PNGDEC}" "../../astrolabe175c/main"
     REQUIRES
         driver
         console
         esp_event
         esp_http_client
         esp_http_server
+        espressif__mdns
         esp_lcd
         lvgl
         lwip
@@ -107,8 +109,32 @@ idf_component_register(
 target_compile_definitions(${COMPONENT_LIB} PRIVATE XPOWERS_CHIP_AXP2101)
 target_compile_definitions(${COMPONENT_LIB} PUBLIC LV_CONF_INCLUDE_SIMPLE=1)
 
+idf_component_get_property(ASTROLABE_BT_DIR bt COMPONENT_DIR)
+target_include_directories(${COMPONENT_LIB} PRIVATE
+    "${ASTROLABE_BT_DIR}/host/nimble/nimble/nimble/host/include"
+    "${ASTROLABE_BT_DIR}/host/nimble/nimble/nimble/include"
+    "${ASTROLABE_BT_DIR}/host/nimble/nimble/nimble/host/services/gap/include"
+    "${ASTROLABE_BT_DIR}/host/nimble/nimble/nimble/host/services/gatt/include"
+    "${ASTROLABE_BT_DIR}/host/nimble/nimble/nimble/host/util/include"
+    "${ASTROLABE_BT_DIR}/host/nimble/port/include"
+)
+
 target_compile_definitions(${COMPONENT_LIB} PRIVATE __LINUX__ PNG_MAX_BUFFERED_PIXELS=8194)
 if(NOT DEFINED ASTROLABE_USB_OTA_DEMO_BOOT)
     set(ASTROLABE_USB_OTA_DEMO_BOOT 0)
 endif()
 target_compile_definitions(${COMPONENT_LIB} PRIVATE ASTROLABE_USB_OTA_DEMO_BOOT=${ASTROLABE_USB_OTA_DEMO_BOOT})
+
+if(NOT DEFINED ASTROLABE185B_BUILD_VARIANT)
+    set(ASTROLABE185B_BUILD_VARIANT "faculty")
+endif()
+string(TOLOWER "${ASTROLABE185B_BUILD_VARIANT}" ASTROLABE185B_BUILD_VARIANT)
+if(NOT ASTROLABE185B_BUILD_VARIANT STREQUAL "faculty" AND
+   NOT ASTROLABE185B_BUILD_VARIANT STREQUAL "cyber")
+    message(FATAL_ERROR "ASTROLABE185B_BUILD_VARIANT must be faculty or cyber")
+endif()
+if(ASTROLABE185B_BUILD_VARIANT STREQUAL "cyber")
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE ASTROLABE185B_CYBER_FEATURES=1)
+else()
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE ASTROLABE185B_CYBER_FEATURES=0)
+endif()

@@ -23,7 +23,6 @@ typedef struct {
     float lon[ASTRO_BODY_COUNT];
 } astro_ephemeris_t;
 
-static const char *const k_signs[12] = {"Ar", "Ta", "Ge", "Cn", "Le", "Vi", "Li", "Sc", "Sg", "Cp", "Aq", "Pi"};
 static const astro_body_t k_bodies[ASTRO_BODY_COUNT] = {
     {"Su", 280.5f, 0.9856f, 255, 210, 90},
     {"Mo", 218.3f, 13.1764f, 210, 218, 235},
@@ -245,14 +244,10 @@ void faculty175_face_astrology_draw(uint32_t anim_ms)
     const int r_outer = 202;
     const int r_inner = 82;
     const int r_label = 172;
-    const int r_planet = 132;
     const int r_natal = 94;
     const uint16_t bg = c(8, 9, 18);
     const uint16_t ring = c(54, 62, 84);
     const uint16_t spoke = c(78, 88, 108);
-    astro_ephemeris_t eph = {};
-
-    local_ephemeris(anim_ms, &eph);
     faculty175_charts_ensure_family_seed();
     faculty175_birth_chart_t natal = {};
     faculty175_chart_positions_t natal_pos = {};
@@ -274,9 +269,9 @@ void faculty175_face_astrology_draw(uint32_t anim_ms)
         draw_zodiac_glyph(s, lx, ly, c(174, 182, 205));
     }
 
-    for (int i = 0; i < ASTRO_BODY_COUNT; ++i) {
-        draw_body_label(&k_bodies[i], i, eph.lon[i], cx, cy, r_planet - (i % 2) * 18);
-    }
+    /* Keep the campaign face legible at a glance. The zodiac wheel and the
+       natal/transit geometry carry the information; planet glyphs create a
+       noisy second ring on this small display. */
     if (has_natal) {
         faculty175_display_draw_circle(cx, cy, r_natal + 10, c(32, 66, 92));
         for (int i = 0; i < FACULTY175_CHART_BODY_COUNT; ++i) {
@@ -286,21 +281,6 @@ void faculty175_face_astrology_draw(uint32_t anim_ms)
 
     faculty175_display_fill_circle(cx, cy, 36, c(18, 18, 30));
     faculty175_display_draw_circle(cx, cy, 36, c(180, 154, 88));
-    faculty175_display_draw_bezel_label(has_natal ? "NATAL + TRANSIT" : "ASTROLOGY", false, 222, anim_ms,
-                                        c(226, 222, 204));
-
-    char line[96];
-    if (has_natal) {
-        snprintf(line, sizeof(line), "%s  n.Su %s  t.Su %s", natal.name,
-                 faculty175_charts_zodiac_abbr(natal_pos.lon[0]), k_signs[(int)(eph.lon[0] / 30.0f) % 12]);
-    } else {
-        snprintf(line, sizeof(line), "%s %s  %s %s  %s %s", k_bodies[0].label,
-                 k_signs[(int)(eph.lon[0] / 30.0f) % 12], k_bodies[1].label,
-                 k_signs[(int)(eph.lon[1] / 30.0f) % 12], k_bodies[4].label,
-                 k_signs[(int)(eph.lon[4] / 30.0f) % 12]);
-    }
-    faculty175_display_draw_bezel_label(line, true, 222, anim_ms, c(190, 198, 220));
-    faculty175_display_draw_bezel_label(eph.server_valid ? "SERVER EPHEMERIS" : "LOCAL EPHEMERIS", false, 204,
-                                        anim_ms, eph.server_valid ? c(116, 210, 190) : c(190, 170, 112));
+    faculty175_display_draw_bezel_label("ASTROLOGY", false, 222, anim_ms, c(226, 222, 204));
     faculty175_display_flush();
 }

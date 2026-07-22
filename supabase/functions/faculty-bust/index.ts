@@ -47,6 +47,22 @@ function clampFloat(
   return Math.max(lo, Math.min(hi, n));
 }
 
+function parseBustSizeParam(raw: string | null): { width: number; height: number } | null {
+  if (raw === null) return null;
+  const m = raw
+    .trim()
+    .toLowerCase()
+    .match(/^(\d+)(?:[xX](\d+))?$/);
+  if (!m) return null;
+
+  const w = Number(m[1]);
+  const h = m[2] !== undefined ? Number(m[2]) : Number(m[1]);
+  if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) {
+    return null;
+  }
+  return { width: w, height: h };
+}
+
 /**
  * Castalia faculty avatar sprites are 128×128 (or 256×256) PNG sheets: four bust
  * variants in a 2×2 grid. The side-profile portrait used on wand/watch is lower-left.
@@ -1192,7 +1208,7 @@ Deno.serve(async (req) => {
       {
         error: "faculty query parameter is required",
         hint:
-          "Use ?faculty=a.einstein&w=128&h=128&format=png (handle= and slug= are aliases)",
+          "Use ?faculty=a.einstein&w=128&h=128&format=png or ?faculty=a.einstein&size=380&format=png (handle= and slug= are aliases)",
       },
       { status: 400, headers: { ...corsHeaders, "Cache-Control": "no-store" } },
     );
@@ -1200,15 +1216,20 @@ Deno.serve(async (req) => {
 
   const slug = resolveFacultySlugFromSearchParams(u.searchParams);
   const view = resolveFacultyBustView(u.searchParams);
+  const requestedSize = parseBustSizeParam(
+    u.searchParams.get("size") ?? u.searchParams.get("dimension"),
+  );
   // Upper bound covers the largest client panel (Waveshare 1.75C round AMOLED, 466×466).
   const width = clampInt(
-    u.searchParams.get("w") ?? u.searchParams.get("width"),
+    u.searchParams.get("w") ?? u.searchParams.get("width") ??
+      requestedSize?.width.toString(),
     192,
     48,
     512,
   );
   const height = clampInt(
-    u.searchParams.get("h") ?? u.searchParams.get("height"),
+    u.searchParams.get("h") ?? u.searchParams.get("height") ??
+      requestedSize?.height.toString(),
     240,
     48,
     512,

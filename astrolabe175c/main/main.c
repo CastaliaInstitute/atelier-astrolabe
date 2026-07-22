@@ -3,6 +3,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <time.h>
+#include <unistd.h>
 
 #include "esp_attr.h"
 #include "esp_event.h"
@@ -29,6 +32,7 @@
 #include "faculty175_breath.h"
 #include "faculty175_ble.h"
 #include "faculty175_charts.h"
+#include "faculty175_cycle_health.h"
 #include "faculty175_listen.h"
 #include "faculty175_lvgl.h"
 #include "faculty175_rotary_state.h"
@@ -63,6 +67,7 @@
 #include "faculty175_pocketwatch.h"
 #include "faculty175_quotes.h"
 #include "faculty175_rocket.h"
+#include "faculty175_ring.h"
 #include "faculty175_power_metrics.h"
 #include "faculty175_power_history.h"
 #include "faculty175_screen_http.h"
@@ -186,6 +191,8 @@ static faculty175_pmu_status_t s_power_status = {
 static uint32_t s_listen_cue_last_ms;
 static volatile bool s_faculty_ready;
 static volatile bool s_face_tts_busy;
+static volatile bool s_face_tour_active;
+static volatile bool s_face_tour_stop_requested;
 static volatile bool s_qa_stt_busy;
 static portMUX_TYPE s_qa_voice_status_mux = portMUX_INITIALIZER_UNLOCKED;
 static faculty175_qa_voice_status_t s_qa_voice_status;
@@ -299,6 +306,7 @@ static bool start_face_tts_read(const faculty175_face_desc_t *face);
 static esp_err_t face_tts_stream_post(const char *prompt,
                                       const char *system,
                                       const char *post_face,
+                                      const char *spool_path,
                                       faculty175_voice_result_t *result);
 
 static void save_faculty_to_nvs(void);
@@ -1416,6 +1424,29 @@ static void build_face_read_prompt(const faculty175_face_desc_t *face, char *out
             prompt_append(out, cap, &off,
                           "The visible data is a full-screen lunar texture with phase occlusion; describe the moon image and the current date context. ");
             break;
+        case FACULTY175_FACE_CYCLE: {
+            faculty175_cycle_health_status_t cycle = {};
+            faculty175_ring_vitals_t vitals = {};
+            (void)faculty175_cycle_health_status(&cycle);
+            const bool have_vitals = faculty175_ring_latest_vitals(&vitals);
+            prompt_append(out, cap, &off,
+                          "This is a private cycle estimate, not medical guidance. Cycle is %s; ",
+                          cycle.configured ? "configured" : "not configured");
+            if (cycle.configured) {
+                prompt_append(out, cap, &off, "day %u of %u, phase %s. ",
+                              cycle.day, cycle.cycle_length,
+                              faculty175_cycle_health_phase_label(cycle.phase));
+            }
+            if (have_vitals) {
+                prompt_append(out, cap, &off, "Paired ring: HR %s%u, HRV %s%u, SpO2 %s%u. ",
+                              vitals.heart_rate_valid ? "" : "unknown ", vitals.heart_rate_bpm,
+                              vitals.hrv_valid ? "" : "unknown ", vitals.hrv_ms,
+                              vitals.spo2_valid ? "" : "unknown ", vitals.spo2_percent);
+            }
+            prompt_append(out, cap, &off,
+                          "Read only the displayed facts and a gentle self-care suggestion; do not infer fertility, pregnancy, illness, or diagnosis. ");
+            break;
+        }
         case FACULTY175_FACE_SOLAR:
             prompt_append(out, cap, &off,
                           "The visible data is live solar activity imagery from NASA when cached; summarize the map state and say if live data appears unavailable. ");
@@ -1573,6 +1604,7 @@ static void build_face_read_prompt(const faculty175_face_desc_t *face, char *out
 typedef enum {
     VOICE_WORK_FACE_READ = 0,
     VOICE_WORK_QA_STT,
+    VOICE_WORK_FACE_TOUR,
 } voice_work_type_t;
 
 typedef struct {
@@ -1580,6 +1612,90 @@ typedef struct {
     faculty175_face_id_t id;
     uint32_t capture_ms;
 } face_tts_request_t;
+
+/* LunaSay's reflective faces are day-bound.  Keep their first generated
+ * reading in the existing voice SPIFFS partition and replay it on subsequent
+ * opens.  A two-slot day ring bounds storage without a directory scan; live
+ * question and journal faces are deliberately never cached. */
+static bool lunasay_daily_tts_cache_path(const faculty175_face_desc_t *face,
+                                         char *out,
+                                         size_t cap)
+{
+    if (face == NULL || out == NULL || cap == 0 ||
+        faculty175_face_profile_current() != FACULTY175_FACE_PROFILE_LUNASAY) {
+        return false;
+    }
+    switch (face->id) {
+        case FACULTY175_FACE_MOON:
+        case FACULTY175_FACE_ASTROLOGY:
+        case FACULTY175_FACE_TRANSITS:
+        case FACULTY175_FACE_SYNASTRY:
+        case FACULTY175_FACE_TAROT:
+        case FACULTY175_FACE_SKY:
+            break;
+        default:
+            return false;
+    }
+    const time_t now = time(NULL);
+    /* Do not give a stale boot-time cache the authority of a daily reading. */
+    if (now < 1704067200 || face->slug == NULL || face->slug[0] == '\0') {
+        return false;
+    }
+    const uint64_t day = (uint64_t)now / 86400u;
+    const unsigned slot = (unsigned)(day & 1u);
+    char marker_path[48];
+    snprintf(marker_path, sizeof(marker_path), "/voice/lunasay-d%u.day", slot);
+    uint64_t cached_day = 0;
+    unsigned long long marker_day = 0;
+    FILE *marker = fopen(marker_path, "r");
+    if (marker != NULL) {
+        (void)fscanf(marker, "%llu", &marker_day);
+        fclose(marker);
+        cached_day = (uint64_t)marker_day;
+    }
+    if (cached_day != day) {
+        /* A two-slot ring only works if every old face in its reused slot is
+         * invalidated together; otherwise an unopened face could replay a
+         * reading from two days ago. */
+        static const char *const k_daily_slugs[] = {
+            "moon", "astrology", "transits", "synastry", "tarot", "sky",
+        };
+        for (size_t i = 0; i < sizeof(k_daily_slugs) / sizeof(k_daily_slugs[0]); ++i) {
+            char stale_path[64];
+            snprintf(stale_path, sizeof(stale_path), "/voice/lunasay-d%u-%s.mp3", slot, k_daily_slugs[i]);
+            unlink(stale_path);
+        }
+        marker = fopen(marker_path, "w");
+        if (marker == NULL) {
+            return false;
+        }
+        fprintf(marker, "%llu\n", (unsigned long long)day);
+        fclose(marker);
+    }
+    const int n = snprintf(out, cap, "/voice/lunasay-d%u-%s.mp3", slot, face->slug);
+    return n > 0 && (size_t)n < cap;
+}
+
+static bool lunasay_play_cached_daily_tts(const faculty175_face_desc_t *face)
+{
+    char path[64];
+    if (!lunasay_daily_tts_cache_path(face, path, sizeof(path))) {
+        return false;
+    }
+    struct stat st = {};
+    if (stat(path, &st) != 0 || st.st_size < 64 || st.st_size > 128 * 1024) {
+        return false;
+    }
+    FACULTY175_LOG_STAGE(TAG, "tts-face", "daily cache hit %s %uB", face->slug, (unsigned)st.st_size);
+    ui_set(FACULTY175_UI_SPEAK, face->label);
+    const esp_err_t err = faculty175_voice_play_mp3_file_sync(path, (size_t)st.st_size);
+    if (err != ESP_OK) {
+        FACULTY175_LOG_STAGE_W(TAG, "tts-face", "daily cache playback failed %s", esp_err_to_name(err));
+        unlink(path);
+        return false;
+    }
+    return true;
+}
 
 static void face_tts_run_one(faculty175_face_id_t id)
 {
@@ -1607,6 +1723,15 @@ static void face_tts_run_one(faculty175_face_id_t id)
         s_face_tts_busy = false;
         return;
     }
+    if (lunasay_play_cached_daily_tts(face)) {
+        FACULTY175_LOG_STAGE(TAG, "tts-face", "daily cache replay %s", slug);
+        faculty175_voice_result_free(result);
+        free(result);
+        free(prompt);
+        ui_set(FACULTY175_UI_LISTEN, NULL);
+        s_face_tts_busy = false;
+        return;
+    }
     build_face_read_prompt(face, prompt, prompt_cap);
 
     FACULTY175_LOG_STAGE(TAG, "tts-face", "start %s", slug);
@@ -1624,7 +1749,11 @@ static void face_tts_run_one(faculty175_face_id_t id)
                                 ? ASTROLABE_FACULTY_FACE_NAME
                                 : (face != NULL ? face->slug : ASTROLABE_FACULTY_FACE_NAME);
     ui_set(FACULTY175_UI_SPEAK, face != NULL ? face->label : "face");
-    esp_err_t err = face_tts_stream_post(prompt, system, post_face, result);
+    char daily_cache_path[64] = {};
+    const char *spool_path = lunasay_daily_tts_cache_path(face, daily_cache_path, sizeof(daily_cache_path))
+                                 ? daily_cache_path
+                                 : NULL;
+    esp_err_t err = face_tts_stream_post(prompt, system, post_face, spool_path, result);
     if (err == ESP_OK) {
         if (face != NULL && face->id == FACULTY175_FACE_CRYSTAL_BALL &&
             faculty175_face_alethiometer_apply_reply(prompt, result->reply)) {
@@ -1648,6 +1777,56 @@ static void face_tts_run_one(faculty175_face_id_t id)
     s_face_tts_busy = false;
 }
 
+/* This is intentionally a small, curated sequence rather than every enabled
+ * face. It is the story LunaSay tells in a Kickstarter demo: sky, self,
+ * relationship, divination, then the two ongoing voice modes. */
+static void face_tour_run(void)
+{
+    static const faculty175_face_id_t k_tour_faces[] = {
+        FACULTY175_FACE_MOON,
+        FACULTY175_FACE_ASTROLOGY,
+        FACULTY175_FACE_TRANSITS,
+        FACULTY175_FACE_SYNASTRY,
+        FACULTY175_FACE_TAROT,
+        FACULTY175_FACE_ALETHIOMETER,
+        FACULTY175_FACE_SKY,
+        FACULTY175_FACE_JOURNAL,
+        FACULTY175_FACE_CONVERSATION,
+    };
+
+    s_face_tour_active = true;
+    printf("face-tour: start count=%u\n", (unsigned)(sizeof(k_tour_faces) / sizeof(k_tour_faces[0])));
+    fflush(stdout);
+    for (size_t i = 0; i < sizeof(k_tour_faces) / sizeof(k_tour_faces[0]); ++i) {
+        if (s_face_tour_stop_requested) {
+            break;
+        }
+        const faculty175_face_id_t id = k_tour_faces[i];
+        const faculty175_face_desc_t *face = faculty175_faces_get(id);
+        if (face == NULL || !faculty175_faces_enabled(id) || faculty175_faces_set_runtime(id) != ESP_OK) {
+            printf("face-tour: skip id=%u\n", (unsigned)id);
+            continue;
+        }
+        ui_redraw();
+        /* Let the display settle before the first spoken word. */
+        vTaskDelay(pdMS_TO_TICKS(650));
+        if (s_face_tour_stop_requested) {
+            break;
+        }
+        printf("face-tour: face=%s index=%u\n", face->slug, (unsigned)(i + 1));
+        fflush(stdout);
+        s_face_tts_busy = true;
+        face_tts_run_one(id);
+        if (!s_face_tour_stop_requested) {
+            vTaskDelay(pdMS_TO_TICKS(900));
+        }
+    }
+    s_face_tts_busy = false;
+    s_face_tour_active = false;
+    printf("face-tour: done%s\n", s_face_tour_stop_requested ? " stopped" : "");
+    fflush(stdout);
+}
+
 static void face_tts_worker_task(void *arg)
 {
     (void)arg;
@@ -1656,6 +1835,8 @@ static void face_tts_worker_task(void *arg)
         if (xQueueReceive(s_face_tts_queue, &req, portMAX_DELAY) == pdTRUE) {
             if (req.type == VOICE_WORK_QA_STT) {
                 qa_stt_run(req.capture_ms);
+            } else if (req.type == VOICE_WORK_FACE_TOUR) {
+                face_tour_run();
             } else {
                 face_tts_run_one(req.id);
             }
@@ -1688,7 +1869,7 @@ static void face_tts_worker_start(void)
 
 static esp_err_t face_tts_worker_stop_for_pipeline(void)
 {
-    if (s_face_tts_busy) {
+    if (s_face_tts_busy || s_face_tour_active) {
         FACULTY175_LOG_STAGE_W(TAG, "tts-face", "cannot start duplex while face reading is active");
         return ESP_ERR_INVALID_STATE;
     }
@@ -1712,19 +1893,24 @@ static esp_err_t face_tts_worker_stop_for_pipeline(void)
 static esp_err_t face_tts_stream_post(const char *prompt,
                                       const char *system,
                                       const char *post_face,
+                                      const char *spool_path,
                                       faculty175_voice_result_t *result)
 {
     /* Do not play synchronously from the HTTP response callback. Audio output
      * can back-pressure the response long enough to leave both the HTTP client
      * and playback state wedged. Spool the bounded response to SPIFFS first,
      * close the HTTP transaction, then use the cache-safe file player. */
-    esp_err_t err = faculty175_voice_post_message(prompt,
-                                                  system,
-                                                  post_face,
-                                                  s_faculty_slug,
-                                                  s_faculty_name,
-                                                  s_history,
-                                                  result);
+    const faculty175_voice_tts_stream_t stream = {
+        .spool_path = spool_path != NULL ? spool_path : "/voice/voice-reply.mp3",
+    };
+    esp_err_t err = faculty175_voice_post_message_streaming(prompt,
+                                                            system,
+                                                            post_face,
+                                                            s_faculty_slug,
+                                                            s_faculty_name,
+                                                            s_history,
+                                                            &stream,
+                                                            result);
     if (err == ESP_OK) {
         /* face_tts has a cache-safe internal stack, so play in place instead
          * of allocating a second large internal task while TLS is resident. */
@@ -1748,7 +1934,7 @@ static bool start_face_tts_read(const faculty175_face_desc_t *face)
         ui_set(FACULTY175_UI_ERROR, "voice config");
         return true;
     }
-    if (s_face_tts_busy) {
+    if (s_face_tts_busy || s_face_tour_active) {
         FACULTY175_LOG_STAGE_W(TAG, "tts-face", "busy; ignored %s", face->slug);
         printf("tts-face: busy slug=%s\n", face->slug);
         fflush(stdout);
@@ -1788,6 +1974,42 @@ bool faculty175_request_current_face_tts(void)
                          face != NULL ? face->slug : "-",
                          handled ? "yes" : "no");
     return handled;
+}
+
+bool faculty175_request_face_tour(void)
+{
+    char voice_reason[128];
+    if (s_face_tour_active || s_face_tts_busy || s_qa_stt_busy) {
+        FACULTY175_LOG_STAGE_W(TAG, "face-tour", "unavailable active=%s busy=%s reason=%s",
+                               s_face_tour_active ? "yes" : "no", s_face_tts_busy ? "yes" : "no", "voice busy");
+        return false;
+    }
+    if (!faculty175_voice_config_ready(voice_reason, sizeof(voice_reason))) {
+        FACULTY175_LOG_STAGE_W(TAG, "face-tour", "unavailable reason=%s", voice_reason);
+        return false;
+    }
+    face_tts_worker_start();
+    if (s_face_tts_queue == NULL || s_face_tts_worker_task == NULL) {
+        return false;
+    }
+    s_face_tour_stop_requested = false;
+    s_face_tour_active = true; /* reserve the queue until the worker begins */
+    const face_tts_request_t req = { .type = VOICE_WORK_FACE_TOUR };
+    if (xQueueSend(s_face_tts_queue, &req, 0) != pdTRUE) {
+        s_face_tour_active = false;
+        return false;
+    }
+    return true;
+}
+
+void faculty175_request_face_tour_stop(void)
+{
+    s_face_tour_stop_requested = true;
+}
+
+bool faculty175_face_tour_active(void)
+{
+    return s_face_tour_active;
 }
 
 static esp_err_t pipeline_read(int16_t *samples, size_t sample_count, size_t *out_read, uint32_t timeout_ms, void *user)
@@ -2230,7 +2452,7 @@ static esp_err_t qa_trigger_stt(uint32_t capture_ms)
     if (!faculty175_board_audio_ready()) {
         return ESP_ERR_INVALID_STATE;
     }
-    if (s_qa_stt_busy || s_face_tts_busy) {
+    if (s_qa_stt_busy || s_face_tts_busy || s_face_tour_active) {
         return ESP_ERR_INVALID_STATE;
     }
     face_tts_worker_start();
@@ -3867,6 +4089,43 @@ static void input_task(void *arg)
         if (!s_nav_mode) {
             faculty175_ble_radar_tick(now_ms);
         }
+#if defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
+        /* The Colmi link is deliberately handled outside the touch pipeline:
+         * proximity wakes LunaSay, while raw ring-IMU swipes select a face.
+         * This leaves physical touch gestures unchanged and avoids pretending
+         * that noisy BLE RSSI alone is a swipe. */
+        faculty175_ble_lunasay_ring_tick(now_ms);
+        faculty175_ble_ring_event_t ring_event = FACULTY175_BLE_RING_EVENT_NONE;
+        if (faculty175_ble_lunasay_ring_event_consume(&ring_event)) {
+            if (ring_event == FACULTY175_BLE_RING_EVENT_NEAR) {
+                low_power_note_activity(now_ms, "ring-near");
+            } else if (ring_event == FACULTY175_BLE_RING_EVENT_SWIPE_NEXT ||
+                       ring_event == FACULTY175_BLE_RING_EVENT_SWIPE_PREVIOUS ||
+                       ring_event == FACULTY175_BLE_RING_EVENT_SWIPE_UP ||
+                       ring_event == FACULTY175_BLE_RING_EVENT_SWIPE_DOWN) {
+                const faculty175_gesture_kind_t kind =
+                    ring_event == FACULTY175_BLE_RING_EVENT_SWIPE_NEXT ? FACULTY175_GESTURE_SWIPE_RIGHT :
+                    ring_event == FACULTY175_BLE_RING_EVENT_SWIPE_PREVIOUS ? FACULTY175_GESTURE_SWIPE_LEFT :
+                    ring_event == FACULTY175_BLE_RING_EVENT_SWIPE_UP ? FACULTY175_GESTURE_SWIPE_UP :
+                                                                            FACULTY175_GESTURE_SWIPE_DOWN;
+                if (s_low_power_asleep || s_low_power_dimmed) {
+                    /* A ring movement after a long idle period is a wake, not
+                     * an accidental hidden face change. */
+                    const bool woke_from_sleep = s_low_power_asleep;
+                    low_power_note_activity(now_ms, "ring-swipe-wake");
+                    if (woke_from_sleep && faculty175_faces_set_runtime(FACULTY175_FACE_SOLAR) == ESP_OK) {
+                        faculty175_lvgl_set_sunrise_horizon(true);
+                        draw_current_face_now(now_ms);
+                        FACULTY175_LOG_STAGE(TAG, "ring", "sleep wake -> solar sunrise");
+                    }
+                } else {
+                    /* Use the normal input queue so each face receives the
+                     * same left/right and up/down meanings as physical touch. */
+                    faculty175_gesture_inject(kind, 233, 233, 0);
+                }
+            }
+        }
+#endif
         const faculty175_touch_state_t touch = faculty175_touch_state_get();
         if ((s_low_power_asleep || s_low_power_dimmed) &&
             (touch.down || faculty175_touch_int_active())) {
@@ -4032,6 +4291,17 @@ static void input_task(void *arg)
                                              (unsigned)(faculty175_log_ms() - gesture_ms));
                     }
                 }
+            } else if (!s_nav_mode && active_face != NULL && active_face->id == FACULTY175_FACE_CYCLE &&
+                       gesture.kind == FACULTY175_GESTURE_TAP) {
+                const esp_err_t cycle_err = gesture.x < FACULTY175_LCD_W / 2
+                                                ? faculty175_cycle_health_mark_bleeding_started_today()
+                                                : faculty175_cycle_health_mark_bleeding_stopped_today();
+                FACULTY175_LOG_STAGE(TAG,
+                                     "cycle",
+                                     "bleeding %s %s",
+                                     gesture.x < FACULTY175_LCD_W / 2 ? "start" : "stop",
+                                     esp_err_to_name(cycle_err));
+                draw_current_face_now(now_ms);
             } else if (!s_nav_mode && active_face != NULL && active_face->id == FACULTY175_FACE_FACULTY &&
                        (gesture.kind == FACULTY175_GESTURE_SWIPE_UP ||
                         gesture.kind == FACULTY175_GESTURE_SWIPE_DOWN)) {

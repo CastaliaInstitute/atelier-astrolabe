@@ -1,5 +1,36 @@
 #include "faculty175_ble.h"
 
+#if ASTROLABE185B_CYBER_FEATURES
+
+esp_err_t faculty175_ble_init(void)
+{
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+bool faculty175_ble_enabled(void)
+{
+    return false;
+}
+
+bool faculty175_ble_advertising(void)
+{
+    return false;
+}
+
+esp_err_t faculty175_ble_set_enabled(bool enabled)
+{
+    (void)enabled;
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+bool faculty175_ble_handle(const char *line)
+{
+    (void)line;
+    return false;
+}
+
+#else
+
 #include <stdio.h>
 #include <string.h>
 
@@ -481,3 +512,5 @@ bool faculty175_ble_handle(const char *line)
     fflush(stdout);
     return true;
 }
+
+#endif

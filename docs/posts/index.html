@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#08060e" />
+    <title>LunaSay social posts — Astrolabe</title>
+    <meta name="description" content="A visual social-post queue for LunaSay: short-form video concepts and platform-ready captions." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600;700&family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="../styles.css" />
+    <style>
+      .posts-page { background: #08060e; color: #f5eee5; }
+      .posts-wrap { width: min(1180px, calc(100% - 2rem)); margin: 0 auto; }
+      .posts-nav { padding: 1.35rem 0; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(243, 201, 143, .2); }
+      .posts-nav a { color: #efd0a7; font-family: Cinzel, Georgia, serif; font-size: .75rem; letter-spacing: .12em; text-transform: uppercase; }
+      .posts-hero { padding: clamp(3rem, 8vw, 6rem) 0 2.75rem; max-width: 760px; }
+      .posts-hero h1 { margin: .35rem 0 .9rem; color: #f4cf9e; font: clamp(2.6rem, 7vw, 5.2rem)/.96 "Instrument Serif", Georgia, serif; }
+      .posts-hero p { color: #cfc0b0; font-size: 1.05rem; line-height: 1.6; }
+      .post-table { display: grid; gap: 1.25rem; padding-bottom: 5rem; }
+      .post-row { display: grid; grid-template-columns: 255px minmax(0, 1fr) 235px; gap: clamp(1rem, 3vw, 2.4rem); padding: clamp(1rem, 3vw, 2rem); border: 1px solid rgba(243, 201, 143, .2); background: linear-gradient(135deg, rgba(104, 69, 148, .13), rgba(5, 4, 8, .7) 54%); }
+      .social-preview { margin: 0; position: relative; align-self: start; overflow: hidden; border-radius: 14px; background: #010103; aspect-ratio: 9 / 16; box-shadow: 0 18px 40px rgba(0,0,0,.4); }
+      .social-preview img { width: 100%; height: 100%; object-fit: cover; opacity: .95; }
+      .social-preview::after { content: ""; position: absolute; inset: 0; background: linear-gradient(transparent 45%, rgba(0,0,0,.84)); }
+      .social-preview figcaption { position: absolute; z-index: 1; inset: auto 1rem 1rem; color: #fff8ed; font: .72rem/1.35 Cinzel, Georgia, serif; letter-spacing: .08em; text-transform: uppercase; }
+      .play { position: absolute; z-index: 1; top: 50%; left: 50%; display: grid; place-items: center; width: 48px; height: 48px; border: 1px solid rgba(255,255,255,.75); border-radius: 50%; background: rgba(0,0,0,.28); transform: translate(-50%,-50%); color: white; font-size: 1.15rem; }
+      .post-copy { min-width: 0; }
+      .post-kicker, .post-platforms { margin: 0; color: #cda777; font: .68rem/1.4 Cinzel, Georgia, serif; letter-spacing: .14em; text-transform: uppercase; }
+      .post-copy h2 { margin: .45rem 0 .8rem; color: #f4cf9e; font: clamp(1.65rem, 3vw, 2.25rem)/1 "Instrument Serif", Georgia, serif; }
+      .post-caption { white-space: pre-line; margin: 0; color: #eee2d5; font-size: .96rem; line-height: 1.55; }
+      .post-cta { display: block; margin-top: .85rem; color: #f0c58f; font-size: .8rem; }
+      .video-plan { align-self: start; padding: 1rem; background: rgba(255,255,255,.035); border-left: 1px solid rgba(243,201,143,.25); }
+      .video-plan h3 { margin: 0 0 .65rem; color: #f0cfaa; font: .72rem Cinzel, Georgia, serif; letter-spacing: .12em; text-transform: uppercase; }
+      .video-plan ol { margin: 0; padding-left: 1.05rem; color: #cfc0b0; font-size: .8rem; line-height: 1.5; }
+      .video-plan li + li { margin-top: .45rem; }
+      .channel-notes { margin: .75rem 0 0; color: #9f8e80; font-size: .73rem; line-height: 1.45; }
+      .post-footer { border-top: 1px solid rgba(243,201,143,.2); padding: 1.5rem 0 3rem; color: #a99888; font-size: .82rem; }
+      @media (max-width: 840px) { .post-row { grid-template-columns: 185px minmax(0, 1fr); } .video-plan { grid-column: 1 / -1; } }
+      @media (max-width: 560px) { .post-row { grid-template-columns: 1fr; } .social-preview { width: min(100%, 270px); } .posts-hero { padding-top: 3rem; } }
+    </style>
+  </head>
+  <body class="posts-page">
+    <main class="posts-wrap">
+      <nav class="posts-nav" aria-label="Post page navigation"><a href="../">Astrolabe</a><a href="../#lunasay">LunaSay</a><a href="../lunasay-production-shot-list.md">Shot list</a></nav>
+      <header class="posts-hero">
+        <p class="eyebrow">LunaSay launch queue</p>
+        <h1>Six faces. Six invitations to look up.</h1>
+        <p>These are ready-to-film 9:16 social posts. Each preview is how the post should feel in-feed; the copy is sized for Instagram, TikTok, and Shorts, with a shorter first line for X.</p>
+        <p class="channel-notes">Preview art is a generated editorial treatment for organic social—not Kickstarter campaign photography or a product specification.</p>
+      </header>
+
+      <section class="post-table" aria-label="LunaSay social post table">
+        <article class="post-row">
+          <figure class="social-preview"><img src="../assets/social/lunasay/moon.png" alt="Moon face social video cover" /><span class="play">▶</span><figcaption>Tonight’s Moon</figcaption></figure>
+          <div class="post-copy"><p class="post-kicker">01 · Moon · 12 seconds</p><h2>Your phone has a calendar. Your evening needs a sky.</h2><p class="post-caption">Before you ask your night to do more, look up.
+
+LunaSay turns the Moon into one calm, tactile glance—no feed, no forecast of your productivity, just a little more orientation.
+
+What would change if you checked the sky before you checked your phone?</p><span class="post-cta">CTA: Follow LunaSay for the first light.</span></div>
+          <aside class="video-plan"><h3>Vertical video</h3><ol><li>0–2s: Dock wakes; hand enters frame.</li><li>2–7s: Slow push into the Moon face.</li><li>7–10s: Voiceover delivers the hook.</li><li>10–12s: “LunaSay · August 1” end card.</li></ol><p class="channel-notes">IG / TikTok: use full caption. X: “Your evening needs a sky.”</p></aside>
+        </article>
+
+        <article class="post-row">
+          <figure class="social-preview"><img src="../assets/social/lunasay/astrology.png" alt="Astrology face social video cover" /><span class="play">▶</span><figcaption>A chart, quietly</figcaption></figure>
+          <div class="post-copy"><p class="post-kicker">02 · Astrology · 10 seconds</p><h2>A birth chart should feel like a window, not a dashboard.</h2><p class="post-caption">LunaSay holds your chart in a small circle of light.
+
+It is made for the moment you want to reflect on a pattern—not optimize yourself, not explain everything, just notice what is moving.</p><span class="post-cta">CTA: Save this for your next quiet morning.</span></div>
+          <aside class="video-plan"><h3>Vertical video</h3><ol><li>0–2s: Dark desk; one fingertip wakes the face.</li><li>2–6s: Chart lines resolve from black.</li><li>6–9s: “A chart, quietly.” on-screen.</li><li>9–10s: Product mark.</li></ol><p class="channel-notes">IG: use close-up macro. TikTok: pair with a soft ambient trend, under voiceover.</p></aside>
+        </article>
+
+        <article class="post-row">
+          <figure class="social-preview"><img src="../assets/social/lunasay/transits.png" alt="Transits face social video cover" /><span class="play">▶</span><figcaption>The sky is moving</figcaption></figure>
+          <div class="post-copy"><p class="post-kicker">03 · Transits · 11 seconds</p><h2>Not every feeling needs an explanation. Some things are simply passing through.</h2><p class="post-caption">The Transits face makes change visible without making it loud.
+
+One glance for the moving sky. Then back to your day, with a little more room around the question.</p><span class="post-cta">CTA: Send this to someone in a season of change.</span></div>
+          <aside class="video-plan"><h3>Vertical video</h3><ol><li>0–3s: Time-lapse light crosses the dock.</li><li>3–7s: Transits face, held steady.</li><li>7–10s: Spoken hook over the frame.</li><li>10–11s: “Passing through.”</li></ol><p class="channel-notes">Shorts: subtitles on. X: lead with the first sentence as the entire post.</p></aside>
+        </article>
+
+        <article class="post-row">
+          <figure class="social-preview"><img src="../assets/social/lunasay/synastry.png" alt="Synastry face social video cover" /><span class="play">▶</span><figcaption>Relationship weather</figcaption></figure>
+          <div class="post-copy"><p class="post-kicker">04 · Synastry · 14 seconds</p><h2>What if relationship advice began with: how are we, really?</h2><p class="post-caption">Synastry is LunaSay’s relationship-weather face.
+
+It is not a verdict about two people. It is a quiet prompt to check in, soften your tone, give space, or make room for a little more care.</p><span class="post-cta">CTA: Tag the person you want to understand more gently.</span></div>
+          <aside class="video-plan"><h3>Vertical video</h3><ol><li>0–3s: Two hands set the dock between two cups.</li><li>3–8s: Synastry face in close-up.</li><li>8–12s: “Relationship weather, not a verdict.”</li><li>12–14s: Shared look away from camera.</li></ol><p class="channel-notes">IG: no tag required in caption. TikTok: invite comments with “What helps you check in?”</p></aside>
+        </article>
+
+        <article class="post-row">
+          <figure class="social-preview"><img src="../assets/social/lunasay/tarot.png" alt="Tarot face social video cover" /><span class="play">▶</span><figcaption>One card, one question</figcaption></figure>
+          <div class="post-copy"><p class="post-kicker">05 · Tarot · 9 seconds</p><h2>Sometimes a good question is more useful than a quick answer.</h2><p class="post-caption">Draw a card. Let the symbol arrive. Keep only the question it gives back to you.
+
+LunaSay makes a small ritual for when you need to pause before deciding.</p><span class="post-cta">CTA: Comment with the question you are carrying.</span></div>
+          <aside class="video-plan"><h3>Vertical video</h3><ol><li>0–2s: Thumb hovers, then taps.</li><li>2–5s: Tarot face reveals its card.</li><li>5–8s: “One card. One question.”</li><li>8–9s: Hold a beat of silence.</li></ol><p class="channel-notes">TikTok: strongest discovery post. IG: pair with a still carousel of the card details.</p></aside>
+        </article>
+
+        <article class="post-row">
+          <figure class="social-preview"><img src="../assets/social/lunasay/journal.png" alt="Journal face social video cover" /><span class="play">▶</span><figcaption>Say it before it leaves</figcaption></figure>
+          <div class="post-copy"><p class="post-kicker">06 · Journal · 13 seconds</p><h2>The thought you mean to write down deserves a gentler door.</h2><p class="post-caption">Press and speak. LunaSay listens only when you choose, transcribes the moment, and lets you keep the record in your own GitHub repository.
+
+Your reflection should belong to you.</p><span class="post-cta">CTA: Follow for the Kickstarter launch on August 1.</span></div>
+          <aside class="video-plan"><h3>Vertical video</h3><ol><li>0–2s: A hand holds the button.</li><li>2–7s: One natural spoken sentence, no performance.</li><li>7–10s: Journal face and a simple transcript glimpse.</li><li>10–13s: “Only when you choose.”</li></ol><p class="channel-notes">All platforms: include on-screen privacy line: “Hold to speak. Your repo, your record.”</p></aside>
+        </article>
+      </section>
+      <footer class="post-footer">Campaign workbench · Draft captions; confirm final claims, dates, and destination link before scheduling. Social art is separate from physical-product and Kickstarter media.</footer>
+    </main>
+  </body>
+</html>

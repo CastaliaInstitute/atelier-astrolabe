@@ -202,6 +202,8 @@ static lv_point_precise_t s_solar_cme_points[3][2];
 static lv_obj_t *s_solar_title;
 static lv_obj_t *s_solar_status;
 static lv_obj_t *s_solar_source;
+static lv_obj_t *s_solar_horizon;
+static bool s_solar_sunrise_horizon;
 static lv_obj_t *s_magnet_screen;
 static lv_obj_t *s_magnet_map_image;
 static uint16_t *s_magnet_map_pixels;
@@ -2146,6 +2148,16 @@ static void create_solar_screen(void)
     lv_obj_add_flag(s_solar_status, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(s_solar_source, LV_OBJ_FLAG_HIDDEN);
 
+    /* A very large circle gives the Solar face a real curved Earth horizon,
+     * not a flat mask. It is normally hidden and appears only after a ring
+     * wake from display-off sleep. */
+    s_solar_horizon = make_circle(s_solar_screen, 1040, 0x07101c, LV_OPA_COVER);
+    lv_obj_align(s_solar_horizon, LV_ALIGN_TOP_LEFT, -(1040 - FACULTY175_LCD_W) / 2, 278);
+    lv_obj_set_style_border_width(s_solar_horizon, 3, 0);
+    lv_obj_set_style_border_color(s_solar_horizon, lv_color_hex(0xe39454), 0);
+    lv_obj_set_style_border_opa(s_solar_horizon, 220, 0);
+    lv_obj_add_flag(s_solar_horizon, LV_OBJ_FLAG_HIDDEN);
+
     lv_obj_move_foreground(s_solar_cycle_arc);
     lv_obj_move_foreground(s_solar_year_arc);
     for (int i = 0; i < 11; ++i) {
@@ -2189,6 +2201,28 @@ static bool draw_solar(uint32_t anim_ms)
     }
     set_hidden(s_solar_image, !have_live_image);
     solar_set_procedural_visible(!have_live_image);
+    set_hidden(s_solar_horizon, !s_solar_sunrise_horizon);
+    if (s_solar_sunrise_horizon) {
+        /* A slow rise keeps the sun visually emerging from the same Earth
+         * horizon over the first minute after waking. */
+        const int rise = (int)((anim_ms / 3000u) % 18u);
+        lv_obj_align(s_solar_horizon,
+                     LV_ALIGN_TOP_LEFT,
+                     -(1040 - FACULTY175_LCD_W) / 2,
+                     278 + rise);
+        lv_obj_move_foreground(s_solar_horizon);
+        /* Keep the astronomical scales legible above the Earth mask. */
+        lv_obj_move_foreground(s_solar_cycle_arc);
+        lv_obj_move_foreground(s_solar_year_arc);
+        for (int i = 0; i < 11; ++i) {
+            lv_obj_move_foreground(s_solar_cycle_ticks[i]);
+        }
+        for (int i = 0; i < 12; ++i) {
+            lv_obj_move_foreground(s_solar_year_ticks[i]);
+        }
+        lv_obj_move_foreground(s_solar_cycle_marker);
+        lv_obj_move_foreground(s_solar_year_marker);
+    }
     update_solar_cycle_dials(anim_ms);
 
     if (have_live_image) {
@@ -8128,10 +8162,14 @@ static void lunasay_release_inactive_screens(faculty175_face_id_t keep_id)
 
 bool faculty175_lvgl_draw_face(faculty175_face_id_t id, uint32_t anim_ms)
 {
+    if (id != FACULTY175_FACE_SOLAR) {
+        s_solar_sunrise_horizon = false;
+    }
     if (id == FACULTY175_FACE_DEATHSTAR || id == FACULTY175_FACE_TRON || id == FACULTY175_FACE_MAZE ||
         id == FACULTY175_FACE_HUMAN_DESIGN || id == FACULTY175_FACE_CRYSTAL_BALL ||
         id == FACULTY175_FACE_PARTNER_WELLNESS ||
-        id == FACULTY175_FACE_IRONMAN || id == FACULTY175_FACE_BATTERY) {
+        id == FACULTY175_FACE_IRONMAN || id == FACULTY175_FACE_BATTERY ||
+        id == FACULTY175_FACE_CYCLE) {
         return false;
     }
 
@@ -8196,6 +8234,14 @@ bool faculty175_lvgl_draw_face(faculty175_face_id_t id, uint32_t anim_ms)
             return draw_magnetosphere(anim_ms);
         default:
             return draw_face_descriptor(id, anim_ms);
+    }
+}
+
+void faculty175_lvgl_set_sunrise_horizon(bool enabled)
+{
+    s_solar_sunrise_horizon = enabled;
+    if (s_solar_horizon != NULL) {
+        set_hidden(s_solar_horizon, !enabled);
     }
 }
 

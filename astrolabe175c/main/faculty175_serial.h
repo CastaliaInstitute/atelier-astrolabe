@@ -30,6 +30,11 @@ void faculty175_qa_voice_status(faculty175_qa_voice_status_t *out);
 
 /** Request a TTS reading of the current face. */
 bool faculty175_request_current_face_tts(void);
+/** Run the concise LunaSay showcase faces in sequence, reading each one aloud. */
+bool faculty175_request_face_tour(void);
+/** A tour stops after its current spoken face; it never interrupts audio mid-sentence. */
+void faculty175_request_face_tour_stop(void);
+bool faculty175_face_tour_active(void);
 esp_err_t faculty175_request_qa_stt(uint32_t capture_ms);
 /** Queue STT so app_main can release the HTTP server's internal-RAM stack first. */
 esp_err_t faculty175_request_qa_stt_deferred(uint32_t capture_ms);

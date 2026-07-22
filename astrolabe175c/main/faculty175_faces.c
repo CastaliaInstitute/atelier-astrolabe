@@ -25,7 +25,7 @@ static const char *TAG = "faculty175_faces";
 #define FACES_NVS_NAV_MAP "navmap"
 #define FACE_KEY_CAP 8
 #define FACES_CONFIG_RESET_SCHEMA_VERSION 41
-#define FACES_SCHEMA_VERSION 41
+#define FACES_SCHEMA_VERSION 42
 
 static const faculty175_face_desc_t k_faces[] = {
     { FACULTY175_FACE_FACULTY, "faculty", "Faculty", FACULTY175_FACE_CAT_HOME, true, true, 10 },
@@ -99,6 +99,7 @@ static const faculty175_face_desc_t k_faces[] = {
     { FACULTY175_FACE_USB_SCREEN, "usb-screen", "USB Screen", FACULTY175_FACE_CAT_SYSTEM, ASTROLABE_CYBER_FEATURES, ASTROLABE_CYBER_FEATURES, 199 },
     { FACULTY175_FACE_JOURNAL, "journal", "Journal", FACULTY175_FACE_CAT_COMMONPLACE, true, false, 227 },
     { FACULTY175_FACE_CONVERSATION, "conversation", "Conversation", FACULTY175_FACE_CAT_COMMONPLACE, true, false, 228 },
+    { FACULTY175_FACE_CYCLE, "cycle", "Cycle", FACULTY175_FACE_CAT_HOME, true, false, 225 },
 };
 
 static faculty175_face_id_t s_current = FACULTY175_FACE_IRONMAN;

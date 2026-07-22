@@ -727,6 +727,60 @@ section {
   line-height: 1.45;
 }
 
+.lunasay-faces-section {
+  padding-block: clamp(3rem, 7vw, 5.8rem);
+  background:
+    radial-gradient(circle at 50% 0%, rgba(102, 81, 173, 0.22), transparent 43%),
+    #07050d;
+  border-block: 1px solid rgba(221, 157, 94, 0.2);
+}
+
+.lunasay-face-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: clamp(1rem, 2.8vw, 2.2rem);
+  margin-top: clamp(1.8rem, 4vw, 3rem);
+}
+
+.lunasay-face-card {
+  margin: 0;
+  min-width: 0;
+  text-align: center;
+}
+
+.lunasay-face-card img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: 50%;
+  background: #030205;
+  border: 1px solid rgba(243, 201, 143, 0.3);
+  box-shadow: 0 16px 30px rgba(0, 0, 0, 0.38);
+}
+
+.lunasay-face-card figcaption {
+  margin-top: 0.65rem;
+  color: var(--gold-soft);
+  font-family: "Cinzel", Georgia, serif;
+  font-size: clamp(0.62rem, 1vw, 0.78rem);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.lunasay-faces-link {
+  margin: 1.7rem 0 0;
+  text-align: center;
+}
+
+.lunasay-faces-link a {
+  color: var(--gold-soft);
+  font-family: "Cinzel", Georgia, serif;
+  font-size: 0.72rem;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+
 .instrument-card__status {
   order: -1;
   color: var(--gold-soft) !important;
@@ -1003,6 +1057,10 @@ section {
   .hardware-section,
   .feature-row {
     grid-template-columns: 1fr;
+  }
+
+  .lunasay-face-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .instrument-card {

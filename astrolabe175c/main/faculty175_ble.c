@@ -30,6 +30,7 @@
 
 #include "faculty175_log.h"
 #include "faculty175_device_settings.h"
+#include "faculty175_cycle_health.h"
 #include "faculty175_faces.h"
 #include "faculty175_motion.h"
 #include "faculty175_ring.h"
@@ -59,6 +60,7 @@ enum {
 enum {
     COLMI_PACKET_LEN = 16,
     COLMI_CMD_BATTERY = 0x03,
+    COLMI_CMD_RAW_DATA = 0xa1,
     COLMI_CMD_REALTIME_START = 0x69,
     COLMI_CMD_REALTIME_STOP = 0x6a,
     COLMI_REALTIME_HEART_RATE = 0x01,
@@ -79,6 +81,7 @@ typedef enum {
     COLMI_CLIENT_READING_HR,
     COLMI_CLIENT_READING_SPO2,
     COLMI_CLIENT_READING_HRV,
+    COLMI_CLIENT_STREAMING_IMU,
     COLMI_CLIENT_DONE,
     COLMI_CLIENT_ERROR,
 } colmi_client_state_t;
@@ -89,6 +92,7 @@ typedef enum {
     COLMI_ACTION_START_HR,
     COLMI_ACTION_START_SPO2,
     COLMI_ACTION_START_HRV,
+    COLMI_ACTION_START_RAW_IMU,
 } colmi_client_action_t;
 
 typedef struct __attribute__((packed)) {
@@ -171,10 +175,45 @@ static bool s_colmi_want_scan;
 static bool s_colmi_connect_started;
 static bool s_colmi_have_packet;
 static uint8_t s_colmi_last_packet[COLMI_PACKET_LEN];
+static bool s_lunasay_ring_control_active;
+static bool s_lunasay_ring_near;
+static uint32_t s_lunasay_ring_near_ms;
+static uint32_t s_lunasay_ring_retry_ms;
+static faculty175_ble_ring_event_t s_lunasay_ring_event;
+static portMUX_TYPE s_lunasay_ring_event_lock = portMUX_INITIALIZER_UNLOCKED;
+static bool s_colmi_imu_have_sample;
+static float s_colmi_imu_x_g;
+static float s_colmi_imu_y_g;
+static uint32_t s_colmi_imu_last_swipe_ms;
+static uint32_t s_colmi_imu_stream_started_ms;
 
 static int ble_gap_event(struct ble_gap_event *event, void *arg);
 static esp_err_t ble_advertise(void);
 static void ble_ring_telem_store(const faculty175_ble_peer_t *peer);
+
+static int16_t colmi_i12(uint8_t high, uint8_t low_nibble)
+{
+    int16_t value = (int16_t)(((uint16_t)high << 4) | (low_nibble & 0x0f));
+    if ((value & 0x0800) != 0) {
+        value -= 0x1000;
+    }
+    return value;
+}
+
+static void lunasay_ring_event_post(faculty175_ble_ring_event_t event)
+{
+    if (event == FACULTY175_BLE_RING_EVENT_NONE) {
+        return;
+    }
+    portENTER_CRITICAL(&s_lunasay_ring_event_lock);
+    /* Keep an unconsumed swipe: losing a real gesture is worse than a later
+     * proximity notification, and a single-slot queue bounds internal RAM. */
+    if (s_lunasay_ring_event == FACULTY175_BLE_RING_EVENT_NONE ||
+        event != FACULTY175_BLE_RING_EVENT_NEAR) {
+        s_lunasay_ring_event = event;
+    }
+    portEXIT_CRITICAL(&s_lunasay_ring_event_lock);
+}
 static esp_err_t colmi_client_start(void);
 static void colmi_client_finish(void);
 static void colmi_client_on_ring_found(const ble_addr_t *addr, uint8_t event_type, int8_t rssi);
@@ -578,6 +617,8 @@ static const char *colmi_state_name(colmi_client_state_t state)
             return "spo2";
         case COLMI_CLIENT_READING_HRV:
             return "hrv";
+        case COLMI_CLIENT_STREAMING_IMU:
+            return "raw-imu";
         case COLMI_CLIENT_DONE:
             return "done";
         case COLMI_CLIENT_ERROR:
@@ -656,6 +697,63 @@ static esp_err_t colmi_stop_realtime(uint8_t kind)
     uint8_t packet[COLMI_PACKET_LEN];
     colmi_make_packet(COLMI_CMD_REALTIME_STOP, sub, sizeof(sub), packet);
     return colmi_send_packet(packet);
+}
+
+static esp_err_t colmi_start_raw_imu(void)
+{
+    const uint8_t sub[] = {0x04};
+    uint8_t packet[COLMI_PACKET_LEN];
+    colmi_make_packet(COLMI_CMD_RAW_DATA, sub, sizeof(sub), packet);
+    return colmi_send_packet(packet);
+}
+
+static void colmi_handle_raw_imu(const uint8_t data[COLMI_PACKET_LEN])
+{
+    if (data[1] != 0x03) {
+        if (data[1] == 0xff) {
+            ESP_LOGW(TAG, "colmi raw IMU stream rejected by ring firmware");
+        }
+        return;
+    }
+
+    /* The R02 packets order axes Y, Z, X and use signed 12-bit values at
+     * 512 LSB/g.  Classify the strongest planar impulse as a four-way swipe;
+     * gravity, normal hand orientation, and the return stroke are absorbed by
+     * the delta threshold and cooldown. */
+    const float y_g = (float)colmi_i12(data[2], data[3]) / 512.0f;
+    const float x_g = (float)colmi_i12(data[6], data[7]) / 512.0f;
+    const uint32_t now_ms = ble_now_ms();
+    if (!s_lunasay_ring_near) {
+        s_lunasay_ring_near = true;
+        lunasay_ring_event_post(FACULTY175_BLE_RING_EVENT_NEAR);
+        ESP_LOGI(TAG, "lunasay ring nearby");
+    }
+    s_lunasay_ring_near_ms = now_ms;
+
+    if (s_colmi_imu_have_sample && now_ms - s_colmi_imu_stream_started_ms >= 250u) {
+        const float x_impulse_g = x_g - s_colmi_imu_x_g;
+        const float y_impulse_g = y_g - s_colmi_imu_y_g;
+        const bool cooled_down = now_ms - s_colmi_imu_last_swipe_ms >= 850u;
+        const bool horizontal = fabsf(x_impulse_g) >= fabsf(y_impulse_g);
+        const float impulse_g = horizontal ? x_impulse_g : y_impulse_g;
+        if (cooled_down && fabsf(impulse_g) >= 0.55f) {
+            const faculty175_ble_ring_event_t event = horizontal
+                ? (impulse_g > 0.0f ? FACULTY175_BLE_RING_EVENT_SWIPE_NEXT
+                                    : FACULTY175_BLE_RING_EVENT_SWIPE_PREVIOUS)
+                : (impulse_g > 0.0f ? FACULTY175_BLE_RING_EVENT_SWIPE_UP
+                                    : FACULTY175_BLE_RING_EVENT_SWIPE_DOWN);
+            s_colmi_imu_last_swipe_ms = now_ms;
+            lunasay_ring_event_post(event);
+            const char *direction = event == FACULTY175_BLE_RING_EVENT_SWIPE_NEXT ? "right"
+                                  : event == FACULTY175_BLE_RING_EVENT_SWIPE_PREVIOUS ? "left"
+                                  : event == FACULTY175_BLE_RING_EVENT_SWIPE_UP ? "up" : "down";
+            ESP_LOGI(TAG, "lunasay ring swipe %s impulse=%.2fg x=%.2f y=%.2f",
+                     direction, (double)impulse_g, (double)x_impulse_g, (double)y_impulse_g);
+        }
+    }
+    s_colmi_imu_x_g = x_g;
+    s_colmi_imu_y_g = y_g;
+    s_colmi_imu_have_sample = true;
 }
 
 static void colmi_stop_current_realtime(void)
@@ -772,6 +870,13 @@ static void colmi_run_scheduled_action(uint32_t now_ms)
             err = colmi_start_realtime(COLMI_REALTIME_HRV);
             ESP_LOGI(TAG, "colmi realtime start hrv %s", esp_err_to_name(err));
             break;
+        case COLMI_ACTION_START_RAW_IMU:
+            s_colmi_state = COLMI_CLIENT_STREAMING_IMU;
+            s_colmi_imu_have_sample = false;
+            s_colmi_imu_stream_started_ms = now_ms;
+            err = colmi_start_raw_imu();
+            ESP_LOGI(TAG, "colmi raw IMU stream start %s", esp_err_to_name(err));
+            break;
         case COLMI_ACTION_NONE:
         default:
             return;
@@ -817,6 +922,10 @@ static void colmi_handle_packet(const uint8_t *data, size_t len)
     }
     if (data[0] == COLMI_CMD_BATTERY) {
         colmi_client_advance_after_packet(data[0], 0, data[1]);
+    } else if (data[0] == COLMI_CMD_RAW_DATA) {
+        if (s_colmi_state == COLMI_CLIENT_STREAMING_IMU) {
+            colmi_handle_raw_imu(data);
+        }
     } else if (data[0] == COLMI_CMD_REALTIME_START) {
         if (data[2] != 0) {
             ESP_LOGW(TAG, "colmi realtime kind=%u error=%u", data[1], data[2]);
@@ -841,7 +950,11 @@ static int colmi_subscribe_cb(uint16_t conn_handle,
         return 0;
     }
     s_colmi_state = COLMI_CLIENT_READY;
-    colmi_schedule_action(COLMI_ACTION_BATTERY, 500u);
+    if (s_lunasay_ring_control_active) {
+        colmi_schedule_action(COLMI_ACTION_START_RAW_IMU, 120u);
+    } else {
+        colmi_schedule_action(COLMI_ACTION_BATTERY, 500u);
+    }
     return 0;
 }
 
@@ -1434,6 +1547,42 @@ static esp_err_t ble_apply_settings_json(const char *body)
             }
         }
     }
+    const cJSON *cycle = cJSON_GetObjectItemCaseSensitive(root, "cycle");
+    if (err == ESP_OK && cJSON_IsObject(cycle)) {
+        const cJSON *start = cJSON_GetObjectItemCaseSensitive(cycle, "startDate");
+        const cJSON *cycle_length = cJSON_GetObjectItemCaseSensitive(cycle, "length");
+        const cJSON *period_length = cJSON_GetObjectItemCaseSensitive(cycle, "periodLength");
+        const cJSON *bleeding_start = cJSON_GetObjectItemCaseSensitive(cycle, "bleedingStarted");
+        const cJSON *bleeding_stop = cJSON_GetObjectItemCaseSensitive(cycle, "bleedingStopped");
+        if (cJSON_IsString(start) && start->valuestring != NULL) {
+            err = faculty175_cycle_health_set_start(start->valuestring);
+        }
+        if (err == ESP_OK && cJSON_IsNumber(cycle_length) && cJSON_IsNumber(period_length)) {
+            err = faculty175_cycle_health_set_lengths((uint8_t)cycle_length->valueint,
+                                                      (uint8_t)period_length->valueint);
+        }
+        if (err == ESP_OK && cJSON_IsTrue(bleeding_start)) {
+            err = faculty175_cycle_health_mark_bleeding_started_today();
+        }
+        if (err == ESP_OK && cJSON_IsTrue(bleeding_stop)) {
+            err = faculty175_cycle_health_mark_bleeding_stopped_today();
+        }
+    }
+    const cJSON *personal = cJSON_GetObjectItemCaseSensitive(root, "personal");
+    if (err == ESP_OK && cJSON_IsObject(personal)) {
+        faculty175_personal_settings_t settings = {};
+        const cJSON *name = cJSON_GetObjectItemCaseSensitive(personal, "name");
+        const cJSON *pronouns = cJSON_GetObjectItemCaseSensitive(personal, "pronouns");
+        const cJSON *birth_date = cJSON_GetObjectItemCaseSensitive(personal, "birthDate");
+        const cJSON *birth_time = cJSON_GetObjectItemCaseSensitive(personal, "birthTime");
+        const cJSON *birthplace = cJSON_GetObjectItemCaseSensitive(personal, "birthplace");
+        if (cJSON_IsString(name) && name->valuestring != NULL) faculty175_strlcpy(settings.display_name, name->valuestring, sizeof(settings.display_name));
+        if (cJSON_IsString(pronouns) && pronouns->valuestring != NULL) faculty175_strlcpy(settings.pronouns, pronouns->valuestring, sizeof(settings.pronouns));
+        if (cJSON_IsString(birth_date) && birth_date->valuestring != NULL) faculty175_strlcpy(settings.birth_date, birth_date->valuestring, sizeof(settings.birth_date));
+        if (cJSON_IsString(birth_time) && birth_time->valuestring != NULL) faculty175_strlcpy(settings.birth_time, birth_time->valuestring, sizeof(settings.birth_time));
+        if (cJSON_IsString(birthplace) && birthplace->valuestring != NULL) faculty175_strlcpy(settings.birthplace, birthplace->valuestring, sizeof(settings.birthplace));
+        err = faculty175_personal_settings_save(&settings);
+    }
     const cJSON *spotify = cJSON_GetObjectItemCaseSensitive(root, "spotify");
     if (err == ESP_OK && cJSON_IsObject(spotify)) {
         const cJSON *client_id = cJSON_GetObjectItemCaseSensitive(spotify, "clientId");
@@ -1471,16 +1620,32 @@ static int ble_settings_json_access(uint16_t conn_handle,
         astrolabe_time_status(&t);
         faculty175_location_settings_t loc = {};
         const bool loc_ok = faculty175_location_settings_load(&loc) == ESP_OK;
-        char body[320];
+        faculty175_cycle_health_status_t cycle = {};
+        (void)faculty175_cycle_health_status(&cycle);
+        faculty175_ring_vitals_t ring_vitals = {};
+        const bool have_ring_vitals = faculty175_ring_latest_vitals(&ring_vitals);
+        char body[512];
         snprintf(body,
                  sizeof(body),
                  "{\"ok\":true,\"tz\":\"%s\",\"epoch\":%lld,\"location\":{\"valid\":%s,\"lat\":%.5f,\"lon\":%.5f},"
+                 "\"cycle\":{\"configured\":%s,\"day\":%u,\"length\":%u,\"periodLength\":%u,\"phase\":\"%s\",\"startDate\":\"%s\"},"
+                 "\"ring\":{\"available\":%s,\"heartRate\":%u,\"hrv\":%u,\"spo2\":%u},"
                  "\"wifi\":{\"ap\":%s,\"travelRouter\":%s,\"ssid\":\"%s\",\"url\":\"%s\"}}",
                  t.tz,
                  (long long)t.epoch,
                  loc_ok ? "true" : "false",
                  loc_ok ? loc.lat_deg : 0.0,
                  loc_ok ? loc.lon_deg : 0.0,
+                 cycle.configured ? "true" : "false",
+                 cycle.day,
+                 cycle.cycle_length,
+                 cycle.period_length,
+                 faculty175_cycle_health_phase_label(cycle.phase),
+                 cycle.start_date,
+                 have_ring_vitals ? "true" : "false",
+                 ring_vitals.heart_rate_valid ? ring_vitals.heart_rate_bpm : 0,
+                 ring_vitals.hrv_valid ? ring_vitals.hrv_ms : 0,
+                 ring_vitals.spo2_valid ? ring_vitals.spo2_percent : 0,
                  faculty175_wifi_settings_ap_active() ? "true" : "false",
                  faculty175_wifi_settings_travel_router_enabled() ? "true" : "false",
                  faculty175_wifi_settings_ssid(),
@@ -1676,6 +1841,10 @@ static int ble_gap_event(struct ble_gap_event *event, void *arg)
             if (s_colmi_have_conn && event->disconnect.conn.conn_handle == s_colmi_conn_handle) {
                 s_colmi_have_conn = false;
                 s_colmi_conn_handle = 0;
+                if (s_lunasay_ring_control_active) {
+                    s_colmi_state = COLMI_CLIENT_IDLE;
+                    s_lunasay_ring_retry_ms = ble_now_ms() + 1200u;
+                }
             }
             s_advertising = false;
             if (!s_scanning) {
@@ -1974,6 +2143,12 @@ void faculty175_ble_radar_tick(uint32_t now_ms)
         now_ms = ble_now_ms();
     }
     colmi_client_tick(now_ms);
+    /* LunaSay's paired ring owns the central link while it is used as an
+     * input device.  Do not interrupt its raw-IMU stream with background
+     * radar scans. */
+    if (s_lunasay_ring_control_active) {
+        return;
+    }
     if (!s_enabled || !s_started || !s_synced || s_scanning) {
         return;
     }
@@ -1990,6 +2165,51 @@ void faculty175_ble_radar_tick(uint32_t now_ms)
     if (now_ms >= s_next_scan_ms) {
         (void)faculty175_ble_scan_start(1800u);
     }
+}
+
+void faculty175_ble_lunasay_ring_tick(uint32_t now_ms)
+{
+    if (now_ms == 0) {
+        now_ms = ble_now_ms();
+    }
+    s_lunasay_ring_control_active = s_enabled && s_started && s_synced && s_paired_ring_id_set;
+    if (!s_lunasay_ring_control_active) {
+        s_lunasay_ring_near = false;
+        return;
+    }
+
+    if (s_lunasay_ring_near && now_ms - s_lunasay_ring_near_ms > 4000u) {
+        s_lunasay_ring_near = false;
+        ESP_LOGI(TAG, "lunasay ring no longer nearby");
+    }
+
+    if (!s_colmi_have_conn &&
+        (s_colmi_state == COLMI_CLIENT_IDLE || s_colmi_state == COLMI_CLIENT_DONE || s_colmi_state == COLMI_CLIENT_ERROR) &&
+        (s_lunasay_ring_retry_ms == 0 || (int32_t)(now_ms - s_lunasay_ring_retry_ms) >= 0)) {
+        const esp_err_t err = colmi_client_start();
+        s_lunasay_ring_retry_ms = now_ms + (err == ESP_OK ? 6000u : 3000u);
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "lunasay ring connect start %s", esp_err_to_name(err));
+        }
+    }
+}
+
+bool faculty175_ble_lunasay_ring_event_consume(faculty175_ble_ring_event_t *out)
+{
+    if (out == NULL) {
+        return false;
+    }
+    portENTER_CRITICAL(&s_lunasay_ring_event_lock);
+    const faculty175_ble_ring_event_t event = s_lunasay_ring_event;
+    s_lunasay_ring_event = FACULTY175_BLE_RING_EVENT_NONE;
+    portEXIT_CRITICAL(&s_lunasay_ring_event_lock);
+    *out = event;
+    return event != FACULTY175_BLE_RING_EVENT_NONE;
+}
+
+bool faculty175_ble_lunasay_ring_near(void)
+{
+    return s_lunasay_ring_near;
 }
 
 size_t faculty175_ble_peers_snapshot(faculty175_ble_peer_t *out, size_t cap)

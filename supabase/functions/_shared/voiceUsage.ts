@@ -5,6 +5,7 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2.49.8";
 
+import { verifiedAstrolabeDeviceOwnerId } from "./deviceAuth.ts";
 import { isChirp3VoiceName } from "./facultyTts.ts";
 
 type EdgeRt = { waitUntil: (promise: Promise<unknown>) => void };
@@ -73,6 +74,25 @@ export function estimateTtsUsd(
   return billableChars * ttsUsdPerChar(voiceName);
 }
 
+/**
+ * Gemini 2.5 Flash TTS list price: $0.50 / 1M input text tokens and
+ * $10 / 1M audio tokens. Google defines audio as 25 tokens per second.
+ * The character-to-audio-token estimate is configurable for calibration.
+ */
+export function estimateGeminiFlashTtsUsd(
+  spokenChars: number,
+  promptChars = 0,
+): number {
+  if (spokenChars <= 0 && promptChars <= 0) return 0;
+  const raw = Deno.env.get("VOICE_GEMINI_TTS_AUDIO_TOKENS_PER_CHAR")?.trim();
+  const audioTokensPerChar = raw && Number.isFinite(Number(raw))
+    ? Math.max(0, Number(raw))
+    : 2;
+  const textTokens = estimateTokensFromChars(spokenChars + promptChars);
+  const audioTokens = Math.max(0, spokenChars) * audioTokensPerChar;
+  return textTokens * 0.0000005 + audioTokens * 0.00001;
+}
+
 export function sttUsdPerMinute(): number {
   const raw = Deno.env.get("VOICE_STT_USD_PER_MINUTE")?.trim();
   if (raw) {
@@ -125,16 +145,21 @@ export async function resolveVoiceUsageUserId(
   const anonKey = Deno.env.get("SUPABASE_ANON_KEY")?.trim() ?? "";
   const authHeader = req.headers.get("Authorization") ?? "";
   const token = authHeader.replace(/^Bearer\s+/i, "").trim();
-  if (!token || !url || !anonKey || token === anonKey) return null;
+  if (token && url && anonKey && token !== anonKey) {
+    try {
+      const client = createClient(url, anonKey, {
+        global: { headers: { Authorization: `Bearer ${token}` } },
+        auth: { autoRefreshToken: false, persistSession: false },
+      });
+      const { data: { user }, error } = await client.auth.getUser(token);
+      if (!error && user?.id) return user.id;
+    } catch {
+      // A device credential can still identify its owner below.
+    }
+  }
 
   try {
-    const client = createClient(url, anonKey, {
-      global: { headers: { Authorization: `Bearer ${token}` } },
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
-    const { data: { user }, error } = await client.auth.getUser(token);
-    if (error || !user?.id) return null;
-    return user.id;
+    return await verifiedAstrolabeDeviceOwnerId(req);
   } catch {
     return null;
   }
@@ -157,6 +182,8 @@ async function insertVoiceUsageEvent(event: VoiceUsageEvent): Promise<void> {
   const estimatedUsd = event.estimatedUsd ??
     (service === "google_tts" && event.voiceName
       ? estimateTtsUsd(billableChars, event.voiceName)
+      : service === "google_gemini_tts"
+      ? estimateGeminiFlashTtsUsd(spokenChars, promptChars)
       : 0);
 
   const supabase = createClient(url, key, {

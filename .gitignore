@@ -39,6 +39,7 @@ sdkconfig.*
 !sensecap/sdkconfig.defaults
 !facultyatom/sdkconfig.defaults
 !astrolabe175c/sdkconfig.defaults
+!astrolabe185b/sdkconfig.defaults
 !elecrow128/sdkconfig.defaults
 !espnow_psych_rx/sdkconfig.defaults
 !firmware/wand_bluedroid/sdkconfig.defaults

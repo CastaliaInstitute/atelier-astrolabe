@@ -94,6 +94,7 @@ static const faculty175_face_id_t k_castalia_faces[] = {
     FACULTY175_FACE_TRON,
     FACULTY175_FACE_SCALE,
     FACULTY175_FACE_HID,
+    FACULTY175_FACE_LINUX,
     FACULTY175_FACE_SPOTIFY,
 };
 

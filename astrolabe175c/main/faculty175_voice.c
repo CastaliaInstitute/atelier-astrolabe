@@ -19,6 +19,7 @@
 
 #include "astrolabe_faculty175_face.h"
 #include "faculty175_device_auth.h"
+#include "faculty175_face_profile.h"
 #include "faculty175_listen.h"
 #include "faculty175_board.h"
 #include "faculty175_log.h"
@@ -621,6 +622,7 @@ static char *build_faculty_request_json(const char *face,
     const char *base_system = (system_instruction != NULL && system_instruction[0] != '\0')
                                   ? system_instruction
                                   : ASTROLABE_FACULTY_SYSTEM_INSTRUCTION;
+    const char *device_profile = faculty175_face_profile_slug(faculty175_face_profile_current());
 
     char *esc_sys = json_escape_alloc(base_system);
     char *esc_face = json_escape_alloc(active_face);
@@ -637,7 +639,7 @@ static char *build_faculty_request_json(const char *face,
     }
 
     const size_t cap = strlen(esc_sys) + strlen(esc_face) + strlen(esc_slug) + strlen(esc_name) +
-                       strlen(esc_history) + 320;
+                       strlen(esc_history) + strlen(device_profile) + 352;
     char *json = heap_caps_malloc(cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (json == NULL) {
         json = malloc(cap);
@@ -654,9 +656,10 @@ static char *build_faculty_request_json(const char *face,
     const int json_len = snprintf(json, cap,
                                   "{\"languageCode\":\"en-US\",\"sampleRateHertz\":16000,"
                                   "\"face\":\"%s\",\"facultySlug\":\"%s\",\"facultyName\":\"%s\","
+                                  "\"deviceProfile\":\"%s\","
                                   "\"systemInstruction\":\"%s\",\"conversationHistory\":\"%s\","
                                   "\"responseFormat\":\"mp3\"}",
-                                  esc_face, esc_slug, esc_name, esc_sys, esc_history);
+                                  esc_face, esc_slug, esc_name, device_profile, esc_sys, esc_history);
     free(esc_sys);
     free(esc_face);
     free(esc_slug);

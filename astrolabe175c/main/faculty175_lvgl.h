@@ -19,6 +19,8 @@ void faculty175_lvgl_service(uint32_t now_ms);
 bool faculty175_lvgl_face_supported(faculty175_face_id_t id);
 bool faculty175_lvgl_draw_face(faculty175_face_id_t id, uint32_t anim_ms);
 void faculty175_lvgl_force_full_refresh(void);
+/** Present the Solar face as a sunrise: the lower disk is occluded by Earth. */
+void faculty175_lvgl_set_sunrise_horizon(bool enabled);
 bool faculty175_lvgl_draw_native_face(const faculty175_native_face_t *face, uint32_t anim_ms);
 bool faculty175_lvgl_draw_nav(const faculty175_face_desc_t *center,
                               const faculty175_face_desc_t *left,

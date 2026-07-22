@@ -5,13 +5,15 @@ type DeviceRow = {
   channel: string;
   device_secret: string;
   enabled: boolean;
+  owner_user_id: string | null;
 };
 
 const MAC_RE = /^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/;
 const HEX_RE = /^[0-9a-f]+$/;
 
 function required(): boolean {
-  return (Deno.env.get("ASTROLABE_DEVICE_AUTH_REQUIRED") ?? "").trim().toLowerCase() === "true";
+  return (Deno.env.get("ASTROLABE_DEVICE_AUTH_REQUIRED") ?? "").trim()
+    .toLowerCase() === "true";
 }
 
 function normalizeMac(value: string | null): string {
@@ -24,7 +26,9 @@ function normalizeMac(value: string | null): string {
 
 function hexToBytes(hex: string): Uint8Array | null {
   const value = hex.trim().toLowerCase();
-  if (value.length === 0 || value.length % 2 !== 0 || !HEX_RE.test(value)) return null;
+  if (value.length === 0 || value.length % 2 !== 0 || !HEX_RE.test(value)) {
+    return null;
+  }
   const out = new Uint8Array(value.length / 2);
   for (let i = 0; i < out.length; i++) {
     out[i] = Number.parseInt(value.slice(i * 2, i * 2 + 2), 16);
@@ -45,7 +49,10 @@ function timingSafeEqualHex(a: string, b: string): boolean {
   return diff === 0;
 }
 
-async function hmacSha256Hex(secretHex: string, payload: string): Promise<string | null> {
+async function hmacSha256Hex(
+  secretHex: string,
+  payload: string,
+): Promise<string | null> {
   const secret = hexToBytes(secretHex);
   if (!secret) return null;
   const secretKey = new ArrayBuffer(secret.byteLength);
@@ -57,32 +64,47 @@ async function hmacSha256Hex(secretHex: string, payload: string): Promise<string
     false,
     ["sign"],
   );
-  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload));
+  const sig = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    new TextEncoder().encode(payload),
+  );
   return bytesToHex(new Uint8Array(sig));
 }
 
-export async function verifyAstrolabeDevice(req: Request, enforce = false): Promise<Response | null> {
-  if (!enforce && !required()) return null;
-
+async function authenticatedAstrolabeDevice(
+  req: Request,
+): Promise<DeviceRow | Response> {
   const url = Deno.env.get("SUPABASE_URL")?.trim() ?? "";
   const serviceRole = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")?.trim() ?? "";
   if (!url || !serviceRole) {
-    return new Response(JSON.stringify({ error: "Device auth is not configured" }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" },
-    });
+    return new Response(
+      JSON.stringify({ error: "Device auth is not configured" }),
+      {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      },
+    );
   }
 
   const mac = normalizeMac(req.headers.get("X-Astrolabe-Device-Mac"));
-  const nonce = (req.headers.get("X-Astrolabe-Device-Nonce") ?? "").trim().toLowerCase();
-  const signature = (req.headers.get("X-Astrolabe-Device-Signature") ?? "").trim().toLowerCase();
+  const nonce = (req.headers.get("X-Astrolabe-Device-Nonce") ?? "").trim()
+    .toLowerCase();
+  const signature = (req.headers.get("X-Astrolabe-Device-Signature") ?? "")
+    .trim().toLowerCase();
   const channel = (req.headers.get("X-Astrolabe-Device-Channel") ?? "").trim();
-  if (!mac || nonce.length !== 32 || !HEX_RE.test(nonce) || signature.length !== 64 || !HEX_RE.test(signature) ||
-    !channel) {
-    return new Response(JSON.stringify({ error: "Missing or invalid device auth headers" }), {
-      status: 401,
-      headers: { "Content-Type": "application/json" },
-    });
+  if (
+    !mac || nonce.length !== 32 || !HEX_RE.test(nonce) ||
+    signature.length !== 64 || !HEX_RE.test(signature) ||
+    !channel
+  ) {
+    return new Response(
+      JSON.stringify({ error: "Missing or invalid device auth headers" }),
+      {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      },
+    );
   }
 
   const admin = createClient(url, serviceRole, {
@@ -90,15 +112,18 @@ export async function verifyAstrolabeDevice(req: Request, enforce = false): Prom
   });
   const { data, error } = await admin
     .from("astrolabe_devices")
-    .select("mac,channel,device_secret,enabled")
+    .select("mac,channel,device_secret,enabled,owner_user_id")
     .eq("mac", mac)
     .eq("channel", channel)
     .maybeSingle<DeviceRow>();
   if (error || !data || !data.enabled) {
-    return new Response(JSON.stringify({ error: "Device is not provisioned" }), {
-      status: 403,
-      headers: { "Content-Type": "application/json" },
-    });
+    return new Response(
+      JSON.stringify({ error: "Device is not provisioned" }),
+      {
+        status: 403,
+        headers: { "Content-Type": "application/json" },
+      },
+    );
   }
 
   const payload = `${mac}\n${nonce}\n${channel}\n`;
@@ -109,5 +134,26 @@ export async function verifyAstrolabeDevice(req: Request, enforce = false): Prom
       headers: { "Content-Type": "application/json" },
     });
   }
-  return null;
+  return data;
+}
+
+/**
+ * Resolve the account that owns a correctly signed device request.  This is
+ * intentionally independent of a browser Bearer token: a watch does not hold
+ * the account's session credential.
+ */
+export async function verifiedAstrolabeDeviceOwnerId(
+  req: Request,
+): Promise<string | null> {
+  const device = await authenticatedAstrolabeDevice(req);
+  return device instanceof Response ? null : device.owner_user_id ?? null;
+}
+
+export async function verifyAstrolabeDevice(
+  req: Request,
+  enforce = false,
+): Promise<Response | null> {
+  if (!enforce && !required()) return null;
+  const device = await authenticatedAstrolabeDevice(req);
+  return device instanceof Response ? device : null;
 }

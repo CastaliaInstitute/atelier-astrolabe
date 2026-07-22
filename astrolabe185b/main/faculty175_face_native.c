@@ -868,6 +868,28 @@ static void draw_status(const faculty175_native_face_t *face, uint32_t anim_ms, 
         centered_at("USB POINTER", cx, 370, dim);
         return;
     }
+    if (face->id == FACULTY175_FACE_LINUX) {
+        const int left = cx - 128;
+        const int top = 142;
+        const int width = 120;
+        const int height = 72;
+        const int gap = 16;
+        const uint16_t ready = rgb(78, 220, 160);
+        for (int i = 0; i < 4; ++i) {
+            const int x = left + (i % 2) * (width + gap);
+            const int y = top + (i / 2) * (height + gap);
+            rect_outline(x, y, width, height, i == 1 ? accent : dim);
+            faculty175_display_fill_rect(x + 10, y + 12, 10, 10, i == 1 ? ready : accent);
+        }
+        centered_at("SD / MSC", left + 60, top + 38, rgb(230, 238, 242));
+        centered_at("NCM HOST", left + width + gap + 60, top + 38, rgb(230, 238, 242));
+        centered_at("SSH", left + 60, top + height + gap + 38, rgb(230, 238, 242));
+        centered_at("16 MB FLASH", left + width + gap + 60, top + height + gap + 38, rgb(230, 238, 242));
+        centered_at(face->a, cx, 342, accent);
+        centered_at(face->b, cx, 366, dim);
+        centered_at(face->c, cx, 390, dim);
+        return;
+    }
     if (face->id == FACULTY175_FACE_SETTINGS) {
         static const char *items[] = {"WIFI", "OTA", "FACES", "AUDIO"};
         for (int i = 0; i < 4; ++i) {

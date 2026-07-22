@@ -25,6 +25,7 @@
 #include "faculty175_breath.h"
 #include "faculty175_ble.h"
 #include "faculty175_charts.h"
+#include "faculty175_cycle_health.h"
 #include "faculty175_device_auth.h"
 #include "faculty175_deep_sleep.h"
 #include "faculty175_family.h"
@@ -1392,7 +1393,14 @@ static bool handle_tts_command(const char *line)
             sub = "face";
         }
     }
-    if (strcasecmp(sub, "status") == 0) {
+    if (strcasecmp(sub, "tour") == 0 || strcasecmp(sub, "tour start") == 0) {
+        printf("tour: start %s\n", faculty175_request_face_tour() ? "ESP_OK" : "ESP_FAIL");
+    } else if (strcasecmp(sub, "tour stop") == 0) {
+        faculty175_request_face_tour_stop();
+        printf("tour: stop requested\n");
+    } else if (strcasecmp(sub, "tour status") == 0) {
+        printf("tour: active=%s\n", faculty175_face_tour_active() ? "yes" : "no");
+    } else if (strcasecmp(sub, "status") == 0) {
         char reason[128];
         const bool ready = faculty175_voice_config_ready(reason, sizeof(reason));
         printf("tts: status ready=%s playback=%s reason=%s\n",
@@ -1424,9 +1432,33 @@ static bool handle_tts_command(const char *line)
         printf("voice commands:\n");
         printf("  tts status\n");
         printf("  tts face\n");
+        printf("  tts tour [start|stop|status]\n");
         printf("  voice tts\n");
         printf("  voice stt [ms]\n");
         printf("  voice pcm  (USB-only Base64 export of the last STT capture)\n");
+    }
+    fflush(stdout);
+    return true;
+}
+
+static bool handle_tour_command(const char *line)
+{
+    if (line == NULL || (strcasecmp(line, "tour") != 0 && strncasecmp(line, "tour ", 5) != 0)) {
+        return false;
+    }
+    const char *sub = line + 4;
+    while (*sub == ' ') {
+        ++sub;
+    }
+    if (*sub == '\0' || strcasecmp(sub, "start") == 0) {
+        printf("tour: start %s\n", faculty175_request_face_tour() ? "ESP_OK" : "ESP_FAIL");
+    } else if (strcasecmp(sub, "stop") == 0) {
+        faculty175_request_face_tour_stop();
+        printf("tour: stop requested\n");
+    } else if (strcasecmp(sub, "status") == 0) {
+        printf("tour: active=%s\n", faculty175_face_tour_active() ? "yes" : "no");
+    } else {
+        printf("tour commands: start | stop | status\n");
     }
     fflush(stdout);
     return true;
@@ -1829,6 +1861,10 @@ static void handle_line(char *line)
         return;
     }
 
+    if (handle_tour_command(line)) {
+        return;
+    }
+
     if (handle_family_command(line)) {
         return;
     }
@@ -1862,6 +1898,10 @@ static void handle_line(char *line)
     }
 
     if (faculty175_faces_handle(line)) {
+        return;
+    }
+
+    if (faculty175_cycle_health_handle(line)) {
         return;
     }
 

@@ -90,6 +90,7 @@ static const faculty175_face_id_t k_fortune_faces[] = {
 
 static const faculty175_face_id_t k_lunasay_faces[] = {
     FACULTY175_FACE_MOON,
+    FACULTY175_FACE_CYCLE,
     FACULTY175_FACE_ASTROLOGY,
     FACULTY175_FACE_TRANSITS,
     FACULTY175_FACE_SYNASTRY,

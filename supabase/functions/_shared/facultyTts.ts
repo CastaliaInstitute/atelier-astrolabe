@@ -11,7 +11,7 @@ export const DEFAULT_CHIRP3_TTS: FacultyTtsConfig = {
   languageCode: "en-US",
   name: "en-US-Chirp3-HD-Charon",
   prompt:
-    "Speak clearly and warmly, as a thoughtful conversational guide on a small wearable device. Natural pacing, one or two short paragraphs.",
+    "Speak close, soft, and lucid, like a calm companion sharing a small piece of night-sky wisdom. Keep a natural conversational pace and a gentle warmth. Let the mystery come from the words, not from a dramatic, breathy, ominous, or theatrical delivery. Articulate every word clearly for a small speaker.",
 };
 
 /** Fallback when Supabase faculty row has no google_tts_* columns populated. */
