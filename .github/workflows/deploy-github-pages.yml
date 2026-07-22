@@ -83,7 +83,8 @@ jobs:
           printf '%s\n' "$FACULTY175_OTA_DEVICES" | tr ', ' '\n\n' | sed '/^$/d' > "$devices"
           for spec in \
             "faculty|Faculty|astrolabe-faculty-amoled175" \
-            "cyber|Cyber|astrolabe-cyber-175"; do
+            "cyber|Cyber|astrolabe-cyber-175" \
+            "lunasay|LunaSay|astrolabe-lunasay-175"; do
             IFS='|' read -r variant label channel <<< "$spec"
             # ESP-IDF runs in Docker as root, so its prior variant's build
             # directory must be removed with runner privileges.
