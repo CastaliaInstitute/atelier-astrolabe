@@ -85,7 +85,9 @@ jobs:
             "faculty|Faculty|astrolabe-faculty-amoled175" \
             "cyber|Cyber|astrolabe-cyber-175"; do
             IFS='|' read -r variant label channel <<< "$spec"
-            rm -rf astrolabe175c/build
+            # ESP-IDF runs in Docker as root, so its prior variant's build
+            # directory must be removed with runner privileges.
+            sudo rm -rf astrolabe175c/build
             docker run --rm \
               -e ASTROLABE175C_SKIP_LVGL_AUDIT=1 \
               -e "ASTROLABE175C_VARIANT=${variant}" \
