@@ -60,6 +60,7 @@
 #include "faculty175_usb_screen.h"
 #include "faculty175_log.h"
 #include "faculty175_device_auth.h"
+#include "faculty175_device_settings.h"
 #include "faculty175_deep_sleep.h"
 #include "faculty175_qa.h"
 #include "faculty175_ota.h"
@@ -606,6 +607,73 @@ static bool low_power_wifi_allowed(void)
            (!s_low_power_dimmed && !s_low_power_asleep);
 }
 
+/* LunaSay should follow the actual sun rather than a fixed clock.  The curve
+   begins to soften in the late afternoon (6° elevation), reaches half light
+   at the horizon, and settles at a gentle 5% through astronomical twilight.
+   It is intentionally location- and time-gated: until the companion has
+   supplied both, the existing brightness behavior remains untouched. */
+static bool lunasay_solar_backlight_percent(uint8_t *out_percent)
+{
+#if !defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
+    (void)out_percent;
+    return false;
+#else
+    if (out_percent == NULL || !astrolabe_time_valid()) {
+        return false;
+    }
+    faculty175_location_settings_t location = {};
+    if (faculty175_location_settings_load(&location) != ESP_OK || !location.valid) {
+        return false;
+    }
+
+    const time_t epoch = astrolabe_time_now();
+    struct tm utc = {};
+    if (epoch <= 0 || gmtime_r(&epoch, &utc) == NULL) {
+        return false;
+    }
+    const float day = (float)utc.tm_yday + 1.0f;
+    const float utc_hours = (float)utc.tm_hour + (float)utc.tm_min / 60.0f +
+                            (float)utc.tm_sec / 3600.0f;
+    const float gamma = 2.0f * (float)M_PI / 365.0f * (day - 1.0f + (utc_hours - 12.0f) / 24.0f);
+    const float eq_time = 229.18f * (0.000075f + 0.001868f * cosf(gamma) -
+                                     0.032077f * sinf(gamma) - 0.014615f * cosf(2.0f * gamma) -
+                                     0.040849f * sinf(2.0f * gamma));
+    const float decl = 0.006918f - 0.399912f * cosf(gamma) + 0.070257f * sinf(gamma) -
+                       0.006758f * cosf(2.0f * gamma) + 0.000907f * sinf(2.0f * gamma) -
+                       0.002697f * cosf(3.0f * gamma) + 0.00148f * sinf(3.0f * gamma);
+    float true_solar_minutes = utc_hours * 60.0f + eq_time + 4.0f * (float)location.lon_deg;
+    while (true_solar_minutes < 0.0f) true_solar_minutes += 1440.0f;
+    while (true_solar_minutes >= 1440.0f) true_solar_minutes -= 1440.0f;
+    const float hour_angle = (true_solar_minutes / 4.0f - 180.0f) * (float)M_PI / 180.0f;
+    const float latitude = (float)location.lat_deg * (float)M_PI / 180.0f;
+    const float elevation = asinf(sinf(latitude) * sinf(decl) +
+                                  cosf(latitude) * cosf(decl) * cosf(hour_angle)) * 180.0f / (float)M_PI;
+    float t = (elevation + 6.0f) / 12.0f;
+    if (t < 0.0f) t = 0.0f;
+    if (t > 1.0f) t = 1.0f;
+    t = t * t * (3.0f - 2.0f * t); /* smoothstep: no perceptible steps at twilight */
+    *out_percent = (uint8_t)(5.0f + 95.0f * t + 0.5f);
+    return true;
+#endif
+}
+
+static void lunasay_apply_solar_backlight(uint32_t now_ms)
+{
+    static uint32_t last_sample_ms;
+    static uint8_t last_percent = 0xff;
+    uint8_t percent = 0;
+    if ((last_sample_ms != 0 && now_ms - last_sample_ms < 60000u) ||
+        !lunasay_solar_backlight_percent(&percent)) {
+        return;
+    }
+    last_sample_ms = now_ms;
+    if (last_percent == 0xff || abs((int)percent - (int)last_percent) >= 2) {
+        faculty175_board_set_backlight(percent);
+        last_percent = percent;
+        FACULTY175_LOG_STAGE(TAG, "solar", "LunaSay backlight %u%%", (unsigned)percent);
+    }
+}
+
 static void low_power_wifi_resume_for_voice(uint32_t wait_ms)
 {
     s_battery_network_active = true;
@@ -665,7 +733,8 @@ static void low_power_apply_awake(uint32_t now_ms, const char *reason)
     s_low_power_dimmed = false;
     faculty175_display_flush_suspended_set(false);
     faculty175_board_display_on(true);
-    faculty175_board_set_backlight(100);
+    uint8_t solar_percent = 0;
+    faculty175_board_set_backlight(lunasay_solar_backlight_percent(&solar_percent) ? solar_percent : 100);
     faculty175_audio_set_speaker_mute(false);
     if (low_power_wifi_allowed()) {
         low_power_wifi_resume();
@@ -864,6 +933,7 @@ static void low_power_tick(uint32_t now_ms)
         } else {
             low_power_wifi_resume();
         }
+        lunasay_apply_solar_backlight(now_ms);
         return;
     }
     if (!low_power_wifi_allowed()) {
@@ -876,6 +946,10 @@ static void low_power_tick(uint32_t now_ms)
     if (breathing_guide_active) {
         low_power_note_activity(now_ms, "breathing");
         return;
+    }
+
+    if (!s_low_power_asleep) {
+        lunasay_apply_solar_backlight(now_ms);
     }
 
     const uint32_t idle_ms = now_ms - s_low_power_last_activity_ms;
