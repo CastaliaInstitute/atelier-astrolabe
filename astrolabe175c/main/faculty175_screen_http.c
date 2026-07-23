@@ -34,6 +34,7 @@
 #include "faculty175_power_metrics.h"
 #include "faculty175_power_history.h"
 #include "faculty175_km_http.h"
+#include "faculty175_ota.h"
 #include "faculty175_serial.h"
 #include "faculty175_wifi_lab.h"
 #include "faculty175_wifi_monitor.h"
@@ -1421,6 +1422,21 @@ static esp_err_t api_settings_send(httpd_req_t *req, esp_err_t apply_err)
     if (ble != NULL) {
         cJSON_AddBoolToObject(ble, "enabled", faculty175_ble_enabled());
         cJSON_AddBoolToObject(ble, "advertising", faculty175_ble_advertising());
+    }
+
+    faculty175_ota_status_t ota_status = {};
+    faculty175_ota_get_status(&ota_status);
+    cJSON *ota = cJSON_AddObjectToObject(root, "ota");
+    if (ota != NULL) {
+        cJSON_AddBoolToObject(ota, "active", ota_status.active);
+        cJSON_AddBoolToObject(ota, "autoStarted", ota_status.auto_started);
+        cJSON_AddBoolToObject(ota, "autoPaused", ota_status.auto_paused);
+        cJSON_AddBoolToObject(ota, "testLocked", ota_status.test_locked);
+        cJSON_AddBoolToObject(ota, "networkReady", ota_status.network_ready);
+        cJSON_AddBoolToObject(ota, "heapReady", ota_status.heap_ready);
+        cJSON_AddNumberToObject(ota, "intervalSeconds", ota_status.auto_interval_s);
+        cJSON_AddNumberToObject(ota, "lastPollUptimeMs", ota_status.last_poll_uptime_ms);
+        add_json_string(ota, "last", ota_status.last);
     }
 
     cJSON *time = cJSON_AddObjectToObject(root, "time");

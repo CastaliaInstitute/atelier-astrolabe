@@ -21,6 +21,7 @@
 #include "esp_ota_ops.h"
 #include "esp_partition.h"
 #include "esp_system.h"
+#include "esp_timer.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -88,6 +89,7 @@ static volatile ota_state_t s_ota_state;
 static char s_ota_last[160];
 static bool s_ota_auto_started;
 static volatile bool s_ota_auto_paused;
+static volatile uint32_t s_ota_last_poll_uptime_ms;
 /* Non-NVS QA lock. Unlike the audio-pipeline pause above, this is owned by
    host power tests and cannot be cleared by pipeline lifecycle. RTC retention
    keeps it asserted across a deliberate deep-sleep reset until postflight. */
@@ -1354,6 +1356,7 @@ static void ota_auto_task(void *arg)
         const uint32_t interval_s = nvs_get_auto_interval_s();
         if (interval_s > 0 && !s_ota_auto_paused && !s_ota_test_locked &&
             s_ota_state != OTA_STATE_RUNNING && ota_heap_ready()) {
+            s_ota_last_poll_uptime_ms = (uint32_t)(esp_timer_get_time() / 1000);
             ota_job_t job = {
                 .manifest_url = true,
             };
@@ -1457,6 +1460,23 @@ void faculty175_ota_maybe_boot_product(void)
 bool faculty175_ota_active(void)
 {
     return s_ota_state == OTA_STATE_RUNNING;
+}
+
+void faculty175_ota_get_status(faculty175_ota_status_t *out)
+{
+    if (out == NULL) {
+        return;
+    }
+    memset(out, 0, sizeof(*out));
+    out->active = s_ota_state == OTA_STATE_RUNNING;
+    out->auto_started = s_ota_auto_started;
+    out->auto_paused = s_ota_auto_paused;
+    out->test_locked = s_ota_test_locked;
+    out->network_ready = s_ota_network_ready;
+    out->heap_ready = ota_heap_ready();
+    out->auto_interval_s = nvs_get_auto_interval_s();
+    out->last_poll_uptime_ms = s_ota_last_poll_uptime_ms;
+    strlcpy(out->last, s_ota_last, sizeof(out->last));
 }
 
 void faculty175_ota_set_auto_paused(bool paused)
