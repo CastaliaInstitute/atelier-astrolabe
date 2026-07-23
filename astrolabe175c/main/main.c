@@ -45,6 +45,7 @@
 #endif
 #include "faculty175_face_native.h"
 #include "faculty175_face_runes.h"
+#include "faculty175_face_sessions.h"
 #include "faculty175_face_wifilab.h"
 #include "faculty175_face_tarot.h"
 #include "faculty175_face_tarot_assets.h"
@@ -273,6 +274,18 @@ static bool draw_face_or_status(const faculty175_face_desc_t *face,
                                 size_t waveform_len,
                                 bool force_face)
 {
+    if (face != NULL && (face->id == FACULTY175_FACE_JOURNAL ||
+                         face->id == FACULTY175_FACE_CONVERSATION)) {
+        faculty175_face_session_draw(face->id == FACULTY175_FACE_JOURNAL,
+                                     state,
+                                     detail,
+                                     anim_ms,
+                                     waveform,
+                                     waveform_stream,
+                                     waveform_len);
+        return true;
+    }
+
     const bool babel_overlay = face != NULL && face->id == FACULTY175_FACE_BABEL && faculty175_face_babel_active();
     const bool selected_face = face != NULL && face->id != FACULTY175_FACE_FACULTY;
     const bool draw_face = face != NULL &&
