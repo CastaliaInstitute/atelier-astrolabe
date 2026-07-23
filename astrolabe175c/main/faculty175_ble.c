@@ -2272,6 +2272,52 @@ size_t faculty175_ble_ring_telemetry_snapshot(faculty175_ble_ring_telem_t *out, 
     return count;
 }
 
+esp_err_t faculty175_ble_ring_pair(uint16_t ring_id)
+{
+    if (ring_id == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    const esp_err_t err = ble_nvs_set_ring_id(ring_id, true);
+    if (err == ESP_OK) {
+        s_paired_ring_id = ring_id;
+        s_paired_ring_id_set = true;
+        s_have_last_ring_rssi = false;
+        s_lunasay_ring_retry_ms = 0;
+    }
+    return err;
+}
+
+esp_err_t faculty175_ble_ring_unpair(void)
+{
+    const esp_err_t err = ble_nvs_set_ring_id(0, false);
+    if (err != ESP_OK) {
+        return err;
+    }
+    s_paired_ring_id = 0;
+    s_paired_ring_id_set = false;
+    s_have_last_ring_rssi = false;
+    s_lunasay_ring_control_active = false;
+    s_lunasay_ring_near = false;
+    s_colmi_want_scan = false;
+    if (s_scanning) {
+        (void)ble_gap_disc_cancel();
+        s_scanning = false;
+    }
+    if (s_colmi_have_conn) {
+        (void)ble_gap_terminate(s_colmi_conn_handle, BLE_ERR_REM_USER_CONN_TERM);
+    }
+    s_colmi_state = COLMI_CLIENT_IDLE;
+    return ESP_OK;
+}
+
+bool faculty175_ble_ring_paired(uint16_t *ring_id)
+{
+    if (ring_id != NULL) {
+        *ring_id = s_paired_ring_id;
+    }
+    return s_paired_ring_id_set;
+}
+
 esp_err_t faculty175_ble_set_enabled(bool enabled)
 {
     esp_err_t err = ble_nvs_set_enabled(enabled);
@@ -2583,21 +2629,11 @@ bool faculty175_ble_handle(const char *line)
         if (!parsed) {
             printf("ble: ring pair ESP_ERR_INVALID_ARG\n");
         } else {
-            const esp_err_t err = ble_nvs_set_ring_id(id, true);
-            if (err == ESP_OK) {
-                s_paired_ring_id = id;
-                s_paired_ring_id_set = true;
-                s_have_last_ring_rssi = false;
-            }
+            const esp_err_t err = faculty175_ble_ring_pair(id);
             printf("ble: ring pair %s id=%04x\n", esp_err_to_name(err), (unsigned)id);
         }
     } else if (strcasecmp(sub, "ring clear") == 0 || strcasecmp(sub, "ring unpair") == 0) {
-        const esp_err_t err = ble_nvs_set_ring_id(0, false);
-        if (err == ESP_OK) {
-            s_paired_ring_id = 0;
-            s_paired_ring_id_set = false;
-            s_have_last_ring_rssi = false;
-        }
+        const esp_err_t err = faculty175_ble_ring_unpair();
         printf("ble: ring clear %s\n", esp_err_to_name(err));
     } else if (strcasecmp(sub, "ring scan") == 0) {
         const esp_err_t err = faculty175_ble_scan_start(3000u);

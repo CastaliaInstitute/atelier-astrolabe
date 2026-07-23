@@ -4176,7 +4176,13 @@ static void input_task(void *arg)
                 continue;
             }
 #endif
-            if (gesture.kind == FACULTY175_GESTURE_LONG_TAP) {
+            if (gesture.kind == FACULTY175_GESTURE_LONG_TAP && active_face != NULL &&
+                active_face->id == FACULTY175_FACE_SETTINGS && gesture.y >= 252 && gesture.y <= 296) {
+                const esp_err_t err = faculty175_ble_ring_unpair();
+                FACULTY175_LOG_STAGE(TAG, "ring", "settings unpair %s", esp_err_to_name(err));
+                draw_current_face_now(now_ms);
+                faculty175_gesture_flush();
+            } else if (gesture.kind == FACULTY175_GESTURE_LONG_TAP) {
                 if (faculty175_faces_enabled_count() > 1) {
                     const char *enter_slug = active_face != NULL ? active_face->slug : "-";
                     const uint32_t enter_start_ms = faculty175_log_ms();
@@ -4291,6 +4297,17 @@ static void input_task(void *arg)
                                              (unsigned)(faculty175_log_ms() - gesture_ms));
                     }
                 }
+            } else if (!s_nav_mode && active_face != NULL && active_face->id == FACULTY175_FACE_SETTINGS &&
+                       gesture.kind == FACULTY175_GESTURE_TAP && gesture.y >= 252 && gesture.y <= 296) {
+                faculty175_ble_ring_telem_t rings[1] = {};
+                const size_t ring_count = faculty175_ble_ring_telemetry_snapshot(rings, 1);
+                const esp_err_t err = ring_count > 0 ? faculty175_ble_ring_pair(rings[0].ring_id)
+                                                     : faculty175_ble_scan_start(3000u);
+                FACULTY175_LOG_STAGE(TAG, "ring", "%s %s",
+                                     ring_count > 0 ? "settings pair" : "settings scan",
+                                     esp_err_to_name(err));
+                draw_current_face_now(now_ms);
+                faculty175_gesture_flush();
             } else if (!s_nav_mode && active_face != NULL && active_face->id == FACULTY175_FACE_CYCLE &&
                        gesture.kind == FACULTY175_GESTURE_TAP) {
                 const esp_err_t cycle_err = gesture.x < FACULTY175_LCD_W / 2
