@@ -1392,6 +1392,10 @@ static esp_err_t api_settings_send(httpd_req_t *req, esp_err_t apply_err)
         add_json_string(wifi, "url", faculty175_wifi_settings_url());
         add_json_string(wifi, "qr", faculty175_wifi_settings_qr_payload());
         add_json_string(wifi, "status", faculty175_wifi_settings_status());
+        char hostname[FACULTY175_WIFI_HOSTNAME_MAX + 1] = {};
+        if (faculty175_wifi_settings_load_hostname(hostname, sizeof(hostname)) == ESP_OK) {
+            add_json_string(wifi, "hostname", hostname);
+        }
         cJSON *known_array = cJSON_AddArrayToObject(wifi, "known");
 #if defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
         (void)known_array;
@@ -1502,6 +1506,16 @@ static esp_err_t api_settings_post(httpd_req_t *req)
 
     const cJSON *wifi = cJSON_GetObjectItemCaseSensitive(root, "wifi");
     if (err == ESP_OK && cJSON_IsObject(wifi)) {
+        const cJSON *hostname = cJSON_GetObjectItemCaseSensitive(wifi, "hostname");
+        if (cJSON_IsString(hostname) && hostname->valuestring != NULL) {
+            err = faculty175_wifi_settings_save_hostname(hostname->valuestring);
+            if (err == ESP_OK) {
+                snprintf(s_mdns_hostname, sizeof(s_mdns_hostname), "%s", hostname->valuestring);
+                if (s_mdns_started) {
+                    err = mdns_hostname_set(s_mdns_hostname);
+                }
+            }
+        }
         const cJSON *travel_router = cJSON_GetObjectItemCaseSensitive(wifi, "travelRouter");
         if (cJSON_IsBool(travel_router)) {
             err = faculty175_wifi_settings_set_travel_router_enabled(cJSON_IsTrue(travel_router));
@@ -1916,7 +1930,6 @@ esp_err_t faculty175_screen_http_start(const esp_ip4_addr_t *ip)
         return ESP_OK;
     }
 
-#if !defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
     if (!s_mdns_started) {
         if (faculty175_wifi_settings_load_hostname(s_mdns_hostname, sizeof(s_mdns_hostname)) != ESP_OK) {
             uint8_t sta_mac[6] = {};
@@ -1933,7 +1946,11 @@ esp_err_t faculty175_screen_http_start(const esp_ip4_addr_t *ip)
             mdns_err = mdns_hostname_set(s_mdns_hostname);
         }
         if (mdns_err == ESP_OK) {
+#if defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
+            mdns_err = mdns_instance_name_set("LunaSay");
+#else
             mdns_err = mdns_instance_name_set("Astrolabe Faculty 1.75C");
+#endif
         }
         if (mdns_err == ESP_OK) {
             mdns_err = mdns_service_add(NULL, "_http", "_tcp", 80, NULL, 0);
@@ -1946,8 +1963,6 @@ esp_err_t faculty175_screen_http_start(const esp_ip4_addr_t *ip)
             ESP_LOGI(TAG, "mDNS ready http://%s.local/", s_mdns_hostname);
         }
     }
-#endif
-
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = 80;
     config.stack_size = FACULTY175_SCREEN_HTTP_STACK_SIZE;
