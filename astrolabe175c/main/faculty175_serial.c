@@ -49,6 +49,7 @@
 static const char *TAG = "faculty175_serial";
 #define FACULTY175_SERIAL_TASK_STACK 8192
 static TaskHandle_t s_serial_task;
+static QueueHandle_t s_remote_command_queue;
 
 static void trim_inplace(char *line)
 {
@@ -2004,6 +2005,10 @@ static void serial_task(void *arg)
     ESP_LOGI(TAG, "command reader ready (type: help)");
 
     for (;;) {
+        if (s_remote_command_queue != NULL && xQueueReceive(s_remote_command_queue, line, 0) == pdTRUE) {
+            handle_line(line);
+            continue;
+        }
         uint8_t byte = 0;
         const ssize_t n = serial_read_byte(&byte, pdMS_TO_TICKS(20));
         if (n <= 0) {
@@ -2042,6 +2047,7 @@ void faculty175_serial_init(void)
     }
     setvbuf(stdout, NULL, _IONBF, 0);
     setvbuf(stdin, NULL, _IONBF, 0);
+    s_remote_command_queue = xQueueCreate(8, 320);
 #if CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG_ENABLED
     usb_serial_jtag_driver_config_t usb_serial_config = {
         .tx_buffer_size = 1024,
@@ -2067,4 +2073,17 @@ void faculty175_serial_init(void)
 TaskHandle_t faculty175_serial_task_handle(void)
 {
     return s_serial_task;
+}
+
+esp_err_t faculty175_serial_submit_remote(const char *line)
+{
+    if (line == NULL || line[0] == '\0' || strlen(line) >= 320 || strchr(line, '\n') != NULL || strchr(line, '\r') != NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (s_remote_command_queue == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    char copy[320] = {};
+    strlcpy(copy, line, sizeof(copy));
+    return xQueueSend(s_remote_command_queue, copy, 0) == pdTRUE ? ESP_OK : ESP_ERR_TIMEOUT;
 }

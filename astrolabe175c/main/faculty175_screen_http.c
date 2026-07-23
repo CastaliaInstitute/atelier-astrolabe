@@ -23,11 +23,13 @@
 #include "lwip/tcpip.h"
 
 #include "astrolabe_time.h"
+#include "astrolabe_faculty175_face.h"
 #include "faculty175_ble.h"
 #include "faculty175_board.h"
 #include "faculty175_breath.h"
 #include "faculty175_charts.h"
 #include "faculty175_device_settings.h"
+#include "faculty175_device_auth.h"
 #include "faculty175_deep_sleep.h"
 #include "faculty175_face_profile.h"
 #include "faculty175_faces.h"
@@ -1474,6 +1476,46 @@ static esp_err_t api_settings_get(httpd_req_t *req)
     return api_settings_send(req, ESP_OK);
 }
 
+static esp_err_t api_console_challenge_get(httpd_req_t *req)
+{
+    char nonce[33] = {};
+    char mac[18] = {};
+    if (faculty175_device_auth_console_challenge(nonce, sizeof(nonce)) != ESP_OK ||
+        faculty175_device_auth_mac(mac, sizeof(mac)) != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "console auth unavailable");
+        return ESP_FAIL;
+    }
+    char body[128];
+    snprintf(body, sizeof(body), "{\"nonce\":\"%s\",\"mac\":\"%s\",\"channel\":\"%s\"}",
+             nonce, mac, ASTROLABE_FACULTY_OTA_CHANNEL);
+    set_api_headers(req);
+    return httpd_resp_sendstr(req, body);
+}
+
+static esp_err_t api_console_post(httpd_req_t *req)
+{
+    char nonce[40] = {};
+    char signature[72] = {};
+    if (httpd_req_get_hdr_value_str(req, "X-Astrolabe-Console-Nonce", nonce, sizeof(nonce)) != ESP_OK ||
+        httpd_req_get_hdr_value_str(req, "X-Astrolabe-Console-Signature", signature, sizeof(signature)) != ESP_OK ||
+        !faculty175_device_auth_console_verify(nonce, signature)) {
+        httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "console challenge required");
+        return ESP_ERR_INVALID_STATE;
+    }
+    char body[384] = {};
+    if (read_request_body(req, body, sizeof(body)) != ESP_OK) {
+        return ESP_FAIL;
+    }
+    char command[320] = {};
+    json_value(body, "command", command, sizeof(command));
+    const esp_err_t err = faculty175_serial_submit_remote(command);
+    char reply[96];
+    snprintf(reply, sizeof(reply), "{\"ok\":%s,\"accepted\":%s,\"err\":\"%s\"}",
+             err == ESP_OK ? "true" : "false", err == ESP_OK ? "true" : "false", esp_err_to_name(err));
+    set_api_headers(req);
+    return httpd_resp_sendstr(req, reply);
+}
+
 static esp_err_t api_settings_post(httpd_req_t *req)
 {
     char body[768];
@@ -2137,6 +2179,18 @@ esp_err_t faculty175_screen_http_start(const esp_ip4_addr_t *ip)
         .handler = api_options,
         .user_ctx = NULL,
     };
+    const httpd_uri_t api_console_challenge_uri = {
+        .uri = "/api/console/challenge",
+        .method = HTTP_GET,
+        .handler = api_console_challenge_get,
+        .user_ctx = NULL,
+    };
+    const httpd_uri_t api_console_post_uri = {
+        .uri = "/api/console",
+        .method = HTTP_POST,
+        .handler = api_console_post,
+        .user_ctx = NULL,
+    };
     const httpd_uri_t family_page_uri = {
         .uri = "/family",
         .method = HTTP_GET,
@@ -2212,6 +2266,8 @@ esp_err_t faculty175_screen_http_start(const esp_ip4_addr_t *ip)
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &api_settings_get_uri), TAG, "register GET /api/settings");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &api_settings_post_uri), TAG, "register POST /api/settings");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &api_settings_options_uri), TAG, "register OPTIONS /api/settings");
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &api_console_challenge_uri), TAG, "register GET /api/console/challenge");
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &api_console_post_uri), TAG, "register POST /api/console");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &family_page_uri), TAG, "register GET /family");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &settings_page_uri), TAG, "register GET /settings");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &api_family_get_uri), TAG, "register GET /api/family");

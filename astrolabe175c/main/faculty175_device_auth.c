@@ -24,6 +24,7 @@ static const char *TAG = "faculty175_device_auth";
 
 static char s_mac[18];
 static char s_secret_hex[DEV_AUTH_SECRET_HEX_LEN + 1];
+static char s_console_nonce[DEV_AUTH_NONCE_BYTES * 2 + 1];
 
 static void bytes_to_hex(const uint8_t *bytes, size_t len, char *out, size_t cap)
 {
@@ -226,4 +227,30 @@ bool faculty175_device_auth_handle(const char *line)
     printf("device: unknown subcommand \"%s\" (try: device help)\n", sub);
     fflush(stdout);
     return true;
+}
+
+esp_err_t faculty175_device_auth_console_challenge(char *out_nonce, size_t cap)
+{
+    esp_err_t err = nonce_hex(s_console_nonce, sizeof(s_console_nonce));
+    if (err != ESP_OK || out_nonce == NULL || cap < sizeof(s_console_nonce)) {
+        return err != ESP_OK ? err : ESP_ERR_INVALID_SIZE;
+    }
+    strlcpy(out_nonce, s_console_nonce, cap);
+    return ESP_OK;
+}
+
+bool faculty175_device_auth_console_verify(const char *nonce, const char *signature)
+{
+    char expected[DEV_AUTH_SIG_HEX_LEN + 1] = {};
+    if (nonce == NULL || signature == NULL || s_console_nonce[0] == '\0' ||
+        strcmp(nonce, s_console_nonce) != 0 || signature_hex(nonce, expected, sizeof(expected)) != ESP_OK) {
+        return false;
+    }
+    const size_t len = strlen(expected);
+    unsigned char mismatch = (unsigned char)(strlen(signature) != len);
+    for (size_t i = 0; i < len; ++i) {
+        mismatch |= (unsigned char)(expected[i] ^ signature[i]);
+    }
+    s_console_nonce[0] = '\0'; /* one command per challenge prevents replay */
+    return mismatch == 0;
 }

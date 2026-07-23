@@ -14,6 +14,8 @@ extern "C" {
 /** Start USB serial command reader (`screen`, `qa status`, …). */
 void faculty175_serial_init(void);
 TaskHandle_t faculty175_serial_task_handle(void);
+/** Queue one authenticated Wi-Fi-console command for normal serial dispatch. */
+esp_err_t faculty175_serial_submit_remote(const char *line);
 
 typedef struct {
     uint32_t sequence;
