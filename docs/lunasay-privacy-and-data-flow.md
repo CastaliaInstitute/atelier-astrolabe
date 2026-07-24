@@ -68,6 +68,23 @@ different bounded practice rather than repeating the prior action verbatim. The
 application does not persist this continuity envelope server-side;
 provider-retention caveats below still apply.
 
+### Relationship Weather Time Travel
+
+The companion PWA reads only the names and roles of family profiles already
+stored on the connected LunaSay, the selected profile slot, and a compact
+ten-condition symbolic weather arc. Birth dates, birth times, coordinates,
+chart positions, aspects, biometrics, and family-repository credentials are
+not exposed to the PWA. Choosing another family member or date is a local BLE
+settings operation and is not persisted across a reboot.
+
+The device calculates the selected date and following ten days locally. The
+physical Synastry face shows the same selection. If the user deliberately
+requests a spoken reading from that face, the existing voice request contains
+the selected civil date and bounded chart-derived facts. Present-day
+biometrics are explicitly excluded from past or future readings because they
+are not evidence about another date. The feature is framed as symbolic
+reflection, never compatibility scoring or event prediction.
+
 ### Alethiometer
 
 The transcribed question reaches Gemini twice: first to select three distinct
