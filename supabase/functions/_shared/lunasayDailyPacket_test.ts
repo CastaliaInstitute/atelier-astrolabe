@@ -30,6 +30,8 @@ function modelFaces(includeTarotCard = true): Record<string, unknown> {
         weatherEvidence:
           "Family biometrics: no live wellness packets received yet.",
         practice: "Ask what kind of support would feel useful right now.",
+        spoken:
+          "Pattern: You both value steadiness. Today: Let lived experience lead. Practice: Ask what support would help.",
       }
       : { spoken: "A small daily note, ready to be spoken." }),
     detail: "A little more context for an expanded view.",
@@ -122,6 +124,8 @@ Deno.test("individual Family Synastry keeps three bounded beats", () => {
         weather: "No current transit facts are supplied; let experience lead.",
         practice:
           "Ask what support would be useful, then listen without fixing.",
+        spoken:
+          "Pattern: You both seek steadiness. Today: Let experience lead. Practice: Ask what support would help.",
         detail:
           "The supplied natal contacts emphasize safety and responsiveness.",
         now: "This timing touches Daniel's chart, not the whole relationship.",
@@ -139,11 +143,11 @@ Deno.test("individual Family Synastry keeps three bounded beats", () => {
   );
   if (
     !face.spoken.includes("Pattern:") ||
-    !face.spoken.includes("Both of you seek steadiness") ||
+    !face.spoken.includes("You both seek steadiness") ||
     !face.spoken.includes("Today:") ||
-    !face.spoken.includes("No current transit facts") ||
+    !face.spoken.includes("Let experience lead") ||
     !face.spoken.includes("Next:") ||
-    !face.spoken.includes("Practice:")
+    !face.spoken.includes("Practice: Ask what support")
   ) {
     throw new Error("individual synastry beats were not composed");
   }
@@ -365,6 +369,8 @@ Deno.test("server owns next timing and rejects invented dates or certainty", () 
       dynamic: "Both people may seek safety before opening up.",
       weather: "This transit touches Rowan's chart, not the whole bond.",
       practice: "Ask Rowan what support would help before assuming.",
+      spoken:
+        "Pattern: Both people seek safety. Today: Rowan's chart holds the timing. Practice: Ask what support would help.",
       detail: "The timing is individual context, not a family verdict.",
       evidence: "Tight major aspects: Moon sextile Moon orb 1.2",
       weatherEvidence: relationshipEvidence,
@@ -519,7 +525,7 @@ Deno.test("LunaSay structured schema requires every exact face id", () => {
       (!("dynamic" in faceProperties) || !("weather" in faceProperties) ||
         !("practice" in faceProperties) ||
         !("weatherEvidence" in faceProperties) ||
-        "spoken" in faceProperties)
+        !("spoken" in faceProperties))
     ) {
       throw new Error("synastry schema did not separate its three beats");
     }
@@ -549,6 +555,8 @@ Deno.test("LunaSay composes synastry from durable, temporary, and practice beats
       weather:
         "Alex may be navigating a period that feels serious or calls for patience and a clearer boundary between care and over-responsibility.",
       practice: "Ask before offering advice, then listen for one minute.",
+      spoken:
+        "Pattern: You both protect closeness slowly. Today: Move gently. Practice: Ask before offering advice.",
       detail: "A Moon sextile supports ease without guaranteeing an outcome.",
       now: "No verified relationship timing is loaded.",
       next: "Let lived experience lead until a current signal is available.",
@@ -561,8 +569,8 @@ Deno.test("LunaSay composes synastry from durable, temporary, and practice beats
   });
   for (
     const beat of [
-      "You can both protect closeness",
-      "Today: Alex may be navigating a period that feels serious.",
+      "Pattern: You both protect closeness slowly.",
+      "Today: Move gently.",
       "Next:",
       "Practice:",
     ]
@@ -591,6 +599,8 @@ Deno.test("LunaSay keeps verbose synastry details while bounding device speech",
           dynamic: verbose,
           weather: verbose.slice(0, 190),
           practice: verbose.slice(0, 190),
+          spoken:
+            "Pattern: Both people move carefully. Today: Capacity may be lower. Practice: Ask before offering advice.",
           detail: "A bounded speech composer protects the device cache.",
           now: "No verified relationship timing is loaded.",
           temporalEvidence: "No live relationship signal is available.",
