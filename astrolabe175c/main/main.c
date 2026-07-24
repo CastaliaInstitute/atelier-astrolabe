@@ -70,6 +70,7 @@
 #include "faculty175_pocketwatch.h"
 #include "faculty175_quotes.h"
 #include "faculty175_research.h"
+#include "faculty175_relationship_weather.h"
 #include "faculty175_rocket.h"
 #include "faculty175_ring.h"
 #include "faculty175_power_metrics.h"
@@ -1623,7 +1624,7 @@ static void append_relationship_temporal_prompt(
     prompt_append(out,
                   cap,
                   off,
-                  "Current relationship transit arc: %s day +%d, transiting %s %s %s natal %s "
+                  "Relationship transit arc from the anchor date: %s day +%d, transiting %s %s %s natal %s "
                   "at orb %.1f degrees; ",
                   first_day == 0 ? "now at" : "next enters by",
                   first_day,
@@ -1676,7 +1677,10 @@ static void append_family_wellness_prompt(char *out, size_t cap, size_t *off)
     }
 }
 
-static void append_synastry_prompt(char *out, size_t cap, size_t *off)
+static void append_synastry_prompt(char *out,
+                                   size_t cap,
+                                   size_t *off,
+                                   bool use_time_travel_selection)
 {
     faculty175_charts_ensure_family_seed();
     faculty175_birth_chart_t user = {};
@@ -1698,9 +1702,26 @@ static void append_synastry_prompt(char *out, size_t cap, size_t *off)
                   faculty175_charts_zodiac_abbr(user_pos.lon[0]),
                   faculty175_charts_zodiac_abbr(user_pos.lon[1]));
 
+    bool time_travel_away_from_today = false;
     faculty175_birth_chart_t active = {};
     faculty175_chart_positions_t active_pos = {};
     if (faculty175_charts_active(&active) && faculty175_charts_birth_positions(&active, &active_pos)) {
+        time_t relationship_epoch =
+            astrolabe_time_valid() ? astrolabe_time_now() : time(NULL);
+        faculty175_relationship_weather_snapshot_t relationship = {};
+        if (use_time_travel_selection &&
+            faculty175_relationship_weather_snapshot(&relationship)) {
+            relationship_epoch = relationship.selected_epoch;
+            time_travel_away_from_today = relationship.offset_days != 0;
+            prompt_append(
+                out,
+                cap,
+                off,
+                "The user selected %s for Relationship Weather Time Travel (%+d local civil days from today). "
+                "Interpret that date and its following ten-day arc, not the current sky. ",
+                relationship.selected_date,
+                relationship.offset_days);
+        }
         prompt_append(out,
                       cap,
                       off,
@@ -1714,18 +1735,26 @@ static void append_synastry_prompt(char *out, size_t cap, size_t *off)
                                             &user_pos,
                                             &active,
                                             &active_pos,
-                                            time(NULL));
+                                            relationship_epoch);
     } else {
         prompt_append(out, cap, off, "No active partner or child chart is selected. ");
         prompt_append(out, cap, off, "No live relationship signal is available. ");
     }
-    append_family_wellness_prompt(out, cap, off);
+    if (time_travel_away_from_today) {
+        prompt_append(
+            out,
+            cap,
+            off,
+            "Live biometrics are deliberately excluded from past or future Time Travel because present measurements are not evidence about another date. ");
+    } else {
+        append_family_wellness_prompt(out, cap, off);
+    }
     prompt_append(out,
                   cap,
                   off,
                   "For TTS, give a 45 to 75 word Family Synastry reading in three beats: "
                   "(1) name one reciprocal dynamic in plain language, without leading with planet names; "
-                  "(2) describe today's relationship weather, clearly separating durable chart patterns from temporary wellness context; "
+                  "(2) describe the anchor date's relationship weather, clearly separating durable chart patterns from temporary wellness context; "
                   "(3) offer one concrete micro-practice for care or repair, such as a gentler opening, a specific check-in, protected rest, shared breathing, a clear boundary, or space. "
                   "Use names only when helpful. Never compare children, assign a child responsibility for an adult's emotions, expose raw biometric measurements, declare compatibility, predict conflict, or make any family member sound fixed. ");
 }
@@ -1817,7 +1846,7 @@ static void build_lunasay_daily_facts(char *out, size_t cap)
                   faculty175_cycle_lunar_label(lunar_phase),
                   (double)lunar_phase);
 
-    append_synastry_prompt(out, cap, &off);
+    append_synastry_prompt(out, cap, &off, false);
     const int tarot_idx = faculty175_face_tarot_current_card();
     const faculty175_tarot_card_t *tarot = faculty175_tarot_card_get(tarot_idx);
     if (tarot != NULL) {
@@ -1925,7 +1954,7 @@ static void build_face_read_prompt(const faculty175_face_desc_t *face, char *out
                           "Name today's condition in plain language, explain one supporting chart factor, and offer one grounded choice. Never predict an event. ");
             break;
         case FACULTY175_FACE_SYNASTRY:
-            append_synastry_prompt(out, cap, &off);
+            append_synastry_prompt(out, cap, &off, true);
             if (faculty175_face_psych_state_mood_checked_in()) {
                 prompt_append(out,
                               cap,

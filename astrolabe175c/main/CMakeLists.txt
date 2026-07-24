@@ -95,6 +95,7 @@ idf_component_register(
         "faculty175_ephemeris.c"
         "faculty175_cycle_arcs.c"
         "faculty175_cycle_health.c"
+        "faculty175_relationship_weather.c"
         "faculty175_family.c"
         "faculty175_ble.c"
         "faculty175_ring.c"

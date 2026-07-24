@@ -2,7 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
     <meta name="theme-color" content="#171022" />
     <meta name="description" content="Private LunaSay companion settings." />
     <link rel="manifest" href="manifest.webmanifest" />
@@ -13,12 +16,20 @@
     <main class="shell">
       <header class="hero">
         <p class="eyebrow">LunaSay companion</p>
-        <div class="hero-row"><h1>Settings for a life in rhythm.</h1><button class="orb" id="connect" type="button">Connect</button></div>
-        <p id="connection" class="connection" aria-live="polite">Not connected · personal drafts stay in this browser.</p>
+        <div class="hero-row">
+          <h1>Settings for a life in rhythm.</h1>
+          <button class="orb" id="connect" type="button">Connect</button>
+        </div>
+        <p id="connection" class="connection" aria-live="polite">
+          Not connected · personal drafts stay in this browser.
+        </p>
       </header>
 
       <nav class="tabs" aria-label="Settings pages">
-        <button class="tab active" data-page="today" type="button">Today</button>
+        <button class="tab active" data-page="today" type="button">
+          Today
+        </button>
+        <button class="tab" data-page="bonds" type="button">Bonds</button>
         <button class="tab" data-page="personal" type="button">You</button>
         <button class="tab" data-page="cycle" type="button">Cycle</button>
         <button class="tab" data-page="device" type="button">Device</button>
@@ -26,24 +37,54 @@
       </nav>
 
       <section class="page active" id="today">
-        <article class="moon-card"><p class="eyebrow">Cycle</p><div class="day"><span id="cycle-day">—</span><small id="cycle-total">set a start date</small></div><h2 id="cycle-phase">Your rhythm, on your terms.</h2><p id="cycle-summary">Connect LunaSay to read its private cycle estimate and ring signals.</p><div class="metrics"><span>HR <b id="hr">—</b></span><span>HRV <b id="hrv">—</b></span><span>SpO₂ <b id="spo2">—</b></span></div></article>
+        <article class="moon-card">
+          <p class="eyebrow">Cycle</p>
+          <div class="day">
+            <span id="cycle-day">—</span
+            ><small id="cycle-total">set a start date</small>
+          </div>
+          <h2 id="cycle-phase">Your rhythm, on your terms.</h2>
+          <p id="cycle-summary">
+            Connect LunaSay to read its private cycle estimate and ring signals.
+          </p>
+          <div class="metrics">
+            <span>HR <b id="hr">—</b></span
+            ><span>HRV <b id="hrv">—</b></span
+            ><span>SpO₂ <b id="spo2">—</b></span>
+          </div>
+        </article>
         <article class="quiet-card mood-card">
           <p class="eyebrow">Mood check-in</p>
           <h2>How are you, right now?</h2>
           <div class="mood-grid" role="group" aria-label="Choose a mood">
-            <button class="mood" data-mood="calm" type="button"><span>😌</span>Calm</button>
-            <button class="mood" data-mood="bright" type="button"><span>😊</span>Bright</button>
-            <button class="mood" data-mood="tender" type="button"><span>🥹</span>Tender</button>
-            <button class="mood" data-mood="low" type="button"><span>😔</span>Low</button>
-            <button class="mood" data-mood="tense" type="button"><span>😣</span>Tense</button>
-            <button class="mood" data-mood="energized" type="button"><span>🤩</span>Energized</button>
+            <button class="mood" data-mood="calm" type="button">
+              <span>😌</span>Calm
+            </button>
+            <button class="mood" data-mood="bright" type="button">
+              <span>😊</span>Bright
+            </button>
+            <button class="mood" data-mood="tender" type="button">
+              <span>🥹</span>Tender
+            </button>
+            <button class="mood" data-mood="low" type="button">
+              <span>😔</span>Low
+            </button>
+            <button class="mood" data-mood="tense" type="button">
+              <span>😣</span>Tense
+            </button>
+            <button class="mood" data-mood="energized" type="button">
+              <span>🤩</span>Energized
+            </button>
           </div>
-          <p id="mood-note">Connect to choose the same mood shown on LunaSay.</p>
+          <p id="mood-note">
+            Connect to choose the same mood shown on LunaSay.
+          </p>
         </article>
         <article class="quiet-card reflection-card">
           <p class="eyebrow">Reading reflection</p>
           <h2>Did today’s reading help?</h2>
-          <label class="reading-face">Reading
+          <label class="reading-face"
+            >Reading
             <select id="reflection-face">
               <option value="moon">Moon</option>
               <option value="astrology">Astrology</option>
@@ -53,64 +94,286 @@
               <option value="sky">Sky</option>
             </select>
           </label>
-          <div class="reflection-grid" role="group" aria-label="Rate today’s reading">
-            <button class="reflection-rating" data-rating="helpful" type="button">Helpful</button>
-            <button class="reflection-rating" data-rating="mixed" type="button">Mixed</button>
-            <button class="reflection-rating" data-rating="missed" type="button">Missed</button>
+          <div
+            class="reflection-grid"
+            role="group"
+            aria-label="Rate today’s reading"
+          >
+            <button
+              class="reflection-rating"
+              data-rating="helpful"
+              type="button"
+            >
+              Helpful
+            </button>
+            <button class="reflection-rating" data-rating="mixed" type="button">
+              Mixed
+            </button>
+            <button
+              class="reflection-rating"
+              data-rating="missed"
+              type="button"
+            >
+              Missed
+            </button>
           </div>
-          <p id="reflection-note">Connect LunaSay to save feedback privately on the device.</p>
+          <p id="reflection-note">
+            Connect LunaSay to save feedback privately on the device.
+          </p>
         </article>
-        <article class="quiet-card"><h2>What stays private</h2><p>Cycle data and reading preferences are stored on LunaSay. Only bounded preference counts accompany daily generation; they are not reading evidence. Your personal draft is kept only in this browser until device profile sync is enabled.</p></article>
+        <article class="quiet-card">
+          <h2>What stays private</h2>
+          <p>
+            Cycle data and reading preferences are stored on LunaSay. Only
+            bounded preference counts accompany daily generation; they are not
+            reading evidence. Your personal draft is kept only in this browser
+            until device profile sync is enabled.
+          </p>
+        </article>
+      </section>
+
+      <section class="page" id="bonds">
+        <div class="section-head">
+          <p class="eyebrow">Relationship Weather</p>
+          <h2>Move through time without turning a bond into a score.</h2>
+          <p>
+            Choose a family profile and date. LunaSay calculates a symbolic
+            ten-day arc locally, updates the physical Synastry face, and uses
+            the same date for its next spoken reading.
+          </p>
+        </div>
+        <form id="relationship-form" class="form-grid relationship-controls">
+          <label class="wide"
+            >Relationship
+            <select id="relationship-target" name="targetSlot">
+              <option value="">Connect LunaSay to read family profiles</option>
+            </select>
+          </label>
+          <label class="wide"
+            >Anchor date
+            <input id="relationship-date" name="date" type="date" />
+          </label>
+          <div class="date-actions wide">
+            <button
+              class="secondary"
+              id="relationship-previous"
+              type="button"
+              aria-label="Previous day"
+            >
+              −1 day
+            </button>
+            <button class="secondary" id="relationship-today" type="button">
+              Today
+            </button>
+            <button
+              class="secondary"
+              id="relationship-next"
+              type="button"
+              aria-label="Next day"
+            >
+              +1 day
+            </button>
+          </div>
+          <button class="primary wide" type="submit">
+            Show this date on LunaSay
+          </button>
+        </form>
+        <article class="relationship-card" aria-live="polite">
+          <p class="eyebrow" id="relationship-relative">Choose a date</p>
+          <div class="relationship-main">
+            <span id="relationship-icon" aria-hidden="true">≈</span>
+            <div>
+              <h2 id="relationship-condition">Relationship weather</h2>
+              <p id="relationship-guidance">
+                Connect to see the selected bond’s symbolic outlook.
+              </p>
+            </div>
+          </div>
+          <p id="relationship-names" class="relationship-names">
+            Family data remains on LunaSay.
+          </p>
+          <ol
+            id="relationship-arc"
+            class="relationship-arc"
+            aria-label="Ten day relationship weather"
+          ></ol>
+        </article>
+        <article class="quiet-card">
+          <h2>Reflection, not prediction</h2>
+          <p>
+            The arc describes changing symbolic conditions around two natal
+            charts. It does not measure compatibility, infer anyone’s feelings,
+            or predict an event. Present-day biometrics are excluded whenever
+            you explore another date.
+          </p>
+        </article>
       </section>
 
       <section class="page" id="personal">
-        <div class="section-head"><p class="eyebrow">Personal context</p><h2>For your own sky.</h2><p>These details are saved only on this device/browser for now.</p></div>
+        <div class="section-head">
+          <p class="eyebrow">Personal context</p>
+          <h2>For your own sky.</h2>
+          <p>These details are saved only on this device/browser for now.</p>
+        </div>
         <form id="personal-form" class="form-grid">
-          <label>Display name<input name="name" autocomplete="name" placeholder="How LunaSay should address you" /></label>
-          <label>Pronouns<input name="pronouns" autocomplete="off" placeholder="Optional" /></label>
+          <label
+            >Display name<input
+              name="name"
+              autocomplete="name"
+              placeholder="How LunaSay should address you"
+          /></label>
+          <label
+            >Pronouns<input
+              name="pronouns"
+              autocomplete="off"
+              placeholder="Optional"
+          /></label>
           <label>Birth date<input name="birthDate" type="date" /></label>
           <label>Birth time<input name="birthTime" type="time" /></label>
-          <label class="wide">Birthplace<input name="birthplace" autocomplete="address-level2" placeholder="City, region, country" /></label>
-          <button class="primary wide" type="submit">Save personal draft</button>
+          <label class="wide"
+            >Birthplace<input
+              name="birthplace"
+              autocomplete="address-level2"
+              placeholder="City, region, country"
+          /></label>
+          <button class="primary wide" type="submit">
+            Save personal draft
+          </button>
         </form>
       </section>
 
       <section class="page" id="cycle">
-        <div class="section-head"><p class="eyebrow">Menstrual cycle</p><h2>An estimate you can correct.</h2><p>Cycle estimates are not medical advice and do not determine fertility, pregnancy, or health.</p></div>
-        <div class="two-actions"><button class="action start" id="bleeding-start" type="button"><b>Bleeding started</b><span>Log today as day 1</span></button><button class="action stop" id="bleeding-stop" type="button"><b>Bleeding stopped</b><span>Update this cycle’s bleed length</span></button></div>
+        <div class="section-head">
+          <p class="eyebrow">Menstrual cycle</p>
+          <h2>An estimate you can correct.</h2>
+          <p>
+            Cycle estimates are not medical advice and do not determine
+            fertility, pregnancy, or health.
+          </p>
+        </div>
+        <div class="two-actions">
+          <button class="action start" id="bleeding-start" type="button">
+            <b>Bleeding started</b><span>Log today as day 1</span></button
+          ><button class="action stop" id="bleeding-stop" type="button">
+            <b>Bleeding stopped</b><span>Update this cycle’s bleed length</span>
+          </button>
+        </div>
         <form id="cycle-form" class="form-grid">
-          <label class="wide">Most recent bleeding start<input name="startDate" type="date" required /></label>
-          <label>Typical cycle length<input name="length" type="number" min="21" max="45" value="28" required /><small>21–45 days</small></label>
-          <label>Typical bleed length<input name="periodLength" type="number" min="1" max="14" value="5" required /><small>1–14 days</small></label>
-          <button class="primary wide" type="submit">Save cycle to LunaSay</button>
+          <label class="wide"
+            >Most recent bleeding start<input
+              name="startDate"
+              type="date"
+              required
+          /></label>
+          <label
+            >Typical cycle length<input
+              name="length"
+              type="number"
+              min="21"
+              max="45"
+              value="28"
+              required
+            /><small>21–45 days</small></label
+          >
+          <label
+            >Typical bleed length<input
+              name="periodLength"
+              type="number"
+              min="1"
+              max="14"
+              value="5"
+              required
+            /><small>1–14 days</small></label
+          >
+          <button class="primary wide" type="submit">
+            Save cycle to LunaSay
+          </button>
         </form>
       </section>
 
       <section class="page" id="device">
-        <div class="section-head"><p class="eyebrow">LunaSay</p><h2>Connection & place.</h2></div>
-        <article class="quiet-card"><h2>Bluetooth connection</h2><p>Web Bluetooth works in Chrome and compatible browsers. iPhone Safari does not currently provide Web Bluetooth.</p><button class="primary" id="connect-secondary" type="button">Connect LunaSay</button></article>
+        <div class="section-head">
+          <p class="eyebrow">LunaSay</p>
+          <h2>Connection & place.</h2>
+        </div>
+        <article class="quiet-card">
+          <h2>Bluetooth connection</h2>
+          <p>
+            Web Bluetooth works in Chrome and compatible browsers. iPhone Safari
+            does not currently provide Web Bluetooth.
+          </p>
+          <button class="primary" id="connect-secondary" type="button">
+            Connect LunaSay
+          </button>
+        </article>
         <form id="device-form" class="form-grid">
-          <label class="wide">Time zone<input name="tz" id="tz" autocomplete="off" /></label>
-          <label class="wide">Location<input name="location" id="location" placeholder="Use current location, or enter latitude, longitude" /></label>
-          <button class="secondary wide" id="use-location" type="button">Use current location</button>
+          <label class="wide"
+            >Time zone<input name="tz" id="tz" autocomplete="off"
+          /></label>
+          <label class="wide"
+            >Location<input
+              name="location"
+              id="location"
+              placeholder="Use current location, or enter latitude, longitude"
+          /></label>
+          <button class="secondary wide" id="use-location" type="button">
+            Use current location
+          </button>
           <button class="primary wide" type="submit">Sync time & place</button>
         </form>
       </section>
 
       <section class="page" id="privacy">
-        <div class="section-head"><p class="eyebrow">Privacy & research</p><h2>Your reflection belongs to you.</h2><p>Reading ratings always teach your own LunaSay locally. Pseudonymous research sharing is a separate choice below.</p></div>
+        <div class="section-head">
+          <p class="eyebrow">Privacy & research</p>
+          <h2>Your reflection belongs to you.</h2>
+          <p>
+            Reading ratings always teach your own LunaSay locally. Pseudonymous
+            research sharing is a separate choice below.
+          </p>
+        </div>
         <article class="quiet-card consent-card">
           <div class="consent-row">
-            <div><h2>Help LunaSay learn what resonates</h2><p>Share only a selected mood and bounded scores, or a face, helpful/mixed/missed rating, reading date, time, and salted device identifier.</p></div>
-            <label class="switch"><input id="research-consent" type="checkbox" /><span aria-hidden="true"></span><b>Research sharing</b></label>
+            <div>
+              <h2>Help LunaSay learn what resonates</h2>
+              <p>
+                Share only a selected mood and bounded scores, or a face,
+                helpful/mixed/missed rating, reading date, time, and salted
+                device identifier.
+              </p>
+            </div>
+            <label class="switch"
+              ><input id="research-consent" type="checkbox" /><span
+                aria-hidden="true"
+              ></span
+              ><b>Research sharing</b></label
+            >
           </div>
-          <p class="privacy-list">The GitHub research export never includes your name, reading text or evidence, birth details, family data, journal or conversation text, ring biometrics, location, notes, or raw device identifier.</p>
-          <p id="research-status" class="export-status" aria-live="polite">Connect LunaSay to view research status.</p>
+          <p class="privacy-list">
+            The GitHub research export never includes your name, reading text or
+            evidence, birth details, family data, journal or conversation text,
+            ring biometrics, location, notes, or raw device identifier.
+          </p>
+          <p id="research-status" class="export-status" aria-live="polite">
+            Connect LunaSay to view research status.
+          </p>
         </article>
-        <article class="quiet-card"><h2>How withdrawal works</h2><p>Turning sharing off immediately stops new exports and deletes any unsent contribution from the device. It does not delete earlier contributions; LunaSay still needs a reviewed deletion-request process before research sharing can launch.</p></article>
+        <article class="quiet-card">
+          <h2>How withdrawal works</h2>
+          <p>
+            Turning sharing off immediately stops new exports and deletes any
+            unsent contribution from the device. It does not delete earlier
+            contributions; LunaSay still needs a reviewed deletion-request
+            process before research sharing can launch.
+          </p>
+        </article>
       </section>
     </main>
-    <footer>Private by default · LunaSay is a reflective instrument, not a medical device.</footer>
+    <footer>
+      Private by default · LunaSay is a reflective instrument, not a medical
+      device.
+    </footer>
+    <script src="relationship.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

@@ -2,6 +2,7 @@
 
 #include <math.h>
 #include <stddef.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -29,12 +30,14 @@
 #include "nimble/nimble_port_freertos.h"
 
 #include "faculty175_log.h"
+#include "faculty175_charts.h"
 #include "faculty175_device_settings.h"
 #include "faculty175_cycle_health.h"
 #include "faculty175_face_psych_state.h"
 #include "faculty175_faces.h"
 #include "faculty175_motion.h"
 #include "faculty175_research.h"
+#include "faculty175_relationship_weather.h"
 #include "faculty175_ring.h"
 #include "faculty175_spotify.h"
 #include "faculty175_wifi_settings.h"
@@ -143,6 +146,7 @@ static bool s_advertising;
 static bool s_scanning;
 static uint8_t s_own_addr_type;
 EXT_RAM_BSS_ATTR static char s_json_rx[768];
+EXT_RAM_BSS_ATTR static char s_state_json[1536];
 static size_t s_json_rx_len;
 static bool s_json_rx_active;
 static char s_device_name[FACULTY175_BLE_PEER_NAME_MAX] = "Astrolabe Faculty";
@@ -1560,6 +1564,23 @@ static esp_err_t ble_apply_settings_json(const char *body)
             }
         }
     }
+    const cJSON *relationship =
+        cJSON_GetObjectItemCaseSensitive(root, "relationship");
+    if (err == ESP_OK && cJSON_IsObject(relationship)) {
+        const cJSON *target_slot =
+            cJSON_GetObjectItemCaseSensitive(relationship, "targetSlot");
+        const cJSON *date =
+            cJSON_GetObjectItemCaseSensitive(relationship, "date");
+        if (cJSON_IsNumber(target_slot) &&
+            !faculty175_charts_set_active_slot(target_slot->valueint)) {
+            err = ESP_ERR_INVALID_ARG;
+        }
+        if (err == ESP_OK && cJSON_IsString(date) &&
+            date->valuestring != NULL) {
+            err = faculty175_relationship_weather_select_date(
+                date->valuestring);
+        }
+    }
     const cJSON *cycle = cJSON_GetObjectItemCaseSensitive(root, "cycle");
     if (err == ESP_OK && cJSON_IsObject(cycle)) {
         const cJSON *start = cJSON_GetObjectItemCaseSensitive(cycle, "startDate");
@@ -1752,6 +1773,54 @@ static int ble_settings_json_access(uint16_t conn_handle,
     return 0;
 }
 
+static bool ble_json_escape(char *out,
+                            size_t cap,
+                            const char *value)
+{
+    if (out == NULL || cap == 0 || value == NULL) {
+        return false;
+    }
+    size_t used = 0;
+    for (const unsigned char *p = (const unsigned char *)value;
+         *p != '\0';
+         ++p) {
+        const char *escape = NULL;
+        if (*p == '"' || *p == '\\') {
+            escape = *p == '"' ? "\\\"" : "\\\\";
+        }
+        if (escape != NULL) {
+            if (used + 2 >= cap) return false;
+            out[used++] = escape[0];
+            out[used++] = escape[1];
+        } else {
+            if (used + 1 >= cap) return false;
+            out[used++] = *p < 0x20 ? ' ' : (char)*p;
+        }
+    }
+    out[used] = '\0';
+    return true;
+}
+
+static bool ble_json_append(char *out,
+                            size_t cap,
+                            size_t *used,
+                            const char *format,
+                            ...)
+{
+    if (out == NULL || used == NULL || format == NULL || *used >= cap) {
+        return false;
+    }
+    va_list args;
+    va_start(args, format);
+    const int wrote = vsnprintf(out + *used, cap - *used, format, args);
+    va_end(args);
+    if (wrote < 0 || (size_t)wrote >= cap - *used) {
+        return false;
+    }
+    *used += (size_t)wrote;
+    return true;
+}
+
 static int ble_state_json_access(uint16_t conn_handle,
                                  uint16_t attr_handle,
                                  struct ble_gatt_access_ctxt *ctxt,
@@ -1768,15 +1837,41 @@ static int ble_state_json_access(uint16_t conn_handle,
     uint8_t arousal = 0;
     uint8_t valence = 0;
     faculty175_face_psych_state_mood_values(&arousal, &valence);
-    char body[384];
-    const int len = snprintf(
-        body,
-        sizeof(body),
+    faculty175_relationship_weather_snapshot_t relationship = {};
+    const bool relationship_available =
+        faculty175_relationship_weather_snapshot(&relationship);
+    char primary_name[65] = {};
+    char target_name[65] = {};
+    if (relationship_available) {
+        (void)ble_json_escape(primary_name,
+                              sizeof(primary_name),
+                              relationship.primary_name);
+        (void)ble_json_escape(target_name,
+                              sizeof(target_name),
+                              relationship.target_name);
+    }
+    char arc[FACULTY175_RELATIONSHIP_ARC_DAYS + 1] = {};
+    if (relationship_available) {
+        for (int day = 0;
+             day < FACULTY175_RELATIONSHIP_ARC_DAYS;
+             ++day) {
+            arc[day] = (char)('0' + relationship.arc[day]);
+        }
+    }
+    size_t len = 0;
+    bool ok = ble_json_append(
+        s_state_json,
+        sizeof(s_state_json),
+        &len,
         "{\"mood\":{\"label\":\"%s\",\"arousal\":%u,\"valence\":%u},"
         "\"research\":{\"consent\":%s,\"consentVersion\":\"%s\","
         "\"pending\":%s,\"status\":\"%s\","
         "\"localFeedbackCount\":%u,"
-        "\"lastFeedback\":{\"face\":\"%s\",\"rating\":\"%s\"}}}",
+        "\"lastFeedback\":{\"face\":\"%s\",\"rating\":\"%s\"}},"
+        "\"relationship\":{\"available\":%s,\"selectedDate\":\"%s\","
+        "\"offsetDays\":%d,\"activeSlot\":%d,\"primaryName\":\"%s\","
+        "\"targetName\":\"%s\",\"condition\":%d,\"arc\":\"%s\","
+        "\"profiles\":[",
         faculty175_face_psych_state_mood_label(),
         arousal,
         valence,
@@ -1786,11 +1881,52 @@ static int ble_state_json_access(uint16_t conn_handle,
         faculty175_research_state_label(research.state),
         research.local_feedback_count,
         research.last_feedback_face,
-        research.last_feedback_rating);
-    if (len <= 0 || (size_t)len >= sizeof(body)) {
+        research.last_feedback_rating,
+        relationship_available ? "true" : "false",
+        relationship_available ? relationship.selected_date : "",
+        relationship_available ? relationship.offset_days : 0,
+        faculty175_charts_active_slot(),
+        primary_name,
+        target_name,
+        relationship_available ? relationship.arc[0] :
+            FACULTY175_RELATIONSHIP_CHANGEABLE,
+        arc);
+    faculty175_charts_ensure_family_seed();
+    bool first = true;
+    for (int slot = 0; ok && slot < FACULTY175_CHART_PROFILE_SLOTS; ++slot) {
+        faculty175_birth_chart_t profile = {};
+        if (!faculty175_charts_profile_get(slot, &profile) || !profile.valid) {
+            continue;
+        }
+        char name[65] = {};
+        char role[32] = {};
+        if (!ble_json_escape(name, sizeof(name), profile.name) ||
+            !ble_json_escape(role,
+                             sizeof(role),
+                             faculty175_charts_role_label(profile.role))) {
+            ok = false;
+            break;
+        }
+        ok = ble_json_append(
+            s_state_json,
+            sizeof(s_state_json),
+            &len,
+            "%s{\"slot\":%d,\"name\":\"%s\",\"role\":\"%s\"}",
+            first ? "" : ",",
+            slot,
+            name,
+            role);
+        first = false;
+    }
+    ok = ok && ble_json_append(
+        s_state_json,
+        sizeof(s_state_json),
+        &len,
+        "]}}");
+    if (!ok) {
         return BLE_ATT_ERR_INSUFFICIENT_RES;
     }
-    return os_mbuf_append(ctxt->om, body, (size_t)len) == 0
+    return os_mbuf_append(ctxt->om, s_state_json, len) == 0
         ? 0
         : BLE_ATT_ERR_INSUFFICIENT_RES;
 }

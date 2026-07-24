@@ -34,6 +34,7 @@
 #include "faculty175_lenormand_glyphs.h"
 #include "faculty175_pocketwatch.h"
 #include "faculty175_quotes.h"
+#include "faculty175_relationship_weather.h"
 #include "faculty175_rocket.h"
 #include "faculty175_spotify.h"
 #include "faculty175_touch.h"
@@ -6803,115 +6804,53 @@ static void synastry_update_wellness_labels(void)
     lv_obj_set_style_text_color(s_synastry_wellness[2], lv_color_hex(0xaab4cc), 0);
 }
 
-typedef enum {
-    SYNASTRY_WEATHER_SUN = 0,
-    SYNASTRY_WEATHER_FAIR,
-    SYNASTRY_WEATHER_MIXED,
-    SYNASTRY_WEATHER_RAIN,
-    SYNASTRY_WEATHER_STORM,
-} synastry_weather_t;
-
-static double synastry_weather_sep(double a, double b)
+static void synastry_update_weather(
+    const faculty175_relationship_weather_snapshot_t *snapshot)
 {
-    double d = fabs(synastry_norm360(a) - synastry_norm360(b));
-    return d > 180.0 ? 360.0 - d : d;
-}
-
-static synastry_weather_t synastry_weather_for_day(const faculty175_chart_positions_t *a,
-                                                   const faculty175_chart_positions_t *b,
-                                                   int day)
-{
-    faculty175_chart_positions_t transit = {};
-    time_t epoch = astrolabe_time_valid() ? astrolabe_time_now() : (time_t)1784246400;
-    if (!faculty175_charts_positions_at(epoch + (time_t)day * 86400, &transit)) {
-        return SYNASTRY_WEATHER_MIXED;
+    if (snapshot == NULL || !snapshot->available) {
+        return;
     }
-    float score = 0.0f;
-    static const int aspects[] = {0, 60, 90, 120, 180};
-    static const float tone[] = {0.35f, 0.65f, -0.82f, 1.0f, -0.62f};
-    for (int body = 0; body < FACULTY175_CHART_BODY_COUNT; ++body) {
-        for (int person = 0; person < 2; ++person) {
-            const faculty175_chart_positions_t *natal = person == 0 ? a : b;
-            for (int natal_body = 0; natal_body < FACULTY175_CHART_BODY_COUNT; ++natal_body) {
-                const double sep = synastry_weather_sep(transit.lon[body], natal->lon[natal_body]);
-                for (size_t ai = 0; ai < sizeof(aspects) / sizeof(aspects[0]); ++ai) {
-                    const double orb = fabs(sep - aspects[ai]);
-                    if (orb <= 5.5) {
-                        const float exact = 1.0f - (float)(orb / 5.5);
-                        const float personal = (body < 2 || natal_body < 2) ? 1.3f : 0.72f;
-                        score += tone[ai] * exact * personal;
-                        break;
-                    }
-                }
-            }
-        }
-    }
-    if (score >= 3.0f) return SYNASTRY_WEATHER_SUN;
-    if (score >= 0.8f) return SYNASTRY_WEATHER_FAIR;
-    if (score > -1.1f) return SYNASTRY_WEATHER_MIXED;
-    if (score > -3.2f) return SYNASTRY_WEATHER_RAIN;
-    return SYNASTRY_WEATHER_STORM;
-}
-
-static uint32_t synastry_weather_color(synastry_weather_t weather)
-{
-    static const uint32_t colors[] = {0xffcc58, 0xa9d9ff, 0x9da9bc, 0x5d91c9, 0x9a72d6};
-    return colors[(int)weather];
-}
-
-static const char *synastry_weather_symbol(synastry_weather_t weather)
-{
-    static const char *const symbols[] = {"*", "o", "~", ":", "!"};
-    return symbols[(int)weather];
-}
-
-static const char *synastry_weather_name(synastry_weather_t weather)
-{
-    static const char *const names[] = {"OPEN", "EASY", "CHANGEABLE", "TENDER", "INTENSE"};
-    return names[(int)weather];
-}
-
-static const char *synastry_weather_guidance(synastry_weather_t weather)
-{
-    static const char *const guidance[] = {
-        "Make the plan together",
-        "Share the warmth; say the kind thing",
-        "Stay curious and check assumptions",
-        "Slow down; make room for feelings",
-        "Protect the bond; pause before reacting",
-    };
-    return guidance[(int)weather];
-}
-
-static void synastry_update_weather(const faculty175_chart_positions_t *user,
-                                    const faculty175_chart_positions_t *target)
-{
     const int cx = FACULTY175_LCD_W / 2;
     const int cy = FACULTY175_LCD_H / 2 + 2;
     for (int day = 0; day < 10; ++day) {
-        const synastry_weather_t weather = synastry_weather_for_day(user, target, day);
+        const faculty175_relationship_condition_t weather =
+            snapshot->arc[day];
         const float angle = -1.5707963f + (float)day * 6.2831853f / 10.0f;
         const int x = cx + (int)lrintf(cosf(angle) * 184.0f);
         const int y = cy + (int)lrintf(sinf(angle) * 184.0f);
-        lv_obj_set_style_bg_color(s_synastry_weather_days[day], lv_color_hex(synastry_weather_color(weather)), 0);
+        lv_obj_set_style_bg_color(
+            s_synastry_weather_days[day],
+            lv_color_hex(faculty175_relationship_weather_color(weather)),
+            0);
         lv_obj_set_style_border_color(s_synastry_weather_days[day],
                                       lv_color_hex(day == 0 ? 0xffffff : 0x33405a), 0);
         lv_obj_set_style_border_width(s_synastry_weather_days[day], day == 0 ? 3 : 1, 0);
         lv_obj_align(s_synastry_weather_days[day], LV_ALIGN_TOP_LEFT, x - 17, y - 17);
-        lv_label_set_text(s_synastry_weather_symbols[day], synastry_weather_symbol(weather));
+        lv_label_set_text(
+            s_synastry_weather_symbols[day],
+            faculty175_relationship_weather_symbol(weather));
         lv_obj_center(s_synastry_weather_symbols[day]);
         char label[4];
         snprintf(label, sizeof(label), "%s%d", day == 0 ? "" : "+", day);
         lv_label_set_text(s_synastry_weather_day_labels[day], label);
         lv_obj_align(s_synastry_weather_day_labels[day], LV_ALIGN_TOP_LEFT, x - 10, y + 18);
     }
-    const synastry_weather_t today = synastry_weather_for_day(user, target, 0);
-    lv_obj_set_style_bg_color(s_synastry_weather_main, lv_color_hex(synastry_weather_color(today)), 0);
-    lv_label_set_text(s_synastry_weather_main_symbol, synastry_weather_symbol(today));
+    const faculty175_relationship_condition_t selected = snapshot->arc[0];
+    lv_obj_set_style_bg_color(
+        s_synastry_weather_main,
+        lv_color_hex(faculty175_relationship_weather_color(selected)),
+        0);
+    lv_label_set_text(
+        s_synastry_weather_main_symbol,
+        faculty175_relationship_weather_symbol(selected));
     lv_obj_center(s_synastry_weather_main_symbol);
     char guidance[96];
-    snprintf(guidance, sizeof(guidance), "%s  -  %s", synastry_weather_name(today),
-             synastry_weather_guidance(today));
+    snprintf(
+        guidance,
+        sizeof(guidance),
+        "%s  -  %s",
+        faculty175_relationship_weather_name(selected),
+        faculty175_relationship_weather_guidance(selected));
     almanac_set_trimmed(s_synastry_weather_guidance, guidance, 48);
 }
 
@@ -7009,10 +6948,13 @@ static bool draw_synastry(uint32_t anim_ms)
     faculty175_birth_chart_t target = {};
     faculty175_chart_positions_t user_pos = {};
     faculty175_chart_positions_t target_pos = {};
-    const bool ready = faculty175_charts_primary(&user) && faculty175_charts_active(&target) &&
-                       faculty175_charts_birth_positions(&user, &user_pos) &&
-                       faculty175_charts_birth_positions(&target, &target_pos);
-    if (!ready) {
+    const bool ready =
+        faculty175_charts_primary(&user) &&
+        faculty175_charts_active(&target) &&
+        faculty175_charts_birth_positions(&user, &user_pos) &&
+        faculty175_charts_birth_positions(&target, &target_pos);
+    faculty175_relationship_weather_snapshot_t weather = {};
+    if (!ready || !faculty175_relationship_weather_snapshot(&weather)) {
         lv_label_set_text(s_synastry_title, "SYNASTRY");
         lv_label_set_text(s_synastry_names, "CHART DATA NEEDED");
         lv_label_set_text(s_synastry_line, "serial: charts seed");
@@ -7035,10 +6977,19 @@ static bool draw_synastry(uint32_t anim_ms)
     }
     lv_label_set_text(s_synastry_title, "RELATIONSHIP WEATHER");
     char weather_names[80];
-    snprintf(weather_names, sizeof(weather_names), "%s + %s", user.name, target.name);
+    snprintf(weather_names,
+             sizeof(weather_names),
+             "%s + %s",
+             weather.primary_name,
+             weather.target_name);
     almanac_set_trimmed(s_synastry_names, weather_names, 42);
-    lv_label_set_text(s_synastry_line, "10 DAY SYMBOLIC OUTLOOK");
-    synastry_update_weather(&user_pos, &target_pos);
+    char selected_date[40];
+    snprintf(selected_date,
+             sizeof(selected_date),
+             "%s  10 DAY OUTLOOK",
+             weather.selected_date);
+    lv_label_set_text(s_synastry_line, selected_date);
+    synastry_update_weather(&weather);
     lv_obj_invalidate(s_synastry_screen);
     lvgl_tick(16);
     lv_timer_handler();
