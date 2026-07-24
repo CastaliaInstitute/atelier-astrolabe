@@ -33,6 +33,7 @@ type ProbeResult = {
   faceRetries: Record<string, number>;
   faceRetryReasons: Record<string, string[]>;
   continuityAppliedFaces: string[];
+  continuityDepthByFace: Record<string, number>;
   continuityContractPassed: boolean;
   actionContractPassed: boolean;
   quality: QualitySummary;
@@ -99,16 +100,26 @@ function continuityContractPassed(
   packet: LunaSayDailyPacket,
   memory: LunaSayReadingMemory | null,
   appliedFaces: string[],
+  depthByFace: Record<string, number>,
 ): boolean {
   if (!memory) return true;
+  const history = Array.isArray(memory.history) && memory.history.length
+    ? memory.history
+    : [memory];
   const expected = LUNASAY_GENERATED_DAILY_FACE_IDS.filter((id) =>
-    Boolean(memory.faces[id])
+    history.some((day) => Boolean(day.faces[id]))
   );
   return expected.length > 0 &&
     expected.every((id) => appliedFaces.includes(id)) &&
     expected.every((id) =>
-      actionKey(packet.faces[id].action) !==
-        actionKey(memory.faces[id]?.action)
+      depthByFace[id] ===
+        history.filter((day) => Boolean(day.faces[id])).length
+    ) &&
+    expected.every((id) =>
+      history.every((day) =>
+        actionKey(packet.faces[id].action) !==
+          actionKey(day.faces[id]?.action)
+      )
     );
 }
 
@@ -178,6 +189,7 @@ for (let index = 0; index < samples; index++) {
     );
   }
   const continuityAppliedFaces = body.continuityAppliedFaces ?? [];
+  const continuityDepthByFace = body.continuityDepthByFace ?? {};
   results.push({
     sample: index + 1,
     status: response.status,
@@ -189,10 +201,12 @@ for (let index = 0; index < samples; index++) {
     faceRetries: body.faceRetries ?? {},
     faceRetryReasons: body.faceRetryReasons ?? {},
     continuityAppliedFaces,
+    continuityDepthByFace,
     continuityContractPassed: continuityContractPassed(
       body.packet,
       readingMemory,
       continuityAppliedFaces,
+      continuityDepthByFace,
     ),
     actionContractPassed: actionContractPassed(body.packet),
     quality: body.quality,

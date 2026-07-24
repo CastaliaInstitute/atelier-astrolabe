@@ -75,3 +75,23 @@ A spoken question from a reflective face passes this gate only when:
   interaction contracts and never inherit a daily face's cached context;
 - firmware build, request inspection, spoken-answer quality, and private-data
   boundaries are verified on the release candidate.
+
+## Private seven-day thread gate
+
+LunaSay should develop with a person without turning their private life into a
+cloud dossier. Daily continuity passes this gate only when:
+
+- the physical device retains no more than seven bounded reading summaries;
+- only server-generated headline, action, and an evidence fingerprint are
+  eligible—never journals, conversations, mood, biometrics, profiles, or user
+  prose;
+- each independent Gemini 2.5 face call receives only that face's retained
+  history;
+- dates are recent, valid, unique, ordered, and never include the current day;
+- prior evidence text cannot be reconstructed or treated as support;
+- the reading may name a developing thread only when the supplied sequence
+  supports it and cannot invent intervening lived events;
+- a practice that repeats any retained action is rejected and retried;
+- legacy one-day devices remain accepted during rollout;
+- parser, privacy, generation, firmware build, storage-bound, and repeated
+  production-quality gates pass before release.

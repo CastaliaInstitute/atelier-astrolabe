@@ -27,6 +27,7 @@ import {
 import {
   lunaSayContinuityInstruction,
   lunaSayContinuityIssue,
+  lunaSayPriorFaces,
   parseLunaSayReadingMemory,
 } from "../_shared/lunasayContinuity.ts";
 import { scoreLunaSayReadingQuality } from "../_shared/lunasayReadingQuality.ts";
@@ -1443,6 +1444,7 @@ Deno.serve(async (req: Request) => {
             id,
             facts,
           );
+          const priorFaces = lunaSayPriorFaces(readingMemory, id);
           const continuityInstruction = await lunaSayContinuityInstruction(
             id,
             readingMemory,
@@ -1479,7 +1481,7 @@ Deno.serve(async (req: Request) => {
             requiredWeatherEvidence,
             requiredTemporalEvidence,
             resonanceApplied: resonanceInstruction.length > 0,
-            priorFace: readingMemory?.faces[id],
+            priorFaces,
             continuityApplied: continuityInstruction.length > 0,
           };
         }));
@@ -1566,7 +1568,7 @@ Deno.serve(async (req: Request) => {
               }
               const continuityIssue = lunaSayContinuityIssue(
                 parsedFace,
-                prompt.priorFace,
+                prompt.priorFaces,
               );
               if (continuityIssue) {
                 throw new Error(`reading-continuity:${continuityIssue}`);
@@ -1643,6 +1645,11 @@ Deno.serve(async (req: Request) => {
           continuityAppliedFaces: prompts
             .filter((prompt) => prompt.continuityApplied)
             .map((prompt) => prompt.id),
+          continuityDepthByFace: Object.fromEntries(
+            prompts
+              .filter((prompt) => prompt.priorFaces.length > 0)
+              .map((prompt) => [prompt.id, prompt.priorFaces.length]),
+          ),
           quality: {
             benchmarkVersion: qualityReport.benchmarkVersion,
             hardGatePassed: qualityReport.hardGatePassed,

@@ -2440,11 +2440,260 @@ static bool lunasay_sha256_hex(const char *text, char out[65])
     return true;
 }
 
-/* Extract only server-generated fields from the other day slot. Journal,
- * conversation, mood, biometrics, profile data, and user prose are never
- * eligible for continuity memory. Prior evidence is represented only by a
- * SHA-256 fingerprint. The edge service independently validates the date,
- * field bounds, and allowed face ids before using this context. */
+#define LUNASAY_READING_MEMORY_PATH "/voice/lunasay-memory.json"
+#define LUNASAY_READING_MEMORY_CAP (24 * 1024)
+#define LUNASAY_READING_MEMORY_DAYS 7
+
+static const char *const k_lunasay_daily_slugs[] = {
+    "moon", "astrology", "transits", "synastry", "tarot", "sky",
+};
+
+static bool lunasay_hash_hex_valid(const char *value)
+{
+    if (value == NULL || strlen(value) != 64) {
+        return false;
+    }
+    for (size_t i = 0; i < 64; ++i) {
+        if (!((value[i] >= '0' && value[i] <= '9') ||
+              (value[i] >= 'a' && value[i] <= 'f') ||
+              (value[i] >= 'A' && value[i] <= 'F'))) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool lunasay_memory_add_face(cJSON *faces_out,
+                                    const char *slug,
+                                    const char *headline,
+                                    const char *action,
+                                    const char *evidence_hash)
+{
+    if (faces_out == NULL || slug == NULL || headline == NULL ||
+        action == NULL || evidence_hash == NULL ||
+        headline[0] == '\0' || strlen(headline) > 72 ||
+        action[0] == '\0' || strlen(action) > 120 ||
+        !lunasay_hash_hex_valid(evidence_hash)) {
+        return false;
+    }
+    cJSON *summary = cJSON_CreateObject();
+    if (summary == NULL ||
+        !cJSON_AddStringToObject(summary, "headline", headline) ||
+        !cJSON_AddStringToObject(summary, "action", action) ||
+        !cJSON_AddStringToObject(summary, "evidenceHash", evidence_hash) ||
+        !cJSON_AddItemToObject(faces_out, slug, summary)) {
+        cJSON_Delete(summary);
+        return false;
+    }
+    return true;
+}
+
+/* Convert a trusted daily packet into the only fields eligible for reading
+ * continuity. User prose, journal/conversation text, profiles, mood,
+ * biometrics, and raw prior evidence are never copied. */
+static cJSON *lunasay_memory_day_from_packet(const cJSON *packet)
+{
+    const cJSON *date = cJSON_IsObject(packet)
+                            ? cJSON_GetObjectItemCaseSensitive(packet, "date")
+                            : NULL;
+    const cJSON *schema = cJSON_IsObject(packet)
+                              ? cJSON_GetObjectItemCaseSensitive(packet, "schemaVersion")
+                              : NULL;
+    const cJSON *faces = cJSON_IsObject(packet)
+                             ? cJSON_GetObjectItemCaseSensitive(packet, "faces")
+                             : NULL;
+    if (!cJSON_IsString(date) || date->valuestring == NULL ||
+        strlen(date->valuestring) != 10 ||
+        !cJSON_IsNumber(schema) || schema->valueint != 1 ||
+        !cJSON_IsObject(faces)) {
+        return NULL;
+    }
+
+    cJSON *day = cJSON_CreateObject();
+    cJSON *day_faces = cJSON_CreateObject();
+    if (day == NULL || day_faces == NULL ||
+        !cJSON_AddStringToObject(day, "date", date->valuestring) ||
+        !cJSON_AddItemToObject(day, "faces", day_faces)) {
+        cJSON_Delete(day_faces);
+        cJSON_Delete(day);
+        return NULL;
+    }
+    unsigned added = 0;
+    for (size_t i = 0;
+         i < sizeof(k_lunasay_daily_slugs) / sizeof(k_lunasay_daily_slugs[0]);
+         ++i) {
+        const char *slug = k_lunasay_daily_slugs[i];
+        const cJSON *face = cJSON_GetObjectItemCaseSensitive(faces, slug);
+        const cJSON *headline = cJSON_IsObject(face)
+                                    ? cJSON_GetObjectItemCaseSensitive(face, "headline")
+                                    : NULL;
+        const cJSON *action = cJSON_IsObject(face)
+                                  ? cJSON_GetObjectItemCaseSensitive(face, "action")
+                                  : NULL;
+        const cJSON *evidence = cJSON_IsObject(face)
+                                    ? cJSON_GetObjectItemCaseSensitive(face, "evidence")
+                                    : NULL;
+        if (!cJSON_IsString(headline) || headline->valuestring == NULL ||
+            !cJSON_IsString(action) || action->valuestring == NULL ||
+            !cJSON_IsString(evidence) || evidence->valuestring == NULL) {
+            continue;
+        }
+        char evidence_hash[65];
+        if (!lunasay_sha256_hex(evidence->valuestring, evidence_hash) ||
+            !lunasay_memory_add_face(day_faces,
+                                     slug,
+                                     headline->valuestring,
+                                     action->valuestring,
+                                     evidence_hash)) {
+            continue;
+        }
+        ++added;
+    }
+    if (added == 0) {
+        cJSON_Delete(day);
+        return NULL;
+    }
+    return day;
+}
+
+/* Rebuild a stored summary rather than duplicating arbitrary JSON. This keeps
+ * the outbound envelope private even if a partial/corrupt file is recovered. */
+static cJSON *lunasay_memory_day_clone(const cJSON *day,
+                                      const char *excluded_date)
+{
+    const cJSON *date = cJSON_IsObject(day)
+                            ? cJSON_GetObjectItemCaseSensitive(day, "date")
+                            : NULL;
+    const cJSON *faces = cJSON_IsObject(day)
+                             ? cJSON_GetObjectItemCaseSensitive(day, "faces")
+                             : NULL;
+    if (!cJSON_IsString(date) || date->valuestring == NULL ||
+        strlen(date->valuestring) != 10 ||
+        (excluded_date != NULL &&
+         strcmp(date->valuestring, excluded_date) == 0) ||
+        !cJSON_IsObject(faces)) {
+        return NULL;
+    }
+    cJSON *copy = cJSON_CreateObject();
+    cJSON *copy_faces = cJSON_CreateObject();
+    if (copy == NULL || copy_faces == NULL ||
+        !cJSON_AddStringToObject(copy, "date", date->valuestring) ||
+        !cJSON_AddItemToObject(copy, "faces", copy_faces)) {
+        cJSON_Delete(copy_faces);
+        cJSON_Delete(copy);
+        return NULL;
+    }
+    unsigned added = 0;
+    for (size_t i = 0;
+         i < sizeof(k_lunasay_daily_slugs) / sizeof(k_lunasay_daily_slugs[0]);
+         ++i) {
+        const char *slug = k_lunasay_daily_slugs[i];
+        const cJSON *face = cJSON_GetObjectItemCaseSensitive(faces, slug);
+        const cJSON *headline = cJSON_IsObject(face)
+                                    ? cJSON_GetObjectItemCaseSensitive(face, "headline")
+                                    : NULL;
+        const cJSON *action = cJSON_IsObject(face)
+                                  ? cJSON_GetObjectItemCaseSensitive(face, "action")
+                                  : NULL;
+        const cJSON *evidence_hash = cJSON_IsObject(face)
+                                         ? cJSON_GetObjectItemCaseSensitive(face,
+                                                                            "evidenceHash")
+                                         : NULL;
+        if (!cJSON_IsString(headline) || headline->valuestring == NULL ||
+            !cJSON_IsString(action) || action->valuestring == NULL ||
+            !cJSON_IsString(evidence_hash) ||
+            evidence_hash->valuestring == NULL ||
+            !lunasay_memory_add_face(copy_faces,
+                                     slug,
+                                     headline->valuestring,
+                                     action->valuestring,
+                                     evidence_hash->valuestring)) {
+            continue;
+        }
+        ++added;
+    }
+    if (added == 0) {
+        cJSON_Delete(copy);
+        return NULL;
+    }
+    return copy;
+}
+
+static cJSON *lunasay_memory_file_load(void)
+{
+    struct stat st = {};
+    if (stat(LUNASAY_READING_MEMORY_PATH, &st) != 0 ||
+        st.st_size < 8 || st.st_size >= LUNASAY_READING_MEMORY_CAP) {
+        return NULL;
+    }
+    char *json = heap_caps_malloc((size_t)st.st_size + 1,
+                                  MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (json == NULL) {
+        return NULL;
+    }
+    FILE *f = fopen(LUNASAY_READING_MEMORY_PATH, "rb");
+    if (f == NULL) {
+        free(json);
+        return NULL;
+    }
+    const size_t got = fread(json, 1, (size_t)st.st_size, f);
+    fclose(f);
+    json[got] = '\0';
+    cJSON *root = got == (size_t)st.st_size
+                      ? cJSON_ParseWithLength(json, got)
+                      : NULL;
+    free(json);
+    return root;
+}
+
+static bool lunasay_memory_date_seen(char seen[][11],
+                                     unsigned count,
+                                     const char *date)
+{
+    for (unsigned i = 0; i < count; ++i) {
+        if (strcmp(seen[i], date) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static unsigned lunasay_memory_copy_history(cJSON *target,
+                                            const cJSON *source,
+                                            const char *excluded_date,
+                                            unsigned limit)
+{
+    if (!cJSON_IsArray(target) || !cJSON_IsArray(source) || limit == 0) {
+        return 0;
+    }
+    char seen[LUNASAY_READING_MEMORY_DAYS][11] = {};
+    unsigned added = 0;
+    const int count = cJSON_GetArraySize(source);
+    for (int i = 0; i < count && added < limit; ++i) {
+        cJSON *copy =
+            lunasay_memory_day_clone(cJSON_GetArrayItem(source, i),
+                                     excluded_date);
+        if (copy == NULL) {
+            continue;
+        }
+        const cJSON *date = cJSON_GetObjectItemCaseSensitive(copy, "date");
+        if (date == NULL || date->valuestring == NULL ||
+            lunasay_memory_date_seen(seen, added, date->valuestring)) {
+            cJSON_Delete(copy);
+            continue;
+        }
+        strlcpy(seen[added], date->valuestring, sizeof(seen[added]));
+        if (!cJSON_AddItemToArray(target, copy)) {
+            cJSON_Delete(copy);
+            continue;
+        }
+        ++added;
+    }
+    return added;
+}
+
+/* Extract only server-generated fields from the local seven-day summary.
+ * Fall back to the older packet slot once when upgrading existing devices. */
 static bool lunasay_daily_packet_prior_memory(unsigned current_slot,
                                               const char *current_date,
                                               char *out,
@@ -2454,6 +2703,32 @@ static bool lunasay_daily_packet_prior_memory(unsigned current_slot,
         return false;
     }
     strlcpy(out, "{}", out_cap);
+    cJSON *memory_root = lunasay_memory_file_load();
+    const cJSON *stored_history = cJSON_IsObject(memory_root)
+                                      ? cJSON_GetObjectItemCaseSensitive(memory_root,
+                                                                         "history")
+                                      : NULL;
+    cJSON *envelope = cJSON_CreateObject();
+    cJSON *history = cJSON_CreateArray();
+    if (envelope != NULL && history != NULL &&
+        cJSON_AddItemToObject(envelope, "history", history)) {
+        const unsigned copied =
+            lunasay_memory_copy_history(history,
+                                        stored_history,
+                                        current_date,
+                                        LUNASAY_READING_MEMORY_DAYS);
+        if (copied > 0 &&
+            cJSON_PrintPreallocated(envelope, out, (int)out_cap, false)) {
+            cJSON_Delete(envelope);
+            cJSON_Delete(memory_root);
+            return true;
+        }
+    } else {
+        cJSON_Delete(history);
+    }
+    cJSON_Delete(envelope);
+    cJSON_Delete(memory_root);
+
     char path[48];
     const int path_len = snprintf(path,
                                   sizeof(path),
@@ -2490,79 +2765,122 @@ static bool lunasay_daily_packet_prior_memory(unsigned current_slot,
         return false;
     }
     const cJSON *packet = cJSON_GetObjectItemCaseSensitive(root, "packet");
-    const cJSON *date = cJSON_IsObject(packet)
-                            ? cJSON_GetObjectItemCaseSensitive(packet, "date")
+    cJSON *day = lunasay_memory_day_from_packet(packet);
+    const cJSON *date = cJSON_IsObject(day)
+                            ? cJSON_GetObjectItemCaseSensitive(day, "date")
                             : NULL;
-    const cJSON *schema = cJSON_IsObject(packet)
-                              ? cJSON_GetObjectItemCaseSensitive(packet, "schemaVersion")
-                              : NULL;
-    const cJSON *faces = cJSON_IsObject(packet)
-                             ? cJSON_GetObjectItemCaseSensitive(packet, "faces")
-                             : NULL;
-    if (!cJSON_IsString(date) || date->valuestring == NULL ||
-        strcmp(date->valuestring, current_date) == 0 ||
-        !cJSON_IsNumber(schema) || schema->valueint != 1 ||
-        !cJSON_IsObject(faces)) {
+    if (day == NULL || !cJSON_IsString(date) ||
+        date->valuestring == NULL ||
+        strcmp(date->valuestring, current_date) == 0) {
+        cJSON_Delete(day);
         cJSON_Delete(root);
         return false;
     }
-
-    cJSON *memory = cJSON_CreateObject();
-    cJSON *memory_faces = cJSON_CreateObject();
-    if (memory == NULL || memory_faces == NULL ||
-        !cJSON_AddStringToObject(memory, "date", date->valuestring) ||
-        !cJSON_AddItemToObject(memory, "faces", memory_faces)) {
-        cJSON_Delete(memory_faces);
-        cJSON_Delete(memory);
+    envelope = cJSON_CreateObject();
+    history = cJSON_CreateArray();
+    if (envelope == NULL || history == NULL) {
+        cJSON_Delete(history);
+        cJSON_Delete(envelope);
+        cJSON_Delete(day);
         cJSON_Delete(root);
         return false;
     }
-    static const char *const k_daily_slugs[] = {
-        "moon", "astrology", "transits", "synastry", "tarot", "sky",
-    };
-    unsigned added = 0;
-    for (size_t i = 0; i < sizeof(k_daily_slugs) / sizeof(k_daily_slugs[0]); ++i) {
-        const cJSON *face =
-            cJSON_GetObjectItemCaseSensitive(faces, k_daily_slugs[i]);
-        const cJSON *headline = cJSON_IsObject(face)
-                                    ? cJSON_GetObjectItemCaseSensitive(face, "headline")
-                                    : NULL;
-        const cJSON *action = cJSON_IsObject(face)
-                                  ? cJSON_GetObjectItemCaseSensitive(face, "action")
-                                  : NULL;
-        const cJSON *evidence = cJSON_IsObject(face)
-                                    ? cJSON_GetObjectItemCaseSensitive(face, "evidence")
-                                    : NULL;
-        if (!cJSON_IsString(headline) || headline->valuestring == NULL ||
-            !cJSON_IsString(action) || action->valuestring == NULL ||
-            !cJSON_IsString(evidence) || evidence->valuestring == NULL ||
-            headline->valuestring[0] == '\0' ||
-            action->valuestring[0] == '\0' ||
-            evidence->valuestring[0] == '\0') {
-            continue;
-        }
-        char evidence_hash[65];
-        if (!lunasay_sha256_hex(evidence->valuestring, evidence_hash)) {
-            continue;
-        }
-        cJSON *summary = cJSON_CreateObject();
-        if (summary == NULL ||
-            !cJSON_AddStringToObject(summary, "headline", headline->valuestring) ||
-            !cJSON_AddStringToObject(summary, "action", action->valuestring) ||
-            !cJSON_AddStringToObject(summary, "evidenceHash", evidence_hash) ||
-            !cJSON_AddItemToObject(memory_faces, k_daily_slugs[i], summary)) {
-            cJSON_Delete(summary);
-            continue;
-        }
-        ++added;
+    if (!cJSON_AddItemToObject(envelope, "history", history)) {
+        cJSON_Delete(history);
+        cJSON_Delete(envelope);
+        cJSON_Delete(day);
+        cJSON_Delete(root);
+        return false;
     }
-    const bool ok = added > 0 &&
-                    cJSON_PrintPreallocated(memory, out, (int)out_cap, false);
+    if (!cJSON_AddItemToArray(history, day)) {
+        cJSON_Delete(day);
+        cJSON_Delete(envelope);
+        cJSON_Delete(root);
+        return false;
+    }
+    const bool ok = cJSON_PrintPreallocated(envelope,
+                                            out,
+                                            (int)out_cap,
+                                            false);
     if (!ok) {
         strlcpy(out, "{}", out_cap);
     }
-    cJSON_Delete(memory);
+    cJSON_Delete(envelope);
     cJSON_Delete(root);
+    return ok;
+}
+
+static bool lunasay_daily_memory_update(const char *json,
+                                        size_t json_len)
+{
+    if (json == NULL || json_len < 8 || json_len > 48 * 1024) {
+        return false;
+    }
+    cJSON *packet_root = cJSON_ParseWithLength(json, json_len);
+    const cJSON *packet = cJSON_IsObject(packet_root)
+                              ? cJSON_GetObjectItemCaseSensitive(packet_root,
+                                                                 "packet")
+                              : NULL;
+    cJSON *today = lunasay_memory_day_from_packet(packet);
+    const cJSON *today_date = cJSON_IsObject(today)
+                                  ? cJSON_GetObjectItemCaseSensitive(today, "date")
+                                  : NULL;
+    if (today == NULL || !cJSON_IsString(today_date) ||
+        today_date->valuestring == NULL) {
+        cJSON_Delete(today);
+        cJSON_Delete(packet_root);
+        return false;
+    }
+
+    cJSON *old_root = lunasay_memory_file_load();
+    const cJSON *old_history = cJSON_IsObject(old_root)
+                                   ? cJSON_GetObjectItemCaseSensitive(old_root,
+                                                                      "history")
+                                   : NULL;
+    cJSON *new_root = cJSON_CreateObject();
+    cJSON *new_history = cJSON_CreateArray();
+    if (new_root == NULL || new_history == NULL) {
+        cJSON_Delete(new_history);
+        cJSON_Delete(new_root);
+        cJSON_Delete(today);
+        cJSON_Delete(old_root);
+        cJSON_Delete(packet_root);
+        return false;
+    }
+    if (!cJSON_AddItemToObject(new_root, "history", new_history)) {
+        cJSON_Delete(new_history);
+        cJSON_Delete(new_root);
+        cJSON_Delete(today);
+        cJSON_Delete(old_root);
+        cJSON_Delete(packet_root);
+        return false;
+    }
+    if (!cJSON_AddItemToArray(new_history, today)) {
+        cJSON_Delete(today);
+        cJSON_Delete(new_root);
+        cJSON_Delete(old_root);
+        cJSON_Delete(packet_root);
+        return false;
+    }
+    (void)lunasay_memory_copy_history(
+        new_history,
+        old_history,
+        today_date->valuestring,
+        LUNASAY_READING_MEMORY_DAYS - 1);
+    char *serialized = heap_caps_malloc(LUNASAY_READING_MEMORY_CAP,
+                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    const bool ok = serialized != NULL &&
+                    cJSON_PrintPreallocated(new_root,
+                                            serialized,
+                                            LUNASAY_READING_MEMORY_CAP,
+                                            false) &&
+                    lunasay_daily_packet_save(LUNASAY_READING_MEMORY_PATH,
+                                              serialized,
+                                              strlen(serialized));
+    free(serialized);
+    cJSON_Delete(new_root);
+    cJSON_Delete(old_root);
+    cJSON_Delete(packet_root);
     return ok;
 }
 
@@ -2599,19 +2917,19 @@ static bool lunasay_daily_packet_spoken(const faculty175_face_desc_t *face,
                                            sizeof(resonance_profile)) != ESP_OK) {
         strlcpy(resonance_profile, "{}", sizeof(resonance_profile));
     }
-    char *reading_memory = heap_caps_malloc(4096,
+    char *reading_memory = heap_caps_malloc(LUNASAY_READING_MEMORY_CAP,
                                             MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (reading_memory == NULL) {
-        reading_memory = malloc(4096);
+        reading_memory = malloc(LUNASAY_READING_MEMORY_CAP);
     }
     unsigned current_slot = 0;
     if (reading_memory != NULL) {
-        strlcpy(reading_memory, "{}", 4096);
+        strlcpy(reading_memory, "{}", LUNASAY_READING_MEMORY_CAP);
         if (lunasay_daily_cache_prepare(date, &current_slot)) {
             (void)lunasay_daily_packet_prior_memory(current_slot,
                                                     date,
                                                     reading_memory,
-                                                    4096);
+                                                    LUNASAY_READING_MEMORY_CAP);
         }
     }
     const esp_err_t err = faculty175_voice_fetch_lunasay_daily_packet(
@@ -2634,8 +2952,16 @@ static bool lunasay_daily_packet_spoken(const faculty175_face_desc_t *face,
                                                            face->slug,
                                                            spoken,
                                                            spoken_cap);
-    if (valid && !lunasay_daily_packet_save(packet_path, json, json_len)) {
-        FACULTY175_LOG_STAGE_W(TAG, "lunasay-daily", "packet cache write failed");
+    if (valid) {
+        if (!lunasay_daily_packet_save(packet_path, json, json_len)) {
+            FACULTY175_LOG_STAGE_W(TAG,
+                                   "lunasay-daily",
+                                   "packet cache write failed");
+        } else if (!lunasay_daily_memory_update(json, json_len)) {
+            FACULTY175_LOG_STAGE_W(TAG,
+                                   "lunasay-daily",
+                                   "seven-day memory update failed");
+        }
     }
     free(json);
     return valid;

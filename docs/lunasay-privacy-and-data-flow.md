@@ -50,23 +50,25 @@ history still enter the cloud path.
 
 ### Daily reading continuity
 
-LunaSay keeps two rotating daily packet slots in the existing voice-cache
-partition. When a new day is generated, firmware may send a bounded summary
-from the other slot: the prior local date and, for Moon, Astrology, Transits,
-Synastry, Tarot, and Sky only, the server-generated `headline`, `action`, and a
-SHA-256 fingerprint of `evidence`. Prior evidence text is not retransmitted.
-The envelope never includes journal or conversation text, mood, biometrics,
+LunaSay keeps two rotating full daily packet slots plus a separate seven-day
+summary in the existing voice-cache partition. When a new day is generated,
+firmware may send the recent local dates and, for Moon, Astrology, Transits,
+Synastry, Tarot, and Sky only, each server-generated `headline`, `action`, and
+a SHA-256 fingerprint of `evidence`. Prior evidence text is not retransmitted.
+The summary is rebuilt from the validated packet fields before every write and
+read; it never includes journal or conversation text, mood, biometrics,
 birth/family records, location, settings, or user-authored notes.
 
 The service accepts only summaries from the preceding 14 days, discards
-unknown faces and malformed or oversized fields, and supplies each prior face
-only to the matching Gemini call. The server compares the fingerprint with
+unknown faces and malformed or oversized fields, de-duplicates dates, retains
+at most seven valid days, and supplies each face's history only to that face's
+independent Gemini 2.5 call. The server compares the newest fingerprint with
 today's server-selected evidence and tells Gemini only whether it changed;
-Gemini does not receive the prior evidence text. Continuity is never support
-for today's claim. The prompt forbids invented lived events and requires a
-different bounded practice rather than repeating the prior action verbatim. The
-application does not persist this continuity envelope server-side;
-provider-retention caveats below still apply.
+Gemini does not receive prior evidence text. Continuity is never support for
+today's claim. The prompt permits a developing thread only when the supplied
+sequence supports it, forbids invented lived events, and rejects a practice
+that exactly repeats any retained day. The application does not persist this
+continuity envelope server-side; provider-retention caveats below still apply.
 
 ### Ask This Face follow-ups
 
