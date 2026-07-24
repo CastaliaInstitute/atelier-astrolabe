@@ -23,6 +23,7 @@
 #include "freertos/task.h"
 #include "lwip/lwip_napt.h"
 #include "nvs_flash.h"
+#include "cJSON.h"
 
 #include "astrolabe_audio_pipeline.h"
 #include "astrolabe_faculty175_face.h"
@@ -1488,6 +1489,97 @@ static void append_synastry_prompt(char *out, size_t cap, size_t *off)
                   "Use names only when helpful. Never compare children, assign a child responsibility for an adult's emotions, expose raw biometric measurements, declare compatibility, predict conflict, or make any family member sound fixed. ");
 }
 
+static void build_lunasay_daily_facts(char *out, size_t cap)
+{
+    if (out == NULL || cap == 0) {
+        return;
+    }
+    out[0] = '\0';
+    size_t off = 0;
+    char utc[32] = {};
+    char local[32] = {};
+    (void)astrolabe_time_format_utc(utc, sizeof(utc));
+    (void)astrolabe_time_format_local(local, sizeof(local));
+    prompt_append(out,
+                  cap,
+                  &off,
+                  "LUNASAY DEVICE FACTS. Local time %s; UTC %s; timezone %s. ",
+                  local[0] != '\0' ? local : "not synchronized",
+                  utc[0] != '\0' ? utc : "not synchronized",
+                  astrolabe_time_timezone());
+    if (faculty175_face_psych_state_mood_checked_in()) {
+        prompt_append(out,
+                      cap,
+                      &off,
+                      "The primary user explicitly checked in as %s. This is temporary first-person context, "
+                      "not evidence that astrology is correct and not a stable personality trait. ",
+                      faculty175_face_psych_state_mood_label());
+    } else {
+        prompt_append(out,
+                      cap,
+                      &off,
+                      "No explicit mood check-in is available. Do not infer the user's mood from astrology, "
+                      "biometrics, interaction patterns, or the mood face's highlighted default. ");
+    }
+
+    faculty175_charts_ensure_family_seed();
+    faculty175_birth_chart_t user = {};
+    faculty175_chart_positions_t natal = {};
+    if (faculty175_charts_primary(&user) && faculty175_charts_birth_positions(&user, &natal)) {
+        prompt_append(out,
+                      cap,
+                      &off,
+                      "Primary natal chart: %s, Sun %s, Moon %s, Mercury %s, Venus %s, Mars %s, "
+                      "Jupiter %s, Saturn %s. ",
+                      user.name,
+                      faculty175_charts_zodiac_abbr(natal.lon[0]),
+                      faculty175_charts_zodiac_abbr(natal.lon[1]),
+                      faculty175_charts_zodiac_abbr(natal.lon[2]),
+                      faculty175_charts_zodiac_abbr(natal.lon[3]),
+                      faculty175_charts_zodiac_abbr(natal.lon[4]),
+                      faculty175_charts_zodiac_abbr(natal.lon[5]),
+                      faculty175_charts_zodiac_abbr(natal.lon[6]));
+    } else {
+        prompt_append(out, cap, &off, "Primary natal chart is not configured. ");
+    }
+
+    faculty175_chart_positions_t transits = {};
+    const time_t now = time(NULL);
+    if (now >= 1704067200 && faculty175_charts_positions_at(now, &transits)) {
+        prompt_append(out,
+                      cap,
+                      &off,
+                      "Current sky positions: Sun %s, Moon %s, Mercury %s, Venus %s, Mars %s, "
+                      "Jupiter %s, Saturn %s. ",
+                      faculty175_charts_zodiac_abbr(transits.lon[0]),
+                      faculty175_charts_zodiac_abbr(transits.lon[1]),
+                      faculty175_charts_zodiac_abbr(transits.lon[2]),
+                      faculty175_charts_zodiac_abbr(transits.lon[3]),
+                      faculty175_charts_zodiac_abbr(transits.lon[4]),
+                      faculty175_charts_zodiac_abbr(transits.lon[5]),
+                      faculty175_charts_zodiac_abbr(transits.lon[6]));
+    } else {
+        prompt_append(out, cap, &off, "Current transit positions are unavailable. ");
+    }
+
+    append_synastry_prompt(out, cap, &off);
+    const int tarot_idx = faculty175_face_tarot_current_card();
+    const faculty175_tarot_card_t *tarot = faculty175_tarot_card_get(tarot_idx);
+    if (tarot != NULL) {
+        prompt_append(out,
+                      cap,
+                      &off,
+                      "Visible tarot card is %s, with reflective keyword %s. ",
+                      tarot->title != NULL ? tarot->title : "unknown",
+                      tarot->keyword != NULL ? tarot->keyword : "unknown");
+    }
+    prompt_append(out,
+                  cap,
+                  &off,
+                  "The Moon and Sky faces may use the local date and supplied current sky positions. "
+                  "Do not invent an exact lunar phase, house, aspect, biometric state, or event when it is not supplied.");
+}
+
 static void build_face_read_prompt(const faculty175_face_desc_t *face, char *out, size_t cap)
 {
     if (out == NULL || cap == 0) {
@@ -1559,18 +1651,38 @@ static void build_face_read_prompt(const faculty175_face_desc_t *face, char *out
             prompt_append(out,
                           cap,
                           &off,
-                          "The visible face is Inner Weather: a friendly ten-day symbolic outlook derived from the user's natal chart and current transits. "
-                          "Self-reported mood is %s; treat that as present-moment context, never as proof that the astrology is correct. "
-                          "Name today's condition in plain language, explain one supporting chart factor, and offer one grounded choice. Never predict an event. ",
-                          faculty175_face_psych_state_mood_label());
-            break;
-        case FACULTY175_FACE_SYNASTRY:
-            append_synastry_prompt(out, cap, &off);
+                          "The visible face is Inner Weather: a friendly ten-day symbolic outlook derived from the user's natal chart and current transits. ");
+            if (faculty175_face_psych_state_mood_checked_in()) {
+                prompt_append(out,
+                              cap,
+                              &off,
+                              "The user explicitly checked in as %s; treat that as present-moment context, never as proof that the astrology is correct. ",
+                              faculty175_face_psych_state_mood_label());
+            } else {
+                prompt_append(out,
+                              cap,
+                              &off,
+                              "No explicit mood check-in is available; do not infer one. ");
+            }
             prompt_append(out,
                           cap,
                           &off,
-                          "The primary user's self-reported mood is %s. Treat it as temporary context, not a trait or compatibility score, and never infer another family member's mood from it. ",
-                          faculty175_face_psych_state_mood_label());
+                          "Name today's condition in plain language, explain one supporting chart factor, and offer one grounded choice. Never predict an event. ");
+            break;
+        case FACULTY175_FACE_SYNASTRY:
+            append_synastry_prompt(out, cap, &off);
+            if (faculty175_face_psych_state_mood_checked_in()) {
+                prompt_append(out,
+                              cap,
+                              &off,
+                              "The primary user explicitly checked in as %s. Treat it as temporary context, not a trait or compatibility score, and never infer another family member's mood from it. ",
+                              faculty175_face_psych_state_mood_label());
+            } else {
+                prompt_append(out,
+                              cap,
+                              &off,
+                              "No explicit mood check-in is available; do not infer any family member's mood. ");
+            }
             break;
         case FACULTY175_FACE_PARTNER_WELLNESS:
             append_family_wellness_prompt(out, cap, &off);
@@ -1602,8 +1714,11 @@ static void build_face_read_prompt(const faculty175_face_desc_t *face, char *out
             prompt_append(out,
                           cap,
                           &off,
-                          "This is the private Mood Check-in face. The user selected %s. Reflect it back without diagnosis or interpretation, and invite them to change it whenever it no longer fits. ",
-                          faculty175_face_psych_state_mood_label());
+                          "This is the private Mood Check-in face. The currently highlighted choice is %s and it is %s. Reflect only that interaction state without diagnosis or interpretation. ",
+                          faculty175_face_psych_state_mood_label(),
+                          faculty175_face_psych_state_mood_checked_in()
+                              ? "checked in"
+                              : "not yet checked in");
             break;
         case FACULTY175_FACE_RUNES: {
             int spread[3] = {};
@@ -1728,6 +1843,60 @@ typedef struct {
     uint32_t capture_ms;
 } face_tts_request_t;
 
+static bool lunasay_daily_cache_prepare(char date_out[11], unsigned *slot_out)
+{
+    if (date_out == NULL || slot_out == NULL ||
+        faculty175_face_profile_current() != FACULTY175_FACE_PROFILE_LUNASAY) {
+        return false;
+    }
+    const time_t now = time(NULL);
+    if (now < 1704067200) {
+        return false;
+    }
+    struct tm local_tm = {};
+    if (localtime_r(&now, &local_tm) == NULL ||
+        strftime(date_out, 11, "%Y-%m-%d", &local_tm) != 10) {
+        return false;
+    }
+    const uint32_t day_key = (uint32_t)(local_tm.tm_year + 1900) * 10000u +
+                             (uint32_t)(local_tm.tm_mon + 1) * 100u +
+                             (uint32_t)local_tm.tm_mday;
+    const unsigned slot = day_key & 1u;
+    char marker_path[48];
+    snprintf(marker_path, sizeof(marker_path), "/voice/lunasay-d%u.day", slot);
+    unsigned cached_day = 0;
+    FILE *marker = fopen(marker_path, "r");
+    if (marker != NULL) {
+        (void)fscanf(marker, "%u", &cached_day);
+        fclose(marker);
+    }
+    if (cached_day != day_key) {
+        static const char *const k_daily_slugs[] = {
+            "moon", "astrology", "transits", "synastry", "tarot", "sky",
+        };
+        for (size_t i = 0; i < sizeof(k_daily_slugs) / sizeof(k_daily_slugs[0]); ++i) {
+            char stale_path[64];
+            snprintf(stale_path,
+                     sizeof(stale_path),
+                     "/voice/lunasay-d%u-%s.mp3",
+                     slot,
+                     k_daily_slugs[i]);
+            unlink(stale_path);
+        }
+        char stale_packet[48];
+        snprintf(stale_packet, sizeof(stale_packet), "/voice/lunasay-d%u.json", slot);
+        unlink(stale_packet);
+        marker = fopen(marker_path, "w");
+        if (marker == NULL) {
+            return false;
+        }
+        fprintf(marker, "%u\n", day_key);
+        fclose(marker);
+    }
+    *slot_out = slot;
+    return true;
+}
+
 /* LunaSay's reflective faces are day-bound.  Keep their first generated
  * reading in the existing voice SPIFFS partition and replay it on subsequent
  * opens.  A two-slot day ring bounds storage without a directory scan; live
@@ -1751,44 +1920,184 @@ static bool lunasay_daily_tts_cache_path(const faculty175_face_desc_t *face,
         default:
             return false;
     }
-    const time_t now = time(NULL);
-    /* Do not give a stale boot-time cache the authority of a daily reading. */
-    if (now < 1704067200 || face->slug == NULL || face->slug[0] == '\0') {
+    if (face->slug == NULL || face->slug[0] == '\0') {
         return false;
     }
-    const uint64_t day = (uint64_t)now / 86400u;
-    const unsigned slot = (unsigned)(day & 1u);
-    char marker_path[48];
-    snprintf(marker_path, sizeof(marker_path), "/voice/lunasay-d%u.day", slot);
-    uint64_t cached_day = 0;
-    unsigned long long marker_day = 0;
-    FILE *marker = fopen(marker_path, "r");
-    if (marker != NULL) {
-        (void)fscanf(marker, "%llu", &marker_day);
-        fclose(marker);
-        cached_day = (uint64_t)marker_day;
-    }
-    if (cached_day != day) {
-        /* A two-slot ring only works if every old face in its reused slot is
-         * invalidated together; otherwise an unopened face could replay a
-         * reading from two days ago. */
-        static const char *const k_daily_slugs[] = {
-            "moon", "astrology", "transits", "synastry", "tarot", "sky",
-        };
-        for (size_t i = 0; i < sizeof(k_daily_slugs) / sizeof(k_daily_slugs[0]); ++i) {
-            char stale_path[64];
-            snprintf(stale_path, sizeof(stale_path), "/voice/lunasay-d%u-%s.mp3", slot, k_daily_slugs[i]);
-            unlink(stale_path);
-        }
-        marker = fopen(marker_path, "w");
-        if (marker == NULL) {
-            return false;
-        }
-        fprintf(marker, "%llu\n", (unsigned long long)day);
-        fclose(marker);
+    char date[11];
+    unsigned slot = 0;
+    if (!lunasay_daily_cache_prepare(date, &slot)) {
+        return false;
     }
     const int n = snprintf(out, cap, "/voice/lunasay-d%u-%s.mp3", slot, face->slug);
     return n > 0 && (size_t)n < cap;
+}
+
+static bool lunasay_daily_packet_cache_path(char *out,
+                                            size_t cap,
+                                            char date_out[11])
+{
+    if (out == NULL || cap == 0 || date_out == NULL) {
+        return false;
+    }
+    unsigned slot = 0;
+    if (!lunasay_daily_cache_prepare(date_out, &slot)) {
+        return false;
+    }
+    const int n = snprintf(out, cap, "/voice/lunasay-d%u.json", slot);
+    return n > 0 && (size_t)n < cap;
+}
+
+static bool lunasay_daily_packet_extract_spoken(const char *json,
+                                                size_t json_len,
+                                                const char *expected_date,
+                                                const char *face_slug,
+                                                char *spoken,
+                                                size_t spoken_cap)
+{
+    if (json == NULL || json_len < 8 || expected_date == NULL || face_slug == NULL ||
+        spoken == NULL || spoken_cap == 0) {
+        return false;
+    }
+    cJSON *root = cJSON_ParseWithLength(json, json_len);
+    if (root == NULL) {
+        return false;
+    }
+    const cJSON *packet = cJSON_GetObjectItemCaseSensitive(root, "packet");
+    const cJSON *date = cJSON_IsObject(packet)
+                            ? cJSON_GetObjectItemCaseSensitive(packet, "date")
+                            : NULL;
+    const cJSON *schema = cJSON_IsObject(packet)
+                              ? cJSON_GetObjectItemCaseSensitive(packet, "schemaVersion")
+                              : NULL;
+    const cJSON *faces = cJSON_IsObject(packet)
+                             ? cJSON_GetObjectItemCaseSensitive(packet, "faces")
+                             : NULL;
+    const cJSON *face = cJSON_IsObject(faces)
+                            ? cJSON_GetObjectItemCaseSensitive(faces, face_slug)
+                            : NULL;
+    const cJSON *text = cJSON_IsObject(face)
+                            ? cJSON_GetObjectItemCaseSensitive(face, "spoken")
+                            : NULL;
+    const bool ok = cJSON_IsString(date) && date->valuestring != NULL &&
+                    strcmp(date->valuestring, expected_date) == 0 &&
+                    cJSON_IsNumber(schema) && schema->valueint == 1 &&
+                    cJSON_IsString(text) && text->valuestring != NULL &&
+                    text->valuestring[0] != '\0' && strlen(text->valuestring) < spoken_cap;
+    if (ok) {
+        faculty175_strlcpy(spoken, text->valuestring, spoken_cap);
+    }
+    cJSON_Delete(root);
+    return ok;
+}
+
+static bool lunasay_daily_packet_load_spoken(const char *path,
+                                             const char *date,
+                                             const char *face_slug,
+                                             char *spoken,
+                                             size_t spoken_cap)
+{
+    struct stat st = {};
+    if (stat(path, &st) != 0 || st.st_size < 8 || st.st_size > 48 * 1024) {
+        return false;
+    }
+    char *json = heap_caps_malloc((size_t)st.st_size + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (json == NULL) {
+        return false;
+    }
+    FILE *f = fopen(path, "rb");
+    if (f == NULL) {
+        free(json);
+        return false;
+    }
+    const size_t got = fread(json, 1, (size_t)st.st_size, f);
+    fclose(f);
+    json[got] = '\0';
+    const bool ok = got == (size_t)st.st_size &&
+                    lunasay_daily_packet_extract_spoken(json,
+                                                        got,
+                                                        date,
+                                                        face_slug,
+                                                        spoken,
+                                                        spoken_cap);
+    free(json);
+    return ok;
+}
+
+static bool lunasay_daily_packet_save(const char *path,
+                                      const char *json,
+                                      size_t json_len)
+{
+    if (path == NULL || json == NULL || json_len < 8 || json_len > 48 * 1024) {
+        return false;
+    }
+    char tmp_path[56];
+    const int n = snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", path);
+    if (n <= 0 || (size_t)n >= sizeof(tmp_path)) {
+        return false;
+    }
+    FILE *f = fopen(tmp_path, "wb");
+    if (f == NULL) {
+        return false;
+    }
+    const bool wrote = fwrite(json, 1, json_len, f) == json_len && fflush(f) == 0;
+    fclose(f);
+    if (!wrote || rename(tmp_path, path) != 0) {
+        unlink(tmp_path);
+        return false;
+    }
+    return true;
+}
+
+static bool lunasay_daily_packet_spoken(const faculty175_face_desc_t *face,
+                                        char *spoken,
+                                        size_t spoken_cap)
+{
+    if (face == NULL || face->slug == NULL || spoken == NULL || spoken_cap == 0) {
+        return false;
+    }
+    char packet_path[48];
+    char date[11];
+    if (!lunasay_daily_packet_cache_path(packet_path, sizeof(packet_path), date)) {
+        return false;
+    }
+    if (lunasay_daily_packet_load_spoken(packet_path,
+                                         date,
+                                         face->slug,
+                                         spoken,
+                                         spoken_cap)) {
+        FACULTY175_LOG_STAGE(TAG, "lunasay-daily", "packet cache hit %s", face->slug);
+        return true;
+    }
+
+    char *facts = heap_caps_malloc(8192, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (facts == NULL) {
+        return false;
+    }
+    build_lunasay_daily_facts(facts, 8192);
+    char *json = NULL;
+    size_t json_len = 0;
+    const esp_err_t err = faculty175_voice_fetch_lunasay_daily_packet(
+        facts,
+        astrolabe_time_timezone(),
+        (int64_t)time(NULL),
+        &json,
+        &json_len);
+    free(facts);
+    if (err != ESP_OK || json == NULL) {
+        free(json);
+        return false;
+    }
+    const bool valid = lunasay_daily_packet_extract_spoken(json,
+                                                           json_len,
+                                                           date,
+                                                           face->slug,
+                                                           spoken,
+                                                           spoken_cap);
+    if (valid && !lunasay_daily_packet_save(packet_path, json, json_len)) {
+        FACULTY175_LOG_STAGE_W(TAG, "lunasay-daily", "packet cache write failed");
+    }
+    free(json);
+    return valid;
 }
 
 static bool lunasay_play_cached_daily_tts(const faculty175_face_desc_t *face)
@@ -1882,6 +2191,45 @@ static void face_tts_run_one(faculty175_face_id_t id)
         s_face_tts_busy = false;
         return;
     }
+
+    char daily_cache_path[64] = {};
+    const bool daily_face = lunasay_daily_tts_cache_path(face,
+                                                         daily_cache_path,
+                                                         sizeof(daily_cache_path));
+    char packet_spoken[384] = {};
+    if (daily_face &&
+        lunasay_daily_packet_spoken(face, packet_spoken, sizeof(packet_spoken))) {
+        FACULTY175_LOG_STAGE(TAG, "tts-face", "daily packet TTS %s", slug);
+        ui_set(FACULTY175_UI_SPEAK, face->label);
+        const faculty175_voice_tts_stream_t packet_stream = {
+            .spool_path = daily_cache_path,
+        };
+        esp_err_t packet_err = faculty175_voice_post_tts_text_streaming(
+            packet_spoken,
+            slug,
+            &packet_stream,
+            result);
+        if (packet_err == ESP_OK) {
+            packet_err = faculty175_voice_play_mp3_file_sync(result->mp3_path,
+                                                             result->mp3_len);
+        }
+        if (packet_err == ESP_OK) {
+            append_history(face->label, packet_spoken);
+            save_faculty_to_nvs();
+            faculty175_voice_result_free(result);
+            free(result);
+            free(prompt);
+            ui_set(FACULTY175_UI_LISTEN, NULL);
+            face_tts_status_finish(ESP_OK);
+            s_face_tts_busy = false;
+            return;
+        }
+        unlink(daily_cache_path);
+        FACULTY175_LOG_STAGE_W(TAG,
+                               "tts-face",
+                               "daily packet TTS failed %s; using per-face fallback",
+                               esp_err_to_name(packet_err));
+    }
     build_face_read_prompt(face, prompt, prompt_cap);
 
     FACULTY175_LOG_STAGE(TAG, "tts-face", "start %s", slug);
@@ -1899,10 +2247,7 @@ static void face_tts_run_one(faculty175_face_id_t id)
                                 ? ASTROLABE_FACULTY_FACE_NAME
                                 : (face != NULL ? face->slug : ASTROLABE_FACULTY_FACE_NAME);
     ui_set(FACULTY175_UI_SPEAK, face != NULL ? face->label : "face");
-    char daily_cache_path[64] = {};
-    const char *spool_path = lunasay_daily_tts_cache_path(face, daily_cache_path, sizeof(daily_cache_path))
-                                 ? daily_cache_path
-                                 : NULL;
+    const char *spool_path = daily_face ? daily_cache_path : NULL;
     esp_err_t err = face_tts_stream_post(prompt, system, post_face, spool_path, result);
     if (err == ESP_OK) {
         if (face != NULL && face->id == FACULTY175_FACE_CRYSTAL_BALL &&

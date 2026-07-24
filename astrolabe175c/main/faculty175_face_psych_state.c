@@ -21,6 +21,7 @@
 #define PSYCH_STATE_NVS_AROUSAL "arousal"
 #define PSYCH_STATE_NVS_VALENCE "valence"
 #define PSYCH_STATE_NVS_MOOD "mood"
+#define PSYCH_STATE_NVS_MOOD_CHECKED "mood_checked"
 #define PSYCH_STATE_DEFAULT_SKIN 1
 #define PSYCH_STATE_DEFAULT_HAIR 0
 #define PSYCH_STATE_DEFAULT_EYE 2
@@ -453,6 +454,7 @@ static void save_style_style(void)
     (void)nvs_set_u8(nvs, PSYCH_STATE_NVS_AROUSAL, s_style[PSYCH_STYLE_AROUSAL].value);
     (void)nvs_set_u8(nvs, PSYCH_STATE_NVS_VALENCE, s_style[PSYCH_STYLE_VALENCE].value);
     (void)nvs_set_u8(nvs, PSYCH_STATE_NVS_MOOD, s_mood);
+    (void)nvs_set_u8(nvs, PSYCH_STATE_NVS_MOOD_CHECKED, s_local_checked_in ? 1 : 0);
     (void)nvs_commit(nvs);
     nvs_close(nvs);
 }
@@ -478,6 +480,9 @@ static void ensure_style_loaded(void)
     nvs_get_u8(nvs, PSYCH_STATE_NVS_AROUSAL, &s_style[PSYCH_STYLE_AROUSAL].value);
     nvs_get_u8(nvs, PSYCH_STATE_NVS_VALENCE, &s_style[PSYCH_STYLE_VALENCE].value);
     nvs_get_u8(nvs, PSYCH_STATE_NVS_MOOD, &s_mood);
+    uint8_t mood_checked = 0;
+    nvs_get_u8(nvs, PSYCH_STATE_NVS_MOOD_CHECKED, &mood_checked);
+    s_local_checked_in = mood_checked == 1;
     nvs_close(nvs);
 
     normalize_field(PSYCH_STYLE_SKIN, &s_style[PSYCH_STYLE_SKIN].value);
@@ -678,8 +683,8 @@ bool faculty175_face_psych_state_action(uint32_t seed_ms)
 {
     (void)seed_ms;
     ensure_style_loaded();
-    save_style_style();
     s_local_checked_in = true;
+    save_style_style();
     if (faculty175_research_consent_enabled()) {
         (void)faculty175_research_record_mood(
             k_moods[s_mood].label,
@@ -739,6 +744,12 @@ const char *faculty175_face_psych_state_mood_label(void)
 {
     ensure_style_loaded();
     return k_moods[s_mood].label;
+}
+
+bool faculty175_face_psych_state_mood_checked_in(void)
+{
+    ensure_style_loaded();
+    return s_local_checked_in;
 }
 
 void faculty175_face_psych_state_mood_values(uint8_t *arousal, uint8_t *valence)
