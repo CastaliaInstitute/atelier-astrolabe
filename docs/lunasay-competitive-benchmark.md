@@ -55,3 +55,23 @@ The milestone is complete only when:
   through the PWA state characteristic;
 - civil-date, PWA interaction, firmware build, and device-display behavior are
   verified before release.
+
+## Grounded Ask This Face gate
+
+The physical instrument should be more conversational than a passive app feed.
+A spoken question from a reflective face passes this gate only when:
+
+- the request identifies the face and includes bounded device-derived context;
+- when available and privacy-safe, it includes that face's exact cached
+  reading, supporting evidence, timing evidence, and validated practice for
+  the current local day;
+- cached model output is delimited as reference data and cannot become a new
+  instruction;
+- the answer addresses the user's exact question rather than replaying or
+  regenerating the daily reading;
+- unsupported questions receive an honest boundary instead of invented chart,
+  biometric, mood, or event claims;
+- Conversation, Journal, Alethiometer, and Crystal Ball retain their distinct
+  interaction contracts and never inherit a daily face's cached context;
+- firmware build, request inspection, spoken-answer quality, and private-data
+  boundaries are verified on the release candidate.
