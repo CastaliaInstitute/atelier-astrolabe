@@ -6,6 +6,7 @@
 #include <emscripten.h>
 
 #include "faculty175_board.h"
+#include "faculty175_astro_math.h"
 #include "faculty175_face_dispatch.h"
 #include "faculty175_faces.h"
 
@@ -147,6 +148,31 @@ EMSCRIPTEN_KEEPALIVE void astrolabe_web_button_press(void)
              face != NULL && face->slug != NULL ? face->slug : "face");
     s_voice_until_ms = s_anim_ms + 4000u;
     draw_current_face();
+}
+
+EMSCRIPTEN_KEEPALIVE const char *astrolabe_web_astro_positions(double epoch_seconds)
+{
+    static char json[512];
+    faculty175_chart_positions_t positions = {0};
+    if (epoch_seconds <= 0.0 ||
+        !faculty175_astro_positions_at_epoch((time_t)epoch_seconds, &positions)) {
+        snprintf(json, sizeof(json), "{\"ok\":false,\"error\":\"invalid UTC epoch\"}");
+        return json;
+    }
+    snprintf(json,
+             sizeof(json),
+             "{\"ok\":true,\"epoch\":%.0f,\"sun\":%.6f,\"moon\":%.6f,"
+             "\"mercury\":%.6f,\"venus\":%.6f,\"mars\":%.6f,"
+             "\"jupiter\":%.6f,\"saturn\":%.6f}",
+             epoch_seconds,
+             positions.lon[0],
+             positions.lon[1],
+             positions.lon[2],
+             positions.lon[3],
+             positions.lon[4],
+             positions.lon[5],
+             positions.lon[6]);
+    return json;
 }
 
 int main(void)

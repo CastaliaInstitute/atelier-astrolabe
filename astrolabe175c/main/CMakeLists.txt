@@ -83,6 +83,7 @@ idf_component_register(
         "faculty175_face_pocketwatch.c"
         "faculty175_face_incidents.c"
         "faculty175_pocketwatch.c"
+        "faculty175_astro_math.c"
         "faculty175_charts.c"
         "faculty175_ephemeris.c"
         "faculty175_cycle_arcs.c"

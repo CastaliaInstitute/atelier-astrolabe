@@ -127,6 +127,50 @@
         color: #c6d1dc;
       }
 
+      .astro-validation {
+        width: min(466px, calc(100vw - 32px));
+        display: grid;
+        gap: 10px;
+        border: 1px solid #384655;
+        border-radius: 12px;
+        background: #0b1118;
+        padding: 14px;
+      }
+
+      .astro-validation h2 {
+        margin: 0;
+        font-size: 16px;
+      }
+
+      .astro-validation-row {
+        display: grid;
+        grid-template-columns: 1fr 96px;
+        gap: 8px;
+      }
+
+      .astro-validation input {
+        min-height: 38px;
+        border: 1px solid #384655;
+        border-radius: 7px;
+        background: #111923;
+        color: #eef3f6;
+        padding: 0 10px;
+        font: inherit;
+      }
+
+      .astro-results {
+        width: 100%;
+        border-collapse: collapse;
+        font: 12px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      }
+
+      .astro-results th,
+      .astro-results td {
+        border-top: 1px solid #26313b;
+        padding: 5px 4px;
+        text-align: left;
+      }
+
       .voice {
         width: min(466px, calc(100vw - 32px));
         display: grid;
@@ -435,6 +479,18 @@
         <button type="button" id="send-wifi">Send Wi-Fi Credentials</button>
         <div class="status" id="device-status"></div>
       </section>
+      <section class="astro-validation" aria-label="Astrological calculation validation">
+        <h2>Astrology calculation validation</h2>
+        <div class="astro-validation-row">
+          <input id="astro-utc" type="datetime-local" step="1" aria-label="UTC date and time" />
+          <button type="button" id="astro-calculate">Calculate</button>
+        </div>
+        <div class="status" id="astro-status">UTC · shared firmware/WebAssembly calculation</div>
+        <table class="astro-results">
+          <thead><tr><th>Body</th><th>Longitude</th><th>Zodiac</th><th>JPL Δ</th></tr></thead>
+          <tbody id="astro-results"></tbody>
+        </table>
+      </section>
     </main>
 
     <script>
@@ -462,6 +518,10 @@
         allVoice: document.querySelector("#voice-all"),
         clearVoice: document.querySelector("#voice-clear"),
         repeatVoice: document.querySelector("#voice-repeat"),
+        astroUtc: document.querySelector("#astro-utc"),
+        astroCalculate: document.querySelector("#astro-calculate"),
+        astroResults: document.querySelector("#astro-results"),
+        astroStatus: document.querySelector("#astro-status"),
       };
 
       var Module = {
@@ -491,6 +551,7 @@
             controls.next.disabled = false;
             controls.saveFace.disabled = false;
             controls.select.disabled = false;
+            calculateAstrology();
           };
           enableControls();
         },
@@ -528,6 +589,74 @@
         "18-moon", "19-sun", "20-judgement", "21-world",
       ];
       let tarotCardIndex = 16;
+      const zodiacNames = ["Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo",
+        "Libra", "Scorpio", "Sagittarius", "Capricorn", "Aquarius", "Pisces"];
+      const astroBodies = ["sun", "moon", "mercury", "venus", "mars", "jupiter", "saturn"];
+      // NASA/JPL Horizons observer quantity 31, geocentric true ecliptic-of-date
+      // longitudes for 2026-08-01 12:00:00 UTC. Low-memory firmware target: <= 1°.
+      const jplValidationFixture = {
+        epoch: 1785585600,
+        toleranceDegrees: 1,
+        positions: {
+          sun: 129.2671898,
+          moon: 342.5007107,
+          mercury: 109.9336698,
+          venus: 174.5777489,
+          mars: 83.4061674,
+          jupiter: 127.0723297,
+          saturn: 14.7224712,
+        },
+      };
+
+      function angularDifference(a, b) {
+        const distance = Math.abs(a - b) % 360;
+        return Math.min(distance, 360 - distance);
+      }
+
+      function calculateAstrology() {
+        if (typeof Module.ccall !== "function" || !controls.astroUtc.value) {
+          return null;
+        }
+        const epoch = Date.parse(`${controls.astroUtc.value}Z`) / 1000;
+        const resultPtr = Module.ccall("astrolabe_web_astro_positions", "number", ["number"], [epoch]);
+        const result = JSON.parse(Module.UTF8ToString(resultPtr));
+        controls.astroResults.replaceChildren();
+        if (!result.ok) {
+          controls.astroResults.innerHTML = `<tr><td colspan="4">${result.error}</td></tr>`;
+          controls.astroStatus.textContent = result.error;
+          return result;
+        }
+        const matchesFixture = result.epoch === jplValidationFixture.epoch;
+        let allPass = matchesFixture;
+        for (const body of astroBodies) {
+          const longitude = result[body];
+          const sign = Math.floor(longitude / 30) % 12;
+          const delta = matchesFixture
+            ? angularDifference(longitude, jplValidationFixture.positions[body])
+            : null;
+          const pass = delta !== null && delta <= jplValidationFixture.toleranceDegrees;
+          allPass = allPass && pass;
+          const row = document.createElement("tr");
+          row.innerHTML = `<td>${body[0].toUpperCase()}${body.slice(1)}</td>` +
+            `<td>${longitude.toFixed(4)}°</td>` +
+            `<td>${(longitude % 30).toFixed(2)}° ${zodiacNames[sign]}</td>` +
+            `<td>${delta === null ? "—" : `${delta.toFixed(3)}° ${pass ? "✓" : "✗"}`}</td>`;
+          controls.astroResults.append(row);
+        }
+        controls.astroStatus.textContent = matchesFixture
+          ? `${allPass ? "PASS" : "FAIL"} · JPL Horizons fixture · ≤ ${jplValidationFixture.toleranceDegrees}°`
+          : "Calculated with shared firmware/WebAssembly math · choose the default time for JPL validation";
+        result.validation = {
+          source: matchesFixture ? "NASA/JPL Horizons quantity 31" : null,
+          toleranceDegrees: jplValidationFixture.toleranceDegrees,
+          passed: matchesFixture ? allPass : null,
+        };
+        window.astrolabeAstrologyValidation = result;
+        return result;
+      }
+
+      controls.astroUtc.value = "2026-08-01T12:00:00";
+      controls.astroCalculate.addEventListener("click", calculateAstrology);
 
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register("/sw.js").catch(() => {});
