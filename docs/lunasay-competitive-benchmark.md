@@ -93,5 +93,8 @@ cloud dossier. Daily continuity passes this gate only when:
   supports it and cannot invent intervening lived events;
 - a practice that repeats any retained action is rejected and retried;
 - legacy one-day devices remain accepted during rollout;
+- a person can erase the summary, cached packets, and cached daily audio from
+  the companion without a factory reset, and old firmware cannot falsely
+  claim the deletion;
 - parser, privacy, generation, firmware build, storage-bound, and repeated
   production-quality gates pass before release.

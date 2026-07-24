@@ -1,5 +1,6 @@
 #include "faculty175_voice.h"
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -300,6 +301,50 @@ static esp_err_t voice_spiffs_mount(void)
     }
     FACULTY175_LOG_STAGE_W(TAG, "stream", "SPIFFS unavailable for voice spool: %s", esp_err_to_name(err));
     return err;
+}
+
+esp_err_t faculty175_voice_clear_lunasay_reading_history(void)
+{
+    static const char *const slugs[] = {
+        "moon", "astrology", "transits", "synastry", "tarot", "sky",
+    };
+    static const char *const fixed_paths[] = {
+        VOICE_SPOOL_BASE "/lunasay-memory.json",
+        VOICE_SPOOL_BASE "/lunasay-memory.json.tmp",
+        VOICE_SPOOL_BASE "/lunasay-d0.json",
+        VOICE_SPOOL_BASE "/lunasay-d0.json.tmp",
+        VOICE_SPOOL_BASE "/lunasay-d1.json",
+        VOICE_SPOOL_BASE "/lunasay-d1.json.tmp",
+    };
+    const esp_err_t mount_err = voice_spiffs_mount();
+    if (mount_err != ESP_OK) {
+        return mount_err;
+    }
+
+    esp_err_t result = ESP_OK;
+    for (size_t i = 0; i < sizeof(fixed_paths) / sizeof(fixed_paths[0]); ++i) {
+        if (remove(fixed_paths[i]) != 0 && errno != ENOENT) {
+            result = ESP_FAIL;
+        }
+    }
+    char path[64];
+    for (unsigned slot = 0; slot < 2; ++slot) {
+        for (size_t i = 0; i < sizeof(slugs) / sizeof(slugs[0]); ++i) {
+            snprintf(path,
+                     sizeof(path),
+                     VOICE_SPOOL_BASE "/lunasay-d%u-%s.mp3",
+                     slot,
+                     slugs[i]);
+            if (remove(path) != 0 && errno != ENOENT) {
+                result = ESP_FAIL;
+            }
+        }
+    }
+    FACULTY175_LOG_STAGE(TAG,
+                         "privacy",
+                         "clear reading history %s",
+                         esp_err_to_name(result));
+    return result;
 }
 
 static char *json_escape_alloc(const char *src)

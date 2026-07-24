@@ -43,6 +43,7 @@
 #include "faculty175_relationship_weather.h"
 #include "faculty175_ring.h"
 #include "faculty175_spotify.h"
+#include "faculty175_voice.h"
 #include "faculty175_wifi_settings.h"
 
 void ble_store_config_init(void);
@@ -1636,6 +1637,14 @@ static esp_err_t ble_apply_settings_json(const char *body)
         if (cJSON_IsString(birthplace) && birthplace->valuestring != NULL) faculty175_strlcpy(settings.birthplace, birthplace->valuestring, sizeof(settings.birthplace));
         err = faculty175_personal_settings_save(&settings);
     }
+    const cJSON *privacy = cJSON_GetObjectItemCaseSensitive(root, "privacy");
+    if (err == ESP_OK && cJSON_IsObject(privacy)) {
+        const cJSON *clear_history =
+            cJSON_GetObjectItemCaseSensitive(privacy, "clearReadingHistory");
+        if (cJSON_IsTrue(clear_history)) {
+            err = faculty175_voice_clear_lunasay_reading_history();
+        }
+    }
     const cJSON *research = cJSON_GetObjectItemCaseSensitive(root, "research");
     if (err == ESP_OK && cJSON_IsObject(research)) {
         const cJSON *consent = cJSON_GetObjectItemCaseSensitive(research, "consent");
@@ -1841,9 +1850,9 @@ static int ble_health_json_access(uint16_t conn_handle,
     char firmware[72] = {};
     /* Keep the complete attribute under the 512-byte BLE value boundary even
      * when every byte in the diagnostic needs JSON escaping. */
-    char ota_last_raw[41] = {};
-    char ota_last[82] = {};
-    snprintf(ota_last_raw, sizeof(ota_last_raw), "%.40s", ota.last);
+    char ota_last_raw[25] = {};
+    char ota_last[50] = {};
+    snprintf(ota_last_raw, sizeof(ota_last_raw), "%.24s", ota.last);
     if (!ble_json_escape(firmware,
                          sizeof(firmware),
                          app != NULL ? app->version : "") ||
@@ -1860,7 +1869,8 @@ static int ble_health_json_access(uint16_t conn_handle,
         "\"ble\":{\"enabled\":%s,\"advertising\":%s},"
         "\"ota\":{\"active\":%s,\"autoStarted\":%s,\"paused\":%s,"
         "\"networkReady\":%s,\"heapReady\":%s,\"intervalSeconds\":%u,"
-        "\"lastPollUptimeMs\":%u,\"last\":\"%s\"}}}",
+        "\"lastPollUptimeMs\":%u,\"last\":\"%s\"},"
+        "\"capabilities\":{\"clearReadingHistory\":true}}}",
         firmware,
         (unsigned long long)(esp_timer_get_time() / 1000),
         have_power ? "true" : "false",

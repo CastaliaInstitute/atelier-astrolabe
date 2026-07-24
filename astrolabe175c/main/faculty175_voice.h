@@ -85,6 +85,9 @@ esp_err_t faculty175_voice_fetch_lunasay_daily_packet(const char *briefing_facts
                                                       char **json_out,
                                                       size_t *json_len_out);
 
+/** Clear retained LunaSay reading summaries, full packets, and per-face speech caches. */
+esp_err_t faculty175_voice_clear_lunasay_reading_history(void);
+
 /** Synthesize supplied text verbatim without invoking the LLM. */
 esp_err_t faculty175_voice_post_tts_text_streaming(const char *text,
                                                    const char *face,
