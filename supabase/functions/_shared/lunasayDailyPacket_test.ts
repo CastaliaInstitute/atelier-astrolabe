@@ -546,7 +546,8 @@ Deno.test("LunaSay composes synastry from durable, temporary, and practice beats
       headline: "Tender",
       display: "Move gently and let lived experience lead.",
       dynamic: "You can both protect closeness by moving slowly.",
-      weather: "No live relationship signal is supplied; notice what is real.",
+      weather:
+        "Alex may be navigating a period that feels serious or calls for patience and a clearer boundary between care and over-responsibility.",
       practice: "Ask before offering advice, then listen for one minute.",
       detail: "A Moon sextile supports ease without guaranteeing an outcome.",
       now: "No verified relationship timing is loaded.",
@@ -561,7 +562,7 @@ Deno.test("LunaSay composes synastry from durable, temporary, and practice beats
   for (
     const beat of [
       "You can both protect closeness",
-      "No live relationship signal",
+      "Today: Alex may be navigating a period that feels serious.",
       "Next:",
       "Practice:",
     ]

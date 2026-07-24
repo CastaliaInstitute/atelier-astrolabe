@@ -481,7 +481,8 @@ function speechClause(value: string, maxChars: number): string {
   const finish = (text: string) => {
     let result = text.replace(/[\s,;:.-]+$/, "").trim();
     while (
-      /\b(?:and|or|to|of|in|for|with|a|an|the|their|how|as)$/i.test(result)
+      /\b(?:and|or|to|of|in|for|with|a|an|the|their|how|as|calls|requires|invites|suggests|asks|needs|wants|seeks)$/i
+        .test(result)
     ) {
       result = result.replace(/\s+\S+$/, "").trim();
     }
