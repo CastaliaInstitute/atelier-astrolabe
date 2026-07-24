@@ -68,6 +68,29 @@ different bounded practice rather than repeating the prior action verbatim. The
 application does not persist this continuity envelope server-side;
 provider-retention caveats below still apply.
 
+### Ask This Face follow-ups
+
+When a person deliberately asks a spoken question from a reflective face, the
+device supplies bounded face-local context with the audio request. For the six
+daily generated faces, this may include the current local day's cached spoken
+reading, its exact server-validated supporting evidence, optional
+weather/timing evidence, and the validated practice. The context is read from
+the device's rotating daily packet; it does not cause another daily generation
+call. A cached Family Synastry weather-evidence line is omitted when it contains
+live family measurements. Cycle and Partner Wellness follow-ups disclose only
+that relevant device-local signals are available; their raw measurements and
+partner identity remain off the cloud follow-up request.
+
+The request labels cached text as reference data rather than instructions and
+requires the service to answer the person's exact question, state when the
+supplied evidence cannot support a claim, and avoid certainty, diagnosis,
+compatibility scoring, and event prediction. It does not add raw birth
+records, coordinates, credentials, journal text, conversation history,
+current audio from another turn, or hidden settings. Conversation, Journal,
+Alethiometer, and Crystal Ball do not inherit a daily face's cached context.
+The spoken question and the bounded context still enter the cloud voice path
+and remain subject to the provider-retention caveats below.
+
 ### Relationship Weather Time Travel
 
 The companion PWA reads only the names and roles of family profiles already
