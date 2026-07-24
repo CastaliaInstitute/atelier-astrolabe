@@ -7,6 +7,7 @@
 
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_spiffs.h"
 #include "faculty175_storage.h"
 
 namespace {
@@ -24,6 +25,8 @@ struct DecodeCtx {
 
 bool s_storage_checked = false;
 bool s_storage_ready = false;
+bool s_spiffs_checked = false;
+bool s_spiffs_ready = false;
 int s_cached_idx = -1;
 uint16_t *s_pixels = nullptr;
 char s_error[48] = {};
@@ -50,6 +53,28 @@ bool storage_ready()
     }
     snprintf(s_error, sizeof(s_error), "fat %s", esp_err_to_name(err));
     ESP_LOGW(TAG, "media FAT init failed: %s", esp_err_to_name(err));
+    return false;
+}
+
+bool packaged_storage_ready()
+{
+    if (s_spiffs_checked) {
+        return s_spiffs_ready;
+    }
+    s_spiffs_checked = true;
+
+    esp_vfs_spiffs_conf_t conf = {
+        .base_path = "/bust_cache",
+        .partition_label = "storage",
+        .max_files = 12,
+        .format_if_mount_failed = false,
+    };
+    const esp_err_t err = esp_vfs_spiffs_register(&conf);
+    if (err == ESP_OK || err == ESP_ERR_INVALID_STATE) {
+        s_spiffs_ready = true;
+        return true;
+    }
+    ESP_LOGW(TAG, "packaged tarot storage unavailable: %s", esp_err_to_name(err));
     return false;
 }
 
@@ -97,6 +122,20 @@ bool build_path(int idx, const faculty175_tarot_card_t *card, char *out, size_t 
         return false;
     }
     const int n = snprintf(out, cap, "%s/tarot/deck/466/%s", base, filename);
+    return n > 0 && static_cast<size_t>(n) < cap;
+}
+
+bool build_packaged_path(int idx, const faculty175_tarot_card_t *card, char *out, size_t cap)
+{
+    if (card == nullptr || card->slug == nullptr || out == nullptr || cap == 0) {
+        return false;
+    }
+    char filename[64];
+    build_filename(idx, card->slug, filename, sizeof(filename));
+    if (filename[0] == '\0') {
+        return false;
+    }
+    const int n = snprintf(out, cap, "/bust_cache/tarot/deck/466/%s", filename);
     return n > 0 && static_cast<size_t>(n) < cap;
 }
 
@@ -236,19 +275,25 @@ extern "C" bool faculty175_tarot_spiffs_image_get(int idx,
         *h = kCardH;
         return true;
     }
-    if (!storage_ready()) {
-        return false;
+    char path[128];
+    uint8_t *png = nullptr;
+    size_t png_len = 0;
+
+    /* User media wins, allowing a deck to be replaced without reflashing. */
+    if (storage_ready() && build_path(idx, card, path, sizeof(path))) {
+        png = read_file(path, &png_len);
     }
 
-    char path[128];
-    if (!build_path(idx, card, path, sizeof(path))) {
-        set_error("path");
-        return false;
-    }
-    size_t png_len = 0;
-    uint8_t *png = read_file(path, &png_len);
+    /* Every LunaSay build also carries the canonical circular deck. */
     if (png == nullptr) {
-        return false;
+        if (!packaged_storage_ready() || !build_packaged_path(idx, card, path, sizeof(path))) {
+            set_error("card storage");
+            return false;
+        }
+        png = read_file(path, &png_len);
+        if (png == nullptr) {
+            return false;
+        }
     }
     const bool ok = decode_png(png, png_len, idx);
     heap_caps_free(png);
