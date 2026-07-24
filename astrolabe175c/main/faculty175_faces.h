@@ -79,6 +79,8 @@ typedef enum {
     FACULTY175_FACE_JOURNAL,
     FACULTY175_FACE_CONVERSATION,
     FACULTY175_FACE_CYCLE,
+    /* Preserve existing numeric IDs; new faces are appended. */
+    FACULTY175_FACE_ALPHEUS,
     FACULTY175_FACE_COUNT,
 } faculty175_face_id_t;
 

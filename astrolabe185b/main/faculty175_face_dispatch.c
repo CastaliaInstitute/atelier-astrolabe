@@ -42,6 +42,8 @@ void faculty175_face_tron_reset(void);
 void faculty175_face_settings_draw(uint32_t anim_ms);
 void faculty175_face_pocketwatch_draw(uint32_t anim_ms);
 void faculty175_face_linux_draw(uint32_t anim_ms);
+void faculty175_face_alpheus_draw(uint32_t anim_ms);
+bool faculty175_face_alpheus_action(uint32_t now_ms);
 
 bool faculty175_face_dispatch_draw(faculty175_face_id_t id, uint32_t anim_ms)
 {
@@ -94,6 +96,7 @@ bool faculty175_face_dispatch_draw(faculty175_face_id_t id, uint32_t anim_ms)
             return true;
         case FACULTY175_FACE_SETTINGS: faculty175_face_settings_draw(anim_ms); return true;
         case FACULTY175_FACE_POCKETWATCH: faculty175_face_pocketwatch_draw(anim_ms); return true;
+        case FACULTY175_FACE_ALPHEUS: faculty175_face_alpheus_draw(anim_ms); return true;
         case FACULTY175_FACE_FACULTY:
         case FACULTY175_FACE_COUNT:
         default:
@@ -119,6 +122,8 @@ bool faculty175_face_dispatch_action(faculty175_face_id_t id, uint32_t seed_ms)
         case FACULTY175_FACE_TRON:
             faculty175_face_tron_reset();
             return true;
+        case FACULTY175_FACE_ALPHEUS:
+            return faculty175_face_alpheus_action(seed_ms);
         case FACULTY175_FACE_WSCAN:
         case FACULTY175_FACE_DEAUTH:
         case FACULTY175_FACE_EVILTWIN:

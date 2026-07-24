@@ -364,9 +364,22 @@ void faculty175_face_ironman_draw(uint32_t anim_ms)
     const float beat_phase = fmodf((float)anim_ms, beat_period_ms) / beat_period_ms;
     const float pulse = expf(-beat_phase * 9.0f);
 
-    const uint16_t bg = rgb(6, 8, 12);
-    const uint16_t hud_dim = rgb(22, 88, 104);
+    const uint16_t bg =
+#if ASTROLABE_CLAW_VARIANT
+        rgb(8, 5, 10);
+#else
+        rgb(6, 8, 12);
+#endif
+    const uint16_t hud_dim =
+#if ASTROLABE_CLAW_VARIANT
+        rgb(30, 78, 104);
+#else
+        rgb(22, 88, 104);
+#endif
     uint16_t eye = rgb(170, 248, 255);
+#if ASTROLABE_CLAW_VARIANT
+    eye = rgb(255, 105, 48);
+#endif
     if (breath.state == FACULTY175_BREATH_MOTION) {
         eye = rgb(255, 184, 72);
     } else if (breath.state == FACULTY175_BREATH_SENSOR_MISSING) {
@@ -387,7 +400,15 @@ void faculty175_face_ironman_draw(uint32_t anim_ms)
     faculty175_display_draw_centered_text("ALPHEUS // CORE DIAL", 22, eye);
     draw_claw_power_gauge(cx, cy, battery_fraction, eye, hud_dim);
     faculty175_display_draw_centered_text("POWER", 56, hud_dim);
-    draw_alpheus_shrimp(cx, cy, eye, rgb(18, 54, 70));
+    draw_alpheus_shrimp(cx,
+                        cy,
+#if ASTROLABE_CLAW_VARIANT
+                        rgb(0, 220, 235),
+                        rgb(128, 20, 38));
+#else
+                        eye,
+                        rgb(18, 54, 70));
+#endif
 #endif
 
     draw_arc_reactor(cx,

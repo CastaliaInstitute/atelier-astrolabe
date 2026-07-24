@@ -78,8 +78,8 @@ void faculty175_power_metrics_status(faculty175_power_metrics_t *out)
 }
 bool faculty175_power_history_estimate(const faculty175_pmu_status_t *pmu, faculty175_power_history_estimate_t *out)
 { (void)pmu; if (out != NULL) memset(out, 0, sizeof(*out)); return false; }
-void faculty175_cycle_health_status(faculty175_cycle_health_status_t *out)
-{ if (out != NULL) memset(out, 0, sizeof(*out)); }
+esp_err_t faculty175_cycle_health_status(faculty175_cycle_health_status_t *out)
+{ if (out != NULL) memset(out, 0, sizeof(*out)); return ESP_OK; }
 const char *faculty175_cycle_health_phase_label(faculty175_cycle_phase_t phase)
 { (void)phase; return "UNKNOWN"; }
 void faculty175_spotify_poll(void) {}

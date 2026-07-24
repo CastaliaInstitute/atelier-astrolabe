@@ -12,15 +12,29 @@ static const char *TAG = "faculty175_face_profile";
 #define FACES_NVS_NS "faces"
 #define FACES_NVS_PROFILE "profile"
 
+#ifndef ASTROLABE185B_CLAW_VARIANT
+#define ASTROLABE185B_CLAW_VARIANT 0
+#endif
+
 static faculty175_face_profile_t s_profile = FACULTY175_FACE_PROFILE_DEFAULT;
 
 static bool face_is_anchor(faculty175_face_id_t id)
 {
+#if ASTROLABE185B_CLAW_VARIANT
+    if (id == FACULTY175_FACE_ALPHEUS) {
+        return true;
+    }
+#endif
     return id == FACULTY175_FACE_POCKETWATCH || id == FACULTY175_FACE_SETTINGS;
 }
 
 static bool face_is_nav_anchor(faculty175_face_id_t id)
 {
+#if ASTROLABE185B_CLAW_VARIANT
+    if (id == FACULTY175_FACE_ALPHEUS) {
+        return true;
+    }
+#endif
     return id == FACULTY175_FACE_POCKETWATCH;
 }
 
@@ -254,7 +268,11 @@ faculty175_face_id_t faculty175_face_profile_home_face(faculty175_face_profile_t
         case FACULTY175_FACE_PROFILE_CAMEO:
             return FACULTY175_FACE_FACULTY;
         default:
+#if ASTROLABE185B_CLAW_VARIANT
+            return FACULTY175_FACE_ALPHEUS;
+#else
             return FACULTY175_FACE_POCKETWATCH;
+#endif
     }
 }
 
