@@ -9,6 +9,7 @@
 #include "faculty175_board.h"
 #include "faculty175_astro_math.h"
 #include "faculty175_face_dispatch.h"
+#include "faculty175_face_psych_state.h"
 #include "faculty175_faces.h"
 #include "faculty175_human_design_math.h"
 
@@ -127,6 +128,16 @@ EMSCRIPTEN_KEEPALIVE void astrolabe_web_set_face(int face_id)
 EMSCRIPTEN_KEEPALIVE int astrolabe_web_current_face(void)
 {
     return websim_face_index_of_id(s_face);
+}
+
+EMSCRIPTEN_KEEPALIVE int astrolabe_web_tap(int x, int y)
+{
+    if (s_face != FACULTY175_FACE_PSYCH_STATE ||
+        !faculty175_face_psych_state_tap((int16_t)x, (int16_t)y)) {
+        return 0;
+    }
+    draw_current_face();
+    return 1;
 }
 
 EMSCRIPTEN_KEEPALIVE void astrolabe_web_voice_state(const char *state, const char *detail, int duration_ms)
