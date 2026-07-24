@@ -183,3 +183,58 @@ bool faculty175_astro_positions_at_epoch(time_t epoch, faculty175_chart_position
     gmtime_r(&epoch, &utc);
     return faculty175_astro_positions_at_utc(&utc, out);
 }
+
+bool faculty175_astro_slow_positions_at_epoch(time_t epoch,
+                                              double *uranus_lon,
+                                              double *neptune_lon,
+                                              double *pluto_lon,
+                                              double *mean_node_lon)
+{
+    if (epoch <= 0 || uranus_lon == NULL || neptune_lon == NULL ||
+        pluto_lon == NULL || mean_node_lon == NULL) {
+        return false;
+    }
+    struct tm utc = {};
+    gmtime_r(&epoch, &utc);
+    const double d = julian_day_ut(&utc) - 2451543.5;
+    double xs = 0.0, ys = 0.0, zs = 0.0, sun_lon = 0.0, ls = 0.0, ms = 0.0;
+    sun_rect_and_mean(d, &xs, &ys, &zs, &sun_lon, &ls, &ms);
+    planet_helio_geo(d, 74.0005, 0.7733, 96.6612, 19.18171, 0.047318, 142.5905,
+                     1.3978e-5, 1.9e-8, 3.0565e-5, 7.45e-9, 0.011725806,
+                     xs, ys, uranus_lon);
+    planet_helio_geo(d, 131.7806, 1.7700, 272.8461, 30.05826, 0.008606, 260.2471,
+                     3.0173e-5, -2.55e-7, -6.027e-6, 2.15e-9, 0.005995147,
+                     xs, ys, neptune_lon);
+
+    const double s = rev360(50.03 + 0.033459652 * d) * (M_PI / 180.0);
+    const double p = rev360(238.95 + 0.003968789 * d) * (M_PI / 180.0);
+    const double pluto_helio_lon = rev360(238.9508 + 0.00400703 * d
+                                          - 19.799 * sin(p) + 19.848 * cos(p)
+                                          + 0.897 * sin(2.0 * p) - 4.956 * cos(2.0 * p)
+                                          + 0.610 * sin(3.0 * p) + 1.211 * cos(3.0 * p)
+                                          - 0.341 * sin(4.0 * p) - 0.190 * cos(4.0 * p)
+                                          + 0.128 * sin(5.0 * p) - 0.034 * cos(5.0 * p)
+                                          - 0.038 * sin(6.0 * p) + 0.031 * cos(6.0 * p)
+                                          + 0.020 * sin(s - p) - 0.010 * cos(s - p));
+    const double pluto_helio_lat = -3.9082 - 5.453 * sin(p) - 14.975 * cos(p)
+                                   + 3.527 * sin(2.0 * p) + 1.673 * cos(2.0 * p)
+                                   - 1.051 * sin(3.0 * p) + 0.328 * cos(3.0 * p)
+                                   + 0.179 * sin(4.0 * p) - 0.292 * cos(4.0 * p)
+                                   + 0.019 * sin(5.0 * p) + 0.100 * cos(5.0 * p)
+                                   - 0.031 * sin(6.0 * p) - 0.026 * cos(6.0 * p)
+                                   + 0.011 * cos(s - p);
+    const double pluto_r = 40.72 + 6.68 * sin(p) + 6.90 * cos(p)
+                           - 1.18 * sin(2.0 * p) - 0.03 * cos(2.0 * p)
+                           + 0.15 * sin(3.0 * p) - 0.14 * cos(3.0 * p);
+    const double pluto_lon_rad = pluto_helio_lon * (M_PI / 180.0);
+    const double pluto_lat_rad = pluto_helio_lat * (M_PI / 180.0);
+    const double pluto_xh = pluto_r * cos(pluto_lon_rad) * cos(pluto_lat_rad);
+    const double pluto_yh = pluto_r * sin(pluto_lon_rad) * cos(pluto_lat_rad);
+    *pluto_lon = rev360(atan2(pluto_yh + ys, pluto_xh + xs) * (180.0 / M_PI));
+    *mean_node_lon = rev360(125.1228 - 0.0529538083 * d);
+    (void)zs;
+    (void)sun_lon;
+    (void)ls;
+    (void)ms;
+    return true;
+}

@@ -5858,6 +5858,14 @@ static uint32_t astrology_days_since_j2000(uint32_t anim_ms)
 
 static void astrology_local_ephemeris(uint32_t anim_ms, float lon[7])
 {
+    const time_t epoch = astrolabe_time_valid() ? astrolabe_time_now() : time(NULL);
+    faculty175_chart_positions_t positions = {0};
+    if (epoch > 0 && faculty175_charts_positions_at(epoch, &positions)) {
+        for (size_t i = 0; i < 7; ++i) {
+            lon[i] = (float)positions.lon[i];
+        }
+        return;
+    }
     const float days = (float)astrology_days_since_j2000(anim_ms) + (float)(anim_ms % 86400000u) / 86400000.0f;
     for (size_t i = 0; i < 7; ++i) {
         lon[i] = astrology_wrap360(k_lvgl_astro_bodies[i].base_lon + days * k_lvgl_astro_bodies[i].deg_per_day);

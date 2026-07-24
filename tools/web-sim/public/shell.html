@@ -171,6 +171,16 @@
         text-align: left;
       }
 
+      .reading-card {
+        margin: 0;
+        border-left: 3px solid #9f8bd8;
+        background: #111923;
+        padding: 9px 10px;
+        color: #d9d4e8;
+        font-size: 13px;
+        line-height: 1.45;
+      }
+
       .voice {
         width: min(466px, calc(100vw - 32px));
         display: grid;
@@ -490,6 +500,10 @@
           <thead><tr><th>Body</th><th>Longitude</th><th>Zodiac</th><th>JPL Δ</th></tr></thead>
           <tbody id="astro-results"></tbody>
         </table>
+        <p class="reading-card" id="astro-reading"></p>
+        <p class="reading-card" id="human-design-reading"></p>
+        <div class="status" id="human-design-status"></div>
+        <div class="status">Validates deterministic chart mechanics, not the scientific truth of interpretive claims.</div>
       </section>
     </main>
 
@@ -522,6 +536,9 @@
         astroCalculate: document.querySelector("#astro-calculate"),
         astroResults: document.querySelector("#astro-results"),
         astroStatus: document.querySelector("#astro-status"),
+        astroReading: document.querySelector("#astro-reading"),
+        humanDesignReading: document.querySelector("#human-design-reading"),
+        humanDesignStatus: document.querySelector("#human-design-status"),
       };
 
       var Module = {
@@ -607,6 +624,12 @@
           saturn: 14.7224712,
         },
       };
+      const humanDesignValidationFixture = {
+        birthEpoch: 1785585600,
+        designEpoch: 1777649061,
+        personality: { sun: "33.2", moon: "63.2" },
+        design: { sun: "24.4", moon: "44.3" },
+      };
 
       function angularDifference(a, b) {
         const distance = Math.abs(a - b) % 360;
@@ -646,12 +669,57 @@
         controls.astroStatus.textContent = matchesFixture
           ? `${allPass ? "PASS" : "FAIL"} · JPL Horizons fixture · ≤ ${jplValidationFixture.toleranceDegrees}°`
           : "Calculated with shared firmware/WebAssembly math · choose the default time for JPL validation";
+        controls.astroReading.textContent =
+          `Astrology reading: Sun ${(result.sun % 30).toFixed(2)}° ${zodiacNames[Math.floor(result.sun / 30)]}; ` +
+          `Moon ${(result.moon % 30).toFixed(2)}° ${zodiacNames[Math.floor(result.moon / 30)]}.`;
         result.validation = {
           source: matchesFixture ? "NASA/JPL Horizons quantity 31" : null,
           toleranceDegrees: jplValidationFixture.toleranceDegrees,
           passed: matchesFixture ? allPass : null,
         };
+        calculateHumanDesign(epoch);
         window.astrolabeAstrologyValidation = result;
+        return result;
+      }
+
+      function calculateHumanDesign(epoch) {
+        const resultPtr = Module.ccall(
+          "astrolabe_web_human_design_reading",
+          "number",
+          ["number"],
+          [epoch],
+        );
+        const result = JSON.parse(Module.UTF8ToString(resultPtr));
+        if (!result.ok) {
+          controls.humanDesignReading.textContent = result.error;
+          controls.humanDesignStatus.textContent = "FAIL · Human Design calculation unavailable";
+          return result;
+        }
+        const gateLine = (activation) => `${activation.gate}.${activation.line}`;
+        const personalitySun = gateLine(result.personality.sun);
+        const personalityMoon = gateLine(result.personality.moon);
+        const designSun = gateLine(result.design.sun);
+        const designMoon = gateLine(result.design.moon);
+        controls.humanDesignReading.textContent =
+          `Human Design reading: Personality Sun ${personalitySun}, Moon ${personalityMoon}; ` +
+          `Design Sun ${designSun}, Moon ${designMoon}.`;
+        const matchesFixture = epoch === humanDesignValidationFixture.birthEpoch;
+        const designTimeError = Math.abs(result.designEpoch - humanDesignValidationFixture.designEpoch);
+        const passed = matchesFixture &&
+          personalitySun === humanDesignValidationFixture.personality.sun &&
+          personalityMoon === humanDesignValidationFixture.personality.moon &&
+          designSun === humanDesignValidationFixture.design.sun &&
+          designMoon === humanDesignValidationFixture.design.moon &&
+          designTimeError <= 7200;
+        controls.humanDesignStatus.textContent = matchesFixture
+          ? `${passed ? "PASS" : "FAIL"} · JPL-derived gates + exact 88° solar arc · design time Δ ${Math.round(designTimeError / 60)} min`
+          : `Design epoch ${new Date(result.designEpoch * 1000).toISOString()} · exact 88° solar arc`;
+        result.validation = {
+          source: matchesFixture ? "NASA/JPL Horizons quantity 31" : null,
+          passed: matchesFixture ? passed : null,
+          designTimeErrorSeconds: matchesFixture ? designTimeError : null,
+        };
+        window.astrolabeHumanDesignValidation = result;
         return result;
       }
 

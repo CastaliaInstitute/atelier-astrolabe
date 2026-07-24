@@ -1,4 +1,5 @@
 #include <stdbool.h>
+#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -9,6 +10,7 @@
 #include "faculty175_astro_math.h"
 #include "faculty175_face_dispatch.h"
 #include "faculty175_faces.h"
+#include "faculty175_human_design_math.h"
 
 void faculty175_websim_display_init(void);
 void faculty175_websim_display_tick(uint32_t elapsed_ms);
@@ -172,6 +174,54 @@ EMSCRIPTEN_KEEPALIVE const char *astrolabe_web_astro_positions(double epoch_seco
              positions.lon[4],
              positions.lon[5],
              positions.lon[6]);
+    return json;
+}
+
+EMSCRIPTEN_KEEPALIVE const char *astrolabe_web_human_design_reading(double birth_epoch_seconds)
+{
+    static char json[640];
+    const time_t birth_epoch = (time_t)birth_epoch_seconds;
+    time_t design_epoch = 0;
+    faculty175_chart_positions_t personality = {0};
+    faculty175_chart_positions_t design = {0};
+    if (birth_epoch <= 0 ||
+        !faculty175_astro_positions_at_epoch(birth_epoch, &personality) ||
+        !faculty175_human_design_design_epoch(birth_epoch, &design_epoch) ||
+        !faculty175_astro_positions_at_epoch(design_epoch, &design)) {
+        snprintf(json, sizeof(json), "{\"ok\":false,\"error\":\"unable to calculate Human Design reading\"}");
+        return json;
+    }
+    uint8_t p_sun_gate = 0, p_sun_line = 0, p_moon_gate = 0, p_moon_line = 0;
+    uint8_t d_sun_gate = 0, d_sun_line = 0, d_moon_gate = 0, d_moon_line = 0;
+    (void)faculty175_human_design_gate_line(personality.lon[0], &p_sun_gate, &p_sun_line);
+    (void)faculty175_human_design_gate_line(personality.lon[1], &p_moon_gate, &p_moon_line);
+    (void)faculty175_human_design_gate_line(design.lon[0], &d_sun_gate, &d_sun_line);
+    (void)faculty175_human_design_gate_line(design.lon[1], &d_moon_gate, &d_moon_line);
+    snprintf(json,
+             sizeof(json),
+             "{\"ok\":true,\"birthEpoch\":%lld,\"designEpoch\":%lld,"
+             "\"personality\":{\"sun\":{\"longitude\":%.6f,\"gate\":%u,\"line\":%u},"
+             "\"earth\":{\"longitude\":%.6f},"
+             "\"moon\":{\"longitude\":%.6f,\"gate\":%u,\"line\":%u}},"
+             "\"design\":{\"sun\":{\"longitude\":%.6f,\"gate\":%u,\"line\":%u},"
+             "\"earth\":{\"longitude\":%.6f},"
+             "\"moon\":{\"longitude\":%.6f,\"gate\":%u,\"line\":%u}}}",
+             (long long)birth_epoch,
+             (long long)design_epoch,
+             personality.lon[0],
+             p_sun_gate,
+             p_sun_line,
+             fmod(personality.lon[0] + 180.0, 360.0),
+             personality.lon[1],
+             p_moon_gate,
+             p_moon_line,
+             design.lon[0],
+             d_sun_gate,
+             d_sun_line,
+             fmod(design.lon[0] + 180.0, 360.0),
+             design.lon[1],
+             d_moon_gate,
+             d_moon_line);
     return json;
 }
 

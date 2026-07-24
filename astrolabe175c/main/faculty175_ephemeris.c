@@ -10,6 +10,7 @@
 #include "esp_http_client.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "faculty175_astro_math.h"
 
 #define FACULTY175_EPHEMERIS_HD_BASE_URL "https://ephemeris.castalia.institute/data/human-design"
 #define FACULTY175_EPHEMERIS_HTTP_TIMEOUT_MS 3000
@@ -21,11 +22,11 @@ static const char *TAG = "fac175_ephem";
 
 static const char *const k_hd_json_ids[FACULTY175_HD_BODY_COUNT] = {
     "sun",      "earth",   "moon",    "mercury", "venus", "mars",
-    "jupiter", "saturn",  "uranus",  "neptune", "pluto", "true_node",
+    "jupiter", "saturn",  "uranus",  "neptune", "pluto", "true_node", NULL,
 };
 
 static const char *const k_hd_labels[FACULTY175_HD_BODY_COUNT] = {
-    "SUN", "EAR", "MOO", "MER", "VEN", "MAR", "JUP", "SAT", "URA", "NEP", "PLU", "NOD",
+    "SUN", "EAR", "MOO", "MER", "VEN", "MAR", "JUP", "SAT", "URA", "NEP", "PLU", "NNO", "SNO",
 };
 
 static faculty175_hd_positions_t s_cache;
@@ -118,6 +119,10 @@ static bool lookup_human_design_json(const char *json, time_t epoch, faculty175_
     const int idx = (int)((epoch - t0) / step);
     faculty175_hd_positions_t parsed = {};
     for (int i = 0; i < FACULTY175_HD_BODY_COUNT; ++i) {
+        if (i == FACULTY175_HD_BODY_SOUTH_NODE) {
+            parsed.lon[i] = norm360(parsed.lon[FACULTY175_HD_BODY_TRUE_NODE] + 180.0);
+            continue;
+        }
         if (!nth_array_double(json, k_hd_json_ids[i], idx, &parsed.lon[i])) {
             return false;
         }
@@ -225,18 +230,40 @@ static esp_err_t fetch_text_url(const char *url, char **out_body, size_t *out_le
 static void local_human_design_epoch(time_t epoch, faculty175_hd_positions_t *out)
 {
     static const double base[FACULTY175_HD_BODY_COUNT] = {
-        280.5, 100.5, 218.3, 296.1, 334.2, 54.7, 72.0, 312.0, 41.0, 350.0, 298.0, 23.0,
+        280.5, 100.5, 218.3, 296.1, 334.2, 54.7, 72.0, 312.0, 41.0, 350.0, 298.0, 23.0, 203.0,
     };
     static const double rate[FACULTY175_HD_BODY_COUNT] = {
         0.985647, 0.985647, 13.176358, 4.092334, 1.602130, 0.524021,
-        0.083085, 0.033444, 0.011728, 0.005981, 0.003964, -0.052953,
+        0.083085, 0.033444, 0.011728, 0.005981, 0.003964, -0.052953, -0.052953,
     };
     const double days = (double)(epoch - 946728000) / 86400.0;
     memset(out, 0, sizeof(*out));
     for (int i = 0; i < FACULTY175_HD_BODY_COUNT; ++i) {
         out->lon[i] = norm360(base[i] + days * rate[i]);
     }
-    out->lon[FACULTY175_HD_BODY_EARTH] = norm360(out->lon[FACULTY175_HD_BODY_SUN] + 180.0);
+    out->lon[FACULTY175_HD_BODY_SOUTH_NODE] =
+        norm360(out->lon[FACULTY175_HD_BODY_TRUE_NODE] + 180.0);
+    faculty175_chart_positions_t inner = {0};
+    if (faculty175_astro_positions_at_epoch(epoch, &inner)) {
+        out->lon[FACULTY175_HD_BODY_SUN] = inner.lon[0];
+        out->lon[FACULTY175_HD_BODY_EARTH] = norm360(inner.lon[0] + 180.0);
+        out->lon[FACULTY175_HD_BODY_MOON] = inner.lon[1];
+        out->lon[FACULTY175_HD_BODY_MERCURY] = inner.lon[2];
+        out->lon[FACULTY175_HD_BODY_VENUS] = inner.lon[3];
+        out->lon[FACULTY175_HD_BODY_MARS] = inner.lon[4];
+        out->lon[FACULTY175_HD_BODY_JUPITER] = inner.lon[5];
+        out->lon[FACULTY175_HD_BODY_SATURN] = inner.lon[6];
+    } else {
+        out->lon[FACULTY175_HD_BODY_EARTH] = norm360(out->lon[FACULTY175_HD_BODY_SUN] + 180.0);
+    }
+    (void)faculty175_astro_slow_positions_at_epoch(
+        epoch,
+        &out->lon[FACULTY175_HD_BODY_URANUS],
+        &out->lon[FACULTY175_HD_BODY_NEPTUNE],
+        &out->lon[FACULTY175_HD_BODY_PLUTO],
+        &out->lon[FACULTY175_HD_BODY_TRUE_NODE]);
+    out->lon[FACULTY175_HD_BODY_SOUTH_NODE] =
+        norm360(out->lon[FACULTY175_HD_BODY_TRUE_NODE] + 180.0);
     out->ok = true;
     out->from_network = false;
 }

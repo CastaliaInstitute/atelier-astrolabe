@@ -209,6 +209,15 @@ static uint32_t days_since_j2000(uint32_t anim_ms)
 
 static void local_ephemeris(uint32_t anim_ms, astro_ephemeris_t *out)
 {
+    const time_t epoch = time(NULL);
+    faculty175_chart_positions_t positions = {0};
+    if (epoch > 0 && faculty175_charts_positions_at(epoch, &positions)) {
+        out->server_valid = true;
+        for (int i = 0; i < ASTRO_BODY_COUNT; ++i) {
+            out->lon[i] = (float)positions.lon[i];
+        }
+        return;
+    }
     const float days = (float)days_since_j2000(anim_ms) + (float)(anim_ms % 86400000u) / 86400000.0f;
     out->server_valid = false;
     for (int i = 0; i < ASTRO_BODY_COUNT; ++i) {

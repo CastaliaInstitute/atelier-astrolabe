@@ -415,7 +415,7 @@
       title: "Human Design",
       kicker: "Bodygraph as a decision compass",
       summary:
-        "A compact bodygraph face for the reference chart, showing type, authority, profile, definition, defined centers, channels, and gate rails.",
+        "A compact bodygraph face for the reference chart, showing personality and design activations, defined centers, channels, and gate rails.",
       inquiry: "What does the chart suggest about decision timing and available energy?",
       questions: [
         "Am I responding from sacral authority or forcing a decision?",
