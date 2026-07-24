@@ -23,6 +23,8 @@ Deno.test("LunaSay daily instruction makes Family Synastry relational and safe",
       "three compact beats",
       "parentify a child",
       "Never recite raw measurements",
+      "coherent without making every face repeat",
+      "user's authority over their own experience",
     ]
   ) {
     if (!instruction.includes(required)) {

@@ -72,6 +72,23 @@ esp_err_t faculty175_voice_post_message_streaming(const char *message,
                                                   const faculty175_voice_tts_stream_t *stream,
                                                   faculty175_voice_result_t *result);
 
+/**
+ * Fetch the once-per-local-day LunaSay JSON packet.  The caller owns
+ * `*json_out` and must free it.  This performs the day's single LLM call but
+ * deliberately does not synthesize audio.
+ */
+esp_err_t faculty175_voice_fetch_lunasay_daily_packet(const char *briefing_facts,
+                                                      const char *timezone,
+                                                      int64_t epoch_seconds,
+                                                      char **json_out,
+                                                      size_t *json_len_out);
+
+/** Synthesize supplied text verbatim without invoking the LLM. */
+esp_err_t faculty175_voice_post_tts_text_streaming(const char *text,
+                                                   const char *face,
+                                                   const faculty175_voice_tts_stream_t *stream,
+                                                   faculty175_voice_result_t *result);
+
 /** Open an indefinite STT capture session. Commit each utterance with faculty175_voice_stt_stream_commit(). */
 esp_err_t faculty175_voice_stt_stream_open(const faculty175_voice_stt_stream_config_t *config);
 
