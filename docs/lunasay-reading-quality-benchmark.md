@@ -85,9 +85,10 @@ structured-action contract with no face fallback. Its JSON report also records
 average model calls, mean and p10 packet scores, and the lowest observed face
 score.
 
-To verify private day-to-day continuity, pass a third JSON fixture containing a
-recent prior `date` and the prior server-generated `headline`, `action`, and
-SHA-256 `evidenceHash` for each generated face:
+To verify private longitudinal continuity, pass a third JSON fixture containing
+either the legacy prior-day envelope or a `history` array with up to seven
+recent dates and each face's prior server-generated `headline`, `action`, and
+SHA-256 `evidenceHash`:
 
 ```sh
 deno run --allow-env --allow-net --allow-read \
@@ -95,7 +96,7 @@ deno run --allow-env --allow-net --allow-read \
 ```
 
 In this mode the soak also fails unless the service applies continuity to
-every supplied face and every new face avoids the prior exact action.
+every supplied face and every new face avoids every retained exact action.
 
 On 2026-07-24, a six-sample signed production soak using six independent
 Gemini 2.5 Flash face calls passed every hard, release, and action-contract
