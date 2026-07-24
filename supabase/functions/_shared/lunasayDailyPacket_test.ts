@@ -10,6 +10,7 @@ import {
   lunaSayDateForEpoch,
   lunaSayFocusedFacts,
   lunaSayRequiredEvidence,
+  lunaSayRequiredTemporalEvidence,
   lunaSayRequiredWeatherEvidence,
   normalizeLunaSayTimezone,
   parseLunaSayDailyFace,
@@ -32,6 +33,15 @@ function modelFaces(includeTarotCard = true): Record<string, unknown> {
       }
       : { spoken: "A small daily note, ready to be spoken." }),
     detail: "A little more context for an expanded view.",
+    ...(id === "transits" || id === "synastry"
+      ? {
+        now: "This may add useful pressure to one choice.",
+        next: "The sampled pattern is closest on day +2.",
+        temporalEvidence: id === "transits"
+          ? "Ten-day transit arc: now at day +0; closest in the daily samples on day +2."
+          : "No live relationship signal is available.",
+      }
+      : {}),
     ...(LUNASAY_GENERATED_DAILY_FACE_IDS.includes(
         id as typeof LUNASAY_GENERATED_DAILY_FACE_IDS[number],
       )
@@ -114,6 +124,10 @@ Deno.test("individual Family Synastry keeps three bounded beats", () => {
           "Ask what support would be useful, then listen without fixing.",
         detail:
           "The supplied natal contacts emphasize safety and responsiveness.",
+        now: "This timing touches Daniel's chart, not the whole relationship.",
+        next: "The sampled contact is closest on day +2.",
+        temporalEvidence:
+          "Current relationship transit arc: now at day +0, transiting Moon sextile Daniel natal Moon at orb 1.2 degrees; closest in the daily samples on day +2.",
         evidence: "Tight major aspects: Moon sextile Moon orb 1.2",
         weatherEvidence:
           "Family biometrics: no live wellness packets received yet.",
@@ -121,7 +135,7 @@ Deno.test("individual Family Synastry keeps three bounded beats", () => {
     }),
     "synastry",
     "2026-08-01",
-    "Tight major aspects: Moon sextile Moon orb 1.2. Family biometrics: no live wellness packets received yet.",
+    "Tight major aspects: Moon sextile Moon orb 1.2. Current relationship transit arc: now at day +0, transiting Moon sextile Daniel natal Moon at orb 1.2 degrees; closest in the daily samples on day +2. Family biometrics: no live wellness packets received yet.",
   );
   if (
     !face.spoken.includes("The lasting pattern:") ||
@@ -228,7 +242,7 @@ Deno.test("Sky face rejects natal or transit interpretation", () => {
 
 Deno.test("server assigns distinct exact evidence to each daily face", () => {
   const facts =
-    "Local time 2026-08-01 07:00; timezone America/Denver. Primary natal chart: Alex, Sun Cancer, Moon Virgo. Current sky positions: Sun Leo, Moon Scorpio. Tight current-to-natal aspects, strongest first: transiting Mercury trine natal Moon, orb 0.8 degrees; transiting Saturn square natal Venus, orb 1.4 degrees. Lunar phase estimate: WAXING GIBBOUS, cycle fraction 0.384. Tight major aspects: Moon sextile Moon orb 1.1; Mercury square Mars orb 1.6. Family biometrics: no live wellness packets received yet. Visible tarot card is The Star, with reflective keyword hope.";
+    "Local time 2026-08-01 07:00; timezone America/Denver. Primary natal chart: Alex, Sun Cancer, Moon Virgo. Current sky positions: Sun Leo, Moon Scorpio. Tight current-to-natal aspects, strongest first: transiting Mercury trine natal Moon, orb 0.8 degrees; transiting Saturn square natal Venus, orb 1.4 degrees. Ten-day transit arc: now at day +0, transiting Mercury trine natal Moon at orb 0.8 degrees; closest in the daily samples on day +1 at orb 0.2 degrees; outside the 4.5-degree window by day +4. Lunar phase estimate: WAXING GIBBOUS, cycle fraction 0.384. Tight major aspects: Moon sextile Moon orb 1.1; Mercury square Mars orb 1.6. Current relationship transit arc: now at day +0, transiting Saturn square Alex natal Venus at orb 1.4 degrees; closest in the daily samples on day +2 at orb 0.1 degrees; outside the 4.5-degree window by day +7. Family biometrics: no live wellness packets received yet. Visible tarot card is The Star, with reflective keyword hope.";
   const expected: Record<string, string> = {
     moon: "Lunar phase estimate:",
     astrology: "Primary natal chart:",
@@ -248,21 +262,112 @@ Deno.test("server assigns distinct exact evidence to each daily face", () => {
   }
   const weather = lunaSayRequiredWeatherEvidence("synastry", facts);
   if (
-    weather !== "Family biometrics: no live wellness packets received yet."
+    !weather?.startsWith("Current relationship transit arc:") ||
+    !weather.includes("Alex natal Venus")
   ) {
     throw new Error(`invalid exact synastry weather evidence: ${weather}`);
   }
   const synastryFacts = lunaSayFocusedFacts("synastry", facts);
   if (
     !synastryFacts.includes("Tight major aspects:") ||
-    !synastryFacts.includes("Family biometrics:") ||
+    !synastryFacts.includes("Current relationship transit arc:") ||
     synastryFacts.includes("current-to-natal")
   ) {
     throw new Error(`synastry focus leaked unrelated facts: ${synastryFacts}`);
   }
+  const transitTiming = lunaSayRequiredTemporalEvidence("transits", facts);
+  if (
+    !transitTiming?.startsWith("Ten-day transit arc:") ||
+    !transitTiming.includes("day +4")
+  ) {
+    throw new Error(
+      `transit timing was not retained exactly: ${transitTiming}`,
+    );
+  }
+  const relationshipTiming = lunaSayRequiredTemporalEvidence(
+    "synastry",
+    facts,
+  );
+  if (
+    !relationshipTiming?.startsWith("Current relationship transit arc:") ||
+    !relationshipTiming.includes("Alex natal Venus")
+  ) {
+    throw new Error(
+      `relationship timing was not retained exactly: ${relationshipTiming}`,
+    );
+  }
   const skyFacts = lunaSayFocusedFacts("sky", facts);
   if (skyFacts !== "Local time 2026-08-01 07:00; timezone America/Denver.") {
     throw new Error(`sky focus leaked astrology: ${skyFacts}`);
+  }
+});
+
+Deno.test("temporal faces reject invented offsets, dates, certainty, and lost relationship subjects", () => {
+  const transitEvidence =
+    "Ten-day transit arc: now at day +0, transiting Saturn square natal Venus at orb 1.4 degrees; closest in the daily samples on day +2 at orb 0.1 degrees; outside the 4.5-degree window by day +7.";
+  const baseTransit = {
+    headline: "Pressure with room",
+    display: "Make one deliberate choice before adding more.",
+    spoken:
+      "Pressure may sharpen priorities now; day +2 is the closest sampled point.",
+    detail: "Saturn square natal Venus can symbolize careful value choices.",
+    evidence:
+      "Tight current-to-natal aspects, strongest first: transiting Saturn square natal Venus, orb 1.4 degrees.",
+    now: "This may make value choices feel more deliberate.",
+    next: "The contact is closest in the samples on day +2.",
+    temporalEvidence: transitEvidence,
+  };
+  const facts = `${baseTransit.evidence} ${transitEvidence}`;
+  for (
+    const [label, change] of [
+      ["invented offset", { next: "Everything turns around on day +5." }],
+      ["invented date", { next: "Everything turns around on 2026-08-09." }],
+      ["certainty", { now: "This will force a relationship decision." }],
+    ] as const
+  ) {
+    let rejected = false;
+    try {
+      parseLunaSayDailyFace(
+        JSON.stringify({ ...baseTransit, ...change }),
+        "transits",
+        "2026-08-01",
+        facts,
+      );
+    } catch (error) {
+      rejected = String(error).includes("Invalid LunaSay daily face");
+    }
+    if (!rejected) throw new Error(`${label} passed temporal validation`);
+  }
+
+  const relationshipEvidence =
+    "Current relationship transit arc: now at day +0, transiting Moon sextile Rowan natal Moon at orb 1.2 degrees; closest in the daily samples on day +1 at orb 0.3 degrees.";
+  let lostSubjectAccepted = true;
+  try {
+    parseLunaSayDailyFace(
+      JSON.stringify({
+        headline: "Tender",
+        display: "Let one person's timing stay personal.",
+        dynamic: "Both people may seek safety before opening up.",
+        weather: "This transit touches Rowan's chart, not the whole bond.",
+        practice: "Ask Rowan what support would help before assuming.",
+        detail: "The timing is individual context, not a family verdict.",
+        evidence: "Tight major aspects: Moon sextile Moon orb 1.2",
+        weatherEvidence: relationshipEvidence,
+        now: "One person may need more room today.",
+        next: "The sampled contact is closest on day +1.",
+        temporalEvidence: relationshipEvidence,
+      }),
+      "synastry",
+      "2026-08-01",
+      `Tight major aspects: Moon sextile Moon orb 1.2. ${relationshipEvidence}`,
+    );
+  } catch (error) {
+    lostSubjectAccepted = !String(error).includes(
+      "relationship-timing-subject-lost",
+    );
+  }
+  if (lostSubjectAccepted) {
+    throw new Error("relationship timing lost the named subject");
   }
 });
 
@@ -427,6 +532,9 @@ Deno.test("LunaSay composes synastry from durable, temporary, and practice beats
       weather: "No live relationship signal is supplied; notice what is real.",
       practice: "Ask before offering advice, then listen for one minute.",
       detail: "A Moon sextile supports ease without guaranteeing an outcome.",
+      now: "No verified relationship timing is loaded.",
+      next: "Let lived experience lead until a current signal is available.",
+      temporalEvidence: "No live relationship signal is available.",
     },
   };
   const parsed = parseLunaSayDailyPacket(JSON.stringify({ faces }), {

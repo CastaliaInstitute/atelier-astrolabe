@@ -41,6 +41,12 @@ export type LunaSayDailyFace = {
   evidence?: string;
   /** Synastry-only exact quote supporting temporary relationship weather. */
   weatherEvidence?: string;
+  /** Plain-language account of why the time-sensitive pattern matters now. */
+  now?: string;
+  /** The next evidence-backed shift inside the device's ten-day window. */
+  next?: string;
+  /** Exact device-computed timing fact retained for a "why now?" view. */
+  temporalEvidence?: string;
   /** A simple palette hint for the face renderer, never a CSS color. */
   accent: "moon" | "violet" | "amber" | "blue" | "rose" | "silver";
   /** Tarot only. The device may use this to select an existing deck asset. */
@@ -187,6 +193,7 @@ export function lunaSayDailyFaceJsonSchema(
 ): Record<string, unknown> {
   const tarot = id === "tarot";
   const synastry = id === "synastry";
+  const temporal = id === "transits" || id === "synastry";
   const generated = LUNASAY_GENERATED_DAILY_FACE_IDS.includes(
     id as typeof LUNASAY_GENERATED_DAILY_FACE_IDS[number],
   );
@@ -219,6 +226,28 @@ export function lunaSayDailyFaceJsonSchema(
         }
         : { spoken: { type: "string", maxLength: 150 } }),
       detail: { type: "string", maxLength: synastry ? 360 : 180 },
+      ...(temporal
+        ? {
+          now: {
+            type: "string",
+            maxLength: 140,
+            description:
+              "What the supplied timing may feel like now, in plain conditional language. Do not invent an event or certainty.",
+          },
+          next: {
+            type: "string",
+            maxLength: 160,
+            description:
+              "What changes next, preserving the supplied day offset exactly. Never convert it to an unsupplied calendar date.",
+          },
+          temporalEvidence: {
+            type: "string",
+            maxLength: 300,
+            description:
+              "The exact verbatim Ten-day transit arc, Current relationship transit arc, or explicit no-live-signal sentence copied from DAILY FACTS.",
+          },
+        }
+        : {}),
       ...(generated
         ? {
           evidence: {
@@ -248,6 +277,7 @@ export function lunaSayDailyFaceJsonSchema(
       "display",
       ...(synastry ? ["dynamic", "weather", "practice"] : ["spoken"]),
       "detail",
+      ...(temporal ? ["now", "next", "temporalEvidence"] : []),
       ...(generated ? ["evidence"] : []),
       ...(synastry ? ["weatherEvidence"] : []),
       ...(tarot ? ["cardName"] : []),
@@ -359,12 +389,33 @@ export function lunaSayRequiredWeatherEvidence(
   if (id !== "synastry") return undefined;
   for (
     const prefix of [
-      "Family biometrics:",
+      "Family biometrics from rings and Astrolabes:",
       "Current relationship transit",
       "No live relationship signal",
+      "Family biometrics:",
     ]
   ) {
     const evidence = exactFactStartingAt(facts, prefix);
+    if (evidence) return evidence;
+  }
+  return undefined;
+}
+
+export function lunaSayRequiredTemporalEvidence(
+  id: LunaSayDailyFaceId,
+  facts: string,
+): string | undefined {
+  const prefixes = id === "transits"
+    ? ["Ten-day transit arc:"]
+    : id === "synastry"
+    ? [
+      "Current relationship transit arc:",
+      "No live relationship signal appears",
+      "No live relationship signal is available",
+    ]
+    : [];
+  for (const prefix of prefixes) {
+    const evidence = exactFactStartingAt(facts, prefix, 300);
     if (evidence) return evidence;
   }
   return undefined;
@@ -376,6 +427,7 @@ export function lunaSayFocusedFacts(
 ): string {
   const selected = [
     lunaSayRequiredEvidence(id, facts),
+    lunaSayRequiredTemporalEvidence(id, facts),
     ...(id === "synastry"
       ? [
         exactFactStartingAt(facts, "Tight major aspects:"),
@@ -450,10 +502,18 @@ function parseLunaSayDailyFaceValue(
   const practice = id === "synastry"
     ? cleanText(face.practice, 160)
     : undefined;
+  const temporal = id === "transits" || id === "synastry";
+  const now = temporal ? cleanText(face.now, 140) : undefined;
+  const next = temporal ? cleanText(face.next, 160) : undefined;
   const spoken = dynamic && weather && practice
-    ? `The lasting pattern: ${dynamic} Today's weather: ${weather} A small practice: ${practice}`
+    ? `The lasting pattern: ${dynamic} Today's weather: ${weather} ${
+      next ? `What changes next: ${next} ` : ""
+    }A small practice: ${practice}`
     : modelSpoken;
   const detail = cleanText(face.detail, 480);
+  const temporalEvidence = temporal
+    ? cleanText(face.temporalEvidence, 300)
+    : undefined;
   const evidence = cleanText(face.evidence, 220);
   const weatherEvidence = id === "synastry"
     ? cleanText(face.weatherEvidence, 220)
@@ -479,6 +539,63 @@ function parseLunaSayDailyFaceValue(
           value.includes("relationship transit") ||
           value.includes("no live");
       })());
+  const temporalEvidenceSupported = expectedFacts === undefined ||
+    !temporal ||
+    (temporalEvidence !== undefined &&
+      normalizedEvidence(expectedFacts).includes(
+        normalizedEvidence(temporalEvidence),
+      ));
+  const temporalEvidenceOnContract = expectedFacts === undefined ||
+    !temporal ||
+    (temporalEvidence !== undefined &&
+      (() => {
+        const value = normalizedEvidence(temporalEvidence);
+        return id === "transits"
+          ? value.includes("ten-day transit arc")
+          : value.includes("relationship transit arc") ||
+            value.includes("no live relationship signal");
+      })());
+  const temporalLanguageSafe = !temporal ||
+    !/\b(will|guaranteed|inevitable|destined|fated|certain(?:ly)?)\b/i.test(
+      [now, next].filter(Boolean).join(" "),
+    );
+  const temporalOffsets = temporalEvidence
+    ? [...temporalEvidence.matchAll(/\bday \+\d+\b/gi)].map((match) =>
+      match[0].toLowerCase()
+    )
+    : [];
+  const nextOffsets = next
+    ? [...next.matchAll(/\bday \+\d+\b/gi)].map((match) =>
+      match[0].toLowerCase()
+    )
+    : [];
+  const temporalOffsetsSafe = !temporal ||
+    temporalOffsets.length === 0 ||
+    (() => {
+      const futureOffsets = temporalOffsets.filter((offset) =>
+        offset !== "day +0"
+      );
+      return nextOffsets.length > 0 &&
+        nextOffsets.every((offset) => temporalOffsets.includes(offset)) &&
+        (futureOffsets.length === 0 ||
+          nextOffsets.some((offset) => futureOffsets.includes(offset)));
+    })();
+  const inventedCalendarDate = temporal &&
+    [
+      ...[now, next].filter(Boolean).join(" ").matchAll(
+        /\b\d{4}-\d{2}-\d{2}\b/g,
+      ),
+    ]
+      .some((match) => !temporalEvidence?.includes(match[0]));
+  const relationshipSubject = id === "synastry"
+    ? temporalEvidence?.match(
+      /\b(?:conjunction|sextile|square|trine|opposition)\s+(.+?)\s+natal\b/i,
+    )?.[1]?.trim()
+    : undefined;
+  const relationshipSubjectPreserved = !relationshipSubject ||
+    normalizedEvidence([now, next].filter(Boolean).join(" ")).includes(
+      normalizedEvidence(relationshipSubject),
+    );
   const spokenIsSpecific = spoken === undefined ||
     !containsGenericReadingPhrase(spoken);
   const spokenMatchesFace = spoken === undefined ||
@@ -488,9 +605,13 @@ function parseLunaSayDailyFaceValue(
     );
   if (
     !headline || !display || !spoken || !detail ||
+    (temporal && (!now || !next || !temporalEvidence)) ||
     !spokenIsSpecific || !spokenMatchesFace ||
     !evidenceSupported || !evidenceOnContract || !weatherEvidenceSupported ||
-    !weatherEvidenceOnContract ||
+    !weatherEvidenceOnContract || !temporalEvidenceSupported ||
+    !temporalEvidenceOnContract || !temporalLanguageSafe ||
+    !temporalOffsetsSafe || inventedCalendarDate ||
+    !relationshipSubjectPreserved ||
     ((id === "astrology" || id === "synastry") &&
       !WEATHER_HEADLINES.has(headline))
   ) {
@@ -514,6 +635,20 @@ function parseLunaSayDailyFaceValue(
         ? `practice:${textLength(face.practice)}`
         : undefined,
       detail ? undefined : `detail:${textLength(face.detail)}`,
+      temporal && !now ? `now:${textLength(face.now)}` : undefined,
+      temporal && !next ? `next:${textLength(face.next)}` : undefined,
+      temporalEvidenceSupported
+        ? undefined
+        : temporalEvidence
+        ? "unsupported-temporal-evidence"
+        : "missing-temporal-evidence",
+      temporalEvidenceOnContract ? undefined : "wrong-temporal-evidence",
+      temporalLanguageSafe ? undefined : "deterministic-temporal-language",
+      temporalOffsetsSafe ? undefined : "invented-temporal-offset",
+      inventedCalendarDate ? "invented-calendar-date" : undefined,
+      relationshipSubjectPreserved
+        ? undefined
+        : "relationship-timing-subject-lost",
       evidenceSupported
         ? undefined
         : evidence
@@ -542,6 +677,9 @@ function parseLunaSayDailyFaceValue(
     display,
     spoken,
     detail,
+    ...(now ? { now } : {}),
+    ...(next ? { next } : {}),
+    ...(temporalEvidence ? { temporalEvidence } : {}),
     ...(evidence ? { evidence } : {}),
     ...(weatherEvidence ? { weatherEvidence } : {}),
     accent: metadata.accent,
@@ -683,6 +821,7 @@ export function buildLunaSayDailyPacketInstruction(params: {
     }, and timezone to ${JSON.stringify(params.timezone)}.`,
     "faces must contain exactly moon, astrology, transits, synastry, tarot, alethiometer, sky, journal, and conversation.",
     "For each generated daily face provide headline, display, detail, and evidence: one short verbatim quote copied from DAILY FACTS that directly supports the reading. For each face except synastry, also provide spoken. For tarot also provide cardName. For synastry provide dynamic, weather, practice, and weatherEvidence; evidence supports the lasting natal dynamic while weatherEvidence supports only temporary weather or the explicit absence of a live signal. The server composes spoken from those three distinct beats and supplies canonical mode, title, and accent metadata.",
+    "For Transits and Synastry also provide now, next, and temporalEvidence. temporalEvidence must copy the relevant ten-day arc sentence exactly. now explains why the pattern matters in conditional language; next preserves the supplied day offset exactly and says what changes. Never invent a calendar date, event, certainty, or shared relationship effect.",
     "Use short fields by default: headline <= 42 chars; display <= 80; spoken <= 150; detail <= 180. One sentence per field is normally enough.",
     "Make each face independently useful. spoken must be natural, soft, and ready for TTS; it should not mention JSON or instructions.",
     "Keep the packet coherent without making every face repeat the same sentence: choose one quiet theme supported by the facts, then let Moon, Inner Weather, Transits, Relationship Weather, Tarot, and Sky approach it through their own lens. Do not contradict a concrete fact on another face.",
@@ -709,9 +848,9 @@ export function buildLunaSayDailyFaceInstruction(params: {
     astrology:
       "Present astrology as Inner Weather: the person's durable natal baseline, not the day's transit report. evidence must quote the Primary natal chart fact, or the explicit fact that it is not configured. headline must be one of Clear, Warm, Shifting, Inward, Tender, Changeable, Easy, Open, or Intense. Name both a resource and a tension in plain language, then one concrete choice. Do not use the phrases trust your intuition, inner peace, beautifully aligned, or wonderful time. Astrology is a symbolic outlook, never a deterministic forecast.",
     transits:
-      "This is the changing daily layer, distinct from Inner Weather. evidence must quote a Tight current-to-natal aspect, or the explicit fact that no such aspect or transit is available. Choose the most useful supplied transit, name both its pressure and its opening, and give one concrete action. Do not use the phrases trust your intuition, inner peace, beautifully aligned, or wonderful time.",
+      "This is the changing daily layer, distinct from Inner Weather. evidence must quote a Tight current-to-natal aspect, or the explicit fact that no such aspect or transit is available. temporalEvidence must copy the Ten-day transit arc exactly. now explains why the strongest supplied aspect matters in conditional language. next preserves its exact day offset and window boundary; never turn a daily sample into a guaranteed event or invent a calendar date. Choose the most useful supplied transit, name both its pressure and its opening, and give one concrete action. spoken must include both the current orientation and the next shift. Do not use the phrases trust your intuition, inner peace, beautifully aligned, or wonderful time.",
     synastry:
-      "This is Family Synastry, not romance with relabeled people. Treat the family as a reciprocal system: never rank, blame, diagnose, parentify a child, or make a compatibility verdict. headline must be one of Clear, Warm, Shifting, Inward, Tender, Changeable, Easy, Open, or Intense. evidence must quote the full identifying prefix plus content from The selected relationship, relationship between, or Tight major aspects; quoting only planet names is invalid. evidence supports only dynamic. dynamic names both sides of one mutual natal tendency without today, always, compatible, or destined. weatherEvidence must quote only a supplied live wellness, current relationship transit, or explicit no-live-signal fact. weather must not turn natal synastry into today's condition; when weatherEvidence says no signal, explicitly let lived experience lead. practice gives one specific adult care or repair choice.",
+      "This is Family Synastry, not romance with relabeled people. Treat the family as a reciprocal system: never rank, blame, diagnose, parentify a child, or make a compatibility verdict. headline must be one of Clear, Warm, Shifting, Inward, Tender, Changeable, Easy, Open, or Intense. evidence must quote the full identifying prefix plus content from The selected relationship, relationship between, or Tight major aspects; quoting only planet names is invalid. evidence supports only dynamic. dynamic names both sides of one mutual natal tendency without today, always, compatible, or destined. weatherEvidence must quote only a supplied live wellness, current relationship transit, or explicit no-live-signal fact. temporalEvidence must copy the Current relationship transit arc or explicit no-live-signal sentence exactly. now and next must name whose natal chart is touched and must not imply the transit automatically describes the whole relationship. Preserve exact day offsets. weather must not turn natal synastry into today's condition; when weatherEvidence says no signal, explicitly let lived experience lead. practice gives one specific adult care or repair choice.",
     tarot:
       "Offer one reflective daily draw, not a prediction. evidence must quote the Visible tarot card fact. Use that supplied deterministic card and explain one concrete question or practice it opens. Do not borrow astrology or transit evidence.",
     alethiometer:
@@ -792,14 +931,19 @@ export function lunaSayDailyPacketFallback(params: {
           "A symbolic outlook needs current chart facts; this gentle fallback makes no astrological claim.",
         accent: "violet",
       },
-      transits: daily(
-        "Transits",
-        "amber",
-        "No forecast loaded",
-        "Keep the day open rather than filling the silence with a prediction.",
-        "The detailed transit reading is unavailable. Let the day show you what is real before naming a pattern.",
-        "No transit claim is made while verified daily evidence is unavailable.",
-      ),
+      transits: {
+        ...daily(
+          "Transits",
+          "amber",
+          "No forecast loaded",
+          "Keep the day open rather than filling the silence with a prediction.",
+          "The detailed transit reading is unavailable. Let the day show you what is real before naming a pattern.",
+          "No transit claim is made while verified daily evidence is unavailable.",
+        ),
+        now: "No verified timing is loaded.",
+        next: "Refresh later rather than filling the gap with a prediction.",
+        temporalEvidence: "Ten-day transit arc is unavailable.",
+      },
       synastry: {
         mode: "daily",
         title: "Relationship Weather",
@@ -809,6 +953,9 @@ export function lunaSayDailyPacketFallback(params: {
           "Meet the family pattern with curiosity. Soften one response, name one need, and leave room for repair.",
         detail:
           "Family Synastry is relationship weather and a prompt for care, never a verdict about any person.",
+        now: "No verified relationship timing is loaded.",
+        next: "Let lived experience lead until a current signal is available.",
+        temporalEvidence: "No live relationship signal is available.",
         accent: "rose",
       },
       tarot: {
