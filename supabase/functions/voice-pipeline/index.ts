@@ -1428,7 +1428,7 @@ Deno.serve(async (req: Request) => {
           if (requiredTemporalEvidence) {
             systemInstruction += ` Set temporalEvidence exactly to ${
               JSON.stringify(requiredTemporalEvidence)
-            }. Preserve every day offset in now and next; do not invent a calendar date or event.`;
+            }. The server derives next from that exact evidence; do not add a calendar date or event to now.`;
           }
           const focusedFacts = lunaSayFocusedFacts(id, facts);
           const userText =
