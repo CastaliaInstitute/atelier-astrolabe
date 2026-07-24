@@ -5743,7 +5743,9 @@ static void input_task(void *arg)
                                      (unsigned)save_ms,
                                      (unsigned)draw_ms,
                                      (unsigned)(faculty175_log_ms() - exit_start_ms));
-            } else if (s_nav_mode && faculty175_faces_enabled_count() > 1) {
+            } else if (faculty175_faces_enabled_count() > 1 &&
+                       (s_nav_mode || gesture.kind == FACULTY175_GESTURE_SWIPE_LEFT ||
+                        gesture.kind == FACULTY175_GESTURE_SWIPE_RIGHT)) {
                 if (gesture.kind == FACULTY175_GESTURE_BEZEL_ROTATE_CW ||
                     gesture.kind == FACULTY175_GESTURE_BEZEL_ROTATE_CCW ||
                     gesture.kind == FACULTY175_GESTURE_SWIPE_LEFT ||
