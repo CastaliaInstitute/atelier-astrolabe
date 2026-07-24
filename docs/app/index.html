@@ -297,6 +297,31 @@
           <h2>Connection & place.</h2>
         </div>
         <article class="quiet-card">
+          <p class="eyebrow">Device health</p>
+          <h2 id="device-health-title">Connect to inspect LunaSay.</h2>
+          <div class="metrics" aria-live="polite">
+            <span>Battery <b id="device-battery">—</b></span>
+            <span>Power <b id="device-power">—</b></span>
+            <span>Wi-Fi <b id="device-wifi">—</b></span>
+            <span>BLE <b id="device-ble">—</b></span>
+          </div>
+          <p id="device-health-note">
+            Health details are read directly from LunaSay and are not uploaded.
+          </p>
+        </article>
+        <article class="quiet-card">
+          <p class="eyebrow">Software update</p>
+          <h2 id="device-firmware">Firmware —</h2>
+          <div class="metrics" aria-live="polite">
+            <span>Automatic OTA <b id="device-ota-auto">—</b></span>
+            <span>Last check <b id="device-ota-check">—</b></span>
+            <span>Network <b id="device-ota-network">—</b></span>
+          </div>
+          <p id="device-ota-note">
+            Connect to see whether LunaSay is polling its signed update channel.
+          </p>
+        </article>
+        <article class="quiet-card">
           <h2>Bluetooth connection</h2>
           <p>
             Web Bluetooth works in Chrome and compatible browsers. iPhone Safari
@@ -374,6 +399,7 @@
       device.
     </footer>
     <script src="relationship.js"></script>
+    <script src="device.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

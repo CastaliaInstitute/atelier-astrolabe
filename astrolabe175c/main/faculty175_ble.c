@@ -11,6 +11,7 @@
 #include "cJSON.h"
 #include "astrolabe_time.h"
 #include "esp_attr.h"
+#include "esp_app_desc.h"
 #include "esp_log.h"
 #include "esp_random.h"
 #include "esp_timer.h"
@@ -36,6 +37,8 @@
 #include "faculty175_face_psych_state.h"
 #include "faculty175_faces.h"
 #include "faculty175_motion.h"
+#include "faculty175_ota.h"
+#include "faculty175_pmu.h"
 #include "faculty175_research.h"
 #include "faculty175_relationship_weather.h"
 #include "faculty175_ring.h"
@@ -129,6 +132,8 @@ static const ble_uuid128_t BLE_SETTINGS_JSON_CHAR_UUID =
     BLE_UUID128_INIT(0x41, 0x73, 0x74, 0x72, 0x6f, 0x6c, 0x61, 0x62, 0x65, 0x00, 0x17, 0x50, 0x00, 0x00, 0x00, 0x03);
 static const ble_uuid128_t BLE_STATE_JSON_CHAR_UUID =
     BLE_UUID128_INIT(0x41, 0x73, 0x74, 0x72, 0x6f, 0x6c, 0x61, 0x62, 0x65, 0x00, 0x17, 0x50, 0x00, 0x00, 0x00, 0x04);
+static const ble_uuid128_t BLE_HEALTH_JSON_CHAR_UUID =
+    BLE_UUID128_INIT(0x41, 0x73, 0x74, 0x72, 0x6f, 0x6c, 0x61, 0x62, 0x65, 0x00, 0x17, 0x50, 0x00, 0x00, 0x00, 0x05);
 static const ble_uuid128_t COLMI_UART_SERVICE_UUID =
     BLE_UUID128_INIT(0x9e, 0xca, 0xdc, 0x24, 0x0e, 0xe5, 0xa9, 0xe0, 0x93, 0xf3, 0xa3, 0xb5, 0xf0, 0xff, 0x40, 0x6e);
 static const ble_uuid128_t COLMI_UART_RX_UUID =
@@ -147,9 +152,14 @@ static bool s_scanning;
 static uint8_t s_own_addr_type;
 EXT_RAM_BSS_ATTR static char s_json_rx[768];
 EXT_RAM_BSS_ATTR static char s_state_json[1536];
+EXT_RAM_BSS_ATTR static char s_health_json[512];
 static size_t s_json_rx_len;
 static bool s_json_rx_active;
 static char s_device_name[FACULTY175_BLE_PEER_NAME_MAX] = "Astrolabe Faculty";
+
+static bool ble_json_escape(char *out,
+                            size_t cap,
+                            const char *value);
 EXT_RAM_BSS_ATTR static faculty175_ble_peer_t s_peers[FACULTY175_BLE_PEER_MAX];
 static portMUX_TYPE s_peer_lock = portMUX_INITIALIZER_UNLOCKED;
 EXT_RAM_BSS_ATTR static faculty175_ble_ring_telem_t s_ring_telem[FACULTY175_BLE_RING_TELEM_MAX];
@@ -237,6 +247,10 @@ static int ble_state_json_access(uint16_t conn_handle,
                                  uint16_t attr_handle,
                                  struct ble_gatt_access_ctxt *ctxt,
                                  void *arg);
+static int ble_health_json_access(uint16_t conn_handle,
+                                  uint16_t attr_handle,
+                                  struct ble_gatt_access_ctxt *ctxt,
+                                  void *arg);
 static void ble_ring_telem_store(const faculty175_ble_peer_t *peer);
 
 static const struct ble_gatt_svc_def k_ble_svcs[] = {
@@ -257,6 +271,11 @@ static const struct ble_gatt_svc_def k_ble_svcs[] = {
             {
                 .uuid = &BLE_STATE_JSON_CHAR_UUID.u,
                 .access_cb = ble_state_json_access,
+                .flags = BLE_GATT_CHR_F_READ,
+            },
+            {
+                .uuid = &BLE_HEALTH_JSON_CHAR_UUID.u,
+                .access_cb = ble_health_json_access,
                 .flags = BLE_GATT_CHR_F_READ,
             },
             {0},
@@ -1799,6 +1818,73 @@ static bool ble_json_escape(char *out,
     }
     out[used] = '\0';
     return true;
+}
+
+static int ble_health_json_access(uint16_t conn_handle,
+                                  uint16_t attr_handle,
+                                  struct ble_gatt_access_ctxt *ctxt,
+                                  void *arg)
+{
+    (void)conn_handle;
+    (void)attr_handle;
+    (void)arg;
+    if (ctxt == NULL || ctxt->op != BLE_GATT_ACCESS_OP_READ_CHR) {
+        return BLE_ATT_ERR_UNLIKELY;
+    }
+
+    faculty175_pmu_status_t power = {};
+    const bool have_power = faculty175_pmu_status(&power);
+    faculty175_ota_status_t ota = {};
+    faculty175_ota_get_status(&ota);
+    const esp_app_desc_t *app = esp_app_get_description();
+
+    char firmware[72] = {};
+    /* Keep the complete attribute under the 512-byte BLE value boundary even
+     * when every byte in the diagnostic needs JSON escaping. */
+    char ota_last_raw[41] = {};
+    char ota_last[82] = {};
+    snprintf(ota_last_raw, sizeof(ota_last_raw), "%.40s", ota.last);
+    if (!ble_json_escape(firmware,
+                         sizeof(firmware),
+                         app != NULL ? app->version : "") ||
+        !ble_json_escape(ota_last, sizeof(ota_last), ota_last_raw)) {
+        return BLE_ATT_ERR_INSUFFICIENT_RES;
+    }
+
+    const int len = snprintf(
+        s_health_json,
+        sizeof(s_health_json),
+        "{\"device\":{\"firmware\":\"%s\",\"uptimeMs\":%llu,"
+        "\"battery\":{\"available\":%s,\"present\":%s,\"percent\":%d,"
+        "\"millivolts\":%u,\"charging\":%s,\"usbPower\":%s},"
+        "\"ble\":{\"enabled\":%s,\"advertising\":%s},"
+        "\"ota\":{\"active\":%s,\"autoStarted\":%s,\"paused\":%s,"
+        "\"networkReady\":%s,\"heapReady\":%s,\"intervalSeconds\":%u,"
+        "\"lastPollUptimeMs\":%u,\"last\":\"%s\"}}}",
+        firmware,
+        (unsigned long long)(esp_timer_get_time() / 1000),
+        have_power ? "true" : "false",
+        have_power && power.battery_present ? "true" : "false",
+        have_power ? power.battery_percent : -1,
+        have_power ? power.battery_mv : 0,
+        have_power && power.charging ? "true" : "false",
+        have_power && power.vbus_in ? "true" : "false",
+        s_enabled ? "true" : "false",
+        s_advertising ? "true" : "false",
+        ota.active ? "true" : "false",
+        ota.auto_started ? "true" : "false",
+        ota.auto_paused ? "true" : "false",
+        ota.network_ready ? "true" : "false",
+        ota.heap_ready ? "true" : "false",
+        ota.auto_interval_s,
+        ota.last_poll_uptime_ms,
+        ota_last);
+    if (len <= 0 || (size_t)len >= sizeof(s_health_json)) {
+        return BLE_ATT_ERR_INSUFFICIENT_RES;
+    }
+    return os_mbuf_append(ctxt->om, s_health_json, (size_t)len) == 0
+        ? 0
+        : BLE_ATT_ERR_INSUFFICIENT_RES;
 }
 
 static bool ble_json_append(char *out,
