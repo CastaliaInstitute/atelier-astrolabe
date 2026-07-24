@@ -78,6 +78,12 @@
         display: none;
       }
 
+      .face-art-overlay.alpheus-art {
+        inset: 9%;
+        width: 82%;
+        height: 82%;
+      }
+
       .controls {
         width: min(466px, calc(100vw - 32px));
         display: grid;
@@ -771,6 +777,7 @@
           return;
         }
         const face = currentFaceMeta();
+        tarotArt.classList.toggle("alpheus-art", face.slug === "alpheus-face");
         if (face.slug !== "tarot" && face.slug !== "alpheus-face") {
           tarotArt.hidden = true;
           return;

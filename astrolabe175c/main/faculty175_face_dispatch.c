@@ -40,6 +40,8 @@ void faculty175_face_focus_draw(uint32_t anim_ms);
 void faculty175_face_bio_draw(uint32_t anim_ms);
 void faculty175_face_ironman_draw(uint32_t anim_ms);
 bool faculty175_face_ironman_action(uint32_t now_ms);
+void faculty175_face_alpheus_draw(uint32_t anim_ms);
+bool faculty175_face_alpheus_action(uint32_t now_ms);
 void faculty175_face_watcher_draw(uint32_t anim_ms);
 void faculty175_face_lenormand_draw(uint32_t anim_ms);
 void faculty175_face_hid_draw(uint32_t anim_ms);
@@ -93,6 +95,7 @@ bool faculty175_face_dispatch_draw(faculty175_face_id_t id, uint32_t anim_ms)
         case FACULTY175_FACE_FOCUS: faculty175_face_focus_draw(anim_ms); return true;
         case FACULTY175_FACE_BIOMETRICS: faculty175_face_bio_draw(anim_ms); return true;
         case FACULTY175_FACE_IRONMAN: faculty175_face_ironman_draw(anim_ms); return true;
+        case FACULTY175_FACE_ALPHEUS: faculty175_face_alpheus_draw(anim_ms); return true;
         case FACULTY175_FACE_WATCHER: faculty175_face_watcher_draw(anim_ms); return true;
         case FACULTY175_FACE_LENORMAND: faculty175_face_lenormand_draw(anim_ms); return true;
         case FACULTY175_FACE_HID: faculty175_face_hid_draw(anim_ms); return true;
@@ -163,6 +166,8 @@ bool faculty175_face_dispatch_action(faculty175_face_id_t id, uint32_t seed_ms)
             return faculty175_solar_image_action(seed_ms);
         case FACULTY175_FACE_IRONMAN:
             return faculty175_face_ironman_action(seed_ms);
+        case FACULTY175_FACE_ALPHEUS:
+            return faculty175_face_alpheus_action(seed_ms);
         case FACULTY175_FACE_WSCAN:
         case FACULTY175_FACE_DEAUTH:
         case FACULTY175_FACE_EVILTWIN:

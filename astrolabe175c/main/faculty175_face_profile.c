@@ -13,18 +13,37 @@ static const char *TAG = "faculty175_face_profile";
 #define FACES_NVS_NS "faces"
 #define FACES_NVS_PROFILE "profile"
 
+#if defined(ASTROLABE_FORCE_VARIANT_CLAW)
+#define FACULTY175_CLAW_PROFILE 1
+#else
+#define FACULTY175_CLAW_PROFILE 0
+#endif
+
 static faculty175_face_profile_t s_profile = FACULTY175_FACE_PROFILE_DEFAULT;
 
 static bool face_is_anchor(faculty175_face_id_t id)
 {
+#if FACULTY175_CLAW_PROFILE
+    if (id == FACULTY175_FACE_ALPHEUS) {
+        return true;
+    }
+    return id == FACULTY175_FACE_FACULTY || id == FACULTY175_FACE_POCKETWATCH ||
+           id == FACULTY175_FACE_SETTINGS;
+#else
     return id == FACULTY175_FACE_FACULTY || id == FACULTY175_FACE_POCKETWATCH ||
            id == FACULTY175_FACE_IRONMAN || id == FACULTY175_FACE_SETTINGS;
+#endif
 }
 
 static bool face_is_nav_anchor(faculty175_face_id_t id)
 {
+#if FACULTY175_CLAW_PROFILE
+    return id == FACULTY175_FACE_FACULTY || id == FACULTY175_FACE_POCKETWATCH ||
+           id == FACULTY175_FACE_ALPHEUS;
+#else
     return id == FACULTY175_FACE_FACULTY || id == FACULTY175_FACE_POCKETWATCH ||
            id == FACULTY175_FACE_IRONMAN;
+#endif
 }
 
 static bool profile_anchor_enabled(faculty175_face_profile_t profile, faculty175_face_id_t id)
@@ -332,7 +351,11 @@ faculty175_face_id_t faculty175_face_profile_home_face(faculty175_face_profile_t
         case FACULTY175_FACE_PROFILE_CYBER:
             return FACULTY175_FACE_USB_SCREEN;
         default:
+#if FACULTY175_CLAW_PROFILE
+            return FACULTY175_FACE_ALPHEUS;
+#else
             return FACULTY175_FACE_IRONMAN;
+#endif
     }
 }
 

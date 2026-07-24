@@ -16,6 +16,15 @@
 #define ASTROLABE_CYBER_FEATURES 0
 #endif
 
+static faculty175_face_id_t default_face_id(void)
+{
+#if defined(ASTROLABE_FORCE_VARIANT_CLAW)
+    return FACULTY175_FACE_ALPHEUS;
+#else
+    return FACULTY175_FACE_IRONMAN;
+#endif
+}
+
 static const char *TAG = "faculty175_faces";
 
 #define FACES_NVS_NS "faces"
@@ -73,7 +82,7 @@ static const faculty175_face_desc_t k_faces[] = {
     { FACULTY175_FACE_QDAY, "qday", "Question Day", FACULTY175_FACE_CAT_COMMONPLACE, true, false, 140 },
     { FACULTY175_FACE_FOCUS, "focus", "Focus Timer", FACULTY175_FACE_CAT_HOME, true, false, 145 },
     { FACULTY175_FACE_BIOMETRICS, "ring", "Ring", FACULTY175_FACE_CAT_HOME, true, false, 150 },
-    { FACULTY175_FACE_IRONMAN, "alpheus-face", "Alpheus Face", FACULTY175_FACE_CAT_HOME, true, false, 151 },
+    { FACULTY175_FACE_IRONMAN, "arc-reactor", "Arc Reactor", FACULTY175_FACE_CAT_HOME, true, false, 151 },
     { FACULTY175_FACE_WATCHER, "watcher", "Watcher", FACULTY175_FACE_CAT_HOME, true, false, 155 },
     { FACULTY175_FACE_LENORMAND, "lenormand", "Lenormand", FACULTY175_FACE_CAT_ORACLE, true, false, 160 },
     { FACULTY175_FACE_PYTHIA, "pythia", "Pythia", FACULTY175_FACE_CAT_ORACLE, false, false, 165 },
@@ -100,6 +109,7 @@ static const faculty175_face_desc_t k_faces[] = {
     { FACULTY175_FACE_JOURNAL, "journal", "Journal", FACULTY175_FACE_CAT_COMMONPLACE, true, false, 227 },
     { FACULTY175_FACE_CONVERSATION, "conversation", "Conversation", FACULTY175_FACE_CAT_COMMONPLACE, true, false, 228 },
     { FACULTY175_FACE_CYCLE, "cycle", "Cycle", FACULTY175_FACE_CAT_HOME, true, false, 225 },
+    { FACULTY175_FACE_ALPHEUS, "alpheus-face", "Alpheus Face", FACULTY175_FACE_CAT_HOME, true, false, 151 },
 };
 
 static faculty175_face_id_t s_current = FACULTY175_FACE_IRONMAN;
@@ -541,7 +551,7 @@ esp_err_t faculty175_faces_init(void)
     size_t len = sizeof(current);
     err = nvs_get_str(nvs, FACES_NVS_CURRENT, current, &len);
     if (err == ESP_ERR_NVS_NOT_FOUND) {
-        err = nvs_set_str(nvs, FACES_NVS_CURRENT, k_faces[FACULTY175_FACE_IRONMAN].slug);
+        err = nvs_set_str(nvs, FACES_NVS_CURRENT, k_faces[default_face_id()].slug);
         current[0] = '\0';
     }
     uint8_t schema = 0;
@@ -595,9 +605,9 @@ esp_err_t faculty175_faces_init(void)
             }
         }
         if (err == ESP_OK) {
-            err = nvs_set_str(nvs, FACES_NVS_CURRENT, k_faces[FACULTY175_FACE_IRONMAN].slug);
+            err = nvs_set_str(nvs, FACES_NVS_CURRENT, k_faces[default_face_id()].slug);
             if (err == ESP_OK) {
-                strncpy(current, k_faces[FACULTY175_FACE_IRONMAN].slug, sizeof(current) - 1u);
+                strncpy(current, k_faces[default_face_id()].slug, sizeof(current) - 1u);
                 current[sizeof(current) - 1u] = '\0';
             }
         }
@@ -633,7 +643,7 @@ esp_err_t faculty175_faces_init(void)
         return err;
     }
 
-    s_current = FACULTY175_FACE_IRONMAN;
+    s_current = default_face_id();
     const faculty175_face_desc_t *saved_current = faculty175_faces_find(current);
     if (saved_current != NULL && saved_current->ported && faculty175_faces_enabled(saved_current->id)) {
         s_current = saved_current->id;

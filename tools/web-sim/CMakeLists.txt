@@ -2,23 +2,9 @@ cmake_minimum_required(VERSION 3.20)
 
 project(astrolabe_web_sim C CXX)
 
-include(FetchContent)
-
 if(POLICY CMP0135)
   cmake_policy(SET CMP0135 NEW)
 endif()
-
-set(LV_CONF_INCLUDE_SIMPLE ON CACHE BOOL "" FORCE)
-set(LV_CONF_PATH "${CMAKE_CURRENT_SOURCE_DIR}/lv_conf.h" CACHE FILEPATH "" FORCE)
-set(CONFIG_LV_BUILD_DEMOS OFF CACHE BOOL "" FORCE)
-set(CONFIG_LV_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(CONFIG_LV_USE_THORVG_INTERNAL OFF CACHE BOOL "" FORCE)
-
-FetchContent_Declare(
-  lvgl
-  URL https://github.com/lvgl/lvgl/archive/refs/tags/v9.3.0.tar.gz
-)
-FetchContent_MakeAvailable(lvgl)
 
 file(GLOB FACULTY175_FACE_SRCS
   "${CMAKE_CURRENT_SOURCE_DIR}/../../astrolabe175c/main/faculty175_face_*.c"
@@ -47,7 +33,6 @@ add_executable(astrolabe-web-sim
 
 target_include_directories(astrolabe-web-sim PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}"
-  "${lvgl_SOURCE_DIR}"
   "${CMAKE_CURRENT_SOURCE_DIR}/faculty175_compat"
   "${CMAKE_CURRENT_SOURCE_DIR}/faculty175_compat/freertos"
   "${CMAKE_CURRENT_SOURCE_DIR}/faculty175_compat/driver"
@@ -57,11 +42,10 @@ target_include_directories(astrolabe-web-sim PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/../../lib/astrolabe_time/include"
 )
 
-target_link_libraries(astrolabe-web-sim PRIVATE lvgl)
-
 target_compile_definitions(astrolabe-web-sim PRIVATE
   LV_CONF_INCLUDE_SIMPLE=1
   ASTROLABE_WEB_SIM=1
+  ASTROLABE_FORCE_VARIANT_CLAW=1
 )
 
 target_compile_options(astrolabe-web-sim PRIVATE
@@ -92,4 +76,9 @@ add_custom_command(TARGET astrolabe-web-sim POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
           "${CMAKE_CURRENT_SOURCE_DIR}/public/icon.svg"
           "$<TARGET_FILE_DIR:astrolabe-web-sim>/icon.svg"
+  COMMAND ${CMAKE_COMMAND} -E make_directory
+          "$<TARGET_FILE_DIR:astrolabe-web-sim>/assets"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+          "${CMAKE_CURRENT_SOURCE_DIR}/public/assets/alpheus-face.png"
+          "$<TARGET_FILE_DIR:astrolabe-web-sim>/assets/alpheus-face.png"
 )

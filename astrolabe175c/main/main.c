@@ -936,7 +936,8 @@ static void low_power_tick(uint32_t now_ms)
 
     bool breathing_guide_active = false;
     const faculty175_face_desc_t *power_face = faculty175_faces_current();
-    if (power_face != NULL && power_face->id == FACULTY175_FACE_IRONMAN) {
+    if (power_face != NULL && (power_face->id == FACULTY175_FACE_IRONMAN ||
+                               power_face->id == FACULTY175_FACE_ALPHEUS)) {
         faculty175_breath_status_t breath = {0};
         faculty175_breath_status(&breath);
         breathing_guide_active = breath.guide_phase != FACULTY175_BREATH_GUIDE_NONE;
