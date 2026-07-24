@@ -37,16 +37,25 @@
 #define RESEARCH_NVS_CONSENT "consent"
 #define RESEARCH_NVS_VERSION "version"
 #define RESEARCH_NVS_PENDING "pending"
+#define RESEARCH_NVS_KIND "kind"
 #define RESEARCH_NVS_MOOD "mood"
 #define RESEARCH_NVS_AROUSAL "arousal"
 #define RESEARCH_NVS_VALENCE "valence"
 #define RESEARCH_NVS_EPOCH "epoch"
-#define RESEARCH_CONSENT_VERSION "research-v1"
+#define RESEARCH_NVS_FACE "face"
+#define RESEARCH_NVS_RATING "rating"
+#define RESEARCH_NVS_DATE "read_date"
+#define RESEARCH_CONSENT_VERSION "research-v2"
 #define RESEARCH_RETRY_MS (5U * 60U * 1000U)
 #define RESEARCH_PAUSED_RETRY_MS (6U * 60U * 60U * 1000U)
 #define RESEARCH_TASK_STACK 7168
 
 static const char *TAG = "faculty175_research";
+
+typedef enum {
+    RESEARCH_EVENT_MOOD = 1,
+    RESEARCH_EVENT_FEEDBACK = 2,
+} research_event_kind_t;
 
 typedef struct {
     bool loaded;
@@ -55,12 +64,16 @@ typedef struct {
     bool task_running;
     uint8_t arousal;
     uint8_t valence;
+    research_event_kind_t kind;
     int64_t epoch;
     uint32_t last_attempt_ms;
     uint32_t generation;
     faculty175_research_state_t state;
     char consent_version[24];
     char mood[16];
+    char feedback_face[16];
+    char feedback_rating[12];
+    char reading_date[11];
 } research_context_t;
 
 typedef struct {
@@ -69,6 +82,7 @@ typedef struct {
 } research_http_response_t;
 
 static research_context_t s_research;
+static esp_err_t save_state(void);
 
 static void load_state(void)
 {
@@ -88,6 +102,9 @@ static void load_state(void)
         if (nvs_get_u8(nvs, RESEARCH_NVS_PENDING, &value) == ESP_OK) {
             s_research.pending = value != 0;
         }
+        value = RESEARCH_EVENT_MOOD;
+        (void)nvs_get_u8(nvs, RESEARCH_NVS_KIND, &value);
+        s_research.kind = (research_event_kind_t)value;
         size_t len = sizeof(s_research.consent_version);
         (void)nvs_get_str(nvs, RESEARCH_NVS_VERSION,
                           s_research.consent_version, &len);
@@ -96,7 +113,23 @@ static void load_state(void)
         (void)nvs_get_u8(nvs, RESEARCH_NVS_AROUSAL, &s_research.arousal);
         (void)nvs_get_u8(nvs, RESEARCH_NVS_VALENCE, &s_research.valence);
         (void)nvs_get_i64(nvs, RESEARCH_NVS_EPOCH, &s_research.epoch);
+        len = sizeof(s_research.feedback_face);
+        (void)nvs_get_str(nvs, RESEARCH_NVS_FACE,
+                          s_research.feedback_face, &len);
+        len = sizeof(s_research.feedback_rating);
+        (void)nvs_get_str(nvs, RESEARCH_NVS_RATING,
+                          s_research.feedback_rating, &len);
+        len = sizeof(s_research.reading_date);
+        (void)nvs_get_str(nvs, RESEARCH_NVS_DATE,
+                          s_research.reading_date, &len);
         nvs_close(nvs);
+    }
+    if (strcmp(s_research.consent_version, RESEARCH_CONSENT_VERSION) != 0) {
+        s_research.consent = false;
+        s_research.pending = false;
+        strlcpy(s_research.consent_version, RESEARCH_CONSENT_VERSION,
+                sizeof(s_research.consent_version));
+        (void)save_state();
     }
     if (!s_research.consent) {
         s_research.pending = false;
@@ -125,22 +158,45 @@ static esp_err_t save_state(void)
                          s_research.pending ? 1 : 0);
     }
     if (err == ESP_OK && s_research.pending) {
+        err = nvs_set_u8(nvs, RESEARCH_NVS_KIND, (uint8_t)s_research.kind);
+    }
+    if (err == ESP_OK && s_research.pending &&
+        s_research.kind == RESEARCH_EVENT_MOOD) {
         err = nvs_set_str(nvs, RESEARCH_NVS_MOOD, s_research.mood);
     }
-    if (err == ESP_OK && s_research.pending) {
+    if (err == ESP_OK && s_research.pending &&
+        s_research.kind == RESEARCH_EVENT_MOOD) {
         err = nvs_set_u8(nvs, RESEARCH_NVS_AROUSAL, s_research.arousal);
     }
-    if (err == ESP_OK && s_research.pending) {
+    if (err == ESP_OK && s_research.pending &&
+        s_research.kind == RESEARCH_EVENT_MOOD) {
         err = nvs_set_u8(nvs, RESEARCH_NVS_VALENCE, s_research.valence);
     }
     if (err == ESP_OK && s_research.pending) {
         err = nvs_set_i64(nvs, RESEARCH_NVS_EPOCH, s_research.epoch);
     }
+    if (err == ESP_OK && s_research.pending &&
+        s_research.kind == RESEARCH_EVENT_FEEDBACK) {
+        err = nvs_set_str(nvs, RESEARCH_NVS_FACE, s_research.feedback_face);
+    }
+    if (err == ESP_OK && s_research.pending &&
+        s_research.kind == RESEARCH_EVENT_FEEDBACK) {
+        err = nvs_set_str(nvs, RESEARCH_NVS_RATING,
+                          s_research.feedback_rating);
+    }
+    if (err == ESP_OK && s_research.pending &&
+        s_research.kind == RESEARCH_EVENT_FEEDBACK) {
+        err = nvs_set_str(nvs, RESEARCH_NVS_DATE, s_research.reading_date);
+    }
     if (err == ESP_OK && !s_research.pending) {
+        (void)nvs_erase_key(nvs, RESEARCH_NVS_KIND);
         (void)nvs_erase_key(nvs, RESEARCH_NVS_MOOD);
         (void)nvs_erase_key(nvs, RESEARCH_NVS_AROUSAL);
         (void)nvs_erase_key(nvs, RESEARCH_NVS_VALENCE);
         (void)nvs_erase_key(nvs, RESEARCH_NVS_EPOCH);
+        (void)nvs_erase_key(nvs, RESEARCH_NVS_FACE);
+        (void)nvs_erase_key(nvs, RESEARCH_NVS_RATING);
+        (void)nvs_erase_key(nvs, RESEARCH_NVS_DATE);
     }
     if (err == ESP_OK) {
         err = nvs_commit(nvs);
@@ -163,6 +219,45 @@ static bool valid_mood(const char *mood)
         }
     }
     return false;
+}
+
+static bool value_in(const char *value,
+                     const char *const *allowed,
+                     size_t allowed_count)
+{
+    if (value == NULL) {
+        return false;
+    }
+    for (size_t i = 0; i < allowed_count; ++i) {
+        if (strcasecmp(value, allowed[i]) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool valid_feedback(const char *face,
+                           const char *rating,
+                           const char *reading_date)
+{
+    static const char *const faces[] = {
+        "moon", "astrology", "transits", "synastry", "tarot", "sky",
+    };
+    static const char *const ratings[] = {"helpful", "mixed", "missed"};
+    if (!value_in(face, faces, sizeof(faces) / sizeof(faces[0])) ||
+        !value_in(rating, ratings, sizeof(ratings) / sizeof(ratings[0])) ||
+        reading_date == NULL || strlen(reading_date) != 10) {
+        return false;
+    }
+    return reading_date[4] == '-' && reading_date[7] == '-' &&
+           isdigit((unsigned char)reading_date[0]) &&
+           isdigit((unsigned char)reading_date[1]) &&
+           isdigit((unsigned char)reading_date[2]) &&
+           isdigit((unsigned char)reading_date[3]) &&
+           isdigit((unsigned char)reading_date[5]) &&
+           isdigit((unsigned char)reading_date[6]) &&
+           isdigit((unsigned char)reading_date[8]) &&
+           isdigit((unsigned char)reading_date[9]);
 }
 
 static esp_err_t research_http_event(esp_http_client_event_t *event)
@@ -206,14 +301,22 @@ static void research_export_task(void *arg)
     const uint32_t generation = s_research.generation;
     const uint8_t arousal = s_research.arousal;
     const uint8_t valence = s_research.valence;
+    const research_event_kind_t kind = s_research.kind;
     const int64_t epoch = s_research.epoch;
     char consent_version[sizeof(s_research.consent_version)];
     char mood[sizeof(s_research.mood)];
+    char feedback_face[sizeof(s_research.feedback_face)];
+    char feedback_rating[sizeof(s_research.feedback_rating)];
+    char reading_date[sizeof(s_research.reading_date)];
     strlcpy(consent_version, s_research.consent_version,
             sizeof(consent_version));
     strlcpy(mood, s_research.mood, sizeof(mood));
+    strlcpy(feedback_face, s_research.feedback_face, sizeof(feedback_face));
+    strlcpy(feedback_rating, s_research.feedback_rating,
+            sizeof(feedback_rating));
+    strlcpy(reading_date, s_research.reading_date, sizeof(reading_date));
     char url[256];
-    char body[384];
+    char body[512];
     research_http_response_t response = {};
     esp_err_t err = ESP_FAIL;
     int status = 0;
@@ -231,17 +334,32 @@ static void research_export_task(void *arg)
     if (occurred > 1704067200 && gmtime_r(&occurred, &utc) != NULL) {
         strftime(occurred_at, sizeof(occurred_at), "%Y-%m-%dT%H:%M:%SZ", &utc);
     }
-    const int body_len = snprintf(
-        body,
-        sizeof(body),
-        "{\"consent\":true,\"consentVersion\":\"%s\","
-        "\"mood\":\"%s\",\"arousal\":%u,\"valence\":%u,\"source\":\"device-face\","
-        "\"occurredAt\":\"%s\"}",
-        consent_version,
-        mood,
-        arousal,
-        valence,
-        occurred_at);
+    int body_len;
+    if (kind == RESEARCH_EVENT_FEEDBACK) {
+        body_len = snprintf(
+            body,
+            sizeof(body),
+            "{\"event\":\"reading_feedback\",\"consent\":true,"
+            "\"consentVersion\":\"%s\",\"face\":\"%s\",\"rating\":\"%s\","
+            "\"readingDate\":\"%s\",\"source\":\"pwa\",\"occurredAt\":\"%s\"}",
+            consent_version,
+            feedback_face,
+            feedback_rating,
+            reading_date,
+            occurred_at);
+    } else {
+        body_len = snprintf(
+            body,
+            sizeof(body),
+            "{\"consent\":true,\"consentVersion\":\"%s\","
+            "\"mood\":\"%s\",\"arousal\":%u,\"valence\":%u,"
+            "\"source\":\"device-face\",\"occurredAt\":\"%s\"}",
+            consent_version,
+            mood,
+            arousal,
+            valence,
+            occurred_at);
+    }
     if (body_len <= 0 || (size_t)body_len >= sizeof(body)) {
         s_research.state = FACULTY175_RESEARCH_ERROR;
         goto done;
@@ -307,7 +425,8 @@ done:
         s_research.state = FACULTY175_RESEARCH_PENDING;
     }
     FACULTY175_LOG_STAGE(TAG, "research",
-                         "mood export status=%d err=%s logged=%s state=%s",
+                         "%s export status=%d err=%s logged=%s state=%s",
+                         kind == RESEARCH_EVENT_FEEDBACK ? "feedback" : "mood",
                          status, esp_err_to_name(err), logged ? "yes" : "no",
                          faculty175_research_state_label(s_research.state));
     s_research.task_running = false;
@@ -356,6 +475,9 @@ esp_err_t faculty175_research_record_mood(const char *mood,
     if (!s_research.consent) {
         return ESP_ERR_INVALID_STATE;
     }
+    if (s_research.pending) {
+        return ESP_ERR_INVALID_STATE;
+    }
     if (!valid_mood(mood) || arousal > 100 || valence > 100) {
         return ESP_ERR_INVALID_ARG;
     }
@@ -369,6 +491,42 @@ esp_err_t faculty175_research_record_mood(const char *mood,
     s_research.arousal = arousal;
     s_research.valence = valence;
     s_research.epoch = (int64_t)time(NULL);
+    s_research.kind = RESEARCH_EVENT_MOOD;
+    ++s_research.generation;
+    s_research.pending = true;
+    s_research.state = FACULTY175_RESEARCH_PENDING;
+    const esp_err_t err = save_state();
+    if (err == ESP_OK) {
+        s_research.last_attempt_ms = 0;
+        faculty175_research_poll();
+    }
+    return err;
+}
+
+esp_err_t faculty175_research_record_feedback(const char *face,
+                                              const char *rating,
+                                              const char *reading_date)
+{
+    load_state();
+    if (!s_research.consent || s_research.pending) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (!valid_feedback(face, rating, reading_date)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    strlcpy(s_research.feedback_face, face, sizeof(s_research.feedback_face));
+    strlcpy(s_research.feedback_rating, rating,
+            sizeof(s_research.feedback_rating));
+    strlcpy(s_research.reading_date, reading_date,
+            sizeof(s_research.reading_date));
+    for (char *p = s_research.feedback_face; *p != '\0'; ++p) {
+        *p = (char)tolower((unsigned char)*p);
+    }
+    for (char *p = s_research.feedback_rating; *p != '\0'; ++p) {
+        *p = (char)tolower((unsigned char)*p);
+    }
+    s_research.epoch = (int64_t)time(NULL);
+    s_research.kind = RESEARCH_EVENT_FEEDBACK;
     ++s_research.generation;
     s_research.pending = true;
     s_research.state = FACULTY175_RESEARCH_PENDING;
@@ -400,7 +558,7 @@ void faculty175_research_poll(void)
     s_research.task_running = true;
     BaseType_t created = xTaskCreateWithCaps(
         research_export_task,
-        "mood_export",
+        "research_export",
         RESEARCH_TASK_STACK,
         NULL,
         2,
@@ -425,6 +583,10 @@ void faculty175_research_status(faculty175_research_status_t *out)
     strlcpy(out->consent_version, s_research.consent_version,
             sizeof(out->consent_version));
     strlcpy(out->last_mood, s_research.mood, sizeof(out->last_mood));
+    strlcpy(out->last_feedback_face, s_research.feedback_face,
+            sizeof(out->last_feedback_face));
+    strlcpy(out->last_feedback_rating, s_research.feedback_rating,
+            sizeof(out->last_feedback_rating));
 }
 
 const char *faculty175_research_state_label(faculty175_research_state_t state)

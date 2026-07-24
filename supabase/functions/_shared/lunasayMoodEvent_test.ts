@@ -3,7 +3,7 @@ import { parseLunaSayMoodEvent } from "./lunasayMoodEvent.ts";
 const NOW = Date.parse("2026-07-24T05:00:00Z");
 const valid = {
   consent: true,
-  consentVersion: "research-v1",
+  consentVersion: "research-v2",
   mood: "Tender",
   arousal: 35.2,
   valence: 44.8,
@@ -25,7 +25,7 @@ Deno.test("parses one bounded, consented LunaSay mood event", () => {
 Deno.test("rejects missing consent and stale consent versions", () => {
   if (
     parseLunaSayMoodEvent({ ...valid, consent: false }, NOW) ||
-    parseLunaSayMoodEvent({ ...valid, consentVersion: "research-v0" }, NOW)
+    parseLunaSayMoodEvent({ ...valid, consentVersion: "research-v1" }, NOW)
   ) {
     throw new Error("invalid consent envelope was accepted");
   }

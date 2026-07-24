@@ -2,7 +2,7 @@ const SERVICE = '01000000-5017-0065-6261-6c6f72747341';
 const SETTINGS = '03000000-5017-0065-6261-6c6f72747341';
 const STATE = '04000000-5017-0065-6261-6c6f72747341';
 const CHUNK = 80;
-const CONSENT_VERSION = 'research-v1';
+const CONSENT_VERSION = 'research-v2';
 
 let characteristic;
 let stateCharacteristic;
@@ -11,6 +11,11 @@ let deviceStatus = {};
 const $ = selector => document.querySelector(selector);
 const status = $('#connection');
 const setStatus = text => { status.textContent = text; };
+const localDate = () => {
+  const now = new Date();
+  const offsetMs = now.getTimezoneOffset() * 60 * 1000;
+  return new Date(now.getTime() - offsetMs).toISOString().slice(0, 10);
+};
 
 function saveDraft() {
   const form = $('#personal-form');
@@ -105,10 +110,21 @@ function renderResearch() {
   const consent = research.consent === true;
   $('#research-consent').checked = consent;
   const state = research.status || (consent ? 'ready' : 'local only');
-  const pending = research.pending ? ' One check-in is safely queued on the device.' : '';
+  const pending = research.pending ? ' One contribution is safely queued on the device.' : '';
   $('#research-status').textContent = consent
     ? `Research sharing is on · ${state}.${pending}`
-    : 'Research sharing is off · mood check-ins stay on LunaSay.';
+    : 'Research sharing is off · mood and reading feedback stay on LunaSay.';
+  document.querySelectorAll('.reflection-rating').forEach(button => {
+    button.disabled = !consent || research.pending === true;
+  });
+  const feedback = research.lastFeedback || {};
+  $('#reflection-note').textContent = !consent
+    ? 'Turn on research sharing in Privacy to contribute.'
+    : research.pending
+      ? 'A contribution is queued; LunaSay will send it when connected.'
+      : feedback.face && feedback.rating
+        ? `Last response: ${feedback.face} was ${feedback.rating}.`
+        : 'Only the face, rating, date, time, and pseudonymous device identity are shared.';
 }
 
 function render() {
@@ -176,10 +192,22 @@ document.querySelectorAll('.mood').forEach(button => {
   });
 });
 
+document.querySelectorAll('.reflection-rating').forEach(button => {
+  button.addEventListener('click', () => {
+    const face = $('#reflection-face').value;
+    const rating = button.dataset.rating;
+    const readingDate = localDate();
+    sendAndRefresh(
+      { reflection: { face, rating, readingDate } },
+      `${face} reading marked ${rating}. Thank you for helping LunaSay learn.`,
+    ).catch(error => setStatus(error.message));
+  });
+});
+
 $('#research-consent').addEventListener('change', event => {
   const consent = event.currentTarget.checked;
   if (consent && !confirm(
-    'Share future mood check-ins for LunaSay research? No names, birth data, family data, journals, biometrics, or location are included.',
+    'Share future mood check-ins and reading ratings for LunaSay research? No names, reading text, birth data, family data, journals, biometrics, or location are included.',
   )) {
     event.currentTarget.checked = false;
     return;
@@ -187,8 +215,8 @@ $('#research-consent').addEventListener('change', event => {
   sendAndRefresh(
     { research: { consent, consentVersion: CONSENT_VERSION } },
     consent
-      ? 'Research sharing enabled. Only future deliberate mood check-ins may export.'
-      : 'Research sharing disabled. Any unsent check-in was deleted from LunaSay.',
+      ? 'Research sharing enabled. Only future deliberate check-ins and reading ratings may export.'
+      : 'Research sharing disabled. Any unsent contribution was deleted from LunaSay.',
   ).catch(error => {
     event.currentTarget.checked = !consent;
     setStatus(error.message);

@@ -48,15 +48,24 @@ function githubHeaders(token: string): HeadersInit {
 }
 
 function safeMlData(
+  event: LunaSayMlEvent["event"],
   value: Record<string, string | number | boolean | null>,
 ): Record<string, string | number | boolean | null> {
+  const allowed = new Set(
+    event === "mood_checkin"
+      ? ["mood", "arousal", "valence", "source"]
+      : event === "reading_feedback"
+      ? ["face", "rating", "reading_date", "source"]
+      : ["face", "reading_date", "source", "dwell_bucket"],
+  );
   const safe: Record<string, string | number | boolean | null> = {};
   for (const [key, item] of Object.entries(value).slice(0, 24)) {
-    if (!/^[a-z][a-z0-9_]{0,31}$/.test(key)) continue;
+    if (!allowed.has(key) || !/^[a-z][a-z0-9_]{0,31}$/.test(key)) continue;
     if (typeof item === "string") {
       safe[key] = item.replace(/\s+/g, " ").trim().slice(0, 96);
     } else if (
-      item === null || typeof item === "number" || typeof item === "boolean"
+      item === null || (typeof item === "number" && Number.isFinite(item)) ||
+      typeof item === "boolean"
     ) {
       safe[key] = item;
     }
@@ -93,7 +102,7 @@ export async function createLunaSayMlRecord(
     occurredAt,
     subjectHash,
     consentVersion,
-    data: safeMlData(entry.data),
+    data: safeMlData(entry.event, entry.data),
   };
 }
 
