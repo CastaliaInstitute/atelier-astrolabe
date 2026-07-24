@@ -478,16 +478,30 @@ function contentMatchesFace(id: LunaSayDailyFaceId, content: string): boolean {
 }
 
 function speechClause(value: string, maxChars: number): string {
-  if (value.length <= maxChars) return value;
+  const finish = (text: string) => {
+    let result = text.replace(/[\s,;:.-]+$/, "").trim();
+    while (
+      /\b(?:and|or|to|of|in|for|with|a|an|the|their|how|as)$/i.test(result)
+    ) {
+      result = result.replace(/\s+\S+$/, "").trim();
+    }
+    return /[.!?]$/.test(result) ? result : `${result}.`;
+  };
+  if (value.length <= maxChars) return finish(value);
   const sentence = value.match(/^.*?[.!?](?:\s|$)/)?.[0]?.trim();
-  if (sentence && sentence.length <= maxChars) return sentence;
+  if (sentence && sentence.length <= maxChars) return finish(sentence);
   const slice = value.slice(0, maxChars + 1);
+  const clauseEnd = Math.max(slice.lastIndexOf(";"), slice.lastIndexOf(","));
+  if (clauseEnd >= Math.floor(maxChars * 0.6)) {
+    return finish(slice.slice(0, clauseEnd));
+  }
   const wordEnd = slice.lastIndexOf(" ");
-  return slice.slice(
-    0,
-    wordEnd >= Math.floor(maxChars * 0.6) ? wordEnd : maxChars,
-  )
-    .replace(/[\s,;:.-]+$/, "");
+  return finish(
+    slice.slice(
+      0,
+      wordEnd >= Math.floor(maxChars * 0.6) ? wordEnd : maxChars,
+    ),
+  );
 }
 
 function canonicalTemporalNext(
@@ -571,9 +585,11 @@ function parseLunaSayDailyFaceValue(
     ? canonicalTemporalNext(temporalEvidence, id)
     : undefined;
   const spoken = dynamic && weather && practice
-    ? `${speechClause(dynamic, 92)} ${speechClause(weather, 72)} Next: ${
+    ? `Pattern: ${speechClause(dynamic, 80)} Today: ${
+      speechClause(weather, 64)
+    } Next: ${
       speechClause(next ?? "Let lived experience lead.", 86)
-    } Try this: ${speechClause(practice, 82)}`
+    } Practice: ${speechClause(practice, 74)}`
     : modelSpoken;
   const evidenceSupported = expectedFacts === undefined ||
     (evidence !== undefined &&
