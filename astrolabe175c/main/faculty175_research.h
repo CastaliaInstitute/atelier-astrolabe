@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #include "esp_err.h"
@@ -22,6 +23,7 @@ typedef struct {
     char last_mood[16];
     char last_feedback_face[16];
     char last_feedback_rating[12];
+    uint16_t local_feedback_count;
 } faculty175_research_status_t;
 
 void faculty175_research_init(void);
@@ -31,6 +33,7 @@ esp_err_t faculty175_research_record_mood(const char *mood, uint8_t arousal, uin
 esp_err_t faculty175_research_record_feedback(const char *face,
                                               const char *rating,
                                               const char *reading_date);
+esp_err_t faculty175_research_resonance_json(char *out, size_t cap);
 void faculty175_research_poll(void);
 void faculty175_research_status(faculty175_research_status_t *out);
 const char *faculty175_research_state_label(faculty175_research_state_t state);

@@ -25,6 +25,10 @@ import {
   parseLunaSayDailyPacket,
 } from "../_shared/lunasayDailyPacket.ts";
 import {
+  lunaSayResonanceInstruction,
+  parseLunaSayResonanceProfile,
+} from "../_shared/lunasayResonance.ts";
+import {
   capTextForWatchTts,
   corsHeaders,
   envKeys,
@@ -104,6 +108,8 @@ type ReqBody = {
   timezone?: string;
   /** Product profile, so delivery can remain LunaSay-specific despite a shared voice service. */
   deviceProfile?: string;
+  /** Bounded, device-local per-face rating counts used only for writing calibration. */
+  resonanceProfile?: unknown;
   /** Faculty id/slug whose Google TTS voice should be used for faculty-flavored replies. */
   facultySlug?: string;
   /** Optional display name for the faculty metadata headers / logging fallback. */
@@ -1396,6 +1402,9 @@ Deno.serve(async (req: Request) => {
           ? "packet"
           : "per_face";
       if (generationMode === "per_face") {
+        const resonanceProfile = parseLunaSayResonanceProfile(
+          body.resonanceProfile,
+        );
         const perFaceModel =
           Deno.env.get("GEMINI_LUNASAY_FACE_MODEL")?.trim() ||
           "gemini-2.5-flash";
@@ -1406,6 +1415,13 @@ Deno.serve(async (req: Request) => {
             date,
             timezone,
           });
+          const resonanceInstruction = lunaSayResonanceInstruction(
+            id,
+            resonanceProfile,
+          );
+          if (resonanceInstruction) {
+            systemInstruction += ` ${resonanceInstruction}`;
+          }
           const requiredEvidence = lunaSayRequiredEvidence(id, facts);
           const requiredWeatherEvidence = lunaSayRequiredWeatherEvidence(
             id,
@@ -1442,6 +1458,7 @@ Deno.serve(async (req: Request) => {
             requiredEvidence,
             requiredWeatherEvidence,
             requiredTemporalEvidence,
+            resonanceApplied: resonanceInstruction.length > 0,
           };
         });
         const inputTokens = prompts.reduce(
@@ -1554,11 +1571,14 @@ Deno.serve(async (req: Request) => {
         return jsonResponse(200, {
           packet,
           route: LUNASAY_DAILY_PACKET_FACE,
-          cacheKey: `lunasay:${date}:${timezone}:v2`,
+          cacheKey: `lunasay:${date}:${timezone}:v3`,
           tts: "on_demand",
           generationMode,
           model: perFaceModel,
           llmCalls,
+          resonanceAppliedFaces: prompts
+            .filter((prompt) => prompt.resonanceApplied)
+            .map((prompt) => prompt.id),
           ...(faceFallbacks.length
             ? { fallback: true, faceFallbacks, faceFallbackReasons }
             : {}),

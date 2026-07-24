@@ -99,6 +99,14 @@ esp_err_t faculty175_research_record_feedback(const char *face,
     (void)reading_date;
     return ESP_FAIL;
 }
+esp_err_t faculty175_research_resonance_json(char *out, size_t cap)
+{
+    if (out == NULL || cap < 3) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    snprintf(out, cap, "{}");
+    return ESP_OK;
+}
 void faculty175_research_poll(void) {}
 void faculty175_research_status(faculty175_research_status_t *out)
 {
