@@ -138,9 +138,10 @@ Deno.test("individual Family Synastry keeps three bounded beats", () => {
     "Tight major aspects: Moon sextile Moon orb 1.2. Current relationship transit arc: now at day +0, transiting Moon sextile Daniel natal Moon at orb 1.2 degrees; closest in the daily samples on day +2. Family biometrics: no live wellness packets received yet.",
   );
   if (
-    !face.spoken.includes("The lasting pattern:") ||
-    !face.spoken.includes("Today's weather:") ||
-    !face.spoken.includes("A small practice:")
+    !face.spoken.includes("Both of you seek steadiness") ||
+    !face.spoken.includes("No current transit facts") ||
+    !face.spoken.includes("Next:") ||
+    !face.spoken.includes("Try this:")
   ) {
     throw new Error("individual synastry beats were not composed");
   }
@@ -302,7 +303,7 @@ Deno.test("server assigns distinct exact evidence to each daily face", () => {
   }
 });
 
-Deno.test("temporal faces reject invented offsets, dates, certainty, and lost relationship subjects", () => {
+Deno.test("server owns next timing and rejects invented dates or certainty", () => {
   const transitEvidence =
     "Ten-day transit arc: now at day +0, transiting Saturn square natal Venus at orb 1.4 degrees; closest in the daily samples on day +2 at orb 0.1 degrees; outside the 4.5-degree window by day +7.";
   const baseTransit = {
@@ -318,10 +319,24 @@ Deno.test("temporal faces reject invented offsets, dates, certainty, and lost re
     temporalEvidence: transitEvidence,
   };
   const facts = `${baseTransit.evidence} ${transitEvidence}`;
+  const canonical = parseLunaSayDailyFace(
+    JSON.stringify({
+      ...baseTransit,
+      next: "Everything turns around on day +5.",
+    }),
+    "transits",
+    "2026-08-01",
+    facts,
+  );
+  if (
+    canonical.next !==
+      "Closest in daily samples on day +2; outside the active window by day +7."
+  ) {
+    throw new Error(`server did not own next timing: ${canonical.next}`);
+  }
   for (
     const [label, change] of [
-      ["invented offset", { next: "Everything turns around on day +5." }],
-      ["invented date", { next: "Everything turns around on 2026-08-09." }],
+      ["invented date", { now: "Everything changes on 2026-08-09." }],
       ["certainty", { now: "This will force a relationship decision." }],
     ] as const
   ) {
@@ -341,33 +356,33 @@ Deno.test("temporal faces reject invented offsets, dates, certainty, and lost re
 
   const relationshipEvidence =
     "Current relationship transit arc: now at day +0, transiting Moon sextile Rowan natal Moon at orb 1.2 degrees; closest in the daily samples on day +1 at orb 0.3 degrees.";
-  let lostSubjectAccepted = true;
-  try {
-    parseLunaSayDailyFace(
-      JSON.stringify({
-        headline: "Tender",
-        display: "Let one person's timing stay personal.",
-        dynamic: "Both people may seek safety before opening up.",
-        weather: "This transit touches Rowan's chart, not the whole bond.",
-        practice: "Ask Rowan what support would help before assuming.",
-        detail: "The timing is individual context, not a family verdict.",
-        evidence: "Tight major aspects: Moon sextile Moon orb 1.2",
-        weatherEvidence: relationshipEvidence,
-        now: "One person may need more room today.",
-        next: "The sampled contact is closest on day +1.",
-        temporalEvidence: relationshipEvidence,
-      }),
-      "synastry",
-      "2026-08-01",
-      `Tight major aspects: Moon sextile Moon orb 1.2. ${relationshipEvidence}`,
+  const relationship = parseLunaSayDailyFace(
+    JSON.stringify({
+      headline: "Tender",
+      display: "Let one person's timing stay personal.",
+      dynamic: "Both people may seek safety before opening up.",
+      weather: "This transit touches Rowan's chart, not the whole bond.",
+      practice: "Ask Rowan what support would help before assuming.",
+      detail: "The timing is individual context, not a family verdict.",
+      evidence: "Tight major aspects: Moon sextile Moon orb 1.2",
+      weatherEvidence: relationshipEvidence,
+      now: "One person may need more room today.",
+      next: "The sampled contact is closest on day +8.",
+      temporalEvidence: relationshipEvidence,
+    }),
+    "synastry",
+    "2026-08-01",
+    `Tight major aspects: Moon sextile Moon orb 1.2. ${relationshipEvidence}`,
+  );
+  if (
+    !relationship.now?.includes("Rowan") ||
+    relationship.next !== "Closest in daily samples on day +1."
+  ) {
+    throw new Error(
+      `relationship subject or canonical timing was lost: ${
+        JSON.stringify({ now: relationship.now, next: relationship.next })
+      }`,
     );
-  } catch (error) {
-    lostSubjectAccepted = !String(error).includes(
-      "relationship-timing-subject-lost",
-    );
-  }
-  if (lostSubjectAccepted) {
-    throw new Error("relationship timing lost the named subject");
   }
 });
 
@@ -543,9 +558,10 @@ Deno.test("LunaSay composes synastry from durable, temporary, and practice beats
   });
   for (
     const beat of [
-      "The lasting pattern:",
-      "Today's weather:",
-      "A small practice:",
+      "You can both protect closeness",
+      "No live relationship signal",
+      "Next:",
+      "Try this:",
     ]
   ) {
     if (!parsed.faces.synastry.spoken.includes(beat)) {
@@ -554,7 +570,7 @@ Deno.test("LunaSay composes synastry from durable, temporary, and practice beats
   }
 });
 
-Deno.test("LunaSay rejects verbose synastry beats instead of clipping meaning", () => {
+Deno.test("LunaSay keeps verbose synastry details while bounding device speech", () => {
   const packet = lunaSayDailyPacketFallback({
     date: "2030-01-01",
     timezone: "UTC",
@@ -562,32 +578,33 @@ Deno.test("LunaSay rejects verbose synastry beats instead of clipping meaning", 
   });
   const verbose =
     "This deliberately verbose relationship sentence contains more language than the small device needs for one spoken beat and keeps adding generalized clauses that obscure both people's actual perspectives instead of naming the reciprocal pattern clearly";
-  let rejected = false;
-  try {
-    parseLunaSayDailyPacket(
-      JSON.stringify({
-        faces: {
-          ...packet.faces,
-          synastry: {
-            headline: "Tender",
-            display: "Let lived experience lead.",
-            dynamic: verbose,
-            weather: verbose,
-            practice: verbose,
-            detail: "A bounded parser protects the device cache.",
-          },
+  const parsed = parseLunaSayDailyPacket(
+    JSON.stringify({
+      faces: {
+        ...packet.faces,
+        synastry: {
+          headline: "Tender",
+          display: "Let lived experience lead.",
+          dynamic: verbose,
+          weather: verbose.slice(0, 190),
+          practice: verbose.slice(0, 190),
+          detail: "A bounded speech composer protects the device cache.",
+          now: "No verified relationship timing is loaded.",
+          temporalEvidence: "No live relationship signal is available.",
         },
-      }),
-      {
-        date: "2030-01-01",
-        timezone: "UTC",
       },
-    );
-  } catch (error) {
-    rejected = String(error).includes("Invalid LunaSay daily face: synastry");
-  }
-  if (!rejected) {
-    throw new Error("overlong synastry was silently clipped");
+    }),
+    {
+      date: "2030-01-01",
+      timezone: "UTC",
+    },
+  );
+  if (
+    parsed.faces.synastry.detail !==
+      "A bounded speech composer protects the device cache." ||
+    new TextEncoder().encode(parsed.faces.synastry.spoken).length >= 384
+  ) {
+    throw new Error("synastry speech did not preserve detail and fit cache");
   }
 });
 
