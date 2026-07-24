@@ -24,6 +24,11 @@ import {
   parseLunaSayDailyFace,
   parseLunaSayDailyPacket,
 } from "../_shared/lunasayDailyPacket.ts";
+import {
+  lunaSayContinuityInstruction,
+  lunaSayContinuityIssue,
+  parseLunaSayReadingMemory,
+} from "../_shared/lunasayContinuity.ts";
 import { scoreLunaSayReadingQuality } from "../_shared/lunasayReadingQuality.ts";
 import {
   lunaSayResonanceInstruction,
@@ -111,6 +116,8 @@ type ReqBody = {
   deviceProfile?: string;
   /** Bounded, device-local per-face rating counts used only for writing calibration. */
   resonanceProfile?: unknown;
+  /** Prior server-generated face summaries from the device's rotating daily cache. */
+  readingMemory?: unknown;
   /** Faculty id/slug whose Google TTS voice should be used for faculty-flavored replies. */
   facultySlug?: string;
   /** Optional display name for the faculty metadata headers / logging fallback. */
@@ -1406,11 +1413,15 @@ Deno.serve(async (req: Request) => {
         const resonanceProfile = parseLunaSayResonanceProfile(
           body.resonanceProfile,
         );
+        const readingMemory = parseLunaSayReadingMemory(
+          body.readingMemory,
+          date,
+        );
         const perFaceModel =
           Deno.env.get("GEMINI_LUNASAY_FACE_MODEL")?.trim() ||
           "gemini-2.5-flash";
         const generatedFaceIds = LUNASAY_GENERATED_DAILY_FACE_IDS;
-        const prompts = generatedFaceIds.map((id) => {
+        const prompts = await Promise.all(generatedFaceIds.map(async (id) => {
           let systemInstruction = buildLunaSayDailyFaceInstruction({
             id,
             date,
@@ -1432,6 +1443,14 @@ Deno.serve(async (req: Request) => {
             id,
             facts,
           );
+          const continuityInstruction = await lunaSayContinuityInstruction(
+            id,
+            readingMemory,
+            requiredEvidence,
+          );
+          if (continuityInstruction) {
+            systemInstruction += ` ${continuityInstruction}`;
+          }
           if (requiredEvidence) {
             systemInstruction += ` For this request, set evidence exactly to ${
               JSON.stringify(requiredEvidence)
@@ -1460,8 +1479,10 @@ Deno.serve(async (req: Request) => {
             requiredWeatherEvidence,
             requiredTemporalEvidence,
             resonanceApplied: resonanceInstruction.length > 0,
+            priorFace: readingMemory?.faces[id],
+            continuityApplied: continuityInstruction.length > 0,
           };
-        });
+        }));
         const inputTokens = prompts.reduce(
           (total, prompt) =>
             total +
@@ -1543,6 +1564,13 @@ Deno.serve(async (req: Request) => {
               ) {
                 throw new Error("wrong-required-temporal-evidence");
               }
+              const continuityIssue = lunaSayContinuityIssue(
+                parsedFace,
+                prompt.priorFace,
+              );
+              if (continuityIssue) {
+                throw new Error(`reading-continuity:${continuityIssue}`);
+              }
               const candidatePacket = {
                 ...fallbackPacket,
                 faces: {
@@ -1611,6 +1639,9 @@ Deno.serve(async (req: Request) => {
             : {}),
           resonanceAppliedFaces: prompts
             .filter((prompt) => prompt.resonanceApplied)
+            .map((prompt) => prompt.id),
+          continuityAppliedFaces: prompts
+            .filter((prompt) => prompt.continuityApplied)
             .map((prompt) => prompt.id),
           quality: {
             benchmarkVersion: qualityReport.benchmarkVersion,
