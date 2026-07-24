@@ -142,52 +142,53 @@ function objectValue(
  * this schema prevents paid calls from falling back merely because the model
  * renamed or omitted a face key.
  */
-export function lunaSayDailyPacketJsonSchema(): Record<string, unknown> {
-  const faceSchema = (
-    id: LunaSayDailyFaceId,
-  ): Record<string, unknown> => {
-    const tarot = id === "tarot";
-    const synastry = id === "synastry";
-    return {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        headline: { type: "string", maxLength: 42 },
-        display: { type: "string", maxLength: 80 },
-        ...(synastry
-          ? {
-            dynamic: {
-              type: "string",
-              maxLength: 90,
-              description:
-                "One reciprocal durable natal tendency in plain language. Do not say today, always, compatible, destined, or make one person the problem.",
-            },
-            weather: {
-              type: "string",
-              maxLength: 90,
-              description:
-                "Only temporary relationship context supported by current transit or wellness facts. If none is supplied, explicitly let lived experience lead.",
-            },
-            practice: {
-              type: "string",
-              maxLength: 90,
-              description:
-                "One specific, consent-respecting care or repair action an adult can choose. Never assign a child responsibility for an adult emotion.",
-            },
-          }
-          : { spoken: { type: "string", maxLength: 150 } }),
-        detail: { type: "string", maxLength: synastry ? 360 : 180 },
-        ...(tarot ? { cardName: { type: "string", maxLength: 48 } } : {}),
-      },
-      required: [
-        "headline",
-        "display",
-        ...(synastry ? ["dynamic", "weather", "practice"] : ["spoken"]),
-        "detail",
-        ...(tarot ? ["cardName"] : []),
-      ],
-    };
+export function lunaSayDailyFaceJsonSchema(
+  id: LunaSayDailyFaceId,
+): Record<string, unknown> {
+  const tarot = id === "tarot";
+  const synastry = id === "synastry";
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      headline: { type: "string", maxLength: 42 },
+      display: { type: "string", maxLength: 80 },
+      ...(synastry
+        ? {
+          dynamic: {
+            type: "string",
+            maxLength: 90,
+            description:
+              "One reciprocal durable natal tendency in plain language. Do not say today, always, compatible, destined, or make one person the problem.",
+          },
+          weather: {
+            type: "string",
+            maxLength: 90,
+            description:
+              "Only temporary relationship context supported by current transit or wellness facts. If none is supplied, explicitly let lived experience lead.",
+          },
+          practice: {
+            type: "string",
+            maxLength: 90,
+            description:
+              "One specific, consent-respecting care or repair action an adult can choose. Never assign a child responsibility for an adult emotion.",
+          },
+        }
+        : { spoken: { type: "string", maxLength: 150 } }),
+      detail: { type: "string", maxLength: synastry ? 360 : 180 },
+      ...(tarot ? { cardName: { type: "string", maxLength: 48 } } : {}),
+    },
+    required: [
+      "headline",
+      "display",
+      ...(synastry ? ["dynamic", "weather", "practice"] : ["spoken"]),
+      "detail",
+      ...(tarot ? ["cardName"] : []),
+    ],
   };
+}
+
+export function lunaSayDailyPacketJsonSchema(): Record<string, unknown> {
   return {
     type: "object",
     additionalProperties: false,
@@ -198,7 +199,7 @@ export function lunaSayDailyPacketJsonSchema(): Record<string, unknown> {
         properties: Object.fromEntries(
           LUNASAY_DAILY_FACE_IDS.map((id) => [
             id,
-            faceSchema(id),
+            lunaSayDailyFaceJsonSchema(id),
           ]),
         ),
         required: [...LUNASAY_DAILY_FACE_IDS],
@@ -243,6 +244,90 @@ function boundedSentence(value: unknown, maxChars: number): string | undefined {
     : maxChars - 1;
   const clipped = prefix.slice(0, cut).replace(/[\s,;:—-]+$/, "");
   return /[.!?]$/.test(clipped) ? clipped : `${clipped}.`;
+}
+
+function parseLunaSayDailyFaceValue(
+  value: unknown,
+  id: LunaSayDailyFaceId,
+  date: string,
+): LunaSayDailyFace {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Missing LunaSay daily face: ${id}`);
+  }
+  const face = value as Record<string, unknown>;
+  const metadata = FACE_METADATA[id];
+  const headline = cleanText(face.headline, 72);
+  const display = cleanText(face.display, 160);
+  const modelSpoken = cleanText(face.spoken, 360);
+  const dynamic = id === "synastry"
+    ? boundedSentence(face.dynamic, 90)
+    : undefined;
+  const weather = id === "synastry"
+    ? boundedSentence(face.weather, 90)
+    : undefined;
+  const practice = id === "synastry"
+    ? boundedSentence(face.practice, 90)
+    : undefined;
+  const spoken = dynamic && weather && practice
+    ? `The lasting pattern: ${dynamic} Today's weather: ${weather} A small practice: ${practice}`
+    : modelSpoken;
+  const detail = cleanText(face.detail, 480);
+  if (
+    !headline || !display || !spoken || !detail ||
+    ((id === "astrology" || id === "synastry") &&
+      !WEATHER_HEADLINES.has(headline))
+  ) {
+    const textLength = (candidate: unknown) =>
+      typeof candidate === "string"
+        ? candidate.replace(/\s+/g, " ").trim().length
+        : -1;
+    const problems = [
+      headline ? undefined : `headline:${textLength(face.headline)}`,
+      display ? undefined : `display:${textLength(face.display)}`,
+      spoken ? undefined : `spoken:${textLength(face.spoken)}`,
+      id === "synastry" && !dynamic
+        ? `dynamic:${textLength(face.dynamic)}`
+        : undefined,
+      id === "synastry" && !weather
+        ? `weather:${textLength(face.weather)}`
+        : undefined,
+      id === "synastry" && !practice
+        ? `practice:${textLength(face.practice)}`
+        : undefined,
+      detail ? undefined : `detail:${textLength(face.detail)}`,
+      (id === "astrology" || id === "synastry") &&
+        headline && !WEATHER_HEADLINES.has(headline)
+        ? "weather-headline"
+        : undefined,
+    ].filter(Boolean).join(",");
+    throw new Error(`Invalid LunaSay daily face: ${id} (${problems})`);
+  }
+  const cardName = cleanText(face.cardName, 48) ??
+    (id === "tarot" ? lunaSayDailyTarotCardName(date) : undefined);
+  return {
+    mode: metadata.mode,
+    title: metadata.title,
+    headline,
+    display,
+    spoken,
+    detail,
+    accent: metadata.accent,
+    ...(cardName ? { cardName } : {}),
+  };
+}
+
+/** Validate one independently generated face without invalidating its peers. */
+export function parseLunaSayDailyFace(
+  text: string,
+  id: LunaSayDailyFaceId,
+  date: string,
+): LunaSayDailyFace {
+  const source = text.trim().replace(/^```(?:json)?/i, "").replace(/```$/i, "")
+    .trim();
+  const parsed = JSON.parse(source) as Record<string, unknown>;
+  const envelope = parsed.face ?? objectValue(parsed.faces, id) ?? parsed[id] ??
+    parsed;
+  return parseLunaSayDailyFaceValue(envelope, id, date);
 }
 
 /** Strictly validates an LLM response before it reaches a device cache. */
@@ -298,72 +383,11 @@ export function parseLunaSayDailyPacket(
       return result;
     }, {});
   for (const id of LUNASAY_DAILY_FACE_IDS) {
-    const value = sourceFaces[id];
-    if (!value || typeof value !== "object" || Array.isArray(value)) {
-      throw new Error(`Missing LunaSay daily face: ${id}`);
-    }
-    const face = value as Record<string, unknown>;
-    const metadata = FACE_METADATA[id];
-    const headline = cleanText(face.headline, 72);
-    const display = cleanText(face.display, 160);
-    const modelSpoken = cleanText(face.spoken, 360);
-    const dynamic = id === "synastry"
-      ? boundedSentence(face.dynamic, 90)
-      : undefined;
-    const weather = id === "synastry"
-      ? boundedSentence(face.weather, 90)
-      : undefined;
-    const practice = id === "synastry"
-      ? boundedSentence(face.practice, 90)
-      : undefined;
-    const spoken = dynamic && weather && practice
-      ? `The lasting pattern: ${dynamic} Today's weather: ${weather} A small practice: ${practice}`
-      : modelSpoken;
-    const detail = cleanText(face.detail, 480);
-    if (
-      !headline || !display || !spoken || !detail ||
-      ((id === "astrology" || id === "synastry") &&
-        !WEATHER_HEADLINES.has(headline))
-    ) {
-      const textLength = (value: unknown) =>
-        typeof value === "string"
-          ? value.replace(/\s+/g, " ").trim().length
-          : -1;
-      const problems = [
-        headline ? undefined : `headline:${textLength(face.headline)}`,
-        display ? undefined : `display:${textLength(face.display)}`,
-        spoken ? undefined : `spoken:${textLength(face.spoken)}`,
-        id === "synastry" && !dynamic
-          ? `dynamic:${textLength(face.dynamic)}`
-          : undefined,
-        id === "synastry" && !weather
-          ? `weather:${textLength(face.weather)}`
-          : undefined,
-        id === "synastry" && !practice
-          ? `practice:${textLength(face.practice)}`
-          : undefined,
-        detail ? undefined : `detail:${textLength(face.detail)}`,
-        (id === "astrology" || id === "synastry") &&
-          headline && !WEATHER_HEADLINES.has(headline)
-          ? "weather-headline"
-          : undefined,
-      ].filter(Boolean).join(",");
-      throw new Error(`Invalid LunaSay daily face: ${id} (${problems})`);
-    }
-    /* The card is selected deterministically by date, so a model omission
-     * cannot turn an otherwise useful packet into a failed refresh. */
-    const cardName = cleanText(face.cardName, 48) ??
-      (id === "tarot" ? lunaSayDailyTarotCardName(expected.date) : undefined);
-    faces[id] = {
-      mode: metadata.mode,
-      title: metadata.title,
-      headline,
-      display,
-      spoken,
-      detail,
-      accent: metadata.accent,
-      ...(cardName ? { cardName } : {}),
-    };
+    faces[id] = parseLunaSayDailyFaceValue(
+      sourceFaces[id],
+      id,
+      expected.date,
+    );
   }
   return {
     schemaVersion: LUNASAY_DAILY_PACKET_SCHEMA_VERSION,
@@ -436,6 +460,44 @@ export function buildLunaSayDailyPacketInstruction(params: {
     "Tarot is a single reflective daily draw: include cardName and do not call it a prediction.",
     "Alethiometer and Conversation must be an inviting day-sensitive entry line only; do not pretend they have answered a question.",
     "Journal must invite private, on-device reflection and must not claim it is saved anywhere unless facts explicitly say so.",
+  ].join(" ");
+}
+
+export function buildLunaSayDailyFaceInstruction(params: {
+  id: LunaSayDailyFaceId;
+  date: string;
+  timezone: string;
+}): string {
+  const faceGuidance: Record<LunaSayDailyFaceId, string> = {
+    moon:
+      "Translate the supplied lunar facts into a grounded daily orientation. Do not invent a phase, sign, time, or event.",
+    astrology:
+      "Present astrology as Inner Weather. headline must be one of Clear, Warm, Shifting, Inward, Tender, Changeable, Easy, Open, or Intense. Explain what the supplied natal and transit factors may feel like and one choice the person can make. Astrology is a symbolic outlook, never a deterministic forecast.",
+    transits:
+      "Choose the one or two supplied transits most useful today. Explain their tension or invitation in plain language and include one grounded choice.",
+    synastry:
+      "This is Family Synastry, not romance with relabeled people. Treat the family as a reciprocal system: never rank, blame, diagnose, parentify a child, or make a compatibility verdict. headline must be one of Clear, Warm, Shifting, Inward, Tender, Changeable, Easy, Open, or Intense. dynamic names one mutual natal tendency without today, always, compatible, or destined. weather uses only supplied time-specific transit or wellness facts; if absent, let lived experience lead. practice gives one specific adult care or repair choice.",
+    tarot:
+      "Offer one reflective daily draw, not a prediction. Use the supplied deterministic card when present and explain a question or practice it opens.",
+    alethiometer:
+      "Offer only an inviting, day-sensitive entry line. Do not pretend a question has already been answered.",
+    sky:
+      "Use only supplied observable sky, solar, lunar, weather, and timing facts. Connect one concrete observation to a gentle invitation without inventing conditions.",
+    journal:
+      "Invite private, on-device reflection. Do not claim anything is saved or uploaded unless the facts explicitly say so.",
+    conversation:
+      "Offer only an inviting, day-sensitive entry line. Do not pretend a conversation has already occurred.",
+  };
+  return [
+    `You create only the ${params.id} face for LunaSay, a small round lunar companion.`,
+    `The local date is ${params.date} in ${params.timezone}.`,
+    "Use only supplied facts. Never claim certainty, destiny, medical advice, or events not in the facts.",
+    "Return one strict JSON object only, matching the supplied schema. No markdown and no wrapper object.",
+    "Use short fields: headline <= 42 characters, display <= 80, spoken <= 150, and detail <= 180 unless the schema allows more.",
+    "spoken must be natural, soft, and ready for TTS. Do not mention JSON, prompts, models, or instructions.",
+    "If a self-reported mood is supplied, honor it as first-person context. Never imply LunaSay detected it or bend symbolic material to validate it.",
+    "If wellness facts are present, translate them into care context such as lower capacity, rest, or space. Never recite raw measurements or turn temporary biometrics into personality.",
+    faceGuidance[params.id],
   ].join(" ");
 }
 

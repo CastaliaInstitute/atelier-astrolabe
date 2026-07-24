@@ -7,12 +7,16 @@ import {
   SYSTEM_VOICE_FACE_DAILY_BRIEFING,
 } from "../_shared/dailyBriefing.ts";
 import {
+  buildLunaSayDailyFaceInstruction,
   buildLunaSayDailyPacketInstruction,
   LUNASAY_DAILY_PACKET_FACE,
+  type LunaSayDailyFaceId,
+  lunaSayDailyFaceJsonSchema,
   lunaSayDailyPacketFallback,
   lunaSayDailyPacketJsonSchema,
   lunaSayDateForEpoch,
   normalizeLunaSayTimezone,
+  parseLunaSayDailyFace,
   parseLunaSayDailyPacket,
 } from "../_shared/lunasayDailyPacket.ts";
 import {
@@ -1381,6 +1385,116 @@ Deno.serve(async (req: Request) => {
         epochSeconds,
         deviceFacts: (body.briefingFacts ?? "").trim(),
       });
+      const generationMode =
+        Deno.env.get("LUNASAY_DAILY_GENERATION_MODE")?.trim().toLowerCase() ===
+            "packet"
+          ? "packet"
+          : "per_face";
+      if (generationMode === "per_face") {
+        const perFaceModel =
+          Deno.env.get("GEMINI_LUNASAY_FACE_MODEL")?.trim() ||
+          "gemini-2.5-flash";
+        const generatedFaceIds = [
+          "moon",
+          "astrology",
+          "transits",
+          "synastry",
+          "tarot",
+          "sky",
+        ] as const satisfies readonly LunaSayDailyFaceId[];
+        const prompts = generatedFaceIds.map((id) => {
+          const systemInstruction = buildLunaSayDailyFaceInstruction({
+            id,
+            date,
+            timezone,
+          });
+          const userText =
+            `DATE CONTEXT:\n${date} (${timezone})\n\nDAILY FACTS:\n${facts}`;
+          return { id, systemInstruction, userText };
+        });
+        const inputTokens = prompts.reduce(
+          (total, prompt) =>
+            total +
+            estimateTokensFromChars(
+              prompt.systemInstruction.length + prompt.userText.length,
+            ),
+          0,
+        );
+        const geminiGate = await ensureVoiceBudget(
+          req,
+          estimateGeminiUsd(inputTokens, generatedFaceIds.length * 1024),
+        );
+        if (geminiGate) return geminiGate;
+
+        const fallbackPacket = lunaSayDailyPacketFallback({
+          date,
+          timezone,
+          facts,
+        });
+        const faces = { ...fallbackPacket.faces };
+        const faceFallbacks: LunaSayDailyFaceId[] = [];
+        const results = await Promise.all(prompts.map(async (prompt) => {
+          try {
+            const raw = await meteredGeminiGenerate(req, {
+              apiKey: gemini,
+              model: perFaceModel,
+              systemInstruction: prompt.systemInstruction,
+              userText: prompt.userText,
+              route: LUNASAY_DAILY_PACKET_FACE,
+              face: prompt.id,
+              responseMimeType: "application/json",
+              responseJsonSchema: lunaSayDailyFaceJsonSchema(prompt.id),
+              maxOutputTokens: 1024,
+              ...(perFaceModel.startsWith("gemini-3")
+                ? { thinkingLevel: "minimal" as const }
+                : {}),
+            });
+            return {
+              id: prompt.id,
+              face: parseLunaSayDailyFace(raw, prompt.id, date),
+            };
+          } catch (error) {
+            const reason =
+              (error instanceof Error ? error.message : String(error)).replace(
+                /\s+/g,
+                " ",
+              ).slice(0, 180);
+            console.error(
+              `voice-pipeline: invalid LunaSay daily face ${prompt.id}`,
+              reason,
+            );
+            return { id: prompt.id, error: reason };
+          }
+        }));
+        for (const result of results) {
+          if ("face" in result && result.face) {
+            faces[result.id] = result.face;
+          } else {
+            faceFallbacks.push(result.id);
+          }
+        }
+        const packet = {
+          ...fallbackPacket,
+          generatedAt: new Date().toISOString(),
+          faces,
+        };
+        return jsonResponse(200, {
+          packet,
+          route: LUNASAY_DAILY_PACKET_FACE,
+          cacheKey: `lunasay:${date}:${timezone}:v2`,
+          tts: "on_demand",
+          generationMode,
+          model: perFaceModel,
+          ...(faceFallbacks.length ? { fallback: true, faceFallbacks } : {}),
+        }, {
+          "x-mynah-route": LUNASAY_DAILY_PACKET_FACE,
+          "x-mynah-face": LUNASAY_DAILY_PACKET_FACE,
+          "x-lunasay-date": date,
+          "x-lunasay-timezone": timezone,
+          "x-lunasay-llm-calls": String(generatedFaceIds.length),
+          "x-lunasay-generation-mode": generationMode,
+        });
+      }
       const sys = buildLunaSayDailyPacketInstruction({ date, timezone });
       const input =
         `DATE CONTEXT:\n${date} (${timezone})\n\nDAILY FACTS:\n${facts}`;

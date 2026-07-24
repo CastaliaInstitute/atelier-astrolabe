@@ -1,11 +1,14 @@
 import {
+  buildLunaSayDailyFaceInstruction,
   buildLunaSayDailyPacketInstruction,
   LUNASAY_DAILY_FACE_IDS,
+  lunaSayDailyFaceJsonSchema,
   lunaSayDailyPacketFallback,
   lunaSayDailyPacketJsonSchema,
   lunaSayDailyTarotCardName,
   lunaSayDateForEpoch,
   normalizeLunaSayTimezone,
+  parseLunaSayDailyFace,
   parseLunaSayDailyPacket,
 } from "./lunasayDailyPacket.ts";
 
@@ -49,6 +52,66 @@ Deno.test("LunaSay daily instruction makes Family Synastry relational and safe",
     if (!instruction.includes(required)) {
       throw new Error(`missing Family Synastry instruction: ${required}`);
     }
+  }
+});
+
+Deno.test("LunaSay can request and validate one Gemini 2.5 face at a time", () => {
+  const instruction = buildLunaSayDailyFaceInstruction({
+    id: "astrology",
+    date: "2026-08-01",
+    timezone: "America/Denver",
+  });
+  if (
+    !instruction.includes("only the astrology face") ||
+    !instruction.includes("Inner Weather")
+  ) {
+    throw new Error("individual face instruction is not focused");
+  }
+  const schema = lunaSayDailyFaceJsonSchema("astrology") as {
+    properties?: Record<string, unknown>;
+  };
+  if (!schema.properties?.spoken || schema.properties?.cardName) {
+    throw new Error("individual astrology schema is incorrect");
+  }
+  const face = parseLunaSayDailyFace(
+    JSON.stringify({
+      headline: "Open",
+      display: "Leave room for a different answer.",
+      spoken:
+        "The weather feels open. Let the next honest answer surprise you.",
+      detail: "Mercury trine the natal Moon supports easier expression.",
+    }),
+    "astrology",
+    "2026-08-01",
+  );
+  if (face.title !== "Inner Weather" || face.headline !== "Open") {
+    throw new Error("individual face metadata was not normalized");
+  }
+});
+
+Deno.test("individual Family Synastry keeps three bounded beats", () => {
+  const face = parseLunaSayDailyFace(
+    JSON.stringify({
+      face: {
+        headline: "Tender",
+        display: "Care can be specific without making anyone the problem.",
+        dynamic: "Both of you seek steadiness before opening up.",
+        weather: "No current transit facts are supplied; let experience lead.",
+        practice:
+          "Ask what support would be useful, then listen without fixing.",
+        detail:
+          "The supplied natal contacts emphasize safety and responsiveness.",
+      },
+    }),
+    "synastry",
+    "2026-08-01",
+  );
+  if (
+    !face.spoken.includes("The lasting pattern:") ||
+    !face.spoken.includes("Today's weather:") ||
+    !face.spoken.includes("A small practice:")
+  ) {
+    throw new Error("individual synastry beats were not composed");
   }
 });
 
