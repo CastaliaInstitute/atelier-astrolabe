@@ -431,6 +431,12 @@ $("#device-form").addEventListener("submit", (event) => {
 });
 
 if ("serviceWorker" in navigator) {
+  let refreshingForUpdate = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (refreshingForUpdate) return;
+    refreshingForUpdate = true;
+    location.reload();
+  });
   navigator.serviceWorker.register("sw.js").catch(() => {});
 }
 loadDraft();
