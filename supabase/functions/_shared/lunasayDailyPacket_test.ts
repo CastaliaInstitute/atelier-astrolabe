@@ -86,9 +86,19 @@ Deno.test("LunaSay can request and validate one Gemini 2.5 face at a time", () =
   });
   if (
     !instruction.includes("only the astrology face") ||
-    !instruction.includes("Inner Weather")
+    !instruction.includes("Inner Weather") ||
+    !instruction.includes("words resource and tension") ||
+    !instruction.includes("spoken must end with one short imperative")
   ) {
     throw new Error("individual face instruction is not focused");
+  }
+  const transitInstruction = buildLunaSayDailyFaceInstruction({
+    id: "transits",
+    date: "2026-08-01",
+    timezone: "America/Denver",
+  });
+  if (!transitInstruction.includes("words pressure and opening")) {
+    throw new Error("individual transit instruction loses two-sided nuance");
   }
   const schema = lunaSayDailyFaceJsonSchema("astrology") as {
     properties?: Record<string, unknown>;
@@ -256,7 +266,7 @@ Deno.test("server assigns distinct exact evidence to each daily face", () => {
     transits: "Tight current-to-natal aspects",
     synastry: "Tight major aspects:",
     tarot: "Visible tarot card",
-    sky: "Local time",
+    sky: "Current sky positions:",
   };
   for (const [id, prefix] of Object.entries(expected)) {
     const evidence = lunaSayRequiredEvidence(
@@ -304,8 +314,41 @@ Deno.test("server assigns distinct exact evidence to each daily face", () => {
     );
   }
   const skyFacts = lunaSayFocusedFacts("sky", facts);
-  if (skyFacts !== "Local time 2026-08-01 07:00; timezone America/Denver.") {
+  if (
+    !skyFacts.includes(
+      "Local time 2026-08-01 07:00; timezone America/Denver.",
+    ) ||
+    !skyFacts.includes("Current sky positions: Sun Leo, Moon Scorpio.") ||
+    skyFacts.includes("Primary natal chart:")
+  ) {
     throw new Error(`sky focus leaked astrology: ${skyFacts}`);
+  }
+});
+
+Deno.test("line-oriented device facts never bleed into the next face", () => {
+  const facts = [
+    "Lunar phase estimate: waxing gibbous, 72 percent illuminated.",
+    "Primary natal chart: Sun in Cancer; Moon in Virgo.",
+    "Visible tarot card: The Star.",
+    "Current sky positions: Venus is visible low in western sky after sunset.",
+  ].join("\n");
+  const moon = lunaSayRequiredEvidence("moon", facts);
+  const tarot = lunaSayRequiredEvidence("tarot", facts);
+  const sky = lunaSayFocusedFacts("sky", facts);
+  if (
+    moon !== "Lunar phase estimate: waxing gibbous, 72 percent illuminated." ||
+    tarot !== "Visible tarot card: The Star." ||
+    !sky.includes(
+      "Current sky positions: Venus is visible low in western sky after sunset.",
+    ) ||
+    sky.includes("Primary natal chart:") ||
+    sky.includes("Visible tarot card:")
+  ) {
+    throw new Error(
+      `line-oriented facts crossed a face boundary: ${
+        JSON.stringify({ moon, tarot, sky })
+      }`,
+    );
   }
 });
 

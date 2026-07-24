@@ -24,6 +24,7 @@ import {
   parseLunaSayDailyFace,
   parseLunaSayDailyPacket,
 } from "../_shared/lunasayDailyPacket.ts";
+import { scoreLunaSayReadingQuality } from "../_shared/lunasayReadingQuality.ts";
 import {
   lunaSayResonanceInstruction,
   parseLunaSayResonanceProfile,
@@ -1541,6 +1542,24 @@ Deno.serve(async (req: Request) => {
               ) {
                 throw new Error("wrong-required-temporal-evidence");
               }
+              const candidatePacket = {
+                ...fallbackPacket,
+                faces: {
+                  ...fallbackPacket.faces,
+                  [prompt.id]: parsedFace,
+                },
+              };
+              const candidateQuality = scoreLunaSayReadingQuality(
+                candidatePacket,
+                facts,
+              );
+              const candidateHardIssues = candidateQuality.hardIssues
+                .filter((issue) => issue.startsWith(`${prompt.id}:`));
+              if (candidateHardIssues.length) {
+                throw new Error(
+                  `reading-quality:${candidateHardIssues.join("|")}`,
+                );
+              }
               return { id: prompt.id, face: parsedFace };
             } catch (error) {
               lastReason =
@@ -1568,6 +1587,7 @@ Deno.serve(async (req: Request) => {
           generatedAt: new Date().toISOString(),
           faces,
         };
+        const qualityReport = scoreLunaSayReadingQuality(packet, facts);
         return jsonResponse(200, {
           packet,
           route: LUNASAY_DAILY_PACKET_FACE,
@@ -1579,6 +1599,21 @@ Deno.serve(async (req: Request) => {
           resonanceAppliedFaces: prompts
             .filter((prompt) => prompt.resonanceApplied)
             .map((prompt) => prompt.id),
+          quality: {
+            benchmarkVersion: qualityReport.benchmarkVersion,
+            hardGatePassed: qualityReport.hardGatePassed,
+            releaseGatePassed: qualityReport.releaseGatePassed,
+            averageScore: qualityReport.averageScore,
+            minimumFaceScore: qualityReport.minimumFaceScore,
+            maximumSimilarity: qualityReport.maximumSimilarity,
+            weakFaces: qualityReport.faces
+              .filter((entry) => entry.issues.length > 0)
+              .map((entry) => ({
+                face: entry.face,
+                score: entry.score,
+                issues: entry.issues,
+              })),
+          },
           ...(faceFallbacks.length
             ? { fallback: true, faceFallbacks, faceFallbackReasons }
             : {}),

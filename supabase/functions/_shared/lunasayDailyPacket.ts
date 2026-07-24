@@ -333,8 +333,17 @@ function exactFactStartingAt(
 ): string | undefined {
   const start = facts.toLowerCase().indexOf(prefix.toLowerCase());
   if (start < 0) return undefined;
-  const sentenceEnd = facts.indexOf(". ", start);
-  const end = sentenceEnd >= 0 ? sentenceEnd + 1 : facts.length;
+  const boundaryCandidates = [
+    facts.indexOf(". ", start),
+    facts.indexOf("\n", start),
+    facts.indexOf("\r", start),
+  ].filter((index) => index >= 0);
+  const boundary = boundaryCandidates.length
+    ? Math.min(...boundaryCandidates)
+    : -1;
+  const end = boundary >= 0
+    ? boundary + (facts[boundary] === "." ? 1 : 0)
+    : facts.length;
   const sentence = facts.slice(start, end).replace(/\s+/g, " ").trim();
   if (!sentence) return undefined;
   if (sentence.length <= maxChars) return sentence;
@@ -365,13 +374,13 @@ export function lunaSayRequiredEvidence(
       "Current transit positions are unavailable",
     ],
     synastry: [
+      "Tight major aspects:",
       "relationship between",
       "The selected relationship",
-      "Tight major aspects:",
     ],
     tarot: ["Visible tarot card"],
     alethiometer: [],
-    sky: ["Local time", "Current sky positions:"],
+    sky: ["Current sky positions:", "Local time"],
     journal: [],
     conversation: [],
   };
@@ -428,8 +437,16 @@ export function lunaSayFocusedFacts(
   const selected = [
     lunaSayRequiredEvidence(id, facts),
     lunaSayRequiredTemporalEvidence(id, facts),
+    ...(id === "sky"
+      ? [
+        exactFactStartingAt(facts, "Local time"),
+        exactFactStartingAt(facts, "Current sky positions:"),
+      ]
+      : []),
     ...(id === "synastry"
       ? [
+        exactFactStartingAt(facts, "The selected relationship"),
+        exactFactStartingAt(facts, "relationship between"),
         exactFactStartingAt(facts, "Tight major aspects:"),
         lunaSayRequiredWeatherEvidence(id, facts),
       ]
@@ -929,19 +946,19 @@ export function buildLunaSayDailyFaceInstruction(params: {
 }): string {
   const faceGuidance: Record<LunaSayDailyFaceId, string> = {
     moon:
-      "Translate the supplied lunar facts into a grounded daily orientation. evidence must quote the Lunar phase estimate. Do not invent a phase, sign, time, or event.",
+      "Translate the supplied lunar facts into a grounded daily orientation. evidence must quote the Lunar phase estimate. Give one direct sensory observation or bounded action for today, using an imperative verb such as look, notice, compare, or mark. Do not invent a phase, sign, visibility, time, or event.",
     astrology:
-      "Present astrology as Inner Weather: the person's durable natal baseline, not the day's transit report. evidence must quote the Primary natal chart fact, or the explicit fact that it is not configured. headline must be one of Clear, Warm, Shifting, Inward, Tender, Changeable, Easy, Open, or Intense. Name both a resource and a tension in plain language, then one concrete choice. Do not use the phrases trust your intuition, inner peace, beautifully aligned, or wonderful time. Astrology is a symbolic outlook, never a deterministic forecast.",
+      "Present astrology as Inner Weather: the person's durable natal baseline, not the day's transit report. evidence must quote the Primary natal chart fact, or the explicit fact that it is not configured. headline must be one of Clear, Warm, Shifting, Inward, Tender, Changeable, Easy, Open, or Intense. Name both a resource and a tension in plain language. spoken must end with one short imperative action sentence beginning Try, Notice, Name, Choose, Ask, Write, Pause, Look, or Consider. In detail, explicitly use the words resource and tension so both sides remain visible rather than collapsing into praise. Do not use the phrases trust your intuition, inner peace, beautifully aligned, or wonderful time. Astrology is a symbolic outlook, never a deterministic forecast.",
     transits:
-      "This is the changing daily layer, distinct from Inner Weather. evidence must quote a Tight current-to-natal aspect, or the explicit fact that no such aspect or transit is available. temporalEvidence must copy the Ten-day transit arc exactly. now explains why the strongest supplied aspect matters in conditional language; never turn a daily sample into a guaranteed event or invent a calendar date. The server derives the next shift from temporalEvidence. Choose the most useful supplied transit, name both its pressure and its opening, and give one concrete action. spoken must include the current orientation. Do not use the phrases trust your intuition, inner peace, beautifully aligned, or wonderful time.",
+      "This is the changing daily layer, distinct from Inner Weather. evidence must quote a Tight current-to-natal aspect, or the explicit fact that no such aspect or transit is available. temporalEvidence must copy the Ten-day transit arc exactly. now explains why the strongest supplied aspect matters in conditional language; never turn a daily sample into a guaranteed event or invent a calendar date. The server derives the next shift from temporalEvidence. Choose the most useful supplied transit, name both its pressure and its opening, and give one concrete action. In detail, explicitly use the words pressure and opening so the response neither catastrophizes nor becomes empty reassurance. spoken must include the current orientation. Do not use the phrases trust your intuition, inner peace, beautifully aligned, or wonderful time.",
     synastry:
       "This is Family Synastry, not romance with relabeled people. Treat the family as a reciprocal system: never rank, blame, diagnose, parentify a child, or make a compatibility verdict. headline must be one of Clear, Warm, Shifting, Inward, Tender, Changeable, Easy, Open, or Intense. evidence must quote the full identifying prefix plus content from The selected relationship, relationship between, or Tight major aspects; quoting only planet names is invalid. evidence supports only dynamic. dynamic names both sides of one mutual natal tendency without today, always, compatible, or destined. weatherEvidence must quote only a supplied live wellness, current relationship transit, or explicit no-live-signal fact. temporalEvidence must copy the Current relationship transit arc or explicit no-live-signal sentence exactly. now must name whose natal chart is touched and must not imply the transit automatically describes the whole relationship. The server derives the next shift from temporalEvidence. weather must not turn natal synastry into today's condition; when weatherEvidence says no signal, explicitly let lived experience lead. practice gives one specific adult care or repair choice. spoken must be a cohesive script under 260 characters with exactly three complete labeled sentences: Pattern: summarizes dynamic; Today: summarizes weather; Practice: gives the action. Do not include Next, day offsets, or fragments in spoken.",
     tarot:
-      "Offer one reflective daily draw, not a prediction. evidence must quote the Visible tarot card fact. Use that supplied deterministic card and explain one concrete question or practice it opens. Do not borrow astrology or transit evidence.",
+      "Offer one reflective daily draw, not a prediction. evidence must quote the Visible tarot card fact. Use that supplied deterministic card, name it in spoken, ask one concrete question, and give one observable action such as write, choose, or notice. Do not borrow astrology, transit, or sky evidence.",
     alethiometer:
       "Offer only an inviting, day-sensitive entry line. Do not pretend a question has already been answered.",
     sky:
-      "Use only supplied observable sky, solar, weather, and timing facts. evidence must quote Local time or Current sky positions. Keep this observational and distinct from the Moon face; do not use the Lunar phase estimate as evidence. Connect one concrete observation to a gentle invitation without inventing conditions.",
+      "Use only supplied observable sky, solar, weather, and timing facts. evidence must quote Local time or Current sky positions. A phase estimate does not prove the Moon is above the horizon; do not infer visibility, position, weather, or conditions. Prefer a supplied Current sky positions fact when one exists. Keep this observational and distinct from the Moon face; do not use the Lunar phase estimate as evidence. Connect one concrete supplied observation to a gentle invitation.",
     journal:
       "Invite private, on-device reflection. Do not claim anything is saved or uploaded unless the facts explicitly say so.",
     conversation:
@@ -974,6 +991,28 @@ export function lunaSayDailyPacketFallback(params: {
   timezone: string;
   facts: string;
 }): LunaSayDailyPacket {
+  const evidence = (id: LunaSayDailyFaceId) =>
+    lunaSayRequiredEvidence(id, params.facts);
+  const transitTiming = lunaSayRequiredTemporalEvidence(
+    "transits",
+    params.facts,
+  );
+  const relationshipTiming = lunaSayRequiredTemporalEvidence(
+    "synastry",
+    params.facts,
+  );
+  const relationshipWeather = lunaSayRequiredWeatherEvidence(
+    "synastry",
+    params.facts,
+  );
+  const relationshipNext = canonicalTemporalNext(
+    relationshipTiming,
+    "synastry",
+  ) ?? "Let lived experience lead until a current signal is available.";
+  const tarotEvidence = evidence("tarot");
+  const tarotCard = tarotEvidence?.match(
+    /visible tarot card(?:\s+is|:)\s*([^,.;\n]+)/i,
+  )?.[1]?.trim() || lunaSayDailyTarotCardName(params.date);
   const daily = (
     title: string,
     accent: LunaSayDailyFace["accent"],
@@ -996,14 +1035,17 @@ export function lunaSayDailyPacketFallback(params: {
     timezone: params.timezone,
     generatedAt: new Date().toISOString(),
     faces: {
-      moon: daily(
-        "Moon",
-        "moon",
-        "Look again tonight",
-        "Let the visible Moon be enough until the detailed reading returns.",
-        "The detailed Moon reading is resting. Look again tonight and notice what is actually visible.",
-        "No lunar claim is made while verified daily evidence is unavailable.",
-      ),
+      moon: {
+        ...daily(
+          "Moon",
+          "moon",
+          "Look again tonight",
+          "Let the supplied lunar fact be enough until the detailed reading returns.",
+          "The detailed Moon reading is resting. Look again tonight and notice what is actually visible.",
+          "The supplied lunar fact remains available while the interpretive reading rests.",
+        ),
+        ...(evidence("moon") ? { evidence: evidence("moon") } : {}),
+      },
       astrology: {
         mode: "daily",
         title: "Inner Weather",
@@ -1013,7 +1055,8 @@ export function lunaSayDailyPacketFallback(params: {
         spoken:
           "Your inner weather is shifting. Give yourself room to notice what changes, then choose one grounded next step.",
         detail:
-          "A symbolic outlook needs current chart facts; this gentle fallback makes no astrological claim.",
+          "The supplied natal fact remains available; this gentle fallback makes no additional astrological claim.",
+        ...(evidence("astrology") ? { evidence: evidence("astrology") } : {}),
         accent: "violet",
       },
       transits: {
@@ -1023,11 +1066,14 @@ export function lunaSayDailyPacketFallback(params: {
           "No forecast loaded",
           "Keep the day open rather than filling the silence with a prediction.",
           "The detailed transit reading is unavailable. Let the day show you what is real before naming a pattern.",
-          "No transit claim is made while verified daily evidence is unavailable.",
+          "The supplied transit fact remains available while the interpretive reading rests.",
         ),
         now: "No verified timing is loaded.",
-        next: "Refresh later rather than filling the gap with a prediction.",
-        temporalEvidence: "Ten-day transit arc is unavailable.",
+        next: canonicalTemporalNext(transitTiming, "transits") ??
+          "Refresh later rather than filling the gap with a prediction.",
+        temporalEvidence: transitTiming ??
+          "Ten-day transit arc is unavailable.",
+        ...(evidence("transits") ? { evidence: evidence("transits") } : {}),
       },
       synastry: {
         mode: "daily",
@@ -1035,12 +1081,17 @@ export function lunaSayDailyPacketFallback(params: {
         headline: "Tender",
         display: "Notice the pattern without making one person the problem.",
         spoken:
-          "Meet the family pattern with curiosity. Soften one response, name one need, and leave room for repair.",
+          `Pattern: The supplied family pattern remains open to interpretation. Today: Let lived experience lead. Next: ${relationshipNext} Practice: Ask what support would feel useful, then listen and leave room for repair.`,
         detail:
           "Family Synastry is relationship weather and a prompt for care, never a verdict about any person.",
         now: "No verified relationship timing is loaded.",
-        next: "Let lived experience lead until a current signal is available.",
-        temporalEvidence: "No live relationship signal is available.",
+        next: relationshipNext,
+        temporalEvidence: relationshipTiming ??
+          "No live relationship signal is available.",
+        ...(relationshipWeather
+          ? { weatherEvidence: relationshipWeather }
+          : {}),
+        ...(evidence("synastry") ? { evidence: evidence("synastry") } : {}),
         accent: "rose",
       },
       tarot: {
@@ -1050,9 +1101,10 @@ export function lunaSayDailyPacketFallback(params: {
           "Hold one clear question",
           "Use the card as a prompt, not a prediction.",
           "Hold one clear question and meet the card as a prompt, not a prediction.",
-          "The daily interpretation is unavailable; the card remains a reflective image.",
+          `The daily interpretation is unavailable; ${tarotCard} remains a reflective image rather than a prediction.`,
         ),
-        cardName: lunaSayDailyTarotCardName(params.date),
+        ...(tarotEvidence ? { evidence: tarotEvidence } : {}),
+        cardName: tarotCard,
       },
       alethiometer: {
         mode: "live_question",
@@ -1064,14 +1116,17 @@ export function lunaSayDailyPacketFallback(params: {
         detail: "A live reading begins when you speak your question.",
         accent: "silver",
       },
-      sky: daily(
-        "Sky",
-        "blue",
-        "Look outside",
-        "The live sky is more trustworthy than an unavailable reading.",
-        "The detailed sky reading is unavailable. Look outside and begin with what you can actually see.",
-        "No sky condition is inferred while verified observational facts are unavailable.",
-      ),
+      sky: {
+        ...daily(
+          "Sky",
+          "blue",
+          "Look outside",
+          "The live sky is more trustworthy than an unavailable reading.",
+          "The detailed sky reading is unavailable. Look outside and begin with what you can actually see.",
+          "The supplied observation remains available without inferring any additional sky condition.",
+        ),
+        ...(evidence("sky") ? { evidence: evidence("sky") } : {}),
+      },
       journal: {
         mode: "offline",
         title: "Journal",
