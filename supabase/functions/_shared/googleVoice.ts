@@ -268,6 +268,8 @@ export async function geminiGenerate(params: {
   maxOutputTokens?: number;
   /** Gemini 3.x effort level; use minimal for deterministic format transforms. */
   thinkingLevel?: "minimal" | "low" | "medium" | "high";
+  /** Gemini 2.5 thinking-token budget; zero is appropriate for strict transforms. */
+  thinkingBudget?: number;
 }): Promise<string> {
   const { apiKey, model, systemInstruction, userText } = params;
   const maxOutputTokens = params.maxOutputTokens ??
@@ -276,8 +278,13 @@ export async function geminiGenerate(params: {
     `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${
       encodeURIComponent(apiKey)
     }`;
+  const thinkingConfig = params.thinkingLevel
+    ? { thinkingLevel: params.thinkingLevel.toUpperCase() }
+    : params.thinkingBudget != null
+    ? { thinkingBudget: params.thinkingBudget }
+    : undefined;
   const generationConfig = maxOutputTokens != null || params.responseMimeType ||
-      params.responseJsonSchema || params.thinkingLevel
+      params.responseJsonSchema || thinkingConfig
     ? {
       ...(maxOutputTokens != null ? { maxOutputTokens } : {}),
       ...(params.responseMimeType
@@ -286,11 +293,7 @@ export async function geminiGenerate(params: {
       ...(params.responseJsonSchema
         ? { responseJsonSchema: params.responseJsonSchema }
         : {}),
-      ...(params.thinkingLevel
-        ? {
-          thinkingConfig: { thinkingLevel: params.thinkingLevel.toUpperCase() },
-        }
-        : {}),
+      ...(thinkingConfig ? { thinkingConfig } : {}),
     }
     : undefined;
   const res = await fetch(url, {
@@ -318,9 +321,14 @@ export async function geminiGenerate(params: {
   }
   const parts = data.candidates?.[0]?.content?.parts;
   const out = parts?.map((p) => p.text ?? "").join("")?.trim() ?? "";
+  const finishReason = data.candidates?.[0]?.finishReason ?? "unknown";
   if (!out) {
-    const reason = data.candidates?.[0]?.finishReason ?? "unknown";
-    throw new Error(`Gemini returned no text (finishReason=${reason})`);
+    throw new Error(`Gemini returned no text (finishReason=${finishReason})`);
+  }
+  if (finishReason !== "STOP") {
+    throw new Error(
+      `Gemini output incomplete (finishReason=${finishReason}, chars=${out.length})`,
+    );
   }
   return out;
 }

@@ -1433,6 +1433,9 @@ Deno.serve(async (req: Request) => {
         });
         const faces = { ...fallbackPacket.faces };
         const faceFallbacks: LunaSayDailyFaceId[] = [];
+        const faceFallbackReasons: Partial<
+          Record<LunaSayDailyFaceId, string>
+        > = {};
         const results = await Promise.all(prompts.map(async (prompt) => {
           try {
             const raw = await meteredGeminiGenerate(req, {
@@ -1444,7 +1447,13 @@ Deno.serve(async (req: Request) => {
               face: prompt.id,
               responseMimeType: "application/json",
               responseJsonSchema: lunaSayDailyFaceJsonSchema(prompt.id),
-              maxOutputTokens: 1024,
+              /* Gemini 2.5 may consume substantial generation headroom even
+               * with thinking disabled. The JSON schema—not this ceiling—
+               * keeps the billable visible response short. */
+              maxOutputTokens: 4096,
+              ...(perFaceModel.startsWith("gemini-2.5")
+                ? { thinkingBudget: 0 }
+                : {}),
               ...(perFaceModel.startsWith("gemini-3")
                 ? { thinkingLevel: "minimal" as const }
                 : {}),
@@ -1471,6 +1480,7 @@ Deno.serve(async (req: Request) => {
             faces[result.id] = result.face;
           } else {
             faceFallbacks.push(result.id);
+            faceFallbackReasons[result.id] = result.error;
           }
         }
         const packet = {
@@ -1485,7 +1495,9 @@ Deno.serve(async (req: Request) => {
           tts: "on_demand",
           generationMode,
           model: perFaceModel,
-          ...(faceFallbacks.length ? { fallback: true, faceFallbacks } : {}),
+          ...(faceFallbacks.length
+            ? { fallback: true, faceFallbacks, faceFallbackReasons }
+            : {}),
         }, {
           "x-mynah-route": LUNASAY_DAILY_PACKET_FACE,
           "x-mynah-face": LUNASAY_DAILY_PACKET_FACE,
