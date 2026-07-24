@@ -40,6 +40,26 @@
           </div>
           <p id="mood-note">Connect to choose the same mood shown on LunaSay.</p>
         </article>
+        <article class="quiet-card reflection-card">
+          <p class="eyebrow">Reading reflection</p>
+          <h2>Did today’s reading help?</h2>
+          <label class="reading-face">Reading
+            <select id="reflection-face">
+              <option value="moon">Moon</option>
+              <option value="astrology">Astrology</option>
+              <option value="transits">Transits</option>
+              <option value="synastry">Family synastry</option>
+              <option value="tarot">Tarot</option>
+              <option value="sky">Sky</option>
+            </select>
+          </label>
+          <div class="reflection-grid" role="group" aria-label="Rate today’s reading">
+            <button class="reflection-rating" data-rating="helpful" type="button">Helpful</button>
+            <button class="reflection-rating" data-rating="mixed" type="button">Mixed</button>
+            <button class="reflection-rating" data-rating="missed" type="button">Missed</button>
+          </div>
+          <p id="reflection-note">Connect LunaSay to reflect on today’s reading.</p>
+        </article>
         <article class="quiet-card"><h2>What stays private</h2><p>Cycle data is stored on LunaSay. Your personal draft is kept only in this browser until a future device profile sync is enabled.</p></article>
       </section>
 
@@ -78,16 +98,16 @@
       </section>
 
       <section class="page" id="privacy">
-        <div class="section-head"><p class="eyebrow">Privacy & research</p><h2>Your reflection belongs to you.</h2><p>Mood check-ins remain on LunaSay unless you explicitly opt in below.</p></div>
+        <div class="section-head"><p class="eyebrow">Privacy & research</p><h2>Your reflection belongs to you.</h2><p>Mood check-ins and reading feedback remain on LunaSay unless you explicitly opt in below.</p></div>
         <article class="quiet-card consent-card">
           <div class="consent-row">
-            <div><h2>Contribute pseudonymous mood patterns</h2><p>Share only the selected mood, its two bounded scores, time, and a salted account or device identifier for future LunaSay research.</p></div>
+            <div><h2>Help LunaSay learn what resonates</h2><p>Share only a selected mood and bounded scores, or a face, helpful/mixed/missed rating, reading date, time, and salted device identifier.</p></div>
             <label class="switch"><input id="research-consent" type="checkbox" /><span aria-hidden="true"></span><b>Research sharing</b></label>
           </div>
-          <p class="privacy-list">The GitHub research export never includes your name, birth details, family data, journal or conversation text, ring biometrics, location, or raw device identifier.</p>
+          <p class="privacy-list">The GitHub research export never includes your name, reading text or evidence, birth details, family data, journal or conversation text, ring biometrics, location, notes, or raw device identifier.</p>
           <p id="research-status" class="export-status" aria-live="polite">Connect LunaSay to view research status.</p>
         </article>
-        <article class="quiet-card"><h2>How withdrawal works</h2><p>Turning sharing off immediately stops new exports and deletes any unsent mood check-in from the device. It does not delete earlier contributions; LunaSay still needs a reviewed deletion-request process before research sharing can launch.</p></article>
+        <article class="quiet-card"><h2>How withdrawal works</h2><p>Turning sharing off immediately stops new exports and deletes any unsent contribution from the device. It does not delete earlier contributions; LunaSay still needs a reviewed deletion-request process before research sharing can launch.</p></article>
       </section>
     </main>
     <footer>Private by default · LunaSay is a reflective instrument, not a medical device.</footer>

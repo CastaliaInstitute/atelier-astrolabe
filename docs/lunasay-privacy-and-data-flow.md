@@ -123,7 +123,7 @@ source, face, faculty slug, model, voice, language, audio seconds/bytes,
 estimated token counts, character counts, estimated cost, and creation time.
 The usage-event insert has no raw-audio, transcript, or reply field.
 
-### Mood check-ins and optional research export
+### Mood check-ins, reading feedback, and optional research export
 
 The Mood Check-in face stores the current friendly label plus its valence and
 arousal coordinates in device NVS. Mood is self-reported present-moment
@@ -131,23 +131,31 @@ context; prompts must not treat it as proof that an astrological reading is
 correct or infer another family member's mood from it.
 
 The hosted PWA exposes a separate Research sharing switch. Enabling it requires
-an explicit confirmation and stores consent version `research-v1` on the
+an explicit confirmation and stores consent version `research-v2` on the
 device. The Mood Check-in face presents six small facial choices that can be
 tapped directly; the large face previews the selected expression, and tapping
 that large face deliberately records the check-in. The device
-retains at most one unsent structured check-in and retries after connectivity
-returns. Turning sharing off stops new exports and erases that unsent check-in.
+retains at most one unsent structured contribution and retries after
+connectivity returns. Turning sharing off stops new exports and erases that
+unsent contribution. Consent recorded under an earlier policy version is
+disabled and must be granted again.
 
-The `lunasay-event` endpoint accepts a mood event only with an affirmative
-consent flag, the exact current consent-policy version, an allowlisted source,
-bounded mood values, and a valid signed credential from a provisioned
-Astrolabe. It derives the subject from the provisioned owner ID when one exists,
-otherwise from the verified device MAC; it does not trust a client-supplied
-subject. Research export is off
+The PWA can also submit one structured rating for a daily Moon, Astrology,
+Transits, Synastry, Tarot, or Sky reading. The rating is one of `helpful`,
+`mixed`, or `missed`. No note or reading text is accepted. The device forwards
+only the face, rating, local reading date, source, and event time.
+
+The `lunasay-event` endpoint accepts a mood or reading-feedback event only with
+an affirmative consent flag, the exact current consent-policy version, an
+allowlisted source, bounded fields, and a valid signed credential from a
+provisioned Astrolabe. It derives the subject from the provisioned owner ID
+when one exists, otherwise from the verified device MAC; it does not trust a
+client-supplied subject. Research export is off
 unless the operator deliberately sets `LUNASAY_ML_LOGGING_ENABLED=true`, a
 private GitHub repository, and a server-only subject salt. Exported JSONL uses
-a salted SHA-256 subject identifier and bounded structured fields; it does not
-include names, journal text, conversations, birth data, or raw biometrics.
+a salted SHA-256 subject identifier and event-specific allowlisted fields. It
+does not include names, reading text or evidence, free-text notes, journal
+text, conversations, birth data, family data, location, or raw biometrics.
 
 This remains an incomplete consent product. Participation and prospective
 revocation are now exposed, but **launch blockers** remain: obtain review of

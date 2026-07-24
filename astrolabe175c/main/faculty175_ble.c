@@ -1607,7 +1607,7 @@ static esp_err_t ble_apply_settings_json(const char *body)
                 cJSON_IsTrue(consent),
                 cJSON_IsString(version) && version->valuestring != NULL
                     ? version->valuestring
-                    : "research-v1");
+                    : "research-v2");
         }
     }
     const cJSON *mood = cJSON_GetObjectItemCaseSensitive(root, "mood");
@@ -1618,6 +1618,27 @@ static esp_err_t ble_apply_settings_json(const char *body)
             !faculty175_face_psych_state_set_mood(
                 label->valuestring, cJSON_IsTrue(check_in))) {
             err = ESP_ERR_INVALID_ARG;
+        }
+    }
+    const cJSON *reflection =
+        cJSON_GetObjectItemCaseSensitive(root, "reflection");
+    if (err == ESP_OK && cJSON_IsObject(reflection)) {
+        const cJSON *face =
+            cJSON_GetObjectItemCaseSensitive(reflection, "face");
+        const cJSON *rating =
+            cJSON_GetObjectItemCaseSensitive(reflection, "rating");
+        const cJSON *reading_date =
+            cJSON_GetObjectItemCaseSensitive(reflection, "readingDate");
+        if (!cJSON_IsString(face) || face->valuestring == NULL ||
+            !cJSON_IsString(rating) || rating->valuestring == NULL ||
+            !cJSON_IsString(reading_date) ||
+            reading_date->valuestring == NULL) {
+            err = ESP_ERR_INVALID_ARG;
+        } else {
+            err = faculty175_research_record_feedback(
+                face->valuestring,
+                rating->valuestring,
+                reading_date->valuestring);
         }
     }
     const cJSON *spotify = cJSON_GetObjectItemCaseSensitive(root, "spotify");
@@ -1747,20 +1768,23 @@ static int ble_state_json_access(uint16_t conn_handle,
     uint8_t arousal = 0;
     uint8_t valence = 0;
     faculty175_face_psych_state_mood_values(&arousal, &valence);
-    char body[256];
+    char body[384];
     const int len = snprintf(
         body,
         sizeof(body),
         "{\"mood\":{\"label\":\"%s\",\"arousal\":%u,\"valence\":%u},"
         "\"research\":{\"consent\":%s,\"consentVersion\":\"%s\","
-        "\"pending\":%s,\"status\":\"%s\"}}",
+        "\"pending\":%s,\"status\":\"%s\","
+        "\"lastFeedback\":{\"face\":\"%s\",\"rating\":\"%s\"}}}",
         faculty175_face_psych_state_mood_label(),
         arousal,
         valence,
         research.consent_enabled ? "true" : "false",
         research.consent_version,
         research.pending ? "true" : "false",
-        faculty175_research_state_label(research.state));
+        faculty175_research_state_label(research.state),
+        research.last_feedback_face,
+        research.last_feedback_rating);
     if (len <= 0 || (size_t)len >= sizeof(body)) {
         return BLE_ATT_ERR_INSUFFICIENT_RES;
     }

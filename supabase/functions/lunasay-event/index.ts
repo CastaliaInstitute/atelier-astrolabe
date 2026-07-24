@@ -1,6 +1,9 @@
 import { appendLunaSayMlEvent } from "../_shared/lunasayGithubLog.ts";
 import { verifiedAstrolabeDeviceIdentity } from "../_shared/deviceAuth.ts";
 import { parseLunaSayMoodEvent } from "../_shared/lunasayMoodEvent.ts";
+import {
+  parseLunaSayReflectionEvent,
+} from "../_shared/lunasayReflectionEvent.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -32,18 +35,36 @@ Deno.serve(async (request) => {
   } catch {
     return json({ error: "Invalid JSON" }, 400);
   }
-  const event = parseLunaSayMoodEvent(body);
-  if (!event) {
-    return json({ error: "Invalid or unconsented mood event" }, 422);
-  }
   const device = await verifiedAstrolabeDeviceIdentity(request);
   if (device instanceof Response) return device;
+  const subjectId = device.ownerUserId
+    ? `user:${device.ownerUserId}`
+    : `device:${device.mac}`;
 
+  const reflection = parseLunaSayReflectionEvent(body);
+  if (reflection) {
+    const logged = await appendLunaSayMlEvent({
+      event: "reading_feedback",
+      subjectId,
+      consentVersion: reflection.consentVersion,
+      occurredAt: reflection.occurredAt,
+      data: {
+        face: reflection.face,
+        rating: reflection.rating,
+        reading_date: reflection.readingDate,
+        source: reflection.source,
+      },
+    });
+    return json({ accepted: true, logged, event: "reading_feedback" });
+  }
+
+  const event = parseLunaSayMoodEvent(body);
+  if (!event) {
+    return json({ error: "Invalid or unconsented LunaSay event" }, 422);
+  }
   const logged = await appendLunaSayMlEvent({
     event: "mood_checkin",
-    subjectId: device.ownerUserId
-      ? `user:${device.ownerUserId}`
-      : `device:${device.mac}`,
+    subjectId,
     consentVersion: event.consentVersion,
     occurredAt: event.occurredAt,
     data: {
@@ -53,5 +74,5 @@ Deno.serve(async (request) => {
       source: event.source,
     },
   });
-  return json({ accepted: true, logged });
+  return json({ accepted: true, logged, event: "mood_checkin" });
 });

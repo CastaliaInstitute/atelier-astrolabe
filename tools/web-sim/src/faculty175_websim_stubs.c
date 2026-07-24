@@ -90,6 +90,15 @@ esp_err_t faculty175_research_record_mood(const char *mood,
     (void)valence;
     return ESP_FAIL;
 }
+esp_err_t faculty175_research_record_feedback(const char *face,
+                                              const char *rating,
+                                              const char *reading_date)
+{
+    (void)face;
+    (void)rating;
+    (void)reading_date;
+    return ESP_FAIL;
+}
 void faculty175_research_poll(void) {}
 void faculty175_research_status(faculty175_research_status_t *out)
 {
@@ -97,7 +106,7 @@ void faculty175_research_status(faculty175_research_status_t *out)
         memset(out, 0, sizeof(*out));
         out->state = FACULTY175_RESEARCH_OFF;
         snprintf(out->consent_version, sizeof(out->consent_version),
-                 "%s", "research-v1");
+                 "%s", "research-v2");
     }
 }
 const char *faculty175_research_state_label(faculty175_research_state_t state)

@@ -1,4 +1,4 @@
-export const LUNASAY_RESEARCH_CONSENT_VERSION = "research-v1";
+export const LUNASAY_RESEARCH_CONSENT_VERSION = "research-v2";
 
 const MOODS = new Set([
   "calm",
