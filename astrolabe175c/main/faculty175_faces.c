@@ -73,7 +73,7 @@ static const faculty175_face_desc_t k_faces[] = {
     { FACULTY175_FACE_QDAY, "qday", "Question Day", FACULTY175_FACE_CAT_COMMONPLACE, true, false, 140 },
     { FACULTY175_FACE_FOCUS, "focus", "Focus Timer", FACULTY175_FACE_CAT_HOME, true, false, 145 },
     { FACULTY175_FACE_BIOMETRICS, "ring", "Ring", FACULTY175_FACE_CAT_HOME, true, false, 150 },
-    { FACULTY175_FACE_IRONMAN, "arc-reactor", "Arc Reactor", FACULTY175_FACE_CAT_HOME, true, false, 151 },
+    { FACULTY175_FACE_IRONMAN, "alpheus-face", "Alpheus Face", FACULTY175_FACE_CAT_HOME, true, false, 151 },
     { FACULTY175_FACE_WATCHER, "watcher", "Watcher", FACULTY175_FACE_CAT_HOME, true, false, 155 },
     { FACULTY175_FACE_LENORMAND, "lenormand", "Lenormand", FACULTY175_FACE_CAT_ORACLE, true, false, 160 },
     { FACULTY175_FACE_PYTHIA, "pythia", "Pythia", FACULTY175_FACE_CAT_ORACLE, false, false, 165 },

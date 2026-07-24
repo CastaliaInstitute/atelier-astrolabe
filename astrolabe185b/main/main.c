@@ -60,6 +60,10 @@
 #include "faculty175_wifi_monitor.h"
 #include "faculty175_wifi_lab.h"
 
+#ifndef ASTROLABE_FACTORY_RECOVERY
+#define ASTROLABE_FACTORY_RECOVERY 0
+#endif
+
 #if __has_include("secrets.local.h")
 #include "secrets.local.h"
 #else
@@ -2836,6 +2840,20 @@ void app_main(void)
         nvs_err = nvs_flash_init();
     }
     ESP_ERROR_CHECK(nvs_err);
+#if ASTROLABE_FACTORY_RECOVERY
+    const esp_err_t recovery_storage_err = faculty175_storage_init();
+    if (recovery_storage_err != ESP_OK) {
+        FACULTY175_LOG_STAGE_W(TAG, "recovery", "storage skipped: %s", esp_err_to_name(recovery_storage_err));
+    }
+    faculty175_ota_init();
+    const esp_err_t recovery_usb_err = faculty175_usb_init();
+    FACULTY175_LOG_STAGE(TAG, "recovery", "factory recovery USB/JTAG: %s", esp_err_to_name(recovery_usb_err));
+    faculty175_serial_init();
+    FACULTY175_LOG_STAGE(TAG, "recovery", "factory recovery ready; use `ota help` or `ota boot ota`");
+    while (true) {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+#endif
 #if FACULTY175_USB_OTA_DEMO_BOOT
     faculty175_usb_ota_demo_boot();
     return;
