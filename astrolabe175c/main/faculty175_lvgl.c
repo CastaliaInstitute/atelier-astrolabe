@@ -41,6 +41,7 @@
 #include "faculty175_wifi_lab.h"
 #include "faculty175_wifi_monitor.h"
 #include "faculty175_face_incidents.h"
+#include "faculty175_face_psych_state.h"
 #include "astrolabe_time.h"
 
 #define FACULTY175_ENABLE_ALMANAC_FACES 0
@@ -115,6 +116,9 @@ static bool s_moon_storage_checked;
 static bool s_moon_storage_ready;
 static lv_obj_t *s_journal_screen;
 static lv_obj_t *s_journal_bars[16];
+static lv_obj_t *s_mood_screen;
+static char s_mood_last_label[16];
+static bool s_mood_last_checked;
 static lv_obj_t *s_conversation_screen;
 static lv_obj_t *s_conversation_rings[3];
 static lv_obj_t *s_conversation_orb;
@@ -8243,6 +8247,147 @@ static lv_obj_t *make_session_rect(lv_obj_t *parent,
     return obj;
 }
 
+static int mood_index_for_label(const char *label)
+{
+    static const char *const labels[] = {
+        "CALM", "BRIGHT", "TENDER", "LOW", "TENSE", "ENERGIZED",
+    };
+    if (label == NULL) {
+        return 0;
+    }
+    for (int i = 0; i < (int)(sizeof(labels) / sizeof(labels[0])); ++i) {
+        if (strcasecmp(label, labels[i]) == 0) {
+            return i;
+        }
+    }
+    return 0;
+}
+
+static const char *mood_expression_for_index(int index, bool large)
+{
+    static const char *const small[] = {
+        "-_-", "^_^", "o_o", "-.-", ">_<", "*_*",
+    };
+    static const char *const big[] = {
+        "-   -", "^   ^", "o   o", "-   -", ">   <", "*   *",
+    };
+    if (index < 0 || index >= 6) {
+        index = 0;
+    }
+    return large ? big[index] : small[index];
+}
+
+static const char *mood_mouth_for_index(int index)
+{
+    static const char *const mouths[] = {
+        "____", "\\___/", "____", "/---\\", "/---\\", "\\___/",
+    };
+    if (index < 0 || index >= 6) {
+        index = 0;
+    }
+    return mouths[index];
+}
+
+static void create_mood_screen(const char *label)
+{
+    const int selected = mood_index_for_label(label);
+    s_mood_screen = lv_obj_create(NULL);
+    if (s_mood_screen == NULL) {
+        return;
+    }
+    lv_obj_remove_style_all(s_mood_screen);
+    lv_obj_set_size(s_mood_screen, FACULTY175_LCD_W, FACULTY175_LCD_H);
+    lv_obj_set_style_bg_color(s_mood_screen, lv_color_hex(0x090b12), 0);
+    lv_obj_set_style_bg_opa(s_mood_screen, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(s_mood_screen, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *title = make_native_label(s_mood_screen, 44, 300, 0xe8deee,
+                                        LV_TEXT_ALIGN_CENTER);
+    lv_label_set_text(title, "CHOOSE YOUR MOOD");
+
+    lv_obj_t *halo = make_circle(s_mood_screen, 228, 0x5b3150, 155);
+    lv_obj_align(halo, LV_ALIGN_CENTER, 0, -34);
+    lv_obj_t *face = make_circle(s_mood_screen, 208, 0xedbf94, LV_OPA_COVER);
+    lv_obj_align(face, LV_ALIGN_CENTER, 0, -34);
+    lv_obj_set_style_border_width(face, 2, 0);
+    lv_obj_set_style_border_color(face, lv_color_hex(0x624735), 0);
+
+    lv_obj_t *eyes = make_native_label(s_mood_screen, 160, 230, 0x171719,
+                                       LV_TEXT_ALIGN_CENTER);
+    lv_label_set_text(eyes, mood_expression_for_index(selected, true));
+    lv_obj_t *mouth = make_native_label(s_mood_screen, 238, 230, 0x332329,
+                                        LV_TEXT_ALIGN_CENTER);
+    lv_label_set_text(mouth, mood_mouth_for_index(selected));
+
+    for (int i = 0; i < 6; ++i) {
+        const int32_t x = 65 + i * 67;
+        if (i == selected) {
+            lv_obj_t *selection = make_circle(s_mood_screen, 44, 0x733d64,
+                                              LV_OPA_COVER);
+            lv_obj_align(selection, LV_ALIGN_TOP_LEFT, x - 22, 334);
+        }
+        lv_obj_t *choice = make_circle(s_mood_screen, 36,
+                                       i == selected ? 0x442743 : 0x1b1f28,
+                                       LV_OPA_COVER);
+        lv_obj_align(choice, LV_ALIGN_TOP_LEFT, x - 18, 338);
+        lv_obj_set_style_border_width(choice, 1, 0);
+        lv_obj_set_style_border_color(
+            choice,
+            lv_color_hex(i == selected ? 0xef91b1 : 0x526074),
+            0);
+        lv_obj_t *glyph = make_native_label(s_mood_screen, 346, 52,
+                                            i == selected ? 0xfff3fa : 0xb8c2d3,
+                                            LV_TEXT_ALIGN_CENTER);
+        lv_obj_align(glyph, LV_ALIGN_TOP_LEFT, x - 26, 346);
+        lv_label_set_text(glyph, mood_expression_for_index(i, false));
+    }
+
+    lv_obj_t *choice_label = make_native_label(s_mood_screen, 391, 260,
+                                                0xf4e7f0,
+                                                LV_TEXT_ALIGN_CENTER);
+    lv_label_set_text(choice_label, label);
+    lv_obj_t *hint = make_native_label(s_mood_screen, 426, 300, 0x7e94ad,
+                                       LV_TEXT_ALIGN_CENTER);
+    lv_label_set_text(
+        hint,
+        faculty175_face_psych_state_mood_checked_in()
+            ? "SAVED LOCALLY"
+            : "TAP LARGE FACE TO SAVE");
+    add_lunasay_settings_gear(s_mood_screen);
+    strlcpy(s_mood_last_label, label, sizeof(s_mood_last_label));
+    s_mood_last_checked = faculty175_face_psych_state_mood_checked_in();
+}
+
+static bool draw_mood_lvgl(uint32_t anim_ms)
+{
+    (void)anim_ms;
+    const char *label = faculty175_face_psych_state_mood_label();
+    if (s_mood_screen != NULL &&
+        (strcasecmp(s_mood_last_label, label) != 0 ||
+         s_mood_last_checked !=
+             faculty175_face_psych_state_mood_checked_in())) {
+        if (lv_screen_active() == s_mood_screen) {
+            lv_screen_load(idle_screen());
+            lvgl_tick(1);
+            lv_timer_handler();
+        }
+        lv_obj_delete(s_mood_screen);
+        s_mood_screen = NULL;
+    }
+    if (s_mood_screen == NULL) {
+        create_mood_screen(label);
+    }
+    if (s_mood_screen == NULL) {
+        return false;
+    }
+    if (lv_screen_active() != s_mood_screen) {
+        lv_screen_load(s_mood_screen);
+    }
+    lvgl_tick(16);
+    lv_timer_handler();
+    return true;
+}
+
 static void create_journal_screen(void)
 {
     s_journal_screen = lv_obj_create(NULL);
@@ -8369,6 +8514,7 @@ static void lunasay_release_inactive_screens(faculty175_face_id_t keep_id)
         {FACULTY175_FACE_TRANSITS, &s_transits_screen},
         {FACULTY175_FACE_SYNASTRY, &s_synastry_screen},
         {FACULTY175_FACE_SKY, &s_sky_screen},
+        {FACULTY175_FACE_PSYCH_STATE, &s_mood_screen},
         {FACULTY175_FACE_JOURNAL, &s_journal_screen},
         {FACULTY175_FACE_CONVERSATION, &s_conversation_screen},
     };
@@ -8487,6 +8633,8 @@ bool faculty175_lvgl_draw_face(faculty175_face_id_t id, uint32_t anim_ms)
             return draw_journal_lvgl(anim_ms);
         case FACULTY175_FACE_CONVERSATION:
             return draw_conversation_lvgl(anim_ms);
+        case FACULTY175_FACE_PSYCH_STATE:
+            return draw_mood_lvgl(anim_ms);
         default:
             return draw_face_descriptor(id, anim_ms);
     }
@@ -8522,6 +8670,8 @@ static lv_obj_t *face_screen_for_id(faculty175_face_id_t id)
             return s_journal_screen;
         case FACULTY175_FACE_CONVERSATION:
             return s_conversation_screen;
+        case FACULTY175_FACE_PSYCH_STATE:
+            return s_mood_screen;
         case FACULTY175_FACE_TAROT:
             return s_tarot_screen;
         case FACULTY175_FACE_RUNES:
@@ -8568,6 +8718,7 @@ static int face_screen_slot_for_id(faculty175_face_id_t id)
         case FACULTY175_FACE_POCKETWATCH:
             return 1003;
         case FACULTY175_FACE_MOON:
+        case FACULTY175_FACE_PSYCH_STATE:
         case FACULTY175_FACE_JOURNAL:
         case FACULTY175_FACE_CONVERSATION:
         case FACULTY175_FACE_TAROT:

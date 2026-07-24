@@ -10,6 +10,7 @@ import {
   buildLunaSayDailyPacketInstruction,
   LUNASAY_DAILY_PACKET_FACE,
   lunaSayDailyPacketFallback,
+  lunaSayDailyPacketJsonSchema,
   lunaSayDateForEpoch,
   normalizeLunaSayTimezone,
   parseLunaSayDailyPacket,
@@ -1040,6 +1041,7 @@ async function meteredGeminiGenerate(
     face?: string;
     facultySlug?: string;
     responseMimeType?: "application/json";
+    responseJsonSchema?: Record<string, unknown>;
     maxOutputTokens?: number;
     thinkingLevel?: "minimal" | "low" | "medium" | "high";
   },
@@ -1050,6 +1052,7 @@ async function meteredGeminiGenerate(
     systemInstruction: params.systemInstruction,
     userText: params.userText,
     responseMimeType: params.responseMimeType,
+    responseJsonSchema: params.responseJsonSchema,
     maxOutputTokens: params.maxOutputTokens,
     thinkingLevel: params.thinkingLevel,
   });
@@ -1218,6 +1221,13 @@ Deno.serve(async (req: Request) => {
   const ttsText = (body.ttsText ?? "").trim();
 
   try {
+    if (
+      face === LUNASAY_DAILY_PACKET_FACE ||
+      (ttsText && isLunaSayProfile(body.deviceProfile))
+    ) {
+      const authError = await verifyAstrolabeDevice(req, true);
+      if (authError) return authError;
+    }
     if (ttsText) {
       return await voicePipelineOk(req, body, {
         transcript: (message || ttsText).trim(),
@@ -1377,7 +1387,7 @@ Deno.serve(async (req: Request) => {
       const inputTokens = estimateTokensFromChars(sys.length + input.length);
       const geminiGate = await ensureVoiceBudget(
         req,
-        estimateGeminiUsd(inputTokens, 4096),
+        estimateGeminiUsd(inputTokens, 8192),
       );
       if (geminiGate) return geminiGate;
       try {
@@ -1389,7 +1399,8 @@ Deno.serve(async (req: Request) => {
           route: LUNASAY_DAILY_PACKET_FACE,
           face,
           responseMimeType: "application/json",
-          maxOutputTokens: 4096,
+          responseJsonSchema: lunaSayDailyPacketJsonSchema(),
+          maxOutputTokens: 8192,
           ...(dailyPacketModel.startsWith("gemini-3")
             ? { thinkingLevel: "minimal" as const }
             : {}),

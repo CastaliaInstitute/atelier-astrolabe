@@ -40,6 +40,10 @@
 #define PSYCH_STATE_MOUTH_COUNT 6
 #define PSYCH_STATE_EMOTION_COUNT 101
 #define PSYCH_STATE_MOOD_COUNT 6
+#define PSYCH_STATE_MOOD_PICKER_Y 356
+#define PSYCH_STATE_MOOD_PICKER_X0 65
+#define PSYCH_STATE_MOOD_PICKER_STEP 67
+#define PSYCH_STATE_MOOD_PICKER_R 18
 
 typedef enum {
     PSYCH_STYLE_SKIN = 0,
@@ -240,6 +244,58 @@ static uint16_t psych_color_eyes(uint8_t idx)
             return psych_color(93, 61, 32);
         default:
             return psych_color(95, 65, 32);
+    }
+}
+
+static int16_t mood_picker_x(uint8_t index)
+{
+    return (int16_t)(PSYCH_STATE_MOOD_PICKER_X0 +
+                     (int16_t)index * PSYCH_STATE_MOOD_PICKER_STEP);
+}
+
+static void draw_mood_choice(uint8_t index)
+{
+    if (index >= PSYCH_STATE_MOOD_COUNT) {
+        return;
+    }
+    const psych_state_mood_t *mood = &k_moods[index];
+    const int16_t cx = mood_picker_x(index);
+    const int16_t cy = PSYCH_STATE_MOOD_PICKER_Y;
+    const bool selected = index == s_mood;
+    const uint16_t outline = selected
+        ? psych_color(239, 145, 177)
+        : psych_color(82, 94, 116);
+    const uint16_t fill = selected
+        ? psych_color(68, 39, 67)
+        : psych_color(27, 31, 40);
+    const uint16_t ink = selected
+        ? psych_color(252, 241, 248)
+        : psych_color(184, 194, 211);
+    const int16_t eye_y = cy - 5;
+    const int16_t eye_r = mood->arousal > 65 ? 2 : 1;
+
+    if (selected) {
+        faculty175_display_fill_circle(cx, cy, PSYCH_STATE_MOOD_PICKER_R + 4,
+                                       psych_color(115, 61, 100));
+    }
+    faculty175_display_fill_circle(cx, cy, PSYCH_STATE_MOOD_PICKER_R, fill);
+    faculty175_display_draw_circle(cx, cy, PSYCH_STATE_MOOD_PICKER_R, outline);
+    if (mood->arousal < 30) {
+        faculty175_display_draw_line(cx - 9, eye_y, cx - 3, eye_y, ink);
+        faculty175_display_draw_line(cx + 3, eye_y, cx + 9, eye_y, ink);
+    } else {
+        faculty175_display_fill_circle(cx - 6, eye_y, eye_r, ink);
+        faculty175_display_fill_circle(cx + 6, eye_y, eye_r, ink);
+    }
+
+    if (mood->valence >= 60) {
+        faculty175_display_draw_line(cx - 8, cy + 5, cx, cy + 9, ink);
+        faculty175_display_draw_line(cx, cy + 9, cx + 8, cy + 5, ink);
+    } else if (mood->valence <= 30) {
+        faculty175_display_draw_line(cx - 8, cy + 9, cx, cy + 5, ink);
+        faculty175_display_draw_line(cx, cy + 5, cx + 8, cy + 9, ink);
+    } else {
+        faculty175_display_draw_line(cx - 7, cy + 7, cx + 7, cy + 7, ink);
     }
 }
 
@@ -661,13 +717,19 @@ void faculty175_face_psych_state_draw(uint32_t anim_ms)
     s_style[PSYCH_STYLE_AROUSAL].value = k_moods[s_mood].arousal;
     s_style[PSYCH_STYLE_VALENCE].value = k_moods[s_mood].valence;
     draw_memoji_face(&state);
-    faculty175_display_draw_text("HOW ARE YOU?", 192, 54, psych_color(224, 232, 246));
-    faculty175_display_draw_text("<", 74, 410, psych_color(145, 172, 206));
-    faculty175_display_draw_text(k_moods[s_mood].label, 205, 410, psych_color(224, 232, 246));
-    faculty175_display_draw_text(">", 397, 410, psych_color(145, 172, 206));
+    faculty175_display_draw_text("CHOOSE YOUR MOOD", 177, 54,
+                                 psych_color(224, 232, 246));
+    for (uint8_t i = 0; i < PSYCH_STATE_MOOD_COUNT; ++i) {
+        draw_mood_choice(i);
+    }
+    const int16_t label_x =
+        (int16_t)(FACULTY175_LCD_W / 2 -
+                  (int16_t)strlen(k_moods[s_mood].label) * 3);
+    faculty175_display_draw_text(k_moods[s_mood].label, label_x, 392,
+                                 psych_color(224, 232, 246));
     faculty175_research_status_t research = {};
     faculty175_research_status(&research);
-    const char *checkin_status = "TAP CENTER TO CHECK IN";
+    const char *checkin_status = "TAP LARGE FACE TO SAVE";
     if (s_local_checked_in) {
         checkin_status = research.consent_enabled
             ? faculty175_research_state_label(research.state)
@@ -701,7 +763,22 @@ bool faculty175_face_psych_state_tap(int16_t x, int16_t y)
         y < 0 || y >= FACULTY175_LCD_H) {
         return false;
     }
-    if (x >= FACULTY175_LCD_W / 3 && x < (FACULTY175_LCD_W * 2) / 3) {
+    for (uint8_t i = 0; i < PSYCH_STATE_MOOD_COUNT; ++i) {
+        const int16_t dx = (int16_t)(x - mood_picker_x(i));
+        const int16_t dy = (int16_t)(y - PSYCH_STATE_MOOD_PICKER_Y);
+        if (dx * dx + dy * dy <=
+            (PSYCH_STATE_MOOD_PICKER_R + 8) *
+                (PSYCH_STATE_MOOD_PICKER_R + 8)) {
+            s_mood = i;
+            s_local_checked_in = false;
+            save_style_style();
+            return true;
+        }
+    }
+    const int16_t face_dx = (int16_t)(x - k_emoji_cx);
+    const int16_t face_dy = (int16_t)(y - k_emoji_cy);
+    if (face_dx * face_dx + face_dy * face_dy <=
+        (k_emoji_r + 12) * (k_emoji_r + 12)) {
         return faculty175_face_psych_state_action(0);
     }
     s_mood = cycle_value(s_mood, x < FACULTY175_LCD_W / 2 ? -1 : 1, PSYCH_STATE_MOOD_COUNT);

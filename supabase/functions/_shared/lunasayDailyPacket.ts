@@ -43,19 +43,36 @@ export type LunaSayDailyPacket = {
   faces: Record<LunaSayDailyFaceId, LunaSayDailyFace>;
 };
 
-const ACCENTS = new Set<LunaSayDailyFace["accent"]>([
-  "moon",
-  "violet",
-  "amber",
-  "blue",
-  "rose",
-  "silver",
-]);
-const MODES = new Set<LunaSayDailyFaceMode>([
-  "daily",
-  "live_question",
-  "offline",
-]);
+const FACE_METADATA: Record<
+  LunaSayDailyFaceId,
+  Pick<LunaSayDailyFace, "mode" | "title" | "accent">
+> = {
+  moon: { mode: "daily", title: "Moon", accent: "moon" },
+  astrology: {
+    mode: "daily",
+    title: "Inner Weather",
+    accent: "violet",
+  },
+  transits: { mode: "daily", title: "Transits", accent: "amber" },
+  synastry: {
+    mode: "daily",
+    title: "Relationship Weather",
+    accent: "rose",
+  },
+  tarot: { mode: "daily", title: "Tarot", accent: "amber" },
+  alethiometer: {
+    mode: "live_question",
+    title: "Alethiometer",
+    accent: "silver",
+  },
+  sky: { mode: "daily", title: "Sky", accent: "blue" },
+  journal: { mode: "offline", title: "Journal", accent: "moon" },
+  conversation: {
+    mode: "live_question",
+    title: "Companion",
+    accent: "violet",
+  },
+};
 const DAILY_TAROT_CARDS = [
   "The Fool",
   "The Magician",
@@ -81,6 +98,116 @@ const DAILY_TAROT_CARDS = [
   "The World",
 ];
 
+const FACE_ID_ALIASES: Record<string, LunaSayDailyFaceId> = {
+  "inner_weather": "astrology",
+  "relationship_weather": "synastry",
+  "family_synastry": "synastry",
+  "moon_phase": "moon",
+  "companion": "conversation",
+};
+const WEATHER_HEADLINES = new Set([
+  "Clear",
+  "Warm",
+  "Shifting",
+  "Inward",
+  "Tender",
+  "Changeable",
+  "Easy",
+  "Open",
+  "Intense",
+]);
+
+function normalizeFaceId(value: unknown): LunaSayDailyFaceId | undefined {
+  if (typeof value !== "string") return undefined;
+  const id = value.trim().toLowerCase()
+    .replace(/\s+face$/, "")
+    .replace(/[\s-]+/g, "_");
+  if (LUNASAY_DAILY_FACE_IDS.includes(id as LunaSayDailyFaceId)) {
+    return id as LunaSayDailyFaceId;
+  }
+  return FACE_ID_ALIASES[id];
+}
+
+function objectValue(
+  value: unknown,
+  key: string,
+): unknown {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)[key]
+    : undefined;
+}
+
+/**
+ * Gemini structured output schema. The server still validates every field;
+ * this schema prevents paid calls from falling back merely because the model
+ * renamed or omitted a face key.
+ */
+export function lunaSayDailyPacketJsonSchema(): Record<string, unknown> {
+  const faceSchema = (
+    id: LunaSayDailyFaceId,
+  ): Record<string, unknown> => {
+    const tarot = id === "tarot";
+    const synastry = id === "synastry";
+    return {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        headline: { type: "string", maxLength: 42 },
+        display: { type: "string", maxLength: 80 },
+        ...(synastry
+          ? {
+            dynamic: {
+              type: "string",
+              maxLength: 90,
+              description:
+                "One reciprocal durable natal tendency in plain language. Do not say today, always, compatible, destined, or make one person the problem.",
+            },
+            weather: {
+              type: "string",
+              maxLength: 90,
+              description:
+                "Only temporary relationship context supported by current transit or wellness facts. If none is supplied, explicitly let lived experience lead.",
+            },
+            practice: {
+              type: "string",
+              maxLength: 90,
+              description:
+                "One specific, consent-respecting care or repair action an adult can choose. Never assign a child responsibility for an adult emotion.",
+            },
+          }
+          : { spoken: { type: "string", maxLength: 150 } }),
+        detail: { type: "string", maxLength: synastry ? 360 : 180 },
+        ...(tarot ? { cardName: { type: "string", maxLength: 48 } } : {}),
+      },
+      required: [
+        "headline",
+        "display",
+        ...(synastry ? ["dynamic", "weather", "practice"] : ["spoken"]),
+        "detail",
+        ...(tarot ? ["cardName"] : []),
+      ],
+    };
+  };
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      faces: {
+        type: "object",
+        additionalProperties: false,
+        properties: Object.fromEntries(
+          LUNASAY_DAILY_FACE_IDS.map((id) => [
+            id,
+            faceSchema(id),
+          ]),
+        ),
+        required: [...LUNASAY_DAILY_FACE_IDS],
+      },
+    },
+    required: ["faces"],
+  };
+}
+
 /** Stable per civil day, so the card does not change on each refresh. */
 export function lunaSayDailyTarotCardName(date: string): string {
   let hash = 2166136261;
@@ -97,6 +224,27 @@ function cleanText(value: unknown, maxChars: number): string | undefined {
   return text && text.length <= maxChars ? text : undefined;
 }
 
+function boundedSentence(value: unknown, maxChars: number): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const text = value.replace(/\s+/g, " ").trim();
+  if (!text) return undefined;
+  if (text.length <= maxChars) return text;
+  const prefix = text.slice(0, maxChars - 1);
+  const punctuation = Math.max(
+    prefix.lastIndexOf("."),
+    prefix.lastIndexOf("!"),
+    prefix.lastIndexOf("?"),
+  );
+  const word = prefix.lastIndexOf(" ");
+  const cut = punctuation >= Math.floor(maxChars * 0.55)
+    ? punctuation + 1
+    : word >= Math.floor(maxChars * 0.55)
+    ? word
+    : maxChars - 1;
+  const clipped = prefix.slice(0, cut).replace(/[\s,;:—-]+$/, "");
+  return /[.!?]$/.test(clipped) ? clipped : `${clipped}.`;
+}
+
 /** Strictly validates an LLM response before it reaches a device cache. */
 export function parseLunaSayDailyPacket(
   text: string,
@@ -111,7 +259,10 @@ export function parseLunaSayDailyPacket(
   /* Gemini occasionally returns the nine face ids directly at the root even
    * when instructed to nest them under `faces`. Both forms contain the same
    * safe payload; normalize before validating the individual faces. */
-  const candidateFaces = parsed.faces ?? parsed;
+  const packetEnvelope = parsed.packet ?? parsed.dailyPacket ??
+    parsed.lunasayDailyPacket;
+  const candidateFaces = parsed.faces ?? objectValue(packetEnvelope, "faces") ??
+    packetEnvelope ?? parsed;
   if (
     !candidateFaces || typeof candidateFaces !== "object"
   ) {
@@ -131,48 +282,86 @@ export function parseLunaSayDailyPacket(
       const record = entry as Record<string, unknown>;
       const rawId = record.id ?? record.faceId ?? record.face ?? record.key ??
         record.faceName ?? record.name;
-      const id = typeof rawId === "string"
-        ? rawId.trim().toLowerCase().replace(/\s+face$/, "")
-        : "";
-      if (LUNASAY_DAILY_FACE_IDS.includes(id as LunaSayDailyFaceId)) {
+      const id = normalizeFaceId(rawId);
+      if (id) {
         result[id] = record;
       }
       return result;
     }, {})
-    : candidateFaces as Record<string, unknown>;
+    : Object.entries(candidateFaces as Record<string, unknown>).reduce<
+      Record<string, unknown>
+    >((result, [rawId, value]) => {
+      const id = normalizeFaceId(rawId) ??
+        normalizeFaceId(objectValue(value, "id")) ??
+        normalizeFaceId(objectValue(value, "name"));
+      if (id) result[id] = value;
+      return result;
+    }, {});
   for (const id of LUNASAY_DAILY_FACE_IDS) {
     const value = sourceFaces[id];
     if (!value || typeof value !== "object" || Array.isArray(value)) {
       throw new Error(`Missing LunaSay daily face: ${id}`);
     }
     const face = value as Record<string, unknown>;
-    const mode = face.mode;
-    const title = cleanText(face.title, 24);
+    const metadata = FACE_METADATA[id];
     const headline = cleanText(face.headline, 72);
     const display = cleanText(face.display, 160);
-    const spoken = cleanText(face.spoken, 360);
+    const modelSpoken = cleanText(face.spoken, 360);
+    const dynamic = id === "synastry"
+      ? boundedSentence(face.dynamic, 90)
+      : undefined;
+    const weather = id === "synastry"
+      ? boundedSentence(face.weather, 90)
+      : undefined;
+    const practice = id === "synastry"
+      ? boundedSentence(face.practice, 90)
+      : undefined;
+    const spoken = dynamic && weather && practice
+      ? `The lasting pattern: ${dynamic} Today's weather: ${weather} A small practice: ${practice}`
+      : modelSpoken;
     const detail = cleanText(face.detail, 480);
-    const accent = face.accent;
     if (
-      typeof mode !== "string" || !MODES.has(mode as LunaSayDailyFaceMode) ||
-      !title || !headline || !display || !spoken || !detail ||
-      typeof accent !== "string" ||
-      !ACCENTS.has(accent as LunaSayDailyFace["accent"])
+      !headline || !display || !spoken || !detail ||
+      ((id === "astrology" || id === "synastry") &&
+        !WEATHER_HEADLINES.has(headline))
     ) {
-      throw new Error(`Invalid LunaSay daily face: ${id}`);
+      const textLength = (value: unknown) =>
+        typeof value === "string"
+          ? value.replace(/\s+/g, " ").trim().length
+          : -1;
+      const problems = [
+        headline ? undefined : `headline:${textLength(face.headline)}`,
+        display ? undefined : `display:${textLength(face.display)}`,
+        spoken ? undefined : `spoken:${textLength(face.spoken)}`,
+        id === "synastry" && !dynamic
+          ? `dynamic:${textLength(face.dynamic)}`
+          : undefined,
+        id === "synastry" && !weather
+          ? `weather:${textLength(face.weather)}`
+          : undefined,
+        id === "synastry" && !practice
+          ? `practice:${textLength(face.practice)}`
+          : undefined,
+        detail ? undefined : `detail:${textLength(face.detail)}`,
+        (id === "astrology" || id === "synastry") &&
+          headline && !WEATHER_HEADLINES.has(headline)
+          ? "weather-headline"
+          : undefined,
+      ].filter(Boolean).join(",");
+      throw new Error(`Invalid LunaSay daily face: ${id} (${problems})`);
     }
     /* The card is selected deterministically by date, so a model omission
      * cannot turn an otherwise useful packet into a failed refresh. */
     const cardName = cleanText(face.cardName, 48) ??
       (id === "tarot" ? lunaSayDailyTarotCardName(expected.date) : undefined);
     faces[id] = {
-      mode: mode as LunaSayDailyFaceMode,
-      title,
+      mode: metadata.mode,
+      title: metadata.title,
       headline,
       display,
       spoken,
       detail,
-      accent: accent as LunaSayDailyFace["accent"],
+      accent: metadata.accent,
       ...(cardName ? { cardName } : {}),
     };
   }
@@ -234,17 +423,15 @@ export function buildLunaSayDailyPacketInstruction(params: {
       JSON.stringify(params.date)
     }, and timezone to ${JSON.stringify(params.timezone)}.`,
     "faces must contain exactly moon, astrology, transits, synastry, tarot, alethiometer, sky, journal, and conversation.",
-    "Each face needs mode, title, headline, display, spoken, detail, and accent.",
-    "mode is daily for moon/astrology/transits/synastry/tarot/sky, live_question for alethiometer/conversation, and offline for journal.",
-    "accent is one of moon, violet, amber, blue, rose, silver.",
-    "Use short fields by default: title <= 24 chars; headline <= 42; display <= 80; spoken <= 150; detail <= 180. One sentence per field is normally enough.",
+    "For each face except synastry, provide headline, display, spoken, and detail. For tarot also provide cardName. For synastry provide headline, display, dynamic, weather, practice, and detail; the server composes spoken from those three distinct beats. The server supplies canonical mode, title, and accent metadata.",
+    "Use short fields by default: headline <= 42 chars; display <= 80; spoken <= 150; detail <= 180. One sentence per field is normally enough.",
     "Make each face independently useful. spoken must be natural, soft, and ready for TTS; it should not mention JSON or instructions.",
     "Keep the packet coherent without making every face repeat the same sentence: choose one quiet theme supported by the facts, then let Moon, Inner Weather, Transits, Relationship Weather, Tarot, and Sky approach it through their own lens. Do not contradict a concrete fact on another face.",
     "Present astrology as Inner Weather and synastry as Relationship Weather. Their headline must be one friendly condition from Clear, Warm, Shifting, Inward, Tender, Changeable, Easy, Open, or Intense, chosen from the supplied chart and transit facts rather than invented mood data.",
     "For both weather faces, display gives one humane orientation and spoken explains what the condition may feel like plus one choice the person can make. detail preserves the astrological depth by naming the one or two supplied natal/transit factors that most support the metaphor. Describe a symbolic outlook, never a deterministic forecast.",
     "If a self-reported mood is supplied, honor it as present-moment first-person context. Never bend the astrology to validate it, turn it into a trait, or imply that LunaSay detected it. When mood and symbolic weather differ, name that gently as two different lenses and preserve the user's authority over their own experience.",
     "Synastry is Family Synastry, not romance with relabeled people. Use only family members and roles present in the facts. Treat the family as a reciprocal system: no person is the problem, and do not rank, compare, blame, diagnose, parentify a child, or make compatibility verdicts.",
-    "For synastry only, spoken may be 150–300 characters and detail may be up to 360. Use three compact beats: name one mutual dynamic in plain language; distinguish a durable natal tendency from today's temporary relationship weather; offer one specific care or repair practice. Keep astrology as supporting evidence rather than leading with planet jargon.",
+    "For synastry only, dynamic, weather, and practice must each be under 90 characters and detail may be up to 360. dynamic names one mutual natal tendency without words like today, always, compatible, or destined. weather uses only time-specific transit or wellness facts; if those are absent, say the chart cannot know today's lived weather. practice gives one specific adult care or repair choice. Keep astrology as supporting evidence rather than leading with planet jargon.",
     "If wellness facts are present, translate them into privacy-preserving care context such as lower capacity, need for rest, or need for space. Never recite raw measurements or treat temporary biometrics as personality.",
     "Tarot is a single reflective daily draw: include cardName and do not call it a prediction.",
     "Alethiometer and Conversation must be an inviting day-sensitive entry line only; do not pretend they have answered a question.",
@@ -299,7 +486,7 @@ export function lunaSayDailyPacketFallback(params: {
       synastry: {
         mode: "daily",
         title: "Relationship Weather",
-        headline: "Protect the bond",
+        headline: "Tender",
         display: "Notice the pattern without making one person the problem.",
         spoken:
           "Meet the family pattern with curiosity. Soften one response, name one need, and leave room for repair.",

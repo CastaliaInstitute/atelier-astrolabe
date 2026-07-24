@@ -132,10 +132,11 @@ correct or infer another family member's mood from it.
 
 The hosted PWA exposes a separate Research sharing switch. Enabling it requires
 an explicit confirmation and stores consent version `research-v1` on the
-device. Side taps on the Mood Check-in face browse choices; a center tap
-deliberately records the selected mood. The device retains at most one unsent
-structured check-in and retries after connectivity returns. Turning sharing
-off stops new exports and erases that unsent check-in.
+device. The Mood Check-in face presents six small facial choices that can be
+tapped directly; the large face previews the selected expression, and tapping
+that large face deliberately records the check-in. The device
+retains at most one unsent structured check-in and retries after connectivity
+returns. Turning sharing off stops new exports and erases that unsent check-in.
 
 The `lunasay-event` endpoint accepts a mood event only with an affirmative
 consent flag, the exact current consent-policy version, an allowlisted source,
