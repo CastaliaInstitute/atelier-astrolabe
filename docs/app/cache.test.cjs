@@ -11,5 +11,5 @@ test("service worker cache tracks the current stylesheet version", () => {
   const cachedStylesheet = sw.match(/app\.css\?v=(\d+)/)?.[1];
   assert.ok(stylesheet);
   assert.equal(cachedStylesheet, stylesheet);
-  assert.match(sw, /lunasay-app-v11/);
+  assert.match(sw, /lunasay-app-v12/);
 });
