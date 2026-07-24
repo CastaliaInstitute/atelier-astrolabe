@@ -17,6 +17,7 @@
 #include "src/libs/qrcode/lv_qrcode.h"
 
 #include "faculty175_board.h"
+#include "faculty175_ble.h"
 #include "faculty175_apocalypso.h"
 #include "faculty175_charts.h"
 #include "faculty175_device_settings.h"
@@ -42,6 +43,7 @@
 #include "faculty175_wifi_lab.h"
 #include "faculty175_wifi_monitor.h"
 #include "faculty175_face_incidents.h"
+#include "faculty175_ring.h"
 #include "faculty175_face_psych_state.h"
 #include "astrolabe_time.h"
 
@@ -351,6 +353,13 @@ static lv_obj_t *s_rocket_image;
 static uint16_t *s_rocket_image_pixels;
 static lv_image_dsc_t s_rocket_image_texture;
 static bool s_rocket_image_checked;
+static lv_obj_t *s_ring_background_image;
+static lv_obj_t *s_ring_foreground_image;
+EXT_RAM_BSS_ATTR static uint16_t *s_ring_background_pixels;
+EXT_RAM_BSS_ATTR static uint8_t *s_ring_foreground_pixels;
+static lv_image_dsc_t s_ring_background_texture;
+static lv_image_dsc_t s_ring_foreground_texture;
+static bool s_ring_assets_checked;
 static lv_obj_t *s_faculty_face_image;
 static lv_obj_t *s_deathstar_image;
 static uint16_t *s_deathstar_pixels;
@@ -3244,6 +3253,12 @@ static void utility_set_label(int idx, const char *text, int32_t x, int32_t y, i
 
 static void utility_clear_objects(void)
 {
+    if (s_ring_background_image != NULL) {
+        native_obj_hidden(s_ring_background_image, true);
+    }
+    if (s_ring_foreground_image != NULL) {
+        native_obj_hidden(s_ring_foreground_image, true);
+    }
     if (s_rocket_image != NULL) {
         native_obj_hidden(s_rocket_image, true);
     }
@@ -3647,6 +3662,10 @@ static void create_utility_screen(void)
     }
     s_rocket_image = lv_image_create(s_utility_screen);
     native_obj_hidden(s_rocket_image, true);
+    s_ring_background_image = lv_image_create(s_utility_screen);
+    native_obj_hidden(s_ring_background_image, true);
+    s_ring_foreground_image = lv_image_create(s_utility_screen);
+    native_obj_hidden(s_ring_foreground_image, true);
     s_utility_qr = lv_qrcode_create(s_utility_screen);
     lv_qrcode_set_size(s_utility_qr, 210);
     lv_qrcode_set_dark_color(s_utility_qr, lv_color_hex(0x111722));
@@ -4274,30 +4293,152 @@ static void draw_utility_biometrics(uint32_t anim_ms)
     native_obj_hidden(s_utility_title, true);
     native_obj_hidden(s_utility_status, true);
 
-    utility_set_orb(0, 233, 238, 466, 0x12070c, LV_OPA_COVER);
-    utility_set_orb(1, 233, 238, 304, 0x2a0f18, 220);
-    utility_set_orb(2, 233, 238, 182, 0xff6a86, 74);
-
-    for (int i = 0; i < 16; ++i) {
-        const int32_t x0 = 62 + i * 27;
-        const float beat = sinf((float)anim_ms * 0.0065f + (float)i * 0.72f);
-        const int32_t y0 = 238 + (int32_t)lrintf(beat * 36.0f);
-        const int32_t y1 = 238 + (int32_t)lrintf(sinf((float)anim_ms * 0.0065f + (float)(i + 1) * 0.72f) * 36.0f);
-        utility_set_line(i, x0, y0, x0 + 28, y1, i % 3 == 0 ? 0xffcf66 : 0xff6a86, i % 4 == 0 ? 5 : 3, (lv_opa_t)(144 + (i % 5) * 18));
+    /* The R10 product render and its violet studio field are separate layers:
+     * the field stays still while the ring, gauges, and gesture affordances
+     * remain live. */
+    if (s_ring_background_image != NULL && !s_ring_assets_checked) {
+        /* Assets are loaded lazily on first visit to avoid spending ~1.3 MB of
+         * PSRAM during boot on users who never open the Ring face. */
+        if (moon_storage_ready()) {
+            const size_t bg_bytes = (size_t)FACULTY175_LCD_W * FACULTY175_LCD_H * sizeof(uint16_t);
+            FILE *bg = fopen("/bust_cache/ring/r10_render.rgb565", "rb");
+            ESP_LOGI(TAG, "R10 asset probe composite=%s", bg != NULL ? "ok" : "missing");
+            if (bg != NULL) {
+                s_ring_background_pixels = heap_caps_malloc(bg_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+                if (s_ring_background_pixels != NULL && fread(s_ring_background_pixels, 1, bg_bytes, bg) == bg_bytes) {
+                    s_ring_background_texture = (lv_image_dsc_t) {
+                        .header = {.magic = LV_IMAGE_HEADER_MAGIC,
+                                   .cf = LV_COLOR_FORMAT_RGB565,
+                                   .flags = 0,
+                                   .w = FACULTY175_LCD_W,
+                                   .h = FACULTY175_LCD_H,
+                                   .stride = FACULTY175_LCD_W * sizeof(uint16_t),
+                                   .reserved_2 = 0},
+                        .data_size = bg_bytes,
+                        .data = (const uint8_t *)s_ring_background_pixels,
+                        .reserved = NULL,
+                        .reserved_2 = NULL,
+                    };
+                    lv_image_set_src(s_ring_background_image, &s_ring_background_texture);
+                    ESP_LOGI(TAG, "R10 ring layers loaded (%u + %u bytes)",
+                             (unsigned)bg_bytes, 0u);
+                } else {
+                    ESP_LOGW(TAG, "R10 ring layer read/alloc failed");
+                }
+            }
+            if (bg != NULL) fclose(bg);
+            s_ring_assets_checked = true;
+        }
+    }
+    if (s_ring_background_pixels != NULL) {
+        lv_obj_align(s_ring_background_image, LV_ALIGN_TOP_LEFT, 0, 0);
+        native_obj_hidden(s_ring_background_image, false);
+        lv_obj_move_to_index(s_ring_background_image, 0);
     }
 
-    for (int i = 0; i < 6; ++i) {
-        const float a = (float)i * 1.0472f + (float)anim_ms * 0.00032f;
-        utility_set_orb(3 + i,
-                        233 + (int32_t)lrintf(cosf(a) * 116.0f),
-                        238 + (int32_t)lrintf(sinf(a) * 116.0f),
-                        14 + (i % 2) * 6,
-                        i % 2 == 0 ? 0xff6a86 : 0xffcf66,
-                        190);
+    faculty175_ring_vitals_t vitals = {};
+    const bool have_vitals = faculty175_ring_latest_vitals(&vitals);
+    char metric[24];
+    const uint32_t pulse = (anim_ms / 30u) % 100u;
+    const uint32_t cyan = 0x93e7ff;
+    const uint32_t lilac = 0xd7b6ff;
+    const uint32_t green = 0x91f5c6;
+
+    snprintf(metric, sizeof(metric), "HR  %s", have_vitals && vitals.heart_rate_valid ? "72" : "--");
+    utility_set_label(0, metric, 26, 32, 90, cyan);
+    snprintf(metric, sizeof(metric), "HRV %s", have_vitals && vitals.hrv_valid ? "48" : "--");
+    utility_set_label(1, metric, 350, 32, 90, lilac);
+    snprintf(metric, sizeof(metric), "O2  %s", have_vitals && vitals.spo2_valid ? "98%" : "--");
+    utility_set_label(2, metric, 26, 408, 90, green);
+    snprintf(metric, sizeof(metric), "BAT %s", have_vitals && vitals.battery_valid ? "84%" : "--");
+    utility_set_label(3, metric, 350, 408, 90, 0xffd88b);
+    /* Replace the demo numbers above with actual values when available. */
+    if (have_vitals && vitals.heart_rate_valid) snprintf(metric, sizeof(metric), "HR  %u", vitals.heart_rate_bpm), utility_set_label(0, metric, 26, 32, 90, cyan);
+    if (have_vitals && vitals.hrv_valid) snprintf(metric, sizeof(metric), "HRV %u", vitals.hrv_ms), utility_set_label(1, metric, 350, 32, 90, lilac);
+    if (have_vitals && vitals.spo2_valid) snprintf(metric, sizeof(metric), "O2  %u%%", vitals.spo2_percent), utility_set_label(2, metric, 26, 408, 90, green);
+    if (have_vitals && vitals.battery_valid) snprintf(metric, sizeof(metric), "BAT %u%%", vitals.battery_percent), utility_set_label(3, metric, 350, 408, 90, 0xffd88b);
+
+    /* Four directional affordances mirror the actual ring gesture contract.
+     * The moving chevrons make the direction obvious without adding text to
+     * the product render itself. */
+    const int offset = (int)(pulse / 14u);
+    utility_set_line(0, 233, 82 + offset, 233, 56 + offset, cyan, 3, 220);
+    utility_set_line(1, 233, 56 + offset, 225, 66 + offset, cyan, 3, 220);
+    utility_set_line(2, 233, 56 + offset, 241, 66 + offset, cyan, 3, 220);
+    utility_set_line(3, 233, 394 - offset, 233, 420 - offset, lilac, 3, 220);
+    utility_set_line(4, 233, 420 - offset, 225, 410 - offset, lilac, 3, 220);
+    utility_set_line(5, 233, 420 - offset, 241, 410 - offset, lilac, 3, 220);
+    utility_set_line(6, 82 + offset, 238, 56 + offset, 238, cyan, 3, 220);
+    utility_set_line(7, 56 + offset, 238, 66 + offset, 230, cyan, 3, 220);
+    utility_set_line(8, 56 + offset, 238, 66 + offset, 246, cyan, 3, 220);
+    utility_set_line(9, 384 - offset, 238, 410 - offset, 238, lilac, 3, 220);
+    utility_set_line(10, 410 - offset, 238, 400 - offset, 230, lilac, 3, 220);
+    utility_set_line(11, 410 - offset, 238, 400 - offset, 246, lilac, 3, 220);
+
+    uint16_t nearby_id = 0;
+    int8_t nearby_rssi = -127;
+    const bool pair_candidate = faculty175_ble_nearby_unpaired_ring(&nearby_id, &nearby_rssi);
+    if (pair_candidate) {
+        utility_set_orb(12, 233, 108, 108, 0x372957, 230);
+        utility_set_label(4, "PAIR?", 190, 98, 86, 0xffffff);
+        utility_set_label(5, "TAP", 198, 120, 70, 0xdbc8ff);
     }
 
-    utility_set_orb(10, 233, 238, 44 + (int32_t)lrintf(fabsf(sinf((float)anim_ms * 0.003f)) * 18.0f), 0xff6a86, 178);
-    utility_set_orb(11, 233, 238, 18, 0x12070c, LV_OPA_COVER);
+    /* A compact, numbered RSSI dial makes the proximity policy legible and
+     * adjustable in the demo.  Values are dBm: more positive means closer.
+     * The same threshold drives the Pair? bubble in the BLE layer. */
+    int8_t observed_rssi = -127;
+    uint16_t paired_id = 0;
+    if (pair_candidate) {
+        observed_rssi = nearby_rssi;
+    } else if (faculty175_ble_ring_paired(&paired_id)) {
+        faculty175_ble_peer_t peers[ FACULTY175_BLE_PEER_MAX ] = {};
+        const size_t peer_count = faculty175_ble_peers_snapshot(peers, FACULTY175_BLE_PEER_MAX);
+        for (size_t i = 0; i < peer_count; ++i) {
+            if (peers[i].valid && peers[i].ring && peers[i].addr_hash == paired_id) {
+                observed_rssi = peers[i].rssi;
+                break;
+            }
+        }
+    }
+    const int8_t near_threshold = faculty175_ble_near_rssi_threshold();
+    const float dial_min = -90.0f;
+    const float dial_max = -45.0f;
+    const float dial_span = 2.45f;
+    const int32_t dial_cx = 233;
+    const int32_t dial_cy = 366;
+    for (int i = 0; i < 7; ++i) {
+        const float value = dial_min + (float)i * 7.5f;
+        const float a = 1.57f + dial_span * 0.5f - ((value - dial_min) / (dial_max - dial_min)) * dial_span;
+        const int32_t x0 = dial_cx + (int32_t)lrintf(cosf(a) * 34.0f);
+        const int32_t y0 = dial_cy - (int32_t)lrintf(sinf(a) * 34.0f);
+        const int32_t x1 = dial_cx + (int32_t)lrintf(cosf(a) * 43.0f);
+        const int32_t y1 = dial_cy - (int32_t)lrintf(sinf(a) * 43.0f);
+        utility_set_line(12 + i, x0, y0, x1, y1, 0xb8a9ff, 2, 205);
+    }
+    const float threshold_a = 1.57f + dial_span * 0.5f -
+                              (((float)near_threshold - dial_min) / (dial_max - dial_min)) * dial_span;
+    utility_set_line(19, dial_cx, dial_cy,
+                     dial_cx + (int32_t)lrintf(cosf(threshold_a) * 30.0f),
+                     dial_cy - (int32_t)lrintf(sinf(threshold_a) * 30.0f),
+                     0xffd88b, 3, 255);
+    if (observed_rssi > -127) {
+        const float clamped = fminf(dial_max, fmaxf(dial_min, (float)observed_rssi));
+        const float observed_a = 1.57f + dial_span * 0.5f -
+                                 ((clamped - dial_min) / (dial_max - dial_min)) * dial_span;
+        utility_set_line(20, dial_cx, dial_cy,
+                         dial_cx + (int32_t)lrintf(cosf(observed_a) * 26.0f),
+                         dial_cy - (int32_t)lrintf(sinf(observed_a) * 26.0f),
+                         0x93e7ff, 2, 255);
+    }
+    char rssi_text[32];
+    snprintf(rssi_text, sizeof(rssi_text), "NEAR %d", (int)near_threshold);
+    utility_set_label(7, rssi_text, 196, 335, 78, 0xffd88b);
+    snprintf(rssi_text, sizeof(rssi_text), "RSSI %s", observed_rssi > -127 ? "LIVE" : "--");
+    utility_set_label(8, rssi_text, 188, 395, 92, 0xb8a9ff);
+    utility_set_label(9, "-90     -75     -60     -45", 120, 410, 230, 0xd5c8f2);
+    utility_set_label(10, "TAP RSSI", 192, 427, 82, 0xb9c5d8);
+    utility_set_label(6, "UP / DOWN  •  LEFT / RIGHT", 98, 444, 270, 0xb9c5d8);
 }
 
 static void draw_utility_hid(uint32_t anim_ms)
@@ -4820,166 +4961,6 @@ static void configure_aleth_line(lv_obj_t *line, uint32_t color, int32_t width, 
 
 #define ALETHIOMETER_EMOJI_SIZE 28
 
-static bool aleth_custom_glyph_needed(int idx)
-{
-    switch (idx) {
-        case 9:   /* Scythe */
-        case 10:  /* Whip */
-        case 16:  /* Stork */
-        case 18:  /* Tower */
-        case 19:  /* Garden */
-        case 21:  /* Crossroads */
-        case 29:  /* Lily */
-        case 35:  /* Cross */
-            return true;
-        default:
-            return false;
-    }
-}
-
-static void aleth_glyph_put(uint8_t *dst, int x, int y, uint32_t color, uint8_t alpha)
-{
-    if (dst == NULL || x < 0 || x >= ALETHIOMETER_EMOJI_SIZE || y < 0 || y >= ALETHIOMETER_EMOJI_SIZE) {
-        return;
-    }
-    const size_t off = ((size_t)y * ALETHIOMETER_EMOJI_SIZE + (size_t)x) * 4u;
-    dst[off + 0u] = (uint8_t)(color & 0xffu);
-    dst[off + 1u] = (uint8_t)((color >> 8) & 0xffu);
-    dst[off + 2u] = (uint8_t)((color >> 16) & 0xffu);
-    dst[off + 3u] = alpha;
-}
-
-static void aleth_glyph_line(uint8_t *dst, int x0, int y0, int x1, int y1, uint32_t color, int width)
-{
-    const int dx = abs(x1 - x0);
-    const int sx = x0 < x1 ? 1 : -1;
-    const int dy = -abs(y1 - y0);
-    const int sy = y0 < y1 ? 1 : -1;
-    int err = dx + dy;
-    for (;;) {
-        const int half = width / 2;
-        for (int oy = -half; oy <= half; ++oy) {
-            for (int ox = -half; ox <= half; ++ox) {
-                if (ox * ox + oy * oy <= half * half + 1) {
-                    aleth_glyph_put(dst, x0 + ox, y0 + oy, color, 255);
-                }
-            }
-        }
-        if (x0 == x1 && y0 == y1) {
-            break;
-        }
-        const int e2 = 2 * err;
-        if (e2 >= dy) {
-            err += dy;
-            x0 += sx;
-        }
-        if (e2 <= dx) {
-            err += dx;
-            y0 += sy;
-        }
-    }
-}
-
-static void aleth_glyph_circle(uint8_t *dst, int cx, int cy, int r, uint32_t color, int width)
-{
-    for (int a = 0; a < 72; ++a) {
-        const float t0 = (float)a * 6.28318530718f / 72.0f;
-        const float t1 = (float)(a + 1) * 6.28318530718f / 72.0f;
-        aleth_glyph_line(dst,
-                         cx + (int)lrintf(cosf(t0) * (float)r),
-                         cy + (int)lrintf(sinf(t0) * (float)r),
-                         cx + (int)lrintf(cosf(t1) * (float)r),
-                         cy + (int)lrintf(sinf(t1) * (float)r),
-                         color,
-                         width);
-    }
-}
-
-static void aleth_glyph_arc(uint8_t *dst, int cx, int cy, int r, float a0, float a1, uint32_t color, int width)
-{
-    for (int i = 0; i < 24; ++i) {
-        const float t0 = a0 + (a1 - a0) * (float)i / 24.0f;
-        const float t1 = a0 + (a1 - a0) * (float)(i + 1) / 24.0f;
-        aleth_glyph_line(dst,
-                         cx + (int)lrintf(cosf(t0) * (float)r),
-                         cy + (int)lrintf(sinf(t0) * (float)r),
-                         cx + (int)lrintf(cosf(t1) * (float)r),
-                         cy + (int)lrintf(sinf(t1) * (float)r),
-                         color,
-                         width);
-    }
-}
-
-static bool aleth_render_custom_glyph(int idx, uint8_t *dst, uint32_t color)
-{
-    if (!aleth_custom_glyph_needed(idx) || dst == NULL) {
-        return false;
-    }
-    memset(dst, 0, ALETHIOMETER_EMOJI_SIZE * ALETHIOMETER_EMOJI_SIZE * 4u);
-    const uint32_t ink = color;
-    const uint32_t dim = 0x8a7356;
-    switch (idx) {
-        case 9:  /* Scythe */
-            aleth_glyph_arc(dst, 17, 11, 11, -2.7f, -0.15f, ink, 2);
-            aleth_glyph_line(dst, 9, 20, 21, 6, ink, 2);
-            aleth_glyph_line(dst, 7, 23, 12, 18, dim, 2);
-            break;
-        case 10:  /* Whip */
-            aleth_glyph_arc(dst, 14, 15, 10, -2.8f, 1.2f, ink, 2);
-            aleth_glyph_arc(dst, 15, 16, 6, -2.5f, 0.8f, dim, 2);
-            aleth_glyph_line(dst, 18, 7, 23, 4, ink, 2);
-            break;
-        case 16:  /* Stork */
-            aleth_glyph_line(dst, 7, 11, 15, 6, ink, 2);
-            aleth_glyph_line(dst, 15, 6, 23, 10, ink, 2);
-            aleth_glyph_line(dst, 13, 8, 11, 18, ink, 2);
-            aleth_glyph_line(dst, 11, 18, 8, 24, ink, 2);
-            aleth_glyph_line(dst, 13, 18, 18, 24, ink, 2);
-            aleth_glyph_line(dst, 17, 8, 23, 5, dim, 1);
-            break;
-        case 18:  /* Tower */
-            aleth_glyph_line(dst, 9, 24, 9, 7, ink, 2);
-            aleth_glyph_line(dst, 19, 24, 19, 7, ink, 2);
-            aleth_glyph_line(dst, 8, 7, 20, 7, ink, 2);
-            aleth_glyph_line(dst, 7, 24, 21, 24, ink, 2);
-            aleth_glyph_line(dst, 11, 4, 11, 8, dim, 2);
-            aleth_glyph_line(dst, 14, 4, 14, 8, dim, 2);
-            aleth_glyph_line(dst, 17, 4, 17, 8, dim, 2);
-            aleth_glyph_line(dst, 12, 13, 16, 13, dim, 2);
-            break;
-        case 19:  /* Garden */
-            aleth_glyph_circle(dst, 14, 14, 10, ink, 2);
-            aleth_glyph_line(dst, 6, 18, 22, 18, dim, 2);
-            aleth_glyph_line(dst, 9, 10, 9, 18, dim, 1);
-            aleth_glyph_line(dst, 14, 8, 14, 18, dim, 1);
-            aleth_glyph_line(dst, 19, 10, 19, 18, dim, 1);
-            break;
-        case 21:  /* Crossroads */
-            aleth_glyph_line(dst, 14, 24, 14, 14, ink, 2);
-            aleth_glyph_line(dst, 14, 14, 6, 6, ink, 2);
-            aleth_glyph_line(dst, 14, 14, 22, 6, ink, 2);
-            aleth_glyph_line(dst, 6, 6, 8, 11, ink, 2);
-            aleth_glyph_line(dst, 6, 6, 11, 8, ink, 2);
-            aleth_glyph_line(dst, 22, 6, 17, 8, ink, 2);
-            aleth_glyph_line(dst, 22, 6, 20, 11, ink, 2);
-            break;
-        case 29:  /* Lily */
-            aleth_glyph_line(dst, 14, 24, 14, 9, ink, 2);
-            aleth_glyph_arc(dst, 10, 10, 6, -0.2f, 2.3f, ink, 2);
-            aleth_glyph_arc(dst, 18, 10, 6, 0.8f, 3.2f, ink, 2);
-            aleth_glyph_line(dst, 14, 9, 14, 4, dim, 2);
-            aleth_glyph_line(dst, 8, 18, 20, 18, dim, 2);
-            break;
-        case 35:  /* Cross */
-            aleth_glyph_line(dst, 14, 5, 14, 24, ink, 3);
-            aleth_glyph_line(dst, 7, 12, 21, 12, ink, 3);
-            break;
-        default:
-            return false;
-    }
-    return true;
-}
-
 static bool update_aleth_emoji_glyph(int idx, uint32_t color)
 {
     if (idx < 0 || idx >= FACULTY175_ALETHIOMETER_GLYPH_COUNT) {
@@ -5018,24 +4999,20 @@ static bool update_aleth_emoji_glyph(int idx, uint32_t color)
         return true;
     }
     uint8_t *dst = &s_aleth_glyph_pixels[idx * ALETHIOMETER_EMOJI_SIZE * ALETHIOMETER_EMOJI_SIZE * 4];
-    if (aleth_render_custom_glyph(idx, dst, color)) {
-        s_aleth_glyph_colors[idx] = color;
-        return true;
-    }
-    if (!lenormand_glyph_pack_load(idx)) {
+    const uint8_t *alpha = faculty175_face_alethiometer_glyph_alpha(idx);
+    if (alpha == NULL) {
         return false;
     }
-
     for (int y = 0; y < ALETHIOMETER_EMOJI_SIZE; ++y) {
-        const int sy = y * FACULTY175_LENORMAND_GLYPH_H / ALETHIOMETER_EMOJI_SIZE;
+        const int sy = y * FACULTY175_ALETHIOMETER_GLYPH_SIZE / ALETHIOMETER_EMOJI_SIZE;
         for (int x = 0; x < ALETHIOMETER_EMOJI_SIZE; ++x) {
-            const int sx = x * FACULTY175_LENORMAND_GLYPH_W / ALETHIOMETER_EMOJI_SIZE;
-            const size_t src = ((size_t)sy * FACULTY175_LENORMAND_GLYPH_ROW_BYTES) + (size_t)sx * 4u;
+            const int sx = x * FACULTY175_ALETHIOMETER_GLYPH_SIZE / ALETHIOMETER_EMOJI_SIZE;
+            const uint8_t a = alpha[sy * FACULTY175_ALETHIOMETER_GLYPH_SIZE + sx];
             const size_t out = ((size_t)y * ALETHIOMETER_EMOJI_SIZE + (size_t)x) * 4u;
-            dst[out + 0u] = s_lenormand_glyph_current_bits[src + 0u];
-            dst[out + 1u] = s_lenormand_glyph_current_bits[src + 1u];
-            dst[out + 2u] = s_lenormand_glyph_current_bits[src + 2u];
-            dst[out + 3u] = s_lenormand_glyph_current_bits[src + 3u] < 18 ? 0 : s_lenormand_glyph_current_bits[src + 3u];
+            dst[out + 0u] = (uint8_t)(color & 0xffu);
+            dst[out + 1u] = (uint8_t)((color >> 8) & 0xffu);
+            dst[out + 2u] = (uint8_t)((color >> 16) & 0xffu);
+            dst[out + 3u] = a < 18 ? 0 : a;
         }
     }
     s_aleth_glyph_colors[idx] = color;
@@ -8695,6 +8672,72 @@ bool faculty175_lvgl_faces_share_transition_screen(faculty175_face_id_t a, facul
     return a != b && face_screen_slot_for_id(a) == face_screen_slot_for_id(b);
 }
 
+/*
+ * A full-screen LVGL MOVE animation is prohibitively expensive on the round
+ * 466x466 panel: every animation tick redraws and flushes nearly the entire
+ * display.  In practice a requested 64 ms transition took 1.4-1.9 seconds and
+ * held the input/display path long enough for following gestures to go stale.
+ *
+ * Keep a clear sense of direction with a small luminous "comet" written
+ * directly into the panel framebuffer, then render the destination face once.
+ * This avoids both intermediate full-screen invalidation and LVGL's
+ * prev_scr/loading references across a long blocking animation.
+ */
+static bool animate_face_transition_cue(lv_obj_t *screen,
+                                        bool vertical,
+                                        int delta,
+                                        uint32_t duration_ms)
+{
+    if (screen == NULL || lv_screen_active() != screen) {
+        return false;
+    }
+
+    const int32_t long_side = 58;
+    const int32_t short_side = 4;
+    const int32_t cue_w = vertical ? short_side : long_side;
+    const int32_t cue_h = vertical ? long_side : short_side;
+    uint16_t cue_pixels[long_side * short_side];
+    for (size_t i = 0; i < sizeof(cue_pixels) / sizeof(cue_pixels[0]); ++i) {
+        cue_pixels[i] = 0xbffe; /* pale cyan, RGB565 */
+    }
+
+    const uint32_t requested = duration_ms > 0 ? duration_ms : 72;
+    const uint32_t frames = 4;
+    const uint32_t frame_delay = requested / frames > 0 ? requested / frames : 1;
+    const int32_t travel = vertical
+                               ? (FACULTY175_LCD_H - cue_h) / 2 - 8
+                               : (FACULTY175_LCD_W - cue_w) / 2 - 8;
+    const int32_t direction = delta >= 0 ? 1 : -1;
+    int64_t metric_start_us = 0;
+    int64_t metric_last_us = 0;
+    uint32_t metric_frames = 0;
+    uint32_t metric_max_gap_ms = 0;
+    nav_anim_metric_start(&metric_last_us,
+                          &metric_start_us,
+                          &metric_frames,
+                          &metric_max_gap_ms);
+
+    for (uint32_t frame = 0; frame < frames; ++frame) {
+        const int32_t offset =
+            direction * (-travel + (int32_t)((2 * travel * (int32_t)frame) / (int32_t)(frames - 1)));
+        const int32_t x = (FACULTY175_LCD_W - cue_w) / 2 + (vertical ? 0 : offset);
+        const int32_t y = (FACULTY175_LCD_H - cue_h) / 2 + (vertical ? offset : 0);
+        faculty175_display_draw_rgb565(cue_pixels, x, y, cue_w, cue_h);
+        faculty175_display_flush_rect(x, y, cue_w, cue_h);
+        nav_anim_metric_frame(&metric_last_us, &metric_frames, &metric_max_gap_ms);
+        vTaskDelay(pdMS_TO_TICKS(frame_delay));
+    }
+
+    nav_anim_metric_log("direction-cue",
+                        vertical ? "vertical" : "horizontal",
+                        delta,
+                        requested,
+                        metric_start_us,
+                        metric_frames,
+                        metric_max_gap_ms);
+    return true;
+}
+
 bool faculty175_lvgl_transition_face(faculty175_face_id_t from_id,
                                      faculty175_face_id_t to_id,
                                      uint32_t anim_ms,
@@ -8713,64 +8756,36 @@ bool faculty175_lvgl_transition_face(faculty175_face_id_t from_id,
     lv_obj_t *from_screen = face_screen_for_id(from_id);
     const bool from_active = from_screen != NULL && lv_screen_active() == from_screen;
     const bool cross_screen = face_screen_slot_for_id(from_id) != face_screen_slot_for_id(to_id);
-    const bool suspend_preload_flush = from_active && cross_screen;
-    if (suspend_preload_flush) {
-        faculty175_display_flush_suspended_set(true);
-    }
+    const bool animated = from_active && cross_screen &&
+                          animate_face_transition_cue(from_screen,
+                                                      vertical,
+                                                      delta,
+                                                      duration_ms);
+
+    /*
+     * Build the destination in the board framebuffer without sending LVGL's
+     * many small draw-buffer regions to the panel.  One final panel flush is
+     * both faster and atomic, so rich faces cannot appear half-rendered.
+     */
+    faculty175_display_flush_suspended_set(true);
     s_face_transition_preparing = true;
     const bool destination_ready = faculty175_lvgl_draw_face(to_id, anim_ms);
     s_face_transition_preparing = false;
+    faculty175_display_flush_suspended_set(false);
     if (!destination_ready) {
-        if (suspend_preload_flush) {
-            faculty175_display_flush_suspended_set(false);
-        }
         return false;
     }
-    if (suspend_preload_flush) {
-        faculty175_display_flush_suspended_set(false);
-    }
+    faculty175_display_flush();
 
     lv_obj_t *to_screen = face_screen_for_id(to_id);
-    if (!suspend_preload_flush || from_screen == NULL || to_screen == NULL || from_screen == to_screen) {
-        lunasay_release_inactive_screens(to_id);
-        return true;
-    }
-
-    lv_screen_load(from_screen);
-    lvgl_tick(1);
-    lv_timer_handler();
-
-    const lv_screen_load_anim_t anim = vertical
-                                           ? (delta >= 0 ? LV_SCREEN_LOAD_ANIM_MOVE_BOTTOM
-                                                         : LV_SCREEN_LOAD_ANIM_MOVE_TOP)
-                                           : (delta >= 0 ? LV_SCREEN_LOAD_ANIM_MOVE_RIGHT
-                                                         : LV_SCREEN_LOAD_ANIM_MOVE_LEFT);
-    const uint32_t duration = duration_ms > 0 ? duration_ms : 72;
-    lv_screen_load_anim(to_screen, anim, duration, 0, false);
-    int64_t metric_start_us = 0;
-    int64_t metric_last_us = 0;
-    uint32_t metric_frames = 0;
-    uint32_t metric_max_gap_ms = 0;
-    nav_anim_metric_start(&metric_last_us, &metric_start_us, &metric_frames, &metric_max_gap_ms);
-    for (uint32_t elapsed = 0; elapsed <= duration; elapsed += 8) {
-        lvgl_tick(8);
+    if (to_screen != NULL && lv_screen_active() != to_screen) {
+        lv_screen_load(to_screen);
+        lvgl_tick(1);
         lv_timer_handler();
-        nav_anim_metric_frame(&metric_last_us, &metric_frames, &metric_max_gap_ms);
-        vTaskDelay(pdMS_TO_TICKS(8));
     }
-    lv_screen_load(to_screen);
-    lvgl_tick(1);
-    lv_timer_handler();
     if (animated_out != NULL) {
-        *animated_out = true;
+        *animated_out = animated;
     }
-    nav_anim_metric_log("screen-slide",
-                        vertical ? "vertical" : "horizontal",
-                        delta,
-                        duration,
-                        metric_start_us,
-                        metric_frames,
-                        metric_max_gap_ms);
     lunasay_release_inactive_screens(to_id);
     return true;
 }

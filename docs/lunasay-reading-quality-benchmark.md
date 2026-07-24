@@ -16,14 +16,14 @@ The deterministic benchmark lives in
 `supabase/functions/_shared/lunasayReadingQuality.ts`. It scores the six
 generated daily faces on a 100-point scale:
 
-| Dimension | Points | What it rewards |
-|---|---:|---|
-| Evidence specificity | 20 | Verbatim evidence that is visibly carried into a non-redundant reading |
-| Actionability | 20 | A validated structured action that begins with a direct verb and is present in spoken delivery |
-| Epistemic humility | 15 | Conditional/reflection language without certainty or horoscope filler |
-| Face distinctness | 15 | Correct face vocabulary and low repetition across the packet |
-| Spoken delivery | 15 | Complete, bounded, natural TTS sentences |
-| Face-specific nuance | 15 | Resource/tension balance, reciprocal synastry, reflective tarot, or observable sky |
+| Dimension            | Points | What it rewards                                                                                |
+| -------------------- | -----: | ---------------------------------------------------------------------------------------------- |
+| Evidence specificity |     20 | Verbatim evidence that is visibly carried into a non-redundant reading                         |
+| Actionability        |     20 | A validated structured action that begins with a direct verb and is present in spoken delivery |
+| Epistemic humility   |     15 | Conditional/reflection language without certainty or horoscope filler                          |
+| Face distinctness    |     15 | Correct face vocabulary and low repetition across the packet                                   |
+| Spoken delivery      |     15 | Complete, bounded, natural TTS sentences                                                       |
+| Face-specific nuance |     15 | Resource/tension balance, reciprocal synastry, reflective tarot, or observable sky             |
 
 The release target is:
 
@@ -33,9 +33,9 @@ The release target is:
 - maximum pairwise face similarity no more than 0.42.
 
 These thresholds are intentionally a floor, not a claim of parity with any
-competitor. Comparative claims require dated, lawful reference samples and
-human blind review. The benchmark prevents internal regressions and identifies
-which face needs prompt or validator work next.
+competitor. Comparative claims require dated, lawful reference samples and human
+blind review. The benchmark prevents internal regressions and identifies which
+face needs prompt or validator work next.
 
 Run it with:
 
@@ -53,19 +53,35 @@ telemetry and do not discard a safe reading. If both attempts fail, the
 deterministic fallback retains the exact evidence, timing, and card identity so
 the replacement is still auditable.
 
-Benchmark version 2 makes actionability contractual rather than heuristic.
-Moon, Inner Weather, Transits, Tarot, and Sky must return an `action` beginning
-with a direct imperative verb. The generation schema targets 96 characters,
-with a hard 120-character device boundary. Family Synastry's existing
-`practice` is its action. The server preserves the action as structured data,
-bounds any verbose interpretive prelude, and appends the exact action to
-`spoken` when needed, so every cached face delivers the same concrete practice
-that was validated.
+Benchmark version 2 makes actionability contractual rather than heuristic. Moon,
+Inner Weather, Transits, Tarot, and Sky must return an `action` beginning with a
+direct imperative verb. The generation schema targets 96 characters, with a hard
+120-character device boundary. Family Synastry's existing `practice` is its
+action. The server preserves the action as structured data, bounds any verbose
+interpretive prelude, and appends the exact action to `spoken` when needed, so
+every cached face delivers the same concrete practice that was validated.
+
+Benchmark version 3 makes Family Synastry reciprocity structural rather than
+stylistic. A generated relationship reading now carries two separate,
+conditional perspectives. Each begins with the corresponding person’s
+device-supplied name, the perspectives must differ, and both are composed into
+the spoken Pattern beat. A response can no longer pass by saying only “both
+people” or by using reciprocal-sounding vocabulary around a one-sided
+interpretation. The hard gate rejects a missing side, duplicated side, fixed
+trait, wrong person, or unnamed participant before the reading reaches the
+device.
+
+Benchmark version 4 closes the remaining “technically reciprocal” loopholes. The
+two named perspectives must differ in substance, not merely by replacing one
+name with another. Each is short enough for both sides to survive the device
+speech boundary. Causal blame language fails the hard gate even when it is
+softened with “may” or “can.” For a parent-child relationship, the practice also
+fails if it directs the child to calm, comfort, reassure, or regulate the adult.
 
 `voice-pipeline` returns a compact `quality` summary with the benchmark version,
-gate results, packet average, minimum face score, maximum cross-face
-similarity, and weak faces. This makes quality observable without sending the
-full diagnostic report to the device.
+gate results, packet average, minimum face score, maximum cross-face similarity,
+and weak faces. This makes quality observable without sending the full
+diagnostic report to the device.
 
 Before release, run repeated signed production samples rather than relying on a
 single favorable generation:
@@ -95,18 +111,17 @@ deno run --allow-env --allow-net --allow-read \
   scripts/lunasay_quality_soak.ts facts.txt 6 prior-reading.json
 ```
 
-In this mode the soak also fails unless the service applies continuity to
-every supplied face and every new face avoids every retained exact action.
+In this mode the soak also fails unless the service applies continuity to every
+supplied face and every new face avoids every retained exact action.
 
-On 2026-07-24, a six-sample signed production soak using six independent
-Gemini 2.5 Flash face calls passed every hard, release, and action-contract
-gate with zero fallbacks. The packet average was 98.9, p10 was 97.8, the
-lowest observed face score was 92, and face-local safety retries brought the
-average to 6.5 model calls per packet.
+On 2026-07-24, a six-sample signed production soak using six independent Gemini
+2.5 Flash face calls passed every hard, release, and action-contract gate with
+zero fallbacks. The packet average was 98.9, p10 was 97.8, the lowest observed
+face score was 92, and face-local safety retries brought the average to 6.5
+model calls per packet.
 
-A second six-sample signed production soak supplied prior summaries for all
-six faces. All 36 face readings applied continuity, avoided the prior exact
-action, and passed the hard, release, and action gates with zero fallbacks.
-The packet average was 98.7, p10 was 97.7, the lowest observed face score was
-87, and the average request used 6.17 model calls including one successful
-quality retry.
+A second six-sample signed production soak supplied prior summaries for all six
+faces. All 36 face readings applied continuity, avoided the prior exact action,
+and passed the hard, release, and action gates with zero fallbacks. The packet
+average was 98.7, p10 was 97.7, the lowest observed face score was 87, and the
+average request used 6.17 model calls including one successful quality retry.

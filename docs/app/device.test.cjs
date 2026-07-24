@@ -63,3 +63,19 @@ test("elapsed telemetry uses compact human time", () => {
   assert.equal(device.formatElapsed(3_600_000), "1h ago");
   assert.equal(device.formatElapsed(3 * 86_400_000), "3d ago");
 });
+
+test("resonance rows expose only bounded known faces and counts", () => {
+  assert.deepEqual(
+    device.resonanceRows({
+      moon: { helpful: 2, mixed: 1, missed: 0 },
+      tarot: { helpful: "3", mixed: -2, missed: "bad" },
+      sky: { helpful: 99, mixed: 99, missed: 99.5 },
+      journal: { helpful: 99, mixed: 99, missed: 99 },
+    }),
+    [
+      { face: "moon", helpful: 2, mixed: 1, missed: 0 },
+      { face: "tarot", helpful: 3, mixed: 0, missed: 0 },
+      { face: "sky", helpful: 24, mixed: 24, missed: 0 },
+    ],
+  );
+});

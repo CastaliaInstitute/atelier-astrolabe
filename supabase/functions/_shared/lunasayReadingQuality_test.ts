@@ -112,8 +112,10 @@ function strongPacket(): LunaSayDailyPacket {
     headline: "Warmth needs translation",
     display:
       "A Sun–Moon trine can support recognition without erasing different needs.",
+    perspectiveA: "Daniel may lead with protective warmth.",
+    perspectiveB: "Finn can answer through felt response.",
     spoken:
-      "Pattern: Warmth and feeling can support each other. Today: Lived experience must lead. Next: Check again after one honest exchange. Practice: Ask what support would feel useful, then listen.",
+      "Pattern: Daniel may lead with protective warmth; Finn can answer through felt response. Today: Lived experience must lead. Next: Check again after one honest exchange. Practice: Ask what support would feel useful, then listen.",
     detail:
       "Daniel's Sun trine Finn's Moon suggests a relational resource for recognition; parent and child still need unequal responsibilities and room for different responses.",
     now:
@@ -212,6 +214,73 @@ Deno.test("unsupported evidence and deterministic language fail hard gate", () =
     !hardIssues.includes("deterministic language")
   ) {
     throw new Error(`expected hard issues missing:\n${hardIssues}`);
+  }
+});
+
+Deno.test("Family Synastry cannot pass the hard gate with only reciprocal-sounding prose", () => {
+  const packet = strongPacket();
+  packet.faces.synastry = {
+    ...packet.faces.synastry,
+    perspectiveA: undefined,
+    perspectiveB: undefined,
+    spoken:
+      "Pattern: Both people value care. Today: Lived experience must lead. Next: Wait for a real exchange. Practice: Ask what support would feel useful.",
+  };
+  const report = scoreLunaSayReadingQuality(packet, FACTS);
+  if (
+    report.hardGatePassed ||
+    !report.hardIssues.some((issue) =>
+      issue.includes("missing two-sided relationship perspectives")
+    )
+  ) {
+    throw new Error(
+      `shallow reciprocal prose passed the hard gate: ${
+        JSON.stringify(report.hardIssues)
+      }`,
+    );
+  }
+});
+
+Deno.test("Family Synastry rejects paraphrase, blame, and child emotional labor", () => {
+  const cases: Array<[string, Partial<LunaSayDailyFace>, string]> = [
+    [
+      "paraphrase",
+      {
+        perspectiveA: "Daniel may seek quiet before answering.",
+        perspectiveB: "Finn can seek quiet before answering.",
+      },
+      "not meaningfully distinct",
+    ],
+    [
+      "blame",
+      { perspectiveB: "Finn can trigger Daniel's tension." },
+      "makes one person the problem",
+    ],
+    [
+      "child labor",
+      { action: "Ask Finn to reassure Daniel, then listen." },
+      "assigns emotional labor to a child",
+    ],
+  ];
+  for (const [label, change, expectedIssue] of cases) {
+    const packet = strongPacket();
+    packet.faces.synastry = {
+      ...packet.faces.synastry,
+      ...change,
+    };
+    if (change.action) {
+      packet.faces.synastry.spoken =
+        `${packet.faces.synastry.spoken} ${change.action}`;
+    }
+    const report = scoreLunaSayReadingQuality(packet, FACTS);
+    if (
+      report.hardGatePassed ||
+      !report.hardIssues.some((issue) => issue.includes(expectedIssue))
+    ) {
+      throw new Error(
+        `${label} escaped the hard gate: ${JSON.stringify(report.hardIssues)}`,
+      );
+    }
   }
 });
 

@@ -315,8 +315,16 @@ static bool draw_face_or_status(const faculty175_face_desc_t *face,
 
     const bool babel_overlay = face != NULL && face->id == FACULTY175_FACE_BABEL && faculty175_face_babel_active();
     const bool selected_face = face != NULL && face->id != FACULTY175_FACE_FACULTY;
+    /* Keep the selected face visible while a face-local action is running or
+     * reporting an error.  Modal states used to replace Tarot (and the other
+     * LVGL faces) with the legacy analog/status screen, making TTS appear to
+     * navigate away even though the selected face never changed. */
+    const bool preserve_face_during_status = ui_state_modal(state) &&
+                                             face != NULL &&
+                                             faculty175_lvgl_face_supported(face->id);
     const bool draw_face = face != NULL &&
-                           (force_face || babel_overlay || (!ui_state_modal(state) && selected_face) ||
+                           (force_face || babel_overlay || preserve_face_during_status ||
+                            (!ui_state_modal(state) && selected_face) ||
                             state == FACULTY175_UI_LISTEN);
 
     if (draw_face && faculty175_lvgl_face_supported(face->id) &&
@@ -353,6 +361,7 @@ static esp_err_t face_tts_stream_post(const char *prompt,
 static void save_faculty_to_nvs(void);
 static void save_faculty_to_nvs_async(void);
 static void sync_voice_context(void *user);
+static void sync_voice_context_transport(void *user);
 static esp_err_t qa_trigger_stt(uint32_t capture_ms);
 static void qa_emit_tasks(void);
 static void pipeline_log_tasks(const char *stage);
@@ -4933,9 +4942,8 @@ static void save_current_face_async(void)
     (void)xTaskNotifyGive(s_face_save_task);
 }
 
-static void sync_voice_context(void *user)
+static void sync_voice_context_impl(bool allow_flash_cache)
 {
-    (void)user;
     const faculty175_face_desc_t *face = faculty175_faces_current();
     const bool journal_mode = face != NULL &&
                               (face->id == FACULTY175_FACE_NOTES ||
@@ -4987,9 +4995,10 @@ static void sync_voice_context(void *user)
                           true);
         s_voice_cached_context[0] = '\0';
         const bool have_cached_reading =
+            allow_flash_cache &&
             lunasay_daily_followup_context(face,
-                                            s_voice_cached_context,
-                                            sizeof(s_voice_cached_context));
+                                           s_voice_cached_context,
+                                           sizeof(s_voice_cached_context));
         size_t used = strlen(s_voice_system_instruction);
         prompt_append(
             s_voice_system_instruction,
@@ -5036,6 +5045,22 @@ static void sync_voice_context(void *user)
      * action on profiles that expose it; ordinary LunaSay questions must not
      * create a server-side Commonplace record as a side effect. */
     s_voice_log_to_commonplace = journal_mode || conversation_session || !lunasay_profile;
+}
+
+static void sync_voice_context(void *user)
+{
+    (void)user;
+    sync_voice_context_impl(true);
+}
+
+static void sync_voice_context_transport(void *user)
+{
+    (void)user;
+    /* The duplex transport task deliberately runs from PSRAM. ESP-IDF cannot
+     * safely perform SPIFFS I/O from that stack while the flash cache is
+     * disabled, so refresh live face facts here without touching daily cache.
+     * Internal-stack capture entry points load the cached reading beforehand. */
+    sync_voice_context_impl(false);
 }
 
 static const faculty175_face_desc_t *nav_relative_delta(int delta)
@@ -5413,7 +5438,7 @@ static uint32_t transition_current_face_now(faculty175_face_id_t from_id,
         faculty175_display_unlock();
         if (transitioned) {
             if (anim_out != NULL) {
-                *anim_out = animated ? "lvgl-screen-slide" : "lvgl-screen-swap";
+                *anim_out = animated ? "panel-direction-cue" : "lvgl-screen-swap";
             }
             return faculty175_log_ms() - draw_start_ms;
         }
@@ -6383,7 +6408,7 @@ void app_main(void)
         },
         .on_event = pipeline_event,
         .on_result = pipeline_result,
-        .prepare_context = sync_voice_context,
+        .prepare_context = sync_voice_context_transport,
         .play_mp3 = pipeline_play_mp3,
         .endpoint_url = s_voice_pipeline_url,
         .stream_url = s_voice_stream_url,

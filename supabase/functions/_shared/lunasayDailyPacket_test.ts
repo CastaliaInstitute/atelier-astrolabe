@@ -25,7 +25,8 @@ function modelFaces(includeTarotCard = true): Record<string, unknown> {
     display: "A small daily note for the dial.",
     ...(id === "synastry"
       ? {
-        dynamic: "You both value steadiness when the day feels uncertain.",
+        perspectiveA: "One person may seek steadiness.",
+        perspectiveB: "The other can take time to respond.",
         weather: "No live signal is supplied; let lived experience lead.",
         weatherEvidence:
           "Family biometrics: no live wellness packets received yet.",
@@ -70,7 +71,7 @@ Deno.test("LunaSay daily instruction makes Family Synastry relational and safe",
       "Relationship Weather",
       "symbolic outlook",
       "reciprocal system",
-      "three distinct beats",
+      "three distinct spoken beats",
       "parentify a child",
       "Never recite raw measurements",
       "coherent without making every face repeat",
@@ -215,7 +216,8 @@ Deno.test("individual Family Synastry keeps three bounded beats", () => {
       face: {
         headline: "Tender",
         display: "Care can be specific without making anyone the problem.",
-        dynamic: "Both of you seek steadiness before opening up.",
+        perspectiveA: "One person may seek steadiness.",
+        perspectiveB: "The other can open up more slowly.",
         weather: "No current transit facts are supplied; let experience lead.",
         practice:
           "Ask what support would be useful, then listen without fixing.",
@@ -238,7 +240,8 @@ Deno.test("individual Family Synastry keeps three bounded beats", () => {
   );
   if (
     !face.spoken.includes("Pattern:") ||
-    !face.spoken.includes("Both of you seek steadiness") ||
+    !face.spoken.includes("One person may seek steadiness") ||
+    !face.spoken.includes("The other can open up") ||
     !face.spoken.includes("Today:") ||
     !face.spoken.includes("let experience lead") ||
     !face.spoken.includes("Next:") ||
@@ -247,6 +250,88 @@ Deno.test("individual Family Synastry keeps three bounded beats", () => {
       "Ask what support would be useful, then listen without fixing."
   ) {
     throw new Error("individual synastry beats were not composed");
+  }
+});
+
+Deno.test("Family Synastry requires two named, distinct, conditional perspectives", () => {
+  const facts = [
+    "The selected relationship between Daniel and Finn is parent and child.",
+    "No live relationship signal is available.",
+  ].join("\n");
+  const valid = {
+    headline: "Tender",
+    display: "Let care make room for two different responses.",
+    perspectiveA: "Daniel may reach for protective clarity.",
+    perspectiveB: "Finn can need time before answering.",
+    weather: "No live signal is supplied; let lived experience lead.",
+    practice: "Ask what support would help, then wait for the answer.",
+    spoken:
+      "Pattern: Daniel may seek clarity; Finn can need time. Today: Let experience lead. Practice: Ask what support would help.",
+    detail:
+      "Protective clarity and slower response can meet without either person becoming the problem.",
+    now: "No verified relationship timing is loaded.",
+    temporalEvidence: "No live relationship signal is available.",
+    evidence:
+      "The selected relationship between Daniel and Finn is parent and child.",
+    weatherEvidence: "No live relationship signal is available.",
+  };
+  const parsed = parseLunaSayDailyFace(
+    JSON.stringify(valid),
+    "synastry",
+    "2026-08-01",
+    facts,
+  );
+  if (
+    !parsed.spoken.includes("Daniel may reach") ||
+    !parsed.spoken.includes("Finn can need") ||
+    parsed.perspectiveA !== valid.perspectiveA ||
+    parsed.perspectiveB !== valid.perspectiveB
+  ) {
+    throw new Error("named perspectives were not preserved in Family Synastry");
+  }
+
+  for (
+    const [label, change] of [
+      ["missing side", { perspectiveB: undefined }],
+      ["wrong people", {
+        perspectiveA: "Alex may reach for protective clarity.",
+      }],
+      ["fixed trait", {
+        perspectiveB: "Finn needs time before answering.",
+      }],
+      ["same side twice", {
+        perspectiveB: "Daniel may reach for protective clarity.",
+      }],
+      ["near-paraphrase", {
+        perspectiveA: "Daniel may seek quiet before answering.",
+        perspectiveB: "Finn can seek quiet before answering.",
+      }],
+      ["conditional blame", {
+        perspectiveB: "Finn can trigger Daniel's tension.",
+      }],
+      ["child emotional labor", {
+        practice: "Ask Finn to reassure Daniel, then listen.",
+      }],
+      ["too long to speak together", {
+        perspectiveA:
+          "Daniel may seek clarity through careful explanation and reassurance.",
+        perspectiveB:
+          "Finn can need quiet time before offering a considered response.",
+      }],
+    ] as const
+  ) {
+    let rejected = false;
+    try {
+      parseLunaSayDailyFace(
+        JSON.stringify({ ...valid, ...change }),
+        "synastry",
+        "2026-08-01",
+        facts,
+      );
+    } catch (error) {
+      rejected = String(error).includes("Invalid LunaSay daily face");
+    }
+    if (!rejected) throw new Error(`${label} passed reciprocal validation`);
   }
 });
 
@@ -509,7 +594,8 @@ Deno.test("server owns next timing and safely normalizes a bare will", () => {
     JSON.stringify({
       headline: "Tender",
       display: "Let one person's timing stay personal.",
-      dynamic: "Both people may seek safety before opening up.",
+      perspectiveA: "Rowan may need more room.",
+      perspectiveB: "The other can ask before assuming.",
       weather: "This transit touches Rowan's chart, not the whole bond.",
       practice: "Ask Rowan what support would help before assuming.",
       spoken:
@@ -665,7 +751,9 @@ Deno.test("LunaSay structured schema requires every exact face id", () => {
     }
     if (
       id === "synastry" &&
-      (!("dynamic" in faceProperties) || !("weather" in faceProperties) ||
+      (!("perspectiveA" in faceProperties) ||
+        !("perspectiveB" in faceProperties) ||
+        !("weather" in faceProperties) ||
         !("practice" in faceProperties) ||
         !("weatherEvidence" in faceProperties) ||
         !("spoken" in faceProperties))
@@ -710,7 +798,8 @@ Deno.test("LunaSay composes synastry from durable, temporary, and practice beats
     synastry: {
       headline: "Tender",
       display: "Move gently and let lived experience lead.",
-      dynamic: "You can both protect closeness by moving slowly.",
+      perspectiveA: "One person may protect closeness.",
+      perspectiveB: "The other can move more slowly.",
       weather:
         "Alex may be navigating a period that feels serious or calls for patience and a clearer boundary between care and over-responsibility.",
       practice: "Ask before offering advice, then listen for one minute.",
@@ -728,7 +817,7 @@ Deno.test("LunaSay composes synastry from durable, temporary, and practice beats
   });
   for (
     const beat of [
-      "Pattern: You can both protect closeness by moving slowly.",
+      "Pattern: One person may protect closeness; The other can move more slowly.",
       "Today: No current signal",
       "Next:",
       "Practice:",
@@ -755,7 +844,8 @@ Deno.test("LunaSay keeps verbose synastry details while bounding device speech",
         synastry: {
           headline: "Tender",
           display: "Let lived experience lead.",
-          dynamic: verbose,
+          perspectiveA: "One person may seek clarity.",
+          perspectiveB: "The other can take time to respond.",
           weather: verbose.slice(0, 190),
           practice: "Ask before offering advice, then listen for one minute.",
           spoken:

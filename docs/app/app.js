@@ -139,17 +139,51 @@ function renderResearch() {
   const count = Number(research.localFeedbackCount) || 0;
   $("#reflection-note").textContent = !characteristic
     ? "Connect LunaSay to save feedback privately on the device."
-    : feedback.face && feedback.rating
-      ? `Last response: ${feedback.face} was ${feedback.rating}. ${count} rating${count === 1 ? "" : "s"} now calibrate future readings locally.`
-      : "Your ratings calibrate future readings locally. Research sharing is optional.";
+      : feedback.face && feedback.rating
+        ? `Last response: ${feedback.face} was ${feedback.rating}. ${count} rating${count === 1 ? "" : "s"} now calibrate future readings locally.`
+        : "Your ratings calibrate future readings locally. Research sharing is optional.";
+  $("#resonance-count").textContent = String(count);
+  $("#resonance-last").textContent = feedback.face && feedback.rating
+    ? `${feedback.face} · ${feedback.rating}`
+    : "—";
+  $("#resonance-title").textContent = count
+    ? `${count} response${count === 1 ? "" : "s"} is shaping your LunaSay.`
+    : "LunaSay is still learning your rhythm.";
+  $("#resonance-note").textContent = !characteristic
+    ? "Connect LunaSay to see the private signal it has learned from your reflections."
+    : count
+      ? "This signal stays on LunaSay. It calibrates future readings without exporting your reading text or personal story."
+      : "Mark a reading helpful, mixed, or missed. The pattern stays on your device and helps future readings meet you more honestly.";
+  const breakdown = $("#resonance-breakdown");
+  breakdown.replaceChildren();
+  const labels = {
+    moon: "Moon",
+    astrology: "Astrology",
+    transits: "Transits",
+    synastry: "Synastry",
+    tarot: "Tarot",
+    sky: "Sky",
+  };
+  for (const { face, helpful, mixed, missed } of deviceModel.resonanceRows(
+    deviceStatus.resonance,
+  )) {
+    const row = document.createElement("span");
+    row.className = "resonance-row";
+    const label = document.createElement("b");
+    label.textContent = labels[face] || face;
+    const detail = document.createElement("small");
+    detail.textContent = `${helpful} helpful · ${mixed} mixed · ${missed} missed`;
+    row.append(label, detail);
+    breakdown.append(row);
+  }
   const canClearHistory = deviceModel.view(
     deviceStatus,
     Boolean(characteristic),
   ).canClearReadingHistory;
   $("#clear-reading-history").disabled = !canClearHistory;
   $("#clear-reading-history-note").textContent = canClearHistory
-    ? "Erase the seven-day reading thread, both cached daily packets, and all cached per-face reading audio from LunaSay."
-    : "Connect an updated LunaSay to erase its seven-day reading thread, cached daily packets, and cached reading audio.";
+    ? "Erase the seven-day reading thread, both cached daily packets, cached per-face reading audio, and the private resonance signal from LunaSay."
+    : "Connect an updated LunaSay to erase its seven-day reading thread, cached daily packets, cached reading audio, and private resonance signal.";
 }
 
 function renderRelationship() {

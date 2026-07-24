@@ -283,7 +283,8 @@ small {
   appearance: none;
   border: 1px solid var(--line);
   border-radius: 16px;
-  padding: 12px 6px;
+  min-height: 94px;
+  padding: 14px 6px 12px;
   background: #120c1b;
   color: var(--muted);
   font:
@@ -293,8 +294,9 @@ small {
 }
 .mood span {
   display: block;
-  margin-bottom: 5px;
-  font-size: 1.7rem;
+  margin-bottom: 7px;
+  font-size: 2.6rem;
+  line-height: 1;
 }
 .mood.active {
   border-color: var(--rose);
@@ -404,6 +406,27 @@ footer {
 .reflection-rating:disabled {
   cursor: not-allowed;
   opacity: 0.45;
+}
+.resonance-breakdown {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 15px;
+}
+.resonance-row {
+  display: grid;
+  gap: 3px;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #1c1227;
+}
+.resonance-row b {
+  font-size: 0.78rem;
+}
+.resonance-row small {
+  color: #a99bb2;
+  font-size: 0.68rem;
 }
 .date-actions {
   display: grid;

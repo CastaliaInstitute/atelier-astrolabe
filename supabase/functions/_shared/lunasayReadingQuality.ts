@@ -8,7 +8,7 @@ import {
   lunaSayRequiredWeatherEvidence,
 } from "./lunasayDailyPacket.ts";
 
-export const LUNASAY_QUALITY_BENCHMARK_VERSION = 2;
+export const LUNASAY_QUALITY_BENCHMARK_VERSION = 4;
 export const LUNASAY_QUALITY_AVERAGE_TARGET = 72;
 export const LUNASAY_QUALITY_FACE_FLOOR = 60;
 export const LUNASAY_QUALITY_MAX_SIMILARITY = 0.42;
@@ -100,6 +100,8 @@ const CERTAINTY_WORDS =
   /\b(always|certain(?:ly)?|destined|fated|guaranteed|inevitabl(?:e|y)|proves?|will definitely|the universe wants)\b/i;
 const GENERIC_WORDS =
   /\b(trust your intuition|inner peace|beautifully aligned|wonderful time|embrace this|finding peace|gentle reminder)\b/i;
+const RELATIONSHIP_BLAME_RE =
+  /\b(?:causes?|forces?|makes?|provokes?|triggers?|at fault|to blame|is the problem|too (?:demanding|emotional|much|sensitive))\b/i;
 const RESOURCE_WORDS =
   /\b(opening|resource|support|capacity|clarity|courage|curiosity|choice|connection|care|repair|steady|strength|useful)\b/i;
 const TENSION_WORDS =
@@ -130,6 +132,8 @@ function content(face: LunaSayDailyFace): string {
     face.action,
     face.now,
     face.next,
+    face.perspectiveA,
+    face.perspectiveB,
   ].filter(Boolean).join(" ");
 }
 
@@ -169,11 +173,89 @@ function sentenceCount(value: string): number {
   return value.split(/[.!?]+(?:\s|$)/).filter((part) => part.trim()).length;
 }
 
+function relationshipParticipants(
+  value: string,
+): [string, string] | undefined {
+  const match = value.match(
+    /\b(?:the selected relationship|relationship)\s+between\s+([^,.;:\n]+?)\s+and\s+([^,.;:\n]+?)\s+(?:is|has|shows|includes|:)/i,
+  );
+  if (!match) return undefined;
+  const first = match[1].replace(/\s+/g, " ").trim();
+  const second = match[2].replace(/\s+/g, " ").trim();
+  return first && second ? [first, second] : undefined;
+}
+
+function perspectiveTerms(value: string, participant: string): Set<string> {
+  const participantTerms = new Set(
+    normalized(participant).match(/[a-z][a-z'-]{1,}/g) ?? [],
+  );
+  const structural = new Set([
+    "can",
+    "may",
+    "tend",
+    "tends",
+    "the",
+    "their",
+    "through",
+    "to",
+    "with",
+  ]);
+  return new Set(
+    normalized(value).match(/[a-z][a-z'-]{2,}/g)
+      ?.filter((term) =>
+        !participantTerms.has(term) && !structural.has(term)
+      ) ?? [],
+  );
+}
+
+function perspectivesMeaningfullyDistinct(
+  perspectiveA: string,
+  perspectiveB: string,
+  participants: [string, string] | undefined,
+): boolean {
+  if (normalized(perspectiveA) === normalized(perspectiveB)) return false;
+  const left = perspectiveTerms(perspectiveA, participants?.[0] ?? "");
+  const right = perspectiveTerms(perspectiveB, participants?.[1] ?? "");
+  if (left.size === 0 || right.size === 0) return false;
+  let shared = 0;
+  for (const term of left) {
+    if (right.has(term)) shared++;
+  }
+  return shared / Math.min(left.size, right.size) < 0.5;
+}
+
+function practiceAssignsChildEmotionalLabor(
+  practice: string | undefined,
+  facts: string,
+  participants: [string, string] | undefined,
+): boolean {
+  if (!practice || !participants) return false;
+  const escaped = participants.map((name) =>
+    name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  );
+  const parentChild = new RegExp(
+    `relationship\\s+between\\s+${escaped[0]}\\s+and\\s+${
+      escaped[1]
+    }\\s+is\\s+parent\\s+and\\s+child`,
+    "i",
+  );
+  if (!parentChild.test(facts)) return false;
+  return new RegExp(
+    `\\b(?:ask|expect|have|tell)\\s+${
+      escaped[1]
+    }\\s+to\\s+(?:calm|comfort|fix|manage|regulate|reassure|soothe|support)\\b`,
+    "i",
+  ).test(practice);
+}
+
 function nuanceScore(id: LunaSayDailyFaceId, face: LunaSayDailyFace): number {
   const value = content(face);
   if (id === "synastry") {
     let score = 0;
-    if (/\b(pattern|mutual|both|each|relationship|family)\b/i.test(value)) {
+    if (
+      face.perspectiveA && face.perspectiveB &&
+      normalized(face.perspectiveA) !== normalized(face.perspectiveB)
+    ) {
       score += 5;
     }
     if (/\b(today|lived experience|current|weather)\b/i.test(value)) score += 5;
@@ -270,6 +352,57 @@ function hardIssuesForFace(
     issues.push("temporal evidence is not the server-selected timing fact");
   }
   if (id === "synastry") {
+    const participants = relationshipParticipants(facts);
+    if (!face.perspectiveA || !face.perspectiveB) {
+      issues.push("missing two-sided relationship perspectives");
+    } else {
+      if (face.perspectiveA.length > 48 || face.perspectiveB.length > 48) {
+        issues.push("relationship perspective exceeds spoken boundary");
+      }
+      if (
+        !perspectivesMeaningfullyDistinct(
+          face.perspectiveA,
+          face.perspectiveB,
+          participants,
+        )
+      ) {
+        issues.push("relationship perspectives are not meaningfully distinct");
+      }
+      if (
+        !/\b(?:may|can|tends to)\b/i.test(face.perspectiveA) ||
+        !/\b(?:may|can|tends to)\b/i.test(face.perspectiveB)
+      ) {
+        issues.push("relationship perspectives are stated as fixed traits");
+      }
+      if (
+        RELATIONSHIP_BLAME_RE.test(face.perspectiveA) ||
+        RELATIONSHIP_BLAME_RE.test(face.perspectiveB)
+      ) {
+        issues.push("relationship perspective makes one person the problem");
+      }
+      if (
+        participants &&
+        (
+          !normalized(face.perspectiveA).startsWith(
+            normalized(participants[0]),
+          ) ||
+          !normalized(face.perspectiveB).startsWith(
+            normalized(participants[1]),
+          )
+        )
+      ) {
+        issues.push("relationship perspectives do not identify both people");
+      }
+      if (
+        !actionKey(face.spoken).includes(actionKey(face.perspectiveA)) ||
+        !actionKey(face.spoken).includes(actionKey(face.perspectiveB))
+      ) {
+        issues.push("spoken Pattern does not include both perspectives");
+      }
+    }
+    if (practiceAssignsChildEmotionalLabor(face.action, facts, participants)) {
+      issues.push("relationship practice assigns emotional labor to a child");
+    }
     const requiredWeatherEvidence = facts
       ? lunaSayRequiredWeatherEvidence(id, facts)
       : undefined;

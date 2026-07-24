@@ -508,6 +508,27 @@ async function ttsMp3BytesInner(
         },
       });
     }
+    /* Some projects have the Cloud TTS API enabled without access to Chirp 3
+     * HD (or Vertex Gemini TTS).  Keep LunaSay speaking with a broadly
+     * available Neural2 voice instead of turning a provider 403 into a silent
+     * device.  The explicit voice also prevents this branch from recursing. */
+    if (
+      !geminiTts && isChirp3VoiceName(voice.name) &&
+      Deno.env.get("LUNASAY_TTS_LEGACY_FALLBACK") !== "false" &&
+      (res.status === 403 || res.status === 404)
+    ) {
+      console.warn(
+        `Chirp 3 TTS unavailable (${res.status}); falling back to Neural2.`,
+      );
+      return await ttsMp3BytesInner(apiKey, spoken, {
+        ...options,
+        prompt: undefined,
+        voice: {
+          languageCode: "en-US",
+          name: "en-US-Neural2-F",
+        },
+      });
+    }
     throw new Error(`Text-to-Speech failed: ${res.status} ${raw}`);
   }
   const data = JSON.parse(raw) as { audioContent?: string };

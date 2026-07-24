@@ -73,5 +73,24 @@
     };
   }
 
-  return { formatElapsed, view };
+  function resonanceRows(resonance) {
+    const allowed = ["moon", "astrology", "transits", "synastry", "tarot", "sky"];
+    const bounded = (value) => {
+      const count = Number(value);
+      return Number.isInteger(count) ? Math.min(24, Math.max(0, count)) : 0;
+    };
+    return allowed
+      .filter((face) => resonance && resonance[face])
+      .map((face) => {
+        const signal = resonance[face] || {};
+        return {
+          face,
+          helpful: bounded(signal.helpful),
+          mixed: bounded(signal.mixed),
+          missed: bounded(signal.missed),
+        };
+      });
+  }
+
+  return { formatElapsed, resonanceRows, view };
 });

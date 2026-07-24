@@ -2321,7 +2321,6 @@ static bool rotate_capture_segment(astrolabe_audio_pipeline_t *p)
 
 static bool push_frame(astrolabe_audio_pipeline_t *p, const int16_t *frame, size_t frame_samples)
 {
-    prepare_context(p);
     const uint32_t now_ms = ticks_ms();
     p->last_rms = frame_rms(frame, frame_samples);
     p->vad_frames_seen++;
@@ -2600,6 +2599,10 @@ static void voice_task(void *arg)
         if (utt.final_segment) {
             emit(p, ASTROLABE_AUDIO_PIPELINE_EVENT_THINKING, NULL);
         }
+        /* Context preparation may read cached face data from flash and use a
+         * substantially deeper stack than the real-time listener. Refresh it
+         * once per queued segment here, immediately before transport, rather
+         * than on every 10 ms microphone frame. */
         prepare_context(p);
         ESP_LOGI(TAG, "posting capture segment #%u final=%s bytes=%u path=%s",
                  (unsigned)utt.sequence, utt.final_segment ? "yes" : "no",

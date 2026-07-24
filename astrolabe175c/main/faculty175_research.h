@@ -33,6 +33,8 @@ esp_err_t faculty175_research_record_mood(const char *mood, uint8_t arousal, uin
 esp_err_t faculty175_research_record_feedback(const char *face,
                                               const char *rating,
                                               const char *reading_date);
+/** Erase local face feedback, its pending export, and its resonance counters. */
+esp_err_t faculty175_research_clear_local_feedback(void);
 esp_err_t faculty175_research_resonance_json(char *out, size_t cap);
 void faculty175_research_poll(void);
 void faculty175_research_status(faculty175_research_status_t *out);

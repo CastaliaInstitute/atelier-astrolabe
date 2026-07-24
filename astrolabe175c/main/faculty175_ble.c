@@ -52,6 +52,7 @@ static const char *TAG = "faculty175_ble";
 static const char *BLE_NVS_NS = "ble";
 static const char *BLE_NVS_ENABLED = "enabled";
 static const char *BLE_NVS_RING_ID = "ring_id";
+static const char *BLE_NVS_NEAR_RSSI = "near_rssi";
 static const char *BLE_NVS_IDENTITY_NS = "identity";
 static const char *BLE_NVS_DEVICE_NAME = "device_name";
 static const char *BLE_NVS_NAME = "name";
@@ -152,7 +153,7 @@ static bool s_advertising;
 static bool s_scanning;
 static uint8_t s_own_addr_type;
 EXT_RAM_BSS_ATTR static char s_json_rx[768];
-EXT_RAM_BSS_ATTR static char s_state_json[1536];
+EXT_RAM_BSS_ATTR static char s_state_json[2048];
 EXT_RAM_BSS_ATTR static char s_health_json[512];
 static size_t s_json_rx_len;
 static bool s_json_rx_active;
@@ -356,6 +357,39 @@ static esp_err_t ble_nvs_set_ring_id(uint16_t id, bool set)
     if (err == ESP_OK) {
         err = nvs_commit(nvs);
     }
+    nvs_close(nvs);
+    return err;
+}
+
+static int8_t ble_near_rssi_clamp(int8_t threshold)
+{
+    if (threshold < -90) return -90;
+    if (threshold > -45) return -45;
+    return threshold;
+}
+
+int8_t faculty175_ble_near_rssi_threshold(void)
+{
+    int8_t value = -65;
+    nvs_handle_t nvs;
+    if (nvs_open(BLE_NVS_NS, NVS_READONLY, &nvs) == ESP_OK) {
+        int8_t stored = 0;
+        if (nvs_get_i8(nvs, BLE_NVS_NEAR_RSSI, &stored) == ESP_OK) {
+            value = ble_near_rssi_clamp(stored);
+        }
+        nvs_close(nvs);
+    }
+    return value;
+}
+
+esp_err_t faculty175_ble_set_near_rssi_threshold(int8_t threshold)
+{
+    const int8_t value = ble_near_rssi_clamp(threshold);
+    nvs_handle_t nvs;
+    esp_err_t err = nvs_open(BLE_NVS_NS, NVS_READWRITE, &nvs);
+    if (err != ESP_OK) return err;
+    err = nvs_set_i8(nvs, BLE_NVS_NEAR_RSSI, value);
+    if (err == ESP_OK) err = nvs_commit(nvs);
     nvs_close(nvs);
     return err;
 }
@@ -1643,6 +1677,9 @@ static esp_err_t ble_apply_settings_json(const char *body)
             cJSON_GetObjectItemCaseSensitive(privacy, "clearReadingHistory");
         if (cJSON_IsTrue(clear_history)) {
             err = faculty175_voice_clear_lunasay_reading_history();
+            if (err == ESP_OK) {
+                err = faculty175_research_clear_local_feedback();
+            }
         }
     }
     const cJSON *research = cJSON_GetObjectItemCaseSensitive(root, "research");
@@ -1954,6 +1991,8 @@ static int ble_state_json_access(uint16_t conn_handle,
             arc[day] = (char)('0' + relationship.arc[day]);
         }
     }
+    char resonance[320] = "{}";
+    (void)faculty175_research_resonance_json(resonance, sizeof(resonance));
     size_t len = 0;
     bool ok = ble_json_append(
         s_state_json,
@@ -1964,6 +2003,7 @@ static int ble_state_json_access(uint16_t conn_handle,
         "\"pending\":%s,\"status\":\"%s\","
         "\"localFeedbackCount\":%u,"
         "\"lastFeedback\":{\"face\":\"%s\",\"rating\":\"%s\"}},"
+        "\"resonance\":%s,"
         "\"relationship\":{\"available\":%s,\"selectedDate\":\"%s\","
         "\"offsetDays\":%d,\"activeSlot\":%d,\"primaryName\":\"%s\","
         "\"targetName\":\"%s\",\"condition\":%d,\"arc\":\"%s\","
@@ -1978,6 +2018,7 @@ static int ble_state_json_access(uint16_t conn_handle,
         research.local_feedback_count,
         research.last_feedback_face,
         research.last_feedback_rating,
+        resonance,
         relationship_available ? "true" : "false",
         relationship_available ? relationship.selected_date : "",
         relationship_available ? relationship.offset_days : 0,
@@ -2649,6 +2690,37 @@ bool faculty175_ble_ring_paired(uint16_t *ring_id)
         *ring_id = s_paired_ring_id;
     }
     return s_paired_ring_id_set;
+}
+
+bool faculty175_ble_nearby_unpaired_ring(uint16_t *ring_id, int8_t *rssi)
+{
+    if (ring_id != NULL) {
+        *ring_id = 0;
+    }
+    if (rssi != NULL) {
+        *rssi = -127;
+    }
+    uint16_t paired_id = 0;
+    if (faculty175_ble_ring_paired(&paired_id)) {
+        return false;
+    }
+
+    faculty175_ble_peer_t peers[FACULTY175_BLE_PEER_MAX] = {};
+    const size_t count = faculty175_ble_peers_snapshot(peers, FACULTY175_BLE_PEER_MAX);
+    for (size_t i = 0; i < count; ++i) {
+        if (!peers[i].valid || !peers[i].ring || peers[i].addr_hash == 0 ||
+            peers[i].rssi < faculty175_ble_near_rssi_threshold()) {
+            continue;
+        }
+        if (ring_id != NULL) {
+            *ring_id = peers[i].addr_hash;
+        }
+        if (rssi != NULL) {
+            *rssi = peers[i].rssi;
+        }
+        return true;
+    }
+    return false;
 }
 
 esp_err_t faculty175_ble_set_enabled(bool enabled)

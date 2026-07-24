@@ -604,6 +604,24 @@ esp_err_t faculty175_research_record_feedback(const char *face,
     return err;
 }
 
+esp_err_t faculty175_research_clear_local_feedback(void)
+{
+    load_state();
+    memset(&s_resonance, 0, sizeof(s_resonance));
+    s_resonance.version = RESEARCH_RESONANCE_VERSION;
+    s_research.pending = false;
+    s_research.kind = RESEARCH_EVENT_MOOD;
+    s_research.epoch = 0;
+    s_research.feedback_face[0] = '\0';
+    s_research.feedback_rating[0] = '\0';
+    s_research.reading_date[0] = '\0';
+    esp_err_t err = save_resonance();
+    if (err == ESP_OK) {
+        err = save_state();
+    }
+    return err;
+}
+
 esp_err_t faculty175_research_resonance_json(char *out, size_t cap)
 {
     if (out == NULL || cap < 3) {

@@ -4136,7 +4136,14 @@ size_t faculty175_display_bmp565_size(void)
 
 esp_err_t faculty175_display_write_bmp565(faculty175_display_write_cb_t write_cb, void *ctx)
 {
-    if (s_fb == NULL || write_cb == NULL) {
+    return faculty175_display_write_bmp565_frame(s_fb, write_cb, ctx);
+}
+
+esp_err_t faculty175_display_write_bmp565_frame(const uint16_t *frame,
+                                                faculty175_display_write_cb_t write_cb,
+                                                void *ctx)
+{
+    if (frame == NULL || write_cb == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -4186,7 +4193,7 @@ esp_err_t faculty175_display_write_bmp565(faculty175_display_write_cb_t write_cb
         uint8_t *out = chunk;
         for (int r = 0; r < rows; ++r, ++yi) {
             const int sy = h - 1 - yi;
-            const uint16_t *src = &s_fb[sy * w];
+            const uint16_t *src = &frame[sy * w];
             uint8_t *dst = out;
             for (int sx = 0; sx < w; ++sx) {
                 const uint16_t c = src[sx];

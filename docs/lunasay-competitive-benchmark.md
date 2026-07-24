@@ -28,16 +28,16 @@ LunaSay should not win by showing more chart jargon or a stronger-sounding
 compatibility verdict. A milestone advances the product only when it improves
 one or more of these measurable advantages:
 
-1. **Embodied:** the experience works on the physical round instrument, not
-   only in a phone feed.
+1. **Embodied:** the experience works on the physical round instrument, not only
+   in a phone feed.
 2. **Conversational:** a person can ask a question and receive a bounded,
    evidence-grounded spoken response.
 3. **Private by default:** intimate source data remains device-owned, and
    outbound context is documented and minimized.
-4. **Relational without ranking:** family readings describe reciprocal
-   dynamics, changing conditions, and repair practices rather than scores.
-5. **Longitudinal:** readings remember enough to develop without inventing
-   lived events or repeating the same advice.
+4. **Relational without ranking:** family readings describe reciprocal dynamics,
+   changing conditions, and repair practices rather than scores.
+5. **Longitudinal:** readings remember enough to develop without inventing lived
+   events or repeating the same advice.
 6. **Testable:** calculation accuracy, reading quality, safety, and device
    behavior have explicit release gates.
 
@@ -58,13 +58,13 @@ The milestone is complete only when:
 
 ## Grounded Ask This Face gate
 
-The physical instrument should be more conversational than a passive app feed.
-A spoken question from a reflective face passes this gate only when:
+The physical instrument should be more conversational than a passive app feed. A
+spoken question from a reflective face passes this gate only when:
 
 - the request identifies the face and includes bounded device-derived context;
-- when available and privacy-safe, it includes that face's exact cached
-  reading, supporting evidence, timing evidence, and validated practice for
-  the current local day;
+- when available and privacy-safe, it includes that face's exact cached reading,
+  supporting evidence, timing evidence, and validated practice for the current
+  local day;
 - cached model output is delimited as reference data and cannot become a new
   instruction;
 - the answer addresses the user's exact question rather than replaying or
@@ -93,8 +93,30 @@ cloud dossier. Daily continuity passes this gate only when:
   supports it and cannot invent intervening lived events;
 - a practice that repeats any retained action is rejected and retried;
 - legacy one-day devices remain accepted during rollout;
-- a person can erase the summary, cached packets, and cached daily audio from
-  the companion without a factory reset, and old firmware cannot falsely
-  claim the deletion;
+- a person can erase the summary, cached packets, cached daily audio, local
+  resonance counters, and pending feedback from the companion without a
+  factory reset, and old firmware cannot falsely claim the deletion;
 - parser, privacy, generation, firmware build, storage-bound, and repeated
   production-quality gates pass before release.
+
+## Two-sided Family Synastry gate
+
+Relationship depth cannot be inferred from warm wording or the word “both.” Each
+generated Family Synastry reading passes only when:
+
+- the server supplies two separate perspective fields, one for each person in
+  the selected device-owned relationship;
+- each perspective begins with that person’s exact supplied name and uses
+  conditional language rather than declaring a fixed trait;
+- the perspectives are meaningfully different and neither makes one person the
+  cause of the relationship’s difficulty;
+- a near-paraphrase with only the names changed fails, as does causal blame
+  softened with conditional language;
+- the spoken Pattern beat includes both perspectives;
+- Today remains separate, uses only current relationship evidence, and yields to
+  lived experience when no live signal exists;
+- the practice is a consent-respecting adult care or repair action;
+- in parent-child readings, the practice never assigns the child responsibility
+  for regulating or reassuring the adult;
+- missing, duplicated, unnamed, wrong-person, or deterministic perspectives fail
+  the hard release gate rather than merely lowering a prose score.

@@ -9,7 +9,7 @@
     <meta name="theme-color" content="#171022" />
     <meta name="description" content="Private LunaSay companion settings." />
     <link rel="manifest" href="manifest.webmanifest" />
-    <link rel="stylesheet" href="app.css?v=10" />
+    <link rel="stylesheet" href="app.css?v=11" />
     <title>LunaSay</title>
   </head>
   <body>
@@ -120,6 +120,19 @@
           <p id="reflection-note">
             Connect LunaSay to save feedback privately on the device.
           </p>
+        </article>
+        <article class="quiet-card resonance-card" aria-live="polite">
+          <p class="eyebrow">Your signal</p>
+          <h2 id="resonance-title">LunaSay is still learning your rhythm.</h2>
+          <p id="resonance-note">
+            Mark a reading helpful, mixed, or missed. The pattern stays on your
+            device and helps future readings meet you more honestly.
+          </p>
+          <div class="metrics" aria-label="Private reading feedback">
+            <span>Local responses <b id="resonance-count">0</b></span>
+            <span>Last signal <b id="resonance-last">—</b></span>
+          </div>
+          <div id="resonance-breakdown" class="resonance-breakdown" aria-label="Responses by face"></div>
         </article>
         <article class="quiet-card">
           <h2>What stays private</h2>
@@ -396,7 +409,8 @@
           <h2>Clear reading history</h2>
           <p id="clear-reading-history-note">
             Connect an updated LunaSay to erase its seven-day reading thread,
-            cached daily packets, and cached reading audio.
+            cached daily packets, cached reading audio, and private resonance
+            signal.
           </p>
           <button
             class="secondary"

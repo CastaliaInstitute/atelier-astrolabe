@@ -4,6 +4,7 @@
 #include "faculty175_face_crystal_ball.h"
 #include "faculty175_face_incidents.h"
 #include "faculty175_face_wifilab.h"
+#include "faculty175_ble.h"
 #include "faculty175_lvgl.h"
 #include "faculty175_face_native.h"
 #include "faculty175_face_notes.h"
@@ -159,6 +160,25 @@ bool faculty175_face_dispatch_action(faculty175_face_id_t id, uint32_t seed_ms)
             return faculty175_solar_image_action(seed_ms);
         case FACULTY175_FACE_IRONMAN:
             return faculty175_face_ironman_action(seed_ms);
+        case FACULTY175_FACE_BIOMETRICS: {
+            uint16_t ring_id = 0;
+            if (faculty175_ble_nearby_unpaired_ring(&ring_id, NULL)) {
+                return faculty175_ble_ring_pair(ring_id) == ESP_OK;
+            }
+            /* With no candidate in range, the Ring face's TAP action cycles
+             * the persisted near threshold. This keeps calibration possible
+             * before a ring is brought close to the device. */
+            static const int8_t k_thresholds[] = {-55, -60, -65, -70, -75, -80};
+            const int8_t current = faculty175_ble_near_rssi_threshold();
+            int next = 0;
+            for (size_t i = 0; i < sizeof(k_thresholds) / sizeof(k_thresholds[0]); ++i) {
+                if (k_thresholds[i] == current) {
+                    next = (int)((i + 1u) % (sizeof(k_thresholds) / sizeof(k_thresholds[0])));
+                    break;
+                }
+            }
+            return faculty175_ble_set_near_rssi_threshold(k_thresholds[next]) == ESP_OK;
+        }
         case FACULTY175_FACE_WSCAN:
         case FACULTY175_FACE_DEAUTH:
         case FACULTY175_FACE_EVILTWIN:

@@ -718,7 +718,7 @@ static void emit_screen_bmp(void)
 
 static void emit_face_screen_bmp(void)
 {
-    emit_screen_bmp_snapshot(false);
+    emit_screen_bmp_snapshot(true);
 }
 
 static void write_b64_block(const uint8_t *data, size_t len)
