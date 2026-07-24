@@ -40,9 +40,7 @@
 #include "faculty175_face_babel.h"
 #include "faculty175_face_dispatch.h"
 #include "faculty175_face_incidents.h"
-#if !defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
 #include "faculty175_face_psych_state.h"
-#endif
 #include "faculty175_face_native.h"
 #include "faculty175_face_runes.h"
 #include "faculty175_face_sessions.h"
@@ -4649,7 +4647,6 @@ static void input_task(void *arg)
                     ui_redraw();
                 }
                 faculty175_gesture_flush();
-#if !defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
             } else if (!s_nav_mode && active_face != NULL && active_face->id == FACULTY175_FACE_PSYCH_STATE &&
                        (gesture.kind == FACULTY175_GESTURE_BEZEL_ROTATE_CW ||
                         gesture.kind == FACULTY175_GESTURE_BEZEL_ROTATE_CCW ||
@@ -4661,7 +4658,6 @@ static void input_task(void *arg)
                     ui_redraw();
                 }
                 faculty175_gesture_flush();
-#endif
             } else if (!s_nav_mode && active_face != NULL && false && faculty175_faces_vertical_group(active_face->id) &&
                        (gesture.kind == FACULTY175_GESTURE_SWIPE_UP ||
                         gesture.kind == FACULTY175_GESTURE_SWIPE_DOWN)) {
@@ -4728,13 +4724,11 @@ static void input_task(void *arg)
                 faculty175_display_unlock();
             } else if (!s_nav_mode && gesture.kind == FACULTY175_GESTURE_TAP) {
                 const faculty175_face_desc_t *face = faculty175_faces_current();
-#if !defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
                 if (face != NULL && face->id == FACULTY175_FACE_PSYCH_STATE &&
                     faculty175_face_psych_state_tap(gesture.x, gesture.y)) {
                     ui_redraw();
                     faculty175_gesture_flush();
                 } else
-#endif
                 if (face != NULL && face->id == FACULTY175_FACE_POCKETWATCH) {
                     char profile_slug[24];
                     if (faculty175_pocketwatch_profile_tap(gesture.x, gesture.y, now_ms, profile_slug,
