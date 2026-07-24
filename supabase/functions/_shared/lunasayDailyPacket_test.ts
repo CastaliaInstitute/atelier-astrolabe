@@ -2,11 +2,15 @@ import {
   buildLunaSayDailyFaceInstruction,
   buildLunaSayDailyPacketInstruction,
   LUNASAY_DAILY_FACE_IDS,
+  LUNASAY_GENERATED_DAILY_FACE_IDS,
   lunaSayDailyFaceJsonSchema,
   lunaSayDailyPacketFallback,
   lunaSayDailyPacketJsonSchema,
   lunaSayDailyTarotCardName,
   lunaSayDateForEpoch,
+  lunaSayFocusedFacts,
+  lunaSayRequiredEvidence,
+  lunaSayRequiredWeatherEvidence,
   normalizeLunaSayTimezone,
   parseLunaSayDailyFace,
   parseLunaSayDailyPacket,
@@ -22,10 +26,17 @@ function modelFaces(includeTarotCard = true): Record<string, unknown> {
       ? {
         dynamic: "You both value steadiness when the day feels uncertain.",
         weather: "No live signal is supplied; let lived experience lead.",
+        weatherEvidence:
+          "Family biometrics: no live wellness packets received yet.",
         practice: "Ask what kind of support would feel useful right now.",
       }
       : { spoken: "A small daily note, ready to be spoken." }),
     detail: "A little more context for an expanded view.",
+    ...(LUNASAY_GENERATED_DAILY_FACE_IDS.includes(
+        id as typeof LUNASAY_GENERATED_DAILY_FACE_IDS[number],
+      )
+      ? { evidence: "Primary natal chart: Daniel, Sun Cancer." }
+      : {}),
     ...(id === "tarot" && includeTarotCard ? { cardName: "The Star" } : {}),
   }]));
 }
@@ -80,9 +91,11 @@ Deno.test("LunaSay can request and validate one Gemini 2.5 face at a time", () =
       spoken:
         "The weather feels open. Let the next honest answer surprise you.",
       detail: "Mercury trine the natal Moon supports easier expression.",
+      evidence: "Primary natal chart: Daniel, Sun Cancer.",
     }),
     "astrology",
     "2026-08-01",
+    "Primary natal chart: Daniel, Sun Cancer. Current evidence: Mercury trine natal Moon, orb 0.8 degrees.",
   );
   if (face.title !== "Inner Weather" || face.headline !== "Open") {
     throw new Error("individual face metadata was not normalized");
@@ -101,10 +114,14 @@ Deno.test("individual Family Synastry keeps three bounded beats", () => {
           "Ask what support would be useful, then listen without fixing.",
         detail:
           "The supplied natal contacts emphasize safety and responsiveness.",
+        evidence: "Tight major aspects: Moon sextile Moon orb 1.2",
+        weatherEvidence:
+          "Family biometrics: no live wellness packets received yet.",
       },
     }),
     "synastry",
     "2026-08-01",
+    "Tight major aspects: Moon sextile Moon orb 1.2. Family biometrics: no live wellness packets received yet.",
   );
   if (
     !face.spoken.includes("The lasting pattern:") ||
@@ -112,6 +129,140 @@ Deno.test("individual Family Synastry keeps three bounded beats", () => {
     !face.spoken.includes("A small practice:")
   ) {
     throw new Error("individual synastry beats were not composed");
+  }
+});
+
+Deno.test("individual daily face rejects unsupported evidence", () => {
+  let rejected = false;
+  try {
+    parseLunaSayDailyFace(
+      JSON.stringify({
+        headline: "Open",
+        display: "Stay curious.",
+        spoken: "Stay curious about what the day actually brings.",
+        detail: "A grounded symbolic orientation.",
+        evidence: "Venus conjunct Jupiter",
+      }),
+      "astrology",
+      "2026-08-01",
+      "Supplied fact: Moon trine Mercury.",
+    );
+  } catch (error) {
+    rejected = String(error).includes("unsupported-evidence");
+  }
+  if (!rejected) {
+    throw new Error("invented reading evidence was accepted");
+  }
+});
+
+Deno.test("daily face rejects a real fact assigned to the wrong face", () => {
+  let rejected = false;
+  try {
+    parseLunaSayDailyFace(
+      JSON.stringify({
+        headline: "Open",
+        display: "Stay curious.",
+        spoken: "Stay curious about what the day actually brings.",
+        detail: "A grounded symbolic orientation.",
+        evidence: "Visible tarot card is The Star",
+      }),
+      "astrology",
+      "2026-08-01",
+      "Primary natal chart: Daniel, Sun Cancer. Visible tarot card is The Star.",
+    );
+  } catch (error) {
+    rejected = String(error).includes("wrong-face-evidence");
+  }
+  if (!rejected) {
+    throw new Error("cross-face evidence was accepted");
+  }
+});
+
+Deno.test("daily face rejects stock horoscope language", () => {
+  let rejected = false;
+  try {
+    parseLunaSayDailyFace(
+      JSON.stringify({
+        headline: "The Star",
+        display: "A reflective draw.",
+        spoken: "My dear, trust in the journey and embrace this beautiful day.",
+        detail: "Use the card as a reflective prompt, not a prediction.",
+        evidence: "Visible tarot card is The Star",
+        cardName: "The Star",
+      }),
+      "tarot",
+      "2026-08-01",
+      "Visible tarot card is The Star, with reflective keyword hope.",
+    );
+  } catch (error) {
+    rejected = String(error).includes("generic-cliche");
+  }
+  if (!rejected) {
+    throw new Error("stock horoscope language was accepted");
+  }
+});
+
+Deno.test("Sky face rejects natal or transit interpretation", () => {
+  let rejected = false;
+  try {
+    parseLunaSayDailyFace(
+      JSON.stringify({
+        headline: "Quiet Night",
+        display: "The local night is still.",
+        spoken:
+          "Transiting Mercury trines your natal Moon, making this a lovely time to reflect.",
+        detail: "A local-time observation should remain observational.",
+        evidence: "Local time 2026-08-01 01:30",
+      }),
+      "sky",
+      "2026-08-01",
+      "Local time 2026-08-01 01:30; timezone America/Denver.",
+    );
+  } catch (error) {
+    rejected = String(error).includes("cross-face-language");
+  }
+  if (!rejected) {
+    throw new Error("Sky accepted a second astrology reading");
+  }
+});
+
+Deno.test("server assigns distinct exact evidence to each daily face", () => {
+  const facts =
+    "Local time 2026-08-01 07:00; timezone America/Denver. Primary natal chart: Alex, Sun Cancer, Moon Virgo. Current sky positions: Sun Leo, Moon Scorpio. Tight current-to-natal aspects, strongest first: transiting Mercury trine natal Moon, orb 0.8 degrees; transiting Saturn square natal Venus, orb 1.4 degrees. Lunar phase estimate: WAXING GIBBOUS, cycle fraction 0.384. Tight major aspects: Moon sextile Moon orb 1.1; Mercury square Mars orb 1.6. Family biometrics: no live wellness packets received yet. Visible tarot card is The Star, with reflective keyword hope.";
+  const expected: Record<string, string> = {
+    moon: "Lunar phase estimate:",
+    astrology: "Primary natal chart:",
+    transits: "Tight current-to-natal aspects",
+    synastry: "Tight major aspects:",
+    tarot: "Visible tarot card",
+    sky: "Local time",
+  };
+  for (const [id, prefix] of Object.entries(expected)) {
+    const evidence = lunaSayRequiredEvidence(
+      id as typeof LUNASAY_GENERATED_DAILY_FACE_IDS[number],
+      facts,
+    );
+    if (!evidence?.startsWith(prefix) || !facts.includes(evidence)) {
+      throw new Error(`invalid exact evidence for ${id}: ${evidence}`);
+    }
+  }
+  const weather = lunaSayRequiredWeatherEvidence("synastry", facts);
+  if (
+    weather !== "Family biometrics: no live wellness packets received yet."
+  ) {
+    throw new Error(`invalid exact synastry weather evidence: ${weather}`);
+  }
+  const synastryFacts = lunaSayFocusedFacts("synastry", facts);
+  if (
+    !synastryFacts.includes("Tight major aspects:") ||
+    !synastryFacts.includes("Family biometrics:") ||
+    synastryFacts.includes("current-to-natal")
+  ) {
+    throw new Error(`synastry focus leaked unrelated facts: ${synastryFacts}`);
+  }
+  const skyFacts = lunaSayFocusedFacts("sky", facts);
+  if (skyFacts !== "Local time 2026-08-01 07:00; timezone America/Denver.") {
+    throw new Error(`sky focus leaked astrology: ${skyFacts}`);
   }
 });
 
@@ -244,9 +395,19 @@ Deno.test("LunaSay structured schema requires every exact face id", () => {
     if (
       id === "synastry" &&
       (!("dynamic" in faceProperties) || !("weather" in faceProperties) ||
-        !("practice" in faceProperties) || "spoken" in faceProperties)
+        !("practice" in faceProperties) ||
+        !("weatherEvidence" in faceProperties) ||
+        "spoken" in faceProperties)
     ) {
       throw new Error("synastry schema did not separate its three beats");
+    }
+    if (
+      LUNASAY_GENERATED_DAILY_FACE_IDS.includes(
+        id as typeof LUNASAY_GENERATED_DAILY_FACE_IDS[number],
+      ) &&
+      !("evidence" in faceProperties)
+    ) {
+      throw new Error(`generated face schema omitted evidence for ${id}`);
     }
   }
 });
@@ -285,38 +446,40 @@ Deno.test("LunaSay composes synastry from durable, temporary, and practice beats
   }
 });
 
-Deno.test("LunaSay bounds verbose synastry beats without discarding the packet", () => {
+Deno.test("LunaSay rejects verbose synastry beats instead of clipping meaning", () => {
   const packet = lunaSayDailyPacketFallback({
     date: "2030-01-01",
     timezone: "UTC",
     facts: "A quiet test fact.",
   });
   const verbose =
-    "This deliberately verbose relationship sentence contains more language than the small device needs for one spoken beat and should be clipped safely";
-  const parsed = parseLunaSayDailyPacket(
-    JSON.stringify({
-      faces: {
-        ...packet.faces,
-        synastry: {
-          headline: "Tender",
-          display: "Let lived experience lead.",
-          dynamic: verbose,
-          weather: verbose,
-          practice: verbose,
-          detail: "A bounded parser protects the device cache.",
+    "This deliberately verbose relationship sentence contains more language than the small device needs for one spoken beat and keeps adding generalized clauses that obscure both people's actual perspectives instead of naming the reciprocal pattern clearly";
+  let rejected = false;
+  try {
+    parseLunaSayDailyPacket(
+      JSON.stringify({
+        faces: {
+          ...packet.faces,
+          synastry: {
+            headline: "Tender",
+            display: "Let lived experience lead.",
+            dynamic: verbose,
+            weather: verbose,
+            practice: verbose,
+            detail: "A bounded parser protects the device cache.",
+          },
         },
+      }),
+      {
+        date: "2030-01-01",
+        timezone: "UTC",
       },
-    }),
-    {
-      date: "2030-01-01",
-      timezone: "UTC",
-    },
-  );
-  if (
-    parsed.faces.synastry.spoken.length > 350 ||
-    !parsed.faces.synastry.spoken.includes("A small practice:")
-  ) {
-    throw new Error("verbose synastry packet was not bounded");
+    );
+  } catch (error) {
+    rejected = String(error).includes("Invalid LunaSay daily face: synastry");
+  }
+  if (!rejected) {
+    throw new Error("overlong synastry was silently clipped");
   }
 });
 
@@ -378,12 +541,22 @@ Deno.test("LunaSay fallback still provides every cacheable face", () => {
     facts: "Moon phase: waxing crescent.",
   });
   if (
-    packet.faces.tarot.cardName !== "The Star" ||
+    packet.faces.tarot.cardName !==
+      lunaSayDailyTarotCardName("2026-08-01") ||
     packet.faces.conversation.mode !== "live_question" ||
     packet.faces.astrology.title !== "Inner Weather" ||
     packet.faces.synastry.title !== "Relationship Weather" ||
     !packet.faces.synastry.spoken.includes("repair")
   ) {
     throw new Error("fallback packet is incomplete");
+  }
+  for (const face of Object.values(packet.faces)) {
+    if (
+      face.display.includes("Moon phase: waxing crescent") ||
+      face.spoken.includes("Moon phase: waxing crescent") ||
+      face.detail.includes("Moon phase: waxing crescent")
+    ) {
+      throw new Error("fallback leaked raw device facts");
+    }
   }
 });

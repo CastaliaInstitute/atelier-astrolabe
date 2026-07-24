@@ -10,11 +10,15 @@ import {
   buildLunaSayDailyFaceInstruction,
   buildLunaSayDailyPacketInstruction,
   LUNASAY_DAILY_PACKET_FACE,
+  LUNASAY_GENERATED_DAILY_FACE_IDS,
   type LunaSayDailyFaceId,
   lunaSayDailyFaceJsonSchema,
   lunaSayDailyPacketFallback,
   lunaSayDailyPacketJsonSchema,
   lunaSayDateForEpoch,
+  lunaSayFocusedFacts,
+  lunaSayRequiredEvidence,
+  lunaSayRequiredWeatherEvidence,
   normalizeLunaSayTimezone,
   parseLunaSayDailyFace,
   parseLunaSayDailyPacket,
@@ -1394,23 +1398,40 @@ Deno.serve(async (req: Request) => {
         const perFaceModel =
           Deno.env.get("GEMINI_LUNASAY_FACE_MODEL")?.trim() ||
           "gemini-2.5-flash";
-        const generatedFaceIds = [
-          "moon",
-          "astrology",
-          "transits",
-          "synastry",
-          "tarot",
-          "sky",
-        ] as const satisfies readonly LunaSayDailyFaceId[];
+        const generatedFaceIds = LUNASAY_GENERATED_DAILY_FACE_IDS;
         const prompts = generatedFaceIds.map((id) => {
-          const systemInstruction = buildLunaSayDailyFaceInstruction({
+          let systemInstruction = buildLunaSayDailyFaceInstruction({
             id,
             date,
             timezone,
           });
+          const requiredEvidence = lunaSayRequiredEvidence(id, facts);
+          const requiredWeatherEvidence = lunaSayRequiredWeatherEvidence(
+            id,
+            facts,
+          );
+          if (requiredEvidence) {
+            systemInstruction += ` For this request, set evidence exactly to ${
+              JSON.stringify(requiredEvidence)
+            }.`;
+          }
+          if (requiredWeatherEvidence) {
+            systemInstruction += ` Set weatherEvidence exactly to ${
+              JSON.stringify(requiredWeatherEvidence)
+            }.`;
+          }
+          const focusedFacts = lunaSayFocusedFacts(id, facts);
           const userText =
-            `DATE CONTEXT:\n${date} (${timezone})\n\nDAILY FACTS:\n${facts}`;
-          return { id, systemInstruction, userText };
+            `DATE CONTEXT:\n${date} (${timezone})\n\nDAILY FACTS:\n${
+              focusedFacts || facts
+            }`;
+          return {
+            id,
+            systemInstruction,
+            userText,
+            requiredEvidence,
+            requiredWeatherEvidence,
+          };
         });
         const inputTokens = prompts.reduce(
           (total, prompt) =>
@@ -1422,7 +1443,10 @@ Deno.serve(async (req: Request) => {
         );
         const geminiGate = await ensureVoiceBudget(
           req,
-          estimateGeminiUsd(inputTokens, generatedFaceIds.length * 1024),
+          estimateGeminiUsd(
+            inputTokens * 2,
+            generatedFaceIds.length * 2 * 1024,
+          ),
         );
         if (geminiGate) return geminiGate;
 
@@ -1436,44 +1460,65 @@ Deno.serve(async (req: Request) => {
         const faceFallbackReasons: Partial<
           Record<LunaSayDailyFaceId, string>
         > = {};
+        let llmCalls = 0;
         const results = await Promise.all(prompts.map(async (prompt) => {
-          try {
-            const raw = await meteredGeminiGenerate(req, {
-              apiKey: gemini,
-              model: perFaceModel,
-              systemInstruction: prompt.systemInstruction,
-              userText: prompt.userText,
-              route: LUNASAY_DAILY_PACKET_FACE,
-              face: prompt.id,
-              responseMimeType: "application/json",
-              responseJsonSchema: lunaSayDailyFaceJsonSchema(prompt.id),
-              /* Gemini 2.5 may consume substantial generation headroom even
-               * with thinking disabled. The JSON schema—not this ceiling—
-               * keeps the billable visible response short. */
-              maxOutputTokens: 4096,
-              ...(perFaceModel.startsWith("gemini-2.5")
-                ? { thinkingBudget: 0 }
-                : {}),
-              ...(perFaceModel.startsWith("gemini-3")
-                ? { thinkingLevel: "minimal" as const }
-                : {}),
-            });
-            return {
-              id: prompt.id,
-              face: parseLunaSayDailyFace(raw, prompt.id, date),
-            };
-          } catch (error) {
-            const reason =
-              (error instanceof Error ? error.message : String(error)).replace(
-                /\s+/g,
-                " ",
-              ).slice(0, 180);
-            console.error(
-              `voice-pipeline: invalid LunaSay daily face ${prompt.id}`,
-              reason,
-            );
-            return { id: prompt.id, error: reason };
+          let lastReason = "unknown validation failure";
+          for (let attempt = 0; attempt < 2; attempt++) {
+            try {
+              llmCalls++;
+              const raw = await meteredGeminiGenerate(req, {
+                apiKey: gemini,
+                model: perFaceModel,
+                systemInstruction: attempt === 0
+                  ? prompt.systemInstruction
+                  : `${prompt.systemInstruction} RETRY: The prior response failed server validation: ${lastReason}. Correct that exact defect; do not relax or reinterpret the evidence contract.`,
+                userText: prompt.userText,
+                route: LUNASAY_DAILY_PACKET_FACE,
+                face: prompt.id,
+                responseMimeType: "application/json",
+                responseJsonSchema: lunaSayDailyFaceJsonSchema(prompt.id),
+                /* Gemini 2.5 may consume substantial generation headroom even
+                 * with thinking disabled. The JSON schema—not this ceiling—
+                 * keeps the billable visible response short. */
+                maxOutputTokens: 4096,
+                ...(perFaceModel.startsWith("gemini-2.5")
+                  ? { thinkingBudget: 0 }
+                  : {}),
+                ...(perFaceModel.startsWith("gemini-3")
+                  ? { thinkingLevel: "minimal" as const }
+                  : {}),
+              });
+              const parsedFace = parseLunaSayDailyFace(
+                raw,
+                prompt.id,
+                date,
+                facts,
+              );
+              if (
+                prompt.requiredEvidence &&
+                parsedFace.evidence !== prompt.requiredEvidence
+              ) {
+                throw new Error("wrong-required-evidence");
+              }
+              if (
+                prompt.requiredWeatherEvidence &&
+                parsedFace.weatherEvidence !== prompt.requiredWeatherEvidence
+              ) {
+                throw new Error("wrong-required-weather-evidence");
+              }
+              return { id: prompt.id, face: parsedFace };
+            } catch (error) {
+              lastReason =
+                (error instanceof Error ? error.message : String(error))
+                  .replace(/\s+/g, " ")
+                  .slice(0, 180);
+            }
           }
+          console.error(
+            `voice-pipeline: invalid LunaSay daily face ${prompt.id}`,
+            lastReason,
+          );
+          return { id: prompt.id, error: lastReason };
         }));
         for (const result of results) {
           if ("face" in result && result.face) {
@@ -1495,6 +1540,7 @@ Deno.serve(async (req: Request) => {
           tts: "on_demand",
           generationMode,
           model: perFaceModel,
+          llmCalls,
           ...(faceFallbacks.length
             ? { fallback: true, faceFallbacks, faceFallbackReasons }
             : {}),
@@ -1503,7 +1549,7 @@ Deno.serve(async (req: Request) => {
           "x-mynah-face": LUNASAY_DAILY_PACKET_FACE,
           "x-lunasay-date": date,
           "x-lunasay-timezone": timezone,
-          "x-lunasay-llm-calls": String(generatedFaceIds.length),
+          "x-lunasay-llm-calls": String(llmCalls),
           "x-lunasay-generation-mode": generationMode,
         });
       }
@@ -1531,7 +1577,11 @@ Deno.serve(async (req: Request) => {
             ? { thinkingLevel: "minimal" as const }
             : {}),
         });
-        const packet = parseLunaSayDailyPacket(raw, { date, timezone });
+        const packet = parseLunaSayDailyPacket(raw, {
+          date,
+          timezone,
+          facts,
+        });
         return jsonResponse(200, {
           packet,
           route: LUNASAY_DAILY_PACKET_FACE,

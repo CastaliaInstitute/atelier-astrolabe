@@ -33,6 +33,7 @@
 #include "faculty175_breath.h"
 #include "faculty175_ble.h"
 #include "faculty175_charts.h"
+#include "faculty175_cycle_arcs.h"
 #include "faculty175_cycle_health.h"
 #include "faculty175_listen.h"
 #include "faculty175_lvgl.h"
@@ -1414,6 +1415,41 @@ static void append_synastry_pair_prompt(char *out,
     }
 }
 
+static void append_transit_to_natal_prompt(char *out,
+                                           size_t cap,
+                                           size_t *off,
+                                           const faculty175_chart_positions_t *natal,
+                                           const faculty175_chart_positions_t *transits,
+                                           int max_aspects)
+{
+    if (natal == NULL || transits == NULL || max_aspects <= 0) {
+        return;
+    }
+    face_tts_synastry_aspect_t aspects[12] = {};
+    const int aspect_count = face_tts_rebuild_synastry_aspects(natal, transits, aspects, 12);
+    if (aspect_count <= 0) {
+        prompt_append(out,
+                      cap,
+                      off,
+                      "No current-to-natal major aspect is within 4.5 degrees. ");
+        return;
+    }
+    prompt_append(out, cap, off, "Tight current-to-natal aspects, strongest first: ");
+    const int n = aspect_count < max_aspects ? aspect_count : max_aspects;
+    for (int i = 0; i < n; ++i) {
+        const face_tts_synastry_aspect_t *a = &aspects[i];
+        prompt_append(out,
+                      cap,
+                      off,
+                      "transiting %s %s natal %s, orb %.1f degrees%s",
+                      faculty175_charts_body_label(a->target_body),
+                      face_tts_aspect_word(a->aspect_deg),
+                      faculty175_charts_body_label(a->user_body),
+                      a->orb,
+                      i == n - 1 ? ". " : "; ");
+    }
+}
+
 static void append_family_wellness_prompt(char *out, size_t cap, size_t *off)
 {
     faculty175_family_wellness_t states[FACULTY175_FAMILY_SUBJECT_MAX] = {};
@@ -1525,7 +1561,9 @@ static void build_lunasay_daily_facts(char *out, size_t cap)
     faculty175_charts_ensure_family_seed();
     faculty175_birth_chart_t user = {};
     faculty175_chart_positions_t natal = {};
-    if (faculty175_charts_primary(&user) && faculty175_charts_birth_positions(&user, &natal)) {
+    const bool have_natal =
+        faculty175_charts_primary(&user) && faculty175_charts_birth_positions(&user, &natal);
+    if (have_natal) {
         prompt_append(out,
                       cap,
                       &off,
@@ -1558,9 +1596,20 @@ static void build_lunasay_daily_facts(char *out, size_t cap)
                       faculty175_charts_zodiac_abbr(transits.lon[4]),
                       faculty175_charts_zodiac_abbr(transits.lon[5]),
                       faculty175_charts_zodiac_abbr(transits.lon[6]));
+        if (have_natal) {
+            append_transit_to_natal_prompt(out, cap, &off, &natal, &transits, 5);
+        }
     } else {
         prompt_append(out, cap, &off, "Current transit positions are unavailable. ");
     }
+
+    const float lunar_phase = faculty175_cycle_lunar_phase(0);
+    prompt_append(out,
+                  cap,
+                  &off,
+                  "Lunar phase estimate: %s, cycle fraction %.3f where 0 is new and 0.5 is full. ",
+                  faculty175_cycle_lunar_label(lunar_phase),
+                  (double)lunar_phase);
 
     append_synastry_prompt(out, cap, &off);
     const int tarot_idx = faculty175_face_tarot_current_card();
