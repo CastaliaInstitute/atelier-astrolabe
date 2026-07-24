@@ -4,8 +4,8 @@ void faculty175_face_bio_draw(uint32_t anim_ms)
 {
     static const faculty175_native_face_t face = {
         .id = FACULTY175_FACE_BIOMETRICS,
-        .title = "Biometrics",
-        .subtitle = "READINESS",
+        .title = "Ring",
+        .subtitle = "GESTURE + READINESS",
         .style = FACULTY175_NATIVE_STATUS,
         .hue = 2,
         .a = "ATTENTION MODEL",

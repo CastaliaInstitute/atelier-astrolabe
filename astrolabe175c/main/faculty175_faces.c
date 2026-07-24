@@ -72,7 +72,7 @@ static const faculty175_face_desc_t k_faces[] = {
     { FACULTY175_FACE_LUOPAN, "luopan", "Luopan", FACULTY175_FACE_CAT_ORACLE, false, false, 131 },
     { FACULTY175_FACE_QDAY, "qday", "Question Day", FACULTY175_FACE_CAT_COMMONPLACE, true, false, 140 },
     { FACULTY175_FACE_FOCUS, "focus", "Focus Timer", FACULTY175_FACE_CAT_HOME, true, false, 145 },
-    { FACULTY175_FACE_BIOMETRICS, "bio", "Biometrics", FACULTY175_FACE_CAT_HOME, true, false, 150 },
+    { FACULTY175_FACE_BIOMETRICS, "ring", "Ring", FACULTY175_FACE_CAT_HOME, true, false, 150 },
     { FACULTY175_FACE_IRONMAN, "arc-reactor", "Arc Reactor", FACULTY175_FACE_CAT_HOME, true, false, 151 },
     { FACULTY175_FACE_WATCHER, "watcher", "Watcher", FACULTY175_FACE_CAT_HOME, true, false, 155 },
     { FACULTY175_FACE_LENORMAND, "lenormand", "Lenormand", FACULTY175_FACE_CAT_ORACLE, true, false, 160 },
@@ -660,6 +660,11 @@ const faculty175_face_desc_t *faculty175_faces_find(const char *slug)
     }
     if (strcasecmp(slug, "ironman") == 0) {
         slug = "arc-reactor";
+    }
+    /* Preserve saved links and old console scripts while presenting this as
+     * LunaSay's Ring face rather than an abstract biometrics screen. */
+    if (strcasecmp(slug, "bio") == 0 || strcasecmp(slug, "biometrics") == 0) {
+        slug = "ring";
     }
     for (size_t i = 0; i < FACULTY175_FACE_COUNT; ++i) {
         if (!face_active_slot(i)) {

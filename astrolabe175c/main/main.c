@@ -110,6 +110,15 @@ static bool running_from_factory_partition(void)
 #define WIFI_FAIL_BIT BIT1
 #define FACULTY175_FACE_TTS_STACK 20480
 #define FACE_SWIPE_SAVE_IDLE_MS 1500
+#define FACE_SWIPE_SETTLE_MS 280
+#if defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
+/* Several LunaSay faces can hold the display mutex for roughly three seconds
+ * while producing a full native frame. A received swipe must wait for that
+ * bounded draw to finish rather than disappearing after 750 ms. */
+#define FACE_NAV_DISPLAY_LOCK_TIMEOUT_MS 6000
+#else
+#define FACE_NAV_DISPLAY_LOCK_TIMEOUT_MS 750
+#endif
 #define FACE_REDRAW_MS 250
 #define FACE_DEATHSTAR_REDRAW_MS 125
 #define FACE_POCKETWATCH_REDRAW_MS 250
@@ -139,7 +148,14 @@ static bool running_from_factory_partition(void)
 #define FACULTY175_PIPELINE_VOICE_STACK 6144
 #define FACULTY175_UI_TASK_STACK 6144
 #if defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
-#define FACULTY175_INPUT_TASK_STACK 4096
+/*
+ * LunaSay's input loop also services ring BLE, power policy, animated face
+ * navigation, and NVS-backed face changes.  A 4 KiB stack overflowed while a
+ * cached face narration was bringing the audio codec back into playback mode.
+ * Keep this flash-safe stack in internal RAM, but give the combined call paths
+ * enough headroom to remain reliable during concurrent audio work.
+ */
+#define FACULTY175_INPUT_TASK_STACK 8192
 #else
 #define FACULTY175_INPUT_TASK_STACK 5376
 #endif
@@ -198,6 +214,8 @@ static volatile bool s_face_tour_stop_requested;
 static volatile bool s_qa_stt_busy;
 static portMUX_TYPE s_qa_voice_status_mux = portMUX_INITIALIZER_UNLOCKED;
 static faculty175_qa_voice_status_t s_qa_voice_status;
+static portMUX_TYPE s_face_tts_status_mux = portMUX_INITIALIZER_UNLOCKED;
+static faculty175_face_tts_status_t s_face_tts_status;
 EXT_RAM_BSS_ATTR static volatile uint32_t s_qa_stt_pending_capture_ms;
 EXT_RAM_BSS_ATTR static bool s_qa_stt_deferred_active;
 static volatile bool s_pipeline_cfg_ready;
@@ -1784,6 +1802,39 @@ static bool lunasay_play_cached_daily_tts(const faculty175_face_desc_t *face)
     return true;
 }
 
+static void face_tts_status_begin(const faculty175_face_desc_t *face)
+{
+    portENTER_CRITICAL(&s_face_tts_status_mux);
+    s_face_tts_status.sequence++;
+    s_face_tts_status.busy = true;
+    s_face_tts_status.started_ms = faculty175_log_ms();
+    s_face_tts_status.completed_ms = 0;
+    s_face_tts_status.err = ESP_ERR_INVALID_STATE;
+    faculty175_strlcpy(s_face_tts_status.slug,
+                      face != NULL && face->slug != NULL ? face->slug : "-",
+                      sizeof(s_face_tts_status.slug));
+    portEXIT_CRITICAL(&s_face_tts_status_mux);
+}
+
+static void face_tts_status_finish(esp_err_t err)
+{
+    portENTER_CRITICAL(&s_face_tts_status_mux);
+    s_face_tts_status.busy = false;
+    s_face_tts_status.completed_ms = faculty175_log_ms();
+    s_face_tts_status.err = err;
+    portEXIT_CRITICAL(&s_face_tts_status_mux);
+}
+
+void faculty175_face_tts_status(faculty175_face_tts_status_t *out)
+{
+    if (out == NULL) {
+        return;
+    }
+    portENTER_CRITICAL(&s_face_tts_status_mux);
+    *out = s_face_tts_status;
+    portEXIT_CRITICAL(&s_face_tts_status_mux);
+}
+
 static void face_tts_run_one(faculty175_face_id_t id)
 {
     const faculty175_face_desc_t *face = faculty175_faces_get(id);
@@ -1807,6 +1858,7 @@ static void face_tts_run_one(faculty175_face_id_t id)
         free(prompt);
         free(result);
         ui_set(FACULTY175_UI_ERROR, "voice alloc");
+        face_tts_status_finish(ESP_ERR_NO_MEM);
         s_face_tts_busy = false;
         return;
     }
@@ -1816,6 +1868,7 @@ static void face_tts_run_one(faculty175_face_id_t id)
         free(result);
         free(prompt);
         ui_set(FACULTY175_UI_LISTEN, NULL);
+        face_tts_status_finish(ESP_OK);
         s_face_tts_busy = false;
         return;
     }
@@ -1861,6 +1914,7 @@ static void face_tts_run_one(faculty175_face_id_t id)
     free(result);
     free(prompt);
     ui_set(FACULTY175_UI_LISTEN, NULL);
+    face_tts_status_finish(err);
     s_face_tts_busy = false;
 }
 
@@ -1903,6 +1957,7 @@ static void face_tour_run(void)
         printf("face-tour: face=%s index=%u\n", face->slug, (unsigned)(i + 1));
         fflush(stdout);
         s_face_tts_busy = true;
+        face_tts_status_begin(face);
         face_tts_run_one(id);
         if (!s_face_tour_stop_requested) {
             vTaskDelay(pdMS_TO_TICKS(900));
@@ -2013,12 +2068,14 @@ static bool start_face_tts_read(const faculty175_face_desc_t *face)
     }
     char voice_reason[128];
     if (!faculty175_voice_config_ready(voice_reason, sizeof(voice_reason))) {
+        face_tts_status_begin(face);
         FACULTY175_LOG_STAGE(TAG, "tts-face", "start %s", face->slug);
         printf("tts-face: start slug=%s\n", face->slug);
         FACULTY175_LOG_STAGE_W(TAG, "tts-face", "voice config not ready: %s", voice_reason);
         printf("tts-face: done slug=%s err=ESP_ERR_INVALID_STATE\n", face->slug);
         fflush(stdout);
         ui_set(FACULTY175_UI_ERROR, "voice config");
+        face_tts_status_finish(ESP_ERR_INVALID_STATE);
         return true;
     }
     if (s_face_tts_busy || s_face_tour_active) {
@@ -2029,13 +2086,16 @@ static bool start_face_tts_read(const faculty175_face_desc_t *face)
     }
     face_tts_worker_start();
     if (s_face_tts_queue == NULL || s_face_tts_worker_task == NULL) {
+        face_tts_status_begin(face);
         FACULTY175_LOG_STAGE_E(TAG, "tts-face", "worker unavailable");
         printf("tts-face: done slug=%s err=ESP_ERR_NO_MEM\n", face->slug);
         fflush(stdout);
         ui_set(FACULTY175_UI_ERROR, "voice task");
+        face_tts_status_finish(ESP_ERR_NO_MEM);
         return true;
     }
     s_face_tts_busy = true;
+    face_tts_status_begin(face);
     const face_tts_request_t req = {
         .type = VOICE_WORK_FACE_READ,
         .id = face->id,
@@ -2046,6 +2106,7 @@ static bool start_face_tts_read(const faculty175_face_desc_t *face)
         printf("tts-face: done slug=%s err=ESP_ERR_INVALID_STATE\n", face->slug);
         fflush(stdout);
         ui_set(FACULTY175_UI_ERROR, "voice queue");
+        face_tts_status_finish(ESP_ERR_INVALID_STATE);
         return true;
     }
     return true;
@@ -3766,7 +3827,8 @@ static bool animate_nav_preview_native(bool vertical, int delta, uint32_t durati
 {
     const uint32_t duration = duration_ms > 0 ? duration_ms : NAV_TRANSITION_MS;
     const faculty175_face_desc_t *center = faculty175_faces_current();
-    if (faculty175_lvgl_transition_nav(center, vertical, delta, duration)) {
+    const int motion_delta = vertical ? delta : -delta;
+    if (faculty175_lvgl_transition_nav(center, vertical, motion_delta, duration)) {
         return true;
     }
     draw_nav_preview_surface();
@@ -3858,8 +3920,6 @@ static void animate_face_slide(const faculty175_face_desc_t *from_face,
         const uint32_t anim_start_ms = faculty175_log_ms();
         faculty175_display_lock();
         faculty175_display_draw_rgb565(from, 0, 0, FACULTY175_LCD_W, FACULTY175_LCD_H);
-        /* Gesture routing uses positive delta for a left/up swipe. The frame
-           compositor's source offset has the opposite sign convention. */
         const int dir = delta >= 0 ? -1 : 1;
         uint32_t frames = 0;
         uint32_t max_gap_ms = 0;
@@ -4038,6 +4098,32 @@ static uint32_t transition_current_face_now(faculty175_face_id_t from_id,
     const faculty175_face_desc_t *face = faculty175_faces_current();
     const faculty175_face_desc_t *from_face = faculty175_faces_get(from_id);
     const uint32_t draw_start_ms = faculty175_log_ms();
+
+#if defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
+    /* Keep the LunaSay face change animated, but hand it to LVGL's screen
+     * transition. The old snapshot carousel captures and composes two whole
+     * 466x466 frames while a face is changing; rich image faces can leave the
+     * panel in a partial state during that hand-off. */
+    if (face != NULL && from_face != NULL &&
+        faculty175_lvgl_face_supported(from_id) && faculty175_lvgl_face_supported(face->id)) {
+        bool animated = false;
+        faculty175_display_lock();
+        const bool transitioned = faculty175_lvgl_transition_face(from_id,
+                                                                    face->id,
+                                                                    now_ms,
+                                                                    vertical,
+                                                                    delta,
+                                                                    FACE_CAROUSEL_FRAMES * FACE_CAROUSEL_FRAME_MS,
+                                                                    &animated);
+        faculty175_display_unlock();
+        if (transitioned) {
+            if (anim_out != NULL) {
+                *anim_out = animated ? "lvgl-screen-slide" : "lvgl-screen-swap";
+            }
+            return faculty175_log_ms() - draw_start_ms;
+        }
+    }
+#endif
 
     if (face != NULL && from_face != NULL) {
         animate_face_slide(from_face, face, vertical, delta, now_ms);
@@ -4246,6 +4332,18 @@ static void input_task(void *arg)
             }
             const uint32_t gesture_ms = now_ms;
             const uint32_t queue_age_ms = gesture.queued_ms != 0 && now_ms >= gesture.queued_ms ? now_ms - gesture.queued_ms : 0;
+            const bool navigation_step = gesture.kind == FACULTY175_GESTURE_SWIPE_LEFT ||
+                                         gesture.kind == FACULTY175_GESTURE_SWIPE_RIGHT ||
+                                         gesture.kind == FACULTY175_GESTURE_SWIPE_UP ||
+                                         gesture.kind == FACULTY175_GESTURE_SWIPE_DOWN ||
+                                         gesture.kind == FACULTY175_GESTURE_BEZEL_ROTATE_CW ||
+                                         gesture.kind == FACULTY175_GESTURE_BEZEL_ROTATE_CCW;
+            if (navigation_step && last_face_swipe_ms != 0 &&
+                now_ms - last_face_swipe_ms < FACE_SWIPE_SETTLE_MS) {
+                FACULTY175_LOG_STAGE(TAG, "gesture", "drop nav during settle age_ms=%u",
+                                     (unsigned)(now_ms - last_face_swipe_ms));
+                continue;
+            }
             const bool woke_from_low_power = s_low_power_asleep || s_low_power_dimmed;
             low_power_note_activity(now_ms, "gesture");
             const faculty175_face_desc_t *active_face = faculty175_faces_current();
@@ -4253,12 +4351,18 @@ static void input_task(void *arg)
             if (gesture.kind == FACULTY175_GESTURE_LONG_TAP && gesture.x >= 340 && gesture.y <= 130 &&
                 (active_face == NULL || active_face->id != FACULTY175_FACE_SETTINGS)) {
                 ensure_settings_wifi_access();
+                if (!faculty175_display_lock_timeout(FACE_NAV_DISPLAY_LOCK_TIMEOUT_MS)) {
+                    FACULTY175_LOG_STAGE_E(TAG, "settings", "display lock timeout opening gear");
+                    faculty175_gesture_flush();
+                    continue;
+                }
                 if (faculty175_faces_set_runtime(FACULTY175_FACE_SETTINGS) == ESP_OK) {
                     s_nav_mode = false;
                     faculty175_display_nav_mode_set(false);
                     draw_current_face_now(now_ms);
                     FACULTY175_LOG_STAGE(TAG, "settings", "LunaSay gear opened");
                 }
+                faculty175_display_unlock();
                 faculty175_gesture_flush();
                 continue;
             }
@@ -4328,6 +4432,18 @@ static void input_task(void *arg)
                                        gesture.kind == FACULTY175_GESTURE_SWIPE_RIGHT) ? 1 : -1;
                     const char *from_slug = active_face != NULL ? active_face->slug : "-";
                     const uint32_t select_start_ms = faculty175_log_ms();
+                    /*
+                     * Changing s_current before owning the display mutex lets
+                     * ui_task start drawing the destination while this task is
+                     * still preparing its animated transition. Keep selection
+                     * and rendering atomic; the mutex is recursive because
+                     * LVGL flush callbacks acquire it again.
+                     */
+                    if (!faculty175_display_lock_timeout(FACE_NAV_DISPLAY_LOCK_TIMEOUT_MS)) {
+                        FACULTY175_LOG_STAGE_E(TAG, "nav", "display lock timeout before horizontal selection");
+                        faculty175_gesture_flush();
+                        continue;
+                    }
                     const faculty175_face_desc_t *face = faculty175_faces_cycle_runtime(delta);
                     const uint32_t select_ms = faculty175_log_ms() - select_start_ms;
                     FACULTY175_LOG_STAGE(TAG, "faces", "nav %s -> %s", delta > 0 ? "next" : "prev",
@@ -4335,13 +4451,11 @@ static void input_task(void *arg)
                     if (face != NULL) {
                         last_face_swipe_ms = now_ms;
                         face_save_pending = true;
-                        faculty175_display_lock();
                         const uint32_t preview_start_ms = faculty175_log_ms();
                         if (!animate_nav_preview_native(false, delta, NAV_TRANSITION_MS)) {
                             (void)draw_nav_preview(now_ms);
                         }
                         const uint32_t preview_ms = faculty175_log_ms() - preview_start_ms;
-                        faculty175_display_unlock();
                         FACULTY175_LOG_STAGE(TAG,
                                              "nav-metrics",
                                              "swipe axis=horizontal from=%s to=%s delta=%d queue_age_ms=%u select_ms=%u preview_ms=%u total_ms=%u anim=native-nav-slide",
@@ -4353,11 +4467,17 @@ static void input_task(void *arg)
                                              (unsigned)preview_ms,
                                              (unsigned)(faculty175_log_ms() - gesture_ms));
                     }
+                    faculty175_display_unlock();
                 } else if (gesture.kind == FACULTY175_GESTURE_SWIPE_UP ||
                            gesture.kind == FACULTY175_GESTURE_SWIPE_DOWN) {
                     const int delta = gesture.kind == FACULTY175_GESTURE_SWIPE_UP ? 1 : -1;
                     const char *from_slug = active_face != NULL ? active_face->slug : "-";
                     const uint32_t select_start_ms = faculty175_log_ms();
+                    if (!faculty175_display_lock_timeout(FACE_NAV_DISPLAY_LOCK_TIMEOUT_MS)) {
+                        FACULTY175_LOG_STAGE_E(TAG, "nav", "display lock timeout before vertical selection");
+                        faculty175_gesture_flush();
+                        continue;
+                    }
                     const faculty175_face_desc_t *face = faculty175_faces_cycle_vertical_runtime(delta);
                     const uint32_t select_ms = faculty175_log_ms() - select_start_ms;
                     FACULTY175_LOG_STAGE(TAG, "faces", "nav vertical %s -> %s", delta > 0 ? "next" : "prev",
@@ -4365,13 +4485,11 @@ static void input_task(void *arg)
                     if (face != NULL) {
                         last_face_swipe_ms = now_ms;
                         face_save_pending = true;
-                        faculty175_display_lock();
                         const uint32_t preview_start_ms = faculty175_log_ms();
                         if (!animate_nav_preview_native(true, delta, NAV_TRANSITION_MS)) {
                             (void)draw_nav_preview(now_ms);
                         }
                         const uint32_t preview_ms = faculty175_log_ms() - preview_start_ms;
-                        faculty175_display_unlock();
                         FACULTY175_LOG_STAGE(TAG,
                                              "nav-metrics",
                                              "swipe axis=vertical from=%s to=%s delta=%d queue_age_ms=%u select_ms=%u preview_ms=%u total_ms=%u anim=native-nav-slide",
@@ -4383,6 +4501,7 @@ static void input_task(void *arg)
                                              (unsigned)preview_ms,
                                              (unsigned)(faculty175_log_ms() - gesture_ms));
                     }
+                    faculty175_display_unlock();
                 }
             } else if (!s_nav_mode && active_face != NULL && active_face->id == FACULTY175_FACE_SETTINGS &&
                        gesture.kind == FACULTY175_GESTURE_TAP && gesture.y >= 252 && gesture.y <= 296) {
@@ -4429,6 +4548,11 @@ static void input_task(void *arg)
                         gesture.kind == FACULTY175_GESTURE_SWIPE_RIGHT)) {
                 const int delta = gesture.kind == FACULTY175_GESTURE_SWIPE_RIGHT ? 1 : -1;
                 const uint32_t select_start_ms = faculty175_log_ms();
+                if (!faculty175_display_lock_timeout(FACE_NAV_DISPLAY_LOCK_TIMEOUT_MS)) {
+                    FACULTY175_LOG_STAGE_E(TAG, "nav", "display lock timeout before chakra selection");
+                    faculty175_gesture_flush();
+                    continue;
+                }
                 const faculty175_face_desc_t *face = faculty175_faces_cycle_runtime(delta);
                 const uint32_t select_ms = faculty175_log_ms() - select_start_ms;
                 FACULTY175_LOG_STAGE(TAG, "faces", "chakra nav %s -> %s", delta > 0 ? "next" : "prev",
@@ -4450,6 +4574,7 @@ static void input_task(void *arg)
                                          (unsigned)(faculty175_log_ms() - gesture_ms),
                                          anim);
                 }
+                faculty175_display_unlock();
             } else if (!s_nav_mode && active_face != NULL &&
                        ((active_face->id == FACULTY175_FACE_POCKETWATCH &&
                          gesture.kind == FACULTY175_GESTURE_SWIPE_DOWN) ||
@@ -4465,6 +4590,11 @@ static void input_task(void *arg)
                 const uint32_t select_start_ms = faculty175_log_ms();
                 if (target_id == FACULTY175_FACE_SETTINGS) {
                     ensure_settings_wifi_access();
+                }
+                if (!faculty175_display_lock_timeout(FACE_NAV_DISPLAY_LOCK_TIMEOUT_MS)) {
+                    FACULTY175_LOG_STAGE_E(TAG, "nav", "display lock timeout before settings shortcut");
+                    faculty175_gesture_flush();
+                    continue;
                 }
                 const esp_err_t set_err = faculty175_faces_set_runtime(target_id);
                 const uint32_t select_ms = faculty175_log_ms() - select_start_ms;
@@ -4491,6 +4621,7 @@ static void input_task(void *arg)
                                          (unsigned)(faculty175_log_ms() - gesture_ms),
                                          anim);
                 }
+                faculty175_display_unlock();
             } else if (!s_nav_mode && active_face != NULL &&
                        faculty175_wifi_lab_is_face(active_face->id) &&
                        (gesture.kind == FACULTY175_GESTURE_SWIPE_UP ||
@@ -4525,6 +4656,11 @@ static void input_task(void *arg)
                         gesture.kind == FACULTY175_GESTURE_SWIPE_DOWN)) {
                 const int delta = gesture.kind == FACULTY175_GESTURE_SWIPE_UP ? 1 : -1;
                 const uint32_t select_start_ms = faculty175_log_ms();
+                if (!faculty175_display_lock_timeout(FACE_NAV_DISPLAY_LOCK_TIMEOUT_MS)) {
+                    FACULTY175_LOG_STAGE_E(TAG, "nav", "display lock timeout before grouped vertical selection");
+                    faculty175_gesture_flush();
+                    continue;
+                }
                 const faculty175_face_desc_t *face = faculty175_faces_cycle_vertical_runtime(delta);
                 const uint32_t select_ms = faculty175_log_ms() - select_start_ms;
                 FACULTY175_LOG_STAGE(TAG, "faces", "vertical %s -> %s", delta > 0 ? "next" : "prev",
@@ -4546,11 +4682,17 @@ static void input_task(void *arg)
                                          (unsigned)(faculty175_log_ms() - gesture_ms),
                                          anim);
                 }
+                faculty175_display_unlock();
             } else if (!s_nav_mode && active_face != NULL && faculty175_faces_enabled_count() > 1 &&
                        (gesture.kind == FACULTY175_GESTURE_SWIPE_LEFT ||
                         gesture.kind == FACULTY175_GESTURE_SWIPE_RIGHT)) {
                 const int delta = gesture.kind == FACULTY175_GESTURE_SWIPE_RIGHT ? 1 : -1;
                 const uint32_t select_start_ms = faculty175_log_ms();
+                if (!faculty175_display_lock_timeout(FACE_NAV_DISPLAY_LOCK_TIMEOUT_MS)) {
+                    FACULTY175_LOG_STAGE_E(TAG, "nav", "display lock timeout before face selection");
+                    faculty175_gesture_flush();
+                    continue;
+                }
                 const faculty175_face_desc_t *face = faculty175_faces_cycle_runtime(delta);
                 const uint32_t select_ms = faculty175_log_ms() - select_start_ms;
                 FACULTY175_LOG_STAGE(TAG, "faces", "direct swipe %s -> %s", delta > 0 ? "next" : "prev",
@@ -4572,6 +4714,7 @@ static void input_task(void *arg)
                                          (unsigned)(faculty175_log_ms() - gesture_ms),
                                          anim);
                 }
+                faculty175_display_unlock();
             } else if (!s_nav_mode && gesture.kind == FACULTY175_GESTURE_TAP) {
                 const faculty175_face_desc_t *face = faculty175_faces_current();
 #if !defined(ASTROLABE_FORCE_VARIANT_LUNASAY)

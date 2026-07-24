@@ -323,14 +323,13 @@ static void copy_day_to_state(faculty175_family_wellness_t *state, const family_
     state->day_last_ms = day->last_ms;
 }
 
-static void update_day_state(family_slot_t *slot, uint32_t rx_ms)
+static void update_day_state(family_slot_t *slot, uint32_t rx_ms, uint32_t day_key)
 {
     if (slot == NULL) {
         return;
     }
     faculty175_family_wellness_t *state = &slot->state;
     family_day_t *day = &slot->day;
-    const uint32_t day_key = family_day_key(rx_ms);
     if (day->sample_count == 0 || day->day_key != day_key) {
         memset(day, 0, sizeof(*day));
         day->day_key = day_key;
@@ -476,6 +475,12 @@ static void handle_wellness_packet(const esp_now_recv_info_t *info, const uint8_
     }
 
     const uint32_t rx_ms = family_now_ms();
+    /*
+     * time() takes a newlib lock. Resolve the day bucket before entering the
+     * family spinlock: acquiring that lock while the scheduler is suspended
+     * aborts in lock_acquire_generic().
+     */
+    const uint32_t day_key = family_day_key(rx_ms);
     faculty175_family_wellness_t snapshot = {};
     bool stored = false;
     portENTER_CRITICAL(&s_family_lock);
@@ -486,7 +491,7 @@ static void handle_wellness_packet(const esp_now_recv_info_t *info, const uint8_
                  sizeof(s_slots[idx].state.subject_name),
                  "%s",
                  subject_name_locked(packet.subject_id));
-        update_day_state(&s_slots[idx], rx_ms);
+        update_day_state(&s_slots[idx], rx_ms, day_key);
         snapshot = s_slots[idx].state;
         stored = true;
     }

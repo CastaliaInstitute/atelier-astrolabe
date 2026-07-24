@@ -38,6 +38,7 @@
 #include "faculty175_km_http.h"
 #include "faculty175_ota.h"
 #include "faculty175_serial.h"
+#include "faculty175_touch.h"
 #include "faculty175_wifi_lab.h"
 #include "faculty175_wifi_monitor.h"
 #include "faculty175_wifi_settings.h"
@@ -53,8 +54,15 @@ static atomic_bool s_wake_requested;
 // The 1.75C QA path relies on the lightweight screen/settings HTTP server.
 #define FACULTY175_SCREEN_HTTP_RUNTIME_ENABLED 1
 #if defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
-#define FACULTY175_SCREEN_HTTP_STACK_SIZE 3584
-#define FACULTY175_SCREEN_HTTP_FALLBACK_STACK_SIZE 3072
+/*
+ * Authenticated console requests perform HMAC verification, JSON parsing,
+ * and may synchronously inject a gesture.  The former 3584-byte task stack
+ * overflowed on the first post-TTS swipe.  Keep enough internal headroom for
+ * the complete handler call chain; the fallback remains no smaller than the
+ * long-standing non-LunaSay primary size.
+ */
+#define FACULTY175_SCREEN_HTTP_STACK_SIZE 8192
+#define FACULTY175_SCREEN_HTTP_FALLBACK_STACK_SIZE 6144
 #else
 #define FACULTY175_SCREEN_HTTP_STACK_SIZE 6144
 #define FACULTY175_SCREEN_HTTP_FALLBACK_STACK_SIZE 4096
@@ -1426,6 +1434,34 @@ static esp_err_t api_settings_send(httpd_req_t *req, esp_err_t apply_err)
         cJSON_AddBoolToObject(ble, "advertising", faculty175_ble_advertising());
     }
 
+    faculty175_touch_diagnostics_t touch_status = {};
+    faculty175_touch_diagnostics_get(&touch_status);
+    cJSON *touch = cJSON_AddObjectToObject(root, "touch");
+    if (touch != NULL) {
+        cJSON_AddBoolToObject(touch, "ready", touch_status.ready);
+        cJSON_AddBoolToObject(touch, "interruptActive", touch_status.int_active);
+        cJSON_AddBoolToObject(touch, "active", touch_status.active);
+        cJSON_AddBoolToObject(touch, "down", touch_status.down);
+        cJSON_AddNumberToObject(touch, "initError", touch_status.init_err);
+        add_json_string(touch, "initErrorName", esp_err_to_name(touch_status.init_err));
+        cJSON_AddNumberToObject(touch, "irqCount", touch_status.irq_count);
+        cJSON_AddNumberToObject(touch, "readCount", touch_status.read_count);
+        cJSON_AddNumberToObject(touch, "readErrors", touch_status.read_errors);
+        cJSON_AddNumberToObject(touch, "invalidFrames", touch_status.invalid_frames);
+        cJSON_AddNumberToObject(touch, "rejectedEvents", touch_status.rejected_events);
+        cJSON_AddNumberToObject(touch, "validPoints", touch_status.valid_points);
+        cJSON_AddNumberToObject(touch, "lastFrameMs", touch_status.last_frame_ms);
+        cJSON_AddNumberToObject(touch, "updatedMs", touch_status.updated_ms);
+        cJSON_AddNumberToObject(touch, "lastPoints", touch_status.last_points);
+        cJSON_AddNumberToObject(touch, "lastEvent", touch_status.last_event);
+        cJSON_AddNumberToObject(touch, "lastData0", touch_status.last_data0);
+        cJSON_AddNumberToObject(touch, "lastData6", touch_status.last_data6);
+        cJSON_AddNumberToObject(touch, "rawX", touch_status.raw_x);
+        cJSON_AddNumberToObject(touch, "rawY", touch_status.raw_y);
+        cJSON_AddNumberToObject(touch, "x", touch_status.x);
+        cJSON_AddNumberToObject(touch, "y", touch_status.y);
+    }
+
     faculty175_ota_status_t ota_status = {};
     faculty175_ota_get_status(&ota_status);
     cJSON *ota = cJSON_AddObjectToObject(root, "ota");
@@ -1917,7 +1953,9 @@ static esp_err_t api_voice_post(httpd_req_t *req)
 static esp_err_t api_voice_get(httpd_req_t *req)
 {
     faculty175_qa_voice_status_t status = {};
+    faculty175_face_tts_status_t face_tts = {};
     faculty175_qa_voice_status(&status);
+    faculty175_face_tts_status(&face_tts);
     cJSON *root = cJSON_CreateObject();
     if (root == NULL) {
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "json alloc");
@@ -1937,6 +1975,20 @@ static esp_err_t api_voice_get(httpd_req_t *req)
     add_json_string(root, "err", esp_err_to_name(status.err));
     add_json_string(root, "transcript", status.transcript);
     add_json_string(root, "reply", status.reply);
+    cJSON *face_tts_json = cJSON_AddObjectToObject(root, "face_tts");
+    if (face_tts_json != NULL) {
+        cJSON_AddNumberToObject(face_tts_json, "sequence", face_tts.sequence);
+        cJSON_AddBoolToObject(face_tts_json, "busy", face_tts.busy);
+        cJSON_AddNumberToObject(face_tts_json, "started_ms", face_tts.started_ms);
+        cJSON_AddNumberToObject(face_tts_json, "completed_ms", face_tts.completed_ms);
+        cJSON_AddNumberToObject(face_tts_json,
+                               "elapsed_ms",
+                               face_tts.completed_ms >= face_tts.started_ms
+                                   ? face_tts.completed_ms - face_tts.started_ms
+                                   : 0u);
+        add_json_string(face_tts_json, "slug", face_tts.slug);
+        add_json_string(face_tts_json, "err", esp_err_to_name(face_tts.err));
+    }
     char *reply = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
     if (reply == NULL) {

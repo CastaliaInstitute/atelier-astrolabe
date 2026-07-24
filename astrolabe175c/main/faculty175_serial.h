@@ -30,6 +30,18 @@ typedef struct {
 
 void faculty175_qa_voice_status(faculty175_qa_voice_status_t *out);
 
+typedef struct {
+    uint32_t sequence;
+    bool busy;
+    uint32_t started_ms;
+    uint32_t completed_ms;
+    esp_err_t err;
+    char slug[32];
+} faculty175_face_tts_status_t;
+
+/** Snapshot the last/current per-face TTS request for remote tour verification. */
+void faculty175_face_tts_status(faculty175_face_tts_status_t *out);
+
 /** Request a TTS reading of the current face. */
 bool faculty175_request_current_face_tts(void);
 /** Run the concise LunaSay showcase faces in sequence, reading each one aloud. */

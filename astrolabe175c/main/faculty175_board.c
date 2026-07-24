@@ -263,8 +263,14 @@ void faculty175_display_unlock(void)
 #else
 #define FACULTY175_LCD_FLUSH_STRIP_H 16
 #endif
-#define FACULTY175_LCD_FLUSH_BUFFER_COUNT 2
-#define FACULTY175_LCD_FLUSH_TIMEOUT_MS 100
+/*
+ * Keep only one DMA strip in flight on LunaSay. The CO5300 driver queues a
+ * parameter transaction before each color transaction; allowing two color
+ * buffers to overlap made a delayed completion ambiguous and could leave the
+ * next parameter transaction waiting forever for the SPI bus.
+ */
+#define FACULTY175_LCD_FLUSH_BUFFER_COUNT 1
+#define FACULTY175_LCD_FLUSH_TIMEOUT_MS 1000
 
 /* CO5300 QSPI (same class as SH8601) wants RGB565 high byte first on the wire. */
 static uint16_t rgb565_panel_wire(uint16_t logical565)
@@ -314,8 +320,16 @@ static bool faculty175_flush_wait_one(unsigned *in_flight)
         return true;
     }
     if (xSemaphoreTake(s_flush_done, pdMS_TO_TICKS(FACULTY175_LCD_FLUSH_TIMEOUT_MS)) != pdTRUE) {
-        ESP_LOGW(TAG, "lcd queued flush timeout in_flight=%u", *in_flight);
-        return false;
+        /*
+         * At 40 MHz even a full four-row strip completes in milliseconds.
+         * Reaching this deadline means the panel/SPI transaction is wedged.
+         * Continuing would deadlock in the next tx_param while holding the
+         * display mutex, leaving a permanently black, unreachable device.
+         */
+        ESP_LOGE(TAG, "lcd flush stalled in_flight=%u; restarting for display recovery", *in_flight);
+        vTaskDelay(pdMS_TO_TICKS(20));
+        esp_restart();
+        return false; /* esp_restart() does not return; keeps static analysis happy. */
     }
     --(*in_flight);
     return true;
@@ -1726,21 +1740,24 @@ static void faculty175_lcd_hardware_reset(void)
         return;
     }
     gpio_set_level(FACULTY175_LCD_PIN_RST, 0);
-    vTaskDelay(pdMS_TO_TICKS(10));
+    vTaskDelay(pdMS_TO_TICKS(30));
     gpio_set_level(FACULTY175_LCD_PIN_RST, 1);
-    vTaskDelay(pdMS_TO_TICKS(150));
+    /* The CST9217 shares this reset and the Waveshare 1.75C reference waits
+     * about one second after release before attempting its first I2C command. */
+    vTaskDelay(pdMS_TO_TICKS(1000));
 }
 
 static void faculty175_lcd_release_shared_reset(void)
 {
     const gpio_config_t cfg = {
         .pin_bit_mask = 1ULL << FACULTY175_LCD_PIN_RST,
-        .mode = GPIO_MODE_INPUT,
-        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
         .intr_type = GPIO_INTR_DISABLE,
     };
     if (gpio_config(&cfg) == ESP_OK) {
+        gpio_set_level(FACULTY175_LCD_PIN_RST, 1);
         vTaskDelay(pdMS_TO_TICKS(120));
     }
 }
@@ -1770,7 +1787,7 @@ static esp_err_t faculty175_lcd_init(void)
     g_faculty175_boot_stage = 0xae33;
 
     esp_lcd_panel_io_spi_config_t io_cfg = CO5300_PANEL_IO_QSPI_CONFIG(FACULTY175_LCD_PIN_CS, lcd_flush_done_cb, NULL);
-    io_cfg.trans_queue_depth = 10;
+    io_cfg.trans_queue_depth = 4;
     /* Use the CO5300 driver's supported 40 MHz QSPI rate. At 20 MHz with
        eight-row DMA strips, full-frame navigation visibly scanned top-down. */
     io_cfg.pclk_hz = 40 * 1000 * 1000;
@@ -1956,6 +1973,11 @@ esp_err_t faculty175_board_init(void)
     vTaskDelay(pdMS_TO_TICKS(50));
 
     g_faculty175_boot_stage = 0xae07;
+    /*
+     * GPIO2 resets both CO5300 and CST9217. Attach touch only after every
+     * display reset has completed so the controller is already in its normal
+     * scan mode and cannot be left in a diagnostic/sleep mode by bring-up.
+     */
     if (i2c_ready) {
         (void)faculty175_touch_init();
     } else {

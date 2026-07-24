@@ -20,6 +20,7 @@
 #include "esp_mac.h"
 #include "esp_ota_ops.h"
 #include "esp_partition.h"
+#include "esp_spiffs.h"
 #include "esp_system.h"
 #include "esp_timer.h"
 #include "esp_wifi.h"
@@ -134,6 +135,7 @@ typedef struct {
     bool from_recovery_request;
     bool manifest_url;
     bool local_file;
+    bool storage_bundle;
 } ota_job_t;
 
 static const char *part_label(const esp_partition_t *part)
@@ -150,6 +152,11 @@ static bool is_factory_partition(const esp_partition_t *part)
 static bool is_http_url(const char *url)
 {
     return url != NULL && (strncmp(url, "https://", 8) == 0 || strncmp(url, "http://", 7) == 0);
+}
+
+static bool is_https_url(const char *url)
+{
+    return url != NULL && strncmp(url, "https://", 8) == 0;
 }
 
 static esp_err_t (*ota_crt_bundle_attach(void))(void *)
@@ -1225,6 +1232,158 @@ static esp_err_t stream_install_file(const char *path,
     return err;
 }
 
+/* Storage bundles are deliberately separate from application OTA.  They may
+ * address only the named SPIFFS asset partition: neither NVS, voice/USB media,
+ * nor an application slot is ever selected by this path. */
+static esp_err_t download_storage_pass(const char *url,
+                                       const char *expected_sha256,
+                                       const esp_partition_t *target,
+                                       bool write_target)
+{
+    esp_http_client_config_t cfg = {
+        .url = url,
+        .timeout_ms = 60000,
+        .buffer_size = OTA_IO_BUFFER_BYTES,
+        .crt_bundle_attach = ota_crt_bundle_attach(),
+        .keep_alive_enable = true,
+        .keep_alive_idle = 5,
+        .keep_alive_interval = 5,
+        .keep_alive_count = 6,
+    };
+    esp_http_client_handle_t client = esp_http_client_init(&cfg);
+    uint8_t *buf = ota_scratch_malloc(OTA_IO_BUFFER_BYTES);
+    esp_err_t err = (client != NULL && buf != NULL) ? ESP_OK : ESP_ERR_NO_MEM;
+    int64_t content_len = -1;
+    mbedtls_sha256_context sha_ctx;
+    bool sha_started = false;
+    size_t total = 0;
+
+    if (err == ESP_OK) {
+        esp_http_client_set_header(client, "User-Agent", "LunaSay-Storage-OTA/1");
+        err = esp_http_client_open(client, 0);
+    }
+    if (err == ESP_OK) {
+        content_len = esp_http_client_fetch_headers(client);
+        const int status = esp_http_client_get_status_code(client);
+        if (status < 200 || status >= 300 || content_len != (int64_t)target->size) {
+            set_last("storage http=%d size=%lld expected=%u", status, content_len, (unsigned)target->size);
+            err = ESP_ERR_INVALID_SIZE;
+        }
+    }
+    if (err == ESP_OK) {
+        mbedtls_sha256_init(&sha_ctx);
+        if (mbedtls_sha256_starts(&sha_ctx, 0) != 0) {
+            set_last("storage sha256 start failed");
+            err = ESP_FAIL;
+        } else {
+            sha_started = true;
+        }
+    }
+    while (err == ESP_OK && total < target->size) {
+        const int n = esp_http_client_read(client, (char *)buf, OTA_IO_BUFFER_BYTES);
+        if (n <= 0) {
+            set_last("storage download short at %u", (unsigned)total);
+            err = ESP_FAIL;
+            break;
+        }
+        if (total + (size_t)n > target->size) {
+            set_last("storage body longer than partition");
+            err = ESP_ERR_INVALID_SIZE;
+            break;
+        }
+        if (mbedtls_sha256_update(&sha_ctx, buf, (size_t)n) != 0) {
+            set_last("storage sha256 update failed");
+            err = ESP_FAIL;
+            break;
+        }
+        if (write_target) {
+            err = esp_partition_write(target, total, buf, (size_t)n);
+            if (err != ESP_OK) {
+                set_last("storage write failed: %s", esp_err_to_name(err));
+                break;
+            }
+        }
+        total += (size_t)n;
+        if (write_target && ((total % (128 * 1024)) < (size_t)n || total == target->size)) {
+            FACULTY175_LOG_STAGE(TAG, "ota", "storage wrote %u/%u", (unsigned)total, (unsigned)target->size);
+        }
+    }
+    if (err == ESP_OK && total != target->size) {
+        set_last("storage short image got=%u expected=%u", (unsigned)total, (unsigned)target->size);
+        err = ESP_ERR_INVALID_SIZE;
+    }
+    if (err == ESP_OK && sha_started) {
+        uint8_t digest[32];
+        char actual[OTA_SHA256_HEX_LEN + 1];
+        if (mbedtls_sha256_finish(&sha_ctx, digest) != 0) {
+            set_last("storage sha256 finish failed");
+            err = ESP_FAIL;
+        } else {
+            bytes_to_hex(digest, sizeof(digest), actual, sizeof(actual));
+            if (strcasecmp(actual, expected_sha256) != 0) {
+                set_last("storage sha256 mismatch");
+                err = ESP_ERR_INVALID_CRC;
+            }
+        }
+    }
+    if (sha_started) {
+        mbedtls_sha256_free(&sha_ctx);
+    }
+    free(buf);
+    if (client != NULL) {
+        esp_http_client_cleanup(client);
+    }
+    return err;
+}
+
+static esp_err_t stream_install_storage_url(const char *url,
+                                            const char *expected_sha256,
+                                            bool *out_storage_unmounted)
+{
+    if (out_storage_unmounted != NULL) {
+        *out_storage_unmounted = false;
+    }
+    if (!is_https_url(url) || !is_sha256_hex(expected_sha256) || !ota_heap_ready()) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    const esp_partition_t *target = esp_partition_find_first(ESP_PARTITION_TYPE_DATA,
+                                                               ESP_PARTITION_SUBTYPE_DATA_SPIFFS,
+                                                               "storage");
+    if (target == NULL) {
+        set_last("storage partition missing");
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    /* Validate a complete, exact-size bundle before touching installed art.
+     * We download a second time for the destructive pass because there is no
+     * staging partition; that pass is hash-checked again to reject a changed
+     * response. */
+    esp_err_t err = download_storage_pass(url, expected_sha256, target, false);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    /* Any SPIFFS file descriptors become invalid once erase begins. The UI is
+     * resumed only by the reboot after this point, never against a remounted or
+     * partially-written filesystem. */
+    esp_vfs_spiffs_unregister("storage");
+    if (out_storage_unmounted != NULL) {
+        *out_storage_unmounted = true;
+    }
+    FACULTY175_LOG_STAGE(TAG, "ota", "storage install %uB @0x%lx", (unsigned)target->size,
+                         (unsigned long)target->address);
+    err = esp_partition_erase_range(target, 0, target->size);
+    if (err != ESP_OK) {
+        set_last("storage erase failed: %s", esp_err_to_name(err));
+        return err;
+    }
+    err = download_storage_pass(url, expected_sha256, target, true);
+    if (err == ESP_OK) {
+        set_last("storage installed %uB", (unsigned)target->size);
+    }
+    return err;
+}
+
 static void ota_task(void *arg)
 {
     ota_job_t *job = (ota_job_t *)arg;
@@ -1232,6 +1391,7 @@ static void ota_task(void *arg)
     const esp_partition_t *target = NULL;
     ota_job_t install = *job;
     esp_err_t err = ESP_OK;
+    bool storage_unmounted = false;
     if (job->manifest_url) {
         FACULTY175_LOG_STAGE(TAG, "ota", "manifest %s", job->url);
         memset(&install, 0, sizeof(install));
@@ -1270,24 +1430,44 @@ static void ota_task(void *arg)
             return;
         }
     }
-    if (err == ESP_OK) {
+    if (err == ESP_OK && install.storage_bundle) {
+        FACULTY175_LOG_STAGE(TAG, "ota", "storage %s", install.url);
+        err = stream_install_storage_url(install.url, install.expected_sha256, &storage_unmounted);
+    } else if (err == ESP_OK) {
         FACULTY175_LOG_STAGE(TAG, "ota", "%s %s", install.local_file ? "file" : "fetch", install.url);
         err = install.local_file ? stream_install_file(install.url, install.expected_sha256, install.expected_size, &target)
                                  : stream_install_url(install.url, install.expected_sha256, install.expected_size, &target);
     }
     if (err == ESP_OK) {
         s_ota_state = OTA_STATE_DONE;
-        if (install.expected_sha256[0] != '\0') {
+        if (!install.storage_bundle && install.expected_sha256[0] != '\0') {
             ESP_ERROR_CHECK_WITHOUT_ABORT(nvs_set_last_sha(install.expected_sha256));
         }
-        nvs_clear_pending_url();
-        FACULTY175_LOG_STAGE(TAG, "ota", "installed boot=%s; rebooting", part_label(target));
+        if (!install.storage_bundle) {
+            nvs_clear_pending_url();
+        }
+        if (install.storage_bundle) {
+            FACULTY175_LOG_STAGE(TAG, "ota", "storage installed; rebooting");
+        } else {
+            FACULTY175_LOG_STAGE(TAG, "ota", "installed boot=%s; rebooting", part_label(target));
+        }
         vTaskDelay(pdMS_TO_TICKS(750));
         esp_restart();
     } else {
         s_ota_state = OTA_STATE_ERROR;
         FACULTY175_LOG_STAGE_E(TAG, "ota", "install failed: %s (%s)", esp_err_to_name(err), s_ota_last);
         ota_wifi_performance_end();
+        if (storage_unmounted) {
+            /* A failed destructive pass must not resume code holding stale
+             * SPIFFS descriptors. A clean boot reinitializes the asset mount
+             * (and uses compiled fallback art if the replacement is invalid). */
+            FACULTY175_LOG_STAGE_W(TAG, "ota", "storage pass failed after unmount; rebooting");
+            free(job);
+            vTaskDelay(pdMS_TO_TICKS(750));
+            esp_restart();
+            vTaskDelete(NULL);
+            return;
+        }
         faculty175_display_resume_after_ota_error();
         if (job->from_recovery_request) {
             nvs_clear_pending_url();
@@ -1389,6 +1569,16 @@ static esp_err_t start_file_install_task(const char *path, const char *expected_
     if (expected_sha256 != NULL) {
         strlcpy(job.expected_sha256, expected_sha256, sizeof(job.expected_sha256));
     }
+    return start_install_job(&job);
+}
+
+static esp_err_t start_storage_install_task(const char *url, const char *expected_sha256)
+{
+    ota_job_t job = {
+        .storage_bundle = true,
+    };
+    strlcpy(job.url, url, sizeof(job.url));
+    strlcpy(job.expected_sha256, expected_sha256, sizeof(job.expected_sha256));
     return start_install_job(&job);
 }
 
@@ -1540,6 +1730,7 @@ bool faculty175_ota_handle(const char *line)
         printf("  ota file <usbflash-relative|absolute-path> [sha256]\n");
         printf("  ota usb [sha256]   # default: " OTA_LOCAL_DEFAULT_RELATIVE "\n");
         printf("  ota manifest <https-manifest-url>\n");
+        printf("  ota storage <https-url> <sha256>  # full signed SPIFFS image\n");
         printf("  ota recovery <https-url>\n");
         printf("  ota test-lock <on|off|status>  # non-persistent power-test lock\n");
         printf("  ota auto <seconds|off|status>   # default: %u\n", (unsigned)OTA_AUTO_DEFAULT_INTERVAL_S);
@@ -1725,6 +1916,22 @@ bool faculty175_ota_handle(const char *line)
             err = start_manifest_task(url);
         }
         printf("ota: manifest %s\n", esp_err_to_name(err));
+        fflush(stdout);
+        return true;
+    }
+    if (strncasecmp(sub, "storage ", 8) == 0) {
+        const char *cursor = sub + 8;
+        char url[OTA_URL_MAX];
+        char sha[OTA_SHA256_HEX_LEN + 1];
+        esp_err_t err = take_token(&cursor, url, sizeof(url)) && is_https_url(url) &&
+                                take_token(&cursor, sha, sizeof(sha)) && is_sha256_hex(sha) &&
+                                *skip_spaces(cursor) == '\0'
+                            ? ESP_OK
+                            : ESP_ERR_INVALID_ARG;
+        if (err == ESP_OK) {
+            err = start_storage_install_task(url, sha);
+        }
+        printf("ota: storage %s\n", esp_err_to_name(err));
         fflush(stdout);
         return true;
     }

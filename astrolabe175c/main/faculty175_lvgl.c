@@ -51,7 +51,19 @@
 #define SYNASTRY_ORRERY_MAX_PEOPLE (1 + FACULTY175_CHART_PROFILE_SLOTS)
 #define SYNASTRY_ORRERY_MAX_BONDS ((SYNASTRY_ORRERY_MAX_PEOPLE * (SYNASTRY_ORRERY_MAX_PEOPLE - 1)) / 2)
 
-#define LVGL_DRAW_BUF_ROWS FACULTY175_LCD_H
+/* The CO5300 driver copies LVGL's dirty regions into its own framebuffer.
+ * That is a PARTIAL-render display contract, not LVGL DIRECT mode: alternating
+ * full-screen DIRECT buffers can contain different untouched regions and
+ * produce a half/stale panel after a screen change.  A 64-row render buffer
+ * keeps each flush self-contained and also returns roughly 750 KiB of PSRAM
+ * to the voice pipeline. */
+/*
+ * Keep software-rendering bursts below the task-watchdog window.  A 64-row
+ * RGB565 blend can monopolize CPU0 long enough to starve IDLE0 when PSRAM/cache
+ * traffic is high during LunaSay boot or a voice tour.  Each completed buffer
+ * flush yields, so 16 rows provides four scheduling points for the same area.
+ */
+#define LVGL_DRAW_BUF_ROWS 16
 
 static const char *TAG = "faculty175_lvgl";
 
@@ -61,6 +73,7 @@ static uint8_t *s_draw_buf;
 static uint8_t *s_draw_buf_2;
 static bool s_ready;
 static bool s_direct_display_buffers;
+static bool s_face_transition_preparing;
 static bool s_watch_created;
 static uint32_t s_last_anim_ms;
 static uint32_t s_last_service_ms;
@@ -97,11 +110,14 @@ static lv_obj_t *s_moon_phase_marker;
 static lv_obj_t *s_moon_day_ticks[28];
 static lv_point_precise_t s_moon_day_tick_points[28][2];
 static uint16_t *s_moon_pixels;
-static uint16_t *s_moon_render_pixels;
 static bool s_moon_texture_loaded;
 static bool s_moon_storage_checked;
 static bool s_moon_storage_ready;
-static int s_moon_render_key = INT_MIN;
+static lv_obj_t *s_journal_screen;
+static lv_obj_t *s_journal_bars[16];
+static lv_obj_t *s_conversation_screen;
+static lv_obj_t *s_conversation_rings[3];
+static lv_obj_t *s_conversation_orb;
 static lv_obj_t *s_tarot_screen;
 static lv_obj_t *s_tarot_image;
 static lv_obj_t *s_tarot_title;
@@ -463,6 +479,14 @@ static void display_flush(lv_display_t *display, const lv_area_t *area, uint8_t 
     faculty175_display_flush_rect(area->x1, area->y1, w, h);
     faculty175_display_unlock();
     lv_display_flush_ready(display);
+    /*
+     * A full 466x466 image is rendered as several LVGL draw-buffer areas.
+     * Without a blocking point between areas the UI task can keep CPU0 busy
+     * through the entire frame and starve IDLE0 long enough to trip the task
+     * watchdog. One RTOS tick here is outside the display mutex and keeps
+     * large Moon/face draws cooperative without exposing a partial DMA buffer.
+     */
+    vTaskDelay(1);
 }
 
 static void touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data)
@@ -956,62 +980,17 @@ static float moon_phase_fraction(uint32_t anim_ms)
     return (float)(rev360(moon_lon - sun_lon) / 360.0);
 }
 
-static uint16_t rgb565_dim(uint16_t px, uint8_t dim)
-{
-    const uint16_t r = (uint16_t)((px >> 11) & 0x1f);
-    const uint16_t g = (uint16_t)((px >> 5) & 0x3f);
-    const uint16_t b = (uint16_t)(px & 0x1f);
-    return (uint16_t)((((r * dim) / 255u) << 11) | (((g * dim) / 255u) << 5) | ((b * dim) / 255u));
-}
-
 static void moon_render_shadow(float phase)
 {
-    if (s_moon_pixels == NULL || s_moon_render_pixels == NULL) {
-        return;
-    }
-    const int render_key = (int)lrintf(phase * 720.0f);
-    if (render_key == s_moon_render_key) {
-        return;
-    }
-    s_moon_render_key = render_key;
-
-    const float cx = ((float)FACULTY175_LCD_W - 1.0f) * 0.5f;
-    const float cy = ((float)FACULTY175_LCD_H - 1.0f) * 0.5f;
-    const float radius = 226.0f;
-    const float inv_r = 1.0f / radius;
-    const float terminator = cosf(phase * 6.28318530718f);
-    const bool waxing = phase < 0.5f;
-    for (int y = 0; y < FACULTY175_LCD_H; ++y) {
-        const float ny = ((float)y - cy) * inv_r;
-        const float yy = ny * ny;
-        for (int x = 0; x < FACULTY175_LCD_W; ++x) {
-            const size_t idx = (size_t)y * FACULTY175_LCD_W + (size_t)x;
-            const float nx = ((float)x - cx) * inv_r;
-            const float rr = nx * nx + yy;
-            if (rr > 1.03f) {
-                s_moon_render_pixels[idx] = s_moon_pixels[idx];
-                continue;
-            }
-            const float limb = sqrtf(fmaxf(0.0f, 1.0f - yy));
-            const float edge = terminator * limb;
-            const float lit_side = waxing ? (nx - edge) : (-nx - edge);
-            float shadow = 1.0f - (lit_side + 0.035f) / 0.12f;
-            if (shadow < 0.0f) {
-                shadow = 0.0f;
-            } else if (shadow > 1.0f) {
-                shadow = 1.0f;
-            }
-            const float radial = fminf(1.0f, sqrtf(fmaxf(0.0f, rr)));
-            const float limb_shadow = radial > 0.86f ? (radial - 0.86f) / 0.14f : 0.0f;
-            const uint8_t dim = (uint8_t)lrintf(255.0f - 168.0f * shadow - 34.0f * limb_shadow);
-            s_moon_render_pixels[idx] = rgb565_dim(s_moon_pixels[idx], dim < 36 ? 36 : dim);
-        }
-    }
-    s_moon_texture.data = (const uint8_t *)s_moon_render_pixels;
-    if (s_moon_image != NULL) {
-        lv_image_set_src(s_moon_image, &s_moon_texture);
-        lv_obj_invalidate(s_moon_image);
-    }
+    /*
+     * The terrain is a full-panel RGB565 image.  Rebuilding a second
+     * full-panel image when the Moon screen is entered makes LVGL redraw the
+     * entire 466x466 surface at the same time the panel is being switched.
+     * On the 1.75C this can leave a partially transferred first frame.  Keep
+     * the terrain immutable; the perimeter phase marker is the live phase
+     * indication and updates without repainting the terrain.
+     */
+    (void)phase;
 }
 
 static bool moon_storage_ready(void)
@@ -1066,26 +1045,14 @@ static bool moon_texture_load(void)
         fclose(f);
         return false;
     }
-    s_moon_render_pixels = heap_caps_malloc((size_t)FACULTY175_LCD_W * FACULTY175_LCD_H * sizeof(uint16_t),
-                                            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (s_moon_render_pixels == NULL) {
-        ESP_LOGW(TAG, "moon render pixel alloc failed");
-        heap_caps_free(s_moon_pixels);
-        s_moon_pixels = NULL;
-        fclose(f);
-        return false;
-    }
     const size_t got = fread(s_moon_pixels, 1, expected, f);
     fclose(f);
     if (got != expected) {
         heap_caps_free(s_moon_pixels);
         s_moon_pixels = NULL;
-        heap_caps_free(s_moon_render_pixels);
-        s_moon_render_pixels = NULL;
         ESP_LOGW(TAG, "moon texture short read %u/%u", (unsigned)got, (unsigned)expected);
         return false;
     }
-    memcpy(s_moon_render_pixels, s_moon_pixels, expected);
 
     s_moon_texture = (lv_image_dsc_t) {
         .header = {
@@ -1098,7 +1065,7 @@ static bool moon_texture_load(void)
             .reserved_2 = 0,
         },
         .data_size = FACULTY175_LCD_W * FACULTY175_LCD_H * sizeof(uint16_t),
-        .data = (const uint8_t *)s_moon_render_pixels,
+        .data = (const uint8_t *)s_moon_pixels,
         .reserved = NULL,
         .reserved_2 = NULL,
     };
@@ -1169,9 +1136,8 @@ static void create_moon_screen(void)
     } else {
         s_moon_fallback_disk = make_circle(s_moon_screen, 286, 0xb8b4a8, LV_OPA_COVER);
         lv_obj_center(s_moon_fallback_disk);
-        lv_obj_set_style_border_width(s_moon_fallback_disk, 3, 0);
-        lv_obj_set_style_border_color(s_moon_fallback_disk, lv_color_hex(0xded8c8), 0);
-        lv_obj_set_style_border_opa(s_moon_fallback_disk, 190, 0);
+        /* Keep the lunar disc unframed: the day ticks are its only perimeter
+         * cue, leaving the terrain visually open rather than watch-like. */
         static const int crater_pos[9][3] = {
             {-70, -48, 14}, {-28, 42, 19}, {48, -36, 17}, {72, 34, 10}, {-42, -82, 9},
             {12, -12, 10}, {30, 82, 10}, {-92, 20, 13}, {4, 54, 8},
@@ -3191,7 +3157,7 @@ static const char *utility_title(faculty175_face_id_t id)
         case FACULTY175_FACE_QUOTES: return "QUOTES";
         case FACULTY175_FACE_QDAY: return "QUESTION";
         case FACULTY175_FACE_FOCUS: return "FOCUS";
-        case FACULTY175_FACE_BIOMETRICS: return "BIOMETRICS";
+        case FACULTY175_FACE_BIOMETRICS: return "RING";
         case FACULTY175_FACE_IRONMAN: return "";
         case FACULTY175_FACE_BATTERY: return "";
         case FACULTY175_FACE_WATCHER: return "WATCHER";
@@ -7571,6 +7537,8 @@ bool faculty175_lvgl_face_supported(faculty175_face_id_t id)
         case FACULTY175_FACE_QUOTES:
         case FACULTY175_FACE_SETTINGS:
         case FACULTY175_FACE_POCKETWATCH:
+        case FACULTY175_FACE_JOURNAL:
+        case FACULTY175_FACE_CONVERSATION:
             return true;
         default:
             return false;
@@ -8065,7 +8033,7 @@ static const char *descriptor_subtitle_for_face(const faculty175_face_desc_t *de
         case FACULTY175_FACE_ORIENT: return "Compass";
         case FACULTY175_FACE_QDAY: return "Daily question";
         case FACULTY175_FACE_FOCUS: return "Timer";
-        case FACULTY175_FACE_BIOMETRICS: return "Body state";
+        case FACULTY175_FACE_BIOMETRICS: return "Ring signals";
         case FACULTY175_FACE_IRONMAN: return "Respiration HUD";
         case FACULTY175_FACE_WATCHER: return "Device watch";
         case FACULTY175_FACE_LENORMAND: return "Oracle tableau";
@@ -8123,6 +8091,138 @@ static bool draw_face_descriptor(faculty175_face_id_t id, uint32_t anim_ms)
     return faculty175_lvgl_draw_native_face(&generated, anim_ms);
 }
 
+static lv_obj_t *make_session_rect(lv_obj_t *parent,
+                                   int32_t w,
+                                   int32_t h,
+                                   uint32_t color,
+                                   lv_opa_t opa)
+{
+    lv_obj_t *obj = lv_obj_create(parent);
+    if (obj == NULL) {
+        return NULL;
+    }
+    lv_obj_remove_style_all(obj);
+    lv_obj_set_size(obj, w, h);
+    lv_obj_set_style_bg_color(obj, lv_color_hex(color), 0);
+    lv_obj_set_style_bg_opa(obj, opa, 0);
+    lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    return obj;
+}
+
+static void create_journal_screen(void)
+{
+    s_journal_screen = lv_obj_create(NULL);
+    lv_obj_remove_style_all(s_journal_screen);
+    lv_obj_set_size(s_journal_screen, FACULTY175_LCD_W, FACULTY175_LCD_H);
+    lv_obj_set_style_bg_color(s_journal_screen, lv_color_hex(0x080912), 0);
+    lv_obj_set_style_bg_opa(s_journal_screen, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(s_journal_screen, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *paper = make_session_rect(s_journal_screen, 342, 344, 0x0f101e, LV_OPA_COVER);
+    lv_obj_align(paper, LV_ALIGN_CENTER, 0, 3);
+    lv_obj_set_style_radius(paper, 8, 0);
+    lv_obj_set_style_border_width(paper, 1, 0);
+    lv_obj_set_style_border_color(paper, lv_color_hex(0x29263c), 0);
+
+    lv_obj_t *margin = make_session_rect(s_journal_screen, 2, 300, 0x4b3149, 170);
+    lv_obj_align(margin, LV_ALIGN_CENTER, -132, 3);
+    for (int i = 0; i < 8; ++i) {
+        lv_obj_t *rule = make_session_rect(s_journal_screen, 288, 1, 0x29263c, 150);
+        lv_obj_align(rule, LV_ALIGN_TOP_MID, 10, 96 + i * 34);
+    }
+
+    lv_obj_t *title = make_native_label(s_journal_screen, 24, 260, 0x706985, LV_TEXT_ALIGN_CENTER);
+    lv_label_set_text(title, "JOURNAL");
+    lv_obj_t *status = make_native_label(s_journal_screen, 364, 300, 0xcbb4e7, LV_TEXT_ALIGN_CENTER);
+    lv_label_set_text(status, "ready to remember");
+    lv_obj_t *safe = make_native_label(s_journal_screen, 410, 300, 0x706985, LV_TEXT_ALIGN_CENTER);
+    lv_label_set_text(safe, "recording safely");
+
+    for (int i = 0; i < 16; ++i) {
+        s_journal_bars[i] = make_session_rect(s_journal_screen, 4, 14, 0xcbb4e7, LV_OPA_COVER);
+        lv_obj_align(s_journal_bars[i], LV_ALIGN_CENTER, -75 + i * 10, -14);
+        lv_obj_set_style_radius(s_journal_bars[i], 2, 0);
+    }
+    add_lunasay_settings_gear(s_journal_screen);
+}
+
+static bool draw_journal_lvgl(uint32_t anim_ms)
+{
+    if (s_journal_screen == NULL) {
+        create_journal_screen();
+    }
+    if (s_journal_screen == NULL) {
+        return false;
+    }
+    for (int i = 0; i < 16; ++i) {
+        const float wave = sinf((float)anim_ms * 0.006f + (float)i * 0.72f);
+        const int32_t h = 8 + (int32_t)lrintf((wave + 1.0f) * 13.0f);
+        lv_obj_set_height(s_journal_bars[i], h);
+    }
+    if (lv_screen_active() != s_journal_screen) {
+        lv_screen_load(s_journal_screen);
+    }
+    lvgl_tick(16);
+    lv_timer_handler();
+    return true;
+}
+
+static void create_conversation_screen(void)
+{
+    s_conversation_screen = lv_obj_create(NULL);
+    lv_obj_remove_style_all(s_conversation_screen);
+    lv_obj_set_size(s_conversation_screen, FACULTY175_LCD_W, FACULTY175_LCD_H);
+    lv_obj_set_style_bg_color(s_conversation_screen, lv_color_hex(0x040a0f), 0);
+    lv_obj_set_style_bg_opa(s_conversation_screen, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(s_conversation_screen, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *title = make_native_label(s_conversation_screen, 30, 300, 0x2a4c53, LV_TEXT_ALIGN_CENTER);
+    lv_label_set_text(title, "CONVERSATION");
+    for (int i = 0; i < 3; ++i) {
+        s_conversation_rings[i] = make_circle(s_conversation_screen, 150 + i * 54, 0x000000, LV_OPA_TRANSP);
+        lv_obj_center(s_conversation_rings[i]);
+        lv_obj_set_style_border_width(s_conversation_rings[i], i == 0 ? 2 : 1, 0);
+        lv_obj_set_style_border_color(s_conversation_rings[i], lv_color_hex(i == 0 ? 0x6fe2cd : 0x2a4c53), 0);
+        lv_obj_set_style_border_opa(s_conversation_rings[i], i == 0 ? 210 : 130, 0);
+    }
+    s_conversation_orb = make_circle(s_conversation_screen, 82, 0x3b9d91, LV_OPA_COVER);
+    lv_obj_center(s_conversation_orb);
+    lv_obj_set_style_shadow_width(s_conversation_orb, 36, 0);
+    lv_obj_set_style_shadow_color(s_conversation_orb, lv_color_hex(0x6fe2cd), 0);
+    lv_obj_set_style_shadow_opa(s_conversation_orb, 80, 0);
+
+    lv_obj_t *status = make_native_label(s_conversation_screen, 360, 300, 0xe0ebe8, LV_TEXT_ALIGN_CENTER);
+    lv_label_set_text(status, "ready · listening");
+    lv_obj_t *hint = make_native_label(s_conversation_screen, 392, 300, 0x2a4c53, LV_TEXT_ALIGN_CENTER);
+    lv_label_set_text(hint, "tap to interrupt");
+    add_lunasay_settings_gear(s_conversation_screen);
+}
+
+static bool draw_conversation_lvgl(uint32_t anim_ms)
+{
+    if (s_conversation_screen == NULL) {
+        create_conversation_screen();
+    }
+    if (s_conversation_screen == NULL) {
+        return false;
+    }
+    for (int i = 0; i < 3; ++i) {
+        const float wave = sinf((float)anim_ms * 0.004f + (float)i * 1.1f);
+        const int32_t size = 150 + i * 54 + (int32_t)lrintf((wave + 1.0f) * 5.0f);
+        lv_obj_set_size(s_conversation_rings[i], size, size);
+        lv_obj_center(s_conversation_rings[i]);
+    }
+    const int32_t orb_size = 82 + (int32_t)lrintf((sinf((float)anim_ms * 0.005f) + 1.0f) * 4.0f);
+    lv_obj_set_size(s_conversation_orb, orb_size, orb_size);
+    lv_obj_center(s_conversation_orb);
+    if (lv_screen_active() != s_conversation_screen) {
+        lv_screen_load(s_conversation_screen);
+    }
+    lvgl_tick(16);
+    lv_timer_handler();
+    return true;
+}
+
 static void lunasay_release_inactive_screens(faculty175_face_id_t keep_id)
 {
 #if defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
@@ -8135,6 +8235,8 @@ static void lunasay_release_inactive_screens(faculty175_face_id_t keep_id)
         {FACULTY175_FACE_TRANSITS, &s_transits_screen},
         {FACULTY175_FACE_SYNASTRY, &s_synastry_screen},
         {FACULTY175_FACE_SKY, &s_sky_screen},
+        {FACULTY175_FACE_JOURNAL, &s_journal_screen},
+        {FACULTY175_FACE_CONVERSATION, &s_conversation_screen},
     };
 
     for (size_t i = 0; i < sizeof(faces) / sizeof(faces[0]); ++i) {
@@ -8142,6 +8244,19 @@ static void lunasay_release_inactive_screens(faculty175_face_id_t keep_id)
             continue;
         }
         lv_obj_t *screen = *faces[i].screen;
+        /*
+         * LVGL retains the outgoing screen in prev_scr until its screen-load
+         * animation completion callback runs.  Deleting it while referenced
+         * leaves invalidation walking a poisoned object tree on the next
+         * frame.  A later draw will release it after LVGL clears the
+         * transition references.
+         */
+        lv_display_t *display = lv_obj_get_display(screen);
+        if (display != NULL &&
+            (lv_display_get_screen_prev(display) == screen ||
+             lv_display_get_screen_loading(display) == screen)) {
+            continue;
+        }
         if (lv_screen_active() == screen) {
             lv_obj_t *idle = idle_screen();
             if (idle == NULL) {
@@ -8181,7 +8296,9 @@ bool faculty175_lvgl_draw_face(faculty175_face_id_t id, uint32_t anim_ms)
      * every object-heavy LunaSay screen alive eventually makes LVGL object
      * allocation fail while entering Synastry. Retain only the active face;
      * its screen is rebuilt on the next visit. */
-    lunasay_release_inactive_screens(id);
+    if (!s_face_transition_preparing) {
+        lunasay_release_inactive_screens(id);
+    }
 
     if (instrument_face_id(id)) {
         return draw_instrument(id, anim_ms);
@@ -8232,6 +8349,10 @@ bool faculty175_lvgl_draw_face(faculty175_face_id_t id, uint32_t anim_ms)
             return draw_solar(anim_ms);
         case FACULTY175_FACE_MAGNETOSPHERE:
             return draw_magnetosphere(anim_ms);
+        case FACULTY175_FACE_JOURNAL:
+            return draw_journal_lvgl(anim_ms);
+        case FACULTY175_FACE_CONVERSATION:
+            return draw_conversation_lvgl(anim_ms);
         default:
             return draw_face_descriptor(id, anim_ms);
     }
@@ -8263,6 +8384,10 @@ static lv_obj_t *face_screen_for_id(faculty175_face_id_t id)
             return s_watch_screen;
         case FACULTY175_FACE_MOON:
             return s_moon_screen;
+        case FACULTY175_FACE_JOURNAL:
+            return s_journal_screen;
+        case FACULTY175_FACE_CONVERSATION:
+            return s_conversation_screen;
         case FACULTY175_FACE_TAROT:
             return s_tarot_screen;
         case FACULTY175_FACE_RUNES:
@@ -8309,6 +8434,8 @@ static int face_screen_slot_for_id(faculty175_face_id_t id)
         case FACULTY175_FACE_POCKETWATCH:
             return 1003;
         case FACULTY175_FACE_MOON:
+        case FACULTY175_FACE_JOURNAL:
+        case FACULTY175_FACE_CONVERSATION:
         case FACULTY175_FACE_TAROT:
         case FACULTY175_FACE_RUNES:
         case FACULTY175_FACE_ALETHIOMETER:
@@ -8354,7 +8481,10 @@ bool faculty175_lvgl_transition_face(faculty175_face_id_t from_id,
     if (suspend_preload_flush) {
         faculty175_display_flush_suspended_set(true);
     }
-    if (!faculty175_lvgl_draw_face(to_id, anim_ms)) {
+    s_face_transition_preparing = true;
+    const bool destination_ready = faculty175_lvgl_draw_face(to_id, anim_ms);
+    s_face_transition_preparing = false;
+    if (!destination_ready) {
         if (suspend_preload_flush) {
             faculty175_display_flush_suspended_set(false);
         }
@@ -8366,6 +8496,7 @@ bool faculty175_lvgl_transition_face(faculty175_face_id_t from_id,
 
     lv_obj_t *to_screen = face_screen_for_id(to_id);
     if (!suspend_preload_flush || from_screen == NULL || to_screen == NULL || from_screen == to_screen) {
+        lunasay_release_inactive_screens(to_id);
         return true;
     }
 
@@ -8404,5 +8535,6 @@ bool faculty175_lvgl_transition_face(faculty175_face_id_t from_id,
                         metric_start_us,
                         metric_frames,
                         metric_max_gap_ms);
+    lunasay_release_inactive_screens(to_id);
     return true;
 }

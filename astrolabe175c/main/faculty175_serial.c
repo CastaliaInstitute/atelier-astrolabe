@@ -1366,9 +1366,18 @@ static bool handle_button_command(const char *line)
     if (*sub == '\0' || strcasecmp(sub, "press") == 0 || strcasecmp(sub, "tap") == 0) {
         faculty175_button_inject_press();
         printf("button: inject ESP_OK\n");
+    } else if (strcasecmp(sub, "tts") == 0) {
+        /*
+         * The physical button is context-sensitive and normally begins an STT
+         * turn when the duplex pipeline is ready.  This explicit virtual TTS
+         * control models pressing the speaker control in the Wi-Fi/PWA tour.
+         */
+        printf("button: tts %s\n",
+               faculty175_request_current_face_tts() ? "ESP_OK" : "ESP_FAIL");
     } else {
         printf("button commands:\n");
         printf("  button press\n");
+        printf("  button tts\n");
     }
     fflush(stdout);
     return true;
@@ -2079,6 +2088,27 @@ esp_err_t faculty175_serial_submit_remote(const char *line)
 {
     if (line == NULL || line[0] == '\0' || strlen(line) >= 320 || strchr(line, '\n') != NULL || strchr(line, '\r') != NULL) {
         return ESP_ERR_INVALID_ARG;
+    }
+
+    /*
+     * Gesture controls already terminate in a thread-safe queue. Execute them
+     * from the authenticated HTTP task instead of
+     * routing through serial_task: serial_task also drains CDC and can block
+     * behind USB log backpressure even though the Wi-Fi request was accepted.
+     */
+    if (strncasecmp(line, "gesture ", 8) == 0 || strncasecmp(line, "gestures ", 9) == 0) {
+        const char *sub = strchr(line, ' ');
+        faculty175_gesture_kind_t kind = FACULTY175_GESTURE_NONE;
+        int16_t value = 0;
+        if (sub == NULL || !parse_gesture_kind(sub + 1, &kind, &value)) {
+            return ESP_ERR_INVALID_ARG;
+        }
+        return faculty175_gesture_inject(kind,
+                                         FACULTY175_LCD_W / 2,
+                                         FACULTY175_LCD_H / 2,
+                                         value)
+                   ? ESP_OK
+                   : ESP_ERR_INVALID_STATE;
     }
     if (s_remote_command_queue == NULL) {
         return ESP_ERR_INVALID_STATE;
