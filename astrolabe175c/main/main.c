@@ -1556,12 +1556,22 @@ static void build_face_read_prompt(const faculty175_face_desc_t *face, char *out
             prompt_append(out, cap, &off,
                           "The visible data is live solar activity imagery from NASA when cached; summarize the map state and say if live data appears unavailable. ");
             break;
+        case FACULTY175_FACE_ASTROLOGY:
+            prompt_append(out,
+                          cap,
+                          &off,
+                          "The visible face is Inner Weather: a friendly ten-day symbolic outlook derived from the user's natal chart and current transits. "
+                          "Self-reported mood is %s; treat that as present-moment context, never as proof that the astrology is correct. "
+                          "Name today's condition in plain language, explain one supporting chart factor, and offer one grounded choice. Never predict an event. ",
+                          faculty175_face_psych_state_mood_label());
+            break;
         case FACULTY175_FACE_SYNASTRY:
             append_synastry_prompt(out, cap, &off);
             prompt_append(out,
                           cap,
                           &off,
-                          "Tie emotional state context into compatibility and shared pattern cues. ");
+                          "The primary user's self-reported mood is %s. Treat it as temporary context, not a trait or compatibility score, and never infer another family member's mood from it. ",
+                          faculty175_face_psych_state_mood_label());
             break;
         case FACULTY175_FACE_PARTNER_WELLNESS:
             append_family_wellness_prompt(out, cap, &off);
@@ -1593,7 +1603,8 @@ static void build_face_read_prompt(const faculty175_face_desc_t *face, char *out
             prompt_append(out,
                           cap,
                           &off,
-                          "This is a psychological-state status face; state is already paired remotely and should be described briefly and accurately. ");
+                          "This is the private Mood Check-in face. The user selected %s. Reflect it back without diagnosis or interpretation, and invite them to change it whenever it no longer fits. ",
+                          faculty175_face_psych_state_mood_label());
             break;
         case FACULTY175_FACE_RUNES: {
             int spread[3] = {};

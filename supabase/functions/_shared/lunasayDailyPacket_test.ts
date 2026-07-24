@@ -16,6 +16,9 @@ Deno.test("LunaSay daily instruction makes Family Synastry relational and safe",
   for (
     const required of [
       "Family Synastry",
+      "Inner Weather",
+      "Relationship Weather",
+      "symbolic outlook",
       "reciprocal system",
       "three compact beats",
       "parentify a child",
@@ -197,7 +200,8 @@ Deno.test("LunaSay fallback still provides every cacheable face", () => {
   if (
     packet.faces.tarot.cardName !== "The Star" ||
     packet.faces.conversation.mode !== "live_question" ||
-    packet.faces.synastry.title !== "Family" ||
+    packet.faces.astrology.title !== "Inner Weather" ||
+    packet.faces.synastry.title !== "Relationship Weather" ||
     !packet.faces.synastry.spoken.includes("repair")
   ) {
     throw new Error("fallback packet is incomplete");

@@ -18,6 +18,7 @@
 #define PSYCH_STATE_NVS_MOUTH "mouth"
 #define PSYCH_STATE_NVS_AROUSAL "arousal"
 #define PSYCH_STATE_NVS_VALENCE "valence"
+#define PSYCH_STATE_NVS_MOOD "mood"
 #define PSYCH_STATE_DEFAULT_SKIN 1
 #define PSYCH_STATE_DEFAULT_HAIR 0
 #define PSYCH_STATE_DEFAULT_EYE 2
@@ -35,6 +36,7 @@
 #define PSYCH_STATE_NOSE_COUNT 5
 #define PSYCH_STATE_MOUTH_COUNT 6
 #define PSYCH_STATE_EMOTION_COUNT 101
+#define PSYCH_STATE_MOOD_COUNT 6
 
 typedef enum {
     PSYCH_STYLE_SKIN = 0,
@@ -87,7 +89,23 @@ static psych_state_style_opt_t s_style[] = {
 };
 
 static bool s_loaded;
-static psych_state_style_field_t s_focus = PSYCH_STYLE_SKIN;
+static psych_state_style_field_t s_focus = PSYCH_STYLE_COUNT;
+static uint8_t s_mood;
+
+typedef struct {
+    const char *label;
+    uint8_t arousal;
+    uint8_t valence;
+} psych_state_mood_t;
+
+static const psych_state_mood_t k_moods[PSYCH_STATE_MOOD_COUNT] = {
+    {"CALM", 30, 65},
+    {"BRIGHT", 65, 85},
+    {"TENDER", 35, 45},
+    {"LOW", 25, 20},
+    {"TENSE", 80, 25},
+    {"ENERGIZED", 90, 70},
+};
 
 static const char *k_skin_names[PSYCH_STATE_SKIN_COUNT] = {
     "Default",
@@ -431,6 +449,7 @@ static void save_style_style(void)
     (void)nvs_set_u8(nvs, PSYCH_STATE_NVS_MOUTH, s_style[PSYCH_STYLE_MOUTH].value);
     (void)nvs_set_u8(nvs, PSYCH_STATE_NVS_AROUSAL, s_style[PSYCH_STYLE_AROUSAL].value);
     (void)nvs_set_u8(nvs, PSYCH_STATE_NVS_VALENCE, s_style[PSYCH_STYLE_VALENCE].value);
+    (void)nvs_set_u8(nvs, PSYCH_STATE_NVS_MOOD, s_mood);
     (void)nvs_commit(nvs);
     nvs_close(nvs);
 }
@@ -455,6 +474,7 @@ static void ensure_style_loaded(void)
     nvs_get_u8(nvs, PSYCH_STATE_NVS_MOUTH, &s_style[PSYCH_STYLE_MOUTH].value);
     nvs_get_u8(nvs, PSYCH_STATE_NVS_AROUSAL, &s_style[PSYCH_STYLE_AROUSAL].value);
     nvs_get_u8(nvs, PSYCH_STATE_NVS_VALENCE, &s_style[PSYCH_STYLE_VALENCE].value);
+    nvs_get_u8(nvs, PSYCH_STATE_NVS_MOOD, &s_mood);
     nvs_close(nvs);
 
     normalize_field(PSYCH_STYLE_SKIN, &s_style[PSYCH_STYLE_SKIN].value);
@@ -466,6 +486,9 @@ static void ensure_style_loaded(void)
     normalize_field(PSYCH_STYLE_MOUTH, &s_style[PSYCH_STYLE_MOUTH].value);
     normalize_field(PSYCH_STYLE_AROUSAL, &s_style[PSYCH_STYLE_AROUSAL].value);
     normalize_field(PSYCH_STYLE_VALENCE, &s_style[PSYCH_STYLE_VALENCE].value);
+    if (s_mood >= PSYCH_STATE_MOOD_COUNT) {
+        s_mood = 0;
+    }
 }
 
 static const char *style_name_for(psych_state_style_field_t field, uint8_t value)
@@ -627,7 +650,13 @@ void faculty175_face_psych_state_draw(uint32_t anim_ms)
         (void)strip;
     }
 
+    s_style[PSYCH_STYLE_AROUSAL].value = k_moods[s_mood].arousal;
+    s_style[PSYCH_STYLE_VALENCE].value = k_moods[s_mood].valence;
     draw_memoji_face(&state);
+    faculty175_display_draw_text("HOW ARE YOU?", 192, 54, psych_color(224, 232, 246));
+    faculty175_display_draw_text("<", 74, 410, psych_color(145, 172, 206));
+    faculty175_display_draw_text(k_moods[s_mood].label, 205, 410, psych_color(224, 232, 246));
+    faculty175_display_draw_text(">", 397, 410, psych_color(145, 172, 206));
 
     faculty175_display_flush();
 }
@@ -636,27 +665,47 @@ bool faculty175_face_psych_state_action(uint32_t seed_ms)
 {
     (void)seed_ms;
     ensure_style_loaded();
-    s_focus = (psych_state_style_field_t)((int)s_focus + 1 == PSYCH_STYLE_COUNT ? 0 : (int)s_focus + 1);
+    s_mood = cycle_value(s_mood, 1, PSYCH_STATE_MOOD_COUNT);
+    save_style_style();
     return true;
 }
 
 bool faculty175_face_psych_state_tap(int16_t x, int16_t y)
 {
-    psych_state_style_field_t field = PSYCH_STYLE_SKIN;
-    if (!psych_state_style_hit(x, y, &field)) {
+    (void)y;
+    ensure_style_loaded();
+    if (x < 0 || x >= FACULTY175_LCD_W) {
         return false;
     }
-    s_focus = field;
+    s_mood = cycle_value(s_mood, x < FACULTY175_LCD_W / 2 ? -1 : 1, PSYCH_STATE_MOOD_COUNT);
+    save_style_style();
     return true;
 }
 
 bool faculty175_face_psych_state_style_delta(int delta)
 {
     ensure_style_loaded();
-    if (delta == 0 || s_focus >= PSYCH_STYLE_COUNT) {
+    if (delta == 0) {
         return false;
     }
-    s_style[s_focus].value = cycle_value(s_style[s_focus].value, delta, style_count_for(s_focus));
+    s_mood = cycle_value(s_mood, delta, PSYCH_STATE_MOOD_COUNT);
     save_style_style();
     return true;
+}
+
+const char *faculty175_face_psych_state_mood_label(void)
+{
+    ensure_style_loaded();
+    return k_moods[s_mood].label;
+}
+
+void faculty175_face_psych_state_mood_values(uint8_t *arousal, uint8_t *valence)
+{
+    ensure_style_loaded();
+    if (arousal != NULL) {
+        *arousal = k_moods[s_mood].arousal;
+    }
+    if (valence != NULL) {
+        *valence = k_moods[s_mood].valence;
+    }
 }

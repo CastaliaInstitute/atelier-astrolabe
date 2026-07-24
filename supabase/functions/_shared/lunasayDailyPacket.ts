@@ -239,6 +239,8 @@ export function buildLunaSayDailyPacketInstruction(params: {
     "accent is one of moon, violet, amber, blue, rose, silver.",
     "Use short fields by default: title <= 24 chars; headline <= 42; display <= 80; spoken <= 150; detail <= 180. One sentence per field is normally enough.",
     "Make each face independently useful. spoken must be natural, soft, and ready for TTS; it should not mention JSON or instructions.",
+    "Present astrology as Inner Weather and synastry as Relationship Weather. Their headline must be one friendly condition from Clear, Warm, Shifting, Inward, Tender, Changeable, Easy, Open, or Intense, chosen from the supplied chart and transit facts rather than invented mood data.",
+    "For both weather faces, display gives one humane orientation and spoken explains what the condition may feel like plus one choice the person can make. detail preserves the astrological depth by naming the one or two supplied natal/transit factors that most support the metaphor. Describe a symbolic outlook, never a deterministic forecast.",
     "Synastry is Family Synastry, not romance with relabeled people. Use only family members and roles present in the facts. Treat the family as a reciprocal system: no person is the problem, and do not rank, compare, blame, diagnose, parentify a child, or make compatibility verdicts.",
     "For synastry only, spoken may be 150–300 characters and detail may be up to 360. Use three compact beats: name one mutual dynamic in plain language; distinguish a durable natal tendency from today's temporary relationship weather; offer one specific care or repair practice. Keep astrology as supporting evidence rather than leading with planet jargon.",
     "If wellness facts are present, translate them into privacy-preserving care context such as lower capacity, need for rest, or need for space. Never recite raw measurements or treat temporary biometrics as personality.",
@@ -279,11 +281,22 @@ export function lunaSayDailyPacketFallback(params: {
     generatedAt: new Date().toISOString(),
     faces: {
       moon: daily("Moon", "moon"),
-      astrology: daily("Astrology", "violet"),
+      astrology: {
+        mode: "daily",
+        title: "Inner Weather",
+        headline: "Shifting",
+        display:
+          "Stay flexible and notice what changes before choosing a direction.",
+        spoken:
+          "Your inner weather is shifting. Give yourself room to notice what changes, then choose one grounded next step.",
+        detail:
+          "A symbolic outlook needs current chart facts; this gentle fallback makes no astrological claim.",
+        accent: "violet",
+      },
       transits: daily("Transits", "amber"),
       synastry: {
         mode: "daily",
-        title: "Family",
+        title: "Relationship Weather",
         headline: "Protect the bond",
         display: "Notice the pattern without making one person the problem.",
         spoken:

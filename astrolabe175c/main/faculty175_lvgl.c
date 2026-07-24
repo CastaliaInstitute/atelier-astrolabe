@@ -256,6 +256,12 @@ static lv_obj_t *s_astrology_natal[7];
 static lv_obj_t *s_astrology_title;
 static lv_obj_t *s_astrology_line;
 static lv_obj_t *s_astrology_source;
+static lv_obj_t *s_astrology_weather_days[10];
+static lv_obj_t *s_astrology_weather_symbols[10];
+static lv_obj_t *s_astrology_weather_day_labels[10];
+static lv_obj_t *s_astrology_weather_main;
+static lv_obj_t *s_astrology_weather_main_symbol;
+static lv_obj_t *s_astrology_weather_guidance;
 static lv_obj_t *s_synastry_screen;
 static lv_obj_t *s_synastry_rings[5];
 static lv_obj_t *s_synastry_spokes[12];
@@ -6019,6 +6025,119 @@ static void astrology_draw_zodiac_glyph(int sign, int cx, int cy, bool highlight
     }
 }
 
+typedef enum {
+    ASTROLOGY_WEATHER_CLEAR = 0,
+    ASTROLOGY_WEATHER_WARM,
+    ASTROLOGY_WEATHER_SHIFTING,
+    ASTROLOGY_WEATHER_INWARD,
+    ASTROLOGY_WEATHER_INTENSE,
+} astrology_weather_t;
+
+static double astrology_weather_sep(double a, double b)
+{
+    double d = fabs((double)astrology_wrap360((float)a) - (double)astrology_wrap360((float)b));
+    return d > 180.0 ? 360.0 - d : d;
+}
+
+static astrology_weather_t astrology_weather_for_day(const faculty175_chart_positions_t *natal, int day)
+{
+    if (natal == NULL || !natal->ok) {
+        return ASTROLOGY_WEATHER_SHIFTING;
+    }
+    faculty175_chart_positions_t transit = {};
+    time_t epoch = astrolabe_time_valid() ? astrolabe_time_now() : (time_t)1784246400;
+    if (!faculty175_charts_positions_at(epoch + (time_t)day * 86400, &transit)) {
+        return ASTROLOGY_WEATHER_SHIFTING;
+    }
+
+    static const int aspects[] = {0, 60, 90, 120, 180};
+    static const float tone[] = {0.30f, 0.66f, -0.82f, 1.0f, -0.64f};
+    float score = 0.0f;
+    for (int body = 0; body < FACULTY175_CHART_BODY_COUNT; ++body) {
+        for (int natal_body = 0; natal_body < FACULTY175_CHART_BODY_COUNT; ++natal_body) {
+            const double sep = astrology_weather_sep(transit.lon[body], natal->lon[natal_body]);
+            for (size_t ai = 0; ai < sizeof(aspects) / sizeof(aspects[0]); ++ai) {
+                const double orb = fabs(sep - (double)aspects[ai]);
+                if (orb <= 5.5) {
+                    const float exact = 1.0f - (float)(orb / 5.5);
+                    const float personal = (body < 2 || natal_body < 2) ? 1.3f : 0.72f;
+                    score += tone[ai] * exact * personal;
+                    break;
+                }
+            }
+        }
+    }
+    if (score >= 2.5f) return ASTROLOGY_WEATHER_CLEAR;
+    if (score >= 0.7f) return ASTROLOGY_WEATHER_WARM;
+    if (score > -0.9f) return ASTROLOGY_WEATHER_SHIFTING;
+    if (score > -2.8f) return ASTROLOGY_WEATHER_INWARD;
+    return ASTROLOGY_WEATHER_INTENSE;
+}
+
+static uint32_t astrology_weather_color(astrology_weather_t weather)
+{
+    static const uint32_t colors[] = {0xffcf62, 0xf2b7d2, 0xa5b5d6, 0x7399c6, 0xa07bd4};
+    return colors[(int)weather];
+}
+
+static const char *astrology_weather_symbol(astrology_weather_t weather)
+{
+    static const char *const symbols[] = {"*", "o", "~", ":", "!"};
+    return symbols[(int)weather];
+}
+
+static const char *astrology_weather_name(astrology_weather_t weather)
+{
+    static const char *const names[] = {"CLEAR", "WARM", "SHIFTING", "INWARD", "INTENSE"};
+    return names[(int)weather];
+}
+
+static const char *astrology_weather_guidance(astrology_weather_t weather)
+{
+    static const char *const guidance[] = {
+        "Use the opening",
+        "Follow what feels alive",
+        "Stay flexible; notice what changes",
+        "Make room for quiet",
+        "Move slowly; choose what matters",
+    };
+    return guidance[(int)weather];
+}
+
+static void astrology_update_weather(const faculty175_chart_positions_t *natal)
+{
+    const int cx = FACULTY175_LCD_W / 2;
+    const int cy = FACULTY175_LCD_H / 2 + 2;
+    for (int day = 0; day < 10; ++day) {
+        const astrology_weather_t weather = astrology_weather_for_day(natal, day);
+        const float angle = -1.5707963f + (float)day * 6.2831853f / 10.0f;
+        const int x = cx + (int)lrintf(cosf(angle) * 184.0f);
+        const int y = cy + (int)lrintf(sinf(angle) * 184.0f);
+        lv_obj_set_style_bg_color(s_astrology_weather_days[day],
+                                  lv_color_hex(astrology_weather_color(weather)), 0);
+        lv_obj_set_style_border_color(s_astrology_weather_days[day],
+                                      lv_color_hex(day == 0 ? 0xffffff : 0x33405a), 0);
+        lv_obj_set_style_border_width(s_astrology_weather_days[day], day == 0 ? 3 : 1, 0);
+        lv_obj_align(s_astrology_weather_days[day], LV_ALIGN_TOP_LEFT, x - 17, y - 17);
+        lv_label_set_text(s_astrology_weather_symbols[day], astrology_weather_symbol(weather));
+        lv_obj_center(s_astrology_weather_symbols[day]);
+        char label[4];
+        snprintf(label, sizeof(label), "%s%d", day == 0 ? "" : "+", day);
+        lv_label_set_text(s_astrology_weather_day_labels[day], label);
+        lv_obj_align(s_astrology_weather_day_labels[day], LV_ALIGN_TOP_LEFT, x - 10, y + 18);
+    }
+
+    const astrology_weather_t today = astrology_weather_for_day(natal, 0);
+    lv_obj_set_style_bg_color(s_astrology_weather_main,
+                              lv_color_hex(astrology_weather_color(today)), 0);
+    lv_label_set_text(s_astrology_weather_main_symbol, astrology_weather_symbol(today));
+    lv_obj_center(s_astrology_weather_main_symbol);
+    char guidance[96];
+    snprintf(guidance, sizeof(guidance), "%s  -  %s",
+             astrology_weather_name(today), astrology_weather_guidance(today));
+    almanac_set_trimmed(s_astrology_weather_guidance, guidance, 48);
+}
+
 static void create_astrology_screen(void)
 {
     s_astrology_screen = lv_obj_create(NULL);
@@ -6079,6 +6198,24 @@ static void create_astrology_screen(void)
     lv_obj_set_style_text_align(s_astrology_line, LV_TEXT_ALIGN_CENTER, 0);
     s_astrology_source = make_tarot_label(s_astrology_screen, 394, 300, 0xbeaa70);
     native_obj_hidden(s_astrology_source, true);
+
+    for (int day = 0; day < 10; ++day) {
+        s_astrology_weather_days[day] = make_circle(s_astrology_screen, 34, 0xa5b5d6, LV_OPA_COVER);
+        s_astrology_weather_symbols[day] =
+            make_tarot_label(s_astrology_weather_days[day], 0, 28, 0x111522);
+        lv_obj_set_style_text_align(s_astrology_weather_symbols[day], LV_TEXT_ALIGN_CENTER, 0);
+        s_astrology_weather_day_labels[day] = make_tarot_label(s_astrology_screen, 0, 22, 0x9aa6bf);
+        lv_obj_set_style_text_align(s_astrology_weather_day_labels[day], LV_TEXT_ALIGN_CENTER, 0);
+    }
+    s_astrology_weather_main = make_circle(s_astrology_screen, 112, 0xffcf62, LV_OPA_COVER);
+    lv_obj_center(s_astrology_weather_main);
+    lv_obj_set_style_border_width(s_astrology_weather_main, 3, 0);
+    lv_obj_set_style_border_color(s_astrology_weather_main, lv_color_hex(0xfff0c4), 0);
+    s_astrology_weather_main_symbol =
+        make_tarot_label(s_astrology_weather_main, 0, 64, 0x131522);
+    lv_obj_set_style_text_align(s_astrology_weather_main_symbol, LV_TEXT_ALIGN_CENTER, 0);
+    s_astrology_weather_guidance = make_tarot_label(s_astrology_screen, 300, 410, 0xe8dfef);
+    lv_obj_set_style_text_align(s_astrology_weather_guidance, LV_TEXT_ALIGN_CENTER, 0);
     add_lunasay_settings_gear(s_astrology_screen);
 }
 
@@ -6094,57 +6231,40 @@ static bool draw_astrology(uint32_t anim_ms)
         lv_screen_load(s_astrology_screen);
     }
 
-    float transit_lon[7];
-    astrology_local_ephemeris(anim_ms, transit_lon);
     faculty175_charts_ensure_family_seed();
     faculty175_birth_chart_t natal = {};
     faculty175_chart_positions_t natal_pos = {};
     const bool has_natal = faculty175_charts_primary(&natal) &&
                            faculty175_charts_birth_positions(&natal, &natal_pos);
-    const int sun_sign = ((int)(transit_lon[0] / 30.0f)) % 12;
-
-    const int cx = FACULTY175_LCD_W / 2;
-    const int cy = FACULTY175_LCD_H / 2 + 2;
-    for (int i = 0; i < 12; ++i) {
-        const float a = -1.5707963f + ((float)i + 0.5f) * 6.2831853f / 12.0f;
-        const int gx = cx + (int)lrintf(cosf(a) * 174.0f);
-        const int gy = cy + (int)lrintf(sinf(a) * 174.0f);
-        astrology_draw_zodiac_glyph(i, gx, gy, i == sun_sign);
-    }
 
     for (int i = 0; i < 7; ++i) {
-        const int r_planet = 132 - (i % 2) * 18;
-        int x = 0;
-        int y = 0;
-        astrology_xy_for_lon(transit_lon[i], r_planet, &x, &y);
-        const int sz = i == 0 ? 24 : 20;
-        lv_obj_align(s_astrology_bodies[i], LV_ALIGN_TOP_LEFT, x - sz / 2, y - sz / 2);
-        lv_obj_align(s_astrology_body_labels[i], LV_ALIGN_TOP_LEFT, x - 14, y - 7);
-        lv_obj_set_style_text_color(s_astrology_body_labels[i], lv_color_hex(i == 0 ? 0x291d06 : 0x10131c), 0);
-
-        if (has_natal && i < FACULTY175_CHART_BODY_COUNT) {
-            astrology_xy_for_lon(natal_pos.lon[i], 94, &x, &y);
-            const int nsz = i == 0 ? 10 : 7;
-            lv_obj_align(s_astrology_natal[i], LV_ALIGN_TOP_LEFT, x - nsz / 2, y - nsz / 2);
-            native_obj_hidden(s_astrology_natal[i], false);
-        } else {
-            native_obj_hidden(s_astrology_natal[i], true);
-        }
+        native_obj_hidden(s_astrology_bodies[i], true);
+        native_obj_hidden(s_astrology_body_labels[i], true);
+        native_obj_hidden(s_astrology_natal[i], true);
+    }
+    for (int i = 0; i < 4; ++i) {
+        native_obj_hidden(s_astrology_rings[i], i != 0);
+    }
+    for (int i = 0; i < 12; ++i) {
+        native_obj_hidden(s_astrology_spokes[i], true);
+        native_obj_hidden(s_astrology_signs[i], true);
+        astrology_glyph_clear(i);
     }
 
-    native_obj_hidden(s_astrology_title, true);
-    native_obj_hidden(s_astrology_source, true);
-    char line[96];
     if (has_natal) {
-        snprintf(line, sizeof(line), "%s  n.Su %s  t.Su %s", natal.name,
-                 faculty175_charts_zodiac_abbr(natal_pos.lon[0]),
-                 k_lvgl_astro_signs[sun_sign]);
+        lv_label_set_text(s_astrology_title, "INNER WEATHER");
+        almanac_set_trimmed(s_astrology_line, natal.name, 28);
+        lv_label_set_text(s_astrology_source, "10 DAY SYMBOLIC OUTLOOK");
+        native_obj_hidden(s_astrology_title, false);
+        native_obj_hidden(s_astrology_source, false);
+        astrology_update_weather(&natal_pos);
     } else {
-        snprintf(line, sizeof(line), "Su %s  Mo %s",
-                 k_lvgl_astro_signs[(int)(transit_lon[0] / 30.0f) % 12],
-                 k_lvgl_astro_signs[(int)(transit_lon[1] / 30.0f) % 12]);
+        lv_label_set_text(s_astrology_title, "INNER WEATHER");
+        lv_label_set_text(s_astrology_line, "ADD BIRTH DETAILS");
+        lv_label_set_text(s_astrology_source, "Settings opens your personal forecast");
+        native_obj_hidden(s_astrology_title, false);
+        native_obj_hidden(s_astrology_source, false);
     }
-    lv_label_set_text(s_astrology_line, line);
 
     lv_obj_invalidate(s_astrology_screen);
     lvgl_tick(16);
@@ -6737,13 +6857,13 @@ static uint32_t synastry_weather_color(synastry_weather_t weather)
 
 static const char *synastry_weather_symbol(synastry_weather_t weather)
 {
-    static const char *const symbols[] = {"*", "+", "~", "|", "!"};
+    static const char *const symbols[] = {"*", "o", "~", ":", "!"};
     return symbols[(int)weather];
 }
 
 static const char *synastry_weather_name(synastry_weather_t weather)
 {
-    static const char *const names[] = {"OPEN SKIES", "FAIR", "CHANGEABLE", "TENDER RAIN", "STORM WATCH"};
+    static const char *const names[] = {"OPEN", "EASY", "CHANGEABLE", "TENDER", "INTENSE"};
     return names[(int)weather];
 }
 
@@ -6751,7 +6871,7 @@ static const char *synastry_weather_guidance(synastry_weather_t weather)
 {
     static const char *const guidance[] = {
         "Make the plan together",
-        "Easy warmth; say the kind thing",
+        "Share the warmth; say the kind thing",
         "Stay curious and check assumptions",
         "Slow down; make room for feelings",
         "Protect the bond; pause before reacting",
@@ -6900,6 +7020,12 @@ static bool draw_synastry(uint32_t anim_ms)
     }
 
     synastry_hide_orrery_objects();
+    for (int i = 0; i < 5; ++i) {
+        native_obj_hidden(s_synastry_rings[i], i != 0);
+    }
+    for (int i = 0; i < 12; ++i) {
+        native_obj_hidden(s_synastry_spokes[i], true);
+    }
     for (int i = 0; i < 3; ++i) {
         native_obj_hidden(s_synastry_wellness[i], true);
     }
@@ -6907,7 +7033,7 @@ static bool draw_synastry(uint32_t anim_ms)
     char weather_names[80];
     snprintf(weather_names, sizeof(weather_names), "%s + %s", user.name, target.name);
     almanac_set_trimmed(s_synastry_names, weather_names, 42);
-    lv_label_set_text(s_synastry_line, "10 DAY SYMBOLIC FORECAST");
+    lv_label_set_text(s_synastry_line, "10 DAY SYMBOLIC OUTLOOK");
     synastry_update_weather(&user_pos, &target_pos);
     lv_obj_invalidate(s_synastry_screen);
     lvgl_tick(16);

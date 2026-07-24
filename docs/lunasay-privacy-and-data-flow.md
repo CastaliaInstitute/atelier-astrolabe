@@ -109,12 +109,39 @@ Commonplace entry. Explicit Notes/journal behavior in other profiles may store
 transcript content by design. This request policy does not mean third-party
 processors retain nothing.
 
+When `LUNASAY_GITHUB_REPO` and a write token are configured, the voice service
+can also append journal and conversation text to daily Markdown files in that
+repository. That path contains raw user text and is separate from the
+pseudonymous research-event stream below. It must target a private,
+user-authorized repository and remain disabled unless the user has deliberately
+enabled journaling or conversation logging.
+
 ### Usage metering
 
 Supabase `voice_usage_events` stores user ID when resolvable, service, route,
 source, face, faculty slug, model, voice, language, audio seconds/bytes,
 estimated token counts, character counts, estimated cost, and creation time.
 The usage-event insert has no raw-audio, transcript, or reply field.
+
+### Mood check-ins and optional research export
+
+The Mood Check-in face stores the current friendly label plus its valence and
+arousal coordinates in device NVS. Mood is self-reported present-moment
+context; prompts must not treat it as proof that an astrological reading is
+correct or infer another family member's mood from it.
+
+The `lunasay-event` endpoint accepts a mood event only with an affirmative
+consent flag and a non-empty consent-policy version. Research export is off
+unless the operator deliberately sets `LUNASAY_ML_LOGGING_ENABLED=true`, a
+private GitHub repository, and a server-only subject salt. Exported JSONL uses
+a salted SHA-256 subject identifier and bounded structured fields; it does not
+include names, journal text, conversations, birth data, or raw biometrics.
+
+This server gate is not a complete consent product. **Launch blocker:** expose
+research participation, revocation, retention, repository access, deletion,
+and data-export controls in the user settings experience and verify that the
+production repository is private. Do not enable the environment flag before
+those controls and a reviewed consent text exist.
 
 ### Runtime logs
 
