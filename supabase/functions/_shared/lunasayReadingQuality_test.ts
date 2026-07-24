@@ -75,6 +75,8 @@ function strongPacket(): LunaSayDailyPacket {
       "The waxing Moon is seventy-two percent illuminated. Tonight, look for what has become visible before choosing what needs more time.",
     detail:
       "A waxing gibbous phase can be a useful prompt to compare present progress with the intention that began this cycle.",
+    action:
+      "Look for what has become visible before choosing what needs more time.",
     evidence: "Lunar phase estimate: waxing gibbous, 72 percent illuminated.",
   });
   packet.faces.astrology = dailyFace("astrology", {
@@ -85,6 +87,7 @@ function strongPacket(): LunaSayDailyPacket {
       "Your inner weather may hold both care and exacting attention. Name the need first, then choose one useful detail to tend.",
     detail:
       "Cancer Sun emphasizes protection, while Virgo Moon can notice what needs adjustment; the tension is caring without making care into perfection.",
+    action: "Name the need first, then choose one useful detail to tend.",
     evidence:
       "Primary natal chart: Sun in Cancer; Moon in Virgo; Ascendant in Libra.",
   });
@@ -96,6 +99,8 @@ function strongPacket(): LunaSayDailyPacket {
       "Current pressure may shorten your pause before reacting. Breathe once, name the boundary, and wait before answering if the body still feels charged.",
     detail:
       "Mars square the natal Moon describes friction between momentum and emotional safety; use it as a question about capacity, not a prediction.",
+    action:
+      "Breathe once, name the boundary, and wait before answering if the body still feels charged.",
     now: "The aspect is applying and may feel more immediate now.",
     next: "It is closest on day +2 and outside the window by day +7.",
     temporalEvidence:
@@ -119,6 +124,7 @@ function strongPacket(): LunaSayDailyPacket {
       "No live relationship signal is available; lived experience must lead.",
     weatherEvidence:
       "No live relationship signal is available; lived experience must lead.",
+    action: "Ask what support would feel useful, then listen.",
     evidence: "Tight major aspects: Daniel Sun trine Finn Moon at 1.8 degrees.",
   });
   packet.faces.tarot = dailyFace("tarot", {
@@ -128,6 +134,7 @@ function strongPacket(): LunaSayDailyPacket {
       "The Star offers a reflective image, not a forecast. Ask what small act would make hope more tangible today, then write the first honest answer.",
     detail:
       "Notice the card's open sky and poured water as symbols of renewal; consider where care can continue without demanding certainty.",
+    action: "Write the first honest answer.",
     evidence: "Visible tarot card: The Star.",
     cardName: "The Star",
   });
@@ -138,6 +145,7 @@ function strongPacket(): LunaSayDailyPacket {
       "After sunset, look low toward the western horizon for Venus. Notice how long it remains visible before the sky fully darkens.",
     detail:
       "This is an observable sky invitation: compare Venus with the fading light and let the actual horizon, weather, and visibility lead.",
+    action: "Notice how long it remains visible before the sky fully darkens.",
     evidence:
       "Current sky positions: Venus is visible low in western sky after sunset.",
   });
@@ -168,7 +176,9 @@ Deno.test("valid but generic and repetitive packet fails the user-value gate", (
       ...packet.faces[id],
       headline: "Pause",
       display: "Pause and notice what changes.",
-      spoken: "You may pause and notice what changes today.",
+      spoken: `You may pause and notice what changes today. ${
+        packet.faces[id].action
+      }`,
       detail:
         "This symbolic reflection may invite you to pause and notice what changes today before making a choice.",
     };
@@ -213,6 +223,7 @@ Deno.test("one thin face is caught by the per-face release floor", () => {
     display: "A reflection.",
     spoken: "A reflection.",
     detail: "A reflection.",
+    action: undefined,
   };
   const report = scoreLunaSayReadingQuality(packet, FACTS);
   const tarot = report.faces.find((face) => face.face === "tarot");
@@ -273,13 +284,13 @@ Deno.test("a supplied card name establishes Tarot face identity", () => {
   }
 });
 
-Deno.test("four short Inner Weather sentences remain TTS-coherent", () => {
+Deno.test("four short action-composed sentences remain TTS-coherent", () => {
   const packet = strongPacket();
-  packet.faces.astrology.spoken =
-    "Care is a resource. Perfection can be a tension. Both may be present. Notice which one leads today.";
+  packet.faces.tarot.spoken =
+    "The Star is a reflective image. Hope need not become certainty. Let the image open a question. Write the first honest answer.";
   const report = scoreLunaSayReadingQuality(packet, FACTS);
-  const astrology = report.faces.find((entry) => entry.face === "astrology");
-  if (!astrology || astrology.dimensions.speech !== 15) {
-    throw new Error("bounded four-sentence Inner Weather speech was penalized");
+  const tarot = report.faces.find((entry) => entry.face === "tarot");
+  if (!tarot || tarot.dimensions.speech !== 15) {
+    throw new Error("bounded four-sentence action composition was penalized");
   }
 });
