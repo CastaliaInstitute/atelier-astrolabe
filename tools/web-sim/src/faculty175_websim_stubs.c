@@ -28,14 +28,63 @@
 #include "faculty175_faces.h"
 #include "faculty175_faculty.h"
 #include "faculty175_family.h"
+#include "faculty175_breath.h"
+#include "faculty175_cycle_health.h"
 #include "faculty175_lvgl.h"
+#include "faculty175_power_history.h"
+#include "faculty175_power_metrics.h"
 #include "faculty175_quotes.h"
 #include "faculty175_ring.h"
 #include "faculty175_rocket.h"
+#include "faculty175_spotify.h"
 #include "faculty175_touch.h"
 #include "faculty175_wifi_settings.h"
 #include "faculty175_wifi_lab.h"
 #include "faculty175_wifi_monitor.h"
+
+bool faculty175_lvgl_draw_face(faculty175_face_id_t id, uint32_t anim_ms)
+{
+    (void)id;
+    (void)anim_ms;
+    return false;
+}
+
+void faculty175_breath_update(uint32_t now_ms, bool sample_valid, float pitch_deg, float roll_deg)
+{
+    (void)now_ms;
+    (void)sample_valid;
+    (void)pitch_deg;
+    (void)roll_deg;
+}
+void faculty175_breath_status(faculty175_breath_status_t *out)
+{
+    if (out != NULL) {
+        memset(out, 0, sizeof(*out));
+        out->state = FACULTY175_BREATH_SENSOR_MISSING;
+        out->axis = 'P';
+    }
+}
+void faculty175_breath_guide_update(faculty175_breath_guide_phase_t phase, uint32_t phase_ms, uint32_t cycle, float target)
+{ (void)phase; (void)phase_ms; (void)cycle; (void)target; }
+void faculty175_breath_stream_maybe_emit(uint32_t now_ms) { (void)now_ms; }
+
+void faculty175_power_metrics_status(faculty175_power_metrics_t *out)
+{
+    if (out != NULL) {
+        memset(out, 0, sizeof(*out));
+        out->pmu.battery_percent = 82;
+        out->pmu.battery_mv = 4100;
+    }
+}
+bool faculty175_power_history_estimate(const faculty175_pmu_status_t *pmu, faculty175_power_history_estimate_t *out)
+{ (void)pmu; if (out != NULL) memset(out, 0, sizeof(*out)); return false; }
+void faculty175_cycle_health_status(faculty175_cycle_health_status_t *out)
+{ if (out != NULL) memset(out, 0, sizeof(*out)); }
+const char *faculty175_cycle_health_phase_label(faculty175_cycle_phase_t phase)
+{ (void)phase; return "UNKNOWN"; }
+void faculty175_spotify_poll(void) {}
+void faculty175_spotify_status(faculty175_spotify_status_t *out)
+{ if (out != NULL) memset(out, 0, sizeof(*out)); }
 #if __has_include("faculty175_usb_screen.h")
 #include "faculty175_usb_screen.h"
 #endif
@@ -516,6 +565,24 @@ const esp_partition_t *esp_partition_find_first(esp_partition_type_t type,
 }
 void vTaskDelay(TickType_t ticks) { (void)ticks; }
 TickType_t xTaskGetTickCount(void) { return (TickType_t)s_tick_ms; }
+void vTaskDelete(TaskHandle_t task) { (void)task; }
+int xTaskCreate(TaskFunction_t task,
+                const char *name,
+                unsigned stack_depth,
+                void *arg,
+                unsigned priority,
+                TaskHandle_t *out)
+{
+    (void)task;
+    (void)name;
+    (void)stack_depth;
+    (void)arg;
+    (void)priority;
+    if (out != NULL) {
+        *out = (TaskHandle_t)1;
+    }
+    return pdPASS;
+}
 
 esp_err_t nvs_open(const char *name, int open_mode, nvs_handle_t *out_handle) { (void)name; (void)open_mode; if (out_handle) *out_handle = 1; return ESP_OK; }
 void nvs_close(nvs_handle_t handle) { (void)handle; }

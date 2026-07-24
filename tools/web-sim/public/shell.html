@@ -574,14 +574,17 @@
           return;
         }
         const face = currentFaceMeta();
-        if (face.slug !== "tarot") {
+        if (face.slug !== "tarot" && face.slug !== "alpheus-face") {
           tarotArt.hidden = true;
           return;
         }
-        if (drawAgain) {
+        if (face.slug === "tarot" && drawAgain) {
           tarotCardIndex = (tarotCardIndex + 1) % tarotMajorArcana.length;
         }
-        tarotArt.src = `assets/tarot/${tarotMajorArcana[tarotCardIndex]}.png`;
+        tarotArt.src = face.slug === "alpheus-face"
+          ? "assets/alpheus-face.png"
+          : `assets/tarot/${tarotMajorArcana[tarotCardIndex]}.png`;
+        tarotArt.alt = face.slug === "alpheus-face" ? "Right-facing snapping shrimp with oversized upper claw" : "";
         tarotArt.hidden = false;
       }
 

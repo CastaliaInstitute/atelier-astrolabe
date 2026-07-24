@@ -40,6 +40,10 @@ static bool forced_profile(faculty175_face_profile_t *out)
 #elif defined(ASTROLABE_FORCE_VARIANT_CYBER)
     *out = FACULTY175_FACE_PROFILE_CYBER;
     return true;
+#elif defined(ASTROLABE_FORCE_VARIANT_CLAW)
+    /* Claw uses the default face set, whose home face is the Arc Reactor. */
+    *out = FACULTY175_FACE_PROFILE_DEFAULT;
+    return true;
 #elif defined(ASTROLABE_FORCE_VARIANT_LUOPAN) || defined(ASTROLABE_FORCE_VARIANT_ENSO) || \
     defined(ASTROLABE_FORCE_VARIANT_SMART_SPEAKER) || defined(ASTROLABE_FORCE_VARIANT_BABEL_FISH) || \
     defined(ASTROLABE_FORCE_VARIANT_ELECROW_128)
