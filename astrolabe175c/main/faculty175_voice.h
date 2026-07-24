@@ -73,12 +73,13 @@ esp_err_t faculty175_voice_post_message_streaming(const char *message,
                                                   faculty175_voice_result_t *result);
 
 /**
- * Fetch the once-per-local-day LunaSay JSON packet.  The caller owns
- * `*json_out` and must free it.  This performs the day's single LLM call but
- * deliberately does not synthesize audio.
+ * Fetch the once-per-local-day LunaSay JSON packet. The caller owns
+ * `*json_out` and must free it. The service generates each reflective face
+ * independently and deliberately does not synthesize audio.
  */
 esp_err_t faculty175_voice_fetch_lunasay_daily_packet(const char *briefing_facts,
                                                       const char *resonance_profile,
+                                                      const char *reading_memory,
                                                       const char *timezone,
                                                       int64_t epoch_seconds,
                                                       char **json_out,

@@ -1477,12 +1477,14 @@ esp_err_t faculty175_voice_post_message_streaming(const char *message,
 
 esp_err_t faculty175_voice_fetch_lunasay_daily_packet(const char *briefing_facts,
                                                       const char *resonance_profile,
+                                                      const char *reading_memory,
                                                       const char *timezone,
                                                       int64_t epoch_seconds,
                                                       char **json_out,
                                                       size_t *json_len_out)
 {
     if (briefing_facts == NULL || resonance_profile == NULL ||
+        reading_memory == NULL ||
         timezone == NULL || json_out == NULL || json_len_out == NULL ||
         epoch_seconds <= 0) {
         return ESP_ERR_INVALID_ARG;
@@ -1506,7 +1508,8 @@ esp_err_t faculty175_voice_fetch_lunasay_daily_packet(const char *briefing_facts
         return ESP_ERR_NO_MEM;
     }
     const size_t body_cap = strlen(esc_facts) + strlen(esc_timezone) +
-                            strlen(resonance_profile) + 288;
+                            strlen(resonance_profile) +
+                            strlen(reading_memory) + 320;
     char *body = heap_caps_malloc(body_cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (body == NULL) {
         body = malloc(body_cap);
@@ -1520,11 +1523,13 @@ esp_err_t faculty175_voice_fetch_lunasay_daily_packet(const char *briefing_facts
                                   body_cap,
                                   "{\"face\":\"lunasay_daily_packet\",\"deviceProfile\":\"lunasay\","
                                   "\"epochSeconds\":%lld,\"timezone\":\"%s\","
-                                  "\"briefingFacts\":\"%s\",\"resonanceProfile\":%s}",
+                                  "\"briefingFacts\":\"%s\",\"resonanceProfile\":%s,"
+                                  "\"readingMemory\":%s}",
                                   (long long)epoch_seconds,
                                   esc_timezone,
                                   esc_facts,
-                                  resonance_profile);
+                                  resonance_profile,
+                                  reading_memory);
     free(esc_facts);
     free(esc_timezone);
     if (body_len <= 0 || (size_t)body_len >= body_cap) {

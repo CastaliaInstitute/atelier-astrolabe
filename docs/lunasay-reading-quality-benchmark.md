@@ -85,8 +85,27 @@ structured-action contract with no face fallback. Its JSON report also records
 average model calls, mean and p10 packet scores, and the lowest observed face
 score.
 
+To verify private day-to-day continuity, pass a third JSON fixture containing a
+recent prior `date` and the prior server-generated `headline`, `action`, and
+SHA-256 `evidenceHash` for each generated face:
+
+```sh
+deno run --allow-env --allow-net --allow-read \
+  scripts/lunasay_quality_soak.ts facts.txt 6 prior-reading.json
+```
+
+In this mode the soak also fails unless the service applies continuity to
+every supplied face and every new face avoids the prior exact action.
+
 On 2026-07-24, a six-sample signed production soak using six independent
 Gemini 2.5 Flash face calls passed every hard, release, and action-contract
 gate with zero fallbacks. The packet average was 98.9, p10 was 97.8, the
 lowest observed face score was 92, and face-local safety retries brought the
 average to 6.5 model calls per packet.
+
+A second six-sample signed production soak supplied prior summaries for all
+six faces. All 36 face readings applied continuity, avoided the prior exact
+action, and passed the hard, release, and action gates with zero fallbacks.
+The packet average was 98.7, p10 was 97.7, the lowest observed face score was
+87, and the average request used 6.17 model calls including one successful
+quality retry.

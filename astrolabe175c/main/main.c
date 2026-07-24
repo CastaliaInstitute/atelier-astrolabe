@@ -22,6 +22,7 @@
 #include "freertos/queue.h"
 #include "freertos/task.h"
 #include "lwip/lwip_napt.h"
+#include "mbedtls/sha256.h"
 #include "nvs_flash.h"
 #include "cJSON.h"
 
@@ -2302,6 +2303,158 @@ static bool lunasay_daily_packet_save(const char *path,
     return true;
 }
 
+static bool lunasay_sha256_hex(const char *text, char out[65])
+{
+    if (text == NULL || out == NULL) {
+        return false;
+    }
+    uint8_t digest[32];
+    mbedtls_sha256_context context;
+    mbedtls_sha256_init(&context);
+    bool ok = mbedtls_sha256_starts(&context, 0) == 0 &&
+              mbedtls_sha256_update(&context,
+                                    (const unsigned char *)text,
+                                    strlen(text)) == 0 &&
+              mbedtls_sha256_finish(&context, digest) == 0;
+    mbedtls_sha256_free(&context);
+    if (!ok) {
+        return false;
+    }
+    static const char hex[] = "0123456789abcdef";
+    for (size_t i = 0; i < sizeof(digest); ++i) {
+        out[i * 2] = hex[digest[i] >> 4];
+        out[i * 2 + 1] = hex[digest[i] & 0x0f];
+    }
+    out[64] = '\0';
+    return true;
+}
+
+/* Extract only server-generated fields from the other day slot. Journal,
+ * conversation, mood, biometrics, profile data, and user prose are never
+ * eligible for continuity memory. Prior evidence is represented only by a
+ * SHA-256 fingerprint. The edge service independently validates the date,
+ * field bounds, and allowed face ids before using this context. */
+static bool lunasay_daily_packet_prior_memory(unsigned current_slot,
+                                              const char *current_date,
+                                              char *out,
+                                              size_t out_cap)
+{
+    if (current_date == NULL || out == NULL || out_cap < 3) {
+        return false;
+    }
+    strlcpy(out, "{}", out_cap);
+    char path[48];
+    const int path_len = snprintf(path,
+                                  sizeof(path),
+                                  "/voice/lunasay-d%u.json",
+                                  current_slot ^ 1u);
+    if (path_len <= 0 || (size_t)path_len >= sizeof(path)) {
+        return false;
+    }
+    struct stat st = {};
+    if (stat(path, &st) != 0 || st.st_size < 8 || st.st_size > 48 * 1024) {
+        return false;
+    }
+    char *json = heap_caps_malloc((size_t)st.st_size + 1,
+                                  MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (json == NULL) {
+        return false;
+    }
+    FILE *f = fopen(path, "rb");
+    if (f == NULL) {
+        free(json);
+        return false;
+    }
+    const size_t got = fread(json, 1, (size_t)st.st_size, f);
+    fclose(f);
+    json[got] = '\0';
+    if (got != (size_t)st.st_size) {
+        free(json);
+        return false;
+    }
+
+    cJSON *root = cJSON_ParseWithLength(json, got);
+    free(json);
+    if (root == NULL) {
+        return false;
+    }
+    const cJSON *packet = cJSON_GetObjectItemCaseSensitive(root, "packet");
+    const cJSON *date = cJSON_IsObject(packet)
+                            ? cJSON_GetObjectItemCaseSensitive(packet, "date")
+                            : NULL;
+    const cJSON *schema = cJSON_IsObject(packet)
+                              ? cJSON_GetObjectItemCaseSensitive(packet, "schemaVersion")
+                              : NULL;
+    const cJSON *faces = cJSON_IsObject(packet)
+                             ? cJSON_GetObjectItemCaseSensitive(packet, "faces")
+                             : NULL;
+    if (!cJSON_IsString(date) || date->valuestring == NULL ||
+        strcmp(date->valuestring, current_date) == 0 ||
+        !cJSON_IsNumber(schema) || schema->valueint != 1 ||
+        !cJSON_IsObject(faces)) {
+        cJSON_Delete(root);
+        return false;
+    }
+
+    cJSON *memory = cJSON_CreateObject();
+    cJSON *memory_faces = cJSON_CreateObject();
+    if (memory == NULL || memory_faces == NULL ||
+        !cJSON_AddStringToObject(memory, "date", date->valuestring) ||
+        !cJSON_AddItemToObject(memory, "faces", memory_faces)) {
+        cJSON_Delete(memory_faces);
+        cJSON_Delete(memory);
+        cJSON_Delete(root);
+        return false;
+    }
+    static const char *const k_daily_slugs[] = {
+        "moon", "astrology", "transits", "synastry", "tarot", "sky",
+    };
+    unsigned added = 0;
+    for (size_t i = 0; i < sizeof(k_daily_slugs) / sizeof(k_daily_slugs[0]); ++i) {
+        const cJSON *face =
+            cJSON_GetObjectItemCaseSensitive(faces, k_daily_slugs[i]);
+        const cJSON *headline = cJSON_IsObject(face)
+                                    ? cJSON_GetObjectItemCaseSensitive(face, "headline")
+                                    : NULL;
+        const cJSON *action = cJSON_IsObject(face)
+                                  ? cJSON_GetObjectItemCaseSensitive(face, "action")
+                                  : NULL;
+        const cJSON *evidence = cJSON_IsObject(face)
+                                    ? cJSON_GetObjectItemCaseSensitive(face, "evidence")
+                                    : NULL;
+        if (!cJSON_IsString(headline) || headline->valuestring == NULL ||
+            !cJSON_IsString(action) || action->valuestring == NULL ||
+            !cJSON_IsString(evidence) || evidence->valuestring == NULL ||
+            headline->valuestring[0] == '\0' ||
+            action->valuestring[0] == '\0' ||
+            evidence->valuestring[0] == '\0') {
+            continue;
+        }
+        char evidence_hash[65];
+        if (!lunasay_sha256_hex(evidence->valuestring, evidence_hash)) {
+            continue;
+        }
+        cJSON *summary = cJSON_CreateObject();
+        if (summary == NULL ||
+            !cJSON_AddStringToObject(summary, "headline", headline->valuestring) ||
+            !cJSON_AddStringToObject(summary, "action", action->valuestring) ||
+            !cJSON_AddStringToObject(summary, "evidenceHash", evidence_hash) ||
+            !cJSON_AddItemToObject(memory_faces, k_daily_slugs[i], summary)) {
+            cJSON_Delete(summary);
+            continue;
+        }
+        ++added;
+    }
+    const bool ok = added > 0 &&
+                    cJSON_PrintPreallocated(memory, out, (int)out_cap, false);
+    if (!ok) {
+        strlcpy(out, "{}", out_cap);
+    }
+    cJSON_Delete(memory);
+    cJSON_Delete(root);
+    return ok;
+}
+
 static bool lunasay_daily_packet_spoken(const faculty175_face_desc_t *face,
                                         char *spoken,
                                         size_t spoken_cap)
@@ -2335,13 +2488,30 @@ static bool lunasay_daily_packet_spoken(const faculty175_face_desc_t *face,
                                            sizeof(resonance_profile)) != ESP_OK) {
         strlcpy(resonance_profile, "{}", sizeof(resonance_profile));
     }
+    char *reading_memory = heap_caps_malloc(4096,
+                                            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (reading_memory == NULL) {
+        reading_memory = malloc(4096);
+    }
+    unsigned current_slot = 0;
+    if (reading_memory != NULL) {
+        strlcpy(reading_memory, "{}", 4096);
+        if (lunasay_daily_cache_prepare(date, &current_slot)) {
+            (void)lunasay_daily_packet_prior_memory(current_slot,
+                                                    date,
+                                                    reading_memory,
+                                                    4096);
+        }
+    }
     const esp_err_t err = faculty175_voice_fetch_lunasay_daily_packet(
         facts,
         resonance_profile,
+        reading_memory != NULL ? reading_memory : "{}",
         astrolabe_time_timezone(),
         (int64_t)time(NULL),
         &json,
         &json_len);
+    free(reading_memory);
     free(facts);
     if (err != ESP_OK || json == NULL) {
         free(json);

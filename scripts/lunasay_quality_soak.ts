@@ -4,6 +4,7 @@ import {
   LUNASAY_GENERATED_DAILY_FACE_IDS,
   type LunaSayDailyPacket,
 } from "../supabase/functions/_shared/lunasayDailyPacket.ts";
+import type { LunaSayReadingMemory } from "../supabase/functions/_shared/lunasayContinuity.ts";
 
 type QualitySummary = {
   benchmarkVersion: number;
@@ -31,6 +32,8 @@ type ProbeResult = {
   faceFallbackReasons: Record<string, string>;
   faceRetries: Record<string, number>;
   faceRetryReasons: Record<string, string[]>;
+  continuityAppliedFaces: string[];
+  continuityContractPassed: boolean;
   actionContractPassed: boolean;
   quality: QualitySummary;
 };
@@ -92,6 +95,23 @@ function actionContractPassed(packet: LunaSayDailyPacket): boolean {
   });
 }
 
+function continuityContractPassed(
+  packet: LunaSayDailyPacket,
+  memory: LunaSayReadingMemory | null,
+  appliedFaces: string[],
+): boolean {
+  if (!memory) return true;
+  const expected = LUNASAY_GENERATED_DAILY_FACE_IDS.filter((id) =>
+    Boolean(memory.faces[id])
+  );
+  return expected.length > 0 &&
+    expected.every((id) => appliedFaces.includes(id)) &&
+    expected.every((id) =>
+      actionKey(packet.faces[id].action) !==
+        actionKey(memory.faces[id]?.action)
+    );
+}
+
 function percentile(values: number[], fraction: number): number {
   if (!values.length) return 0;
   const sorted = [...values].sort((left, right) => left - right);
@@ -101,7 +121,7 @@ function percentile(values: number[], fraction: number): number {
 const factsPath = Deno.args[0];
 if (!factsPath) {
   console.error(
-    "usage: deno run --allow-env --allow-net --allow-read scripts/lunasay_quality_soak.ts FACTS.txt [SAMPLES]",
+    "usage: deno run --allow-env --allow-net --allow-read scripts/lunasay_quality_soak.ts FACTS.txt [SAMPLES] [READING_MEMORY.json]",
   );
   Deno.exit(2);
 }
@@ -121,6 +141,10 @@ const epochSeconds = Number.parseInt(
   10,
 ) || Math.floor(Date.now() / 1000);
 const facts = (await Deno.readTextFile(factsPath)).trim();
+const memoryPath = Deno.args[2]?.trim();
+const readingMemory = memoryPath
+  ? JSON.parse(await Deno.readTextFile(memoryPath)) as LunaSayReadingMemory
+  : null;
 const results: ProbeResult[] = [];
 
 for (let index = 0; index < samples; index++) {
@@ -142,6 +166,7 @@ for (let index = 0; index < samples; index++) {
       epochSeconds,
       timezone,
       briefingFacts: facts,
+      ...(readingMemory ? { readingMemory } : {}),
     }),
   });
   const body = await response.json();
@@ -152,6 +177,7 @@ for (let index = 0; index < samples; index++) {
       }`,
     );
   }
+  const continuityAppliedFaces = body.continuityAppliedFaces ?? [];
   results.push({
     sample: index + 1,
     status: response.status,
@@ -162,6 +188,12 @@ for (let index = 0; index < samples; index++) {
     faceFallbackReasons: body.faceFallbackReasons ?? {},
     faceRetries: body.faceRetries ?? {},
     faceRetryReasons: body.faceRetryReasons ?? {},
+    continuityAppliedFaces,
+    continuityContractPassed: continuityContractPassed(
+      body.packet,
+      readingMemory,
+      continuityAppliedFaces,
+    ),
     actionContractPassed: actionContractPassed(body.packet),
     quality: body.quality,
   });
@@ -179,6 +211,9 @@ const aggregate = {
   releasePassRate: count((result) => result.quality.releaseGatePassed) /
     results.length,
   actionContractPassRate: count((result) => result.actionContractPassed) /
+    results.length,
+  continuityRequested: readingMemory !== null,
+  continuityPassRate: count((result) => result.continuityContractPassed) /
     results.length,
   fallbackRate: count((result) => result.fallback) / results.length,
   averageLlmCalls: Number(
@@ -198,6 +233,7 @@ if (
   aggregate.hardPassRate < 1 ||
   aggregate.releasePassRate < 1 ||
   aggregate.actionContractPassRate < 1 ||
+  aggregate.continuityPassRate < 1 ||
   aggregate.fallbackRate > 0
 ) {
   Deno.exit(1);
