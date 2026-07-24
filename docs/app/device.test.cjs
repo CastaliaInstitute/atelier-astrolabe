@@ -17,6 +17,7 @@ test("device health view reports live power and signed OTA polling state", () =>
           usbPower: true,
         },
         ble: { enabled: true, advertising: false },
+        capabilities: { clearReadingHistory: true },
         ota: {
           autoStarted: true,
           networkReady: true,
@@ -40,6 +41,7 @@ test("device health view reports live power and signed OTA polling state", () =>
     otaCheck: "2m ago",
     otaNetwork: "ready",
     otaNote: "already current",
+    canClearReadingHistory: true,
   });
 });
 
@@ -52,6 +54,7 @@ test("device health view is honest when disconnected or telemetry is absent", ()
   assert.equal(view.ble, "off");
   assert.equal(view.otaCheck, "not yet");
   assert.equal(view.otaNetwork, "waiting");
+  assert.equal(view.canClearReadingHistory, false);
   assert.match(view.otaNote, /^Connect to see/);
 });
 

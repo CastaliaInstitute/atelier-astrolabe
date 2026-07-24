@@ -67,6 +67,9 @@
         (connected
           ? "No OTA poll result has been reported yet."
           : "Connect to see whether LunaSay is polling its signed update channel."),
+      canClearReadingHistory:
+        connected &&
+        device.capabilities?.clearReadingHistory === true,
     };
   }
 

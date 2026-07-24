@@ -1,8 +1,8 @@
-const CACHE = "lunasay-app-v8";
+const CACHE = "lunasay-app-v10";
 const ASSETS = [
   "./",
   "./index.html",
-  "./app.css",
+  "./app.css?v=10",
   "./relationship.js",
   "./device.js",
   "./app.js",

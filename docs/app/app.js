@@ -142,6 +142,14 @@ function renderResearch() {
     : feedback.face && feedback.rating
       ? `Last response: ${feedback.face} was ${feedback.rating}. ${count} rating${count === 1 ? "" : "s"} now calibrate future readings locally.`
       : "Your ratings calibrate future readings locally. Research sharing is optional.";
+  const canClearHistory = deviceModel.view(
+    deviceStatus,
+    Boolean(characteristic),
+  ).canClearReadingHistory;
+  $("#clear-reading-history").disabled = !canClearHistory;
+  $("#clear-reading-history-note").textContent = canClearHistory
+    ? "Erase the seven-day reading thread, both cached daily packets, and all cached per-face reading audio from LunaSay."
+    : "Connect an updated LunaSay to erase its seven-day reading thread, cached daily packets, and cached reading audio.";
 }
 
 function renderRelationship() {
@@ -398,6 +406,19 @@ $("#bleeding-stop").addEventListener("click", () => {
     sendCycle({ bleedingStopped: true }, "Bleeding stop logged.").catch(
       (error) => setStatus(error.message),
     );
+  }
+});
+
+$("#clear-reading-history").addEventListener("click", () => {
+  if (
+    confirm(
+      "Clear LunaSay’s seven-day reading thread and cached reading audio? This cannot be undone.",
+    )
+  ) {
+    sendAndRefresh(
+      { privacy: { clearReadingHistory: true } },
+      "Reading history and cached reading audio cleared from LunaSay.",
+    ).catch((error) => setStatus(error.message));
   }
 });
 

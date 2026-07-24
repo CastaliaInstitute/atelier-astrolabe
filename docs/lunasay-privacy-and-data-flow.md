@@ -70,6 +70,12 @@ sequence supports it, forbids invented lived events, and rejects a practice
 that exactly repeats any retained day. The application does not persist this
 continuity envelope server-side; provider-retention caveats below still apply.
 
+The companion Privacy page exposes a capability-gated **Clear reading
+history** action. Updated firmware removes the seven-day summary, both full
+daily packet slots, their temporary files, and all twelve per-face daily audio
+caches. Older firmware cannot enable the control, so the PWA never reports a
+successful deletion for a device that does not implement it.
+
 ### Ask This Face follow-ups
 
 When a person deliberately asks a spoken question from a reflective face, the
