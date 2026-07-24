@@ -44,13 +44,6 @@
 #include "faculty175_wifi_lab.h"
 #include "faculty175_wifi_monitor.h"
 
-bool faculty175_lvgl_draw_face(faculty175_face_id_t id, uint32_t anim_ms)
-{
-    (void)id;
-    (void)anim_ms;
-    return false;
-}
-
 #if __has_include("faculty175_usb_screen.h")
 #include "faculty175_usb_screen.h"
 #endif
