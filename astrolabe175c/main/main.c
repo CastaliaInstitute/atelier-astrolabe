@@ -1450,6 +1450,201 @@ static void append_transit_to_natal_prompt(char *out,
     }
 }
 
+static double face_tts_fixed_aspect_orb(const faculty175_chart_positions_t *natal,
+                                        const faculty175_chart_positions_t *transits,
+                                        const face_tts_synastry_aspect_t *aspect)
+{
+    if (natal == NULL || transits == NULL || aspect == NULL ||
+        aspect->user_body < 0 || aspect->user_body >= FACULTY175_CHART_BODY_COUNT ||
+        aspect->target_body < 0 || aspect->target_body >= FACULTY175_CHART_BODY_COUNT) {
+        return 999.0;
+    }
+    const double separation = face_tts_aspect_distance(
+        natal->lon[aspect->user_body],
+        transits->lon[aspect->target_body]);
+    return fabs(separation - (double)aspect->aspect_deg);
+}
+
+static bool face_tts_temporal_aspect_for_day(const faculty175_chart_positions_t *natal,
+                                             time_t epoch,
+                                             int day,
+                                             face_tts_synastry_aspect_t *out)
+{
+    if (natal == NULL || out == NULL || epoch <= 0 || day < 0) {
+        return false;
+    }
+    faculty175_chart_positions_t transits = {};
+    if (!faculty175_charts_positions_at(epoch + (time_t)day * 86400, &transits)) {
+        return false;
+    }
+    face_tts_synastry_aspect_t aspects[12] = {};
+    if (face_tts_rebuild_synastry_aspects(natal, &transits, aspects, 12) <= 0) {
+        return false;
+    }
+    *out = aspects[0];
+    return true;
+}
+
+static void append_temporal_window(char *out,
+                                   size_t cap,
+                                   size_t *off,
+                                   const faculty175_chart_positions_t *natal,
+                                   time_t epoch,
+                                   const face_tts_synastry_aspect_t *aspect,
+                                   int first_day)
+{
+    int closest_day = first_day;
+    double closest_orb = 999.0;
+    int leaves_day = -1;
+    bool entered = false;
+    for (int day = first_day; day < 10; ++day) {
+        faculty175_chart_positions_t transits = {};
+        if (!faculty175_charts_positions_at(epoch + (time_t)day * 86400, &transits)) {
+            continue;
+        }
+        const double orb = face_tts_fixed_aspect_orb(natal, &transits, aspect);
+        if (orb <= 4.5) {
+            entered = true;
+            if (orb < closest_orb) {
+                closest_orb = orb;
+                closest_day = day;
+            }
+        } else if (entered) {
+            leaves_day = day;
+            break;
+        }
+    }
+    prompt_append(out,
+                  cap,
+                  off,
+                  "closest in the daily samples on day +%d at orb %.1f degrees; ",
+                  closest_day,
+                  closest_orb < 900.0 ? closest_orb : aspect->orb);
+    if (leaves_day >= 0) {
+        prompt_append(out,
+                      cap,
+                      off,
+                      "outside the 4.5-degree window by day +%d. ",
+                      leaves_day);
+    } else {
+        prompt_append(out,
+                      cap,
+                      off,
+                      "still inside the 4.5-degree window on day +9. ");
+    }
+}
+
+static void append_transit_temporal_prompt(char *out,
+                                           size_t cap,
+                                           size_t *off,
+                                           const faculty175_chart_positions_t *natal,
+                                           time_t epoch)
+{
+    if (natal == NULL || epoch <= 0) {
+        prompt_append(out, cap, off, "Ten-day transit arc is unavailable. ");
+        return;
+    }
+    face_tts_synastry_aspect_t aspect = {};
+    int first_day = 0;
+    while (first_day < 10 &&
+           !face_tts_temporal_aspect_for_day(natal, epoch, first_day, &aspect)) {
+        ++first_day;
+    }
+    if (first_day >= 10) {
+        prompt_append(out,
+                      cap,
+                      off,
+                      "Ten-day transit arc: no major current-to-natal aspect appears within "
+                      "4.5 degrees in daily samples through day +9. ");
+        return;
+    }
+    prompt_append(out,
+                  cap,
+                  off,
+                  "Ten-day transit arc: %s day +%d, transiting %s %s natal %s at orb %.1f degrees; ",
+                  first_day == 0 ? "now at" : "next enters by",
+                  first_day,
+                  faculty175_charts_body_label(aspect.target_body),
+                  face_tts_aspect_word(aspect.aspect_deg),
+                  faculty175_charts_body_label(aspect.user_body),
+                  aspect.orb);
+    append_temporal_window(out, cap, off, natal, epoch, &aspect, first_day);
+}
+
+static void append_relationship_temporal_prompt(
+    char *out,
+    size_t cap,
+    size_t *off,
+    const faculty175_birth_chart_t *user,
+    const faculty175_chart_positions_t *user_pos,
+    const faculty175_birth_chart_t *target,
+    const faculty175_chart_positions_t *target_pos,
+    time_t epoch)
+{
+    if (user == NULL || user_pos == NULL || target == NULL || target_pos == NULL || epoch <= 0) {
+        prompt_append(out, cap, off, "No live relationship signal is available. ");
+        return;
+    }
+
+    face_tts_synastry_aspect_t selected = {};
+    const faculty175_chart_positions_t *selected_natal = NULL;
+    const char *selected_name = NULL;
+    int first_day = 0;
+    for (; first_day < 10; ++first_day) {
+        face_tts_synastry_aspect_t user_aspect = {};
+        face_tts_synastry_aspect_t target_aspect = {};
+        const bool have_user =
+            face_tts_temporal_aspect_for_day(user_pos, epoch, first_day, &user_aspect);
+        const bool have_target =
+            face_tts_temporal_aspect_for_day(target_pos, epoch, first_day, &target_aspect);
+        if (!have_user && !have_target) {
+            continue;
+        }
+        if (have_user && (!have_target || user_aspect.orb <= target_aspect.orb)) {
+            selected = user_aspect;
+            selected_natal = user_pos;
+            selected_name = user->name;
+        } else {
+            selected = target_aspect;
+            selected_natal = target_pos;
+            selected_name = target->name;
+        }
+        break;
+    }
+    if (selected_natal == NULL || selected_name == NULL) {
+        prompt_append(out,
+                      cap,
+                      off,
+                      "No live relationship signal appears in daily samples through day +9. ");
+        return;
+    }
+
+    prompt_append(out,
+                  cap,
+                  off,
+                  "Current relationship transit arc: %s day +%d, transiting %s %s %s natal %s "
+                  "at orb %.1f degrees; ",
+                  first_day == 0 ? "now at" : "next enters by",
+                  first_day,
+                  faculty175_charts_body_label(selected.target_body),
+                  face_tts_aspect_word(selected.aspect_deg),
+                  selected_name,
+                  faculty175_charts_body_label(selected.user_body),
+                  selected.orb);
+    append_temporal_window(out,
+                           cap,
+                           off,
+                           selected_natal,
+                           epoch,
+                           &selected,
+                           first_day);
+    prompt_append(out,
+                  cap,
+                  off,
+                  "This timing touches %s's chart and is not automatically the whole relationship's lived weather. ",
+                  selected_name);
+}
+
 static void append_family_wellness_prompt(char *out, size_t cap, size_t *off)
 {
     faculty175_family_wellness_t states[FACULTY175_FAMILY_SUBJECT_MAX] = {};
@@ -1511,8 +1706,17 @@ static void append_synastry_prompt(char *out, size_t cap, size_t *off)
                       "The selected relationship with %s is the only natal pairing to interpret in this reading; do not compare it with another family member. ",
                       active.name);
         append_synastry_pair_prompt(out, cap, off, &user, &user_pos, &active, &active_pos, 5);
+        append_relationship_temporal_prompt(out,
+                                            cap,
+                                            off,
+                                            &user,
+                                            &user_pos,
+                                            &active,
+                                            &active_pos,
+                                            time(NULL));
     } else {
         prompt_append(out, cap, off, "No active partner or child chart is selected. ");
+        prompt_append(out, cap, off, "No live relationship signal is available. ");
     }
     append_family_wellness_prompt(out, cap, off);
     prompt_append(out,
@@ -1598,6 +1802,7 @@ static void build_lunasay_daily_facts(char *out, size_t cap)
                       faculty175_charts_zodiac_abbr(transits.lon[6]));
         if (have_natal) {
             append_transit_to_natal_prompt(out, cap, &off, &natal, &transits, 5);
+            append_transit_temporal_prompt(out, cap, &off, &natal, now);
         }
     } else {
         prompt_append(out, cap, &off, "Current transit positions are unavailable. ");

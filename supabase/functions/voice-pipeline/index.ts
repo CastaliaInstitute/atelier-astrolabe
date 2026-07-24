@@ -18,6 +18,7 @@ import {
   lunaSayDateForEpoch,
   lunaSayFocusedFacts,
   lunaSayRequiredEvidence,
+  lunaSayRequiredTemporalEvidence,
   lunaSayRequiredWeatherEvidence,
   normalizeLunaSayTimezone,
   parseLunaSayDailyFace,
@@ -1410,6 +1411,10 @@ Deno.serve(async (req: Request) => {
             id,
             facts,
           );
+          const requiredTemporalEvidence = lunaSayRequiredTemporalEvidence(
+            id,
+            facts,
+          );
           if (requiredEvidence) {
             systemInstruction += ` For this request, set evidence exactly to ${
               JSON.stringify(requiredEvidence)
@@ -1419,6 +1424,11 @@ Deno.serve(async (req: Request) => {
             systemInstruction += ` Set weatherEvidence exactly to ${
               JSON.stringify(requiredWeatherEvidence)
             }.`;
+          }
+          if (requiredTemporalEvidence) {
+            systemInstruction += ` Set temporalEvidence exactly to ${
+              JSON.stringify(requiredTemporalEvidence)
+            }. Preserve every day offset in now and next; do not invent a calendar date or event.`;
           }
           const focusedFacts = lunaSayFocusedFacts(id, facts);
           const userText =
@@ -1431,6 +1441,7 @@ Deno.serve(async (req: Request) => {
             userText,
             requiredEvidence,
             requiredWeatherEvidence,
+            requiredTemporalEvidence,
           };
         });
         const inputTokens = prompts.reduce(
@@ -1505,6 +1516,13 @@ Deno.serve(async (req: Request) => {
                 parsedFace.weatherEvidence !== prompt.requiredWeatherEvidence
               ) {
                 throw new Error("wrong-required-weather-evidence");
+              }
+              if (
+                prompt.requiredTemporalEvidence &&
+                parsedFace.temporalEvidence !==
+                  prompt.requiredTemporalEvidence
+              ) {
+                throw new Error("wrong-required-temporal-evidence");
               }
               return { id: prompt.id, face: parsedFace };
             } catch (error) {
