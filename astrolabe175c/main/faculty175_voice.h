@@ -78,6 +78,7 @@ esp_err_t faculty175_voice_post_message_streaming(const char *message,
  * deliberately does not synthesize audio.
  */
 esp_err_t faculty175_voice_fetch_lunasay_daily_packet(const char *briefing_facts,
+                                                      const char *resonance_profile,
                                                       const char *timezone,
                                                       int64_t epoch_seconds,
                                                       char **json_out,

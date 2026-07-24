@@ -142,8 +142,21 @@ disabled and must be granted again.
 
 The PWA can also submit one structured rating for a daily Moon, Astrology,
 Transits, Synastry, Tarot, or Sky reading. The rating is one of `helpful`,
-`mixed`, or `missed`. No note or reading text is accepted. The device forwards
-only the face, rating, local reading date, source, and event time.
+`mixed`, or `missed`. No note or reading text is accepted. Rating works whether
+or not research sharing is enabled.
+
+LunaSay keeps a bounded, decaying count of the three ratings for each face in
+device NVS. At daily generation time, those counts accompany the existing
+signed voice-pipeline request. The server validates the small numeric envelope
+and supplies only the matching face's counts to that face's Gemini call as
+writing calibration. A rating may make a future reading more concrete, modest,
+or explicit about uncertainty; it is never chart evidence or evidence about
+the user's life. LunaSay application code does not persist this preference
+envelope server-side; provider-retention caveats below still apply.
+
+When research sharing is enabled, the device may separately forward only the
+face, rating, local reading date, source, and event time to `lunasay-event`.
+With research sharing disabled, no rating event is exported.
 
 The `lunasay-event` endpoint accepts a mood or reading-feedback event only with
 an affirmative consent flag, the exact current consent-policy version, an

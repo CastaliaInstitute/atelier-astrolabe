@@ -45,7 +45,12 @@
 #define RESEARCH_NVS_FACE "face"
 #define RESEARCH_NVS_RATING "rating"
 #define RESEARCH_NVS_DATE "read_date"
+#define RESEARCH_NVS_RESONANCE "resonance"
 #define RESEARCH_CONSENT_VERSION "research-v2"
+#define RESEARCH_RESONANCE_VERSION 1
+#define RESEARCH_RESONANCE_FACE_COUNT 6
+#define RESEARCH_RESONANCE_RATING_COUNT 3
+#define RESEARCH_RESONANCE_WINDOW 24
 #define RESEARCH_RETRY_MS (5U * 60U * 1000U)
 #define RESEARCH_PAUSED_RETRY_MS (6U * 60U * 60U * 1000U)
 #define RESEARCH_TASK_STACK 7168
@@ -77,12 +82,59 @@ typedef struct {
 } research_context_t;
 
 typedef struct {
+    uint8_t version;
+    uint8_t counts[RESEARCH_RESONANCE_FACE_COUNT]
+                  [RESEARCH_RESONANCE_RATING_COUNT];
+    char last_face[16];
+    char last_rating[12];
+} resonance_blob_t;
+
+typedef struct {
     char body[192];
     size_t len;
 } research_http_response_t;
 
 static research_context_t s_research;
+static resonance_blob_t s_resonance;
 static esp_err_t save_state(void);
+
+static const char *const k_resonance_faces[RESEARCH_RESONANCE_FACE_COUNT] = {
+    "moon", "astrology", "transits", "synastry", "tarot", "sky",
+};
+static const char *const k_resonance_ratings[RESEARCH_RESONANCE_RATING_COUNT] = {
+    "helpful", "mixed", "missed",
+};
+
+static int value_index(const char *value,
+                       const char *const *allowed,
+                       size_t allowed_count)
+{
+    if (value == NULL) {
+        return -1;
+    }
+    for (size_t i = 0; i < allowed_count; ++i) {
+        if (strcasecmp(value, allowed[i]) == 0) {
+            return (int)i;
+        }
+    }
+    return -1;
+}
+
+static esp_err_t save_resonance(void)
+{
+    nvs_handle_t nvs;
+    esp_err_t err = nvs_open(RESEARCH_NVS_NS, NVS_READWRITE, &nvs);
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = nvs_set_blob(nvs, RESEARCH_NVS_RESONANCE,
+                       &s_resonance, sizeof(s_resonance));
+    if (err == ESP_OK) {
+        err = nvs_commit(nvs);
+    }
+    nvs_close(nvs);
+    return err;
+}
 
 static void load_state(void)
 {
@@ -90,6 +142,7 @@ static void load_state(void)
         return;
     }
     s_research.loaded = true;
+    s_resonance.version = RESEARCH_RESONANCE_VERSION;
     strlcpy(s_research.consent_version, RESEARCH_CONSENT_VERSION,
             sizeof(s_research.consent_version));
     nvs_handle_t nvs;
@@ -122,6 +175,14 @@ static void load_state(void)
         len = sizeof(s_research.reading_date);
         (void)nvs_get_str(nvs, RESEARCH_NVS_DATE,
                           s_research.reading_date, &len);
+        size_t resonance_len = sizeof(s_resonance);
+        if (nvs_get_blob(nvs, RESEARCH_NVS_RESONANCE,
+                         &s_resonance, &resonance_len) != ESP_OK ||
+            resonance_len != sizeof(s_resonance) ||
+            s_resonance.version != RESEARCH_RESONANCE_VERSION) {
+            memset(&s_resonance, 0, sizeof(s_resonance));
+            s_resonance.version = RESEARCH_RESONANCE_VERSION;
+        }
         nvs_close(nvs);
     }
     if (strcmp(s_research.consent_version, RESEARCH_CONSENT_VERSION) != 0) {
@@ -221,31 +282,14 @@ static bool valid_mood(const char *mood)
     return false;
 }
 
-static bool value_in(const char *value,
-                     const char *const *allowed,
-                     size_t allowed_count)
-{
-    if (value == NULL) {
-        return false;
-    }
-    for (size_t i = 0; i < allowed_count; ++i) {
-        if (strcasecmp(value, allowed[i]) == 0) {
-            return true;
-        }
-    }
-    return false;
-}
-
 static bool valid_feedback(const char *face,
                            const char *rating,
                            const char *reading_date)
 {
-    static const char *const faces[] = {
-        "moon", "astrology", "transits", "synastry", "tarot", "sky",
-    };
-    static const char *const ratings[] = {"helpful", "mixed", "missed"};
-    if (!value_in(face, faces, sizeof(faces) / sizeof(faces[0])) ||
-        !value_in(rating, ratings, sizeof(ratings) / sizeof(ratings[0])) ||
+    if (value_index(face, k_resonance_faces,
+                    RESEARCH_RESONANCE_FACE_COUNT) < 0 ||
+        value_index(rating, k_resonance_ratings,
+                    RESEARCH_RESONANCE_RATING_COUNT) < 0 ||
         reading_date == NULL || strlen(reading_date) != 10) {
         return false;
     }
@@ -508,11 +552,33 @@ esp_err_t faculty175_research_record_feedback(const char *face,
                                               const char *reading_date)
 {
     load_state();
-    if (!s_research.consent || s_research.pending) {
-        return ESP_ERR_INVALID_STATE;
-    }
     if (!valid_feedback(face, rating, reading_date)) {
         return ESP_ERR_INVALID_ARG;
+    }
+    const int face_index = value_index(face, k_resonance_faces,
+                                       RESEARCH_RESONANCE_FACE_COUNT);
+    const int rating_index = value_index(rating, k_resonance_ratings,
+                                         RESEARCH_RESONANCE_RATING_COUNT);
+    uint16_t total = 0;
+    for (size_t i = 0; i < RESEARCH_RESONANCE_RATING_COUNT; ++i) {
+        total += s_resonance.counts[face_index][i];
+    }
+    if (total >= RESEARCH_RESONANCE_WINDOW) {
+        for (size_t i = 0; i < RESEARCH_RESONANCE_RATING_COUNT; ++i) {
+            s_resonance.counts[face_index][i] =
+                (uint8_t)((s_resonance.counts[face_index][i] + 1) / 2);
+        }
+    }
+    if (s_resonance.counts[face_index][rating_index] < UINT8_MAX) {
+        ++s_resonance.counts[face_index][rating_index];
+    }
+    strlcpy(s_resonance.last_face, k_resonance_faces[face_index],
+            sizeof(s_resonance.last_face));
+    strlcpy(s_resonance.last_rating, k_resonance_ratings[rating_index],
+            sizeof(s_resonance.last_rating));
+    esp_err_t err = save_resonance();
+    if (err != ESP_OK || !s_research.consent || s_research.pending) {
+        return err;
     }
     strlcpy(s_research.feedback_face, face, sizeof(s_research.feedback_face));
     strlcpy(s_research.feedback_rating, rating,
@@ -530,12 +596,52 @@ esp_err_t faculty175_research_record_feedback(const char *face,
     ++s_research.generation;
     s_research.pending = true;
     s_research.state = FACULTY175_RESEARCH_PENDING;
-    const esp_err_t err = save_state();
+    err = save_state();
     if (err == ESP_OK) {
         s_research.last_attempt_ms = 0;
         faculty175_research_poll();
     }
     return err;
+}
+
+esp_err_t faculty175_research_resonance_json(char *out, size_t cap)
+{
+    if (out == NULL || cap < 3) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    load_state();
+    size_t used = 0;
+    int written = snprintf(out, cap, "{");
+    if (written <= 0 || (size_t)written >= cap) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+    used = (size_t)written;
+    bool first = true;
+    for (size_t face = 0; face < RESEARCH_RESONANCE_FACE_COUNT; ++face) {
+        const uint8_t helpful = s_resonance.counts[face][0];
+        const uint8_t mixed = s_resonance.counts[face][1];
+        const uint8_t missed = s_resonance.counts[face][2];
+        if (helpful == 0 && mixed == 0 && missed == 0) {
+            continue;
+        }
+        written = snprintf(
+            out + used,
+            cap - used,
+            "%s\"%s\":{\"helpful\":%u,\"mixed\":%u,\"missed\":%u}",
+            first ? "" : ",",
+            k_resonance_faces[face],
+            helpful,
+            mixed,
+            missed);
+        if (written <= 0 || (size_t)written >= cap - used) {
+            out[0] = '\0';
+            return ESP_ERR_INVALID_SIZE;
+        }
+        used += (size_t)written;
+        first = false;
+    }
+    written = snprintf(out + used, cap - used, "}");
+    return written == 1 ? ESP_OK : ESP_ERR_INVALID_SIZE;
 }
 
 void faculty175_research_poll(void)
@@ -583,10 +689,17 @@ void faculty175_research_status(faculty175_research_status_t *out)
     strlcpy(out->consent_version, s_research.consent_version,
             sizeof(out->consent_version));
     strlcpy(out->last_mood, s_research.mood, sizeof(out->last_mood));
-    strlcpy(out->last_feedback_face, s_research.feedback_face,
+    strlcpy(out->last_feedback_face, s_resonance.last_face,
             sizeof(out->last_feedback_face));
-    strlcpy(out->last_feedback_rating, s_research.feedback_rating,
+    strlcpy(out->last_feedback_rating, s_resonance.last_rating,
             sizeof(out->last_feedback_rating));
+    for (size_t face = 0; face < RESEARCH_RESONANCE_FACE_COUNT; ++face) {
+        for (size_t rating = 0;
+             rating < RESEARCH_RESONANCE_RATING_COUNT;
+             ++rating) {
+            out->local_feedback_count += s_resonance.counts[face][rating];
+        }
+    }
 }
 
 const char *faculty175_research_state_label(faculty175_research_state_t state)

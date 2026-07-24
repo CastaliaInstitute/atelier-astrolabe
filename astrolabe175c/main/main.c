@@ -2330,8 +2330,14 @@ static bool lunasay_daily_packet_spoken(const faculty175_face_desc_t *face,
     build_lunasay_daily_facts(facts, 8192);
     char *json = NULL;
     size_t json_len = 0;
+    char resonance_profile[512] = "{}";
+    if (faculty175_research_resonance_json(resonance_profile,
+                                           sizeof(resonance_profile)) != ESP_OK) {
+        strlcpy(resonance_profile, "{}", sizeof(resonance_profile));
+    }
     const esp_err_t err = faculty175_voice_fetch_lunasay_daily_packet(
         facts,
+        resonance_profile,
         astrolabe_time_timezone(),
         (int64_t)time(NULL),
         &json,

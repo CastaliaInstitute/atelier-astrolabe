@@ -81,6 +81,7 @@ async function connect() {
     characteristic = null;
     stateCharacteristic = null;
     setStatus('Disconnected');
+    render();
   });
   const server = await device.gatt.connect();
   const service = await server.getPrimaryService(SERVICE);
@@ -113,18 +114,17 @@ function renderResearch() {
   const pending = research.pending ? ' One contribution is safely queued on the device.' : '';
   $('#research-status').textContent = consent
     ? `Research sharing is on · ${state}.${pending}`
-    : 'Research sharing is off · mood and reading feedback stay on LunaSay.';
+    : 'Research sharing is off · no rating or mood event is exported.';
   document.querySelectorAll('.reflection-rating').forEach(button => {
-    button.disabled = !consent || research.pending === true;
+    button.disabled = !characteristic;
   });
   const feedback = research.lastFeedback || {};
-  $('#reflection-note').textContent = !consent
-    ? 'Turn on research sharing in Privacy to contribute.'
-    : research.pending
-      ? 'A contribution is queued; LunaSay will send it when connected.'
-      : feedback.face && feedback.rating
-        ? `Last response: ${feedback.face} was ${feedback.rating}.`
-        : 'Only the face, rating, date, time, and pseudonymous device identity are shared.';
+  const count = Number(research.localFeedbackCount) || 0;
+  $('#reflection-note').textContent = !characteristic
+    ? 'Connect LunaSay to save feedback privately on the device.'
+    : feedback.face && feedback.rating
+      ? `Last response: ${feedback.face} was ${feedback.rating}. ${count} rating${count === 1 ? '' : 's'} now calibrate future readings locally.`
+      : 'Your ratings calibrate future readings locally. Research sharing is optional.';
 }
 
 function render() {

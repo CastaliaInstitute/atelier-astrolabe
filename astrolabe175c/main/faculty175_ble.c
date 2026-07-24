@@ -1775,6 +1775,7 @@ static int ble_state_json_access(uint16_t conn_handle,
         "{\"mood\":{\"label\":\"%s\",\"arousal\":%u,\"valence\":%u},"
         "\"research\":{\"consent\":%s,\"consentVersion\":\"%s\","
         "\"pending\":%s,\"status\":\"%s\","
+        "\"localFeedbackCount\":%u,"
         "\"lastFeedback\":{\"face\":\"%s\",\"rating\":\"%s\"}}}",
         faculty175_face_psych_state_mood_label(),
         arousal,
@@ -1783,6 +1784,7 @@ static int ble_state_json_access(uint16_t conn_handle,
         research.consent_version,
         research.pending ? "true" : "false",
         faculty175_research_state_label(research.state),
+        research.local_feedback_count,
         research.last_feedback_face,
         research.last_feedback_rating);
     if (len <= 0 || (size_t)len >= sizeof(body)) {
