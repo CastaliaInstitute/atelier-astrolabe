@@ -31,8 +31,10 @@
 #include "faculty175_log.h"
 #include "faculty175_device_settings.h"
 #include "faculty175_cycle_health.h"
+#include "faculty175_face_psych_state.h"
 #include "faculty175_faces.h"
 #include "faculty175_motion.h"
+#include "faculty175_research.h"
 #include "faculty175_ring.h"
 #include "faculty175_spotify.h"
 #include "faculty175_wifi_settings.h"
@@ -122,6 +124,8 @@ static const ble_uuid128_t BLE_ENABLED_CHAR_UUID =
     BLE_UUID128_INIT(0x41, 0x73, 0x74, 0x72, 0x6f, 0x6c, 0x61, 0x62, 0x65, 0x00, 0x17, 0x50, 0x00, 0x00, 0x00, 0x02);
 static const ble_uuid128_t BLE_SETTINGS_JSON_CHAR_UUID =
     BLE_UUID128_INIT(0x41, 0x73, 0x74, 0x72, 0x6f, 0x6c, 0x61, 0x62, 0x65, 0x00, 0x17, 0x50, 0x00, 0x00, 0x00, 0x03);
+static const ble_uuid128_t BLE_STATE_JSON_CHAR_UUID =
+    BLE_UUID128_INIT(0x41, 0x73, 0x74, 0x72, 0x6f, 0x6c, 0x61, 0x62, 0x65, 0x00, 0x17, 0x50, 0x00, 0x00, 0x00, 0x04);
 static const ble_uuid128_t COLMI_UART_SERVICE_UUID =
     BLE_UUID128_INIT(0x9e, 0xca, 0xdc, 0x24, 0x0e, 0xe5, 0xa9, 0xe0, 0x93, 0xf3, 0xa3, 0xb5, 0xf0, 0xff, 0x40, 0x6e);
 static const ble_uuid128_t COLMI_UART_RX_UUID =
@@ -225,6 +229,10 @@ static int ble_settings_json_access(uint16_t conn_handle,
                                     uint16_t attr_handle,
                                     struct ble_gatt_access_ctxt *ctxt,
                                     void *arg);
+static int ble_state_json_access(uint16_t conn_handle,
+                                 uint16_t attr_handle,
+                                 struct ble_gatt_access_ctxt *ctxt,
+                                 void *arg);
 static void ble_ring_telem_store(const faculty175_ble_peer_t *peer);
 
 static const struct ble_gatt_svc_def k_ble_svcs[] = {
@@ -241,6 +249,11 @@ static const struct ble_gatt_svc_def k_ble_svcs[] = {
                 .uuid = &BLE_SETTINGS_JSON_CHAR_UUID.u,
                 .access_cb = ble_settings_json_access,
                 .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE,
+            },
+            {
+                .uuid = &BLE_STATE_JSON_CHAR_UUID.u,
+                .access_cb = ble_state_json_access,
+                .flags = BLE_GATT_CHR_F_READ,
             },
             {0},
         },
@@ -1583,6 +1596,30 @@ static esp_err_t ble_apply_settings_json(const char *body)
         if (cJSON_IsString(birthplace) && birthplace->valuestring != NULL) faculty175_strlcpy(settings.birthplace, birthplace->valuestring, sizeof(settings.birthplace));
         err = faculty175_personal_settings_save(&settings);
     }
+    const cJSON *research = cJSON_GetObjectItemCaseSensitive(root, "research");
+    if (err == ESP_OK && cJSON_IsObject(research)) {
+        const cJSON *consent = cJSON_GetObjectItemCaseSensitive(research, "consent");
+        const cJSON *version = cJSON_GetObjectItemCaseSensitive(research, "consentVersion");
+        if (!cJSON_IsBool(consent)) {
+            err = ESP_ERR_INVALID_ARG;
+        } else {
+            err = faculty175_research_set_consent(
+                cJSON_IsTrue(consent),
+                cJSON_IsString(version) && version->valuestring != NULL
+                    ? version->valuestring
+                    : "research-v1");
+        }
+    }
+    const cJSON *mood = cJSON_GetObjectItemCaseSensitive(root, "mood");
+    if (err == ESP_OK && cJSON_IsObject(mood)) {
+        const cJSON *label = cJSON_GetObjectItemCaseSensitive(mood, "label");
+        const cJSON *check_in = cJSON_GetObjectItemCaseSensitive(mood, "checkIn");
+        if (!cJSON_IsString(label) || label->valuestring == NULL ||
+            !faculty175_face_psych_state_set_mood(
+                label->valuestring, cJSON_IsTrue(check_in))) {
+            err = ESP_ERR_INVALID_ARG;
+        }
+    }
     const cJSON *spotify = cJSON_GetObjectItemCaseSensitive(root, "spotify");
     if (err == ESP_OK && cJSON_IsObject(spotify)) {
         const cJSON *client_id = cJSON_GetObjectItemCaseSensitive(spotify, "clientId");
@@ -1692,6 +1729,44 @@ static int ble_settings_json_access(uint16_t conn_handle,
     s_json_rx_len += len;
     s_json_rx[s_json_rx_len] = '\0';
     return 0;
+}
+
+static int ble_state_json_access(uint16_t conn_handle,
+                                 uint16_t attr_handle,
+                                 struct ble_gatt_access_ctxt *ctxt,
+                                 void *arg)
+{
+    (void)conn_handle;
+    (void)attr_handle;
+    (void)arg;
+    if (ctxt == NULL || ctxt->op != BLE_GATT_ACCESS_OP_READ_CHR) {
+        return BLE_ATT_ERR_UNLIKELY;
+    }
+    faculty175_research_status_t research = {};
+    faculty175_research_status(&research);
+    uint8_t arousal = 0;
+    uint8_t valence = 0;
+    faculty175_face_psych_state_mood_values(&arousal, &valence);
+    char body[256];
+    const int len = snprintf(
+        body,
+        sizeof(body),
+        "{\"mood\":{\"label\":\"%s\",\"arousal\":%u,\"valence\":%u},"
+        "\"research\":{\"consent\":%s,\"consentVersion\":\"%s\","
+        "\"pending\":%s,\"status\":\"%s\"}}",
+        faculty175_face_psych_state_mood_label(),
+        arousal,
+        valence,
+        research.consent_enabled ? "true" : "false",
+        research.consent_version,
+        research.pending ? "true" : "false",
+        faculty175_research_state_label(research.state));
+    if (len <= 0 || (size_t)len >= sizeof(body)) {
+        return BLE_ATT_ERR_INSUFFICIENT_RES;
+    }
+    return os_mbuf_append(ctxt->om, body, (size_t)len) == 0
+        ? 0
+        : BLE_ATT_ERR_INSUFFICIENT_RES;
 }
 
 static esp_err_t ble_nvs_set_enabled(bool enabled)

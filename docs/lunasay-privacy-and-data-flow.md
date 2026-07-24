@@ -130,18 +130,30 @@ arousal coordinates in device NVS. Mood is self-reported present-moment
 context; prompts must not treat it as proof that an astrological reading is
 correct or infer another family member's mood from it.
 
+The hosted PWA exposes a separate Research sharing switch. Enabling it requires
+an explicit confirmation and stores consent version `research-v1` on the
+device. Side taps on the Mood Check-in face browse choices; a center tap
+deliberately records the selected mood. The device retains at most one unsent
+structured check-in and retries after connectivity returns. Turning sharing
+off stops new exports and erases that unsent check-in.
+
 The `lunasay-event` endpoint accepts a mood event only with an affirmative
-consent flag and a non-empty consent-policy version. Research export is off
+consent flag, the exact current consent-policy version, an allowlisted source,
+bounded mood values, and a valid signed credential from a provisioned
+Astrolabe. It derives the subject from the provisioned owner ID when one exists,
+otherwise from the verified device MAC; it does not trust a client-supplied
+subject. Research export is off
 unless the operator deliberately sets `LUNASAY_ML_LOGGING_ENABLED=true`, a
 private GitHub repository, and a server-only subject salt. Exported JSONL uses
 a salted SHA-256 subject identifier and bounded structured fields; it does not
 include names, journal text, conversations, birth data, or raw biometrics.
 
-This server gate is not a complete consent product. **Launch blocker:** expose
-research participation, revocation, retention, repository access, deletion,
-and data-export controls in the user settings experience and verify that the
-production repository is private. Do not enable the environment flag before
-those controls and a reviewed consent text exist.
+This remains an incomplete consent product. Participation and prospective
+revocation are now exposed, but **launch blockers** remain: obtain review of
+the consent text, publish retention and repository-access policy, add
+retrospective deletion/data-export requests, and verify that the production
+repository is private. Do not enable the environment flag before those items
+are complete.
 
 ### Runtime logs
 
@@ -199,6 +211,7 @@ by the authorization blocker.
 | Conversation history | Cleared and not appended by LunaSay | NVS/network verification required |
 | Erase profiles, Wi-Fi, legacy history, and audio scratch | Partial mechanisms | Complete reset evidence missing |
 | Persistent microphone lockout | Not proven by this audit | Do not claim |
+| Research participation and stop-new-sharing control | Hosted PWA + device NVS | Implemented; consent copy/legal review required |
 | Data export | Not proven by this audit | Do not claim |
 
 ## Campaign-safe wording today

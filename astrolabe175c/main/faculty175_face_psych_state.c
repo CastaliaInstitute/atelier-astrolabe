@@ -2,10 +2,12 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
+#include <strings.h>
 #include <stdlib.h>
 
 #include "faculty175_board.h"
 #include "faculty175_face_psych_state.h"
+#include "faculty175_research.h"
 #include "nvs.h"
 
 #define PSYCH_STATE_NVS_NS "psych_state"
@@ -91,6 +93,7 @@ static psych_state_style_opt_t s_style[] = {
 static bool s_loaded;
 static psych_state_style_field_t s_focus = PSYCH_STYLE_COUNT;
 static uint8_t s_mood;
+static bool s_local_checked_in;
 
 typedef struct {
     const char *label;
@@ -657,6 +660,16 @@ void faculty175_face_psych_state_draw(uint32_t anim_ms)
     faculty175_display_draw_text("<", 74, 410, psych_color(145, 172, 206));
     faculty175_display_draw_text(k_moods[s_mood].label, 205, 410, psych_color(224, 232, 246));
     faculty175_display_draw_text(">", 397, 410, psych_color(145, 172, 206));
+    faculty175_research_status_t research = {};
+    faculty175_research_status(&research);
+    const char *checkin_status = "TAP CENTER TO CHECK IN";
+    if (s_local_checked_in) {
+        checkin_status = research.consent_enabled
+            ? faculty175_research_state_label(research.state)
+            : "SAVED LOCALLY";
+    }
+    faculty175_display_draw_text(checkin_status, 177, 448,
+                                 psych_color(126, 148, 178));
 
     faculty175_display_flush();
 }
@@ -665,19 +678,29 @@ bool faculty175_face_psych_state_action(uint32_t seed_ms)
 {
     (void)seed_ms;
     ensure_style_loaded();
-    s_mood = cycle_value(s_mood, 1, PSYCH_STATE_MOOD_COUNT);
     save_style_style();
+    s_local_checked_in = true;
+    if (faculty175_research_consent_enabled()) {
+        (void)faculty175_research_record_mood(
+            k_moods[s_mood].label,
+            k_moods[s_mood].arousal,
+            k_moods[s_mood].valence);
+    }
     return true;
 }
 
 bool faculty175_face_psych_state_tap(int16_t x, int16_t y)
 {
-    (void)y;
     ensure_style_loaded();
-    if (x < 0 || x >= FACULTY175_LCD_W) {
+    if (x < 0 || x >= FACULTY175_LCD_W ||
+        y < 0 || y >= FACULTY175_LCD_H) {
         return false;
     }
+    if (x >= FACULTY175_LCD_W / 3 && x < (FACULTY175_LCD_W * 2) / 3) {
+        return faculty175_face_psych_state_action(0);
+    }
     s_mood = cycle_value(s_mood, x < FACULTY175_LCD_W / 2 ? -1 : 1, PSYCH_STATE_MOOD_COUNT);
+    s_local_checked_in = false;
     save_style_style();
     return true;
 }
@@ -689,8 +712,27 @@ bool faculty175_face_psych_state_style_delta(int delta)
         return false;
     }
     s_mood = cycle_value(s_mood, delta, PSYCH_STATE_MOOD_COUNT);
+    s_local_checked_in = false;
     save_style_style();
     return true;
+}
+
+bool faculty175_face_psych_state_set_mood(const char *label, bool check_in)
+{
+    ensure_style_loaded();
+    if (label == NULL) {
+        return false;
+    }
+    for (uint8_t i = 0; i < PSYCH_STATE_MOOD_COUNT; ++i) {
+        if (strcasecmp(label, k_moods[i].label) != 0) {
+            continue;
+        }
+        s_mood = i;
+        s_local_checked_in = false;
+        save_style_style();
+        return !check_in || faculty175_face_psych_state_action(0);
+    }
+    return false;
 }
 
 const char *faculty175_face_psych_state_mood_label(void)

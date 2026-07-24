@@ -36,6 +36,7 @@
 #include "faculty175_power_history.h"
 #include "faculty175_power_metrics.h"
 #include "faculty175_quotes.h"
+#include "faculty175_research.h"
 #include "faculty175_ring.h"
 #include "faculty175_rocket.h"
 #include "faculty175_spotify.h"
@@ -71,6 +72,39 @@ typedef struct {
 static uint16_t s_fb[FACULTY175_LCD_W * FACULTY175_LCD_H];
 static bool s_flush_suspended;
 static uint32_t s_tick_ms;
+
+void faculty175_research_init(void) {}
+esp_err_t faculty175_research_set_consent(bool enabled, const char *version)
+{
+    (void)enabled;
+    (void)version;
+    return ESP_FAIL;
+}
+bool faculty175_research_consent_enabled(void) { return false; }
+esp_err_t faculty175_research_record_mood(const char *mood,
+                                          uint8_t arousal,
+                                          uint8_t valence)
+{
+    (void)mood;
+    (void)arousal;
+    (void)valence;
+    return ESP_FAIL;
+}
+void faculty175_research_poll(void) {}
+void faculty175_research_status(faculty175_research_status_t *out)
+{
+    if (out != NULL) {
+        memset(out, 0, sizeof(*out));
+        out->state = FACULTY175_RESEARCH_OFF;
+        snprintf(out->consent_version, sizeof(out->consent_version),
+                 "%s", "research-v1");
+    }
+}
+const char *faculty175_research_state_label(faculty175_research_state_t state)
+{
+    (void)state;
+    return "local only";
+}
 
 const uint8_t _binary_pocketwatch_default_rgb565_start[FACULTY175_LCD_W * FACULTY175_LCD_H * sizeof(uint16_t)] = {0};
 const uint8_t _binary_maze_466_png_start[1] = {0};

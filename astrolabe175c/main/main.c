@@ -66,6 +66,7 @@
 #include "faculty175_pmu.h"
 #include "faculty175_pocketwatch.h"
 #include "faculty175_quotes.h"
+#include "faculty175_research.h"
 #include "faculty175_rocket.h"
 #include "faculty175_ring.h"
 #include "faculty175_power_metrics.h"
@@ -4813,6 +4814,7 @@ static void input_task(void *arg)
             save_current_face_async();
             face_save_pending = false;
         }
+        faculty175_research_poll();
         vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
@@ -4886,6 +4888,7 @@ void app_main(void)
     const esp_err_t device_auth_err = faculty175_device_auth_init();
     boot_probe_err(device_auth_err);
     ESP_ERROR_CHECK(device_auth_err);
+    faculty175_research_init();
     boot_probe_stage(0xa6);
     esp_rom_printf("A6 ota_init\n");
     faculty175_ota_init();

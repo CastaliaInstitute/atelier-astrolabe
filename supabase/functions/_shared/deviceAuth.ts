@@ -8,6 +8,11 @@ type DeviceRow = {
   owner_user_id: string | null;
 };
 
+export type VerifiedAstrolabeDevice = {
+  mac: string;
+  ownerUserId: string | null;
+};
+
 const MAC_RE = /^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/;
 const HEX_RE = /^[0-9a-f]+$/;
 
@@ -147,6 +152,18 @@ export async function verifiedAstrolabeDeviceOwnerId(
 ): Promise<string | null> {
   const device = await authenticatedAstrolabeDevice(req);
   return device instanceof Response ? null : device.owner_user_id ?? null;
+}
+
+/** Verify a signed device request and return only its safe identity fields. */
+export async function verifiedAstrolabeDeviceIdentity(
+  req: Request,
+): Promise<VerifiedAstrolabeDevice | Response> {
+  const device = await authenticatedAstrolabeDevice(req);
+  if (device instanceof Response) return device;
+  return {
+    mac: normalizeMac(device.mac),
+    ownerUserId: device.owner_user_id ?? null,
+  };
 }
 
 export async function verifyAstrolabeDevice(

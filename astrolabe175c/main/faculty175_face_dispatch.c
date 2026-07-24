@@ -7,9 +7,7 @@
 #include "faculty175_lvgl.h"
 #include "faculty175_face_native.h"
 #include "faculty175_face_notes.h"
-#if !defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
 #include "faculty175_face_psych_state.h"
-#endif
 #include "faculty175_face_runes.h"
 #include "faculty175_usb_screen.h"
 
@@ -152,10 +150,8 @@ bool faculty175_face_dispatch_action(faculty175_face_id_t id, uint32_t seed_ms)
             return faculty175_faces_set_runtime(FACULTY175_FACE_SYNASTRY) == ESP_OK;
         case FACULTY175_FACE_HUMAN_DESIGN:
             return faculty175_face_human_design_action(seed_ms);
-#if !defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
         case FACULTY175_FACE_PSYCH_STATE:
             return faculty175_face_psych_state_action(seed_ms);
-#endif
         case FACULTY175_FACE_TRON:
             faculty175_face_tron_reset();
             return true;

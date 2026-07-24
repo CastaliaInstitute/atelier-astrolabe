@@ -22,10 +22,24 @@
         <button class="tab" data-page="personal" type="button">You</button>
         <button class="tab" data-page="cycle" type="button">Cycle</button>
         <button class="tab" data-page="device" type="button">Device</button>
+        <button class="tab" data-page="privacy" type="button">Privacy</button>
       </nav>
 
       <section class="page active" id="today">
         <article class="moon-card"><p class="eyebrow">Cycle</p><div class="day"><span id="cycle-day">—</span><small id="cycle-total">set a start date</small></div><h2 id="cycle-phase">Your rhythm, on your terms.</h2><p id="cycle-summary">Connect LunaSay to read its private cycle estimate and ring signals.</p><div class="metrics"><span>HR <b id="hr">—</b></span><span>HRV <b id="hrv">—</b></span><span>SpO₂ <b id="spo2">—</b></span></div></article>
+        <article class="quiet-card mood-card">
+          <p class="eyebrow">Mood check-in</p>
+          <h2>How are you, right now?</h2>
+          <div class="mood-grid" role="group" aria-label="Choose a mood">
+            <button class="mood" data-mood="calm" type="button"><span>😌</span>Calm</button>
+            <button class="mood" data-mood="bright" type="button"><span>😊</span>Bright</button>
+            <button class="mood" data-mood="tender" type="button"><span>🥹</span>Tender</button>
+            <button class="mood" data-mood="low" type="button"><span>😔</span>Low</button>
+            <button class="mood" data-mood="tense" type="button"><span>😣</span>Tense</button>
+            <button class="mood" data-mood="energized" type="button"><span>🤩</span>Energized</button>
+          </div>
+          <p id="mood-note">Connect to choose the same mood shown on LunaSay.</p>
+        </article>
         <article class="quiet-card"><h2>What stays private</h2><p>Cycle data is stored on LunaSay. Your personal draft is kept only in this browser until a future device profile sync is enabled.</p></article>
       </section>
 
@@ -61,6 +75,19 @@
           <button class="secondary wide" id="use-location" type="button">Use current location</button>
           <button class="primary wide" type="submit">Sync time & place</button>
         </form>
+      </section>
+
+      <section class="page" id="privacy">
+        <div class="section-head"><p class="eyebrow">Privacy & research</p><h2>Your reflection belongs to you.</h2><p>Mood check-ins remain on LunaSay unless you explicitly opt in below.</p></div>
+        <article class="quiet-card consent-card">
+          <div class="consent-row">
+            <div><h2>Contribute pseudonymous mood patterns</h2><p>Share only the selected mood, its two bounded scores, time, and a salted account or device identifier for future LunaSay research.</p></div>
+            <label class="switch"><input id="research-consent" type="checkbox" /><span aria-hidden="true"></span><b>Research sharing</b></label>
+          </div>
+          <p class="privacy-list">The GitHub research export never includes your name, birth details, family data, journal or conversation text, ring biometrics, location, or raw device identifier.</p>
+          <p id="research-status" class="export-status" aria-live="polite">Connect LunaSay to view research status.</p>
+        </article>
+        <article class="quiet-card"><h2>How withdrawal works</h2><p>Turning sharing off immediately stops new exports and deletes any unsent mood check-in from the device. It does not delete earlier contributions; LunaSay still needs a reviewed deletion-request process before research sharing can launch.</p></article>
       </section>
     </main>
     <footer>Private by default · LunaSay is a reflective instrument, not a medical device.</footer>
