@@ -108,6 +108,22 @@ biometrics are explicitly excluded from past or future readings because they
 are not evidence about another date. The feature is framed as symbolic
 reflection, never compatibility scoring or event prediction.
 
+### Device health and OTA telemetry
+
+The Web Bluetooth settings read and a separate, bounded, read-only health
+characteristic expose an operational snapshot to the connected browser:
+firmware version, uptime, battery presence, percentage, voltage and
+charging/USB state, BLE enabled/advertising state, the configured Wi-Fi SSID,
+and automatic OTA activity, readiness, interval, last-poll uptime, and a
+bounded last-result summary. These are read directly from LunaSay and rendered
+on the Device tab. The PWA does not upload or persist the snapshot.
+
+The snapshot does not contain Wi-Fi passwords, device-auth secrets, signed
+manifest credentials, birth/family records, journal or conversation text, raw
+audio, or OTA signing material. Location and ring measurements remain in the
+existing settings response because their explicit companion features need
+them; they are not included in the new `device` telemetry object.
+
 ### Alethiometer
 
 The transcribed question reaches Gemini twice: first to select three distinct

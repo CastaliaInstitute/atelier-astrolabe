@@ -1,12 +1,15 @@
 const SERVICE = "01000000-5017-0065-6261-6c6f72747341";
 const SETTINGS = "03000000-5017-0065-6261-6c6f72747341";
 const STATE = "04000000-5017-0065-6261-6c6f72747341";
+const HEALTH = "05000000-5017-0065-6261-6c6f72747341";
 const CHUNK = 80;
 const CONSENT_VERSION = "research-v2";
 const relationshipModel = globalThis.LunaSayRelationship;
+const deviceModel = globalThis.LunaSayDevice;
 
 let characteristic;
 let stateCharacteristic;
+let healthCharacteristic;
 let deviceStatus = {};
 
 const $ = (selector) => document.querySelector(selector);
@@ -60,6 +63,10 @@ async function read() {
     const stateRaw = await stateCharacteristic.readValue();
     Object.assign(deviceStatus, JSON.parse(new TextDecoder().decode(stateRaw)));
   }
+  if (healthCharacteristic) {
+    const healthRaw = await healthCharacteristic.readValue();
+    Object.assign(deviceStatus, JSON.parse(new TextDecoder().decode(healthRaw)));
+  }
   render();
   return deviceStatus;
 }
@@ -80,6 +87,7 @@ async function connect() {
   device.addEventListener("gattserverdisconnected", () => {
     characteristic = null;
     stateCharacteristic = null;
+    healthCharacteristic = null;
     setStatus("Disconnected");
     render();
   });
@@ -88,6 +96,9 @@ async function connect() {
   characteristic = await service.getCharacteristic(SETTINGS);
   stateCharacteristic = await service
     .getCharacteristic(STATE)
+    .catch(() => null);
+  healthCharacteristic = await service
+    .getCharacteristic(HEALTH)
     .catch(() => null);
   await read();
   setStatus(
@@ -193,6 +204,21 @@ function renderRelationship() {
   });
 }
 
+function renderDevice() {
+  const view = deviceModel.view(deviceStatus, Boolean(characteristic));
+  $("#device-health-title").textContent = view.healthTitle;
+  $("#device-battery").textContent = view.battery;
+  $("#device-power").textContent = view.power;
+  $("#device-wifi").textContent = view.wifi;
+  $("#device-ble").textContent = view.ble;
+  $("#device-health-note").textContent = view.healthNote;
+  $("#device-firmware").textContent = view.firmware;
+  $("#device-ota-auto").textContent = view.otaAuto;
+  $("#device-ota-check").textContent = view.otaCheck;
+  $("#device-ota-network").textContent = view.otaNetwork;
+  $("#device-ota-note").textContent = view.otaNote;
+}
+
 function render() {
   const cycle = deviceStatus.cycle || {};
   const ring = deviceStatus.ring || {};
@@ -220,6 +246,7 @@ function render() {
   renderMood();
   renderResearch();
   renderRelationship();
+  renderDevice();
 }
 
 async function sendAndRefresh(payload, message) {
