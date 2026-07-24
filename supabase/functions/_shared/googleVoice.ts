@@ -20,12 +20,17 @@ function pemToDer(pem: string): ArrayBuffer {
   const body = pem.replace(/-----(BEGIN|END) PRIVATE KEY-----/g, "")
     .replace(/\s+/g, "");
   const bytes = Uint8Array.from(atob(body), (c) => c.charCodeAt(0));
-  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  return bytes.buffer.slice(
+    bytes.byteOffset,
+    bytes.byteOffset + bytes.byteLength,
+  ) as ArrayBuffer;
 }
 
 /** Obtain a short-lived Google OAuth token for Cloud TTS Gemini models. */
 async function vertexServiceAccessToken(): Promise<string> {
-  if (vertexAccessToken && vertexAccessToken.expiresAtMs > Date.now() + 60_000) {
+  if (
+    vertexAccessToken && vertexAccessToken.expiresAtMs > Date.now() + 60_000
+  ) {
     return vertexAccessToken.value;
   }
   const raw = Deno.env.get("VERTEX_SERVICE_ACCOUNT_JSON")?.trim();
@@ -40,7 +45,9 @@ async function vertexServiceAccessToken(): Promise<string> {
     token_uri?: string;
   };
   if (!service.client_email || !service.private_key) {
-    throw new Error("VERTEX_SERVICE_ACCOUNT_JSON is missing client_email or private_key.");
+    throw new Error(
+      "VERTEX_SERVICE_ACCOUNT_JSON is missing client_email or private_key.",
+    );
   }
   const now = Math.floor(Date.now() / 1000);
   const claim = {
@@ -69,18 +76,28 @@ async function vertexServiceAccessToken(): Promise<string> {
     new TextEncoder().encode(unsigned),
   );
   const assertion = `${unsigned}.${base64Url(new Uint8Array(signature))}`;
-  const tokenRes = await fetch(service.token_uri || "https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-      assertion,
-    }),
-  });
+  const tokenRes = await fetch(
+    service.token_uri || "https://oauth2.googleapis.com/token",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+        assertion,
+      }),
+    },
+  );
   const text = await tokenRes.text();
-  if (!tokenRes.ok) throw new Error(`Google OAuth failed: ${tokenRes.status} ${text}`);
-  const token = JSON.parse(text) as { access_token?: string; expires_in?: number };
-  if (!token.access_token) throw new Error("Google OAuth returned no access token.");
+  if (!tokenRes.ok) {
+    throw new Error(`Google OAuth failed: ${tokenRes.status} ${text}`);
+  }
+  const token = JSON.parse(text) as {
+    access_token?: string;
+    expires_in?: number;
+  };
+  if (!token.access_token) {
+    throw new Error("Google OAuth returned no access token.");
+  }
   vertexAccessToken = {
     value: token.access_token,
     expiresAtMs: Date.now() + Math.max(60, token.expires_in ?? 3600) * 1000,
@@ -245,6 +262,8 @@ export async function geminiGenerate(params: {
   userText: string;
   /** Force a machine-readable response for device cache packets. */
   responseMimeType?: "application/json";
+  /** JSON Schema used by Gemini structured output. */
+  responseJsonSchema?: Record<string, unknown>;
   /** Explicit ceiling for structured responses that do not match legacy face prompts. */
   maxOutputTokens?: number;
   /** Gemini 3.x effort level; use minimal for deterministic format transforms. */
@@ -258,11 +277,14 @@ export async function geminiGenerate(params: {
       encodeURIComponent(apiKey)
     }`;
   const generationConfig = maxOutputTokens != null || params.responseMimeType ||
-      params.thinkingLevel
+      params.responseJsonSchema || params.thinkingLevel
     ? {
       ...(maxOutputTokens != null ? { maxOutputTokens } : {}),
       ...(params.responseMimeType
         ? { responseMimeType: params.responseMimeType }
+        : {}),
+      ...(params.responseJsonSchema
+        ? { responseJsonSchema: params.responseJsonSchema }
         : {}),
       ...(params.thinkingLevel
         ? {
@@ -441,7 +463,9 @@ async function ttsMp3BytesInner(
   const geminiTts = !!voice.modelName;
   const url = geminiTts
     ? ttsSynthesizeUrl(options, voice.name)
-    : `${ttsSynthesizeUrl(options, voice.name)}?key=${encodeURIComponent(apiKey)}`;
+    : `${ttsSynthesizeUrl(options, voice.name)}?key=${
+      encodeURIComponent(apiKey)
+    }`;
   const authHeaders: Record<string, string> = geminiTts
     ? { Authorization: `Bearer ${await vertexServiceAccessToken()}` }
     : {};
