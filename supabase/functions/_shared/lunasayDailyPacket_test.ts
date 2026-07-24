@@ -138,10 +138,12 @@ Deno.test("individual Family Synastry keeps three bounded beats", () => {
     "Tight major aspects: Moon sextile Moon orb 1.2. Current relationship transit arc: now at day +0, transiting Moon sextile Daniel natal Moon at orb 1.2 degrees; closest in the daily samples on day +2. Family biometrics: no live wellness packets received yet.",
   );
   if (
+    !face.spoken.includes("Pattern:") ||
     !face.spoken.includes("Both of you seek steadiness") ||
+    !face.spoken.includes("Today:") ||
     !face.spoken.includes("No current transit facts") ||
     !face.spoken.includes("Next:") ||
-    !face.spoken.includes("Try this:")
+    !face.spoken.includes("Practice:")
   ) {
     throw new Error("individual synastry beats were not composed");
   }
@@ -561,7 +563,7 @@ Deno.test("LunaSay composes synastry from durable, temporary, and practice beats
       "You can both protect closeness",
       "No live relationship signal",
       "Next:",
-      "Try this:",
+      "Practice:",
     ]
   ) {
     if (!parsed.faces.synastry.spoken.includes(beat)) {
