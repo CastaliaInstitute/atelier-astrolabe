@@ -364,7 +364,10 @@ static bool wifi_is_connected(void);
 #define ASTROLABE_USB_RUNTIME_ENABLED 0
 #endif
 #define FACULTY175_USB_RUNTIME_ENABLED ASTROLABE_USB_RUNTIME_ENABLED
-#define FACULTY175_FACTORY_RECOVERY_BOOT_ENABLED 0
+#ifndef ASTROLABE_FACTORY_RECOVERY
+#define ASTROLABE_FACTORY_RECOVERY 0
+#endif
+#define FACULTY175_FACTORY_RECOVERY_BOOT_ENABLED ASTROLABE_FACTORY_RECOVERY
 #if defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
 #define FACULTY175_EARLY_WIFI_BOOT_ENABLED 1
 #else
@@ -4840,6 +4843,20 @@ void app_main(void)
     }
     boot_probe_err(nvs_err);
     ESP_ERROR_CHECK(nvs_err);
+#if ASTROLABE_FACTORY_RECOVERY
+    const esp_err_t recovery_storage_err = faculty175_storage_init();
+    if (recovery_storage_err != ESP_OK) {
+        FACULTY175_LOG_STAGE_W(TAG, "recovery", "storage skipped: %s", esp_err_to_name(recovery_storage_err));
+    }
+    faculty175_ota_init();
+    const esp_err_t recovery_usb_err = faculty175_usb_init();
+    FACULTY175_LOG_STAGE(TAG, "recovery", "factory recovery USB/JTAG: %s", esp_err_to_name(recovery_usb_err));
+    faculty175_serial_init();
+    FACULTY175_LOG_STAGE(TAG, "recovery", "factory recovery ready; use `ota help` or `ota boot ota`");
+    while (true) {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+#endif
     /* Reserve the internal-RAM NVS worker before UI/audio allocations leave
      * too little contiguous memory to create it on the first face gesture. */
     save_current_face_async();
