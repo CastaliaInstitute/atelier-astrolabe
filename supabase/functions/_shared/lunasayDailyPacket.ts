@@ -116,7 +116,9 @@ export function parseLunaSayDailyPacket(
     !candidateFaces || typeof candidateFaces !== "object"
   ) {
     throw new Error(
-      `Invalid LunaSay daily packet faces envelope (type: ${Array.isArray(candidateFaces) ? "array" : typeof candidateFaces}; keys: ${Object.keys(parsed).slice(0, 12).join(",")})`,
+      `Invalid LunaSay daily packet faces envelope (type: ${
+        Array.isArray(candidateFaces) ? "array" : typeof candidateFaces
+      }; keys: ${Object.keys(parsed).slice(0, 12).join(",")})`,
     );
   }
 
@@ -235,8 +237,11 @@ export function buildLunaSayDailyPacketInstruction(params: {
     "Each face needs mode, title, headline, display, spoken, detail, and accent.",
     "mode is daily for moon/astrology/transits/synastry/tarot/sky, live_question for alethiometer/conversation, and offline for journal.",
     "accent is one of moon, violet, amber, blue, rose, silver.",
-    "Use short fields: title <= 24 chars; headline <= 42; display <= 80; spoken <= 150; detail <= 180. One sentence per field is normally enough.",
+    "Use short fields by default: title <= 24 chars; headline <= 42; display <= 80; spoken <= 150; detail <= 180. One sentence per field is normally enough.",
     "Make each face independently useful. spoken must be natural, soft, and ready for TTS; it should not mention JSON or instructions.",
+    "Synastry is Family Synastry, not romance with relabeled people. Use only family members and roles present in the facts. Treat the family as a reciprocal system: no person is the problem, and do not rank, compare, blame, diagnose, parentify a child, or make compatibility verdicts.",
+    "For synastry only, spoken may be 150–300 characters and detail may be up to 360. Use three compact beats: name one mutual dynamic in plain language; distinguish a durable natal tendency from today's temporary relationship weather; offer one specific care or repair practice. Keep astrology as supporting evidence rather than leading with planet jargon.",
+    "If wellness facts are present, translate them into privacy-preserving care context such as lower capacity, need for rest, or need for space. Never recite raw measurements or treat temporary biometrics as personality.",
     "Tarot is a single reflective daily draw: include cardName and do not call it a prediction.",
     "Alethiometer and Conversation must be an inviting day-sensitive entry line only; do not pretend they have answered a question.",
     "Journal must invite private, on-device reflection and must not claim it is saved anywhere unless facts explicitly say so.",
@@ -276,7 +281,17 @@ export function lunaSayDailyPacketFallback(params: {
       moon: daily("Moon", "moon"),
       astrology: daily("Astrology", "violet"),
       transits: daily("Transits", "amber"),
-      synastry: daily("Synastry", "rose"),
+      synastry: {
+        mode: "daily",
+        title: "Family",
+        headline: "Protect the bond",
+        display: "Notice the pattern without making one person the problem.",
+        spoken:
+          "Meet the family pattern with curiosity. Soften one response, name one need, and leave room for repair.",
+        detail:
+          "Family Synastry is relationship weather and a prompt for care, never a verdict about any person.",
+        accent: "rose",
+      },
       tarot: { ...daily("Tarot", "amber"), cardName: "The Star" },
       alethiometer: {
         mode: "live_question",

@@ -1,4 +1,5 @@
 import {
+  buildLunaSayDailyPacketInstruction,
   LUNASAY_DAILY_FACE_IDS,
   lunaSayDailyPacketFallback,
   lunaSayDailyTarotCardName,
@@ -6,6 +7,26 @@ import {
   normalizeLunaSayTimezone,
   parseLunaSayDailyPacket,
 } from "./lunasayDailyPacket.ts";
+
+Deno.test("LunaSay daily instruction makes Family Synastry relational and safe", () => {
+  const instruction = buildLunaSayDailyPacketInstruction({
+    date: "2026-08-01",
+    timezone: "America/Denver",
+  });
+  for (
+    const required of [
+      "Family Synastry",
+      "reciprocal system",
+      "three compact beats",
+      "parentify a child",
+      "Never recite raw measurements",
+    ]
+  ) {
+    if (!instruction.includes(required)) {
+      throw new Error(`missing Family Synastry instruction: ${required}`);
+    }
+  }
+});
 
 Deno.test("LunaSay daily packet accepts every face with bounded text", () => {
   const faces = Object.fromEntries(LUNASAY_DAILY_FACE_IDS.map((id) => [id, {
@@ -175,7 +196,9 @@ Deno.test("LunaSay fallback still provides every cacheable face", () => {
   });
   if (
     packet.faces.tarot.cardName !== "The Star" ||
-    packet.faces.conversation.mode !== "live_question"
+    packet.faces.conversation.mode !== "live_question" ||
+    packet.faces.synastry.title !== "Family" ||
+    !packet.faces.synastry.spoken.includes("repair")
   ) {
     throw new Error("fallback packet is incomplete");
   }

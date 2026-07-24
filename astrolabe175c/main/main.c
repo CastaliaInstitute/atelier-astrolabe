@@ -1384,10 +1384,10 @@ static void append_synastry_pair_prompt(char *out,
     prompt_append(out,
                   cap,
                   off,
-                  "%s synastry with %s (%s): %s Sun %s Moon %s; %s Sun %s Moon %s. ",
+                  "%s relationship between %s and %s: %s Sun %s Moon %s; %s Sun %s Moon %s. ",
                   faculty175_charts_role_label(target->role),
+                  user->name,
                   target->name,
-                  target->place,
                   user->name,
                   faculty175_charts_zodiac_abbr(user_pos->lon[0]),
                   faculty175_charts_zodiac_abbr(user_pos->lon[1]),
@@ -1458,7 +1458,10 @@ static void append_synastry_prompt(char *out, size_t cap, size_t *off)
     prompt_append(out,
                   cap,
                   off,
-                  "Synastry mode combines relationship astrology with live biometrics. Use astrology symbolically and biometrics supportively; do not diagnose, blame, or give medical advice. Primary user: %s, Sun %s Moon %s. ",
+                  "Family Synastry treats the household as a reciprocal system: no person is the problem and every pattern has more than one side. "
+                  "Natal aspects describe durable relationship tendencies; live biometrics describe only temporary care context. "
+                  "Use astrology symbolically and biometrics supportively; do not diagnose, blame, rank family members, or give medical advice. "
+                  "Primary user: %s, Sun %s Moon %s. ",
                   user.name,
                   faculty175_charts_zodiac_abbr(user_pos.lon[0]),
                   faculty175_charts_zodiac_abbr(user_pos.lon[1]));
@@ -1466,30 +1469,24 @@ static void append_synastry_prompt(char *out, size_t cap, size_t *off)
     faculty175_birth_chart_t active = {};
     faculty175_chart_positions_t active_pos = {};
     if (faculty175_charts_active(&active) && faculty175_charts_birth_positions(&active, &active_pos)) {
+        prompt_append(out,
+                      cap,
+                      off,
+                      "The selected relationship with %s is the only natal pairing to interpret in this reading; do not compare it with another family member. ",
+                      active.name);
         append_synastry_pair_prompt(out, cap, off, &user, &user_pos, &active, &active_pos, 5);
     } else {
         prompt_append(out, cap, off, "No active partner or child chart is selected. ");
-    }
-
-    int child_count = 0;
-    for (int slot = 0; slot < FACULTY175_CHART_PROFILE_SLOTS; ++slot) {
-        faculty175_birth_chart_t child = {};
-        faculty175_chart_positions_t child_pos = {};
-        if (!faculty175_charts_profile_get(slot, &child) || child.role != FACULTY175_CHART_ROLE_CHILD ||
-            !faculty175_charts_birth_positions(&child, &child_pos)) {
-            continue;
-        }
-        ++child_count;
-        append_synastry_pair_prompt(out, cap, off, &user, &user_pos, &child, &child_pos, 3);
-    }
-    if (child_count == 0) {
-        prompt_append(out, cap, off, "No child charts are currently stored. ");
     }
     append_family_wellness_prompt(out, cap, off);
     prompt_append(out,
                   cap,
                   off,
-                  "For TTS, synthesize one gentle family guidance thought from chart resonance plus current biometrics. Prefer concrete care: check in, soften tone, protect sleep, breathe together, or give space. ");
+                  "For TTS, give a 45 to 75 word Family Synastry reading in three beats: "
+                  "(1) name one reciprocal dynamic in plain language, without leading with planet names; "
+                  "(2) describe today's relationship weather, clearly separating durable chart patterns from temporary wellness context; "
+                  "(3) offer one concrete micro-practice for care or repair, such as a gentler opening, a specific check-in, protected rest, shared breathing, a clear boundary, or space. "
+                  "Use names only when helpful. Never compare children, assign a child responsibility for an adult's emotions, expose raw biometric measurements, declare compatibility, predict conflict, or make any family member sound fixed. ");
 }
 
 static void build_face_read_prompt(const faculty175_face_desc_t *face, char *out, size_t cap)
@@ -1885,7 +1882,7 @@ static void face_tts_run_one(faculty175_face_id_t id)
     const char *system = (face != NULL && face->id == FACULTY175_FACE_CRYSTAL_BALL)
                              ? CRYSTAL_BALL_SYSTEM_INSTRUCTION
                              : family_face
-                                   ? "You are the speaking voice of a tiny round astrolabe on a family synastry face. Use the supplied chart aspects as symbolic relationship weather and the supplied biometrics as live care context. Give one short, practical, compassionate suggestion. Do not diagnose, predict medical states, shame anyone, or expose implementation details."
+                                   ? "You are the speaking voice of LunaSay on a Family Synastry face. Translate supplied chart aspects into compassionate, reciprocal relationship patterns, and use biometrics only as temporary care context. Structure the reading as dynamic, today's weather, and one small repair or care practice. Speak plainly and warmly; astrology is supporting evidence, not jargon or destiny. Never diagnose, rank, shame, compare children, parentify a child, recite raw health measurements, predict conflict, declare compatibility, or expose implementation details."
                              : "You are the speaking voice of a tiny round astrolabe. Read the current face from the supplied data. "
                                "Do not perform speech recognition, do not ask a question, and do not mention hidden implementation details.";
     const char *post_face = (face != NULL && face->id == FACULTY175_FACE_ALETHIOMETER)
