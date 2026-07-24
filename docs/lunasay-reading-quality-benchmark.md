@@ -19,7 +19,7 @@ generated daily faces on a 100-point scale:
 | Dimension | Points | What it rewards |
 |---|---:|---|
 | Evidence specificity | 20 | Verbatim evidence that is visibly carried into a non-redundant reading |
-| Actionability | 20 | A concrete choice, observation, question, or care practice |
+| Actionability | 20 | A validated structured action that begins with a direct verb and is present in spoken delivery |
 | Epistemic humility | 15 | Conditional/reflection language without certainty or horoscope filler |
 | Face distinctness | 15 | Correct face vocabulary and low repetition across the packet |
 | Spoken delivery | 15 | Complete, bounded, natural TTS sentences |
@@ -53,7 +53,40 @@ telemetry and do not discard a safe reading. If both attempts fail, the
 deterministic fallback retains the exact evidence, timing, and card identity so
 the replacement is still auditable.
 
+Benchmark version 2 makes actionability contractual rather than heuristic.
+Moon, Inner Weather, Transits, Tarot, and Sky must return an `action` beginning
+with a direct imperative verb. The generation schema targets 96 characters,
+with a hard 120-character device boundary. Family Synastry's existing
+`practice` is its action. The server preserves the action as structured data,
+bounds any verbose interpretive prelude, and appends the exact action to
+`spoken` when needed, so every cached face delivers the same concrete practice
+that was validated.
+
 `voice-pipeline` returns a compact `quality` summary with the benchmark version,
 gate results, packet average, minimum face score, maximum cross-face
 similarity, and weak faces. This makes quality observable without sending the
 full diagnostic report to the device.
+
+Before release, run repeated signed production samples rather than relying on a
+single favorable generation:
+
+```sh
+SUPABASE_URL=... \
+SUPABASE_ANON_KEY=... \
+ASTROLABE_DEVICE_MAC=... \
+ASTROLABE_DEVICE_CHANNEL=... \
+ASTROLABE_DEVICE_SECRET=... \
+deno run --allow-env --allow-net --allow-read \
+  scripts/lunasay_quality_soak.ts facts.txt 6
+```
+
+The soak fails unless every sample passes the hard gate, release gate, and
+structured-action contract with no face fallback. Its JSON report also records
+average model calls, mean and p10 packet scores, and the lowest observed face
+score.
+
+On 2026-07-24, a six-sample signed production soak using six independent
+Gemini 2.5 Flash face calls passed every hard, release, and action-contract
+gate with zero fallbacks. The packet average was 98.9, p10 was 97.8, the
+lowest observed face score was 92, and face-local safety retries brought the
+average to 6.5 model calls per packet.

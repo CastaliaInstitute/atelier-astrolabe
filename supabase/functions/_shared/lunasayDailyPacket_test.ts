@@ -47,7 +47,12 @@ function modelFaces(includeTarotCard = true): Record<string, unknown> {
     ...(LUNASAY_GENERATED_DAILY_FACE_IDS.includes(
         id as typeof LUNASAY_GENERATED_DAILY_FACE_IDS[number],
       )
-      ? { evidence: "Primary natal chart: Daniel, Sun Cancer." }
+      ? {
+        evidence: "Primary natal chart: Daniel, Sun Cancer.",
+        ...(id === "synastry"
+          ? {}
+          : { action: "Notice one concrete detail before choosing." }),
+      }
       : {}),
     ...(id === "tarot" && includeTarotCard ? { cardName: "The Star" } : {}),
   }]));
@@ -112,6 +117,7 @@ Deno.test("LunaSay can request and validate one Gemini 2.5 face at a time", () =
       display: "Leave room for a different answer.",
       spoken:
         "The weather feels open. Let the next honest answer surprise you.",
+      action: "Notice the next honest answer before choosing.",
       detail: "Mercury trine the natal Moon supports easier expression.",
       evidence: "Primary natal chart: Daniel, Sun Cancer.",
     }),
@@ -119,8 +125,87 @@ Deno.test("LunaSay can request and validate one Gemini 2.5 face at a time", () =
     "2026-08-01",
     "Primary natal chart: Daniel, Sun Cancer. Current evidence: Mercury trine natal Moon, orb 0.8 degrees.",
   );
-  if (face.title !== "Inner Weather" || face.headline !== "Open") {
+  if (
+    face.title !== "Inner Weather" ||
+    face.headline !== "Open" ||
+    face.action !== "Notice the next honest answer before choosing." ||
+    !face.spoken.endsWith("Notice the next honest answer before choosing.")
+  ) {
     throw new Error("individual face metadata was not normalized");
+  }
+});
+
+Deno.test("generated face rejects a vague non-imperative action", () => {
+  let rejected = false;
+  try {
+    parseLunaSayDailyFace(
+      JSON.stringify({
+        headline: "Open",
+        display: "Leave room for a different answer.",
+        spoken: "The weather may feel open.",
+        action: "A sense of harmony and possibility.",
+        detail:
+          "Cancer care can be a resource while self-protection becomes a tension.",
+        evidence: "Primary natal chart: Daniel, Sun Cancer.",
+      }),
+      "astrology",
+      "2026-08-01",
+      "Primary natal chart: Daniel, Sun Cancer.",
+    );
+  } catch (error) {
+    rejected = String(error).includes("action-not-imperative");
+  }
+  if (!rejected) {
+    throw new Error("vague structured action was accepted");
+  }
+});
+
+Deno.test("server bounds a verbose prelude before appending the exact action", () => {
+  const face = parseLunaSayDailyFace(
+    JSON.stringify({
+      headline: "Open",
+      display: "Leave room for a different answer.",
+      spoken:
+        "Care can be a resource. Precision can become a tension. Both belong in the picture. The chart is symbolic, not certain.",
+      action: "Notice which need asks for care first.",
+      detail:
+        "Cancer care can be a resource while Virgo precision can become a tension.",
+      evidence: "Primary natal chart: Daniel, Sun Cancer.",
+    }),
+    "astrology",
+    "2026-08-01",
+    "Primary natal chart: Daniel, Sun Cancer.",
+  );
+  const sentences = face.spoken.match(/[.!?]+(?:\s|$)/g)?.length ?? 0;
+  if (
+    sentences !== 4 ||
+    !face.spoken.endsWith("Notice which need asks for care first.")
+  ) {
+    throw new Error(`verbose prelude was not bounded: ${face.spoken}`);
+  }
+});
+
+Deno.test("server retains complete bounded detail sentences", () => {
+  const longTail = "A".repeat(500);
+  const face = parseLunaSayDailyFace(
+    JSON.stringify({
+      headline: "Open",
+      display: "Leave room for a different answer.",
+      spoken: "Care can be a resource.",
+      action: "Notice which need asks for care first.",
+      detail:
+        `Cancer care is a resource and precision can become a tension. ${longTail}`,
+      evidence: "Primary natal chart: Daniel, Sun Cancer.",
+    }),
+    "astrology",
+    "2026-08-01",
+    "Primary natal chart: Daniel, Sun Cancer.",
+  );
+  if (
+    face.detail !==
+      "Cancer care is a resource and precision can become a tension."
+  ) {
+    throw new Error(`oversized detail was not safely bounded: ${face.detail}`);
   }
 });
 
@@ -153,11 +238,13 @@ Deno.test("individual Family Synastry keeps three bounded beats", () => {
   );
   if (
     !face.spoken.includes("Pattern:") ||
-    !face.spoken.includes("You both seek steadiness") ||
+    !face.spoken.includes("Both of you seek steadiness") ||
     !face.spoken.includes("Today:") ||
-    !face.spoken.includes("Let experience lead") ||
+    !face.spoken.includes("let experience lead") ||
     !face.spoken.includes("Next:") ||
-    !face.spoken.includes("Practice: Ask what support")
+    !face.spoken.includes("Practice: Ask what support") ||
+    face.action !==
+      "Ask what support would be useful, then listen without fixing."
   ) {
     throw new Error("individual synastry beats were not composed");
   }
@@ -352,7 +439,7 @@ Deno.test("line-oriented device facts never bleed into the next face", () => {
   }
 });
 
-Deno.test("server owns next timing and rejects invented dates or certainty", () => {
+Deno.test("server owns next timing and safely normalizes a bare will", () => {
   const transitEvidence =
     "Ten-day transit arc: now at day +0, transiting Saturn square natal Venus at orb 1.4 degrees; closest in the daily samples on day +2 at orb 0.1 degrees; outside the 4.5-degree window by day +7.";
   const baseTransit = {
@@ -360,6 +447,7 @@ Deno.test("server owns next timing and rejects invented dates or certainty", () 
     display: "Make one deliberate choice before adding more.",
     spoken:
       "Pressure may sharpen priorities now; day +2 is the closest sampled point.",
+    action: "Pause before adding another commitment.",
     detail: "Saturn square natal Venus can symbolize careful value choices.",
     evidence:
       "Tight current-to-natal aspects, strongest first: transiting Saturn square natal Venus, orb 1.4 degrees.",
@@ -383,10 +471,22 @@ Deno.test("server owns next timing and rejects invented dates or certainty", () 
   ) {
     throw new Error(`server did not own next timing: ${canonical.next}`);
   }
+  const softened = parseLunaSayDailyFace(
+    JSON.stringify({
+      ...baseTransit,
+      now: "This will make value choices feel more deliberate.",
+    }),
+    "transits",
+    "2026-08-01",
+    facts,
+  );
+  if (softened.now !== "This may make value choices feel more deliberate.") {
+    throw new Error(`server did not soften bare will: ${softened.now}`);
+  }
   for (
     const [label, change] of [
       ["invented date", { now: "Everything changes on 2026-08-09." }],
-      ["certainty", { now: "This will force a relationship decision." }],
+      ["certainty", { now: "This inevitably forces a relationship decision." }],
     ] as const
   ) {
     let rejected = false;
@@ -580,6 +680,22 @@ Deno.test("LunaSay structured schema requires every exact face id", () => {
     ) {
       throw new Error(`generated face schema omitted evidence for ${id}`);
     }
+    if (
+      LUNASAY_GENERATED_DAILY_FACE_IDS.includes(
+        id as typeof LUNASAY_GENERATED_DAILY_FACE_IDS[number],
+      )
+    ) {
+      const actionField = id === "synastry" ? "practice" : "action";
+      const faceRequired = (face.required ?? []) as string[];
+      if (
+        !(actionField in faceProperties) ||
+        !faceRequired.includes(actionField)
+      ) {
+        throw new Error(
+          `generated face schema omitted structured action for ${id}`,
+        );
+      }
+    }
   }
 });
 
@@ -612,8 +728,8 @@ Deno.test("LunaSay composes synastry from durable, temporary, and practice beats
   });
   for (
     const beat of [
-      "Pattern: You both protect closeness slowly.",
-      "Today: Move gently.",
+      "Pattern: You can both protect closeness by moving slowly.",
+      "Today: No current signal",
       "Next:",
       "Practice:",
     ]
@@ -641,7 +757,7 @@ Deno.test("LunaSay keeps verbose synastry details while bounding device speech",
           display: "Let lived experience lead.",
           dynamic: verbose,
           weather: verbose.slice(0, 190),
-          practice: verbose.slice(0, 190),
+          practice: "Ask before offering advice, then listen for one minute.",
           spoken:
             "Pattern: Both people move carefully. Today: Capacity may be lower. Practice: Ask before offering advice.",
           detail: "A bounded speech composer protects the device cache.",
@@ -738,6 +854,17 @@ Deno.test("LunaSay fallback still provides every cacheable face", () => {
       face.detail.includes("Moon phase: waxing crescent")
     ) {
       throw new Error("fallback leaked raw device facts");
+    }
+  }
+  for (const id of LUNASAY_GENERATED_DAILY_FACE_IDS) {
+    const face = packet.faces[id];
+    if (
+      !face.action ||
+      !face.spoken.toLowerCase().replace(/[^a-z0-9]+/g, " ").includes(
+        face.action.toLowerCase().replace(/[^a-z0-9]+/g, " "),
+      )
+    ) {
+      throw new Error(`fallback lost structured spoken action for ${id}`);
     }
   }
 });

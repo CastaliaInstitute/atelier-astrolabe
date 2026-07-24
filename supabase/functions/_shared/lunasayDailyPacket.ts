@@ -37,6 +37,12 @@ export type LunaSayDailyFace = {
   display: string;
   spoken: string;
   detail: string;
+  /**
+   * One bounded practice the person can actually choose. Generated faces
+   * always carry this separately even though the server also composes it into
+   * spoken for current firmware.
+   */
+  action?: string;
   /** Exact short quote from the supplied facts, retained for "why this?" UI. */
   evidence?: string;
   /** Synastry-only exact quote supporting temporary relationship weather. */
@@ -162,6 +168,8 @@ const GENERIC_READING_PHRASES = [
   "moment of peace",
   "intentions are gaining",
 ] as const;
+const DIRECT_ACTION_OPENING_RE =
+  /^(acknowledge|ask|breathe|check|choose|compare|connect|consider|create|explore|find|focus|gaze|give|hold|honor|identify|listen|look|mark|name|notice|observe|offer|pause|place|protect|reach|reflect|release|rest|review|say|set|share|speak|step|take|tell|track|try|use|wait|watch|write)\b/i;
 
 function normalizeFaceId(value: unknown): LunaSayDailyFaceId | undefined {
   if (typeof value !== "string") return undefined;
@@ -219,9 +227,9 @@ export function lunaSayDailyFaceJsonSchema(
           },
           practice: {
             type: "string",
-            maxLength: 220,
+            maxLength: 96,
             description:
-              "One specific, consent-respecting care or repair action an adult can choose. Never assign a child responsibility for an adult emotion.",
+              "One specific, consent-respecting care or repair action under 96 characters. Its first word must be Ask, Check, Choose, Give, Listen, Name, Notice, Offer, Pause, Say, Share, or Wait. Never assign a child responsibility for an adult emotion.",
           },
           spoken: {
             type: "string",
@@ -230,7 +238,19 @@ export function lunaSayDailyFaceJsonSchema(
               "A cohesive TTS script under 260 characters with exactly three short labeled sentences: Pattern:, Today:, and Practice:. Do not include Next; the server inserts device-computed timing.",
           },
         }
-        : { spoken: { type: "string", maxLength: 150 } }),
+        : {
+          spoken: { type: "string", maxLength: 150 },
+          ...(generated
+            ? {
+              action: {
+                type: "string",
+                maxLength: 96,
+                description:
+                  "One specific, bounded practice under 96 characters. Its first word must be Notice, Ask, Choose, Write, Pause, Look, Consider, Breathe, Compare, Name, Observe, or Wait.",
+              },
+            }
+            : {}),
+        }),
       detail: { type: "string", maxLength: synastry ? 360 : 180 },
       ...(temporal
         ? {
@@ -275,7 +295,9 @@ export function lunaSayDailyFaceJsonSchema(
     required: [
       "headline",
       "display",
-      ...(synastry ? ["dynamic", "weather", "practice", "spoken"] : ["spoken"]),
+      ...(synastry
+        ? ["dynamic", "weather", "practice", "spoken"]
+        : ["spoken", ...(generated ? ["action"] : [])]),
       "detail",
       ...(temporal ? ["now", "temporalEvidence"] : []),
       ...(generated ? ["evidence"] : []),
@@ -324,6 +346,66 @@ function cleanText(value: unknown, maxChars: number): string | undefined {
 
 function normalizedEvidence(value: string): string {
   return value.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function actionKey(value: string | undefined): string {
+  return (value ?? "").toLowerCase().replace(/[^a-z0-9']+/g, " ").trim();
+}
+
+function completeSentence(value: string): string {
+  const text = value.trim();
+  return /[.!?]$/.test(text) ? text : `${text}.`;
+}
+
+function speechSentences(value: string): string[] {
+  const matches = value.match(/[^.!?]+[.!?]+(?:["'”’])?/g);
+  if (!matches?.length) return [completeSentence(value)];
+  return matches.map((sentence) => sentence.trim()).filter(Boolean);
+}
+
+function boundedProse(
+  value: unknown,
+  maxChars: number,
+): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const text = value.replace(/\s+/g, " ").trim();
+  if (!text) return undefined;
+  if (text.length <= maxChars) return text;
+  const kept: string[] = [];
+  for (const sentence of speechSentences(text)) {
+    const candidate = [...kept, sentence].join(" ");
+    if (candidate.length > maxChars) break;
+    kept.push(sentence);
+  }
+  return kept.join(" ") || undefined;
+}
+
+function composeActionSpoken(
+  modelSpoken: string | undefined,
+  action: string | undefined,
+): string | undefined {
+  if (!modelSpoken || !action) return undefined;
+  const spoken = completeSentence(modelSpoken);
+  const actionNormalized = actionKey(action);
+  const sentences = speechSentences(spoken);
+  if (
+    actionKey(spoken).includes(actionNormalized) &&
+    sentences.length <= 4 &&
+    new TextEncoder().encode(spoken).byteLength < 384
+  ) {
+    return spoken;
+  }
+  // Keep a short interpretive prelude, then preserve the exact validated
+  // action. This prevents a verbose model prelude from turning server
+  // composition into a fifth sentence or overflowing the device cache.
+  const prelude = sentences
+    .filter((sentence) => !actionKey(sentence).includes(actionNormalized))
+    .slice(0, 3)
+    .join(" ");
+  const composed = `${prelude ? `${prelude} ` : ""}${completeSentence(action)}`;
+  return new TextEncoder().encode(composed).byteLength < 384
+    ? composed
+    : undefined;
 }
 
 function exactFactStartingAt(
@@ -514,7 +596,6 @@ function completeSpeechSentence(
 }
 
 function composeSynastrySpoken(params: {
-  modelSpoken: string | undefined;
   dynamic: string;
   weather: string;
   practice: string;
@@ -523,23 +604,9 @@ function composeSynastrySpoken(params: {
   relationshipSubject: string | undefined;
 }): string {
   const nextBeat = `Next: ${params.next}`;
-  const candidate = params.modelSpoken;
-  if (
-    candidate &&
-    /^Pattern:/i.test(candidate) &&
-    /\bToday:/i.test(candidate) &&
-    /\bPractice:/i.test(candidate) &&
-    !/\bNext:/i.test(candidate)
-  ) {
-    const practiceAt = candidate.search(/\bPractice:/i);
-    const withNext = practiceAt >= 0
-      ? `${candidate.slice(0, practiceAt).trim()} ${nextBeat} ${
-        candidate.slice(practiceAt).trim()
-      }`
-      : `${candidate} ${nextBeat}`;
-    if (new TextEncoder().encode(withNext).byteLength < 384) return withNext;
-  }
-
+  // Structured beats are the source of truth. Server composition guarantees
+  // the four labels and exact action even when Gemini's redundant spoken field
+  // varies punctuation or omits a beat.
   const pattern = completeSpeechSentence(params.dynamic, 100) ??
     completeSpeechSentence(params.display, 100) ??
     "This relationship pattern has more than one side.";
@@ -608,8 +675,16 @@ function parseLunaSayDailyFaceValue(
   const practice = id === "synastry"
     ? cleanText(face.practice, 220)
     : undefined;
+  const generated = LUNASAY_GENERATED_DAILY_FACE_IDS.includes(
+    id as typeof LUNASAY_GENERATED_DAILY_FACE_IDS[number],
+  );
+  const action = id === "synastry"
+    ? cleanText(practice ?? face.action, 120)
+    : generated
+    ? cleanText(face.action, 120)
+    : undefined;
   const temporal = id === "transits" || id === "synastry";
-  const detail = cleanText(face.detail, 480);
+  const detail = boundedProse(face.detail, 480);
   const temporalEvidence = temporal
     ? cleanText(face.temporalEvidence, 300)
     : undefined;
@@ -622,7 +697,11 @@ function parseLunaSayDailyFaceValue(
       /\b(?:conjunction|sextile|square|trine|opposition)\s+(.+?)\s+natal\b/i,
     )?.[1]?.trim()
     : undefined;
-  const modelNow = temporal ? cleanText(face.now, 300) : undefined;
+  // "Will" is a common otherwise-valid model slip. Normalize it to the
+  // explicitly conditional "may"; stronger certainty language still fails.
+  const modelNow = temporal
+    ? cleanText(face.now, 300)?.replace(/\bwill\b/gi, "may")
+    : undefined;
   const now = modelNow && relationshipSubject &&
       !normalizedEvidence(modelNow).includes(
         normalizedEvidence(relationshipSubject),
@@ -634,7 +713,6 @@ function parseLunaSayDailyFaceValue(
     : undefined;
   const spoken = dynamic && weather && practice
     ? composeSynastrySpoken({
-      modelSpoken,
       dynamic,
       weather,
       practice,
@@ -642,7 +720,16 @@ function parseLunaSayDailyFaceValue(
       next: next ?? "Let lived experience lead.",
       relationshipSubject,
     })
+    : generated
+    ? composeActionSpoken(modelSpoken, action)
     : modelSpoken;
+  const actionIsDirect = !generated ||
+    Boolean(action && DIRECT_ACTION_OPENING_RE.test(action));
+  const actionIsSpoken = !generated ||
+    Boolean(
+      action && spoken &&
+        actionKey(spoken).includes(actionKey(action)),
+    );
   const evidenceSupported = expectedFacts === undefined ||
     (evidence !== undefined &&
       normalizedEvidence(expectedFacts).includes(normalizedEvidence(evidence)));
@@ -681,9 +768,10 @@ function parseLunaSayDailyFaceValue(
             value.includes("no live relationship signal");
       })());
   const temporalLanguageSafe = !temporal ||
-    !/\b(will|guaranteed|inevitable|destined|fated|certain(?:ly)?)\b/i.test(
-      [now, next].filter(Boolean).join(" "),
-    );
+    !/\b(will|guaranteed|inevitabl(?:e|y)|destined|fated|certain(?:ly)?)\b/i
+      .test(
+        [now, next].filter(Boolean).join(" "),
+      );
   const inventedCalendarDate = temporal &&
     [
       ...(now ?? "").matchAll(
@@ -695,18 +783,20 @@ function parseLunaSayDailyFaceValue(
     normalizedEvidence([now, next].filter(Boolean).join(" ")).includes(
       normalizedEvidence(relationshipSubject),
     );
-  const spokenIsSpecific = spoken === undefined ||
-    !containsGenericReadingPhrase(spoken);
+  const speechForSafety = spoken ?? modelSpoken;
+  const spokenIsSpecific = speechForSafety === undefined ||
+    !containsGenericReadingPhrase(speechForSafety);
   const spokenBytes = spoken === undefined
     ? 0
     : new TextEncoder().encode(spoken).byteLength;
-  const spokenMatchesFace = spoken === undefined ||
+  const spokenMatchesFace = speechForSafety === undefined ||
     contentMatchesFace(
       id,
-      [headline, display, spoken, detail].filter(Boolean).join(" "),
+      [headline, display, speechForSafety, detail].filter(Boolean).join(" "),
     );
   if (
     !headline || !display || !spoken || !detail ||
+    !actionIsDirect || !actionIsSpoken ||
     (temporal && (!now || !next || !temporalEvidence)) ||
     !spokenIsSpecific || !spokenMatchesFace ||
     !evidenceSupported || !evidenceOnContract || !weatherEvidenceSupported ||
@@ -725,6 +815,12 @@ function parseLunaSayDailyFaceValue(
       headline ? undefined : `headline:${textLength(face.headline)}`,
       display ? undefined : `display:${textLength(face.display)}`,
       spoken ? undefined : `spoken:${textLength(face.spoken)}`,
+      actionIsDirect
+        ? undefined
+        : action
+        ? "action-not-imperative"
+        : `action:${textLength(face.action)}`,
+      actionIsSpoken ? undefined : "action-not-spoken",
       spokenIsSpecific ? undefined : "generic-cliche",
       spokenMatchesFace ? undefined : "cross-face-language",
       id === "synastry" && !dynamic
@@ -779,6 +875,7 @@ function parseLunaSayDailyFaceValue(
     display,
     spoken,
     detail,
+    ...(action ? { action } : {}),
     ...(now ? { now } : {}),
     ...(next ? { next } : {}),
     ...(temporalEvidence ? { temporalEvidence } : {}),
@@ -922,16 +1019,16 @@ export function buildLunaSayDailyPacketInstruction(params: {
       JSON.stringify(params.date)
     }, and timezone to ${JSON.stringify(params.timezone)}.`,
     "faces must contain exactly moon, astrology, transits, synastry, tarot, alethiometer, sky, journal, and conversation.",
-    "For each generated daily face provide headline, display, spoken, detail, and evidence: one short verbatim quote copied from DAILY FACTS that directly supports the reading. For tarot also provide cardName. For synastry also provide dynamic, weather, practice, and weatherEvidence; evidence supports the lasting natal dynamic while weatherEvidence supports only temporary weather or the explicit absence of a live signal. Keep those as three distinct beats. Synastry spoken must be a cohesive script under 260 characters with exactly three short labeled sentences: Pattern:, Today:, and Practice:. Omit Next because the server inserts device-computed timing. The server supplies canonical mode, title, and accent metadata.",
+    "For each generated daily face provide headline, display, spoken, detail, and evidence: one short verbatim quote copied from DAILY FACTS that directly supports the reading. Except for synastry, also provide action: one specific practice under 96 characters beginning with a direct imperative verb. The server appends action to spoken when needed. For tarot also provide cardName. For synastry provide dynamic, weather, practice, and weatherEvidence; practice is its action and must be under 96 characters beginning with a direct imperative verb. evidence supports the lasting natal dynamic while weatherEvidence supports only temporary weather or the explicit absence of a live signal. Keep those as three distinct beats. Synastry spoken must be a cohesive script under 260 characters with exactly three short labeled sentences: Pattern:, Today:, and Practice:. Omit Next because the server inserts device-computed timing. The server supplies canonical mode, title, and accent metadata.",
     "For Transits and Synastry also provide now and temporalEvidence. temporalEvidence must copy the relevant ten-day arc sentence exactly. now explains why the pattern matters in conditional language. The server derives next directly from the device timing; do not provide or invent a next date, event, certainty, or shared relationship effect.",
-    "Use short fields by default: headline <= 42 chars; display <= 80; spoken <= 150; detail <= 180. One sentence per field is normally enough.",
+    "Use short fields by default: headline <= 42 chars; display <= 80; spoken <= 150; action/practice <= 96; detail <= 180. One sentence per field is normally enough.",
     "Make each face independently useful. spoken must be natural, soft, and ready for TTS; it should not mention JSON or instructions.",
     "Keep the packet coherent without making every face repeat the same sentence: choose one quiet theme supported by the facts, then let Moon, Inner Weather, Transits, Relationship Weather, Tarot, and Sky approach it through their own lens. Do not contradict a concrete fact on another face.",
     "Present astrology as Inner Weather and synastry as Relationship Weather. Their headline must be one friendly condition from Clear, Warm, Shifting, Inward, Tender, Changeable, Easy, Open, or Intense, chosen from the supplied chart and transit facts rather than invented mood data.",
     "For both weather faces, display gives one humane orientation and spoken explains what the condition may feel like plus one choice the person can make. detail preserves the astrological depth by naming the one or two supplied natal/transit factors that most support the metaphor. Describe a symbolic outlook, never a deterministic forecast.",
     "If a self-reported mood is supplied, honor it as present-moment first-person context. Never bend the astrology to validate it, turn it into a trait, or imply that LunaSay detected it. When mood and symbolic weather differ, name that gently as two different lenses and preserve the user's authority over their own experience.",
     "Synastry is Family Synastry, not romance with relabeled people. Use only family members and roles present in the facts. Treat the family as a reciprocal system: no person is the problem, and do not rank, compare, blame, diagnose, parentify a child, or make compatibility verdicts.",
-    "For synastry only, dynamic must be under 220 characters; weather and practice must each be under 160; detail may be up to 360. dynamic names one mutual natal tendency without words like today, always, compatible, or destined. weather uses only time-specific transit or wellness facts; if those are absent, say the chart cannot know today's lived weather. practice gives one specific adult care or repair choice. Keep astrology as supporting evidence rather than leading with planet jargon.",
+    "For synastry only, dynamic must be under 220 characters; weather must be under 160; practice must be under 96; detail may be up to 360. dynamic names one mutual natal tendency without words like today, always, compatible, or destined. weather uses only time-specific transit or wellness facts; if those are absent, say the chart cannot know today's lived weather. practice begins with a direct imperative verb and gives one specific adult care or repair choice. Keep astrology as supporting evidence rather than leading with planet jargon.",
     "If wellness facts are present, translate them into privacy-preserving care context such as lower capacity, need for rest, or need for space. Never recite raw measurements or treat temporary biometrics as personality.",
     "Tarot is a single reflective daily draw: include cardName and do not call it a prediction.",
     "Alethiometer and Conversation must be an inviting day-sensitive entry line only; do not pretend they have answered a question.",
@@ -952,7 +1049,7 @@ export function buildLunaSayDailyFaceInstruction(params: {
     transits:
       "This is the changing daily layer, distinct from Inner Weather. evidence must quote a Tight current-to-natal aspect, or the explicit fact that no such aspect or transit is available. temporalEvidence must copy the Ten-day transit arc exactly. now explains why the strongest supplied aspect matters in conditional language; never turn a daily sample into a guaranteed event or invent a calendar date. The server derives the next shift from temporalEvidence. Choose the most useful supplied transit, name both its pressure and its opening, and give one concrete action. In detail, explicitly use the words pressure and opening so the response neither catastrophizes nor becomes empty reassurance. spoken must include the current orientation. Do not use the phrases trust your intuition, inner peace, beautifully aligned, or wonderful time.",
     synastry:
-      "This is Family Synastry, not romance with relabeled people. Treat the family as a reciprocal system: never rank, blame, diagnose, parentify a child, or make a compatibility verdict. headline must be one of Clear, Warm, Shifting, Inward, Tender, Changeable, Easy, Open, or Intense. evidence must quote the full identifying prefix plus content from The selected relationship, relationship between, or Tight major aspects; quoting only planet names is invalid. evidence supports only dynamic. dynamic names both sides of one mutual natal tendency without today, always, compatible, or destined. weatherEvidence must quote only a supplied live wellness, current relationship transit, or explicit no-live-signal fact. temporalEvidence must copy the Current relationship transit arc or explicit no-live-signal sentence exactly. now must name whose natal chart is touched and must not imply the transit automatically describes the whole relationship. The server derives the next shift from temporalEvidence. weather must not turn natal synastry into today's condition; when weatherEvidence says no signal, explicitly let lived experience lead. practice gives one specific adult care or repair choice. spoken must be a cohesive script under 260 characters with exactly three complete labeled sentences: Pattern: summarizes dynamic; Today: summarizes weather; Practice: gives the action. Do not include Next, day offsets, or fragments in spoken.",
+      "This is Family Synastry, not romance with relabeled people. Treat the family as a reciprocal system: never rank, blame, diagnose, parentify a child, or make a compatibility verdict. headline must be one of Clear, Warm, Shifting, Inward, Tender, Changeable, Easy, Open, or Intense. evidence must quote the full identifying prefix plus content from The selected relationship, relationship between, or Tight major aspects; quoting only planet names is invalid. evidence supports only dynamic. dynamic names both sides of one mutual natal tendency without today, always, compatible, or destined. weatherEvidence must quote only a supplied live wellness, current relationship transit, or explicit no-live-signal fact. temporalEvidence must copy the Current relationship transit arc or explicit no-live-signal sentence exactly. now must name whose natal chart is touched and must not imply the transit automatically describes the whole relationship. The server derives the next shift from temporalEvidence. weather must not turn natal synastry into today's condition; when weatherEvidence says no signal, explicitly let lived experience lead. practice must be under 96 characters, begin with a direct imperative verb, and give one specific adult care or repair choice. spoken must be a cohesive script under 260 characters with exactly three complete labeled sentences: Pattern: summarizes dynamic; Today: summarizes weather; Practice: gives the action. Do not include Next, day offsets, or fragments in spoken.",
     tarot:
       "Offer one reflective daily draw, not a prediction. evidence must quote the Visible tarot card fact. Use that supplied deterministic card, name it in spoken, ask one concrete question, and give one observable action such as write, choose, or notice. Do not borrow astrology, transit, or sky evidence.",
     alethiometer:
@@ -970,8 +1067,15 @@ export function buildLunaSayDailyFaceInstruction(params: {
     "Use only supplied facts. Never claim certainty, destiny, medical advice, or events not in the facts.",
     "Return one strict JSON object only, matching the supplied schema. No markdown and no wrapper object.",
     "For evidence, copy one short, directly relevant phrase verbatim from DAILY FACTS. Never paraphrase it or invent a chart factor. The evidence is retained for a user-visible 'why this?' explanation.",
-    "Use short fields: headline <= 42 characters, display <= 80, spoken <= 150, and detail <= 180 unless the schema allows more.",
-    "spoken must be natural, soft, and ready for TTS. Do not mention JSON, prompts, models, or instructions.",
+    "Use short fields: headline <= 42 characters, display <= 80, spoken <= 150, action <= 96, and detail <= 180 unless the schema allows more.",
+    "spoken must be natural, soft, ready for TTS, and no more than two complete sentences except on synastry. If spoken includes the action, copy action exactly rather than inventing a second practice. Do not mention JSON, prompts, models, or instructions.",
+    params.id === "synastry"
+      ? "practice is the structured action. Keep it under 96 characters and begin with Ask, Check, Choose, Give, Listen, Name, Notice, Offer, Pause, Say, Share, or Wait. The server preserves it as action in the final face."
+      : LUNASAY_GENERATED_DAILY_FACE_IDS.includes(
+          params.id as typeof LUNASAY_GENERATED_DAILY_FACE_IDS[number],
+        )
+      ? "action is required. Keep it under 96 characters and begin with Notice, Ask, Choose, Write, Pause, Look, Consider, Breathe, Compare, Name, Observe, or Wait. Make it specific enough to try today; the server composes it into spoken."
+      : "",
     `Avoid stock horoscope language, including: ${
       GENERIC_READING_PHRASES.join(", ")
     }. Prefer one concrete tension, resource, question, or action supported by the evidence.`,
@@ -1044,6 +1148,7 @@ export function lunaSayDailyPacketFallback(params: {
           "The detailed Moon reading is resting. Look again tonight and notice what is actually visible.",
           "The supplied lunar fact remains available while the interpretive reading rests.",
         ),
+        action: "Look again tonight and notice what is actually visible.",
         ...(evidence("moon") ? { evidence: evidence("moon") } : {}),
       },
       astrology: {
@@ -1056,6 +1161,7 @@ export function lunaSayDailyPacketFallback(params: {
           "Your inner weather is shifting. Give yourself room to notice what changes, then choose one grounded next step.",
         detail:
           "The supplied natal fact remains available; this gentle fallback makes no additional astrological claim.",
+        action: "Notice what changes, then choose one grounded next step.",
         ...(evidence("astrology") ? { evidence: evidence("astrology") } : {}),
         accent: "violet",
       },
@@ -1065,9 +1171,10 @@ export function lunaSayDailyPacketFallback(params: {
           "amber",
           "No forecast loaded",
           "Keep the day open rather than filling the silence with a prediction.",
-          "The detailed transit reading is unavailable. Let the day show you what is real before naming a pattern.",
+          "The detailed transit reading is unavailable. Pause before naming a pattern or acting on it.",
           "The supplied transit fact remains available while the interpretive reading rests.",
         ),
+        action: "Pause before naming a pattern or acting on it.",
         now: "No verified timing is loaded.",
         next: canonicalTemporalNext(transitTiming, "transits") ??
           "Refresh later rather than filling the gap with a prediction.",
@@ -1082,6 +1189,8 @@ export function lunaSayDailyPacketFallback(params: {
         display: "Notice the pattern without making one person the problem.",
         spoken:
           `Pattern: The supplied family pattern remains open to interpretation. Today: Let lived experience lead. Next: ${relationshipNext} Practice: Ask what support would feel useful, then listen and leave room for repair.`,
+        action:
+          "Ask what support would feel useful, then listen and leave room for repair.",
         detail:
           "Family Synastry is relationship weather and a prompt for care, never a verdict about any person.",
         now: "No verified relationship timing is loaded.",
@@ -1100,9 +1209,11 @@ export function lunaSayDailyPacketFallback(params: {
           "amber",
           "Hold one clear question",
           "Use the card as a prompt, not a prediction.",
-          "Hold one clear question and meet the card as a prompt, not a prediction.",
+          "The detailed card reading is resting. Hold one clear question and notice your first honest response.",
           `The daily interpretation is unavailable; ${tarotCard} remains a reflective image rather than a prediction.`,
         ),
+        action:
+          "Hold one clear question and notice your first honest response.",
         ...(tarotEvidence ? { evidence: tarotEvidence } : {}),
         cardName: tarotCard,
       },
@@ -1125,6 +1236,7 @@ export function lunaSayDailyPacketFallback(params: {
           "The detailed sky reading is unavailable. Look outside and begin with what you can actually see.",
           "The supplied observation remains available without inferring any additional sky condition.",
         ),
+        action: "Look outside and begin with what you can actually see.",
         ...(evidence("sky") ? { evidence: evidence("sky") } : {}),
       },
       journal: {

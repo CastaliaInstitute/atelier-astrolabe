@@ -1492,6 +1492,7 @@ Deno.serve(async (req: Request) => {
         let llmCalls = 0;
         const results = await Promise.all(prompts.map(async (prompt) => {
           let lastReason = "unknown validation failure";
+          const retryReasons: string[] = [];
           for (let attempt = 0; attempt < 2; attempt++) {
             try {
               llmCalls++;
@@ -1560,21 +1561,30 @@ Deno.serve(async (req: Request) => {
                   `reading-quality:${candidateHardIssues.join("|")}`,
                 );
               }
-              return { id: prompt.id, face: parsedFace };
+              return { id: prompt.id, face: parsedFace, retryReasons };
             } catch (error) {
               lastReason =
                 (error instanceof Error ? error.message : String(error))
                   .replace(/\s+/g, " ")
                   .slice(0, 180);
+              retryReasons.push(lastReason);
             }
           }
           console.error(
             `voice-pipeline: invalid LunaSay daily face ${prompt.id}`,
             lastReason,
           );
-          return { id: prompt.id, error: lastReason };
+          return { id: prompt.id, error: lastReason, retryReasons };
         }));
+        const faceRetries: Partial<Record<LunaSayDailyFaceId, number>> = {};
+        const faceRetryReasons: Partial<
+          Record<LunaSayDailyFaceId, string[]>
+        > = {};
         for (const result of results) {
+          if (result.retryReasons.length) {
+            faceRetries[result.id] = result.retryReasons.length;
+            faceRetryReasons[result.id] = result.retryReasons;
+          }
           if ("face" in result && result.face) {
             faces[result.id] = result.face;
           } else {
@@ -1596,6 +1606,9 @@ Deno.serve(async (req: Request) => {
           generationMode,
           model: perFaceModel,
           llmCalls,
+          ...(Object.keys(faceRetries).length
+            ? { faceRetries, faceRetryReasons }
+            : {}),
           resonanceAppliedFaces: prompts
             .filter((prompt) => prompt.resonanceApplied)
             .map((prompt) => prompt.id),
@@ -1612,6 +1625,8 @@ Deno.serve(async (req: Request) => {
                 face: entry.face,
                 score: entry.score,
                 issues: entry.issues,
+                spokenBytes: entry.spokenBytes,
+                spokenSentences: entry.spokenSentences,
               })),
           },
           ...(faceFallbacks.length

@@ -8,7 +8,7 @@ import {
   lunaSayRequiredWeatherEvidence,
 } from "./lunasayDailyPacket.ts";
 
-export const LUNASAY_QUALITY_BENCHMARK_VERSION = 1;
+export const LUNASAY_QUALITY_BENCHMARK_VERSION = 2;
 export const LUNASAY_QUALITY_AVERAGE_TARGET = 72;
 export const LUNASAY_QUALITY_FACE_FLOOR = 60;
 export const LUNASAY_QUALITY_MAX_SIMILARITY = 0.42;
@@ -28,6 +28,8 @@ export type LunaSayFaceQuality = {
   dimensions: LunaSayQualityDimensions;
   issues: string[];
   maxSimilarity: number;
+  spokenBytes: number;
+  spokenSentences: number;
 };
 
 export type LunaSayReadingQualityReport = {
@@ -87,13 +89,15 @@ const STOPWORDS = new Set([
   "your",
 ]);
 const ACTION_WORDS =
-  /\b(acknowledge|act(?:ion)?s?|ask|breathe|check|choose|compare|connect|consider|create|direct|find|gaze|give|honor|listen|look|mark|name|notice|observe|offer|pause|protect|rest|say|speak|step|track|try|wait|write)\b|be present/i;
+  /\b(acknowledge|act(?:ion)?s?|ask|breathe|check|choose|compare|connect|consider|create|direct|explore|find|focus|gaze|give|hold|honor|identify|listen|look|mark|name|notice|observe|offer|pause|place|protect|reach|reflect|release|rest|review|say|set|share|speak|step|take|tell|track|try|use|wait|watch|write)\b|be present/i;
+const DIRECT_ACTION_OPENING_RE =
+  /^(acknowledge|ask|breathe|check|choose|compare|connect|consider|create|explore|find|focus|gaze|give|hold|honor|identify|listen|look|mark|name|notice|observe|offer|pause|place|protect|reach|reflect|release|rest|review|say|set|share|speak|step|take|tell|track|try|use|wait|watch|write)\b/i;
 const CONCRETE_MARKERS =
   /\b(one|before|after|today|tonight|next|question|need|boundary|conversation|body|sky|moon|card)\b/i;
 const HUMILITY_WORDS =
   /\b(may|might|could|can|consider|invite|notice|question|reflection|symbolic|lived experience|if)\b/i;
 const CERTAINTY_WORDS =
-  /\b(always|certain(?:ly)?|destined|fated|guaranteed|inevitable|proves?|will definitely|the universe wants)\b/i;
+  /\b(always|certain(?:ly)?|destined|fated|guaranteed|inevitabl(?:e|y)|proves?|will definitely|the universe wants)\b/i;
 const GENERIC_WORDS =
   /\b(trust your intuition|inner peace|beautifully aligned|wonderful time|embrace this|finding peace|gentle reminder)\b/i;
 const RESOURCE_WORDS =
@@ -123,9 +127,14 @@ function content(face: LunaSayDailyFace): string {
     face.display,
     face.spoken,
     face.detail,
+    face.action,
     face.now,
     face.next,
   ].filter(Boolean).join(" ");
+}
+
+function actionKey(value: string | undefined): string {
+  return normalized(value).replace(/[^a-z0-9']+/g, " ").trim();
 }
 
 function tokens(value: string): Set<string> {
@@ -206,6 +215,19 @@ function hardIssuesForFace(
 ): string[] {
   const issues: string[] = [];
   const reading = content(face);
+  if (!face.action) issues.push("missing structured action");
+  if (face.action && !DIRECT_ACTION_OPENING_RE.test(face.action)) {
+    issues.push("structured action does not begin with a direct verb");
+  }
+  if (
+    face.action &&
+    !actionKey(face.spoken).includes(actionKey(face.action))
+  ) {
+    issues.push("structured action is not present in spoken delivery");
+  }
+  if (face.action && face.action.length > 120) {
+    issues.push("structured action exceeds device boundary");
+  }
   if (!face.evidence) issues.push("missing evidence");
   if (
     face.evidence &&
@@ -305,6 +327,13 @@ export function scoreLunaSayReadingQuality(
     const overlap = evidenceOverlap(face);
     const detail = normalized(face.detail);
     const display = normalized(face.display);
+    const actionIsDirect = Boolean(
+      face.action && DIRECT_ACTION_OPENING_RE.test(face.action),
+    );
+    const actionIsSpoken = Boolean(
+      face.action &&
+        actionKey(face.spoken).includes(actionKey(face.action)),
+    );
     const specificity = Math.min(
       20,
       (face.evidence ? 8 : 0) +
@@ -313,8 +342,8 @@ export function scoreLunaSayReadingQuality(
     );
     const actionability = Math.min(
       20,
-      (ACTION_WORDS.test(face.spoken) ? 10 : 0) +
-        (/\b(you|your)\b/i.test(text) ? 5 : 0) +
+      (actionIsDirect ? 10 : 0) +
+        (actionIsSpoken ? 5 : 0) +
         (CONCRETE_MARKERS.test(text) ? 5 : 0),
     );
     const humility = Math.max(
@@ -338,11 +367,9 @@ export function scoreLunaSayReadingQuality(
     );
     const spokenBytes = new TextEncoder().encode(face.spoken).byteLength;
     const sentences = sentenceCount(face.spoken);
-    const maxSpokenSentences = id === "synastry"
-      ? 5
-      : id === "astrology"
-      ? 4
-      : 3;
+    // The server may append the validated action as a fourth short sentence.
+    // Synastry retains its five-part Pattern/Today/Next/Practice delivery.
+    const maxSpokenSentences = id === "synastry" ? 5 : 4;
     const speech = Math.min(
       15,
       (spokenBytes >= 45 && spokenBytes < 384 ? 5 : 0) +
@@ -373,6 +400,8 @@ export function scoreLunaSayReadingQuality(
       dimensions,
       issues,
       maxSimilarity: Number(maxSimilarity.toFixed(3)),
+      spokenBytes,
+      spokenSentences: sentences,
     };
   });
   const hardIssues = generated.flatMap(({ id, face }) =>
