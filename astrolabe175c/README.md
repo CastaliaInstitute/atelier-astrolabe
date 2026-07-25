@@ -29,6 +29,7 @@ Reference: [waveshareteam/ESP32-S3-Touch-AMOLED-1.75C](https://github.com/wavesh
 - Faculty OTA channel: `astrolabe-faculty-amoled175`
 - Cyber OTA channel: `astrolabe-cyber-175`
 - LunaSay OTA channel: `astrolabe-lunasay-175`
+- Fortun.ai OTA channel: `astrolabe-fortunai-175`
 
 ## Automatic OTA
 
@@ -101,7 +102,15 @@ ASTROLABE175C_VARIANT=lunasay ./scripts/astrolabe175c_build.sh build
 ASTROLABE175C_VARIANT=lunasay ./scripts/astrolabe175c_build.sh -p /dev/cu.usbmodem1101 flash monitor
 ```
 
-OTA publishing builds and signs all three variants independently. Firmware accepts
+Build the Fortun.ai variant for fortune telling only. Fortun.ai selects the
+fortune-telling profile; astrology remains exclusive to LunaSay:
+
+```bash
+ASTROLABE175C_VARIANT=fortunai ./scripts/astrolabe175c_build.sh build
+ASTROLABE175C_VARIANT=fortunai ./scripts/astrolabe175c_build.sh -p /dev/cu.usbmodem1101 flash monitor
+```
+
+OTA publishing builds and signs each product variant independently. Firmware accepts
 only a manifest whose `channel` and `firmware_variant` match the running build,
 so a device cannot install another product variant's OTA.
 

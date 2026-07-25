@@ -40,6 +40,9 @@ static bool forced_profile(faculty175_face_profile_t *out)
 #elif defined(ASTROLABE_FORCE_VARIANT_CYBER)
     *out = FACULTY175_FACE_PROFILE_CYBER;
     return true;
+#elif defined(ASTROLABE_FORCE_VARIANT_FORTUNAI)
+    *out = FACULTY175_FACE_PROFILE_FORTUNE;
+    return true;
 #elif defined(ASTROLABE_FORCE_VARIANT_CLAW)
     /* Claw uses the default face set, whose home face is the Arc Reactor. */
     *out = FACULTY175_FACE_PROFILE_DEFAULT;
@@ -106,6 +109,9 @@ static bool profile_from_variant(faculty175_variant_t variant, faculty175_face_p
         case FACULTY175_VARIANT_CYBER:
             *out = FACULTY175_FACE_PROFILE_CYBER;
             return true;
+        case FACULTY175_VARIANT_FORTUNAI:
+            *out = FACULTY175_FACE_PROFILE_FORTUNE;
+            return true;
         default:
             *out = FACULTY175_FACE_PROFILE_DEFAULT;
             return true;
@@ -136,6 +142,9 @@ bool faculty175_variant_from_profile(faculty175_face_profile_t profile, faculty1
         case FACULTY175_FACE_PROFILE_CYBER:
             *out = FACULTY175_VARIANT_CYBER;
             return true;
+        case FACULTY175_FACE_PROFILE_FORTUNE:
+            *out = FACULTY175_VARIANT_FORTUNAI;
+            return true;
         default:
             return false;
     }
@@ -164,6 +173,8 @@ const char *faculty175_variant_label(faculty175_variant_t variant)
             return "Elecrow128";
         case FACULTY175_VARIANT_CYBER:
             return "Cyber";
+        case FACULTY175_VARIANT_FORTUNAI:
+            return "Fortun.ai";
         default:
             return "Pocket";
     }
@@ -192,6 +203,8 @@ const char *faculty175_variant_ota_channel(faculty175_variant_t variant)
             return "astrolabe-elecrow-128-175";
         case FACULTY175_VARIANT_CYBER:
             return "astrolabe-cyber-175";
+        case FACULTY175_VARIANT_FORTUNAI:
+            return "astrolabe-fortunai-175";
         default:
             return "dev";
     }
@@ -212,6 +225,12 @@ bool faculty175_variant_profile_from_slug(const char *slug, faculty175_face_prof
     }
     if (strcasecmp(slug, "Lunasay") == 0 || strcasecmp(slug, "LunaSay") == 0) {
         *out = FACULTY175_FACE_PROFILE_LUNASAY;
+        return true;
+    }
+    if (strcasecmp(slug, "Fortun.ai") == 0 || strcasecmp(slug, "fortunai") == 0 ||
+        strcasecmp(slug, "fortune") == 0 ||
+        strcasecmp(slug, "fortune-telling") == 0) {
+        *out = FACULTY175_FACE_PROFILE_FORTUNE;
         return true;
     }
     if (strcasecmp(slug, "Ocarina") == 0) {

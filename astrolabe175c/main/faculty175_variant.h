@@ -18,7 +18,8 @@ typedef enum {
     FACULTY175_VARIANT_BABEL_FISH = 8,
     FACULTY175_VARIANT_ELECROW_128 = 9,
     FACULTY175_VARIANT_CYBER = 10,
-    FACULTY175_VARIANT_COUNT = 11,
+    FACULTY175_VARIANT_FORTUNAI = 11,
+    FACULTY175_VARIANT_COUNT = 12,
 } faculty175_variant_t;
 
 bool faculty175_variant_profile_from_nvs(faculty175_face_profile_t *out, bool *found_out);

@@ -77,7 +77,6 @@ static const faculty175_face_id_t k_secops_faces[] = {
 };
 
 static const faculty175_face_id_t k_fortune_faces[] = {
-    FACULTY175_FACE_SOLAR,
     FACULTY175_FACE_TAROT,
     FACULTY175_FACE_LENORMAND,
     FACULTY175_FACE_RUNES,
@@ -91,15 +90,14 @@ static const faculty175_face_id_t k_fortune_faces[] = {
 static const faculty175_face_id_t k_lunasay_faces[] = {
     FACULTY175_FACE_MOON,
     FACULTY175_FACE_CYCLE,
-    FACULTY175_FACE_BIOMETRICS,
     FACULTY175_FACE_ASTROLOGY,
     FACULTY175_FACE_TRANSITS,
     FACULTY175_FACE_SYNASTRY,
-    FACULTY175_FACE_TAROT,
-    FACULTY175_FACE_ALETHIOMETER,
     FACULTY175_FACE_SKY,
-    FACULTY175_FACE_JOURNAL,
-    FACULTY175_FACE_CONVERSATION,
+    FACULTY175_FACE_ALMANAC,
+    FACULTY175_FACE_PHENOLOGY,
+    FACULTY175_FACE_SOLAR,
+    FACULTY175_FACE_MAGNETOSPHERE,
 };
 
 static esp_err_t apply_lunasay_navigation_order(void)
