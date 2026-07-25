@@ -19,7 +19,7 @@ static const char *TAG = "faculty175_faces";
 #define FACES_NVS_NAV_MAP "navmap"
 #define FACE_KEY_CAP 8
 #define FACES_CONFIG_RESET_SCHEMA_VERSION 36
-#define FACES_SCHEMA_VERSION 37
+#define FACES_SCHEMA_VERSION 38
 
 static const faculty175_face_id_t k_default_home_face = FACULTY175_FACE_MOON;
 
@@ -88,6 +88,8 @@ static const faculty175_face_desc_t k_faces[] = {
     { FACULTY175_FACE_INCIDENTS, "incidents", "Incidents", FACULTY175_FACE_CAT_SYSTEM, true, false, 205 },
     { FACULTY175_FACE_SETTINGS, "settings", "Settings", FACULTY175_FACE_CAT_SYSTEM, true, true, 250 },
     { FACULTY175_FACE_POCKETWATCH, "pocketwatch", "Watch", FACULTY175_FACE_CAT_HOME, true, true, 5 },
+    { FACULTY175_FACE_JYOTISH, "jyotish", "Jyotish", FACULTY175_FACE_CAT_ORACLE, true, true, 132 },
+    { FACULTY175_FACE_BAZI, "bazi", "BaZi", FACULTY175_FACE_CAT_ORACLE, true, true, 133 },
 };
 
 static faculty175_face_id_t s_current = FACULTY175_FACE_MOON;

@@ -36,6 +36,7 @@
 #include "faculty175_power_history.h"
 #include "faculty175_power_metrics.h"
 #include "faculty175_quotes.h"
+#include "faculty175_relationship_weather.h"
 #include "faculty175_research.h"
 #include "faculty175_ring.h"
 #include "faculty175_rocket.h"
@@ -1511,3 +1512,35 @@ size_t astrolabe_time_format_utc(char *out, size_t cap)
     }
     return 0;
 }
+
+/* The simulator has no BLE radio or paired-family service; keep those inputs quiet. */
+bool faculty175_ble_ring_paired(uint16_t *ring_id) { if (ring_id) *ring_id = 0; return false; }
+bool faculty175_ble_nearby_unpaired_ring(uint16_t *ring_id, int8_t *rssi)
+{
+    if (ring_id) *ring_id = 0;
+    if (rssi) *rssi = -100;
+    return false;
+}
+int8_t faculty175_ble_near_rssi_threshold(void) { return -70; }
+
+faculty175_relationship_condition_t faculty175_relationship_weather_at(
+    const faculty175_chart_positions_t *primary,
+    const faculty175_chart_positions_t *target,
+    time_t epoch)
+{
+    (void)primary; (void)target; (void)epoch;
+    return FACULTY175_RELATIONSHIP_CHANGEABLE;
+}
+const char *faculty175_relationship_weather_name(faculty175_relationship_condition_t condition)
+{ (void)condition; return "CHANGEABLE"; }
+const char *faculty175_relationship_weather_guidance(faculty175_relationship_condition_t condition)
+{ (void)condition; return "Stay curious and check assumptions"; }
+const char *faculty175_relationship_weather_symbol(faculty175_relationship_condition_t condition)
+{ (void)condition; return "~"; }
+uint32_t faculty175_relationship_weather_color(faculty175_relationship_condition_t condition)
+{ (void)condition; return 0x9da9bc; }
+esp_err_t faculty175_relationship_weather_select_date(const char *date)
+{ (void)date; return ESP_OK; }
+void faculty175_relationship_weather_select_today(void) {}
+bool faculty175_relationship_weather_snapshot(faculty175_relationship_weather_snapshot_t *out)
+{ if (out) memset(out, 0, sizeof(*out)); return false; }
