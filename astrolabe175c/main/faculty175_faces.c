@@ -33,8 +33,8 @@ static const char *TAG = "faculty175_faces";
 #define FACES_NVS_NAV_COUNT "navcnt"
 #define FACES_NVS_NAV_MAP "navmap"
 #define FACE_KEY_CAP 8
-#define FACES_CONFIG_RESET_SCHEMA_VERSION 41
-#define FACES_SCHEMA_VERSION 42
+#define FACES_CONFIG_RESET_SCHEMA_VERSION 43
+#define FACES_SCHEMA_VERSION 44
 
 static const faculty175_face_desc_t k_faces[] = {
     { FACULTY175_FACE_FACULTY, "faculty", "Faculty", FACULTY175_FACE_CAT_HOME, true, true, 10 },
@@ -104,12 +104,14 @@ static const faculty175_face_desc_t k_faces[] = {
     { FACULTY175_FACE_SETTINGS, "settings", "Settings", FACULTY175_FACE_CAT_SYSTEM, true, true, 250 },
     { FACULTY175_FACE_POCKETWATCH, "pocketwatch", "Watch", FACULTY175_FACE_CAT_HOME, true, true, 0 },
     { FACULTY175_FACE_BATTERY, "battery", "Battery", FACULTY175_FACE_CAT_HOME | FACULTY175_FACE_CAT_SYSTEM, true, true, 152 },
-    { FACULTY175_FACE_PSYCH_STATE, "psych-state", "Psych State", FACULTY175_FACE_CAT_COMMONPLACE, true, false, 98 },
+    { FACULTY175_FACE_PSYCH_STATE, "mood", "Mood Check-in", FACULTY175_FACE_CAT_COMMONPLACE, true, true, 25 },
     { FACULTY175_FACE_USB_SCREEN, "usb-screen", "USB Screen", FACULTY175_FACE_CAT_SYSTEM, ASTROLABE_CYBER_FEATURES, ASTROLABE_CYBER_FEATURES, 199 },
     { FACULTY175_FACE_JOURNAL, "journal", "Journal", FACULTY175_FACE_CAT_COMMONPLACE, true, false, 227 },
     { FACULTY175_FACE_CONVERSATION, "conversation", "Conversation", FACULTY175_FACE_CAT_COMMONPLACE, true, false, 228 },
     { FACULTY175_FACE_CYCLE, "cycle", "Cycle", FACULTY175_FACE_CAT_HOME, true, false, 225 },
     { FACULTY175_FACE_ALPHEUS, "alpheus-face", "Alpheus Face", FACULTY175_FACE_CAT_HOME, true, false, 151 },
+    { FACULTY175_FACE_JYOTISH, "jyotish", "Jyotish", FACULTY175_FACE_CAT_ORACLE, true, true, 132 },
+    { FACULTY175_FACE_BAZI, "bazi", "BaZi", FACULTY175_FACE_CAT_ORACLE, true, true, 133 },
 };
 
 static faculty175_face_id_t s_current = FACULTY175_FACE_IRONMAN;
@@ -675,6 +677,9 @@ const faculty175_face_desc_t *faculty175_faces_find(const char *slug)
      * LunaSay's Ring face rather than an abstract biometrics screen. */
     if (strcasecmp(slug, "bio") == 0 || strcasecmp(slug, "biometrics") == 0) {
         slug = "ring";
+    }
+    if (strcasecmp(slug, "psych-state") == 0 || strcasecmp(slug, "check-in") == 0) {
+        slug = "mood";
     }
     for (size_t i = 0; i < FACULTY175_FACE_COUNT; ++i) {
         if (!face_active_slot(i)) {

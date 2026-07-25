@@ -2,6 +2,7 @@
 
 #include <math.h>
 #include <stddef.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,6 +11,7 @@
 #include "cJSON.h"
 #include "astrolabe_time.h"
 #include "esp_attr.h"
+#include "esp_app_desc.h"
 #include "esp_log.h"
 #include "esp_random.h"
 #include "esp_timer.h"
@@ -29,12 +31,19 @@
 #include "nimble/nimble_port_freertos.h"
 
 #include "faculty175_log.h"
+#include "faculty175_charts.h"
 #include "faculty175_device_settings.h"
 #include "faculty175_cycle_health.h"
+#include "faculty175_face_psych_state.h"
 #include "faculty175_faces.h"
 #include "faculty175_motion.h"
+#include "faculty175_ota.h"
+#include "faculty175_pmu.h"
+#include "faculty175_research.h"
+#include "faculty175_relationship_weather.h"
 #include "faculty175_ring.h"
 #include "faculty175_spotify.h"
+#include "faculty175_voice.h"
 #include "faculty175_wifi_settings.h"
 
 void ble_store_config_init(void);
@@ -43,6 +52,7 @@ static const char *TAG = "faculty175_ble";
 static const char *BLE_NVS_NS = "ble";
 static const char *BLE_NVS_ENABLED = "enabled";
 static const char *BLE_NVS_RING_ID = "ring_id";
+static const char *BLE_NVS_NEAR_RSSI = "near_rssi";
 static const char *BLE_NVS_IDENTITY_NS = "identity";
 static const char *BLE_NVS_DEVICE_NAME = "device_name";
 static const char *BLE_NVS_NAME = "name";
@@ -122,6 +132,10 @@ static const ble_uuid128_t BLE_ENABLED_CHAR_UUID =
     BLE_UUID128_INIT(0x41, 0x73, 0x74, 0x72, 0x6f, 0x6c, 0x61, 0x62, 0x65, 0x00, 0x17, 0x50, 0x00, 0x00, 0x00, 0x02);
 static const ble_uuid128_t BLE_SETTINGS_JSON_CHAR_UUID =
     BLE_UUID128_INIT(0x41, 0x73, 0x74, 0x72, 0x6f, 0x6c, 0x61, 0x62, 0x65, 0x00, 0x17, 0x50, 0x00, 0x00, 0x00, 0x03);
+static const ble_uuid128_t BLE_STATE_JSON_CHAR_UUID =
+    BLE_UUID128_INIT(0x41, 0x73, 0x74, 0x72, 0x6f, 0x6c, 0x61, 0x62, 0x65, 0x00, 0x17, 0x50, 0x00, 0x00, 0x00, 0x04);
+static const ble_uuid128_t BLE_HEALTH_JSON_CHAR_UUID =
+    BLE_UUID128_INIT(0x41, 0x73, 0x74, 0x72, 0x6f, 0x6c, 0x61, 0x62, 0x65, 0x00, 0x17, 0x50, 0x00, 0x00, 0x00, 0x05);
 static const ble_uuid128_t COLMI_UART_SERVICE_UUID =
     BLE_UUID128_INIT(0x9e, 0xca, 0xdc, 0x24, 0x0e, 0xe5, 0xa9, 0xe0, 0x93, 0xf3, 0xa3, 0xb5, 0xf0, 0xff, 0x40, 0x6e);
 static const ble_uuid128_t COLMI_UART_RX_UUID =
@@ -139,9 +153,15 @@ static bool s_advertising;
 static bool s_scanning;
 static uint8_t s_own_addr_type;
 EXT_RAM_BSS_ATTR static char s_json_rx[768];
+EXT_RAM_BSS_ATTR static char s_state_json[2048];
+EXT_RAM_BSS_ATTR static char s_health_json[512];
 static size_t s_json_rx_len;
 static bool s_json_rx_active;
 static char s_device_name[FACULTY175_BLE_PEER_NAME_MAX] = "Astrolabe Faculty";
+
+static bool ble_json_escape(char *out,
+                            size_t cap,
+                            const char *value);
 EXT_RAM_BSS_ATTR static faculty175_ble_peer_t s_peers[FACULTY175_BLE_PEER_MAX];
 static portMUX_TYPE s_peer_lock = portMUX_INITIALIZER_UNLOCKED;
 EXT_RAM_BSS_ATTR static faculty175_ble_ring_telem_t s_ring_telem[FACULTY175_BLE_RING_TELEM_MAX];
@@ -225,6 +245,14 @@ static int ble_settings_json_access(uint16_t conn_handle,
                                     uint16_t attr_handle,
                                     struct ble_gatt_access_ctxt *ctxt,
                                     void *arg);
+static int ble_state_json_access(uint16_t conn_handle,
+                                 uint16_t attr_handle,
+                                 struct ble_gatt_access_ctxt *ctxt,
+                                 void *arg);
+static int ble_health_json_access(uint16_t conn_handle,
+                                  uint16_t attr_handle,
+                                  struct ble_gatt_access_ctxt *ctxt,
+                                  void *arg);
 static void ble_ring_telem_store(const faculty175_ble_peer_t *peer);
 
 static const struct ble_gatt_svc_def k_ble_svcs[] = {
@@ -241,6 +269,16 @@ static const struct ble_gatt_svc_def k_ble_svcs[] = {
                 .uuid = &BLE_SETTINGS_JSON_CHAR_UUID.u,
                 .access_cb = ble_settings_json_access,
                 .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE,
+            },
+            {
+                .uuid = &BLE_STATE_JSON_CHAR_UUID.u,
+                .access_cb = ble_state_json_access,
+                .flags = BLE_GATT_CHR_F_READ,
+            },
+            {
+                .uuid = &BLE_HEALTH_JSON_CHAR_UUID.u,
+                .access_cb = ble_health_json_access,
+                .flags = BLE_GATT_CHR_F_READ,
             },
             {0},
         },
@@ -319,6 +357,39 @@ static esp_err_t ble_nvs_set_ring_id(uint16_t id, bool set)
     if (err == ESP_OK) {
         err = nvs_commit(nvs);
     }
+    nvs_close(nvs);
+    return err;
+}
+
+static int8_t ble_near_rssi_clamp(int8_t threshold)
+{
+    if (threshold < -90) return -90;
+    if (threshold > -45) return -45;
+    return threshold;
+}
+
+int8_t faculty175_ble_near_rssi_threshold(void)
+{
+    int8_t value = -65;
+    nvs_handle_t nvs;
+    if (nvs_open(BLE_NVS_NS, NVS_READONLY, &nvs) == ESP_OK) {
+        int8_t stored = 0;
+        if (nvs_get_i8(nvs, BLE_NVS_NEAR_RSSI, &stored) == ESP_OK) {
+            value = ble_near_rssi_clamp(stored);
+        }
+        nvs_close(nvs);
+    }
+    return value;
+}
+
+esp_err_t faculty175_ble_set_near_rssi_threshold(int8_t threshold)
+{
+    const int8_t value = ble_near_rssi_clamp(threshold);
+    nvs_handle_t nvs;
+    esp_err_t err = nvs_open(BLE_NVS_NS, NVS_READWRITE, &nvs);
+    if (err != ESP_OK) return err;
+    err = nvs_set_i8(nvs, BLE_NVS_NEAR_RSSI, value);
+    if (err == ESP_OK) err = nvs_commit(nvs);
     nvs_close(nvs);
     return err;
 }
@@ -1547,6 +1618,23 @@ static esp_err_t ble_apply_settings_json(const char *body)
             }
         }
     }
+    const cJSON *relationship =
+        cJSON_GetObjectItemCaseSensitive(root, "relationship");
+    if (err == ESP_OK && cJSON_IsObject(relationship)) {
+        const cJSON *target_slot =
+            cJSON_GetObjectItemCaseSensitive(relationship, "targetSlot");
+        const cJSON *date =
+            cJSON_GetObjectItemCaseSensitive(relationship, "date");
+        if (cJSON_IsNumber(target_slot) &&
+            !faculty175_charts_set_active_slot(target_slot->valueint)) {
+            err = ESP_ERR_INVALID_ARG;
+        }
+        if (err == ESP_OK && cJSON_IsString(date) &&
+            date->valuestring != NULL) {
+            err = faculty175_relationship_weather_select_date(
+                date->valuestring);
+        }
+    }
     const cJSON *cycle = cJSON_GetObjectItemCaseSensitive(root, "cycle");
     if (err == ESP_OK && cJSON_IsObject(cycle)) {
         const cJSON *start = cJSON_GetObjectItemCaseSensitive(cycle, "startDate");
@@ -1582,6 +1670,62 @@ static esp_err_t ble_apply_settings_json(const char *body)
         if (cJSON_IsString(birth_time) && birth_time->valuestring != NULL) faculty175_strlcpy(settings.birth_time, birth_time->valuestring, sizeof(settings.birth_time));
         if (cJSON_IsString(birthplace) && birthplace->valuestring != NULL) faculty175_strlcpy(settings.birthplace, birthplace->valuestring, sizeof(settings.birthplace));
         err = faculty175_personal_settings_save(&settings);
+    }
+    const cJSON *privacy = cJSON_GetObjectItemCaseSensitive(root, "privacy");
+    if (err == ESP_OK && cJSON_IsObject(privacy)) {
+        const cJSON *clear_history =
+            cJSON_GetObjectItemCaseSensitive(privacy, "clearReadingHistory");
+        if (cJSON_IsTrue(clear_history)) {
+            err = faculty175_voice_clear_lunasay_reading_history();
+            if (err == ESP_OK) {
+                err = faculty175_research_clear_local_feedback();
+            }
+        }
+    }
+    const cJSON *research = cJSON_GetObjectItemCaseSensitive(root, "research");
+    if (err == ESP_OK && cJSON_IsObject(research)) {
+        const cJSON *consent = cJSON_GetObjectItemCaseSensitive(research, "consent");
+        const cJSON *version = cJSON_GetObjectItemCaseSensitive(research, "consentVersion");
+        if (!cJSON_IsBool(consent)) {
+            err = ESP_ERR_INVALID_ARG;
+        } else {
+            err = faculty175_research_set_consent(
+                cJSON_IsTrue(consent),
+                cJSON_IsString(version) && version->valuestring != NULL
+                    ? version->valuestring
+                    : "research-v2");
+        }
+    }
+    const cJSON *mood = cJSON_GetObjectItemCaseSensitive(root, "mood");
+    if (err == ESP_OK && cJSON_IsObject(mood)) {
+        const cJSON *label = cJSON_GetObjectItemCaseSensitive(mood, "label");
+        const cJSON *check_in = cJSON_GetObjectItemCaseSensitive(mood, "checkIn");
+        if (!cJSON_IsString(label) || label->valuestring == NULL ||
+            !faculty175_face_psych_state_set_mood(
+                label->valuestring, cJSON_IsTrue(check_in))) {
+            err = ESP_ERR_INVALID_ARG;
+        }
+    }
+    const cJSON *reflection =
+        cJSON_GetObjectItemCaseSensitive(root, "reflection");
+    if (err == ESP_OK && cJSON_IsObject(reflection)) {
+        const cJSON *face =
+            cJSON_GetObjectItemCaseSensitive(reflection, "face");
+        const cJSON *rating =
+            cJSON_GetObjectItemCaseSensitive(reflection, "rating");
+        const cJSON *reading_date =
+            cJSON_GetObjectItemCaseSensitive(reflection, "readingDate");
+        if (!cJSON_IsString(face) || face->valuestring == NULL ||
+            !cJSON_IsString(rating) || rating->valuestring == NULL ||
+            !cJSON_IsString(reading_date) ||
+            reading_date->valuestring == NULL) {
+            err = ESP_ERR_INVALID_ARG;
+        } else {
+            err = faculty175_research_record_feedback(
+                face->valuestring,
+                rating->valuestring,
+                reading_date->valuestring);
+        }
     }
     const cJSON *spotify = cJSON_GetObjectItemCaseSensitive(root, "spotify");
     if (err == ESP_OK && cJSON_IsObject(spotify)) {
@@ -1692,6 +1836,236 @@ static int ble_settings_json_access(uint16_t conn_handle,
     s_json_rx_len += len;
     s_json_rx[s_json_rx_len] = '\0';
     return 0;
+}
+
+static bool ble_json_escape(char *out,
+                            size_t cap,
+                            const char *value)
+{
+    if (out == NULL || cap == 0 || value == NULL) {
+        return false;
+    }
+    size_t used = 0;
+    for (const unsigned char *p = (const unsigned char *)value;
+         *p != '\0';
+         ++p) {
+        const char *escape = NULL;
+        if (*p == '"' || *p == '\\') {
+            escape = *p == '"' ? "\\\"" : "\\\\";
+        }
+        if (escape != NULL) {
+            if (used + 2 >= cap) return false;
+            out[used++] = escape[0];
+            out[used++] = escape[1];
+        } else {
+            if (used + 1 >= cap) return false;
+            out[used++] = *p < 0x20 ? ' ' : (char)*p;
+        }
+    }
+    out[used] = '\0';
+    return true;
+}
+
+static int ble_health_json_access(uint16_t conn_handle,
+                                  uint16_t attr_handle,
+                                  struct ble_gatt_access_ctxt *ctxt,
+                                  void *arg)
+{
+    (void)conn_handle;
+    (void)attr_handle;
+    (void)arg;
+    if (ctxt == NULL || ctxt->op != BLE_GATT_ACCESS_OP_READ_CHR) {
+        return BLE_ATT_ERR_UNLIKELY;
+    }
+
+    faculty175_pmu_status_t power = {};
+    const bool have_power = faculty175_pmu_status(&power);
+    faculty175_ota_status_t ota = {};
+    faculty175_ota_get_status(&ota);
+    const esp_app_desc_t *app = esp_app_get_description();
+
+    char firmware[72] = {};
+    /* Keep the complete attribute under the 512-byte BLE value boundary even
+     * when every byte in the diagnostic needs JSON escaping. */
+    char ota_last_raw[25] = {};
+    char ota_last[50] = {};
+    snprintf(ota_last_raw, sizeof(ota_last_raw), "%.24s", ota.last);
+    if (!ble_json_escape(firmware,
+                         sizeof(firmware),
+                         app != NULL ? app->version : "") ||
+        !ble_json_escape(ota_last, sizeof(ota_last), ota_last_raw)) {
+        return BLE_ATT_ERR_INSUFFICIENT_RES;
+    }
+
+    const int len = snprintf(
+        s_health_json,
+        sizeof(s_health_json),
+        "{\"device\":{\"firmware\":\"%s\",\"uptimeMs\":%llu,"
+        "\"battery\":{\"available\":%s,\"present\":%s,\"percent\":%d,"
+        "\"millivolts\":%u,\"charging\":%s,\"usbPower\":%s},"
+        "\"ble\":{\"enabled\":%s,\"advertising\":%s},"
+        "\"ota\":{\"active\":%s,\"autoStarted\":%s,\"paused\":%s,"
+        "\"networkReady\":%s,\"heapReady\":%s,\"intervalSeconds\":%u,"
+        "\"lastPollUptimeMs\":%u,\"last\":\"%s\"},"
+        "\"capabilities\":{\"clearReadingHistory\":true}}}",
+        firmware,
+        (unsigned long long)(esp_timer_get_time() / 1000),
+        have_power ? "true" : "false",
+        have_power && power.battery_present ? "true" : "false",
+        have_power ? power.battery_percent : -1,
+        have_power ? power.battery_mv : 0,
+        have_power && power.charging ? "true" : "false",
+        have_power && power.vbus_in ? "true" : "false",
+        s_enabled ? "true" : "false",
+        s_advertising ? "true" : "false",
+        ota.active ? "true" : "false",
+        ota.auto_started ? "true" : "false",
+        ota.auto_paused ? "true" : "false",
+        ota.network_ready ? "true" : "false",
+        ota.heap_ready ? "true" : "false",
+        ota.auto_interval_s,
+        ota.last_poll_uptime_ms,
+        ota_last);
+    if (len <= 0 || (size_t)len >= sizeof(s_health_json)) {
+        return BLE_ATT_ERR_INSUFFICIENT_RES;
+    }
+    return os_mbuf_append(ctxt->om, s_health_json, (size_t)len) == 0
+        ? 0
+        : BLE_ATT_ERR_INSUFFICIENT_RES;
+}
+
+static bool ble_json_append(char *out,
+                            size_t cap,
+                            size_t *used,
+                            const char *format,
+                            ...)
+{
+    if (out == NULL || used == NULL || format == NULL || *used >= cap) {
+        return false;
+    }
+    va_list args;
+    va_start(args, format);
+    const int wrote = vsnprintf(out + *used, cap - *used, format, args);
+    va_end(args);
+    if (wrote < 0 || (size_t)wrote >= cap - *used) {
+        return false;
+    }
+    *used += (size_t)wrote;
+    return true;
+}
+
+static int ble_state_json_access(uint16_t conn_handle,
+                                 uint16_t attr_handle,
+                                 struct ble_gatt_access_ctxt *ctxt,
+                                 void *arg)
+{
+    (void)conn_handle;
+    (void)attr_handle;
+    (void)arg;
+    if (ctxt == NULL || ctxt->op != BLE_GATT_ACCESS_OP_READ_CHR) {
+        return BLE_ATT_ERR_UNLIKELY;
+    }
+    faculty175_research_status_t research = {};
+    faculty175_research_status(&research);
+    uint8_t arousal = 0;
+    uint8_t valence = 0;
+    faculty175_face_psych_state_mood_values(&arousal, &valence);
+    faculty175_relationship_weather_snapshot_t relationship = {};
+    const bool relationship_available =
+        faculty175_relationship_weather_snapshot(&relationship);
+    char primary_name[65] = {};
+    char target_name[65] = {};
+    if (relationship_available) {
+        (void)ble_json_escape(primary_name,
+                              sizeof(primary_name),
+                              relationship.primary_name);
+        (void)ble_json_escape(target_name,
+                              sizeof(target_name),
+                              relationship.target_name);
+    }
+    char arc[FACULTY175_RELATIONSHIP_ARC_DAYS + 1] = {};
+    if (relationship_available) {
+        for (int day = 0;
+             day < FACULTY175_RELATIONSHIP_ARC_DAYS;
+             ++day) {
+            arc[day] = (char)('0' + relationship.arc[day]);
+        }
+    }
+    char resonance[320] = "{}";
+    (void)faculty175_research_resonance_json(resonance, sizeof(resonance));
+    size_t len = 0;
+    bool ok = ble_json_append(
+        s_state_json,
+        sizeof(s_state_json),
+        &len,
+        "{\"mood\":{\"label\":\"%s\",\"arousal\":%u,\"valence\":%u},"
+        "\"research\":{\"consent\":%s,\"consentVersion\":\"%s\","
+        "\"pending\":%s,\"status\":\"%s\","
+        "\"localFeedbackCount\":%u,"
+        "\"lastFeedback\":{\"face\":\"%s\",\"rating\":\"%s\"}},"
+        "\"resonance\":%s,"
+        "\"relationship\":{\"available\":%s,\"selectedDate\":\"%s\","
+        "\"offsetDays\":%d,\"activeSlot\":%d,\"primaryName\":\"%s\","
+        "\"targetName\":\"%s\",\"condition\":%d,\"arc\":\"%s\","
+        "\"profiles\":[",
+        faculty175_face_psych_state_mood_label(),
+        arousal,
+        valence,
+        research.consent_enabled ? "true" : "false",
+        research.consent_version,
+        research.pending ? "true" : "false",
+        faculty175_research_state_label(research.state),
+        research.local_feedback_count,
+        research.last_feedback_face,
+        research.last_feedback_rating,
+        resonance,
+        relationship_available ? "true" : "false",
+        relationship_available ? relationship.selected_date : "",
+        relationship_available ? relationship.offset_days : 0,
+        faculty175_charts_active_slot(),
+        primary_name,
+        target_name,
+        relationship_available ? relationship.arc[0] :
+            FACULTY175_RELATIONSHIP_CHANGEABLE,
+        arc);
+    faculty175_charts_ensure_family_seed();
+    bool first = true;
+    for (int slot = 0; ok && slot < FACULTY175_CHART_PROFILE_SLOTS; ++slot) {
+        faculty175_birth_chart_t profile = {};
+        if (!faculty175_charts_profile_get(slot, &profile) || !profile.valid) {
+            continue;
+        }
+        char name[65] = {};
+        char role[32] = {};
+        if (!ble_json_escape(name, sizeof(name), profile.name) ||
+            !ble_json_escape(role,
+                             sizeof(role),
+                             faculty175_charts_role_label(profile.role))) {
+            ok = false;
+            break;
+        }
+        ok = ble_json_append(
+            s_state_json,
+            sizeof(s_state_json),
+            &len,
+            "%s{\"slot\":%d,\"name\":\"%s\",\"role\":\"%s\"}",
+            first ? "" : ",",
+            slot,
+            name,
+            role);
+        first = false;
+    }
+    ok = ok && ble_json_append(
+        s_state_json,
+        sizeof(s_state_json),
+        &len,
+        "]}}");
+    if (!ok) {
+        return BLE_ATT_ERR_INSUFFICIENT_RES;
+    }
+    return os_mbuf_append(ctxt->om, s_state_json, len) == 0
+        ? 0
+        : BLE_ATT_ERR_INSUFFICIENT_RES;
 }
 
 static esp_err_t ble_nvs_set_enabled(bool enabled)
@@ -2316,6 +2690,37 @@ bool faculty175_ble_ring_paired(uint16_t *ring_id)
         *ring_id = s_paired_ring_id;
     }
     return s_paired_ring_id_set;
+}
+
+bool faculty175_ble_nearby_unpaired_ring(uint16_t *ring_id, int8_t *rssi)
+{
+    if (ring_id != NULL) {
+        *ring_id = 0;
+    }
+    if (rssi != NULL) {
+        *rssi = -127;
+    }
+    uint16_t paired_id = 0;
+    if (faculty175_ble_ring_paired(&paired_id)) {
+        return false;
+    }
+
+    faculty175_ble_peer_t peers[FACULTY175_BLE_PEER_MAX] = {};
+    const size_t count = faculty175_ble_peers_snapshot(peers, FACULTY175_BLE_PEER_MAX);
+    for (size_t i = 0; i < count; ++i) {
+        if (!peers[i].valid || !peers[i].ring || peers[i].addr_hash == 0 ||
+            peers[i].rssi < faculty175_ble_near_rssi_threshold()) {
+            continue;
+        }
+        if (ring_id != NULL) {
+            *ring_id = peers[i].addr_hash;
+        }
+        if (rssi != NULL) {
+            *rssi = peers[i].rssi;
+        }
+        return true;
+    }
+    return false;
 }
 
 esp_err_t faculty175_ble_set_enabled(bool enabled)

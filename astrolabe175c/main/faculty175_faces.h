@@ -81,6 +81,8 @@ typedef enum {
     FACULTY175_FACE_CYCLE,
     /* Preserve existing numeric IDs; new faces are appended. */
     FACULTY175_FACE_ALPHEUS,
+    FACULTY175_FACE_JYOTISH,
+    FACULTY175_FACE_BAZI,
     FACULTY175_FACE_COUNT,
 } faculty175_face_id_t;
 

@@ -44,6 +44,8 @@ void faculty175_face_pocketwatch_draw(uint32_t anim_ms);
 void faculty175_face_linux_draw(uint32_t anim_ms);
 void faculty175_face_alpheus_draw(uint32_t anim_ms);
 bool faculty175_face_alpheus_action(uint32_t now_ms);
+void faculty175_face_jyotish_draw(uint32_t anim_ms);
+void faculty175_face_bazi_draw(uint32_t anim_ms);
 
 bool faculty175_face_dispatch_draw(faculty175_face_id_t id, uint32_t anim_ms)
 {
@@ -97,6 +99,8 @@ bool faculty175_face_dispatch_draw(faculty175_face_id_t id, uint32_t anim_ms)
         case FACULTY175_FACE_SETTINGS: faculty175_face_settings_draw(anim_ms); return true;
         case FACULTY175_FACE_POCKETWATCH: faculty175_face_pocketwatch_draw(anim_ms); return true;
         case FACULTY175_FACE_ALPHEUS: faculty175_face_alpheus_draw(anim_ms); return true;
+        case FACULTY175_FACE_JYOTISH: faculty175_face_jyotish_draw(anim_ms); return true;
+        case FACULTY175_FACE_BAZI: faculty175_face_bazi_draw(anim_ms); return true;
         case FACULTY175_FACE_FACULTY:
         case FACULTY175_FACE_COUNT:
         default:

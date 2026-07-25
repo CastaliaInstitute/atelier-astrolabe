@@ -1,5 +1,6 @@
 #include "faculty175_voice.h"
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -300,6 +301,50 @@ static esp_err_t voice_spiffs_mount(void)
     }
     FACULTY175_LOG_STAGE_W(TAG, "stream", "SPIFFS unavailable for voice spool: %s", esp_err_to_name(err));
     return err;
+}
+
+esp_err_t faculty175_voice_clear_lunasay_reading_history(void)
+{
+    static const char *const slugs[] = {
+        "moon", "astrology", "transits", "synastry", "tarot", "sky",
+    };
+    static const char *const fixed_paths[] = {
+        VOICE_SPOOL_BASE "/lunasay-memory.json",
+        VOICE_SPOOL_BASE "/lunasay-memory.json.tmp",
+        VOICE_SPOOL_BASE "/lunasay-d0.json",
+        VOICE_SPOOL_BASE "/lunasay-d0.json.tmp",
+        VOICE_SPOOL_BASE "/lunasay-d1.json",
+        VOICE_SPOOL_BASE "/lunasay-d1.json.tmp",
+    };
+    const esp_err_t mount_err = voice_spiffs_mount();
+    if (mount_err != ESP_OK) {
+        return mount_err;
+    }
+
+    esp_err_t result = ESP_OK;
+    for (size_t i = 0; i < sizeof(fixed_paths) / sizeof(fixed_paths[0]); ++i) {
+        if (remove(fixed_paths[i]) != 0 && errno != ENOENT) {
+            result = ESP_FAIL;
+        }
+    }
+    char path[64];
+    for (unsigned slot = 0; slot < 2; ++slot) {
+        for (size_t i = 0; i < sizeof(slugs) / sizeof(slugs[0]); ++i) {
+            snprintf(path,
+                     sizeof(path),
+                     VOICE_SPOOL_BASE "/lunasay-d%u-%s.mp3",
+                     slot,
+                     slugs[i]);
+            if (remove(path) != 0 && errno != ENOENT) {
+                result = ESP_FAIL;
+            }
+        }
+    }
+    FACULTY175_LOG_STAGE(TAG,
+                         "privacy",
+                         "clear reading history %s",
+                         esp_err_to_name(result));
+    return result;
 }
 
 static char *json_escape_alloc(const char *src)
@@ -1472,6 +1517,232 @@ esp_err_t faculty175_voice_post_message_streaming(const char *message,
            result->mp3_path[0] != '\0' ? result->mp3_path : "-",
            stream != NULL && stream->on_mp3_chunk != NULL ? "yes" : "no");
     fflush(stdout);
+    return ESP_OK;
+}
+
+esp_err_t faculty175_voice_fetch_lunasay_daily_packet(const char *briefing_facts,
+                                                      const char *resonance_profile,
+                                                      const char *reading_memory,
+                                                      const char *timezone,
+                                                      int64_t epoch_seconds,
+                                                      char **json_out,
+                                                      size_t *json_len_out)
+{
+    if (briefing_facts == NULL || resonance_profile == NULL ||
+        reading_memory == NULL ||
+        timezone == NULL || json_out == NULL || json_len_out == NULL ||
+        epoch_seconds <= 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    *json_out = NULL;
+    *json_len_out = 0;
+    const esp_err_t config_err = voice_require_config("lunasay-daily");
+    if (config_err != ESP_OK) {
+        return config_err;
+    }
+    const esp_err_t mount_err = voice_spiffs_mount();
+    if (mount_err != ESP_OK) {
+        return mount_err;
+    }
+
+    char *esc_facts = json_escape_alloc(briefing_facts);
+    char *esc_timezone = json_escape_alloc(timezone);
+    if (esc_facts == NULL || esc_timezone == NULL) {
+        free(esc_facts);
+        free(esc_timezone);
+        return ESP_ERR_NO_MEM;
+    }
+    const size_t body_cap = strlen(esc_facts) + strlen(esc_timezone) +
+                            strlen(resonance_profile) +
+                            strlen(reading_memory) + 320;
+    char *body = heap_caps_malloc(body_cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (body == NULL) {
+        body = malloc(body_cap);
+    }
+    if (body == NULL) {
+        free(esc_facts);
+        free(esc_timezone);
+        return ESP_ERR_NO_MEM;
+    }
+    const int body_len = snprintf(body,
+                                  body_cap,
+                                  "{\"face\":\"lunasay_daily_packet\",\"deviceProfile\":\"lunasay\","
+                                  "\"epochSeconds\":%lld,\"timezone\":\"%s\","
+                                  "\"briefingFacts\":\"%s\",\"resonanceProfile\":%s,"
+                                  "\"readingMemory\":%s}",
+                                  (long long)epoch_seconds,
+                                  esc_timezone,
+                                  esc_facts,
+                                  resonance_profile,
+                                  reading_memory);
+    free(esc_facts);
+    free(esc_timezone);
+    if (body_len <= 0 || (size_t)body_len >= body_cap) {
+        free(body);
+        return ESP_ERR_NO_MEM;
+    }
+
+    char url[224];
+    voice_pipeline_preferred_url(url, sizeof(url));
+    uint8_t *response = NULL;
+    size_t response_len = 0;
+    int status = 0;
+    faculty175_screen_http_stop();
+    esp_err_t ret = post_collect_body(url,
+                                      "application/json",
+                                      (const uint8_t *)body,
+                                      (size_t)body_len,
+                                      "application/json",
+                                      &response,
+                                      &response_len,
+                                      &status);
+    if (voice_should_try_http_fallback(ret, status)) {
+        char fallback_url[224];
+        if (voice_pipeline_http_fallback_url(fallback_url, sizeof(fallback_url), url)) {
+            free(response);
+            response = NULL;
+            response_len = 0;
+            status = 0;
+            ret = post_collect_body(fallback_url,
+                                    "application/json",
+                                    (const uint8_t *)body,
+                                    (size_t)body_len,
+                                    "application/json",
+                                    &response,
+                                    &response_len,
+                                    &status);
+        }
+    }
+    free(body);
+    (void)faculty175_screen_http_start(NULL);
+    if (ret != ESP_OK || status < 200 || status >= 300 || response == NULL ||
+        response_len < 8 || response_len > 48 * 1024) {
+        FACULTY175_LOG_STAGE_W(TAG,
+                               "lunasay-daily",
+                               "packet HTTP %d body=%uB err=%s",
+                               status,
+                               (unsigned)response_len,
+                               esp_err_to_name(ret));
+        free(response);
+        return ret != ESP_OK ? ret : ESP_FAIL;
+    }
+    char *json = heap_caps_malloc(response_len + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (json == NULL) {
+        json = malloc(response_len + 1);
+    }
+    if (json == NULL) {
+        free(response);
+        return ESP_ERR_NO_MEM;
+    }
+    memcpy(json, response, response_len);
+    json[response_len] = '\0';
+    free(response);
+    *json_out = json;
+    *json_len_out = response_len;
+    FACULTY175_LOG_STAGE(TAG, "lunasay-daily", "packet received %uB", (unsigned)response_len);
+    return ESP_OK;
+}
+
+esp_err_t faculty175_voice_post_tts_text_streaming(const char *text,
+                                                   const char *face,
+                                                   const faculty175_voice_tts_stream_t *stream,
+                                                   faculty175_voice_result_t *result)
+{
+    if (text == NULL || text[0] == '\0' || result == NULL || stream == NULL ||
+        stream->spool_path == NULL || stream->spool_path[0] == '\0') {
+        return ESP_ERR_INVALID_ARG;
+    }
+    const esp_err_t config_err = voice_require_config("lunasay-tts");
+    if (config_err != ESP_OK) {
+        return config_err;
+    }
+    memset(result, 0, sizeof(*result));
+    const char *active_face = face != NULL && face[0] != '\0' ? face : "lunasay";
+    char *esc_text = json_escape_alloc(text);
+    char *esc_face = json_escape_alloc(active_face);
+    if (esc_text == NULL || esc_face == NULL) {
+        free(esc_text);
+        free(esc_face);
+        return ESP_ERR_NO_MEM;
+    }
+    const size_t body_cap = strlen(esc_text) + strlen(esc_face) + 192;
+    char *body = heap_caps_malloc(body_cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (body == NULL) {
+        body = malloc(body_cap);
+    }
+    if (body == NULL) {
+        free(esc_text);
+        free(esc_face);
+        return ESP_ERR_NO_MEM;
+    }
+    const int body_len = snprintf(body,
+                                  body_cap,
+                                  "{\"languageCode\":\"en-US\",\"face\":\"%s\","
+                                  "\"deviceProfile\":\"lunasay\",\"ttsText\":\"%s\"}",
+                                  esc_face,
+                                  esc_text);
+    free(esc_text);
+    free(esc_face);
+    if (body_len <= 0 || (size_t)body_len >= body_cap) {
+        free(body);
+        return ESP_ERR_NO_MEM;
+    }
+
+    char url[224];
+    voice_pipeline_preferred_url(url, sizeof(url));
+    int status = 0;
+    size_t mp3_len = 0;
+    esp_err_t ret = voice_spiffs_mount();
+    if (ret != ESP_OK) {
+        free(body);
+        return ret;
+    }
+    ret = post_collect_file(url,
+                            "application/json",
+                            (const uint8_t *)body,
+                            (size_t)body_len,
+                            "audio/mpeg",
+                            stream->spool_path,
+                            stream,
+                            result,
+                            &mp3_len,
+                            &status);
+    if (voice_should_try_http_fallback(ret, status)) {
+        char fallback_url[224];
+        if (voice_pipeline_http_fallback_url(fallback_url, sizeof(fallback_url), url)) {
+            memset(result, 0, sizeof(*result));
+            status = 0;
+            mp3_len = 0;
+            ret = post_collect_file(fallback_url,
+                                    "application/json",
+                                    (const uint8_t *)body,
+                                    (size_t)body_len,
+                                    "audio/mpeg",
+                                    stream->spool_path,
+                                    stream,
+                                    result,
+                                    &mp3_len,
+                                    &status);
+        }
+    }
+    free(body);
+    if (ret != ESP_OK || status < 200 || status >= 300 || mp3_len < 64) {
+        FACULTY175_LOG_STAGE_W(TAG,
+                               "lunasay-tts",
+                               "HTTP %d mp3=%uB err=%s",
+                               status,
+                               (unsigned)mp3_len,
+                               esp_err_to_name(ret));
+        return ret != ESP_OK ? ret : ESP_FAIL;
+    }
+    strlcpy(result->mp3_path, stream->spool_path, sizeof(result->mp3_path));
+    result->mp3_len = mp3_len;
+    strlcpy(result->reply, text, sizeof(result->reply));
+    FACULTY175_LOG_STAGE(TAG,
+                         "lunasay-tts",
+                         "verbatim face=%s mp3=%uB",
+                         active_face,
+                         (unsigned)mp3_len);
     return ESP_OK;
 }
 

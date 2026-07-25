@@ -895,6 +895,12 @@
         const dt = performance.now() - swipeStart.time;
         swipeStart = null;
         if (Math.abs(dx) < 48 || Math.abs(dx) < Math.abs(dy) * 1.4 || dt > 900) {
+          if (Math.hypot(dx, dy) < 18 && dt <= 900 && Module.ccall) {
+            const rect = canvas.getBoundingClientRect();
+            const x = Math.round((event.clientX - rect.left) * canvas.width / rect.width);
+            const y = Math.round((event.clientY - rect.top) * canvas.height / rect.height);
+            Module.ccall("astrolabe_web_tap", "number", ["number", "number"], [x, y]);
+          }
           return;
         }
         setFace(Number(faceSelect.value) + (dx < 0 ? 1 : -1));

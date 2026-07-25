@@ -7375,6 +7375,8 @@ static const char *descriptor_subtitle_for_face(const faculty175_face_desc_t *de
         case FACULTY175_FACE_CALCIFER: return "Hearth spirit";
         case FACULTY175_FACE_CASTALIA: return "System signal";
         case FACULTY175_FACE_ASTROLOGY: return "Natal wheel";
+        case FACULTY175_FACE_JYOTISH: return "Sidereal rasi";
+        case FACULTY175_FACE_BAZI: return "Four pillars";
         case FACULTY175_FACE_SYNASTRY: return "Two charts";
         case FACULTY175_FACE_TAROT: return "Full deck";
         case FACULTY175_FACE_INQ: return "Question card";
@@ -7462,7 +7464,8 @@ static bool draw_face_descriptor(faculty175_face_id_t id, uint32_t anim_ms)
 
 bool faculty175_lvgl_draw_face(faculty175_face_id_t id, uint32_t anim_ms)
 {
-    if (id == FACULTY175_FACE_DEATHSTAR || id == FACULTY175_FACE_TRON || id == FACULTY175_FACE_MAZE ||
+    if (id == FACULTY175_FACE_JYOTISH || id == FACULTY175_FACE_BAZI ||
+        id == FACULTY175_FACE_DEATHSTAR || id == FACULTY175_FACE_TRON || id == FACULTY175_FACE_MAZE ||
         id == FACULTY175_FACE_CRYSTAL_BALL) {
         return false;
     }

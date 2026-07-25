@@ -36,6 +36,8 @@
 #include "faculty175_power_history.h"
 #include "faculty175_power_metrics.h"
 #include "faculty175_quotes.h"
+#include "faculty175_relationship_weather.h"
+#include "faculty175_research.h"
 #include "faculty175_ring.h"
 #include "faculty175_rocket.h"
 #include "faculty175_spotify.h"
@@ -71,6 +73,56 @@ typedef struct {
 static uint16_t s_fb[FACULTY175_LCD_W * FACULTY175_LCD_H];
 static bool s_flush_suspended;
 static uint32_t s_tick_ms;
+
+void faculty175_research_init(void) {}
+esp_err_t faculty175_research_set_consent(bool enabled, const char *version)
+{
+    (void)enabled;
+    (void)version;
+    return ESP_FAIL;
+}
+bool faculty175_research_consent_enabled(void) { return false; }
+esp_err_t faculty175_research_record_mood(const char *mood,
+                                          uint8_t arousal,
+                                          uint8_t valence)
+{
+    (void)mood;
+    (void)arousal;
+    (void)valence;
+    return ESP_FAIL;
+}
+esp_err_t faculty175_research_record_feedback(const char *face,
+                                              const char *rating,
+                                              const char *reading_date)
+{
+    (void)face;
+    (void)rating;
+    (void)reading_date;
+    return ESP_FAIL;
+}
+esp_err_t faculty175_research_resonance_json(char *out, size_t cap)
+{
+    if (out == NULL || cap < 3) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    snprintf(out, cap, "{}");
+    return ESP_OK;
+}
+void faculty175_research_poll(void) {}
+void faculty175_research_status(faculty175_research_status_t *out)
+{
+    if (out != NULL) {
+        memset(out, 0, sizeof(*out));
+        out->state = FACULTY175_RESEARCH_OFF;
+        snprintf(out->consent_version, sizeof(out->consent_version),
+                 "%s", "research-v2");
+    }
+}
+const char *faculty175_research_state_label(faculty175_research_state_t state)
+{
+    (void)state;
+    return "local only";
+}
 
 const uint8_t _binary_pocketwatch_default_rgb565_start[FACULTY175_LCD_W * FACULTY175_LCD_H * sizeof(uint16_t)] = {0};
 const uint8_t _binary_maze_466_png_start[1] = {0};
@@ -1460,3 +1512,35 @@ size_t astrolabe_time_format_utc(char *out, size_t cap)
     }
     return 0;
 }
+
+/* The simulator has no BLE radio or paired-family service; keep those inputs quiet. */
+bool faculty175_ble_ring_paired(uint16_t *ring_id) { if (ring_id) *ring_id = 0; return false; }
+bool faculty175_ble_nearby_unpaired_ring(uint16_t *ring_id, int8_t *rssi)
+{
+    if (ring_id) *ring_id = 0;
+    if (rssi) *rssi = -100;
+    return false;
+}
+int8_t faculty175_ble_near_rssi_threshold(void) { return -70; }
+
+faculty175_relationship_condition_t faculty175_relationship_weather_at(
+    const faculty175_chart_positions_t *primary,
+    const faculty175_chart_positions_t *target,
+    time_t epoch)
+{
+    (void)primary; (void)target; (void)epoch;
+    return FACULTY175_RELATIONSHIP_CHANGEABLE;
+}
+const char *faculty175_relationship_weather_name(faculty175_relationship_condition_t condition)
+{ (void)condition; return "CHANGEABLE"; }
+const char *faculty175_relationship_weather_guidance(faculty175_relationship_condition_t condition)
+{ (void)condition; return "Stay curious and check assumptions"; }
+const char *faculty175_relationship_weather_symbol(faculty175_relationship_condition_t condition)
+{ (void)condition; return "~"; }
+uint32_t faculty175_relationship_weather_color(faculty175_relationship_condition_t condition)
+{ (void)condition; return 0x9da9bc; }
+esp_err_t faculty175_relationship_weather_select_date(const char *date)
+{ (void)date; return ESP_OK; }
+void faculty175_relationship_weather_select_today(void) {}
+bool faculty175_relationship_weather_snapshot(faculty175_relationship_weather_snapshot_t *out)
+{ if (out) memset(out, 0, sizeof(*out)); return false; }

@@ -25,6 +25,7 @@ add_executable(astrolabe-web-sim
   ${FACULTY175_FACE_SRCS}
   ../../astrolabe175c/main/faculty175_cycle_arcs.c
   ../../astrolabe175c/main/faculty175_astro_math.c
+  ../../astrolabe185b/main/faculty175_bazi_math.c
   ../../astrolabe175c/main/faculty175_human_design_math.c
   ../../astrolabe175c/main/faculty175_lvgl.c
   ../../astrolabe175c/main/faculty175_faces.c

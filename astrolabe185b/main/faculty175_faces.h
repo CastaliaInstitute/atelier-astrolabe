@@ -73,6 +73,8 @@ typedef enum {
     FACULTY175_FACE_POCKETWATCH,
     /* Append to preserve existing numeric face IDs. */
     FACULTY175_FACE_ALPHEUS,
+    FACULTY175_FACE_JYOTISH,
+    FACULTY175_FACE_BAZI,
     FACULTY175_FACE_COUNT,
 } faculty175_face_id_t;
 
