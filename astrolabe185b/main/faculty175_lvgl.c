@@ -260,6 +260,11 @@ static lv_obj_t *s_transits_labels[7];
 static lv_obj_t *s_transits_title;
 static lv_obj_t *s_transits_line;
 static lv_obj_t *s_transits_clock;
+static lv_obj_t *s_transits_year_arcs[4];
+static lv_obj_t *s_transits_year_hand;
+static lv_obj_t *s_transits_year_today;
+static lv_point_precise_t s_transits_year_hand_points[2];
+static lv_obj_t *s_transits_month_labels[12];
 static lv_obj_t *s_lenormand_screen;
 static lv_obj_t *s_lenormand_ticks[36];
 static lv_point_precise_t s_lenormand_tick_points[36][2];
@@ -791,6 +796,31 @@ static lv_obj_t *make_arc_ring(lv_obj_t *parent, int32_t size, uint32_t color, i
     lv_obj_set_style_arc_opa(arc, 0, LV_PART_INDICATOR);
     lv_obj_set_style_arc_rounded(arc, false, LV_PART_MAIN);
     lv_obj_set_style_arc_rounded(arc, false, LV_PART_INDICATOR);
+    return arc;
+}
+
+/* A value arc used for the annual transit lanes.  The background is kept
+ * transparent so each lane reads as a discrete timing window, rather than
+ * another complete bezel ring. */
+static lv_obj_t *make_transit_year_arc(lv_obj_t *parent, int32_t size, uint32_t color, int32_t width)
+{
+    lv_obj_t *arc = lv_arc_create(parent);
+    if (arc == NULL) {
+        return NULL;
+    }
+    lv_obj_remove_style_all(arc);
+    lv_obj_set_size(arc, size, size);
+    lv_arc_set_range(arc, 0, 360);
+    lv_arc_set_value(arc, 0);
+    lv_arc_set_rotation(arc, 270);
+    lv_obj_clear_flag(arc, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_arc_width(arc, 0, LV_PART_MAIN);
+    lv_obj_set_style_arc_opa(arc, 0, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(arc, width, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(arc, lv_color_hex(color), LV_PART_INDICATOR);
+    lv_obj_set_style_arc_opa(arc, LV_OPA_COVER, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_rounded(arc, true, LV_PART_INDICATOR);
+    lv_obj_center(arc);
     return arc;
 }
 
@@ -6406,6 +6436,35 @@ static void transits_ephemeris_at(uint32_t anim_ms, uint32_t day_offset, float l
     }
 }
 
+static int transits_day_of_year(uint32_t anim_ms, int *days_in_year)
+{
+    time_t now = astrolabe_time_valid() ? astrolabe_time_now() : time(NULL);
+    struct tm local_now;
+    if (localtime_r(&now, &local_now) == NULL) {
+        local_now.tm_yday = 0;
+        local_now.tm_year = 124;
+    }
+    const int year = local_now.tm_year + 1900;
+    const bool leap = (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0));
+    if (days_in_year != NULL) {
+        *days_in_year = leap ? 366 : 365;
+    }
+    (void)anim_ms;
+    return local_now.tm_yday;
+}
+
+static float transit_year_angle(int day, int days_in_year)
+{
+    float angle = 270.0f + 360.0f * (float)day / (float)days_in_year;
+    while (angle < 0.0f) {
+        angle += 360.0f;
+    }
+    while (angle >= 360.0f) {
+        angle -= 360.0f;
+    }
+    return angle;
+}
+
 static void create_transits_screen(void)
 {
     s_transits_screen = lv_obj_create(NULL);
@@ -6427,13 +6486,35 @@ static void create_transits_screen(void)
     const int cy = FACULTY175_LCD_H / 2 + 2;
     for (int i = 0; i < 12; ++i) {
         const float a = -1.5707963f + (float)i * 6.2831853f / 12.0f;
-        s_transits_spoke_points[i][0].x = cx + (lv_value_precise_t)lrintf(cosf(a) * 78.0f);
-        s_transits_spoke_points[i][0].y = cy + (lv_value_precise_t)lrintf(sinf(a) * 78.0f);
-        s_transits_spoke_points[i][1].x = cx + (lv_value_precise_t)lrintf(cosf(a) * 198.0f);
-        s_transits_spoke_points[i][1].y = cy + (lv_value_precise_t)lrintf(sinf(a) * 198.0f);
+        s_transits_spoke_points[i][0].x = cx + (lv_value_precise_t)lrintf(cosf(a) * 201.0f);
+        s_transits_spoke_points[i][0].y = cy + (lv_value_precise_t)lrintf(sinf(a) * 201.0f);
+        s_transits_spoke_points[i][1].x = cx + (lv_value_precise_t)lrintf(cosf(a) * (i % 3 == 0 ? 216.0f : 210.0f));
+        s_transits_spoke_points[i][1].y = cy + (lv_value_precise_t)lrintf(sinf(a) * (i % 3 == 0 ? 216.0f : 210.0f));
         s_transits_spokes[i] = lv_line_create(s_transits_screen);
-        configure_aleth_line(s_transits_spokes[i], i % 3 == 0 ? 0x5c748a : 0x344458, i % 3 == 0 ? 2 : 1, 150);
+        configure_aleth_line(s_transits_spokes[i], i % 3 == 0 ? 0x8aa9c4 : 0x43556b, i % 3 == 0 ? 2 : 1, 190);
         lv_line_set_points(s_transits_spokes[i], s_transits_spoke_points[i], 2);
+    }
+
+    static const uint32_t transit_lane_colors[4] = {0xffd25a, 0xb2b6c4, 0xffbe8c, 0xe65a46};
+    static const int transit_lane_sizes[4] = {414, 394, 374, 354};
+    for (int i = 0; i < 4; ++i) {
+        s_transits_year_arcs[i] = make_transit_year_arc(s_transits_screen, transit_lane_sizes[i],
+                                                        transit_lane_colors[i], i == 0 ? 7 : 5);
+    }
+
+    s_transits_year_hand = lv_line_create(s_transits_screen);
+    configure_aleth_line(s_transits_year_hand, 0xdcecff, 3, LV_OPA_COVER);
+    s_transits_year_today = make_circle(s_transits_screen, 12, 0xdcecff, LV_OPA_COVER);
+
+    static const char *const month_labels[12] = {
+        "JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"};
+    for (int i = 0; i < 12; ++i) {
+        s_transits_month_labels[i] = make_tarot_label(s_transits_screen, 0, 18, 0x9cb2c9);
+        lv_label_set_text(s_transits_month_labels[i], month_labels[i]);
+        const float a = -1.5707963f + (float)i * 6.2831853f / 12.0f;
+        const int lx = cx + (int)lrintf(cosf(a) * 184.0f);
+        const int ly = cy + (int)lrintf(sinf(a) * 184.0f);
+        lv_obj_align(s_transits_month_labels[i], LV_ALIGN_TOP_LEFT, lx - 14, ly - 9);
     }
 
     for (int i = 0; i < 7; ++i) {
@@ -6443,6 +6524,10 @@ static void create_transits_screen(void)
         s_transits_now[i] = make_circle(s_transits_screen, i == 0 ? 20 : 16, k_lvgl_astro_bodies[i].color, LV_OPA_COVER);
         s_transits_labels[i] = make_tarot_label(s_transits_screen, 0, 28, i == 0 ? 0x211706 : 0x071019);
         lv_label_set_text(s_transits_labels[i], k_lvgl_astro_bodies[i].label);
+        native_obj_hidden(s_transits_motion[i], true);
+        native_obj_hidden(s_transits_next[i], true);
+        native_obj_hidden(s_transits_now[i], true);
+        native_obj_hidden(s_transits_labels[i], true);
     }
 
     lv_obj_t *hub = make_circle(s_transits_screen, 76, 0x07111f, LV_OPA_COVER);
@@ -6494,10 +6579,46 @@ static bool draw_transits(uint32_t anim_ms)
         lv_obj_align(s_transits_labels[i], LV_ALIGN_TOP_LEFT, x0 - 14, y0 - 7);
     }
 
-    lv_label_set_text(s_transits_title, "LIVE TRANSITS");
+    /* Map the calendar year clockwise around the bezel.  Each lane marks the
+     * next sign-ingress window for a fast or personally legible planet; the
+     * hand makes “where am I?” immediately obvious without tiny glyphs. */
+    int days_in_year = 365;
+    const int day_of_year = transits_day_of_year(anim_ms, &days_in_year);
+    const int lane_body[4] = {0, 2, 3, 4}; /* Sun, Mercury, Venus, Mars */
+    const int lane_window_days[4] = {4, 10, 16, 28};
+    for (int lane = 0; lane < 4; ++lane) {
+        const int body = lane_body[lane];
+        const float speed = fmaxf(fabsf(k_lvgl_astro_bodies[body].deg_per_day), 0.01f);
+        const float lon = now_lon[body];
+        const float boundary = ceilf((lon + 0.05f) / 30.0f) * 30.0f;
+        float days_to_ingress = astrology_wrap360(boundary - lon) / speed;
+        if (days_to_ingress < 0.25f) {
+            days_to_ingress += 30.0f / speed;
+        }
+        const float center_day = fmodf((float)day_of_year + days_to_ingress, (float)days_in_year);
+        const float start_day = center_day - (float)lane_window_days[lane] * 0.5f;
+        float start_angle = transit_year_angle((int)lrintf(start_day), days_in_year);
+        const int sweep = (int)lrintf((float)lane_window_days[lane] * 360.0f / (float)days_in_year);
+        lv_arc_set_rotation(s_transits_year_arcs[lane], (uint16_t)lrintf(start_angle));
+        lv_arc_set_value(s_transits_year_arcs[lane], sweep > 1 ? sweep : 1);
+    }
+
+    const float today_angle = transit_year_angle(day_of_year, days_in_year) * 0.0174532925f;
+    const int cx = FACULTY175_LCD_W / 2;
+    const int cy = FACULTY175_LCD_H / 2 + 2;
+    s_transits_year_hand_points[0].x = cx;
+    s_transits_year_hand_points[0].y = cy;
+    s_transits_year_hand_points[1].x = cx + (lv_value_precise_t)lrintf(cosf(today_angle) * 207.0f);
+    s_transits_year_hand_points[1].y = cy + (lv_value_precise_t)lrintf(sinf(today_angle) * 207.0f);
+    lv_line_set_points(s_transits_year_hand, s_transits_year_hand_points, 2);
+    lv_obj_align(s_transits_year_today, LV_ALIGN_TOP_LEFT,
+                 s_transits_year_hand_points[1].x - 6, s_transits_year_hand_points[1].y - 6);
+
+    lv_label_set_text(s_transits_title, "TRANSITS / YEAR");
     char line[96];
     const float moon_delta = astrology_wrap360(next_lon[1] - now_lon[1]);
-    snprintf(line, sizeof(line), "Mo %s -> %s  +%.0f deg / 4d",
+    snprintf(line, sizeof(line), "DAY %03d  Mo %s -> %s  +%.0f deg / 4d",
+             day_of_year + 1,
              k_lvgl_astro_signs[(int)(now_lon[1] / 30.0f) % 12],
              k_lvgl_astro_signs[(int)(next_lon[1] / 30.0f) % 12],
              moon_delta);
