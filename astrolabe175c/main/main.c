@@ -4508,12 +4508,12 @@ static void input_task(void *arg)
                 }
             } else if (!s_nav_mode && active_face != NULL && active_face->id == FACULTY175_FACE_SETTINGS &&
                        gesture.kind == FACULTY175_GESTURE_TAP && gesture.y >= 252 && gesture.y <= 296) {
-                faculty175_ble_ring_telem_t rings[1] = {};
-                const size_t ring_count = faculty175_ble_ring_telemetry_snapshot(rings, 1);
-                const esp_err_t err = ring_count > 0 ? faculty175_ble_ring_pair(rings[0].ring_id)
-                                                     : faculty175_ble_scan_start(3000u);
+                faculty175_ble_ring_telem_t ring = {};
+                const bool ring_found = faculty175_ble_ring_strongest(&ring);
+                const esp_err_t err = ring_found ? faculty175_ble_ring_pair(ring.ring_id)
+                                                 : faculty175_ble_scan_start(3000u);
                 FACULTY175_LOG_STAGE(TAG, "ring", "%s %s",
-                                     ring_count > 0 ? "settings pair" : "settings scan",
+                                     ring_found ? "settings pair strongest" : "settings scan",
                                      esp_err_to_name(err));
                 draw_current_face_now(now_ms);
                 faculty175_gesture_flush();

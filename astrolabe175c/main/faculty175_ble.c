@@ -180,6 +180,7 @@ static bool s_lunasay_ring_near;
 static uint32_t s_lunasay_ring_near_ms;
 static uint32_t s_lunasay_ring_retry_ms;
 static faculty175_ble_ring_event_t s_lunasay_ring_event;
+static faculty175_ble_ring_event_t s_lunasay_ring_last_event;
 static portMUX_TYPE s_lunasay_ring_event_lock = portMUX_INITIALIZER_UNLOCKED;
 static bool s_colmi_imu_have_sample;
 static float s_colmi_imu_x_g;
@@ -212,6 +213,7 @@ static void lunasay_ring_event_post(faculty175_ble_ring_event_t event)
         event != FACULTY175_BLE_RING_EVENT_NEAR) {
         s_lunasay_ring_event = event;
     }
+    s_lunasay_ring_last_event = event;
     portEXIT_CRITICAL(&s_lunasay_ring_event_lock);
 }
 static esp_err_t colmi_client_start(void);
@@ -2212,6 +2214,33 @@ bool faculty175_ble_lunasay_ring_near(void)
     return s_lunasay_ring_near;
 }
 
+faculty175_ble_ring_event_t faculty175_ble_lunasay_ring_last_event(void)
+{
+    portENTER_CRITICAL(&s_lunasay_ring_event_lock);
+    const faculty175_ble_ring_event_t event = s_lunasay_ring_last_event;
+    portEXIT_CRITICAL(&s_lunasay_ring_event_lock);
+    return event;
+}
+
+const char *faculty175_ble_lunasay_ring_event_name(faculty175_ble_ring_event_t event)
+{
+    switch (event) {
+        case FACULTY175_BLE_RING_EVENT_NEAR:
+            return "near";
+        case FACULTY175_BLE_RING_EVENT_SWIPE_NEXT:
+            return "right";
+        case FACULTY175_BLE_RING_EVENT_SWIPE_PREVIOUS:
+            return "left";
+        case FACULTY175_BLE_RING_EVENT_SWIPE_UP:
+            return "up";
+        case FACULTY175_BLE_RING_EVENT_SWIPE_DOWN:
+            return "down";
+        case FACULTY175_BLE_RING_EVENT_NONE:
+        default:
+            return "none";
+    }
+}
+
 size_t faculty175_ble_peers_snapshot(faculty175_ble_peer_t *out, size_t cap)
 {
     if (out == NULL || cap == 0) {
@@ -2272,6 +2301,28 @@ size_t faculty175_ble_ring_telemetry_snapshot(faculty175_ble_ring_telem_t *out, 
     return count;
 }
 
+bool faculty175_ble_ring_strongest(faculty175_ble_ring_telem_t *out)
+{
+    if (out == NULL) {
+        return false;
+    }
+
+    faculty175_ble_ring_telem_t samples[FACULTY175_BLE_RING_TELEM_MAX] = {};
+    const size_t count =
+        faculty175_ble_ring_telemetry_snapshot(samples, FACULTY175_BLE_RING_TELEM_MAX);
+    bool found = false;
+    for (size_t i = 0; i < count; ++i) {
+        if (samples[i].age_ms > 15000u) {
+            continue;
+        }
+        if (!found || samples[i].rssi > out->rssi) {
+            *out = samples[i];
+            found = true;
+        }
+    }
+    return found;
+}
+
 esp_err_t faculty175_ble_ring_pair(uint16_t ring_id)
 {
     if (ring_id == 0) {
@@ -2316,6 +2367,11 @@ bool faculty175_ble_ring_paired(uint16_t *ring_id)
         *ring_id = s_paired_ring_id;
     }
     return s_paired_ring_id_set;
+}
+
+esp_err_t faculty175_ble_request_ring_vitals(void)
+{
+    return colmi_client_start();
 }
 
 esp_err_t faculty175_ble_set_enabled(bool enabled)

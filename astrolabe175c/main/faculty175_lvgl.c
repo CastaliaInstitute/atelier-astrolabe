@@ -3124,7 +3124,6 @@ static bool utility_face_id(faculty175_face_id_t id)
         case FACULTY175_FACE_QUOTES:
         case FACULTY175_FACE_QDAY:
         case FACULTY175_FACE_FOCUS:
-        case FACULTY175_FACE_BIOMETRICS:
         case FACULTY175_FACE_WATCHER:
         case FACULTY175_FACE_HID:
         case FACULTY175_FACE_BABEL:
@@ -7527,7 +7526,6 @@ bool faculty175_lvgl_face_supported(faculty175_face_id_t id)
         case FACULTY175_FACE_ORIENT:
         case FACULTY175_FACE_QDAY:
         case FACULTY175_FACE_FOCUS:
-        case FACULTY175_FACE_BIOMETRICS:
         case FACULTY175_FACE_IRONMAN:
         case FACULTY175_FACE_WATCHER:
         case FACULTY175_FACE_LENORMAND:

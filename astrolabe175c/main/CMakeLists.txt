@@ -157,6 +157,8 @@ idf_component_register(
     EMBED_FILES
         "assets/pocketwatch_default.rgb565"
         "assets/maze_466.png"
+        "assets/colmi_r09_face.rgb565"
+        "assets/colmi_r09_face.a8"
         "assets/v5-a.darwin-right.png"
         "assets/v5-a.plato-right.png"
     EMBED_TXTFILES
