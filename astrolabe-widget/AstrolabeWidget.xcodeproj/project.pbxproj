@@ -1,0 +1,750 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		07E00AC1475380EA5107EE0D /* AstrolabeWidgetApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82F330E6F887901C35596049 /* AstrolabeWidgetApp.swift */; };
+		07FDB7D208914CFD6542635C /* DeviceSecretStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A683FFF5E346295955D8645 /* DeviceSecretStore.swift */; };
+		08422992454F2953504DBEA1 /* HexData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C8DD2C1C528542F26B80C63 /* HexData.swift */; };
+		1A3BF8A10E8357A2CCD46D5A /* AstrolabeWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 9C7CE6D9987DA6A319AB0B5E /* AstrolabeWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		26395E171C7C8BD737C19867 /* PlatformImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4587637F1719B7D71DE429A5 /* PlatformImage.swift */; };
+		2E5FDD9EB00548C9191CCE7D /* AstrolabeWidgetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 170AFDB93CB7DEA50460945C /* AstrolabeWidgetTests.swift */; };
+		2F5B8E0E9732428680E17399 /* AstrolabeWidgetiOSExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = C10CF22BCCA720126F287F63 /* AstrolabeWidgetiOSExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		3F81D399717828BD38B9C1CA /* Assets-iOS.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 39187F0127355201D89FD5D4 /* Assets-iOS.xcassets */; };
+		48524FDBA881811A6DFA27AE /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5327CEFFCC80FEC29B91AC7 /* ContentView.swift */; };
+		4F4EC0BD50020845B5C68C4A /* AstrolabeWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B17EB54ED33BF542CCFCBAB /* AstrolabeWidget.swift */; };
+		56BE23907366BCF374670DFC /* HexData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C8DD2C1C528542F26B80C63 /* HexData.swift */; };
+		57A680615CBD38522AD1CB6A /* AstrolabeSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = E055BB60B9891472385C5BB5 /* AstrolabeSnapshot.swift */; };
+		590005A9375D1C88C4683401 /* AstrolabeWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B17EB54ED33BF542CCFCBAB /* AstrolabeWidget.swift */; };
+		5B9E7C19BB0B0AEB470051B0 /* AstrolabeBLEController.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC8366F37E0D566A81684569 /* AstrolabeBLEController.swift */; };
+		7A28ED8274701239CCE95C06 /* Assets-macOS.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 73C3723F07A191D82D4C037E /* Assets-macOS.xcassets */; };
+		7B451C2000231DE4065D753A /* PlatformImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4587637F1719B7D71DE429A5 /* PlatformImage.swift */; };
+		8916E9FCB0A8D422514DA9A5 /* DeviceSecretStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A683FFF5E346295955D8645 /* DeviceSecretStore.swift */; };
+		94D54298B8CBCE97E44285CE /* HexData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C8DD2C1C528542F26B80C63 /* HexData.swift */; };
+		968E80C34752B15B393D8D2B /* AstrolabeWidgetApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82F330E6F887901C35596049 /* AstrolabeWidgetApp.swift */; };
+		9863539ADFCA314911052929 /* HexData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C8DD2C1C528542F26B80C63 /* HexData.swift */; };
+		A9F5C6F0A73CCCF18F15F3D6 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5327CEFFCC80FEC29B91AC7 /* ContentView.swift */; };
+		AF228E938BBD20C0C502CC6A /* HexData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C8DD2C1C528542F26B80C63 /* HexData.swift */; };
+		B463279B3B2273C180D5DB5A /* AstrolabeSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = E055BB60B9891472385C5BB5 /* AstrolabeSnapshot.swift */; };
+		CE0D5F5F7E6771492047DFD2 /* AstrolabeSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = E055BB60B9891472385C5BB5 /* AstrolabeSnapshot.swift */; };
+		D8605F3B86FDDB95B5827412 /* AstrolabeSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = E055BB60B9891472385C5BB5 /* AstrolabeSnapshot.swift */; };
+		DC3460394F32CE7092F0B619 /* PlatformImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4587637F1719B7D71DE429A5 /* PlatformImage.swift */; };
+		EE4EE3D6A0AAF807A1B92E16 /* AstrolabeBLEController.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC8366F37E0D566A81684569 /* AstrolabeBLEController.swift */; };
+		FE0DEBD1ACD0E68BA921E096 /* PlatformImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4587637F1719B7D71DE429A5 /* PlatformImage.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		1E45EA479650208DE12105F7 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 90DC74572265353072288CDA /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = E69D160F52F057B266FE6B60;
+			remoteInfo = AstrolabeWidgetiOSExtension;
+		};
+		841120141EBED23E706BE584 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 90DC74572265353072288CDA /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C7A12D5354B4DF49FDDDFC56;
+			remoteInfo = AstrolabeWidgetExtension;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		304888A3FC25A200B9BFB352 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				1A3BF8A10E8357A2CCD46D5A /* AstrolabeWidgetExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		EC83B3D58CDF7A2DA4149736 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				2F5B8E0E9732428680E17399 /* AstrolabeWidgetiOSExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		0B17EB54ED33BF542CCFCBAB /* AstrolabeWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AstrolabeWidget.swift; sourceTree = "<group>"; };
+		0C8DD2C1C528542F26B80C63 /* HexData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HexData.swift; sourceTree = "<group>"; };
+		170AFDB93CB7DEA50460945C /* AstrolabeWidgetTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AstrolabeWidgetTests.swift; sourceTree = "<group>"; };
+		2A683FFF5E346295955D8645 /* DeviceSecretStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceSecretStore.swift; sourceTree = "<group>"; };
+		39187F0127355201D89FD5D4 /* Assets-iOS.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Assets-iOS.xcassets"; sourceTree = "<group>"; };
+		4587637F1719B7D71DE429A5 /* PlatformImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlatformImage.swift; sourceTree = "<group>"; };
+		636C92D449776E085894DA4D /* AstrolabeWidgetiOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = AstrolabeWidgetiOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		643E3AC500B4B18AA03F5EBF /* AstrolabeWidgetTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AstrolabeWidgetTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		73C3723F07A191D82D4C037E /* Assets-macOS.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Assets-macOS.xcassets"; sourceTree = "<group>"; };
+		82F330E6F887901C35596049 /* AstrolabeWidgetApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AstrolabeWidgetApp.swift; sourceTree = "<group>"; };
+		9C7CE6D9987DA6A319AB0B5E /* AstrolabeWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = AstrolabeWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		BC8366F37E0D566A81684569 /* AstrolabeBLEController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AstrolabeBLEController.swift; sourceTree = "<group>"; };
+		C10CF22BCCA720126F287F63 /* AstrolabeWidgetiOSExtension.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = AstrolabeWidgetiOSExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		D81BE2EC6243077BB8429AED /* AstrolabeWidgetApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AstrolabeWidgetApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		E055BB60B9891472385C5BB5 /* AstrolabeSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AstrolabeSnapshot.swift; sourceTree = "<group>"; };
+		F5327CEFFCC80FEC29B91AC7 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		0F6FF4341069C657D32A6634 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				E055BB60B9891472385C5BB5 /* AstrolabeSnapshot.swift */,
+				0C8DD2C1C528542F26B80C63 /* HexData.swift */,
+				4587637F1719B7D71DE429A5 /* PlatformImage.swift */,
+			);
+			path = Shared;
+			sourceTree = "<group>";
+		};
+		6DEB7A21A4F210174EE6546D /* Widget */ = {
+			isa = PBXGroup;
+			children = (
+				0B17EB54ED33BF542CCFCBAB /* AstrolabeWidget.swift */,
+			);
+			path = Widget;
+			sourceTree = "<group>";
+		};
+		82D294C8B1EEA97656A439EA /* Tests */ = {
+			isa = PBXGroup;
+			children = (
+				170AFDB93CB7DEA50460945C /* AstrolabeWidgetTests.swift */,
+			);
+			path = Tests;
+			sourceTree = "<group>";
+		};
+		92956AE4F196E828E66D1E16 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				39187F0127355201D89FD5D4 /* Assets-iOS.xcassets */,
+				73C3723F07A191D82D4C037E /* Assets-macOS.xcassets */,
+				BC8366F37E0D566A81684569 /* AstrolabeBLEController.swift */,
+				82F330E6F887901C35596049 /* AstrolabeWidgetApp.swift */,
+				F5327CEFFCC80FEC29B91AC7 /* ContentView.swift */,
+				2A683FFF5E346295955D8645 /* DeviceSecretStore.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		BB34D6F7585E2CAD652BEFF5 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				D81BE2EC6243077BB8429AED /* AstrolabeWidgetApp.app */,
+				9C7CE6D9987DA6A319AB0B5E /* AstrolabeWidgetExtension.appex */,
+				636C92D449776E085894DA4D /* AstrolabeWidgetiOS.app */,
+				C10CF22BCCA720126F287F63 /* AstrolabeWidgetiOSExtension.appex */,
+				643E3AC500B4B18AA03F5EBF /* AstrolabeWidgetTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		D7E211300F7169843A9EB1B3 = {
+			isa = PBXGroup;
+			children = (
+				92956AE4F196E828E66D1E16 /* App */,
+				0F6FF4341069C657D32A6634 /* Shared */,
+				82D294C8B1EEA97656A439EA /* Tests */,
+				6DEB7A21A4F210174EE6546D /* Widget */,
+				BB34D6F7585E2CAD652BEFF5 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		52D1B1F857E068E84F350C99 /* AstrolabeWidgetTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 8265A51D7AADBADCD8623E65 /* Build configuration list for PBXNativeTarget "AstrolabeWidgetTests" */;
+			buildPhases = (
+				23B68B102FB0A7E89E3C55E0 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = AstrolabeWidgetTests;
+			packageProductDependencies = (
+			);
+			productName = AstrolabeWidgetTests;
+			productReference = 643E3AC500B4B18AA03F5EBF /* AstrolabeWidgetTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		C7A12D5354B4DF49FDDDFC56 /* AstrolabeWidgetExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 5480D4679B43922FF45F4042 /* Build configuration list for PBXNativeTarget "AstrolabeWidgetExtension" */;
+			buildPhases = (
+				4DB15EFE7BEB921052949822 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = AstrolabeWidgetExtension;
+			packageProductDependencies = (
+			);
+			productName = AstrolabeWidgetExtension;
+			productReference = 9C7CE6D9987DA6A319AB0B5E /* AstrolabeWidgetExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		DD24F17A6035DE40D26A7E7F /* AstrolabeWidgetiOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 802669BC2A4758550D1ED665 /* Build configuration list for PBXNativeTarget "AstrolabeWidgetiOS" */;
+			buildPhases = (
+				B7E6F7BDF4918F1612DB8178 /* Sources */,
+				ECAF49109EE98FC0669B21D4 /* Resources */,
+				EC83B3D58CDF7A2DA4149736 /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				CDE3B3861D155D4673FA3632 /* PBXTargetDependency */,
+			);
+			name = AstrolabeWidgetiOS;
+			packageProductDependencies = (
+			);
+			productName = AstrolabeWidgetiOS;
+			productReference = 636C92D449776E085894DA4D /* AstrolabeWidgetiOS.app */;
+			productType = "com.apple.product-type.application";
+		};
+		E69D160F52F057B266FE6B60 /* AstrolabeWidgetiOSExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = DE5C628BE31493C6279BDCD0 /* Build configuration list for PBXNativeTarget "AstrolabeWidgetiOSExtension" */;
+			buildPhases = (
+				720F7B9042CF7C291C018AC4 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = AstrolabeWidgetiOSExtension;
+			packageProductDependencies = (
+			);
+			productName = AstrolabeWidgetiOSExtension;
+			productReference = C10CF22BCCA720126F287F63 /* AstrolabeWidgetiOSExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		F8CC01E2AC8D97AE165C3A8F /* AstrolabeWidgetApp */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 8336ABC3E6815A8EB6ADAA94 /* Build configuration list for PBXNativeTarget "AstrolabeWidgetApp" */;
+			buildPhases = (
+				AC46D13CCEDCFCB165E7D4C8 /* Sources */,
+				7778F5BB42F40F6242C1FCC4 /* Resources */,
+				304888A3FC25A200B9BFB352 /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				8F1FEEF9F0C383B8A880A7CF /* PBXTargetDependency */,
+			);
+			name = AstrolabeWidgetApp;
+			packageProductDependencies = (
+			);
+			productName = AstrolabeWidgetApp;
+			productReference = D81BE2EC6243077BB8429AED /* AstrolabeWidgetApp.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		90DC74572265353072288CDA /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+			};
+			buildConfigurationList = 2A2B754ACB1D50974F80412C /* Build configuration list for PBXProject "AstrolabeWidget" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = D7E211300F7169843A9EB1B3;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				F8CC01E2AC8D97AE165C3A8F /* AstrolabeWidgetApp */,
+				C7A12D5354B4DF49FDDDFC56 /* AstrolabeWidgetExtension */,
+				52D1B1F857E068E84F350C99 /* AstrolabeWidgetTests */,
+				DD24F17A6035DE40D26A7E7F /* AstrolabeWidgetiOS */,
+				E69D160F52F057B266FE6B60 /* AstrolabeWidgetiOSExtension */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		7778F5BB42F40F6242C1FCC4 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7A28ED8274701239CCE95C06 /* Assets-macOS.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		ECAF49109EE98FC0669B21D4 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				3F81D399717828BD38B9C1CA /* Assets-iOS.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		23B68B102FB0A7E89E3C55E0 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2E5FDD9EB00548C9191CCE7D /* AstrolabeWidgetTests.swift in Sources */,
+				94D54298B8CBCE97E44285CE /* HexData.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		4DB15EFE7BEB921052949822 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CE0D5F5F7E6771492047DFD2 /* AstrolabeSnapshot.swift in Sources */,
+				4F4EC0BD50020845B5C68C4A /* AstrolabeWidget.swift in Sources */,
+				08422992454F2953504DBEA1 /* HexData.swift in Sources */,
+				26395E171C7C8BD737C19867 /* PlatformImage.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		720F7B9042CF7C291C018AC4 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D8605F3B86FDDB95B5827412 /* AstrolabeSnapshot.swift in Sources */,
+				590005A9375D1C88C4683401 /* AstrolabeWidget.swift in Sources */,
+				9863539ADFCA314911052929 /* HexData.swift in Sources */,
+				7B451C2000231DE4065D753A /* PlatformImage.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AC46D13CCEDCFCB165E7D4C8 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				EE4EE3D6A0AAF807A1B92E16 /* AstrolabeBLEController.swift in Sources */,
+				B463279B3B2273C180D5DB5A /* AstrolabeSnapshot.swift in Sources */,
+				968E80C34752B15B393D8D2B /* AstrolabeWidgetApp.swift in Sources */,
+				48524FDBA881811A6DFA27AE /* ContentView.swift in Sources */,
+				07FDB7D208914CFD6542635C /* DeviceSecretStore.swift in Sources */,
+				56BE23907366BCF374670DFC /* HexData.swift in Sources */,
+				DC3460394F32CE7092F0B619 /* PlatformImage.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B7E6F7BDF4918F1612DB8178 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				5B9E7C19BB0B0AEB470051B0 /* AstrolabeBLEController.swift in Sources */,
+				57A680615CBD38522AD1CB6A /* AstrolabeSnapshot.swift in Sources */,
+				07E00AC1475380EA5107EE0D /* AstrolabeWidgetApp.swift in Sources */,
+				A9F5C6F0A73CCCF18F15F3D6 /* ContentView.swift in Sources */,
+				8916E9FCB0A8D422514DA9A5 /* DeviceSecretStore.swift in Sources */,
+				AF228E938BBD20C0C502CC6A /* HexData.swift in Sources */,
+				FE0DEBD1ACD0E68BA921E096 /* PlatformImage.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		8F1FEEF9F0C383B8A880A7CF /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = C7A12D5354B4DF49FDDDFC56 /* AstrolabeWidgetExtension */;
+			targetProxy = 841120141EBED23E706BE584 /* PBXContainerItemProxy */;
+		};
+		CDE3B3861D155D4673FA3632 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = E69D160F52F057B266FE6B60 /* AstrolabeWidgetiOSExtension */;
+			targetProxy = 1E45EA479650208DE12105F7 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		12BA4C3ACE770B17009DEA51 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "institute.castalia.astrolabe-widget.tests";
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		198EDE590EC8B36F48925EA8 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		4419D23A60150E66DC4E24BE /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = App/AstrolabeWidgetApp.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				INFOPLIST_FILE = "App/Info-macOS.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "institute.castalia.astrolabe-widget";
+				PRODUCT_MODULE_NAME = AstrolabeWidgetApp;
+				PRODUCT_NAME = "Astrolabe Widget";
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		5CDB991A43E416889BCA45D8 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Widget/AstrolabeWidgetiOSExtension.entitlements;
+				INFOPLIST_FILE = "Widget/Info-iOS.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "institute.castalia.astrolabe-widget.ios.extension";
+				PRODUCT_MODULE_NAME = AstrolabeWidgetiOSExtension;
+				PRODUCT_NAME = "Astrolabe Widget";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		6D477B6DB03F50356091A667 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = App/AstrolabeWidgetiOS.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = "App/Info-iOS.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "institute.castalia.astrolabe-widget.ios";
+				PRODUCT_MODULE_NAME = AstrolabeWidgetiOS;
+				PRODUCT_NAME = "Astrolabe Widget";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		8149A45B2DE72AF1077A6FBA /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Widget/AstrolabeWidgetExtension.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				INFOPLIST_FILE = "Widget/Info-macOS.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "institute.castalia.astrolabe-widget.extension";
+				PRODUCT_MODULE_NAME = AstrolabeWidgetExtension;
+				PRODUCT_NAME = "Astrolabe Widget";
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+			};
+			name = Release;
+		};
+		88D79A5F2774E7B25C2F595E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = App/AstrolabeWidgetApp.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				INFOPLIST_FILE = "App/Info-macOS.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "institute.castalia.astrolabe-widget";
+				PRODUCT_MODULE_NAME = AstrolabeWidgetApp;
+				PRODUCT_NAME = "Astrolabe Widget";
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		95BD6225C25BBE9C0597470D /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Widget/AstrolabeWidgetiOSExtension.entitlements;
+				INFOPLIST_FILE = "Widget/Info-iOS.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "institute.castalia.astrolabe-widget.ios.extension";
+				PRODUCT_MODULE_NAME = AstrolabeWidgetiOSExtension;
+				PRODUCT_NAME = "Astrolabe Widget";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		9858CEBB28F1266B9E8B1E0F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Widget/AstrolabeWidgetExtension.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				INFOPLIST_FILE = "Widget/Info-macOS.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "institute.castalia.astrolabe-widget.extension";
+				PRODUCT_MODULE_NAME = AstrolabeWidgetExtension;
+				PRODUCT_NAME = "Astrolabe Widget";
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+			};
+			name = Debug;
+		};
+		D403C9C14D04AFFF6A8A2E44 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "institute.castalia.astrolabe-widget.tests";
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		D989ED824D7D7E8D653CAF99 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = App/AstrolabeWidgetiOS.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = "App/Info-iOS.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "institute.castalia.astrolabe-widget.ios";
+				PRODUCT_MODULE_NAME = AstrolabeWidgetiOS;
+				PRODUCT_NAME = "Astrolabe Widget";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		DDD5CD6F424748A1410417A1 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		2A2B754ACB1D50974F80412C /* Build configuration list for PBXProject "AstrolabeWidget" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				198EDE590EC8B36F48925EA8 /* Debug */,
+				DDD5CD6F424748A1410417A1 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		5480D4679B43922FF45F4042 /* Build configuration list for PBXNativeTarget "AstrolabeWidgetExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9858CEBB28F1266B9E8B1E0F /* Debug */,
+				8149A45B2DE72AF1077A6FBA /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		802669BC2A4758550D1ED665 /* Build configuration list for PBXNativeTarget "AstrolabeWidgetiOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				6D477B6DB03F50356091A667 /* Debug */,
+				D989ED824D7D7E8D653CAF99 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		8265A51D7AADBADCD8623E65 /* Build configuration list for PBXNativeTarget "AstrolabeWidgetTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				12BA4C3ACE770B17009DEA51 /* Debug */,
+				D403C9C14D04AFFF6A8A2E44 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		8336ABC3E6815A8EB6ADAA94 /* Build configuration list for PBXNativeTarget "AstrolabeWidgetApp" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				88D79A5F2774E7B25C2F595E /* Debug */,
+				4419D23A60150E66DC4E24BE /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		DE5C628BE31493C6279BDCD0 /* Build configuration list for PBXNativeTarget "AstrolabeWidgetiOSExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5CDB991A43E416889BCA45D8 /* Debug */,
+				95BD6225C25BBE9C0597470D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 90DC74572265353072288CDA /* Project object */;
+}

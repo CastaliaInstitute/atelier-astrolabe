@@ -1,0 +1,117 @@
+name: AstrolabeWidget
+options:
+  bundleIdPrefix: institute.castalia
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    CURRENT_PROJECT_VERSION: 1
+    MARKETING_VERSION: 0.1.0
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+targets:
+  AstrolabeWidgetApp:
+    type: application
+    platform: macOS
+    sources:
+      - path: App
+        excludes:
+          - "Info-*.plist"
+          - "*.entitlements"
+          - "Assets-*.xcassets"
+      - App/Assets-macOS.xcassets
+      - Shared
+    dependencies:
+      - target: AstrolabeWidgetExtension
+        embed: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: institute.castalia.astrolabe-widget
+        PRODUCT_NAME: Astrolabe Widget
+        PRODUCT_MODULE_NAME: AstrolabeWidgetApp
+        CODE_SIGN_ENTITLEMENTS: App/AstrolabeWidgetApp.entitlements
+        INFOPLIST_FILE: App/Info-macOS.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+  AstrolabeWidgetExtension:
+    type: app-extension
+    platform: macOS
+    sources:
+      - path: Widget
+        excludes:
+          - "Info-*.plist"
+          - "*.entitlements"
+      - Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: institute.castalia.astrolabe-widget.extension
+        PRODUCT_NAME: Astrolabe Widget
+        PRODUCT_MODULE_NAME: AstrolabeWidgetExtension
+        CODE_SIGN_ENTITLEMENTS: Widget/AstrolabeWidgetExtension.entitlements
+        INFOPLIST_FILE: Widget/Info-macOS.plist
+        SKIP_INSTALL: true
+  AstrolabeWidgetiOS:
+    type: application
+    platform: iOS
+    sources:
+      - path: App
+        excludes:
+          - "Info-*.plist"
+          - "*.entitlements"
+          - "Assets-*.xcassets"
+      - App/Assets-iOS.xcassets
+      - Shared
+    dependencies:
+      - target: AstrolabeWidgetiOSExtension
+        embed: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: institute.castalia.astrolabe-widget.ios
+        PRODUCT_NAME: Astrolabe Widget
+        PRODUCT_MODULE_NAME: AstrolabeWidgetiOS
+        CODE_SIGN_ENTITLEMENTS: App/AstrolabeWidgetiOS.entitlements
+        INFOPLIST_FILE: App/Info-iOS.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        TARGETED_DEVICE_FAMILY: "1,2"
+  AstrolabeWidgetiOSExtension:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Widget
+        excludes:
+          - "Info-*.plist"
+          - "*.entitlements"
+      - Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: institute.castalia.astrolabe-widget.ios.extension
+        PRODUCT_NAME: Astrolabe Widget
+        PRODUCT_MODULE_NAME: AstrolabeWidgetiOSExtension
+        CODE_SIGN_ENTITLEMENTS: Widget/AstrolabeWidgetiOSExtension.entitlements
+        INFOPLIST_FILE: Widget/Info-iOS.plist
+        SKIP_INSTALL: true
+        TARGETED_DEVICE_FAMILY: "1,2"
+  AstrolabeWidgetTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - Tests
+      - Shared/HexData.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: institute.castalia.astrolabe-widget.tests
+        GENERATE_INFOPLIST_FILE: true
+schemes:
+  AstrolabeWidgetApp:
+    build:
+      targets:
+        AstrolabeWidgetApp: all
+        AstrolabeWidgetTests: [test]
+    test:
+      targets:
+        - AstrolabeWidgetTests
+  AstrolabeWidgetiOS:
+    build:
+      targets:
+        AstrolabeWidgetiOS: all
