@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#070b12" />
+    <title>Astrolabe Cyber — Observe. Verify. Connect.</title>
+    <meta
+      name="description"
+      content="Astrolabe Cyber is the authorized 1.75C lab variant for Wi-Fi observation, evidence review, USB control, and BLE keyboard bridging."
+    />
+    <meta property="og:title" content="Astrolabe Cyber — Observe. Verify. Connect." />
+    <meta
+      property="og:description"
+      content="A local-first cyber instrument for authorized labs, with Wi-Fi lab faces, USB screen/HID, and BLE control."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://astrolabe.castalia.institute/cyber/" />
+    <link rel="canonical" href="https://astrolabe.castalia.institute/cyber/" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;1,400&family=Instrument+Serif:ital@0;1&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="../styles.css" />
+    <link rel="stylesheet" href="cyber.css" />
+  </head>
+  <body class="cyber-page">
+    <div class="cyber-grid" aria-hidden="true"></div>
+    <div class="wrap">
+      <nav class="nav cyber-nav" aria-label="Primary">
+        <a class="nav__brand" href="../">Astrolabe<span class="cyber-mark">/cyber</span></a>
+        <div class="nav__links">
+          <a href="#surfaces">Surfaces</a>
+          <a href="#faces">Faces</a>
+          <a href="#workflow">Workflow</a>
+          <a href="../faces/">All faces</a>
+          <a class="btn btn--primary cyber-nav__button" href="#download">Get the build</a>
+        </div>
+      </nav>
+    </div>
+
+    <header class="cyber-hero">
+      <div class="wrap cyber-hero__inner">
+        <div class="cyber-hero__copy">
+          <p class="eyebrow">Astrolabe 1.75C · integration</p>
+          <h1>Observe.<br /><em>Verify.</em><br />Connect.</h1>
+          <p class="cyber-hero__lede">
+            A pocket-sized cyber instrument for authorized labs: local observation,
+            evidence-aware workflows, and a quiet control surface that stays useful
+            when the network is not.
+          </p>
+          <div class="cyber-hero__actions">
+            <a class="btn btn--primary" href="#download">Download Cyber</a>
+            <a class="btn btn--ghost" href="https://github.com/CastaliaInstitute/astrolabe/tree/integration/astrolabe175c">Read the source</a>
+          </div>
+          <p class="cyber-hero__note"><span class="status-dot"></span> Offline-first control · BLE available · local evidence</p>
+        </div>
+        <div class="cyber-hero__dial" aria-label="Abstract Astrolabe Cyber radar illustration">
+          <div class="dial-ring dial-ring--outer"></div>
+          <div class="dial-ring dial-ring--mid"></div>
+          <div class="dial-ring dial-ring--inner"></div>
+          <div class="dial-crosshair dial-crosshair--horizontal"></div>
+          <div class="dial-crosshair dial-crosshair--vertical"></div>
+          <div class="dial-sweep"></div>
+          <div class="dial-node dial-node--one"></div>
+          <div class="dial-node dial-node--two"></div>
+          <div class="dial-node dial-node--three"></div>
+          <div class="dial-core"><span>CY</span><small>1.75C</small></div>
+          <span class="dial-label dial-label--top">AUTHORIZED LAB</span>
+          <span class="dial-label dial-label--bottom">LOCAL CONTROL / 00:00:00</span>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <section id="surfaces" class="cyber-section wrap">
+        <div class="cyber-section__intro">
+          <p class="eyebrow">One instrument, four working surfaces</p>
+          <h2>Keep the lab close to the evidence.</h2>
+          <p>
+            Cyber keeps the useful parts of a security workflow visible on the round display:
+            what is being observed, what was captured, which boundary applies, and what action
+            is safe to take next.
+          </p>
+        </div>
+        <div class="cyber-surface-grid">
+          <article class="cyber-surface-card"><span class="cyber-index">01</span><h3>Observe</h3><p>Scan nearby networks and record what the instrument can actually see.</p><code>WIFI SCAN</code></article>
+          <article class="cyber-surface-card"><span class="cyber-index">02</span><h3>Verify</h3><p>Separate a familiar name from a verified identity before trusting a connection.</p><code>EVIL TWIN LAB</code></article>
+          <article class="cyber-surface-card"><span class="cyber-index">03</span><h3>Review</h3><p>Keep captures and incidents legible, bounded, and tied to an authorized test.</p><code>INCIDENTS</code></article>
+          <article class="cyber-surface-card"><span class="cyber-index">04</span><h3>Connect</h3><p>Use USB screen/HID or the BLE keyboard bridge without giving up local control.</p><code>BLE &gt; USB READY</code></article>
+        </div>
+      </section>
+
+      <section id="faces" class="cyber-section cyber-section--faces">
+        <div class="wrap">
+          <div class="cyber-section__intro cyber-section__intro--wide">
+            <p class="eyebrow">The Cyber dial</p>
+            <h2>Every face names its boundary.</h2>
+            <p>These are the current integration references from the flashed 1.75C carousel. Each surface is designed for a controlled lab, not casual interference.</p>
+          </div>
+          <div class="cyber-face-grid">
+            <figure class="cyber-face-card cyber-face-card--wide"><img src="../assets/face-tours/integration-20260730-reference/23-wscan.bmp" alt="Wi-Fi Scan face showing a broad scan" /><figcaption><strong>Wi-Fi Scan</strong><span>Nearby networks · observe only where permitted</span></figcaption></figure>
+            <figure class="cyber-face-card"><img src="../assets/face-tours/integration-20260730-reference/24-deauth.bmp" alt="Deauthentication lab face" /><figcaption><strong>Deauthentication Lab</strong><span>Controlled disruption exercise</span></figcaption></figure>
+            <figure class="cyber-face-card"><img src="../assets/face-tours/integration-20260730-reference/25-eviltwin.bmp" alt="Evil Twin lab face" /><figcaption><strong>Evil Twin Lab</strong><span>Identity verification</span></figcaption></figure>
+            <figure class="cyber-face-card"><img src="../assets/face-tours/integration-20260730-reference/26-handshake.bmp" alt="Handshake lab face" /><figcaption><strong>Handshake Lab</strong><span>Authorized test traffic</span></figcaption></figure>
+            <figure class="cyber-face-card"><img src="../assets/face-tours/integration-20260730-reference/28-incidents.bmp" alt="Wi-Fi incidents face" /><figcaption><strong>Wi-Fi Incidents</strong><span>Evidence review and local log</span></figcaption></figure>
+            <figure class="cyber-face-card"><img src="../assets/face-tours/integration-20260730-reference/69-watcher.bmp" alt="Watcher face with system health signals" /><figcaption><strong>Watcher</strong><span>Device and Wi-Fi health</span></figcaption></figure>
+            <figure class="cyber-face-card"><img src="../assets/face-tours/integration-20260730-reference/27-babel.bmp" alt="Babel translation face" /><figcaption><strong>Babel</strong><span>Live translation handoff</span></figcaption></figure>
+            <figure class="cyber-face-card"><img src="../assets/face-tours/integration-20260730-reference/34-settings.bmp" alt="Settings face showing a QR setup card" /><figcaption><strong>Settings</strong><span>Wi-Fi and local setup</span></figcaption></figure>
+          </div>
+        </div>
+      </section>
+
+      <section id="workflow" class="cyber-section wrap cyber-workflow">
+        <div class="cyber-section__intro">
+          <p class="eyebrow">A safer operating rhythm</p>
+          <h2>Permission first. Capture second. Handoff last.</h2>
+        </div>
+        <div class="cyber-steps">
+          <div><span>01</span><h3>Scope</h3><p>Define the network, device, and time window before opening a lab face.</p></div>
+          <div><span>02</span><h3>Observe</h3><p>Prefer the smallest read-only surface that answers the question.</p></div>
+          <div><span>03</span><h3>Protect</h3><p>Treat captures, credentials, and logs as sensitive local evidence.</p></div>
+          <div><span>04</span><h3>Close</h3><p>Clear the lab state and return the instrument to its ordinary control surface.</p></div>
+        </div>
+        <p class="cyber-warning"><strong>Authorized labs only.</strong> Cyber faces can disrupt networks or expose sensitive test evidence. Use them only on systems and traffic you own or have explicit permission to test.</p>
+      </section>
+
+      <section id="download" class="cyber-download">
+        <div class="wrap cyber-download__inner">
+          <div><p class="eyebrow">Integration channel · astrolabe-cyber-175</p><h2>Put the lab on the dial.</h2><p>Build from source, or use the signed integration artifact when your device is enrolled for OTA.</p></div>
+          <div class="cyber-download__actions"><a class="btn btn--primary" href="../releases/integration/astrolabe-cyber-175/firmware.bin">Download firmware</a><a class="btn btn--ghost" href="../releases/integration/astrolabe-cyber-175/ota-manifest.json">View OTA manifest</a></div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer wrap cyber-footer"><p class="footer__brand">Astrolabe<span class="cyber-mark">/cyber</span></p><p><a href="../">Astrolabe</a> · <a href="https://github.com/CastaliaInstitute/astrolabe">GitHub</a> · <a href="../faces/">All faces</a></p><p class="cyber-footer__fine">For authorized security research, device administration, and learning. Respect consent, privacy, and local law.</p></footer>
+  </body>
+</html>
