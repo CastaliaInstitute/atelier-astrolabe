@@ -1,0 +1,59 @@
+:root {
+  --cyber-bg: #070b12;
+  --cyber-panel: rgba(12, 21, 31, 0.82);
+  --cyber-line: rgba(102, 226, 222, 0.18);
+  --cyber-cyan: #6be1dd;
+  --cyber-cyan-soft: #b5ffed;
+  --cyber-amber: #f0be6d;
+  --cyber-red: #ff746d;
+}
+
+body.cyber-page {
+  background: var(--cyber-bg);
+  color: #dce8e7;
+  overflow-x: hidden;
+}
+
+.cyber-page .nav { position: relative; z-index: 2; }
+.cyber-page .nav__brand { color: #e8f5f2; }
+.cyber-mark { color: var(--cyber-cyan); font-family: "DM Sans", sans-serif; font-size: .72em; letter-spacing: .06em; margin-left: .25em; }
+.cyber-page .nav__links a { color: #8da7aa; }
+.cyber-page .nav__links a:hover { color: var(--cyber-cyan-soft); }
+.cyber-nav__button { padding: .58rem 1rem; font-size: .8rem; }
+.cyber-grid { position: fixed; inset: 0; pointer-events: none; opacity: .34; background-image: linear-gradient(rgba(107,225,221,.045) 1px, transparent 1px), linear-gradient(90deg, rgba(107,225,221,.045) 1px, transparent 1px); background-size: 48px 48px; mask-image: linear-gradient(to bottom, #000, transparent 80%); }
+.cyber-hero { position: relative; border-top: 1px solid var(--cyber-line); border-bottom: 1px solid var(--cyber-line); background: radial-gradient(circle at 72% 40%, rgba(29,110,116,.2), transparent 26rem), linear-gradient(120deg, #071017, #080c13 60%, #0a1119); }
+.cyber-hero__inner { min-height: 650px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 1fr); gap: 3rem; align-items: center; }
+.cyber-hero__copy { padding: 5rem 0; position: relative; z-index: 1; }
+.cyber-page .eyebrow { color: var(--cyber-cyan); }
+.cyber-page h1, .cyber-page h2, .cyber-page h3 { color: #eef7f1; }
+.cyber-page h1 { font-family: "DM Sans", sans-serif; font-size: clamp(3.7rem, 8vw, 7.6rem); font-weight: 500; line-height: .88; letter-spacing: -.075em; margin-bottom: 1.6rem; }
+.cyber-page h1 em { color: var(--cyber-cyan); font-style: normal; }
+.cyber-hero__lede { max-width: 40ch; color: #98afb0; font-size: 1.12rem; }
+.cyber-hero__actions, .cyber-download__actions { display: flex; gap: .7rem; flex-wrap: wrap; margin-top: 1.8rem; }
+.cyber-page .btn--primary { background: var(--cyber-cyan); color: #071114; box-shadow: 0 8px 32px rgba(107,225,221,.22); }
+.cyber-page .btn--ghost { border-color: var(--cyber-line); color: #c9dddb; }
+.cyber-hero__note { color: #7d9698; font-size: .83rem; margin-top: 1.4rem; }
+.status-dot { display: inline-block; width: .55rem; height: .55rem; border-radius: 50%; background: var(--cyber-cyan); box-shadow: 0 0 12px var(--cyber-cyan); margin-right: .45rem; }
+.cyber-hero__dial { width: min(470px, 82vw); aspect-ratio: 1; border-radius: 50%; justify-self: center; position: relative; background: radial-gradient(circle, rgba(47,122,126,.18), rgba(5,10,16,.1) 42%, transparent 70%); }
+.dial-ring { position: absolute; border: 1px solid var(--cyber-line); border-radius: 50%; inset: 7%; }
+.dial-ring--mid { inset: 19%; border-color: rgba(240,190,109,.25); }
+.dial-ring--inner { inset: 34%; border-color: rgba(107,225,221,.55); }
+.dial-crosshair { position: absolute; background: rgba(107,225,221,.18); }
+.dial-crosshair--horizontal { height: 1px; left: 5%; right: 5%; top: 50%; }
+.dial-crosshair--vertical { width: 1px; top: 5%; bottom: 5%; left: 50%; }
+.dial-sweep { position: absolute; width: 44%; height: 1px; left: 50%; top: 50%; transform-origin: left; background: linear-gradient(90deg, var(--cyber-cyan), transparent); transform: rotate(-28deg); box-shadow: 0 0 12px var(--cyber-cyan); }
+.dial-node { position: absolute; width: 10px; height: 10px; border-radius: 50%; background: var(--cyber-cyan); box-shadow: 0 0 18px var(--cyber-cyan); }
+.dial-node--one { left: 29%; top: 34%; }.dial-node--two { right: 19%; top: 51%; background: var(--cyber-amber); box-shadow: 0 0 18px var(--cyber-amber); }.dial-node--three { left: 43%; bottom: 14%; background: var(--cyber-red); box-shadow: 0 0 18px var(--cyber-red); }
+.dial-core { position: absolute; inset: 42%; border: 1px solid var(--cyber-cyan); border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #09151c; color: var(--cyber-cyan); font-size: 1.8rem; letter-spacing: .1em; }
+.dial-core small { color: #718c8c; font-size: .58rem; letter-spacing: .16em; }
+.dial-label { position: absolute; left: 0; right: 0; text-align: center; color: #698486; font: 600 .62rem "DM Sans", sans-serif; letter-spacing: .2em; }.dial-label--top { top: 2%; }.dial-label--bottom { bottom: 2%; }
+.cyber-section { padding: 7rem 0; position: relative; z-index: 1; }
+.cyber-section__intro { max-width: 620px; margin-bottom: 2.4rem; }.cyber-section__intro--wide { max-width: 700px; }.cyber-section__intro h2 { font-size: clamp(2rem, 4vw, 3.4rem); }.cyber-section__intro p:not(.eyebrow) { color: #91a7a8; }
+.cyber-surface-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; border: 1px solid var(--cyber-line); background: var(--cyber-line); }
+.cyber-surface-card { min-height: 245px; padding: 1.6rem; background: var(--cyber-panel); }.cyber-surface-card h3 { font-size: 1.5rem; margin-top: 2rem; }.cyber-surface-card p { color: #91a7a8; font-size: .92rem; }.cyber-surface-card code { color: var(--cyber-cyan); font-size: .68rem; letter-spacing: .13em; }.cyber-index { color: var(--cyber-amber); font: .76rem "DM Sans", sans-serif; letter-spacing: .16em; }
+.cyber-section--faces { background: linear-gradient(180deg, rgba(11,21,29,.65), rgba(5,9,14,.7)); border-top: 1px solid var(--cyber-line); border-bottom: 1px solid var(--cyber-line); }
+.cyber-face-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; }.cyber-face-card { margin: 0; border: 1px solid var(--cyber-line); background: #080e15; padding: .55rem; }.cyber-face-card--wide { grid-column: span 2; }.cyber-face-card img { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; image-rendering: auto; background: #020507; }.cyber-face-card figcaption { padding: .8rem .45rem .55rem; display: grid; gap: .25rem; }.cyber-face-card strong { color: #e4f1ed; font-size: .9rem; }.cyber-face-card span { color: #799193; font-size: .72rem; }
+.cyber-workflow { display: grid; grid-template-columns: .8fr 1.2fr; gap: 4rem; }.cyber-steps { display: grid; grid-template-columns: repeat(2, 1fr); gap: 2rem 1.3rem; }.cyber-steps > div { border-top: 1px solid var(--cyber-line); padding-top: 1rem; }.cyber-steps span { color: var(--cyber-amber); font-size: .75rem; letter-spacing: .12em; }.cyber-steps h3 { margin-top: .7rem; }.cyber-steps p { color: #91a7a8; font-size: .88rem; }.cyber-warning { grid-column: 1 / -1; border-left: 2px solid var(--cyber-amber); padding: .9rem 1rem; background: rgba(240,190,109,.06); color: #b4b8a8; font-size: .84rem; }.cyber-warning strong { color: var(--cyber-amber); }
+.cyber-download { border-top: 1px solid var(--cyber-line); background: #0a151b; padding: 4rem 0; }.cyber-download__inner { display: flex; justify-content: space-between; align-items: center; gap: 2rem; }.cyber-download h2 { margin-bottom: .45rem; }.cyber-download p:not(.eyebrow) { color: #91a7a8; margin: 0; }.cyber-download__actions { margin-top: 0; justify-content: flex-end; }.cyber-footer { color: #71898b; }.cyber-footer__fine { font-size: .76rem; max-width: 54ch; }
+@media (max-width: 820px) { .cyber-hero__inner, .cyber-workflow { grid-template-columns: 1fr; }.cyber-hero__inner { min-height: auto; }.cyber-hero__dial { order: -1; margin-top: 3rem; width: min(380px, 82vw); }.cyber-hero__copy { padding-top: 0; }.cyber-surface-grid { grid-template-columns: repeat(2, 1fr); }.cyber-face-grid { grid-template-columns: repeat(2, 1fr); }.cyber-face-card--wide { grid-column: span 2; }.cyber-download__inner { display: block; }.cyber-download__actions { justify-content: flex-start; margin-top: 1.5rem; } }
+@media (max-width: 520px) { .cyber-page .nav { align-items: flex-start; }.cyber-page .nav__links { gap: .25rem .65rem; }.cyber-page .nav__links a:not(.btn) { font-size: .76rem; }.cyber-surface-grid, .cyber-face-grid { grid-template-columns: 1fr; }.cyber-face-card--wide { grid-column: auto; }.cyber-steps { grid-template-columns: 1fr; }.cyber-section { padding: 4.5rem 0; } }
