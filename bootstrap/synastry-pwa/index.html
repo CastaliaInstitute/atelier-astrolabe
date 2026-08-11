@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no"
+    />
+    <meta name="theme-color" content="#07090f" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Synastry" />
+    <title>Family Synastry</title>
+    <meta
+      name="description"
+      content="Dual-wheel synastry for your household — same chart and voice reading as the Astrolabe watch face."
+    />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="./icons/icon-192.png" />
+    <link rel="canonical" href="https://synastry.castalia.institute/" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;0,9..40,500;0,9..40,600&family=Instrument+Serif&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./css/app.css" />
+    <script src="./config.local.js" defer></script>
+  </head>
+  <body>
+    <header class="app-header">
+      <h1>synastry</h1>
+      <span class="target" id="target-name">…</span>
+      <button type="button" id="btn-settings" aria-label="Settings">⚙</button>
+    </header>
+
+    <div class="chart-stage" id="chart-zone">
+      <div class="chart-wrap">
+        <canvas id="chart" role="img" aria-label="Synastry dual chart"></canvas>
+      </div>
+    </div>
+
+    <div class="readout">
+      <p id="aspect-line">Loading chart…</p>
+      <p id="status-line"></p>
+      <p class="install-hint muted" style="font-size: 0.75rem">
+        Swipe up/down on the chart to change target · Add to Home Screen for full-screen
+      </p>
+    </div>
+
+    <div class="ask-row">
+      <input id="ask-input" type="text" placeholder="Ask about this chart…" autocomplete="off" />
+    </div>
+
+    <div class="controls">
+      <button type="button" id="btn-prev" aria-label="Previous target">◀ Target</button>
+      <button type="button" id="btn-hold" aria-label="Hold to speak">Hold ask</button>
+      <button type="button" id="btn-brief" class="primary" aria-label="Brief reading">Brief</button>
+      <button type="button" id="btn-ask" aria-label="Ask">Ask</button>
+      <button type="button" id="btn-next" aria-label="Next target">Target ▶</button>
+    </div>
+
+    <nav class="footer-links" aria-label="Related">
+      <a href="./about.html">About</a>
+      <a href="https://astrolabe.castalia.institute">Astrolabe</a>
+      <a href="https://castalia.institute">Castalia</a>
+      <span id="auth-label" class="muted"></span>
+    </nav>
+
+    <dialog id="settings">
+      <form method="dialog">
+        <h2 style="margin: 0 0 0.5rem; font-family: 'Instrument Serif', serif">Settings</h2>
+        <p class="muted" style="margin: 0 0 0.75rem; font-size: 0.85rem">
+          Matches the Astrolabe synastry face: your birth chart, family targets, brief reading, and ask.
+        </p>
+        <fieldset style="border: 0; padding: 0; margin: 0 0 0.5rem">
+          <legend class="muted">Your birth (local time)</legend>
+          <label
+            >Date
+            <div style="display: flex; gap: 0.35rem">
+              <input id="birth-year" type="number" min="1900" max="2100" />
+              <input id="birth-month" type="number" min="1" max="12" />
+              <input id="birth-day" type="number" min="1" max="31" />
+            </div>
+          </label>
+          <label
+            >Time
+            <div style="display: flex; gap: 0.35rem">
+              <input id="birth-hour" type="number" min="0" max="23" />
+              <input id="birth-minute" type="number" min="0" max="59" />
+            </div>
+          </label>
+          <label>Place <input id="birth-place" type="text" /></label>
+          <label>TZ offset (hours) <input id="birth-tz" type="number" step="1" /></label>
+        </fieldset>
+        <p class="muted" style="font-size: 0.78rem; margin: 0">Family targets (demo seeds)</p>
+        <ul id="targets-list"></ul>
+        <fieldset style="border: 0; padding: 0; margin: 0.5rem 0">
+          <legend class="muted">Voice (Supabase)</legend>
+          <label>URL <input id="supabase-url" type="url" placeholder="https://….supabase.co" /></label>
+          <label>Anon key <input id="supabase-key" type="password" autocomplete="off" /></label>
+        </fieldset>
+        <p style="margin: 0.35rem 0 0; display: flex; gap: 0.5rem">
+          <button type="button" id="btn-signin">Sign in</button>
+          <button type="button" id="btn-signout">Sign out</button>
+        </p>
+        <menu>
+          <button type="button" id="settings-cancel">Cancel</button>
+          <button type="submit" id="settings-save" value="default">Save</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <script type="module" src="./js/app.js"></script>
+  </body>
+</html>
