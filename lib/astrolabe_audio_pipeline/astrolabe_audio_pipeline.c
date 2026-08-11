@@ -150,6 +150,8 @@ struct voice_result {
     char reply[768];
     char faculty_slug[64];
     char faculty_name[96];
+    char session_id[64];
+    char expression[16];
     uint8_t *mp3;
     size_t mp3_len;
 };
@@ -701,6 +703,32 @@ static void capture_voice_response_headers(esp_http_client_handle_t client, voic
         strlcpy(result->reply, header, sizeof(result->reply));
         url_decode_in_place(result->reply);
     }
+    header = NULL;
+    raw_header = NULL;
+    if (esp_http_client_get_header(client, "X-Theritor-Session", &raw_header) == ESP_OK && raw_header != NULL &&
+        raw_header[0] != '\0') {
+        header = raw_header;
+    } else if (esp_http_client_get_header(client, "x-theritor-session", &raw_header) == ESP_OK && raw_header != NULL &&
+               raw_header[0] != '\0') {
+        header = raw_header;
+    }
+    if (header != NULL) {
+        strlcpy(result->session_id, header, sizeof(result->session_id));
+        url_decode_in_place(result->session_id);
+    }
+    header = NULL;
+    raw_header = NULL;
+    if (esp_http_client_get_header(client, "X-Theritor-Expression", &raw_header) == ESP_OK && raw_header != NULL &&
+        raw_header[0] != '\0') {
+        header = raw_header;
+    } else if (esp_http_client_get_header(client, "x-theritor-expression", &raw_header) == ESP_OK && raw_header != NULL &&
+               raw_header[0] != '\0') {
+        header = raw_header;
+    }
+    if (header != NULL) {
+        strlcpy(result->expression, header, sizeof(result->expression));
+        url_decode_in_place(result->expression);
+    }
 }
 
 static void append_text(char *dst, size_t cap, const char *src)
@@ -883,6 +911,11 @@ static esp_err_t fetch_tts_for_reply(astrolabe_audio_pipeline_t *p, voice_result
         snprintf(auth, sizeof(auth), "Bearer %s", p->cfg.api_key);
         esp_http_client_set_header(client, "Authorization", auth);
     }
+    if (p->cfg.request_headers != NULL && p->cfg.request_headers(client, p->cfg.event_user) != ESP_OK) {
+        esp_http_client_cleanup(client);
+        free(body);
+        return ESP_ERR_INVALID_STATE;
+    }
 
     esp_err_t err = esp_http_client_open(client, (int)body_len);
     if (err == ESP_OK) {
@@ -950,8 +983,14 @@ static esp_err_t post_pcm_buffer(astrolabe_audio_pipeline_t *p, const uint8_t *p
     char *interaction = json_escape_alloc(cfg_interaction_mode(p));
     char *commonplace = json_escape_alloc(cfg_commonplace_mode(p));
     char *response_format = json_escape_alloc(cfg_response_format(p));
+    char *respondent = json_escape_alloc(p->cfg.respondent);
+    char *mode = json_escape_alloc(p->cfg.mode);
+    char *topic = json_escape_alloc(p->cfg.topic);
+    char *work_slug = json_escape_alloc(p->cfg.work_slug);
+    char *session_id = json_escape_alloc(p->cfg.session_id);
     if (face == NULL || slug == NULL || name == NULL || system == NULL || history == NULL ||
-        interaction == NULL || commonplace == NULL || response_format == NULL) {
+        interaction == NULL || commonplace == NULL || response_format == NULL || respondent == NULL ||
+        mode == NULL || topic == NULL || work_slug == NULL || session_id == NULL) {
         free(face);
         free(slug);
         free(name);
@@ -960,11 +999,14 @@ static esp_err_t post_pcm_buffer(astrolabe_audio_pipeline_t *p, const uint8_t *p
         free(interaction);
         free(commonplace);
         free(response_format);
+        free(respondent); free(mode); free(topic); free(work_slug); free(session_id);
         return ESP_ERR_NO_MEM;
     }
 
     const size_t meta_cap = strlen(face) + strlen(slug) + strlen(name) + strlen(history) + strlen(system) +
-                            strlen(interaction) + strlen(commonplace) + strlen(response_format) + 512;
+                            strlen(interaction) + strlen(commonplace) + strlen(response_format) +
+                            strlen(respondent) + strlen(mode) + strlen(topic) + strlen(work_slug) +
+                            strlen(session_id) + 640;
     char *meta = heap_caps_malloc(meta_cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (meta == NULL) {
         meta = malloc(meta_cap);
@@ -978,6 +1020,7 @@ static esp_err_t post_pcm_buffer(astrolabe_audio_pipeline_t *p, const uint8_t *p
         free(interaction);
         free(commonplace);
         free(response_format);
+        free(respondent); free(mode); free(topic); free(work_slug); free(session_id);
         return ESP_ERR_NO_MEM;
     }
     int meta_len = snprintf(meta, meta_cap,
@@ -985,9 +1028,11 @@ static esp_err_t post_pcm_buffer(astrolabe_audio_pipeline_t *p, const uint8_t *p
              "\"face\":\"%s\",\"facultySlug\":\"%s\",\"facultyName\":\"%s\","
              "\"conversationHistory\":\"%s\",\"systemInstruction\":\"%s\","
              "\"interactionMode\":\"%s\",\"commonplaceMode\":\"%s\","
-             "\"responseFormat\":\"%s\",\"skipLlm\":%s,\"logToCommonplace\":%s}",
+             "\"responseFormat\":\"%s\",\"respondent\":\"%s\",\"mode\":\"%s\","
+             "\"topic\":\"%s\",\"workSlug\":\"%s\",\"sessionId\":\"%s\","
+             "\"skipLlm\":%s,\"logToCommonplace\":%s}",
              (unsigned)cfg_stt_sample_rate_hz(p), face, slug, name, history, system,
-             interaction, commonplace, response_format,
+             interaction, commonplace, response_format, respondent, mode, topic, work_slug, session_id,
              cfg_skip_llm(p) ? "true" : "false",
              cfg_log_to_commonplace(p) ? "true" : "false");
     free(face);
@@ -998,6 +1043,7 @@ static esp_err_t post_pcm_buffer(astrolabe_audio_pipeline_t *p, const uint8_t *p
     free(interaction);
     free(commonplace);
     free(response_format);
+    free(respondent); free(mode); free(topic); free(work_slug); free(session_id);
     if (meta_len <= 0 || (size_t)meta_len >= meta_cap) {
         free(meta);
         return ESP_ERR_NO_MEM;
@@ -1029,6 +1075,11 @@ static esp_err_t post_pcm_buffer(astrolabe_audio_pipeline_t *p, const uint8_t *p
         char auth[512];
         snprintf(auth, sizeof(auth), "Bearer %s", p->cfg.api_key);
         esp_http_client_set_header(client, "Authorization", auth);
+    }
+    if (p->cfg.request_headers != NULL && p->cfg.request_headers(client, p->cfg.event_user) != ESP_OK) {
+        esp_http_client_cleanup(client);
+        free(meta);
+        return ESP_ERR_INVALID_STATE;
     }
 
     esp_err_t err = esp_http_client_open(client, body_len);
@@ -1100,6 +1151,8 @@ static esp_err_t post_pcm_buffer(astrolabe_audio_pipeline_t *p, const uint8_t *p
     json_find_string(body, "reply", result->reply, sizeof(result->reply));
     json_find_string(body, "facultySlug", result->faculty_slug, sizeof(result->faculty_slug));
     json_find_string(body, "facultyName", result->faculty_name, sizeof(result->faculty_name));
+    json_find_string(body, "sessionId", result->session_id, sizeof(result->session_id));
+    json_find_string(body, "expression", result->expression, sizeof(result->expression));
     (void)extract_audio_base64(body, &result->mp3, &result->mp3_len);
     free(body);
     return ESP_OK;
@@ -1115,8 +1168,14 @@ static esp_err_t post_pcm_file(astrolabe_audio_pipeline_t *p, const char *path, 
     char *interaction = json_escape_alloc(cfg_interaction_mode(p));
     char *commonplace = json_escape_alloc(cfg_commonplace_mode(p));
     char *response_format = json_escape_alloc(cfg_response_format(p));
+    char *respondent = json_escape_alloc(p->cfg.respondent);
+    char *mode = json_escape_alloc(p->cfg.mode);
+    char *topic = json_escape_alloc(p->cfg.topic);
+    char *work_slug = json_escape_alloc(p->cfg.work_slug);
+    char *session_id = json_escape_alloc(p->cfg.session_id);
     if (face == NULL || slug == NULL || name == NULL || system == NULL || history == NULL ||
-        interaction == NULL || commonplace == NULL || response_format == NULL) {
+        interaction == NULL || commonplace == NULL || response_format == NULL || respondent == NULL ||
+        mode == NULL || topic == NULL || work_slug == NULL || session_id == NULL) {
         free(face);
         free(slug);
         free(name);
@@ -1125,11 +1184,14 @@ static esp_err_t post_pcm_file(astrolabe_audio_pipeline_t *p, const char *path, 
         free(interaction);
         free(commonplace);
         free(response_format);
+        free(respondent); free(mode); free(topic); free(work_slug); free(session_id);
         return ESP_ERR_NO_MEM;
     }
 
     const size_t meta_cap = strlen(face) + strlen(slug) + strlen(name) + strlen(history) + strlen(system) +
-                            strlen(interaction) + strlen(commonplace) + strlen(response_format) + 512;
+                            strlen(interaction) + strlen(commonplace) + strlen(response_format) +
+                            strlen(respondent) + strlen(mode) + strlen(topic) + strlen(work_slug) +
+                            strlen(session_id) + 640;
     char *meta = heap_caps_malloc(meta_cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (meta == NULL) {
         meta = malloc(meta_cap);
@@ -1143,6 +1205,7 @@ static esp_err_t post_pcm_file(astrolabe_audio_pipeline_t *p, const char *path, 
         free(interaction);
         free(commonplace);
         free(response_format);
+        free(respondent); free(mode); free(topic); free(work_slug); free(session_id);
         return ESP_ERR_NO_MEM;
     }
     int meta_len = snprintf(meta, meta_cap,
@@ -1150,9 +1213,11 @@ static esp_err_t post_pcm_file(astrolabe_audio_pipeline_t *p, const char *path, 
              "\"face\":\"%s\",\"facultySlug\":\"%s\",\"facultyName\":\"%s\","
              "\"conversationHistory\":\"%s\",\"systemInstruction\":\"%s\","
              "\"interactionMode\":\"%s\",\"commonplaceMode\":\"%s\","
-             "\"responseFormat\":\"%s\",\"skipLlm\":%s,\"logToCommonplace\":%s}",
+             "\"responseFormat\":\"%s\",\"respondent\":\"%s\",\"mode\":\"%s\","
+             "\"topic\":\"%s\",\"workSlug\":\"%s\",\"sessionId\":\"%s\","
+             "\"skipLlm\":%s,\"logToCommonplace\":%s}",
              (unsigned)cfg_stt_sample_rate_hz(p), face, slug, name, history, system,
-             interaction, commonplace, response_format,
+             interaction, commonplace, response_format, respondent, mode, topic, work_slug, session_id,
              cfg_skip_llm(p) ? "true" : "false",
              cfg_log_to_commonplace(p) ? "true" : "false");
     free(face);
@@ -1163,6 +1228,7 @@ static esp_err_t post_pcm_file(astrolabe_audio_pipeline_t *p, const char *path, 
     free(interaction);
     free(commonplace);
     free(response_format);
+    free(respondent); free(mode); free(topic); free(work_slug); free(session_id);
     if (meta_len <= 0 || (size_t)meta_len >= meta_cap) {
         free(meta);
         return ESP_ERR_NO_MEM;
@@ -1205,6 +1271,12 @@ static esp_err_t post_pcm_file(astrolabe_audio_pipeline_t *p, const char *path, 
         char auth[512];
         snprintf(auth, sizeof(auth), "Bearer %s", p->cfg.api_key);
         esp_http_client_set_header(client, "Authorization", auth);
+    }
+    if (p->cfg.request_headers != NULL && p->cfg.request_headers(client, p->cfg.event_user) != ESP_OK) {
+        esp_http_client_cleanup(client);
+        fclose(file);
+        free(meta);
+        return ESP_ERR_INVALID_STATE;
     }
 
     esp_err_t err = esp_http_client_open(client, body_len);
@@ -1282,6 +1354,8 @@ static esp_err_t post_pcm_file(astrolabe_audio_pipeline_t *p, const char *path, 
     json_find_string(body, "reply", result->reply, sizeof(result->reply));
     json_find_string(body, "facultySlug", result->faculty_slug, sizeof(result->faculty_slug));
     json_find_string(body, "facultyName", result->faculty_name, sizeof(result->faculty_name));
+    json_find_string(body, "sessionId", result->session_id, sizeof(result->session_id));
+    json_find_string(body, "expression", result->expression, sizeof(result->expression));
     (void)extract_audio_base64(body, &result->mp3, &result->mp3_len);
     free(body);
     return ESP_OK;
@@ -2721,6 +2795,9 @@ static void voice_task(void *arg)
         }
         if (p->cfg.on_result != NULL) {
             p->cfg.on_result(result->transcript, result->reply, result->faculty_slug, result->faculty_name, p->cfg.event_user);
+        }
+        if (p->cfg.on_session != NULL && (result->session_id[0] != '\0' || result->expression[0] != '\0')) {
+            p->cfg.on_session(result->session_id, result->expression, p->cfg.event_user);
         }
         // Once a final streamed turn has produced its full semantic result, the
         // websocket session is no longer needed for local playback. Keeping it

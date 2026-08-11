@@ -75,7 +75,10 @@ import {
   appendMynahCommonplaceEntry,
   scheduleMynahCommonplaceLog,
 } from "../_shared/commonplaceDirectus.ts";
-import { verifyAstrolabeDevice } from "../_shared/deviceAuth.ts";
+import {
+  verifiedAstrolabeDeviceIdentity,
+  verifyAstrolabeDevice,
+} from "../_shared/deviceAuth.ts";
 import { scheduleLunaSayGithubLog } from "../_shared/lunasayGithubLog.ts";
 import {
   checkVoiceUsageGate,
@@ -148,6 +151,12 @@ type ReqBody = {
   responseFormat?: "json" | "mp3";
   generateTts?: boolean;
   tts?: boolean;
+  /** Theritor interview identity. These values are validated again by the gateway. */
+  respondent?: "daniel" | "camille";
+  mode?: "therapy" | "editor";
+  topic?: string;
+  workSlug?: string;
+  sessionId?: string;
 };
 
 type AskFacultyResponse = {
@@ -271,6 +280,53 @@ async function parseVoiceRequestBody(req: Request): Promise<ReqBody> {
   body.audioBase64 = bytesToBase64(pcm);
   body.sampleRateHertz = body.sampleRateHertz ?? 16000;
   return body;
+}
+
+async function routeTheritorVoice(
+  req: Request,
+  body: ReqBody,
+): Promise<Response> {
+  const identity = await verifiedAstrolabeDeviceIdentity(req);
+  if (identity instanceof Response) return identity;
+  const url = Deno.env.get("THERITOR_DEVICE_GATEWAY_URL")?.trim() ?? "";
+  const secret = Deno.env.get("THERITOR_DEVICE_GATEWAY_SECRET")?.trim() ?? "";
+  if (!url || !secret) {
+    return jsonResponse(503, {
+      error: "Theritor device gateway is not configured",
+    });
+  }
+  if (!body.audioBase64) {
+    return jsonResponse(400, { error: "Theritor requires an audio turn" });
+  }
+  const upstream = await fetch(`${url.replace(/\/$/, "")}/v1/device/voice`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Theritor-Gateway-Secret": secret,
+    },
+    body: JSON.stringify({
+      device_id: identity.mac,
+      audio_base64: body.audioBase64,
+      sample_rate_hertz: body.sampleRateHertz ?? 16000,
+      language_code: body.languageCode ?? "en-US",
+      respondent: body.respondent,
+      mode: body.mode,
+      topic: body.topic,
+      work_slug: body.workSlug,
+      session_id: body.sessionId,
+    }),
+  });
+  const responseBody = await upstream.arrayBuffer();
+  return new Response(responseBody, {
+    status: upstream.status,
+    headers: {
+      ...corsHeaders,
+      "Content-Type": upstream.headers.get("Content-Type") ??
+        "application/json; charset=utf-8",
+      "X-Mynah-Route": "theritor",
+      "X-Mynah-Face": "theritor",
+    },
+  });
 }
 
 const ASK_FACULTY_SELECTIONS: Array<FacultySelection & { hints: string }> = [
@@ -1239,6 +1295,10 @@ Deno.serve(async (req: Request) => {
   const systemInstruction = clientSystem || defaultSystem;
 
   const face = (body.face ?? "").trim().toLowerCase();
+
+  if (face === "theritor") {
+    return await routeTheritorVoice(req, body);
+  }
 
   const audio = (body.audioBase64 ?? "").trim();
   const message = (body.message ?? "").trim();

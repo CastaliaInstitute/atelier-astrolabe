@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "esp_err.h"
+#include "esp_http_client.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -50,8 +51,12 @@ typedef void (*astrolabe_audio_result_fn)(const char *transcript,
                                           const char *faculty_slug,
                                           const char *faculty_name,
                                           void *user);
+typedef void (*astrolabe_audio_session_fn)(const char *session_id,
+                                           const char *expression,
+                                           void *user);
 typedef void (*astrolabe_audio_prepare_context_fn)(void *user);
 typedef esp_err_t (*astrolabe_audio_play_mp3_fn)(const uint8_t *mp3, size_t mp3_len, void *user);
+typedef esp_err_t (*astrolabe_audio_request_headers_fn)(esp_http_client_handle_t client, void *user);
 
 typedef struct {
     astrolabe_audio_read_fn read;
@@ -65,8 +70,10 @@ typedef struct {
     astrolabe_audio_io_t io;
     astrolabe_audio_event_fn on_event;
     astrolabe_audio_result_fn on_result;
+    astrolabe_audio_session_fn on_session;
     astrolabe_audio_prepare_context_fn prepare_context;
     astrolabe_audio_play_mp3_fn play_mp3;
+    astrolabe_audio_request_headers_fn request_headers;
     void *event_user;
 
     const char *endpoint_url;
@@ -80,6 +87,12 @@ typedef struct {
     const char *interaction_mode;
     const char *commonplace_mode;
     const char *response_format;
+    /** Optional face-specific interview metadata. Empty values are omitted semantically. */
+    const char *respondent;
+    const char *mode;
+    const char *topic;
+    const char *work_slug;
+    const char *session_id;
     bool skip_llm;
     bool log_to_commonplace;
     bool duplex;
