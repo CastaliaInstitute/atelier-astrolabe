@@ -1,0 +1,62 @@
+# Create a GitHub issue from scripts/issue-bodies/<key>.md (workflow_dispatch).
+# Use when the Cursor integration token cannot call createIssue directly.
+name: Create backlog issue
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue_key:
+        description: "Issue body file name without .md (e.g. faculty-face)"
+        required: true
+        type: string
+      title:
+        description: "Issue title (optional; default from issue_key)"
+        required: false
+        type: string
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  create:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create issue
+        id: create
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          KEY: ${{ inputs.issue_key }}
+          TITLE_INPUT: ${{ inputs.title }}
+        run: |
+          set -euo pipefail
+          body_file="scripts/issue-bodies/${KEY}.md"
+          if [[ ! -f "$body_file" ]]; then
+            echo "error: missing $body_file" >&2
+            exit 1
+          fi
+          if [[ -n "${TITLE_INPUT}" ]]; then
+            title="$TITLE_INPUT"
+          else
+            case "$KEY" in
+              faculty-face) title="[Feature] Faculty face — STT, ask-faculty, bust + TTS" ;;
+              *) title="[Feature] ${KEY}" ;;
+            esac
+          fi
+          if gh issue list --repo "$REPO" --state open --search "in:title ${title}" --json number --jq 'length' | grep -qv '^0$'; then
+            num="$(gh issue list --repo "$REPO" --state open --search "in:title ${title}" --json number --jq '.[0].number')"
+            echo "Issue already exists: https://github.com/${REPO}/issues/${num}"
+            echo "issue_number=${num}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          url="$(gh issue create --repo "$REPO" --title "$title" --label enhancement --body-file "$body_file")"
+          num="${url##*/}"
+          echo "Created: $url"
+          echo "issue_number=${num}" >> "$GITHUB_OUTPUT"
+
+      - name: Summary
+        run: |
+          echo "issue_number=${{ steps.create.outputs.issue_number }}"

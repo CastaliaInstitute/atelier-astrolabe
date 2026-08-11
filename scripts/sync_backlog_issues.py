@@ -371,18 +371,22 @@ Rotating globe with day/night terminator; optional weather HUD overlay. Bounded 
     ),
     BacklogIssue(
         "faculty-face",
-        "[Feature] Faculty ask-faculty clock face",
+        "[Feature] Faculty face — STT, ask-faculty, bust + TTS",
         ["enhancement"],
         "P1",
         """## Summary
-STT → faculty router → `ask-faculty` with history; bust cache; swipe recent faculty; commonplace logging. Parity with Android GlowScreen.
+New `ClockFace::Faculty`: STT → `ask-faculty` (history on Castalia). Watch stores recent faculty slugs + bust cache only; swipe up/down scrolls speakers, not transcripts.
 
 ## Backlog
 `docs/BACKLOG.md` — Faculty face
 
 ## Acceptance criteria
-- [ ] End-to-end voice on face
+- [ ] PTT → ask-faculty → TTS; no local conversation log
+- [ ] NVS recent slugs + per-slug bust cache; swipe browses speakers
 - [ ] Hardware QA screenshot
+
+## Issue body
+`scripts/issue-bodies/faculty-face.md`
 """,
         "open",
     ),
