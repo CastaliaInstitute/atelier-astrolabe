@@ -697,7 +697,8 @@ static bool continuous_voice_face_active(void)
 {
     const faculty175_face_desc_t *face = faculty175_faces_current();
     return face != NULL && (face->id == FACULTY175_FACE_JOURNAL ||
-                            face->id == FACULTY175_FACE_CONVERSATION);
+                            face->id == FACULTY175_FACE_CONVERSATION ||
+                            face->id == FACULTY175_FACE_THERITOR);
 }
 
 static bool low_power_wifi_allowed(void)
@@ -3498,7 +3499,7 @@ static esp_err_t pipeline_read(int16_t *samples, size_t sample_count, size_t *ou
         vTaskDelay(pdMS_TO_TICKS(40));
         return ESP_ERR_TIMEOUT;
     }
-    if (!faculty175_board_audio_ready()) {
+    if (!faculty175_board_mic_ready()) {
         if (out_read != NULL) {
             *out_read = 0;
         }
@@ -3599,10 +3600,7 @@ static void pipeline_session(const char *session_id, const char *expression, voi
 static esp_err_t pipeline_request_headers(esp_http_client_handle_t client, void *user)
 {
     (void)user;
-    const faculty175_face_desc_t *face = faculty175_faces_current();
-    return face != NULL && face->id == FACULTY175_FACE_THERITOR
-               ? faculty175_device_auth_headers(client)
-               : ESP_OK;
+    return faculty175_device_auth_headers(client);
 }
 
 static void pipeline_event(astrolabe_audio_pipeline_event_t event, const char *detail, void *user)
@@ -4165,6 +4163,10 @@ static esp_err_t pipeline_stop_runtime(void)
 static esp_err_t pipeline_ensure_ready(void)
 {
     if (!s_pipeline_cfg_ready) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (!faculty175_board_mic_ready()) {
+        FACULTY175_LOG_STAGE_W(TAG, "pipeline", "microphone capture unavailable");
         return ESP_ERR_INVALID_STATE;
     }
     pipeline_log_heap("ensure-entry");

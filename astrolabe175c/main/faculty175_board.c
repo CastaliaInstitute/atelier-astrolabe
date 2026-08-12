@@ -1882,6 +1882,11 @@ bool faculty175_board_audio_ready(void)
     return s_speaker_ready && s_spk_codec != NULL;
 }
 
+bool faculty175_board_mic_ready(void)
+{
+    return s_audio_ready && s_mic_codec != NULL;
+}
+
 bool faculty175_board_pi4ioe_ok(void)
 {
     return false;
@@ -1936,16 +1941,6 @@ esp_err_t faculty175_board_init(void)
         }
     }
 
-#if FACULTY175_HTTP_SCREEN_QA_SKIP_AUDIO
-    s_audio_ready = false;
-    ESP_LOGW(TAG, "audio init skipped for HTTP screen QA");
-#else
-    s_audio_ready = i2c_ready && faculty175_audio_init() == ESP_OK;
-    if (!s_audio_ready) {
-        ESP_LOGW(TAG, "audio init before LCD unavailable; will retry after display init");
-    }
-#endif
-
     g_faculty175_boot_stage = 0xae03;
     err = faculty175_lcd_init();
     g_faculty175_boot_last_err = err;
@@ -1956,18 +1951,24 @@ esp_err_t faculty175_board_init(void)
         faculty175_log_i2c_lines("boot-post-lcd");
     }
 
-    g_faculty175_boot_stage = 0xae04;
-    if (!s_audio_ready && i2c_ready) {
-        s_audio_ready = faculty175_audio_init() == ESP_OK;
-    }
-    if (!s_audio_ready) {
-        ESP_LOGW(TAG, "audio init unavailable — continuing without speaker/mic");
-    }
-
+    /* The display reset releases the shared peripheral reset domain. Bring up
+     * A3V3 next, then probe and open the codecs exactly once with stable rails. */
     g_faculty175_boot_stage = 0xae05;
     if (!i2c_ready || faculty175_pmu_init() != ESP_OK) {
         ESP_LOGW(TAG, "AXP2101 PMU init failed — audio/display may be unavailable");
     }
+
+    g_faculty175_boot_stage = 0xae04;
+#if FACULTY175_HTTP_SCREEN_QA_SKIP_AUDIO
+    s_audio_ready = false;
+    ESP_LOGW(TAG, "audio init skipped for HTTP screen QA");
+#else
+    s_audio_ready = i2c_ready && faculty175_audio_init() == ESP_OK;
+#endif
+    if (!s_audio_ready) {
+        ESP_LOGW(TAG, "audio init unavailable — continuing without speaker/mic");
+    }
+
     g_faculty175_boot_stage = 0xae06;
     faculty175_board_log_identity();
     vTaskDelay(pdMS_TO_TICKS(50));

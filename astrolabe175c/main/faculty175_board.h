@@ -47,6 +47,8 @@ esp_err_t faculty175_i2c_write_read(uint8_t addr_7bit,
 
 esp_err_t faculty175_board_init(void);
 bool faculty175_board_audio_ready(void);
+/** True only when the ES7210 capture path is available for STT/VAD. */
+bool faculty175_board_mic_ready(void);
 /** 1.75C has no TCA9554 — always false (QA compat). */
 bool faculty175_board_pi4ioe_ok(void);
 /** Peak abs sample from boot mic probe (0 = likely no capture). */
