@@ -6560,9 +6560,13 @@ void app_main(void)
         .sample_rate_hz = FACULTY175_AUDIO_RATE,
         .stt_sample_rate_hz = FACULTY175_AUDIO_RATE,
         .frame_samples = 160,
-        .rms_start = 750,
+        /* Nearby speech in the validation corpus starts above roughly 1100
+         * RMS, while unattended room sounds repeatedly crossed 750 and
+         * created empty Theritor turns. Require a short sustained onset so
+         * hands-free listening does not archive clicks or distant noise. */
+        .rms_start = 1000,
         .rms_end = 280,
-        .start_frames = 3,
+        .start_frames = 8,
         .silence_frames = 50,
         .max_seconds = 15,
         .min_ms = 400,
