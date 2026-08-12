@@ -205,6 +205,7 @@ bool faculty175_device_auth_handle(const char *line)
         printf("device commands:\n");
         printf("  device status\n");
         printf("  device provision\n");
+        printf("  device rotate <64-hex-secret>\n");
         fflush(stdout);
         return true;
     }
@@ -221,6 +222,36 @@ bool faculty175_device_auth_handle(const char *line)
                s_mac,
                s_secret_hex,
                ASTROLABE_FACULTY_OTA_CHANNEL);
+        fflush(stdout);
+        return true;
+    }
+    if (strncasecmp(sub, "rotate ", 7) == 0) {
+        const char *candidate = sub + 7;
+        while (*candidate == ' ') {
+            ++candidate;
+        }
+        uint8_t decoded[DEV_AUTH_SECRET_BYTES];
+        if (strlen(candidate) != DEV_AUTH_SECRET_HEX_LEN ||
+            !hex_to_bytes(candidate, decoded, sizeof(decoded))) {
+            printf("device: rotate ESP_ERR_INVALID_ARG\n");
+            fflush(stdout);
+            return true;
+        }
+        nvs_handle_t nvs = 0;
+        esp_err_t err = nvs_open(DEV_AUTH_NVS_NS, NVS_READWRITE, &nvs);
+        if (err == ESP_OK) {
+            err = nvs_set_str(nvs, DEV_AUTH_NVS_SECRET, candidate);
+        }
+        if (err == ESP_OK) {
+            err = nvs_commit(nvs);
+        }
+        if (nvs != 0) {
+            nvs_close(nvs);
+        }
+        if (err == ESP_OK) {
+            strlcpy(s_secret_hex, candidate, sizeof(s_secret_hex));
+        }
+        printf("device: rotate %s\n", esp_err_to_name(err));
         fflush(stdout);
         return true;
     }

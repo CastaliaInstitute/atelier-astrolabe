@@ -5031,11 +5031,10 @@ static void face_save_task(void *arg)
     }
 }
 
-static void save_current_face_async(void)
+static bool ensure_face_save_task(void)
 {
     if (s_face_save_task != NULL) {
-        (void)xTaskNotifyGive(s_face_save_task);
-        return;
+        return true;
     }
     const BaseType_t ok = xTaskCreateWithCaps(face_save_task,
                                               "face_save",
@@ -5047,6 +5046,14 @@ static void save_current_face_async(void)
     if (ok != pdPASS) {
         s_face_save_task = NULL;
         FACULTY175_LOG_STAGE_W(TAG, "faces", "save task create failed");
+        return false;
+    }
+    return true;
+}
+
+static void save_current_face_async(void)
+{
+    if (!ensure_face_save_task()) {
         return;
     }
     (void)xTaskNotifyGive(s_face_save_task);
@@ -6298,7 +6305,7 @@ void app_main(void)
 #endif
     /* Reserve the internal-RAM NVS worker before UI/audio allocations leave
      * too little contiguous memory to create it on the first face gesture. */
-    save_current_face_async();
+    (void)ensure_face_save_task();
 #if FACULTY175_USB_OTA_DEMO_BOOT && FACULTY175_USB_RUNTIME_ENABLED
     boot_probe_stage(0xa2);
     esp_rom_printf("A2 usb_ota_demo_boot\n");
