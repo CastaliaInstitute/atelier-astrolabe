@@ -18,8 +18,12 @@
 // Optional voice endpoint overrides for local relay/mock testing.
 // MYNAH_VOICE_HTTP_URL may be a base URL or a full /functions/v1/voice-pipeline URL.
 // MYNAH_VOICE_STREAM_URL must be a full ws:// or wss:// /functions/v1/voice-stream URL.
+#ifndef MYNAH_VOICE_HTTP_URL
 #define MYNAH_VOICE_HTTP_URL ""
+#endif
+#ifndef MYNAH_VOICE_STREAM_URL
 #define MYNAH_VOICE_STREAM_URL ""
+#endif
 
 // Optional LAN/BLE presentation control token. Leave empty to disable /control and BLE control writes.
 #define MYNAH_REMOTE_CONTROL_KEY ""
