@@ -60,6 +60,11 @@ void faculty175_face_cycle_draw(uint32_t anim_ms);
 
 bool faculty175_face_dispatch_draw(faculty175_face_id_t id, uint32_t anim_ms)
 {
+    static faculty175_face_id_t last_id = FACULTY175_FACE_COUNT;
+    if (id != last_id) {
+        if (id == FACULTY175_FACE_THERITOR) faculty175_face_theritor_invalidate();
+        last_id = id;
+    }
     if (faculty175_lvgl_draw_face(id, anim_ms)) {
         return true;
     }

@@ -24,6 +24,7 @@ static char s_respondent[16] = "DANIEL";
 static char s_mode[16] = "EDITOR";
 EXT_RAM_BSS_ATTR static uint16_t s_emojinq_sprite[THERITOR_EMOJINQ_SIZE * THERITOR_EMOJINQ_SIZE];
 static int s_emojinq_sprite_expression = -1;
+static bool s_dirty = true;
 
 static uint16_t rgb(uint8_t r, uint8_t g, uint8_t b)
 {
@@ -32,27 +33,43 @@ static uint16_t rgb(uint8_t r, uint8_t g, uint8_t b)
 
 void faculty175_face_theritor_set_state(faculty175_ui_state_t state)
 {
+    if (s_state == state) return;
     s_state = state;
     if (state == FACULTY175_UI_THINK) s_expression = THERITOR_EXPRESSION_THINKING;
     else if (state == FACULTY175_UI_ERROR) s_expression = THERITOR_EXPRESSION_CONCERNED;
+    s_dirty = true;
 }
 
 void faculty175_face_theritor_set_context(const char *respondent, const char *mode)
 {
-    if (respondent != NULL && respondent[0] != '\0') faculty175_strlcpy(s_respondent, respondent, sizeof(s_respondent));
-    if (mode != NULL && mode[0] != '\0') faculty175_strlcpy(s_mode, mode, sizeof(s_mode));
+    if (respondent != NULL && respondent[0] != '\0' && strcmp(s_respondent, respondent) != 0) {
+        faculty175_strlcpy(s_respondent, respondent, sizeof(s_respondent));
+        s_dirty = true;
+    }
+    if (mode != NULL && mode[0] != '\0' && strcmp(s_mode, mode) != 0) {
+        faculty175_strlcpy(s_mode, mode, sizeof(s_mode));
+        s_dirty = true;
+    }
 }
 
 void faculty175_face_theritor_set_reply(const char *reply)
 {
     if (reply == NULL) return;
-    if (strncmp(reply, "🙂", strlen("🙂")) == 0) s_expression = THERITOR_EXPRESSION_CALM;
-    else if (strncmp(reply, "🤔", strlen("🤔")) == 0) s_expression = THERITOR_EXPRESSION_THINKING;
-    else if (strncmp(reply, "🧐", strlen("🧐")) == 0) s_expression = THERITOR_EXPRESSION_EXAMINING;
-    else if (strncmp(reply, "😟", strlen("😟")) == 0) s_expression = THERITOR_EXPRESSION_CONCERNED;
-    else if (strncmp(reply, "😊", strlen("😊")) == 0) s_expression = THERITOR_EXPRESSION_WARM;
-    else if (strncmp(reply, "😌", strlen("😌")) == 0) s_expression = THERITOR_EXPRESSION_RELIEVED;
-    else s_expression = THERITOR_EXPRESSION_CALM;
+    theritor_expression_t next = THERITOR_EXPRESSION_CALM;
+    if (strncmp(reply, "🤔", strlen("🤔")) == 0) next = THERITOR_EXPRESSION_THINKING;
+    else if (strncmp(reply, "🧐", strlen("🧐")) == 0) next = THERITOR_EXPRESSION_EXAMINING;
+    else if (strncmp(reply, "😟", strlen("😟")) == 0) next = THERITOR_EXPRESSION_CONCERNED;
+    else if (strncmp(reply, "😊", strlen("😊")) == 0) next = THERITOR_EXPRESSION_WARM;
+    else if (strncmp(reply, "😌", strlen("😌")) == 0) next = THERITOR_EXPRESSION_RELIEVED;
+    if (s_expression != next) {
+        s_expression = next;
+        s_dirty = true;
+    }
+}
+
+void faculty175_face_theritor_invalidate(void)
+{
+    s_dirty = true;
 }
 
 static const char *state_label(void)
@@ -110,6 +127,8 @@ static void draw_emojinq_expression(int left, int top, uint16_t background)
 
 void faculty175_face_theritor_draw(uint32_t anim_ms)
 {
+    (void)anim_ms;
+    if (!s_dirty) return;
     const uint16_t bg = rgb(7, 8, 11);
     const uint16_t panel = rgb(17, 19, 24);
     const uint16_t ink = rgb(218, 222, 229);
@@ -117,12 +136,11 @@ void faculty175_face_theritor_draw(uint32_t anim_ms)
     const uint16_t accent = s_state == FACULTY175_UI_ERROR ? rgb(202, 112, 116) : rgb(174, 181, 194);
     const int cx = FACULTY175_LCD_W / 2;
     const int cy = 190;
-    const int pulse = 3 + (int)(4.0f * sinf((float)(anim_ms % 2400u) / 2400.0f * 6.2831853f));
 
     faculty175_display_fill_rgb565(bg);
     faculty175_display_fill_rect(0, 0, FACULTY175_LCD_W, 58, panel);
     faculty175_display_draw_centered_text("THERITOR", 16, accent);
-    faculty175_display_draw_circle(cx, cy, 132 + pulse, rgb(45, 49, 58));
+    faculty175_display_draw_circle(cx, cy, 135, rgb(45, 49, 58));
     faculty175_display_draw_circle(cx, cy, 127, accent);
     draw_emojinq_expression((FACULTY175_LCD_W - THERITOR_EMOJINQ_SIZE) / 2,
                             cy - THERITOR_EMOJINQ_SIZE / 2,
@@ -134,4 +152,5 @@ void faculty175_face_theritor_draw(uint32_t anim_ms)
     faculty175_display_draw_centered_text(state_label(), 376, dim);
     faculty175_display_draw_centered_text("TAP PERSON / HOLD MODE", 404, rgb(94, 100, 112));
     faculty175_display_flush();
+    s_dirty = false;
 }

@@ -8492,7 +8492,7 @@ bool faculty175_lvgl_draw_face(faculty175_face_id_t id, uint32_t anim_ms)
         id == FACULTY175_FACE_HUMAN_DESIGN || id == FACULTY175_FACE_CRYSTAL_BALL ||
         id == FACULTY175_FACE_PARTNER_WELLNESS ||
         id == FACULTY175_FACE_IRONMAN || id == FACULTY175_FACE_BATTERY ||
-        id == FACULTY175_FACE_CYCLE) {
+        id == FACULTY175_FACE_CYCLE || id == FACULTY175_FACE_THERITOR) {
         return false;
     }
 
