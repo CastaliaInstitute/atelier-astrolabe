@@ -17,7 +17,7 @@ typedef enum {
 } theritor_expression_t;
 
 static faculty175_ui_state_t s_state = FACULTY175_UI_LISTEN;
-static theritor_expression_t s_expression = THERITOR_EXPRESSION_EXAMINING;
+static theritor_expression_t s_expression = THERITOR_EXPRESSION_WARM;
 static char s_respondent[16] = "DANIEL";
 static char s_mode[16] = "EDITOR";
 EXT_RAM_BSS_ATTR static uint16_t s_emojinq_sprite[THERITOR_EMOJINQ_SIZE * THERITOR_EMOJINQ_SIZE];
@@ -35,7 +35,7 @@ void faculty175_face_theritor_set_state(faculty175_ui_state_t state)
     s_state = state;
     if (state == FACULTY175_UI_THINK) s_expression = THERITOR_EXPRESSION_THINKING;
     else if (state == FACULTY175_UI_ERROR) s_expression = THERITOR_EXPRESSION_CONCERNED;
-    else s_expression = THERITOR_EXPRESSION_EXAMINING;
+    else s_expression = THERITOR_EXPRESSION_WARM;
     s_dirty = true;
 }
 
@@ -54,7 +54,7 @@ void faculty175_face_theritor_set_context(const char *respondent, const char *mo
 void faculty175_face_theritor_set_reply(const char *reply)
 {
     if (reply == NULL) return;
-    theritor_expression_t next = THERITOR_EXPRESSION_EXAMINING;
+    theritor_expression_t next = THERITOR_EXPRESSION_WARM;
     if (strncmp(reply, "🤔", strlen("🤔")) == 0) next = THERITOR_EXPRESSION_THINKING;
     else if (strncmp(reply, "🧐", strlen("🧐")) == 0) next = THERITOR_EXPRESSION_EXAMINING;
     else if (strncmp(reply, "😟", strlen("😟")) == 0) next = THERITOR_EXPRESSION_CONCERNED;
