@@ -1,6 +1,5 @@
 #include "faculty175_face_theritor.h"
 
-#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -109,8 +108,8 @@ static void draw_emojinq_expression(int left, int top, uint16_t background)
         }
         for (uint16_t i = 0; i < glyph->count; ++i) {
             const theritor_emojinq_span_t *span = &glyph->spans[i];
-            const uint16_t silver = span->y < 58 ? silver_high
-                                  : span->y < 142 ? silver_mid
+            const uint16_t silver = span->y < (THERITOR_EMOJINQ_SIZE * 28 / 100) ? silver_high
+                                  : span->y < (THERITOR_EMOJINQ_SIZE * 68 / 100) ? silver_mid
                                                  : silver_low;
             for (int x = span->x0; x <= span->x1; ++x) {
                 s_emojinq_sprite[span->y * THERITOR_EMOJINQ_SIZE + x] = silver;
@@ -134,23 +133,20 @@ void faculty175_face_theritor_draw(uint32_t anim_ms)
     const uint16_t ink = rgb(218, 222, 229);
     const uint16_t dim = rgb(139, 146, 158);
     const uint16_t accent = s_state == FACULTY175_UI_ERROR ? rgb(202, 112, 116) : rgb(174, 181, 194);
-    const int cx = FACULTY175_LCD_W / 2;
-    const int cy = 190;
+    const int cy = FACULTY175_LCD_H / 2;
 
     faculty175_display_fill_rgb565(bg);
-    faculty175_display_fill_rect(0, 0, FACULTY175_LCD_W, 58, panel);
-    faculty175_display_draw_centered_text("THERITOR", 16, accent);
-    faculty175_display_draw_circle(cx, cy, 135, rgb(45, 49, 58));
-    faculty175_display_draw_circle(cx, cy, 127, accent);
+    faculty175_display_fill_rect(0, 0, FACULTY175_LCD_W, 40, panel);
+    faculty175_display_draw_centered_text("THERITOR", 4, accent);
+
+    char context[40];
+    snprintf(context, sizeof(context), "%s / %s", s_respondent, s_mode);
+    faculty175_display_draw_centered_text(context, 21, dim);
     draw_emojinq_expression((FACULTY175_LCD_W - THERITOR_EMOJINQ_SIZE) / 2,
                             cy - THERITOR_EMOJINQ_SIZE / 2,
                             bg);
 
-    char context[40];
-    snprintf(context, sizeof(context), "%s / %s", s_respondent, s_mode);
-    faculty175_display_draw_centered_text(context, 348, ink);
-    faculty175_display_draw_centered_text(state_label(), 376, dim);
-    faculty175_display_draw_centered_text("TAP PERSON / HOLD MODE", 404, rgb(94, 100, 112));
+    faculty175_display_draw_centered_text(state_label(), 460, ink);
     faculty175_display_flush();
     s_dirty = false;
 }
