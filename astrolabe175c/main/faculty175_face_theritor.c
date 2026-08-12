@@ -32,10 +32,14 @@ static uint16_t rgb(uint8_t r, uint8_t g, uint8_t b)
 void faculty175_face_theritor_set_state(faculty175_ui_state_t state)
 {
     if (s_state == state) return;
+    const faculty175_ui_state_t previous = s_state;
     s_state = state;
     if (state == FACULTY175_UI_THINK) s_expression = THERITOR_EXPRESSION_THINKING;
     else if (state == FACULTY175_UI_ERROR) s_expression = THERITOR_EXPRESSION_CONCERNED;
-    else s_expression = THERITOR_EXPRESSION_WARM;
+    else if (previous == FACULTY175_UI_ERROR) s_expression = THERITOR_EXPRESSION_WARM;
+    /* SPEAK and LISTEN intentionally retain the expression selected from the
+     * LLM's Unicode emoji. The face should remain the nonverbal part of the
+     * answer instead of snapping back to an unrelated idle smile. */
     s_dirty = true;
 }
 
