@@ -68,6 +68,7 @@ static const char *TAG = "ast_audio_pipe";
 #define VAD_REARM_QUIET_FRAMES 75u
 #define VAD_REARM_FORCE_MS 6000u
 #define VAD_SILENCE_LEAK_FRAMES 4u
+#define VAD_PREROLL_MS 600u
 
 typedef struct {
     char path[128];
@@ -118,6 +119,10 @@ struct astrolabe_audio_pipeline {
     uint8_t *turn_pcm;
     size_t turn_pcm_len;
     size_t turn_pcm_cap;
+    uint8_t *vad_preroll;
+    size_t vad_preroll_cap;
+    size_t vad_preroll_len;
+    size_t vad_preroll_write;
     bool turn_transport_failed;
     bool turn_pcm_truncated;
     uint32_t silence_frames;
@@ -2243,6 +2248,67 @@ static uint32_t dynamic_end_threshold(const astrolabe_audio_pipeline_t *p)
     return threshold;
 }
 
+static void vad_preroll_push(astrolabe_audio_pipeline_t *p, const int16_t *frame, size_t frame_samples)
+{
+    if (p == NULL || p->vad_preroll == NULL || p->vad_preroll_cap == 0 || frame == NULL || frame_samples == 0) {
+        return;
+    }
+    const uint8_t *src = (const uint8_t *)frame;
+    size_t len = frame_samples * sizeof(int16_t);
+    if (len >= p->vad_preroll_cap) {
+        src += len - p->vad_preroll_cap;
+        len = p->vad_preroll_cap;
+        memcpy(p->vad_preroll, src, len);
+        p->vad_preroll_len = len;
+        p->vad_preroll_write = 0;
+        return;
+    }
+    const size_t first = len < p->vad_preroll_cap - p->vad_preroll_write
+                             ? len
+                             : p->vad_preroll_cap - p->vad_preroll_write;
+    memcpy(p->vad_preroll + p->vad_preroll_write, src, first);
+    if (first < len) {
+        memcpy(p->vad_preroll, src + first, len - first);
+    }
+    p->vad_preroll_write = (p->vad_preroll_write + len) % p->vad_preroll_cap;
+    p->vad_preroll_len += len;
+    if (p->vad_preroll_len > p->vad_preroll_cap) {
+        p->vad_preroll_len = p->vad_preroll_cap;
+    }
+}
+
+static bool vad_preroll_seed_capture(astrolabe_audio_pipeline_t *p)
+{
+    if (p == NULL || p->vad_preroll == NULL || p->vad_preroll_len == 0) {
+        return true;
+    }
+    size_t oldest = (p->vad_preroll_write + p->vad_preroll_cap - p->vad_preroll_len) % p->vad_preroll_cap;
+    size_t remaining = p->vad_preroll_len;
+    while (remaining > 0) {
+        const size_t chunk = remaining < p->vad_preroll_cap - oldest
+                                 ? remaining
+                                 : p->vad_preroll_cap - oldest;
+        if (capture_uses_ram(p)) {
+            if (p->capture_ram == NULL || p->capture_len_bytes + chunk > p->capture_ram_cap) {
+                return false;
+            }
+            memcpy(p->capture_ram + p->capture_len_bytes, p->vad_preroll + oldest, chunk);
+        } else {
+            const ssize_t wrote = p->capture_fd >= 0 ? write(p->capture_fd, p->vad_preroll + oldest, chunk) : -1;
+            if (wrote < 0 || (size_t)wrote != chunk) {
+                return false;
+            }
+        }
+        p->capture_len_bytes += chunk;
+        remaining -= chunk;
+        oldest = 0;
+    }
+    ESP_LOGI(TAG, "VAD pre-roll seeded bytes=%u", (unsigned)p->vad_preroll_len);
+    p->vad_preroll_len = 0;
+    p->vad_preroll_write = 0;
+    return true;
+}
+
 static bool begin_capture_file(astrolabe_audio_pipeline_t *p)
 {
     if (capture_uses_ram(p)) {
@@ -2413,6 +2479,9 @@ static bool push_frame(astrolabe_audio_pipeline_t *p, const int16_t *frame, size
     p->last_rms = frame_rms(frame, frame_samples);
     p->vad_frames_seen++;
     waveform_push(p, pipeline_wave_level(p, p->last_rms), p->speech_active);
+    if (!p->speech_active) {
+        vad_preroll_push(p, frame, frame_samples);
+    }
     if (p->manual_capture && !p->speech_active) {
         const uint32_t quiet_threshold = dynamic_end_threshold(p);
         const bool quiet_frame = p->last_rms < quiet_threshold;
@@ -2497,6 +2566,11 @@ static bool push_frame(astrolabe_audio_pipeline_t *p, const int16_t *frame, size
         if (voiced && ++p->speech_frames >= p->cfg.start_frames) {
             if (!begin_capture_file(p)) {
                 emit(p, ASTROLABE_AUDIO_PIPELINE_EVENT_ERROR, "capture file");
+                reset_capture(p);
+                return false;
+            }
+            if (!vad_preroll_seed_capture(p)) {
+                emit(p, ASTROLABE_AUDIO_PIPELINE_EVENT_ERROR, "capture pre-roll");
                 reset_capture(p);
                 return false;
             }
@@ -2938,6 +3012,17 @@ esp_err_t astrolabe_audio_pipeline_create(const astrolabe_audio_pipeline_config_
         p->capture_ring_slots = MAX_RING_SLOTS;
     }
     p->capture_cap_bytes = (size_t)p->cfg.max_seconds * cfg_stt_sample_rate_hz(p) * sizeof(int16_t);
+    p->vad_preroll_cap = ((size_t)p->cfg.sample_rate_hz * VAD_PREROLL_MS / 1000u) * sizeof(int16_t);
+    if (p->vad_preroll_cap > 0) {
+        p->vad_preroll = heap_caps_malloc(p->vad_preroll_cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (p->vad_preroll == NULL) {
+            p->vad_preroll = malloc(p->vad_preroll_cap);
+        }
+        if (p->vad_preroll == NULL) {
+            ESP_LOGW(TAG, "VAD pre-roll unavailable bytes=%u", (unsigned)p->vad_preroll_cap);
+            p->vad_preroll_cap = 0;
+        }
+    }
     if (rolling_websocket_enabled(p)) {
         const uint32_t segment_ms = p->cfg.capture_segment_ms != 0 ? p->cfg.capture_segment_ms : DEFAULT_SEGMENT_MS;
         p->segment_cap_bytes = (((size_t)segment_ms * cfg_stt_sample_rate_hz(p)) / 1000) * sizeof(int16_t);
@@ -3093,6 +3178,7 @@ void astrolabe_audio_pipeline_destroy(astrolabe_audio_pipeline_t *p)
     // though the mounted spool itself is healthy.
     free(p->capture_ram);
     free(p->turn_pcm);
+    free(p->vad_preroll);
     if (p->owns_listen_task_storage) {
         free(p->listen_task_stack_storage);
         free(p->listen_task_tcb_storage);
