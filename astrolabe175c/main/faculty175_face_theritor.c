@@ -1,6 +1,5 @@
 #include "faculty175_face_theritor.h"
 
-#include <stdio.h>
 #include <string.h>
 
 #include "esp_attr.h"
@@ -71,17 +70,6 @@ void faculty175_face_theritor_invalidate(void)
     s_dirty = true;
 }
 
-static const char *state_label(void)
-{
-    switch (s_state) {
-        case FACULTY175_UI_CAPTURE: return "LISTENING";
-        case FACULTY175_UI_THINK: return "CONSULTING SOURCES";
-        case FACULTY175_UI_SPEAK: return "SPEAKING";
-        case FACULTY175_UI_ERROR: return "CONNECTION PAUSED";
-        default: return "READY TO INTERVIEW";
-    }
-}
-
 static void draw_emojinq_expression(int left, int top, uint16_t background)
 {
     if (s_emojinq_sprite_expression != (int)s_expression) {
@@ -129,24 +117,12 @@ void faculty175_face_theritor_draw(uint32_t anim_ms)
     (void)anim_ms;
     if (!s_dirty) return;
     const uint16_t bg = rgb(7, 8, 11);
-    const uint16_t panel = rgb(17, 19, 24);
-    const uint16_t ink = rgb(218, 222, 229);
-    const uint16_t dim = rgb(139, 146, 158);
-    const uint16_t accent = s_state == FACULTY175_UI_ERROR ? rgb(202, 112, 116) : rgb(174, 181, 194);
     const int cy = FACULTY175_LCD_H / 2;
 
     faculty175_display_fill_rgb565(bg);
-    faculty175_display_fill_rect(0, 0, FACULTY175_LCD_W, 40, panel);
-    faculty175_display_draw_centered_text("THERITOR", 4, accent);
-
-    char context[40];
-    snprintf(context, sizeof(context), "%s / %s", s_respondent, s_mode);
-    faculty175_display_draw_centered_text(context, 21, dim);
     draw_emojinq_expression((FACULTY175_LCD_W - THERITOR_EMOJINQ_SIZE) / 2,
                             cy - THERITOR_EMOJINQ_SIZE / 2,
                             bg);
-
-    faculty175_display_draw_centered_text(state_label(), 460, ink);
     faculty175_display_flush();
     s_dirty = false;
 }
