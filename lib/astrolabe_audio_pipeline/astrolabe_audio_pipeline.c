@@ -499,13 +499,27 @@ static const char *json_find_string(const char *body, const char *key, char *out
         return NULL;
     }
     char pattern[64];
-    snprintf(pattern, sizeof(pattern), "\"%s\":\"", key);
+    snprintf(pattern, sizeof(pattern), "\"%s\"", key);
     const char *start = strstr(body, pattern);
     if (start == NULL) {
         out[0] = '\0';
         return NULL;
     }
     start += strlen(pattern);
+    while (*start == ' ' || *start == '\t' || *start == '\r' || *start == '\n') {
+        ++start;
+    }
+    if (*start++ != ':') {
+        out[0] = '\0';
+        return NULL;
+    }
+    while (*start == ' ' || *start == '\t' || *start == '\r' || *start == '\n') {
+        ++start;
+    }
+    if (*start++ != '"') {
+        out[0] = '\0';
+        return NULL;
+    }
     size_t w = 0;
     while (*start != '\0' && *start != '"' && w + 1 < cap) {
         if (*start == '\\' && start[1] != '\0') {
