@@ -36,18 +36,11 @@ static int scale_emojinq_coordinate(int coordinate)
     return coordinate * THERITOR_EMOJINQ_ART_SIZE / THERITOR_EMOJINQ_SIZE;
 }
 
-static bool is_outer_face_circumference(int x, int y)
+static int scale_emojinq_span_end(int coordinate)
 {
-    const bool thinking = s_expression == THERITOR_EXPRESSION_THINKING;
-    const int center_x = 195;
-    const int center_y = thinking ? 164 : 195;
-    const int inner_radius = thinking ? 150 : 180;
-    const int outer_radius = thinking ? 174 : 200;
-    const int dx = x - center_x;
-    const int dy = y - center_y;
-    const int radius_squared = dx * dx + dy * dy;
-    return radius_squared >= inner_radius * inner_radius &&
-           radius_squared <= outer_radius * outer_radius;
+    return ((coordinate + 1) * THERITOR_EMOJINQ_ART_SIZE + THERITOR_EMOJINQ_SIZE - 1) /
+               THERITOR_EMOJINQ_SIZE -
+           1;
 }
 
 void faculty175_face_theritor_set_state(faculty175_ui_state_t state)
@@ -119,28 +112,24 @@ static void draw_emojinq_expression(int left, int top, uint16_t background)
         for (uint16_t i = 0; i < glyph->count; ++i) {
             const theritor_emojinq_span_t *span = &glyph->spans[i];
             const int y = art_top + scale_emojinq_coordinate(span->y) + 2;
+            const int x0 = art_left + scale_emojinq_coordinate(span->x0) + 2;
+            const int x1 = art_left + scale_emojinq_span_end(span->x1) + 2;
             if (y >= THERITOR_EMOJINQ_SIZE) continue;
-            for (int source_x = span->x0; source_x <= span->x1; ++source_x) {
-                if (is_outer_face_circumference(source_x, span->y)) continue;
-                const int x = art_left + scale_emojinq_coordinate(source_x) + 2;
-                if (x < THERITOR_EMOJINQ_SIZE) {
-                    s_emojinq_sprite[y * THERITOR_EMOJINQ_SIZE + x] = silver_shadow;
-                }
+            for (int x = x0; x <= x1 && x < THERITOR_EMOJINQ_SIZE; ++x) {
+                s_emojinq_sprite[y * THERITOR_EMOJINQ_SIZE + x] = silver_shadow;
             }
         }
         for (uint16_t i = 0; i < glyph->count; ++i) {
             const theritor_emojinq_span_t *span = &glyph->spans[i];
             const int y = art_top + scale_emojinq_coordinate(span->y);
+            const int x0 = art_left + scale_emojinq_coordinate(span->x0);
+            const int x1 = art_left + scale_emojinq_span_end(span->x1);
             const uint16_t silver = span->y < (THERITOR_EMOJINQ_SIZE * 28 / 100) ? silver_high
                                   : span->y < (THERITOR_EMOJINQ_SIZE * 68 / 100) ? silver_mid
                                                  : silver_low;
             if (y >= THERITOR_EMOJINQ_SIZE) continue;
-            for (int source_x = span->x0; source_x <= span->x1; ++source_x) {
-                if (is_outer_face_circumference(source_x, span->y)) continue;
-                const int x = art_left + scale_emojinq_coordinate(source_x);
-                if (x < THERITOR_EMOJINQ_SIZE) {
-                    s_emojinq_sprite[y * THERITOR_EMOJINQ_SIZE + x] = silver;
-                }
+            for (int x = x0; x <= x1 && x < THERITOR_EMOJINQ_SIZE; ++x) {
+                s_emojinq_sprite[y * THERITOR_EMOJINQ_SIZE + x] = silver;
             }
         }
         s_emojinq_sprite_expression = (int)s_expression;

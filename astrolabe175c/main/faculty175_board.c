@@ -3701,6 +3701,12 @@ static bool face_supports_vertical_nav(faculty175_face_id_t id)
 
 static void draw_bezel_nav(void)
 {
+    const faculty175_face_desc_t *face = faculty175_faces_current();
+    /* Theritor's silver Emojinq glyph includes the intentional face circle.
+     * Do not add the platform's outer navigation circumference around it. */
+    if (face != NULL && face->id == FACULTY175_FACE_THERITOR) {
+        return;
+    }
     size_t index = 0;
     size_t count = 0;
     if (!faculty175_faces_nav_position(&index, &count) || count <= 1) {
@@ -3730,7 +3736,6 @@ static void draw_bezel_nav(void)
     const float pad = step > 0.09f ? 0.018f : 0.006f;
     const float active_start = start0 + (float)index * step + pad;
     const float active_end = start0 + (float)(index + 1) * step - pad;
-    const faculty175_face_desc_t *face = faculty175_faces_current();
     const bool vertical_nav = s_nav_mode || (face != NULL && face_supports_vertical_nav(face->id));
     if (!s_nav_mode && vertical_nav) {
         const float nav_pad = step > 0.09f ? 0.034f : 0.012f;
@@ -3976,6 +3981,10 @@ void faculty175_display_waveform_update(const uint8_t *waveform,
 
 static void draw_stored_bezel_waveform(void)
 {
+    const faculty175_face_desc_t *face = faculty175_faces_current();
+    if (face != NULL && face->id == FACULTY175_FACE_THERITOR) {
+        return;
+    }
     uint8_t waveform[FACULTY175_BEZEL_WAVEFORM_MAX];
     uint8_t stream[FACULTY175_BEZEL_WAVEFORM_MAX];
     size_t len = 0;
