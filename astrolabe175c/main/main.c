@@ -5165,6 +5165,10 @@ static void sync_voice_context_impl(bool allow_flash_cache)
      * action on profiles that expose it; ordinary LunaSay questions must not
      * create a server-side Commonplace record as a side effect. */
     s_voice_log_to_commonplace = journal_mode || conversation_session || !lunasay_profile;
+    /* Theritor's adaptive pipeline VAD already tracks the room floor.  The
+     * board's simpler frame gate can attenuate soft opening consonants before
+     * VAD sees them, which clips ordinary tabletop questions. */
+    faculty175_audio_noise_suppression_set_enabled(!theritor_mode);
     if (theritor_mode) {
         faculty175_face_theritor_set_context(s_theritor_respondent, s_theritor_mode);
     }
@@ -6560,11 +6564,13 @@ void app_main(void)
         .sample_rate_hz = FACULTY175_AUDIO_RATE,
         .stt_sample_rate_hz = FACULTY175_AUDIO_RATE,
         .frame_samples = 160,
-        /* Theritor keeps 600 ms of pre-roll, so a conservative sustained
-         * onset no longer clips the opening words while rejecting room noise. */
-        .rms_start = 1800,
+        /* Theritor keeps 1.2 seconds of pre-roll.  The 1.75C microphone measured
+         * quiet-room noise below 100 RMS, while ordinary speech from the
+         * intended tabletop distance peaks around 900 RMS.  Keep ample
+         * noise margin without requiring the speaker to raise their voice. */
+        .rms_start = 350,
         .rms_end = 280,
-        .start_frames = 6,
+        .start_frames = 4,
         .silence_frames = 50,
         .max_seconds = 15,
         .min_ms = 400,

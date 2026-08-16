@@ -64,11 +64,12 @@ static const char *TAG = "ast_audio_pipe";
 #define VAD_WARMUP_FRAMES 25u
 #define VAD_NOISE_ATTACK_SHIFT 6
 #define VAD_NOISE_RELEASE_SHIFT 4
-#define VAD_MIN_DELTA_RMS 500u
+#define VAD_START_MIN_DELTA_RMS 250u
+#define VAD_END_MIN_DELTA_RMS 180u
 #define VAD_REARM_QUIET_FRAMES 75u
 #define VAD_REARM_FORCE_MS 6000u
 #define VAD_SILENCE_LEAK_FRAMES 4u
-#define VAD_PREROLL_MS 600u
+#define VAD_PREROLL_MS 1200u
 
 typedef struct {
     char path[128];
@@ -2228,7 +2229,7 @@ static uint32_t dynamic_start_threshold(const astrolabe_audio_pipeline_t *p)
 {
     uint32_t threshold = p->cfg.rms_start;
     if (p->noise_rms > 0) {
-        const uint32_t adaptive = p->noise_rms + (p->noise_rms >> 4) + VAD_MIN_DELTA_RMS;
+        const uint32_t adaptive = p->noise_rms + (p->noise_rms >> 4) + VAD_START_MIN_DELTA_RMS;
         if (adaptive > threshold) {
             threshold = adaptive;
         }
@@ -2240,7 +2241,7 @@ static uint32_t dynamic_end_threshold(const astrolabe_audio_pipeline_t *p)
 {
     uint32_t threshold = p->cfg.rms_end;
     if (p->noise_rms > 0) {
-        const uint32_t adaptive = p->noise_rms + (p->noise_rms >> 1) + VAD_MIN_DELTA_RMS;
+        const uint32_t adaptive = p->noise_rms + (p->noise_rms >> 1) + VAD_END_MIN_DELTA_RMS;
         if (adaptive > threshold) {
             threshold = adaptive;
         }
