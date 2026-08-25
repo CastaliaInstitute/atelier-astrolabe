@@ -88,6 +88,7 @@ static const faculty175_face_desc_t k_faces[] = {
     { FACULTY175_FACE_INCIDENTS, "incidents", "Incidents", FACULTY175_FACE_CAT_SYSTEM, true, false, 205 },
     { FACULTY175_FACE_SETTINGS, "settings", "Settings", FACULTY175_FACE_CAT_SYSTEM, true, true, 250 },
     { FACULTY175_FACE_POCKETWATCH, "pocketwatch", "Watch", FACULTY175_FACE_CAT_HOME, true, true, 5 },
+    { FACULTY175_FACE_XDJ, "xdj", "XDJ Bridge", FACULTY175_FACE_CAT_SYSTEM, true, false, 206 },
 };
 
 static faculty175_face_id_t s_current = FACULTY175_FACE_MOON;

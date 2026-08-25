@@ -38,6 +38,7 @@ idf_component_register(
         "faculty175_touch.c"
         "faculty175_storage.c"
         "faculty175_usb.c"
+        "faculty175_xdj_bridge.c"
         "../../astrolabe175c/main/faculty175_usb_ncm.c"
         "faculty175_gesture.c"
         "faculty175_motion.c"
@@ -83,6 +84,7 @@ idf_component_register(
         esp_lcd
         lvgl
         lwip
+        usb
         espressif__esp_lcd_touch
         espressif__esp_lcd_touch_cst816s
         espressif__esp_lcd_st77916
@@ -113,10 +115,13 @@ idf_component_get_property(ASTROLABE_BT_DIR bt COMPONENT_DIR)
 target_include_directories(${COMPONENT_LIB} PRIVATE
     "${ASTROLABE_BT_DIR}/host/nimble/nimble/nimble/host/include"
     "${ASTROLABE_BT_DIR}/host/nimble/nimble/nimble/include"
+    "${ASTROLABE_BT_DIR}/host/nimble/nimble/nimble/transport/include"
     "${ASTROLABE_BT_DIR}/host/nimble/nimble/nimble/host/services/gap/include"
     "${ASTROLABE_BT_DIR}/host/nimble/nimble/nimble/host/services/gatt/include"
     "${ASTROLABE_BT_DIR}/host/nimble/nimble/nimble/host/util/include"
     "${ASTROLABE_BT_DIR}/host/nimble/port/include"
+    "${ASTROLABE_BT_DIR}/host/nimble/nimble/porting/nimble/include"
+    "${ASTROLABE_BT_DIR}/porting/npl/freertos/include"
 )
 
 target_compile_definitions(${COMPONENT_LIB} PRIVATE __LINUX__ PNG_MAX_BUFFERED_PIXELS=8194)
@@ -132,8 +137,9 @@ string(TOLOWER "${ASTROLABE185B_BUILD_VARIANT}" ASTROLABE185B_BUILD_VARIANT)
 if(NOT ASTROLABE185B_BUILD_VARIANT STREQUAL "faculty" AND
    NOT ASTROLABE185B_BUILD_VARIANT STREQUAL "cyber" AND
    NOT ASTROLABE185B_BUILD_VARIANT STREQUAL "claw" AND
-   NOT ASTROLABE185B_BUILD_VARIANT STREQUAL "recovery")
-    message(FATAL_ERROR "ASTROLABE185B_BUILD_VARIANT must be faculty, cyber, claw, or recovery")
+   NOT ASTROLABE185B_BUILD_VARIANT STREQUAL "recovery" AND
+   NOT ASTROLABE185B_BUILD_VARIANT STREQUAL "xdj")
+    message(FATAL_ERROR "ASTROLABE185B_BUILD_VARIANT must be faculty, cyber, claw, recovery, or xdj")
 endif()
 if(ASTROLABE185B_BUILD_VARIANT STREQUAL "cyber" OR
    ASTROLABE185B_BUILD_VARIANT STREQUAL "claw" OR
@@ -141,6 +147,11 @@ if(ASTROLABE185B_BUILD_VARIANT STREQUAL "cyber" OR
     target_compile_definitions(${COMPONENT_LIB} PRIVATE ASTROLABE185B_CYBER_FEATURES=1)
 else()
     target_compile_definitions(${COMPONENT_LIB} PRIVATE ASTROLABE185B_CYBER_FEATURES=0)
+endif()
+if(ASTROLABE185B_BUILD_VARIANT STREQUAL "xdj")
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE ASTROLABE185B_XDJ_BUILD=1)
+else()
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE ASTROLABE185B_XDJ_BUILD=0)
 endif()
 if(ASTROLABE185B_BUILD_VARIANT STREQUAL "claw" OR ASTROLABE185B_BUILD_VARIANT STREQUAL "recovery")
     target_compile_definitions(${COMPONENT_LIB} PRIVATE ASTROLABE_FACTORY_RECOVERY=1)

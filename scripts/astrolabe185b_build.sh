@@ -13,8 +13,8 @@ source "${IDF_PATH}/export.sh"
 ASTROLABE185B_USB_MODE="${ASTROLABE185B_USB_MODE:-dev}"
 ASTROLABE185B_VARIANT="${ASTROLABE185B_VARIANT:-faculty}"
 case "${ASTROLABE185B_VARIANT}" in
-  faculty|cyber|claw|recovery) ;;
-  *) echo "error: ASTROLABE185B_VARIANT must be faculty, cyber, claw, or recovery" >&2; exit 2 ;;
+  faculty|cyber|claw|recovery|xdj) ;;
+  *) echo "error: ASTROLABE185B_VARIANT must be faculty, cyber, claw, recovery, or xdj" >&2; exit 2 ;;
 esac
 ASTROLABE185B_FORCE_RECONFIGURE=0
 ASTROLABE185B_CMAKE_ARGS=(-D "ASTROLABE185B_BUILD_VARIANT=${ASTROLABE185B_VARIANT}")
@@ -128,6 +128,9 @@ if resolved_py="$(astrolabe185b_idf_python)"; then
 fi
 
 sdkconfig_defaults="sdkconfig.defaults"
+if [[ "${ASTROLABE185B_VARIANT}" == "xdj" ]]; then
+  sdkconfig_defaults="${sdkconfig_defaults};sdkconfig.xdj.defaults"
+fi
 if [[ "${ASTROLABE185B_USB_MODE}" == "msc" ]]; then
   sdkconfig_defaults="${sdkconfig_defaults};sdkconfig.usb_msc.defaults"
 fi

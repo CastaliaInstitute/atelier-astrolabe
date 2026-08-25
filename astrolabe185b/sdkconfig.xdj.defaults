@@ -1,0 +1,9 @@
+# XDJ reserves the ESP32-S3 OTG peripheral for USB Host MIDI.
+# The normal Astrolabe TinyUSB device profile must not claim this peripheral.
+# CONFIG_TINYUSB_CDC_ENABLED is not set
+# CONFIG_TINYUSB_MSC_ENABLED is not set
+
+# Keep Astrolabe's existing BLE control/recovery surface available while the
+# xdj-face reserves the OTG port for USB-host MIDI.
+CONFIG_BT_ENABLED=y
+CONFIG_BT_NIMBLE_ENABLED=y

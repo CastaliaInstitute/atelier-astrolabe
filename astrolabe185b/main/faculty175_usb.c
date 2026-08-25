@@ -177,6 +177,16 @@ esp_err_t faculty175_usb_init(void)
     }
 
     ESP_LOGI(TAG, "usb init begin");
+#if ASTROLABE185B_XDJ_BUILD
+    /* The XDJ variant reserves the OTG peripheral for the USB Host MIDI
+     * bridge. It deliberately does not install the normal TinyUSB device
+     * profile, which would claim the same PHY and bus role. */
+    s_storage_ready = faculty175_storage_ready();
+    s_storage_mounted = s_storage_ready;
+    s_usb_ready = true;
+    ESP_LOGI(TAG, "XDJ variant: USB OTG reserved for host MIDI");
+    return ESP_OK;
+#endif
     (void)storage_init_sdmmc();
 
 #if !(CONFIG_TINYUSB_CDC_ENABLED || CONFIG_TINYUSB_MSC_ENABLED)

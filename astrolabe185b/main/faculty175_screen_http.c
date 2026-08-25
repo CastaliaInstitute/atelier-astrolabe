@@ -26,6 +26,7 @@
 #include "faculty175_wifi_lab.h"
 #include "faculty175_wifi_monitor.h"
 #include "faculty175_wifi_settings.h"
+#include "faculty175_xdj_bridge.h"
 
 static const char *TAG = "faculty175_screen_http";
 static httpd_handle_t s_httpd;
@@ -903,6 +904,59 @@ static esp_err_t api_face_post(httpd_req_t *req)
     return api_face_reply(req, faculty175_faces_current(), set_us, err);
 }
 
+static esp_err_t api_xdj_send(httpd_req_t *req, esp_err_t operation_err)
+{
+    cJSON *root = cJSON_CreateObject();
+    if (root == NULL) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "json alloc");
+        return ESP_FAIL;
+    }
+    cJSON_AddBoolToObject(root, "ok", operation_err == ESP_OK);
+    add_json_string(root, "err", esp_err_to_name(operation_err));
+    add_json_string(root, "face", "xdj");
+    add_json_string(root, "usb", faculty175_xdj_bridge_usb_state_name());
+    cJSON_AddBoolToObject(root, "running", faculty175_xdj_bridge_running());
+    cJSON_AddNumberToObject(root, "stream_port", faculty175_xdj_bridge_stream_port());
+    cJSON_AddNumberToObject(root, "protocol", 1);
+    char *json = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    if (json == NULL) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "json print");
+        return ESP_FAIL;
+    }
+    set_api_headers(req);
+    esp_err_t err = httpd_resp_send(req, json, HTTPD_RESP_USE_STRLEN);
+    free(json);
+    return err;
+}
+
+static esp_err_t api_xdj_get(httpd_req_t *req)
+{
+    return api_xdj_send(req, ESP_OK);
+}
+
+static esp_err_t api_xdj_post(httpd_req_t *req)
+{
+    char body[128];
+    if (read_request_body(req, body, sizeof(body)) != ESP_OK) {
+        return ESP_FAIL;
+    }
+    char action[32] = {};
+    form_value(body, "action", action, sizeof(action));
+    if (action[0] == '\0') {
+        json_value(body, "action", action, sizeof(action));
+    }
+    esp_err_t err;
+    if (strcasecmp(action, "start") == 0 || strcasecmp(action, "rescan") == 0) {
+        err = faculty175_xdj_bridge_start();
+    } else if (strcasecmp(action, "stop") == 0) {
+        err = faculty175_xdj_bridge_stop();
+    } else {
+        err = ESP_ERR_INVALID_ARG;
+    }
+    return api_xdj_send(req, err);
+}
+
 static esp_err_t api_voice_post(httpd_req_t *req)
 {
     char body[192];
@@ -1026,7 +1080,7 @@ esp_err_t faculty175_screen_http_start(const esp_ip4_addr_t *ip)
     config.server_port = 80;
     config.stack_size = 8192;
     config.max_open_sockets = 4;
-    config.max_uri_handlers = 16;
+    config.max_uri_handlers = 24;
     config.lru_purge_enable = true;
 
     esp_err_t err = httpd_start(&s_httpd, &config);
@@ -1081,6 +1135,18 @@ esp_err_t faculty175_screen_http_start(const esp_ip4_addr_t *ip)
         .uri = "/api/face",
         .method = HTTP_POST,
         .handler = api_face_post,
+        .user_ctx = NULL,
+    };
+    const httpd_uri_t api_xdj_get_uri = {
+        .uri = "/api/xdj",
+        .method = HTTP_GET,
+        .handler = api_xdj_get,
+        .user_ctx = NULL,
+    };
+    const httpd_uri_t api_xdj_post_uri = {
+        .uri = "/api/xdj",
+        .method = HTTP_POST,
+        .handler = api_xdj_post,
         .user_ctx = NULL,
     };
     const httpd_uri_t api_voice_post_uri = {
@@ -1139,6 +1205,8 @@ esp_err_t faculty175_screen_http_start(const esp_ip4_addr_t *ip)
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &api_faces_uri), TAG, "register GET /api/faces");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &api_face_get_uri), TAG, "register GET /api/face");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &api_face_post_uri), TAG, "register POST /api/face");
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &api_xdj_get_uri), TAG, "register GET /api/xdj");
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &api_xdj_post_uri), TAG, "register POST /api/xdj");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &api_voice_post_uri), TAG, "register POST /api/voice");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &api_settings_get_uri), TAG, "register GET /api/settings");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &api_settings_post_uri), TAG, "register POST /api/settings");
