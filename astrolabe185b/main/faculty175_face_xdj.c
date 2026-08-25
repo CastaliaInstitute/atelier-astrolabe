@@ -4,9 +4,8 @@
 
 #include "faculty175_xdj_bridge.h"
 
-/* The transport implementation is intentionally kept behind this face. The
- * face is registered now so navigation/API clients can target a stable slug
- * while the USB-host MIDI class driver is added. */
+/* Keep the visual face small: the bridge owns USB-host enumeration and the
+ * Wi-Fi stream, while this surface exposes only child-readable state. */
 void faculty175_face_xdj_draw(uint32_t anim_ms)
 {
     static char line_a[48];
