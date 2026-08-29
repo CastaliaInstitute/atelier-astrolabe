@@ -17,7 +17,8 @@ typedef enum {
 } theritor_expression_t;
 
 static faculty175_ui_state_t s_state = FACULTY175_UI_LISTEN;
-static theritor_expression_t s_expression = THERITOR_EXPRESSION_WARM;
+/* Default to the attentive 🧐 face; active inference uses 🤔. */
+static theritor_expression_t s_expression = THERITOR_EXPRESSION_EXAMINING;
 static char s_respondent[16] = "DANIEL";
 static char s_mode[16] = "EDITOR";
 EXT_RAM_BSS_ATTR static uint16_t s_emojinq_sprite[THERITOR_EMOJINQ_SIZE * THERITOR_EMOJINQ_SIZE];
@@ -50,7 +51,7 @@ void faculty175_face_theritor_set_state(faculty175_ui_state_t state)
     s_state = state;
     if (state == FACULTY175_UI_THINK) s_expression = THERITOR_EXPRESSION_THINKING;
     else if (state == FACULTY175_UI_ERROR) s_expression = THERITOR_EXPRESSION_CONCERNED;
-    else if (previous == FACULTY175_UI_ERROR) s_expression = THERITOR_EXPRESSION_WARM;
+    else if (previous == FACULTY175_UI_ERROR) s_expression = THERITOR_EXPRESSION_EXAMINING;
     /* SPEAK and LISTEN intentionally retain the expression selected from the
      * LLM's Unicode emoji. The face should remain the nonverbal part of the
      * answer instead of snapping back to an unrelated idle smile. */
@@ -72,7 +73,9 @@ void faculty175_face_theritor_set_context(const char *respondent, const char *mo
 void faculty175_face_theritor_set_reply(const char *reply)
 {
     if (reply == NULL) return;
-    theritor_expression_t next = THERITOR_EXPRESSION_WARM;
+    /* An absent or unrecognized expression remains attentive rather than
+     * introducing an unrelated smile. */
+    theritor_expression_t next = THERITOR_EXPRESSION_EXAMINING;
     if (strncmp(reply, "🤔", strlen("🤔")) == 0) next = THERITOR_EXPRESSION_THINKING;
     else if (strncmp(reply, "🧐", strlen("🧐")) == 0) next = THERITOR_EXPRESSION_EXAMINING;
     else if (strncmp(reply, "😟", strlen("😟")) == 0) next = THERITOR_EXPRESSION_CONCERNED;
