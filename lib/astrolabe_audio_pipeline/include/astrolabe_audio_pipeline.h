@@ -57,6 +57,7 @@ typedef void (*astrolabe_audio_session_fn)(const char *session_id,
 typedef void (*astrolabe_audio_prepare_context_fn)(void *user);
 typedef esp_err_t (*astrolabe_audio_play_mp3_fn)(const uint8_t *mp3, size_t mp3_len, void *user);
 typedef esp_err_t (*astrolabe_audio_request_headers_fn)(esp_http_client_handle_t client, void *user);
+typedef esp_err_t (*astrolabe_audio_request_header_text_fn)(char *out, size_t cap, void *user);
 
 typedef struct {
     astrolabe_audio_read_fn read;
@@ -74,6 +75,7 @@ typedef struct {
     astrolabe_audio_prepare_context_fn prepare_context;
     astrolabe_audio_play_mp3_fn play_mp3;
     astrolabe_audio_request_headers_fn request_headers;
+    astrolabe_audio_request_header_text_fn request_header_text;
     void *event_user;
 
     const char *endpoint_url;

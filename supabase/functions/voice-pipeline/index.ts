@@ -94,6 +94,8 @@ import {
 
 type ReqBody = {
   audioBase64?: string;
+  /** Final transcript supplied by Gemini Live while preserving original audio. */
+  transcript?: string;
   ttsText?: string;
   sampleRateHertz?: number;
   languageCode?: string;
@@ -314,6 +316,7 @@ async function routeTheritorVoice(
       topic: body.topic,
       work_slug: body.workSlug,
       session_id: body.sessionId,
+      transcript: body.transcript,
     }),
   });
   const responseBody = await upstream.arrayBuffer();

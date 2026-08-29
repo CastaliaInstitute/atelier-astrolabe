@@ -3531,7 +3531,15 @@ static esp_err_t pipeline_play_mp3(const uint8_t *mp3, size_t mp3_len, void *use
          * time to finish their staged reveal before speech begins. */
         vTaskDelay(pdMS_TO_TICKS(faculty175_face_alethiometer_reveal_duration_ms()));
     }
-    return faculty175_voice_play_mp3_async(mp3, mp3_len);
+    const esp_err_t play_err = faculty175_voice_play_mp3_async(mp3, mp3_len);
+    /* ES7210 can remain clocked in a stale post-speaker state after the shared
+     * I2S bus changes direction. A full capture reset restores intelligible
+     * microphone samples before the next hands-free turn. */
+    const esp_err_t capture_err = faculty175_audio_reset_capture(1000);
+    if (capture_err != ESP_OK) {
+        FACULTY175_LOG_STAGE_W(TAG, "voice", "post-play mic reset failed: %s", esp_err_to_name(capture_err));
+    }
+    return play_err != ESP_OK ? play_err : capture_err;
 }
 
 static void pipeline_mute(bool mute, void *user)
@@ -3603,9 +3611,16 @@ static esp_err_t pipeline_request_headers(esp_http_client_handle_t client, void 
     return faculty175_device_auth_headers(client);
 }
 
+static esp_err_t pipeline_request_header_text(char *out, size_t cap, void *user)
+{
+    (void)user;
+    return faculty175_device_auth_header_text(out, cap);
+}
+
 static void pipeline_event(astrolabe_audio_pipeline_event_t event, const char *detail, void *user)
 {
     (void)user;
+    const bool rolling_segment = detail != NULL && strcmp(detail, "segment") == 0;
     const faculty175_face_desc_t *active_face = faculty175_faces_current();
     if (active_face != NULL && active_face->id == FACULTY175_FACE_THERITOR) {
         faculty175_ui_state_t theritor_state = s_ui;
@@ -3628,15 +3643,24 @@ static void pipeline_event(astrolabe_audio_pipeline_event_t event, const char *d
             FACULTY175_LOG_STAGE(TAG, "listen", "ready");
             break;
         case ASTROLABE_AUDIO_PIPELINE_EVENT_CAPTURE_START:
+            if (rolling_segment) {
+                /* Segment rotation runs on the real-time listener. UI/task
+                 * diagnostics here used to stall microphone reads and drop
+                 * roughly one second of every 500 ms rolling chunk. */
+                break;
+            }
             if (s_power_on_battery) {
                 s_battery_stt_armed = true;
             }
             ui_set(FACULTY175_UI_CAPTURE, NULL);
             FACULTY175_LOG_STAGE(TAG, "capture", "speech detected — rolling stream active");
-            pipeline_log_heap("capture-start");
-            pipeline_log_tasks("capture-start");
             break;
         case ASTROLABE_AUDIO_PIPELINE_EVENT_CAPTURE_QUEUED:
+            if (rolling_segment) {
+                /* A transport chunk is not a conversational turn. Keep this
+                 * callback constant-time so capture can continue gaplessly. */
+                break;
+            }
             if (s_power_on_battery) {
                 s_battery_stt_armed = false;
                 low_power_wifi_resume_for_voice(0);
@@ -4221,6 +4245,20 @@ static esp_err_t pipeline_ensure_ready(void)
 #else
     vTaskDelay(pdMS_TO_TICKS(120));
 #endif
+    /* Boot chimes and face speech share I2S with the ES7210. Re-open and
+     * reapply its board route before the listener starts so the first turn is
+     * real speech rather than the codec's stale clock-noise lane. */
+    const esp_err_t capture_reset_err = faculty175_audio_reset_capture(1000);
+    if (capture_reset_err != ESP_OK) {
+        FACULTY175_LOG_STAGE_E(TAG, "pipeline", "mic reset before start failed: %s", esp_err_to_name(capture_reset_err));
+        astrolabe_audio_pipeline_destroy(s_pipeline);
+        s_pipeline = NULL;
+        faculty175_ota_set_auto_paused(false);
+        button_reboot_task_start_if_needed();
+        face_tts_worker_start();
+        (void)faculty175_screen_http_start(NULL);
+        return capture_reset_err;
+    }
     const esp_err_t start_err = astrolabe_audio_pipeline_start(s_pipeline);
     if (start_err != ESP_OK) {
         FACULTY175_LOG_STAGE_E(TAG, "pipeline", "start failed: %s", esp_err_to_name(start_err));
@@ -6554,9 +6592,10 @@ void app_main(void)
         .prepare_context = sync_voice_context_transport,
         .play_mp3 = pipeline_play_mp3,
         .request_headers = pipeline_request_headers,
+        .request_header_text = pipeline_request_header_text,
         .endpoint_url = s_voice_pipeline_url,
         .stream_url = s_voice_stream_url,
-        .transport = ASTROLABE_AUDIO_PIPELINE_TRANSPORT_FLASH_POST,
+        .transport = ASTROLABE_AUDIO_PIPELINE_TRANSPORT_ROLLING_WEBSOCKET,
         .api_key = MYNAH_SUPABASE_ANON_KEY,
         .face = s_voice_face,
         .faculty_slug = s_faculty_slug,
@@ -6587,12 +6626,17 @@ void app_main(void)
         .rms_start = 350,
         .rms_end = 280,
         .start_frames = 4,
-        .silence_frames = 50,
+        /* 10 ms frames: allow a 900 ms conversational pause before ending
+         * the turn. Higher-quality TTS and natural speakers both pause long
+         * enough to trip the previous 500 ms cutoff mid-question. */
+        .silence_frames = 90,
         .max_seconds = 15,
         .min_ms = 400,
         .capture_cooldown_ms = 2500,
-        .capture_ring_slots = 8,
-        .capture_segment_ms = 500,
+        /* Sixteen one-second PSRAM chunks cover the full 15-second turn even
+         * while a scale-to-zero backend establishes its first WebSocket. */
+        .capture_ring_slots = 16,
+        .capture_segment_ms = 1000,
         .listen_priority = 5,
         .voice_priority = 4,
         .listen_stack = FACULTY175_PIPELINE_LISTEN_STACK,
