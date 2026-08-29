@@ -159,6 +159,7 @@ static int s_audio_selected_ch = -1;
 static SemaphoreHandle_t s_audio_read_mux;
 static bool s_spk_open;
 static bool s_mic_open;
+static float s_mic_capture_gain_db = 30.0f;
 static uint32_t s_spk_rate_hz = FACULTY175_AUDIO_RATE;
 static int16_t *s_aec_ref;
 static uint32_t s_aec_ref_write;
@@ -1422,8 +1423,22 @@ static void faculty175_mic_apply_capture_config(void)
     /* Match Waveshare's 1.75C BSP: standard I2S with the MIC1/MIC2 pair. The
      * previous four-channel TDM override produced one clock-noise lane and a
      * second all-zero half-frame on this board. */
-    (void)esp_codec_dev_set_in_gain(s_mic_codec, 24.0f);
     faculty175_es7210_apply_board_capture_route();
+    /* The board route establishes a safe 30 dB baseline. Apply the active
+     * face's requested gain afterwards so capture resets do not erase it. */
+    (void)esp_codec_dev_set_in_gain(s_mic_codec, s_mic_capture_gain_db);
+}
+
+esp_err_t faculty175_audio_set_mic_gain(float db)
+{
+    if (db < 0.0f || db > 37.5f) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    s_mic_capture_gain_db = db;
+    if (s_mic_codec == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    return esp_codec_dev_set_in_gain(s_mic_codec, db) == ESP_CODEC_DEV_OK ? ESP_OK : ESP_FAIL;
 }
 
 static esp_err_t faculty175_codec_open(bool out, uint32_t hz)

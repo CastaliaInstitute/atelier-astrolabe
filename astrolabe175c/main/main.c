@@ -3681,8 +3681,13 @@ static void pipeline_event(astrolabe_audio_pipeline_event_t event, const char *d
             }
             break;
         case ASTROLABE_AUDIO_PIPELINE_EVENT_SPEAKING:
-            ui_set(FACULTY175_UI_SPEAK, detail != NULL && detail[0] != '\0' ? detail : s_faculty_name);
-            FACULTY175_LOG_STAGE(TAG, "speak", "%s", detail != NULL && detail[0] != '\0' ? detail : s_faculty_name);
+            {
+                const char *speaker = active_face != NULL && active_face->id == FACULTY175_FACE_THERITOR
+                                          ? "Theritor"
+                                          : (detail != NULL && detail[0] != '\0' ? detail : s_faculty_name);
+                ui_set(FACULTY175_UI_SPEAK, speaker);
+                FACULTY175_LOG_STAGE(TAG, "speak", "%s", speaker);
+            }
             pipeline_log_heap("speaking");
             pipeline_log_tasks("speaking");
             break;
@@ -5169,6 +5174,10 @@ static void sync_voice_context_impl(bool allow_flash_cache)
      * board's simpler frame gate can attenuate soft opening consonants before
      * VAD sees them, which clips ordinary tabletop questions. */
     faculty175_audio_noise_suppression_set_enabled(!theritor_mode);
+    const esp_err_t mic_gain_err = faculty175_audio_set_mic_gain(theritor_mode ? 36.0f : 30.0f);
+    if (mic_gain_err != ESP_OK) {
+        FACULTY175_LOG_STAGE_W(TAG, "voice", "mic gain update failed: %s", esp_err_to_name(mic_gain_err));
+    }
     if (theritor_mode) {
         faculty175_face_theritor_set_context(s_theritor_respondent, s_theritor_mode);
     }
@@ -5690,6 +5699,8 @@ static void input_task(void *arg)
     uint32_t suppress_wake_gesture_until_ms = 0;
     bool button_was_down = false;
     bool face_save_pending = false;
+    const faculty175_face_desc_t *initial_face = faculty175_faces_current();
+    faculty175_face_id_t voice_context_face = initial_face != NULL ? initial_face->id : FACULTY175_FACE_COUNT;
     s_nav_mode = false;
     s_low_power_last_activity_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
     faculty175_display_nav_mode_set(false);
@@ -5698,6 +5709,11 @@ static void input_task(void *arg)
     while (true) {
         const uint32_t now_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
         const faculty175_face_desc_t *usb_face = faculty175_faces_current();
+        if (usb_face != NULL && usb_face->id != voice_context_face) {
+            voice_context_face = usb_face->id;
+            sync_voice_context(NULL);
+            FACULTY175_LOG_STAGE(TAG, "voice", "face context synced %s", usb_face->slug);
+        }
         const bool usb_screen_active = usb_face != NULL && usb_face->id == FACULTY175_FACE_USB_SCREEN;
         if (usb_screen_active != faculty175_usb_screen_profile_active()) {
             const esp_err_t usb_profile_err = faculty175_usb_set_screen_face_active(usb_screen_active);
