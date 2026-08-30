@@ -111,6 +111,7 @@ typedef struct {
     uint32_t rms_end;
     uint32_t start_frames;
     uint32_t silence_frames;
+    /** Batch capture limit. Zero means unbounded for rolling Theritor streams. */
     uint32_t max_seconds;
     uint32_t min_ms;
     uint32_t capture_cooldown_ms;

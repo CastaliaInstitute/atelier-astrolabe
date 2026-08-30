@@ -6630,11 +6630,13 @@ void app_main(void)
          * the turn. Higher-quality TTS and natural speakers both pause long
          * enough to trip the previous 500 ms cutoff mid-question. */
         .silence_frames = 90,
-        .max_seconds = 15,
+        /* Rolling Theritor capture is unbounded. One-second segments keep
+         * memory bounded; sustained conversational silence ends the turn. */
+        .max_seconds = 0,
         .min_ms = 400,
         .capture_cooldown_ms = 2500,
-        /* Sixteen one-second PSRAM chunks cover the full 15-second turn even
-         * while a scale-to-zero backend establishes its first WebSocket. */
+        /* Sixteen one-second PSRAM chunks absorb scale-to-zero startup and
+         * transient network backpressure while the live stream continues. */
         .capture_ring_slots = 16,
         .capture_segment_ms = 1000,
         .listen_priority = 5,

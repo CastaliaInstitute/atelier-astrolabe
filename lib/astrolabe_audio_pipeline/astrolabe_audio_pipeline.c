@@ -3009,7 +3009,9 @@ esp_err_t astrolabe_audio_pipeline_create(const astrolabe_audio_pipeline_config_
     if (p->cfg.silence_frames == 0) {
         p->cfg.silence_frames = DEFAULT_SILENCE_FRAMES;
     }
-    if (p->cfg.max_seconds == 0) {
+    const bool unbounded_rolling_capture =
+        p->cfg.max_seconds == 0 && rolling_websocket_enabled(p);
+    if (p->cfg.max_seconds == 0 && !unbounded_rolling_capture) {
         p->cfg.max_seconds = DEFAULT_MAX_SECONDS;
     }
     if (p->cfg.min_ms == 0) {
@@ -3069,7 +3071,12 @@ esp_err_t astrolabe_audio_pipeline_create(const astrolabe_audio_pipeline_config_
     if (p->capture_ring_slots > MAX_RING_SLOTS) {
         p->capture_ring_slots = MAX_RING_SLOTS;
     }
-    p->capture_cap_bytes = (size_t)p->cfg.max_seconds * cfg_stt_sample_rate_hz(p) * sizeof(int16_t);
+    /* A rolling Theritor turn is an actual stream: segment rotation bounds
+     * memory while VAD silence, rather than elapsed time, ends the utterance.
+     * Batch transports retain their configured duration bound. */
+    p->capture_cap_bytes = unbounded_rolling_capture
+                               ? SIZE_MAX
+                               : (size_t)p->cfg.max_seconds * cfg_stt_sample_rate_hz(p) * sizeof(int16_t);
     p->vad_preroll_cap = ((size_t)p->cfg.sample_rate_hz * VAD_PREROLL_MS / 1000u) * sizeof(int16_t);
     if (p->vad_preroll_cap > 0) {
         p->vad_preroll = heap_caps_malloc(p->vad_preroll_cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
@@ -3087,7 +3094,8 @@ esp_err_t astrolabe_audio_pipeline_create(const astrolabe_audio_pipeline_config_
     } else {
         p->segment_cap_bytes = p->capture_cap_bytes;
     }
-    if (p->segment_cap_bytes == 0 || p->segment_cap_bytes > p->capture_cap_bytes) {
+    if (p->segment_cap_bytes == 0 ||
+        (!unbounded_rolling_capture && p->segment_cap_bytes > p->capture_cap_bytes)) {
         p->segment_cap_bytes = p->capture_cap_bytes;
     }
     if (!capture_uses_ram(p) && !p->cfg.capture_skip_spiffs_mount) {
