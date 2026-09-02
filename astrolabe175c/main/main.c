@@ -6698,12 +6698,15 @@ void app_main(void)
         .max_seconds = 0,
         .min_ms = 500,
         .capture_cooldown_ms = 1000,
-        /* Sixteen PSRAM frames absorb four seconds of transient network
-         * backpressure while the live stream continues. */
+        /* Sixteen PSRAM frames absorb sixteen seconds of transient network
+         * backpressure while the live stream continues.  Shorter 250 ms
+         * frames could fill this queue when TLS/WebSocket sends briefly ran
+         * slower than real time, losing the terminal VAD commit. */
         .capture_ring_slots = 16,
-        /* Feed the rolling WebSocket every 250 ms. These are transport frames;
-         * only VAD end emits input_audio_buffer.commit. */
-        .capture_segment_ms = 250,
+        /* Queue one second at a time. stream_pcm_file still emits bounded
+         * 8 KiB WebSocket frames; this setting only increases the amount of
+         * audio represented by each PSRAM queue entry. */
+        .capture_segment_ms = 1000,
         .listen_priority = 5,
         .voice_priority = 4,
         .listen_stack = FACULTY175_PIPELINE_LISTEN_STACK,
