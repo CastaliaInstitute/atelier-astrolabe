@@ -57,6 +57,7 @@ static const char *TAG = "ast_audio_pipe";
 #define STREAM_CONNECT_TIMEOUT_MS 5000
 #define STREAM_SEND_TIMEOUT_MS 5000
 #define STREAM_FRAME_PACE_MS 0
+#define STREAM_AUDIO_SEGMENT_QUEUE_LEN 4
 #define STREAM_RESPONSE_TIMEOUT_MS 120000
 #define STREAM_EARLY_RESPONSE_TIMEOUT_MS 8000
 #define STREAM_WEBSOCKET_TASK_STACK 6144u
@@ -91,6 +92,11 @@ typedef struct {
 
 typedef struct voice_result voice_result_t;
 typedef struct stream_response_ctx stream_response_ctx_t;
+
+typedef struct {
+    uint8_t *mp3;
+    size_t mp3_len;
+} stream_audio_segment_t;
 
 struct astrolabe_audio_pipeline {
     astrolabe_audio_pipeline_config_t cfg;
@@ -181,6 +187,10 @@ struct stream_response_ctx {
     esp_err_t err;
     bool response_done;
     bool transport_failed;
+    QueueHandle_t audio_segments;
+    uint8_t *pending_segment_mp3;
+    size_t pending_segment_mp3_len;
+    bool segmented_audio_played;
 };
 
 static uint32_t ticks_ms(void)
@@ -198,6 +208,7 @@ static const char *cfg_interaction_mode(const astrolabe_audio_pipeline_t *p);
 static void listen_task(void *arg);
 static void voice_task(void *arg);
 static void voice_result_free(voice_result_t *r);
+static esp_err_t play_mp3(astrolabe_audio_pipeline_t *p, const uint8_t *mp3, size_t mp3_len);
 static esp_err_t websocket_send_text_all(esp_websocket_client_handle_t client, const char *text);
 static void stream_response_event(void *handler_arg, esp_event_base_t base, int32_t event_id, void *event_data);
 static esp_err_t rolling_stream_session_open(astrolabe_audio_pipeline_t *p);
@@ -1445,9 +1456,27 @@ static void stream_response_handle_json(stream_response_ctx_t *ctx, char *json)
             uint8_t *mp3 = NULL;
             size_t mp3_len = 0;
             if (decode_base64_alloc(audio_b64, audio_b64_len, &mp3, &mp3_len)) {
-                if (!append_bytes(&ctx->result->mp3, &ctx->result->mp3_len, mp3, mp3_len)) {
+                const bool segmented = strstr(json, "\"segmentIndex\":") != NULL;
+                uint8_t **target = segmented ? &ctx->pending_segment_mp3 : &ctx->result->mp3;
+                size_t *target_len = segmented ? &ctx->pending_segment_mp3_len : &ctx->result->mp3_len;
+                if (!append_bytes(target, target_len, mp3, mp3_len)) {
                     ctx->err = ESP_ERR_NO_MEM;
                     ctx->event_count++;
+                } else if (segmented && strstr(json, "\"segmentEnd\":true") != NULL) {
+                    stream_audio_segment_t segment = {
+                        .mp3 = ctx->pending_segment_mp3,
+                        .mp3_len = ctx->pending_segment_mp3_len,
+                    };
+                    ctx->pending_segment_mp3 = NULL;
+                    ctx->pending_segment_mp3_len = 0;
+                    if (ctx->audio_segments == NULL || xQueueSend(ctx->audio_segments, &segment, 0) != pdTRUE) {
+                        free(segment.mp3);
+                        ctx->err = ESP_ERR_NO_MEM;
+                        ctx->event_count++;
+                    } else {
+                        ESP_LOGI(TAG, "voice-stream queued playable audio segment bytes=%u",
+                                 (unsigned)segment.mp3_len);
+                    }
                 }
                 free(mp3);
             }
@@ -1572,15 +1601,53 @@ static void rolling_stream_reset_response(stream_response_ctx_t *ctx)
     ctx->response_done = false;
     ctx->transport_failed = false;
     ctx->message_len = 0;
+    free(ctx->pending_segment_mp3);
+    ctx->pending_segment_mp3 = NULL;
+    ctx->pending_segment_mp3_len = 0;
+    ctx->segmented_audio_played = false;
+    if (ctx->audio_segments != NULL) {
+        stream_audio_segment_t segment = {};
+        while (xQueueReceive(ctx->audio_segments, &segment, 0) == pdTRUE) {
+            free(segment.mp3);
+        }
+    }
 }
 
-static bool rolling_stream_wait_event(const stream_response_ctx_t *ctx, uint32_t seen_count, uint32_t timeout_ms)
+static bool rolling_stream_wait_response(astrolabe_audio_pipeline_t *p, uint32_t seen_count, uint32_t timeout_ms)
 {
     const uint32_t start_ms = ticks_ms();
-    while (ctx != NULL && ctx->event_count == seen_count && ticks_ms() - start_ms < timeout_ms) {
+    stream_response_ctx_t *ctx = p != NULL ? p->rolling_response : NULL;
+    bool speaking = false;
+    while (ctx != NULL && ticks_ms() - start_ms < timeout_ms) {
+        stream_audio_segment_t segment = {};
+        if (ctx->audio_segments != NULL && xQueueReceive(ctx->audio_segments, &segment, 0) == pdTRUE) {
+            if (!speaking) {
+                stop_listen_task_if_running(p, 1000);
+                emit(p, ASTROLABE_AUDIO_PIPELINE_EVENT_SPEAKING, p->cfg.faculty_name);
+                speaking = true;
+            }
+            ESP_LOGI(TAG, "voice-stream playing audio segment bytes=%u after %ums",
+                     (unsigned)segment.mp3_len, (unsigned)(ticks_ms() - start_ms));
+            esp_err_t play_err = p->cfg.play_mp3 != NULL
+                                     ? p->cfg.play_mp3(segment.mp3, segment.mp3_len, p->cfg.event_user)
+                                     : play_mp3(p, segment.mp3, segment.mp3_len);
+            free(segment.mp3);
+            if (play_err != ESP_OK) {
+                ctx->err = play_err;
+                ctx->event_count++;
+                return false;
+            }
+            ctx->segmented_audio_played = true;
+            continue;
+        }
+        if (ctx->event_count != seen_count) {
+            if (!ctx->response_done || ctx->pending_segment_mp3_len == 0) {
+                return true;
+            }
+        }
         vTaskDelay(pdMS_TO_TICKS(20));
     }
-    return ctx != NULL && ctx->event_count != seen_count;
+    return false;
 }
 
 static void rolling_stream_session_close(astrolabe_audio_pipeline_t *p)
@@ -1608,6 +1675,12 @@ static void rolling_stream_state_free(astrolabe_audio_pipeline_t *p)
         return;
     }
     if (p->rolling_response != NULL) {
+        if (p->rolling_response->audio_segments != NULL) {
+            vQueueDelete(p->rolling_response->audio_segments);
+            p->rolling_response->audio_segments = NULL;
+        }
+        free(p->rolling_response->pending_segment_mp3);
+        p->rolling_response->pending_segment_mp3 = NULL;
         free(p->rolling_response->message);
         p->rolling_response->message = NULL;
         free(p->rolling_response);
@@ -1736,6 +1809,14 @@ static esp_err_t rolling_stream_session_open(astrolabe_audio_pipeline_t *p)
             break;
         }
         p->rolling_response->result = p->rolling_result;
+        if (p->rolling_response->audio_segments == NULL) {
+            p->rolling_response->audio_segments = xQueueCreate(
+                STREAM_AUDIO_SEGMENT_QUEUE_LEN, sizeof(stream_audio_segment_t));
+        }
+        if (p->rolling_response->audio_segments == NULL) {
+            err = ESP_ERR_NO_MEM;
+            break;
+        }
         rolling_stream_reset_response(p->rolling_response);
         rolling_stream_reset_result(p->rolling_result);
         ESP_LOGI(TAG,
@@ -1972,8 +2053,10 @@ static esp_err_t stream_pcm_file(astrolabe_audio_pipeline_t *p, const utterance_
         err = websocket_send_text_all(p->rolling_client, commit);
     }
     if (err == ESP_OK && utt->final_segment && p->rolling_response != NULL) {
-        if (!rolling_stream_wait_event(p->rolling_response, response_seen_count, STREAM_RESPONSE_TIMEOUT_MS)) {
-            err = ESP_ERR_TIMEOUT;
+        if (!rolling_stream_wait_response(p, response_seen_count, STREAM_RESPONSE_TIMEOUT_MS)) {
+            err = p->rolling_response->err != ESP_OK
+                      ? p->rolling_response->err
+                      : ESP_ERR_TIMEOUT;
         } else if (p->rolling_response->err != ESP_OK) {
             err = p->rolling_response->err;
         } else if (!p->rolling_response->response_done) {

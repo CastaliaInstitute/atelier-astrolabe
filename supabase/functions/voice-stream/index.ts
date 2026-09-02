@@ -34,6 +34,7 @@ type VoicePipelineResponse = {
   transcript?: string;
   reply?: string;
   audioBase64?: string;
+  audioChunksBase64?: string[];
   facultySlug?: string;
   facultyName?: string;
   askFacultyRoute?: boolean;
@@ -58,17 +59,26 @@ async function sendAudioDelta(
   turnId: string,
   audioBase64: string,
   encoding = "mp3",
+  segmentIndex?: number,
+  segmentCount?: number,
 ) {
   for (
     let offset = 0;
     offset < audioBase64.length;
     offset += AUDIO_DELTA_CHARS
   ) {
+    const end = Math.min(offset + AUDIO_DELTA_CHARS, audioBase64.length);
     send(socket, {
       type: "response.audio.delta",
       turnId,
-      audio: audioBase64.slice(offset, offset + AUDIO_DELTA_CHARS),
+      audio: audioBase64.slice(offset, end),
       encoding,
+      ...(segmentIndex === undefined ? {} : {
+        segmentIndex,
+        segmentCount,
+        segmentStart: offset === 0,
+        segmentEnd: end === audioBase64.length,
+      }),
     });
     if (offset + AUDIO_DELTA_CHARS < audioBase64.length) {
       await new Promise((resolve) => setTimeout(resolve, 0));
@@ -488,7 +498,25 @@ Deno.serve(async (req) => {
             delta: reply,
           });
         }
-        if (theritorResult.json.audioBase64) {
+        const audioSegments = Array.isArray(
+            theritorResult.json.audioChunksBase64,
+          )
+          ? theritorResult.json.audioChunksBase64.filter((chunk) =>
+            typeof chunk === "string" && chunk.length > 0
+          )
+          : [];
+        if (audioSegments.length > 0) {
+          for (let index = 0; index < audioSegments.length; index++) {
+            await sendAudioDelta(
+              socket,
+              id,
+              audioSegments[index],
+              "mp3",
+              index,
+              audioSegments.length,
+            );
+          }
+        } else if (theritorResult.json.audioBase64) {
           await sendAudioDelta(
             socket,
             id,
