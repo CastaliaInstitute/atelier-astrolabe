@@ -93,7 +93,9 @@ static const int32_t FACULTY175_MIC_MONO_GAIN = 3;
 #define FACULTY175_ES8311_DAC_REG37 0x37
 #define FACULTY175_AUDIO_MIN_PROBE_PEAK 1
 #define FACULTY175_AUDIO_WARN_PROBE_PEAK 32
-#define FACULTY175_SPEAKER_VOLUME 100
+/* Leave headroom for full-scale synthesized speech. Driving the ES8311 at
+ * 100/100 makes the small 1.75C speaker/amp sound grainy on TTS peaks. */
+#define FACULTY175_SPEAKER_VOLUME 78
 #define FACULTY175_AUDIO_MAX_READ_SAMPLES 1024
 #define FACULTY175_ES7210_CHANNELS 4
 #define FACULTY175_ES7210_CAPTURE_CHANNELS 1
@@ -159,6 +161,7 @@ static int s_audio_selected_ch = -1;
 static SemaphoreHandle_t s_audio_read_mux;
 static bool s_spk_open;
 static bool s_mic_open;
+static float s_mic_capture_gain_db = 30.0f;
 static uint32_t s_spk_rate_hz = FACULTY175_AUDIO_RATE;
 static int16_t *s_aec_ref;
 static uint32_t s_aec_ref_write;
@@ -1422,8 +1425,22 @@ static void faculty175_mic_apply_capture_config(void)
     /* Match Waveshare's 1.75C BSP: standard I2S with the MIC1/MIC2 pair. The
      * previous four-channel TDM override produced one clock-noise lane and a
      * second all-zero half-frame on this board. */
-    (void)esp_codec_dev_set_in_gain(s_mic_codec, 24.0f);
     faculty175_es7210_apply_board_capture_route();
+    /* The board route establishes a safe 30 dB baseline. Apply the active
+     * face's requested gain afterwards so capture resets do not erase it. */
+    (void)esp_codec_dev_set_in_gain(s_mic_codec, s_mic_capture_gain_db);
+}
+
+esp_err_t faculty175_audio_set_mic_gain(float db)
+{
+    if (db < 0.0f || db > 37.5f) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    s_mic_capture_gain_db = db;
+    if (s_mic_codec == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    return esp_codec_dev_set_in_gain(s_mic_codec, db) == ESP_CODEC_DEV_OK ? ESP_OK : ESP_FAIL;
 }
 
 static esp_err_t faculty175_codec_open(bool out, uint32_t hz)
@@ -1882,6 +1899,11 @@ bool faculty175_board_audio_ready(void)
     return s_speaker_ready && s_spk_codec != NULL;
 }
 
+bool faculty175_board_mic_ready(void)
+{
+    return s_audio_ready && s_mic_codec != NULL;
+}
+
 bool faculty175_board_pi4ioe_ok(void)
 {
     return false;
@@ -1936,16 +1958,6 @@ esp_err_t faculty175_board_init(void)
         }
     }
 
-#if FACULTY175_HTTP_SCREEN_QA_SKIP_AUDIO
-    s_audio_ready = false;
-    ESP_LOGW(TAG, "audio init skipped for HTTP screen QA");
-#else
-    s_audio_ready = i2c_ready && faculty175_audio_init() == ESP_OK;
-    if (!s_audio_ready) {
-        ESP_LOGW(TAG, "audio init before LCD unavailable; will retry after display init");
-    }
-#endif
-
     g_faculty175_boot_stage = 0xae03;
     err = faculty175_lcd_init();
     g_faculty175_boot_last_err = err;
@@ -1956,18 +1968,24 @@ esp_err_t faculty175_board_init(void)
         faculty175_log_i2c_lines("boot-post-lcd");
     }
 
-    g_faculty175_boot_stage = 0xae04;
-    if (!s_audio_ready && i2c_ready) {
-        s_audio_ready = faculty175_audio_init() == ESP_OK;
-    }
-    if (!s_audio_ready) {
-        ESP_LOGW(TAG, "audio init unavailable — continuing without speaker/mic");
-    }
-
+    /* The display reset releases the shared peripheral reset domain. Bring up
+     * A3V3 next, then probe and open the codecs exactly once with stable rails. */
     g_faculty175_boot_stage = 0xae05;
     if (!i2c_ready || faculty175_pmu_init() != ESP_OK) {
         ESP_LOGW(TAG, "AXP2101 PMU init failed — audio/display may be unavailable");
     }
+
+    g_faculty175_boot_stage = 0xae04;
+#if FACULTY175_HTTP_SCREEN_QA_SKIP_AUDIO
+    s_audio_ready = false;
+    ESP_LOGW(TAG, "audio init skipped for HTTP screen QA");
+#else
+    s_audio_ready = i2c_ready && faculty175_audio_init() == ESP_OK;
+#endif
+    if (!s_audio_ready) {
+        ESP_LOGW(TAG, "audio init unavailable — continuing without speaker/mic");
+    }
+
     g_faculty175_boot_stage = 0xae06;
     faculty175_board_log_identity();
     vTaskDelay(pdMS_TO_TICKS(50));
@@ -3700,6 +3718,12 @@ static bool face_supports_vertical_nav(faculty175_face_id_t id)
 
 static void draw_bezel_nav(void)
 {
+    const faculty175_face_desc_t *face = faculty175_faces_current();
+    /* Theritor's silver Emojinq glyph includes the intentional face circle.
+     * Do not add the platform's outer navigation circumference around it. */
+    if (face != NULL && face->id == FACULTY175_FACE_THERITOR) {
+        return;
+    }
     size_t index = 0;
     size_t count = 0;
     if (!faculty175_faces_nav_position(&index, &count) || count <= 1) {
@@ -3729,7 +3753,6 @@ static void draw_bezel_nav(void)
     const float pad = step > 0.09f ? 0.018f : 0.006f;
     const float active_start = start0 + (float)index * step + pad;
     const float active_end = start0 + (float)(index + 1) * step - pad;
-    const faculty175_face_desc_t *face = faculty175_faces_current();
     const bool vertical_nav = s_nav_mode || (face != NULL && face_supports_vertical_nav(face->id));
     if (!s_nav_mode && vertical_nav) {
         const float nav_pad = step > 0.09f ? 0.034f : 0.012f;
@@ -3975,6 +3998,10 @@ void faculty175_display_waveform_update(const uint8_t *waveform,
 
 static void draw_stored_bezel_waveform(void)
 {
+    const faculty175_face_desc_t *face = faculty175_faces_current();
+    if (face != NULL && face->id == FACULTY175_FACE_THERITOR) {
+        return;
+    }
     uint8_t waveform[FACULTY175_BEZEL_WAVEFORM_MAX];
     uint8_t stream[FACULTY175_BEZEL_WAVEFORM_MAX];
     size_t len = 0;

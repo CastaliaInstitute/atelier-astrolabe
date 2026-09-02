@@ -71,6 +71,8 @@ typedef enum {
     FACULTY175_FACE_INCIDENTS,
     FACULTY175_FACE_SETTINGS,
     FACULTY175_FACE_POCKETWATCH,
+    /* Append new IDs to preserve persisted numeric face selections. */
+    FACULTY175_FACE_THERITOR,
     FACULTY175_FACE_COUNT,
 } faculty175_face_id_t;
 

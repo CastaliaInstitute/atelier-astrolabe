@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "esp_err.h"
+#include "esp_http_client.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -50,8 +51,13 @@ typedef void (*astrolabe_audio_result_fn)(const char *transcript,
                                           const char *faculty_slug,
                                           const char *faculty_name,
                                           void *user);
+typedef void (*astrolabe_audio_session_fn)(const char *session_id,
+                                           const char *expression,
+                                           void *user);
 typedef void (*astrolabe_audio_prepare_context_fn)(void *user);
 typedef esp_err_t (*astrolabe_audio_play_mp3_fn)(const uint8_t *mp3, size_t mp3_len, void *user);
+typedef esp_err_t (*astrolabe_audio_request_headers_fn)(esp_http_client_handle_t client, void *user);
+typedef esp_err_t (*astrolabe_audio_request_header_text_fn)(char *out, size_t cap, void *user);
 
 typedef struct {
     astrolabe_audio_read_fn read;
@@ -65,8 +71,11 @@ typedef struct {
     astrolabe_audio_io_t io;
     astrolabe_audio_event_fn on_event;
     astrolabe_audio_result_fn on_result;
+    astrolabe_audio_session_fn on_session;
     astrolabe_audio_prepare_context_fn prepare_context;
     astrolabe_audio_play_mp3_fn play_mp3;
+    astrolabe_audio_request_headers_fn request_headers;
+    astrolabe_audio_request_header_text_fn request_header_text;
     void *event_user;
 
     const char *endpoint_url;
@@ -80,6 +89,16 @@ typedef struct {
     const char *interaction_mode;
     const char *commonplace_mode;
     const char *response_format;
+    /** Optional face-specific interview metadata. Empty values are omitted semantically. */
+    const char *respondent;
+    const char *mode;
+    const char *topic;
+    const char *work_slug;
+    const char *session_id;
+    /** QA-only sessions must never be classified as testimony or evidence. */
+    bool synthetic_validation;
+    /** Optional live state; preferred when validation can change at runtime. */
+    const volatile bool *synthetic_validation_ref;
     bool skip_llm;
     bool log_to_commonplace;
     bool duplex;
@@ -96,6 +115,7 @@ typedef struct {
     uint32_t rms_end;
     uint32_t start_frames;
     uint32_t silence_frames;
+    /** Batch capture limit. Zero means unbounded for rolling Theritor streams. */
     uint32_t max_seconds;
     uint32_t min_ms;
     uint32_t capture_cooldown_ms;
@@ -123,6 +143,8 @@ void astrolabe_audio_pipeline_destroy(astrolabe_audio_pipeline_t *pipeline);
 esp_err_t astrolabe_audio_pipeline_trigger_capture(astrolabe_audio_pipeline_t *pipeline);
 esp_err_t astrolabe_audio_pipeline_trigger_capture_for_ms(astrolabe_audio_pipeline_t *pipeline, uint32_t hold_ms);
 bool astrolabe_audio_pipeline_unhealthy(const astrolabe_audio_pipeline_t *pipeline);
+void astrolabe_audio_pipeline_set_synthetic_validation(astrolabe_audio_pipeline_t *pipeline,
+                                                       bool enabled);
 
 bool astrolabe_audio_pipeline_speech_active(const astrolabe_audio_pipeline_t *pipeline);
 bool astrolabe_audio_pipeline_manual_capture_pending(const astrolabe_audio_pipeline_t *pipeline);

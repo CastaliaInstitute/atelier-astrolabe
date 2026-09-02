@@ -79,6 +79,8 @@ typedef enum {
     FACULTY175_FACE_JOURNAL,
     FACULTY175_FACE_CONVERSATION,
     FACULTY175_FACE_CYCLE,
+    /* Append new IDs to preserve persisted numeric face selections. */
+    FACULTY175_FACE_THERITOR,
     FACULTY175_FACE_COUNT,
 } faculty175_face_id_t;
 

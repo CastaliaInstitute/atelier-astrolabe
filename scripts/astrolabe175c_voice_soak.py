@@ -496,27 +496,23 @@ def main() -> int:
             raw_log.append(f"\n=== {turn_label} before tasks ===\n{before_tasks_text}")
 
             capture_ms = 0 if args.pipeline_capture_ms == 0 else max(1500, min(15000, args.pipeline_capture_ms))
-            ser, trigger_text = send_command(
+            # Do not use send_command() here: normal microphone diagnostics
+            # keep the serial link non-quiet, so it can consume most of the
+            # capture window before host playback begins. Start speaking as
+            # soon as the firmware explicitly acknowledges manual capture.
+            ser.write(f"pipeline capture {capture_ms}\n".encode("utf-8"))
+            ser.flush()
+            ser, trigger_text = read_until_any(
                 ser,
-                f"pipeline capture {capture_ms}",
-                quiet_s=0.2,
-                max_s=12.0,
+                (
+                    "manual capture start",
+                    "voice fail",
+                    "ESP_ERR_NO_MEM",
+                    "Guru Meditation Error",
+                    "TG1WDT_SYS_RST",
+                ),
+                timeout_s=args.capture_start_timeout,
             )
-            capture_ready_log = ""
-            if "manual capture start" not in trigger_text:
-                ser, capture_ready_log = read_until_any(
-                    ser,
-                    (
-                        "manual capture start",
-                        "voice fail",
-                        "ESP_ERR_NO_MEM",
-                        "Guru Meditation Error",
-                        "TG1WDT_SYS_RST",
-                    ),
-                    timeout_s=args.capture_start_timeout,
-                )
-                if capture_ready_log:
-                    trigger_text += capture_ready_log
             raw_log.append(f"\n=== {turn_label} trigger ===\n{trigger_text}")
             time.sleep(args.pre_say_delay)
             if play_cmd is not None:

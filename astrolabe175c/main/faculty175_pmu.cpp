@@ -43,11 +43,18 @@ static int pmu_register_write_byte(uint8_t dev_addr, uint8_t reg_addr, uint8_t *
 
 static void faculty175_pmu_apply_rails(void)
 {
+    /* Keep the shared-I2C codec rail alive while programming the PMU. An
+       unpowered ES7210/ES8311 can clamp SDA low, which would strand ALDO1 off
+       before the later enable command reaches AXP2101. */
+    s_pmu.setDC1Voltage(3300);
+    s_pmu.enableDC1();
+    s_pmu.setALDO1Voltage(3300);
+    s_pmu.enableALDO1();
+
     s_pmu.disableDC2();
     s_pmu.disableDC3();
     s_pmu.disableDC4();
     s_pmu.disableDC5();
-    s_pmu.disableALDO1();
     s_pmu.disableALDO2();
     s_pmu.disableALDO3();
     s_pmu.disableALDO4();
@@ -60,11 +67,6 @@ static void faculty175_pmu_apply_rails(void)
     /* Exact 1.75C schematic: DCDC1 is VCC3V3 and ALDO1 is A3V3 for the
        ES8311/ES7210 analog domains. The AMOLED connector also uses VCC3V3.
        ALDO2..4 and BLDO1..2 have no downstream consumers on this board. */
-    s_pmu.setDC1Voltage(3300);
-    s_pmu.enableDC1();
-    s_pmu.setALDO1Voltage(3300);
-    s_pmu.enableALDO1();
-
     s_pmu.disableTSPinMeasure();
     s_pmu.disableIRQ(XPOWERS_AXP2101_ALL_IRQ);
     s_pmu.clearIrqStatus();

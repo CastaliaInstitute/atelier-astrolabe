@@ -50,6 +50,7 @@
 #include "faculty175_face_wifilab.h"
 #include "faculty175_face_tarot.h"
 #include "faculty175_face_tarot_assets.h"
+#include "faculty175_face_theritor.h"
 #include "faculty175_family.h"
 #include "faculty175_faculty.h"
 #include "faculty175_faculty_roster.h"
@@ -189,6 +190,12 @@ static char s_voice_face[32] = ASTROLABE_FACULTY_FACE_NAME;
 static char s_voice_interaction_mode[16] = "conversation";
 static char s_voice_commonplace_mode[16] = "conversation";
 static char s_voice_response_format[8] = "mp3";
+static char s_theritor_respondent[16] = "daniel";
+static char s_theritor_mode[16] = "editor";
+static char s_theritor_topic[96] = "La Recherche";
+static char s_theritor_work_slug[48] = "la-recherche";
+static char s_theritor_session_id[64];
+static volatile bool s_theritor_synthetic_validation;
 /* Face-grounded follow-ups can carry a bounded cached reading plus its exact
  * server-validated evidence. Keep these longer-lived voice buffers in PSRAM
  * rather than spending scarce internal DRAM on text. */
@@ -314,6 +321,7 @@ static bool draw_face_or_status(const faculty175_face_desc_t *face,
     }
 
     const bool babel_overlay = face != NULL && face->id == FACULTY175_FACE_BABEL && faculty175_face_babel_active();
+    const bool theritor_overlay = face != NULL && face->id == FACULTY175_FACE_THERITOR;
     const bool selected_face = face != NULL && face->id != FACULTY175_FACE_FACULTY;
     /* Keep the selected face visible while a face-local action is running or
      * reporting an error.  Modal states used to replace Tarot (and the other
@@ -323,7 +331,7 @@ static bool draw_face_or_status(const faculty175_face_desc_t *face,
                                              face != NULL &&
                                              faculty175_lvgl_face_supported(face->id);
     const bool draw_face = face != NULL &&
-                           (force_face || babel_overlay || preserve_face_during_status ||
+                           (force_face || babel_overlay || theritor_overlay || preserve_face_during_status ||
                             (!ui_state_modal(state) && selected_face) ||
                             state == FACULTY175_UI_LISTEN);
 
@@ -369,6 +377,7 @@ static esp_err_t pipeline_ensure_ready(void);
 static esp_err_t pipeline_stop_runtime(void);
 
 static void ui_set(faculty175_ui_state_t state, const char *detail);
+static void ui_redraw(void);
 static uint32_t draw_nav_preview(uint32_t anim_ms);
 static uint16_t *alloc_carousel_frame(size_t pixel_count);
 static bool animate_nav_preview_native(bool vertical, int delta, uint32_t duration_ms);
@@ -376,6 +385,63 @@ static void low_power_note_activity(uint32_t now_ms, const char *reason);
 static void low_power_tick(uint32_t now_ms);
 static void battery_arm_button_stt(uint32_t now_ms);
 static bool wifi_is_connected(void);
+
+static void save_theritor_to_nvs(void)
+{
+    nvs_handle_t nvs;
+    if (nvs_open("theritor", NVS_READWRITE, &nvs) != ESP_OK) return;
+    nvs_set_str(nvs, "respondent", s_theritor_respondent);
+    nvs_set_str(nvs, "mode", s_theritor_mode);
+    nvs_set_u8(nvs, "validation", s_theritor_synthetic_validation ? 1u : 0u);
+    nvs_commit(nvs);
+    nvs_close(nvs);
+}
+
+static void load_theritor_from_nvs(void)
+{
+    nvs_handle_t nvs;
+    if (nvs_open("theritor", NVS_READONLY, &nvs) == ESP_OK) {
+        size_t len = sizeof(s_theritor_respondent);
+        (void)nvs_get_str(nvs, "respondent", s_theritor_respondent, &len);
+        len = sizeof(s_theritor_mode);
+        (void)nvs_get_str(nvs, "mode", s_theritor_mode, &len);
+        uint8_t validation = 0;
+        if (nvs_get_u8(nvs, "validation", &validation) == ESP_OK) {
+            s_theritor_synthetic_validation = validation != 0;
+        }
+        nvs_close(nvs);
+    }
+    if (strcmp(s_theritor_respondent, "daniel") != 0 && strcmp(s_theritor_respondent, "camille") != 0) {
+        faculty175_strlcpy(s_theritor_respondent, "daniel", sizeof(s_theritor_respondent));
+    }
+    if (strcmp(s_theritor_mode, "editor") != 0 && strcmp(s_theritor_mode, "therapy") != 0) {
+        faculty175_strlcpy(s_theritor_mode, "editor", sizeof(s_theritor_mode));
+    }
+    faculty175_strlcpy(s_theritor_topic,
+                       s_theritor_synthetic_validation
+                           ? "Synthetic validation: La Recherche"
+                           : "La Recherche",
+                       sizeof(s_theritor_topic));
+}
+
+static void theritor_change_context(bool toggle_mode)
+{
+    if (toggle_mode) {
+        faculty175_strlcpy(s_theritor_mode,
+                           strcmp(s_theritor_mode, "editor") == 0 ? "therapy" : "editor",
+                           sizeof(s_theritor_mode));
+    } else {
+        faculty175_strlcpy(s_theritor_respondent,
+                           strcmp(s_theritor_respondent, "daniel") == 0 ? "camille" : "daniel",
+                           sizeof(s_theritor_respondent));
+    }
+    s_theritor_session_id[0] = '\0';
+    save_theritor_to_nvs();
+    faculty175_face_theritor_set_context(s_theritor_respondent, s_theritor_mode);
+    sync_voice_context(NULL);
+    ui_set(FACULTY175_UI_LISTEN, toggle_mode ? "mode changed" : "respondent changed");
+    ui_redraw();
+}
 
 #define FACULTY175_USB_OTA_DEMO_BOOT ASTROLABE_USB_OTA_DEMO_BOOT
 #ifndef ASTROLABE_USB_RUNTIME_ENABLED
@@ -642,7 +708,8 @@ static bool continuous_voice_face_active(void)
 {
     const faculty175_face_desc_t *face = faculty175_faces_current();
     return face != NULL && (face->id == FACULTY175_FACE_JOURNAL ||
-                            face->id == FACULTY175_FACE_CONVERSATION);
+                            face->id == FACULTY175_FACE_CONVERSATION ||
+                            face->id == FACULTY175_FACE_THERITOR);
 }
 
 static bool low_power_wifi_allowed(void)
@@ -3443,7 +3510,7 @@ static esp_err_t pipeline_read(int16_t *samples, size_t sample_count, size_t *ou
         vTaskDelay(pdMS_TO_TICKS(40));
         return ESP_ERR_TIMEOUT;
     }
-    if (!faculty175_board_audio_ready()) {
+    if (!faculty175_board_mic_ready()) {
         if (out_read != NULL) {
             *out_read = 0;
         }
@@ -3475,7 +3542,15 @@ static esp_err_t pipeline_play_mp3(const uint8_t *mp3, size_t mp3_len, void *use
          * time to finish their staged reveal before speech begins. */
         vTaskDelay(pdMS_TO_TICKS(faculty175_face_alethiometer_reveal_duration_ms()));
     }
-    return faculty175_voice_play_mp3_async(mp3, mp3_len);
+    const esp_err_t play_err = faculty175_voice_play_mp3_async(mp3, mp3_len);
+    /* ES7210 can remain clocked in a stale post-speaker state after the shared
+     * I2S bus changes direction. A full capture reset restores intelligible
+     * microphone samples before the next hands-free turn. */
+    const esp_err_t capture_err = faculty175_audio_reset_capture(1000);
+    if (capture_err != ESP_OK) {
+        FACULTY175_LOG_STAGE_W(TAG, "voice", "post-play mic reset failed: %s", esp_err_to_name(capture_err));
+    }
+    return play_err != ESP_OK ? play_err : capture_err;
 }
 
 static void pipeline_mute(bool mute, void *user)
@@ -3494,6 +3569,10 @@ static void pipeline_result(const char *transcript,
     bool faculty_changed = false;
     bool faculty_name_changed = false;
     const faculty175_face_desc_t *face = faculty175_faces_current();
+    if (face != NULL && face->id == FACULTY175_FACE_THERITOR) {
+        faculty175_face_theritor_set_reply(reply);
+        ui_redraw();
+    }
     if (face != NULL && (face->id == FACULTY175_FACE_ALETHIOMETER || face->id == FACULTY175_FACE_CRYSTAL_BALL) &&
         faculty175_face_alethiometer_apply_reply(transcript, reply)) {
         FACULTY175_LOG_STAGE(TAG, face->id == FACULTY175_FACE_CRYSTAL_BALL ? "crystal-ball" : "alethiometer",
@@ -3525,24 +3604,74 @@ static void pipeline_result(const char *transcript,
     }
 }
 
+static void pipeline_session(const char *session_id, const char *expression, void *user)
+{
+    (void)user;
+    if (session_id != NULL && session_id[0] != '\0') {
+        faculty175_strlcpy(s_theritor_session_id, session_id, sizeof(s_theritor_session_id));
+        FACULTY175_LOG_STAGE(TAG, "theritor", "session %.20s", s_theritor_session_id);
+    }
+    if (expression != NULL && expression[0] != '\0') {
+        faculty175_face_theritor_set_reply(expression);
+    }
+}
+
+static esp_err_t pipeline_request_headers(esp_http_client_handle_t client, void *user)
+{
+    (void)user;
+    return faculty175_device_auth_headers(client);
+}
+
+static esp_err_t pipeline_request_header_text(char *out, size_t cap, void *user)
+{
+    (void)user;
+    return faculty175_device_auth_header_text(out, cap);
+}
+
 static void pipeline_event(astrolabe_audio_pipeline_event_t event, const char *detail, void *user)
 {
     (void)user;
+    const bool rolling_segment = detail != NULL && strcmp(detail, "segment") == 0;
+    const faculty175_face_desc_t *active_face = faculty175_faces_current();
+    if (active_face != NULL && active_face->id == FACULTY175_FACE_THERITOR) {
+        faculty175_ui_state_t theritor_state = s_ui;
+        switch (event) {
+            case ASTROLABE_AUDIO_PIPELINE_EVENT_LISTENING:
+            case ASTROLABE_AUDIO_PIPELINE_EVENT_TURN_DONE: theritor_state = FACULTY175_UI_LISTEN; break;
+            case ASTROLABE_AUDIO_PIPELINE_EVENT_CAPTURE_START:
+            case ASTROLABE_AUDIO_PIPELINE_EVENT_CAPTURE_QUEUED: theritor_state = FACULTY175_UI_CAPTURE; break;
+            case ASTROLABE_AUDIO_PIPELINE_EVENT_THINKING:
+            case ASTROLABE_AUDIO_PIPELINE_EVENT_TRANSCRIPT:
+            case ASTROLABE_AUDIO_PIPELINE_EVENT_REPLY: theritor_state = FACULTY175_UI_THINK; break;
+            case ASTROLABE_AUDIO_PIPELINE_EVENT_SPEAKING: theritor_state = FACULTY175_UI_SPEAK; break;
+            case ASTROLABE_AUDIO_PIPELINE_EVENT_ERROR: theritor_state = FACULTY175_UI_ERROR; break;
+        }
+        faculty175_face_theritor_set_state(theritor_state);
+    }
     switch (event) {
         case ASTROLABE_AUDIO_PIPELINE_EVENT_LISTENING:
             ui_set(FACULTY175_UI_LISTEN, NULL);
             FACULTY175_LOG_STAGE(TAG, "listen", "ready");
             break;
         case ASTROLABE_AUDIO_PIPELINE_EVENT_CAPTURE_START:
+            if (rolling_segment) {
+                /* Segment rotation runs on the real-time listener. UI/task
+                 * diagnostics here used to stall microphone reads and drop
+                 * roughly one second of every 500 ms rolling chunk. */
+                break;
+            }
             if (s_power_on_battery) {
                 s_battery_stt_armed = true;
             }
             ui_set(FACULTY175_UI_CAPTURE, NULL);
             FACULTY175_LOG_STAGE(TAG, "capture", "speech detected — rolling stream active");
-            pipeline_log_heap("capture-start");
-            pipeline_log_tasks("capture-start");
             break;
         case ASTROLABE_AUDIO_PIPELINE_EVENT_CAPTURE_QUEUED:
+            if (rolling_segment) {
+                /* A transport chunk is not a conversational turn. Keep this
+                 * callback constant-time so capture can continue gaplessly. */
+                break;
+            }
             if (s_power_on_battery) {
                 s_battery_stt_armed = false;
                 low_power_wifi_resume_for_voice(0);
@@ -3587,8 +3716,13 @@ static void pipeline_event(astrolabe_audio_pipeline_event_t event, const char *d
             }
             break;
         case ASTROLABE_AUDIO_PIPELINE_EVENT_SPEAKING:
-            ui_set(FACULTY175_UI_SPEAK, detail != NULL && detail[0] != '\0' ? detail : s_faculty_name);
-            FACULTY175_LOG_STAGE(TAG, "speak", "%s", detail != NULL && detail[0] != '\0' ? detail : s_faculty_name);
+            {
+                const char *speaker = active_face != NULL && active_face->id == FACULTY175_FACE_THERITOR
+                                          ? "Theritor"
+                                          : (detail != NULL && detail[0] != '\0' ? detail : s_faculty_name);
+                ui_set(FACULTY175_UI_SPEAK, speaker);
+                FACULTY175_LOG_STAGE(TAG, "speak", "%s", speaker);
+            }
             pipeline_log_heap("speaking");
             pipeline_log_tasks("speaking");
             break;
@@ -3957,6 +4091,55 @@ esp_err_t faculty175_request_streaming_pipeline_restart(void)
     return pipeline_ensure_ready();
 }
 
+static esp_err_t theritor_apply_serial_context(void)
+{
+    s_theritor_session_id[0] = '\0';
+    save_theritor_to_nvs();
+    faculty175_face_theritor_set_context(s_theritor_respondent, s_theritor_mode);
+    sync_voice_context(NULL);
+    s_pipeline_cfg.synthetic_validation = s_theritor_synthetic_validation;
+    astrolabe_audio_pipeline_set_synthetic_validation(s_pipeline,
+                                                       s_theritor_synthetic_validation);
+    ui_set(FACULTY175_UI_LISTEN, "theritor context changed");
+    ui_redraw();
+    const esp_err_t err = faculty175_request_streaming_pipeline_restart();
+    astrolabe_audio_pipeline_set_synthetic_validation(s_pipeline,
+                                                       s_theritor_synthetic_validation);
+    return err;
+}
+
+esp_err_t faculty175_set_theritor_respondent(const char *respondent)
+{
+    if (respondent == NULL || (strcmp(respondent, "daniel") != 0 && strcmp(respondent, "camille") != 0)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    faculty175_strlcpy(s_theritor_respondent, respondent, sizeof(s_theritor_respondent));
+    return theritor_apply_serial_context();
+}
+
+esp_err_t faculty175_set_theritor_mode(const char *mode)
+{
+    if (mode == NULL || (strcmp(mode, "editor") != 0 && strcmp(mode, "therapy") != 0)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    faculty175_strlcpy(s_theritor_mode, mode, sizeof(s_theritor_mode));
+    return theritor_apply_serial_context();
+}
+
+esp_err_t faculty175_set_theritor_synthetic_validation(bool enabled)
+{
+    s_theritor_synthetic_validation = enabled;
+    faculty175_strlcpy(s_theritor_topic,
+                       enabled ? "Synthetic validation: La Recherche" : "La Recherche",
+                       sizeof(s_theritor_topic));
+    return theritor_apply_serial_context();
+}
+
+bool faculty175_theritor_synthetic_validation(void)
+{
+    return s_theritor_synthetic_validation;
+}
+
 void faculty175_streaming_pipeline_status(bool *out_configured,
                                           bool *out_created,
                                           bool *out_started,
@@ -4071,6 +4254,10 @@ static esp_err_t pipeline_ensure_ready(void)
     if (!s_pipeline_cfg_ready) {
         return ESP_ERR_INVALID_STATE;
     }
+    if (!faculty175_board_mic_ready()) {
+        FACULTY175_LOG_STAGE_W(TAG, "pipeline", "microphone capture unavailable");
+        return ESP_ERR_INVALID_STATE;
+    }
     pipeline_log_heap("ensure-entry");
     if (s_pipeline != NULL && astrolabe_audio_pipeline_unhealthy(s_pipeline)) {
         FACULTY175_LOG_STAGE_W(TAG, "pipeline", "resetting unhealthy pipeline before capture");
@@ -4118,6 +4305,20 @@ static esp_err_t pipeline_ensure_ready(void)
 #else
     vTaskDelay(pdMS_TO_TICKS(120));
 #endif
+    /* Boot chimes and face speech share I2S with the ES7210. Re-open and
+     * reapply its board route before the listener starts so the first turn is
+     * real speech rather than the codec's stale clock-noise lane. */
+    const esp_err_t capture_reset_err = faculty175_audio_reset_capture(1000);
+    if (capture_reset_err != ESP_OK) {
+        FACULTY175_LOG_STAGE_E(TAG, "pipeline", "mic reset before start failed: %s", esp_err_to_name(capture_reset_err));
+        astrolabe_audio_pipeline_destroy(s_pipeline);
+        s_pipeline = NULL;
+        faculty175_ota_set_auto_paused(false);
+        button_reboot_task_start_if_needed();
+        face_tts_worker_start();
+        (void)faculty175_screen_http_start(NULL);
+        return capture_reset_err;
+    }
     const esp_err_t start_err = astrolabe_audio_pipeline_start(s_pipeline);
     if (start_err != ESP_OK) {
         FACULTY175_LOG_STAGE_E(TAG, "pipeline", "start failed: %s", esp_err_to_name(start_err));
@@ -4740,6 +4941,18 @@ static void wifi_start_task(void *arg)
         faculty175_ota_maybe_start_recovery_request();
         FACULTY175_LOG_STAGE(TAG, "network", "faculty bust cache enabled");
     }
+#if !defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
+    /* ESP-NOW requires the Wi-Fi driver to be initialized first. Calling
+     * esp_now_init() during early boot can dereference an uninitialized Wi-Fi
+     * context on ESP-IDF 5.5, so attach the rotary receiver only after the
+     * Wi-Fi startup attempt has established that context (online or offline). */
+    const esp_err_t rotary_err = faculty175_rotary_state_init();
+    if (rotary_err != ESP_OK) {
+        FACULTY175_LOG_STAGE_W(TAG, "rotary", "ESP-NOW init skipped: %s", esp_err_to_name(rotary_err));
+    } else {
+        FACULTY175_LOG_STAGE(TAG, "rotary", "ESP-NOW receiver initialized");
+    }
+#endif
     s_wifi_start_task = NULL;
     vTaskDelete(NULL);
 }
@@ -4921,11 +5134,10 @@ static void face_save_task(void *arg)
     }
 }
 
-static void save_current_face_async(void)
+static bool ensure_face_save_task(void)
 {
     if (s_face_save_task != NULL) {
-        (void)xTaskNotifyGive(s_face_save_task);
-        return;
+        return true;
     }
     const BaseType_t ok = xTaskCreateWithCaps(face_save_task,
                                               "face_save",
@@ -4937,6 +5149,14 @@ static void save_current_face_async(void)
     if (ok != pdPASS) {
         s_face_save_task = NULL;
         FACULTY175_LOG_STAGE_W(TAG, "faces", "save task create failed");
+        return false;
+    }
+    return true;
+}
+
+static void save_current_face_async(void)
+{
+    if (!ensure_face_save_task()) {
         return;
     }
     (void)xTaskNotifyGive(s_face_save_task);
@@ -4951,6 +5171,7 @@ static void sync_voice_context_impl(bool allow_flash_cache)
     const bool conversation_session = face != NULL && face->id == FACULTY175_FACE_CONVERSATION;
     const bool alethiometer_mode = face != NULL && face->id == FACULTY175_FACE_ALETHIOMETER;
     const bool crystal_ball_mode = face != NULL && face->id == FACULTY175_FACE_CRYSTAL_BALL;
+    const bool theritor_mode = face != NULL && face->id == FACULTY175_FACE_THERITOR;
     const bool lunasay_profile = faculty175_face_profile_current() == FACULTY175_FACE_PROFILE_LUNASAY;
     const char *voice_face = ASTROLABE_FACULTY_FACE_NAME;
     if (journal_mode) {
@@ -4961,6 +5182,8 @@ static void sync_voice_context_impl(bool allow_flash_cache)
         voice_face = "alethiometer";
     } else if (crystal_ball_mode) {
         voice_face = "crystal-ball";
+    } else if (theritor_mode) {
+        voice_face = "theritor";
     } else if (lunasay_profile && face != NULL && face->slug != NULL && face->slug[0] != '\0') {
         voice_face = face->slug;
     }
@@ -4971,13 +5194,13 @@ static void sync_voice_context_impl(bool allow_flash_cache)
                        journal_mode ? "journal" : (conversation_session ? "conversation" :
                                                     (lunasay_profile ? "off" : "conversation")),
                        sizeof(s_voice_commonplace_mode));
-    faculty175_strlcpy(s_voice_response_format, (journal_mode || alethiometer_mode || crystal_ball_mode) ? "json" : "mp3",
+    faculty175_strlcpy(s_voice_response_format, (journal_mode || alethiometer_mode || crystal_ball_mode || theritor_mode) ? "json" : "mp3",
                        sizeof(s_voice_response_format));
-    const char *base_instruction = crystal_ball_mode ? CRYSTAL_BALL_SYSTEM_INSTRUCTION
+    const char *base_instruction = theritor_mode ? "" : (crystal_ball_mode ? CRYSTAL_BALL_SYSTEM_INSTRUCTION
                                                      : (alethiometer_mode ? ALETHIOMETER_SYSTEM_INSTRUCTION
-                                                                         : ASTROLABE_FACULTY_SYSTEM_INSTRUCTION);
+                                                                         : ASTROLABE_FACULTY_SYSTEM_INSTRUCTION));
     faculty175_strlcpy(s_voice_system_instruction, base_instruction, sizeof(s_voice_system_instruction));
-    if (!journal_mode && !alethiometer_mode && !crystal_ball_mode) {
+    if (!journal_mode && !alethiometer_mode && !crystal_ball_mode && !theritor_mode) {
         const size_t used = strlen(s_voice_system_instruction);
         snprintf(s_voice_system_instruction + used,
                  sizeof(s_voice_system_instruction) - used,
@@ -4987,7 +5210,7 @@ static void sync_voice_context_impl(bool allow_flash_cache)
     }
     const bool grounded_followup =
         lunasay_profile && face != NULL && !journal_mode &&
-        !conversation_session && !alethiometer_mode && !crystal_ball_mode;
+        !conversation_session && !alethiometer_mode && !crystal_ball_mode && !theritor_mode;
     if (grounded_followup) {
         build_face_prompt(face,
                           s_voice_face_context,
@@ -5045,6 +5268,17 @@ static void sync_voice_context_impl(bool allow_flash_cache)
      * action on profiles that expose it; ordinary LunaSay questions must not
      * create a server-side Commonplace record as a side effect. */
     s_voice_log_to_commonplace = journal_mode || conversation_session || !lunasay_profile;
+    /* Theritor's adaptive pipeline VAD already tracks the room floor.  The
+     * board's simpler frame gate can attenuate soft opening consonants before
+     * VAD sees them, which clips ordinary tabletop questions. */
+    faculty175_audio_noise_suppression_set_enabled(!theritor_mode);
+    const esp_err_t mic_gain_err = faculty175_audio_set_mic_gain(theritor_mode ? 36.0f : 30.0f);
+    if (mic_gain_err != ESP_OK) {
+        FACULTY175_LOG_STAGE_W(TAG, "voice", "mic gain update failed: %s", esp_err_to_name(mic_gain_err));
+    }
+    if (theritor_mode) {
+        faculty175_face_theritor_set_context(s_theritor_respondent, s_theritor_mode);
+    }
 }
 
 static void sync_voice_context(void *user)
@@ -5563,6 +5797,8 @@ static void input_task(void *arg)
     uint32_t suppress_wake_gesture_until_ms = 0;
     bool button_was_down = false;
     bool face_save_pending = false;
+    const faculty175_face_desc_t *initial_face = faculty175_faces_current();
+    faculty175_face_id_t voice_context_face = initial_face != NULL ? initial_face->id : FACULTY175_FACE_COUNT;
     s_nav_mode = false;
     s_low_power_last_activity_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
     faculty175_display_nav_mode_set(false);
@@ -5571,6 +5807,11 @@ static void input_task(void *arg)
     while (true) {
         const uint32_t now_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
         const faculty175_face_desc_t *usb_face = faculty175_faces_current();
+        if (usb_face != NULL && usb_face->id != voice_context_face) {
+            voice_context_face = usb_face->id;
+            sync_voice_context(NULL);
+            FACULTY175_LOG_STAGE(TAG, "voice", "face context synced %s", usb_face->slug);
+        }
         const bool usb_screen_active = usb_face != NULL && usb_face->id == FACULTY175_FACE_USB_SCREEN;
         if (usb_screen_active != faculty175_usb_screen_profile_active()) {
             const esp_err_t usb_profile_err = faculty175_usb_set_screen_face_active(usb_screen_active);
@@ -5688,6 +5929,10 @@ static void input_task(void *arg)
             }
 #endif
             if (gesture.kind == FACULTY175_GESTURE_LONG_TAP && active_face != NULL &&
+                active_face->id == FACULTY175_FACE_THERITOR) {
+                theritor_change_context(true);
+                faculty175_gesture_flush();
+            } else if (gesture.kind == FACULTY175_GESTURE_LONG_TAP && active_face != NULL &&
                 active_face->id == FACULTY175_FACE_SETTINGS && gesture.y >= 252 && gesture.y <= 296) {
                 const esp_err_t err = faculty175_ble_ring_unpair();
                 FACULTY175_LOG_STAGE(TAG, "ring", "settings unpair %s", esp_err_to_name(err));
@@ -6037,7 +6282,10 @@ static void input_task(void *arg)
                 faculty175_display_unlock();
             } else if (!s_nav_mode && gesture.kind == FACULTY175_GESTURE_TAP) {
                 const faculty175_face_desc_t *face = faculty175_faces_current();
-                if (face != NULL && face->id == FACULTY175_FACE_PSYCH_STATE &&
+                if (face != NULL && face->id == FACULTY175_FACE_THERITOR) {
+                    theritor_change_context(false);
+                    faculty175_gesture_flush();
+                } else if (face != NULL && face->id == FACULTY175_FACE_PSYCH_STATE &&
                     faculty175_face_psych_state_tap(gesture.x, gesture.y)) {
                     ui_redraw();
                     faculty175_gesture_flush();
@@ -6175,7 +6423,7 @@ void app_main(void)
 #endif
     /* Reserve the internal-RAM NVS worker before UI/audio allocations leave
      * too little contiguous memory to create it on the first face gesture. */
-    save_current_face_async();
+    (void)ensure_face_save_task();
 #if FACULTY175_USB_OTA_DEMO_BOOT && FACULTY175_USB_RUNTIME_ENABLED
     boot_probe_stage(0xa2);
     esp_rom_printf("A2 usb_ota_demo_boot\n");
@@ -6224,17 +6472,6 @@ void app_main(void)
      * sync. */
     faculty175_charts_ensure_family_seed();
 #endif
-#if !defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
-    {
-        const esp_err_t rotary_err = faculty175_rotary_state_init();
-        if (rotary_err != ESP_OK) {
-            FACULTY175_LOG_STAGE_W(TAG, "rotary", "ESP-NOW init skipped: %s", esp_err_to_name(rotary_err));
-        } else {
-            FACULTY175_LOG_STAGE(TAG, "rotary", "ESP-NOW receiver initialized");
-        }
-    }
-#endif
-
     boot_probe_stage(0xa7);
     esp_rom_printf("A7 apocalypso\n");
     const esp_err_t apocalypso_err = faculty175_apocalypso_init();
@@ -6274,6 +6511,7 @@ void app_main(void)
     boot_probe_stage(0xac);
     esp_rom_printf("A12 load_faculty\n");
     load_faculty_from_nvs();
+    load_theritor_from_nvs();
     FACULTY175_LOG_STAGE(TAG, "boot", "faculty %s (%s)", s_faculty_name, s_faculty_slug);
 
     boot_probe_stage(0xad);
@@ -6410,8 +6648,11 @@ void app_main(void)
         },
         .on_event = pipeline_event,
         .on_result = pipeline_result,
+        .on_session = pipeline_session,
         .prepare_context = sync_voice_context_transport,
         .play_mp3 = pipeline_play_mp3,
+        .request_headers = pipeline_request_headers,
+        .request_header_text = pipeline_request_header_text,
         .endpoint_url = s_voice_pipeline_url,
         .stream_url = s_voice_stream_url,
         .transport = ASTROLABE_AUDIO_PIPELINE_TRANSPORT_ROLLING_WEBSOCKET,
@@ -6424,6 +6665,13 @@ void app_main(void)
         .interaction_mode = s_voice_interaction_mode,
         .commonplace_mode = s_voice_commonplace_mode,
         .response_format = s_voice_response_format,
+        .respondent = s_theritor_respondent,
+        .mode = s_theritor_mode,
+        .topic = s_theritor_topic,
+        .work_slug = s_theritor_work_slug,
+        .session_id = s_theritor_session_id,
+        .synthetic_validation = s_theritor_synthetic_validation,
+        .synthetic_validation_ref = &s_theritor_synthetic_validation,
         .skip_llm = s_voice_skip_llm,
         .log_to_commonplace = s_voice_log_to_commonplace,
         .duplex = FACULTY175_AUDIO_PIPELINE_DUPLEX,
@@ -6433,15 +6681,32 @@ void app_main(void)
         .sample_rate_hz = FACULTY175_AUDIO_RATE,
         .stt_sample_rate_hz = FACULTY175_AUDIO_RATE,
         .frame_samples = 160,
-        .rms_start = 750,
+        /* Theritor keeps 400 ms of pre-roll. Quiet-room noise measures
+         * below 100 RMS and tabletop speech peaks around 900 RMS. A 350 RMS
+         * floor with 60 ms confirmation catches softer conversational speech;
+         * adaptive noise tracking and minimum utterance duration reject brief
+         * room transients before they can become cloud turns. */
+        .rms_start = 350,
         .rms_end = 280,
-        .start_frames = 3,
-        .silence_frames = 50,
-        .max_seconds = 15,
-        .min_ms = 400,
-        .capture_cooldown_ms = 2500,
-        .capture_ring_slots = 8,
-        .capture_segment_ms = 500,
+        .start_frames = 6,
+        /* 10 ms frames: allow a 900 ms conversational pause before ending
+         * the turn. Higher-quality TTS and natural speakers both pause long
+         * enough to trip the previous 500 ms cutoff mid-question. */
+        .silence_frames = 90,
+        /* Rolling Theritor capture is unbounded. Small transport frames keep
+         * memory bounded; sustained conversational silence ends the turn. */
+        .max_seconds = 0,
+        .min_ms = 500,
+        .capture_cooldown_ms = 1000,
+        /* Sixteen PSRAM frames absorb sixteen seconds of transient network
+         * backpressure while the live stream continues.  Shorter 250 ms
+         * frames could fill this queue when TLS/WebSocket sends briefly ran
+         * slower than real time, losing the terminal VAD commit. */
+        .capture_ring_slots = 16,
+        /* Queue one second at a time. stream_pcm_file still emits bounded
+         * 8 KiB WebSocket frames; this setting only increases the amount of
+         * audio represented by each PSRAM queue entry. */
+        .capture_segment_ms = 1000,
         .listen_priority = 5,
         .voice_priority = 4,
         .listen_stack = FACULTY175_PIPELINE_LISTEN_STACK,

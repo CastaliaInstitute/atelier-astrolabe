@@ -2,6 +2,8 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
 import { isDedicatedFacultyFace } from "../_shared/askFacultyRoute.ts";
 import { verifyAstrolabeDevice } from "../_shared/deviceAuth.ts";
+import { GeminiLiveTranscriber } from "../_shared/geminiLiveTranscriber.ts";
+import { envKeys } from "../_shared/googleVoice.ts";
 
 type SessionState = {
   face?: string;
@@ -16,6 +18,12 @@ type SessionState = {
   responseFormat: "json" | "mp3";
   skipLlm: boolean;
   logToCommonplace?: boolean;
+  respondent?: "daniel" | "camille";
+  mode?: "therapy" | "editor";
+  topic?: string;
+  workSlug?: string;
+  sessionId?: string;
+  syntheticValidation?: boolean;
 };
 
 const MAX_BUFFER_BYTES = 1024 * 1024;
@@ -27,6 +35,7 @@ type VoicePipelineResponse = {
   transcript?: string;
   reply?: string;
   audioBase64?: string;
+  audioChunksBase64?: string[];
   facultySlug?: string;
   facultyName?: string;
   askFacultyRoute?: boolean;
@@ -51,13 +60,26 @@ async function sendAudioDelta(
   turnId: string,
   audioBase64: string,
   encoding = "mp3",
+  segmentIndex?: number,
+  segmentCount?: number,
 ) {
-  for (let offset = 0; offset < audioBase64.length; offset += AUDIO_DELTA_CHARS) {
+  for (
+    let offset = 0;
+    offset < audioBase64.length;
+    offset += AUDIO_DELTA_CHARS
+  ) {
+    const end = Math.min(offset + AUDIO_DELTA_CHARS, audioBase64.length);
     send(socket, {
       type: "response.audio.delta",
       turnId,
-      audio: audioBase64.slice(offset, offset + AUDIO_DELTA_CHARS),
+      audio: audioBase64.slice(offset, end),
       encoding,
+      ...(segmentIndex === undefined ? {} : {
+        segmentIndex,
+        segmentCount,
+        segmentStart: offset === 0,
+        segmentEnd: end === audioBase64.length,
+      }),
     });
     if (offset + AUDIO_DELTA_CHARS < audioBase64.length) {
       await new Promise((resolve) => setTimeout(resolve, 0));
@@ -111,6 +133,14 @@ function encodeVoicePipelineStreamBody(
   if (session.conversationHistory) {
     metadata.conversationHistory = session.conversationHistory;
   }
+  if (session.respondent) metadata.respondent = session.respondent;
+  if (session.mode) metadata.mode = session.mode;
+  if (session.topic) metadata.topic = session.topic;
+  if (session.workSlug) metadata.workSlug = session.workSlug;
+  if (session.sessionId) metadata.sessionId = session.sessionId;
+  if (typeof session.syntheticValidation === "boolean") {
+    metadata.syntheticValidation = session.syntheticValidation;
+  }
   if (overrides) {
     for (const [key, value] of Object.entries(overrides)) {
       if (value === undefined) continue;
@@ -151,6 +181,17 @@ function authHeaders(req: Request): HeadersInit {
   const apikey = req.headers.get("apikey");
   if (auth) headers.Authorization = auth;
   if (apikey) headers.apikey = apikey;
+  for (
+    const name of [
+      "X-Astrolabe-Device-Mac",
+      "X-Astrolabe-Device-Nonce",
+      "X-Astrolabe-Device-Signature",
+      "X-Astrolabe-Device-Channel",
+    ]
+  ) {
+    const value = req.headers.get(name);
+    if (value) headers[name] = value;
+  }
   return headers;
 }
 
@@ -183,7 +224,9 @@ function decodeBinaryFrame(data: ArrayBuffer): Uint8Array | null {
 async function jsonFetch<T>(
   url: string,
   init: RequestInit,
-): Promise<{ ok: true; json: T } | { ok: false; status: number; message: string }> {
+): Promise<
+  { ok: true; json: T } | { ok: false; status: number; message: string }
+> {
   const res = await fetch(url, init);
   const text = await res.text();
   if (!res.ok) {
@@ -233,6 +276,97 @@ Deno.serve(async (req) => {
   const voicePipelineUrl = siblingVoicePipelineUrl(req);
   const askFacultyUrl = siblingAskFacultyUrl(req);
   const headers = authHeaders(req);
+  const liveApiKey = envKeys().gemini;
+  let liveTranscriber: GeminiLiveTranscriber | undefined;
+  let liveAudioChain = Promise.resolve();
+  let liveFailed = false;
+  let liveTurnId = "live-1";
+
+  function theritorLiveEnabled(): boolean {
+    return session.face?.trim().toLowerCase() === "theritor" && !!liveApiKey;
+  }
+
+  function ensureLiveTranscriber(): GeminiLiveTranscriber | undefined {
+    if (!theritorLiveEnabled()) return undefined;
+    if (!liveTranscriber) {
+      liveTranscriber = new GeminiLiveTranscriber({
+        apiKey: liveApiKey,
+        languageCode: session.languageCode,
+        model: Deno.env.get("GEMINI_LIVE_TRANSCRIBE_MODEL")?.trim() ||
+          "gemini-3.5-transcribe-live",
+        vocabulary: [
+          "Daniel",
+          "Daniel McShan",
+          "Camille",
+          "Daniel and Camille",
+          "AtelierNymphet",
+          "Atelier Nymphet",
+          "La Recherche",
+          "La Recherche story",
+          "Theritor",
+          "therapist-editor",
+          "Paris",
+        ],
+        onInterim: (text) =>
+          send(socket, {
+            type: "conversation.item.input_audio_transcription.delta",
+            turnId: liveTurnId,
+            delta: text,
+          }),
+        onFinal: (text) =>
+          send(socket, {
+            type: "conversation.item.input_audio_transcription.completed",
+            turnId: liveTurnId,
+            transcript: text,
+          }),
+        onDiagnostic: (message) => {
+          console.log("voice-stream Gemini Live", message);
+          if (Deno.env.get("VOICE_STREAM_DIAGNOSTICS") === "true") {
+            send(socket, {
+              type: `transcription.diagnostic.${
+                message.replaceAll(
+                  /[^a-zA-Z0-9+_-]/g,
+                  "_",
+                ).slice(0, 96)
+              }`,
+              turnId: liveTurnId,
+            });
+          }
+        },
+      });
+    }
+    return liveTranscriber;
+  }
+
+  function queueLiveAudio(chunk: Uint8Array) {
+    const transcriber = ensureLiveTranscriber();
+    if (!transcriber || liveFailed) return;
+    liveAudioChain = liveAudioChain.then(() =>
+      transcriber.appendPcm(chunk, session.sampleRateHertz)
+    ).catch((error) => {
+      liveFailed = true;
+      console.warn(
+        "voice-stream Gemini Live fallback",
+        error instanceof Error ? error.message : String(error),
+      );
+    });
+  }
+
+  async function finishLiveTranscript(): Promise<string> {
+    const transcriber = liveTranscriber;
+    if (!transcriber || liveFailed) return "";
+    await liveAudioChain;
+    try {
+      return await transcriber.finishTurn();
+    } catch (error) {
+      liveFailed = true;
+      console.warn(
+        "voice-stream Gemini Live finalization fallback",
+        error instanceof Error ? error.message : String(error),
+      );
+      return "";
+    }
+  }
 
   function clearBuffer() {
     chunks.length = 0;
@@ -274,6 +408,7 @@ Deno.serve(async (req) => {
     chunks.push(chunk);
     totalBytes += chunk.byteLength;
     frameCounter++;
+    queueLiveAudio(chunk);
   }
 
   async function commit(turnId?: string, final = true) {
@@ -312,9 +447,154 @@ Deno.serve(async (req) => {
       let turnPcm = pcm;
       if (pendingTurnBytes > 0) {
         const aggregateParts = [...pendingTurnChunks, pcm];
-        turnPcm = concatChunks(aggregateParts, pendingTurnBytes + pcm.byteLength);
+        turnPcm = concatChunks(
+          aggregateParts,
+          pendingTurnBytes + pcm.byteLength,
+        );
       }
       clearPendingTurn();
+
+      const liveTranscript = await finishLiveTranscript();
+
+      if (session.face?.trim().toLowerCase() === "theritor") {
+        const theritorBody = encodeVoicePipelineStreamBody(
+          session,
+          turnPcm,
+          true,
+          liveTranscript ? { transcript: liveTranscript } : undefined,
+        );
+        const requestBody = new ArrayBuffer(theritorBody.byteLength);
+        new Uint8Array(requestBody).set(theritorBody);
+        const theritorResponse = await fetch(voicePipelineUrl, {
+          method: "POST",
+          headers: { ...headers, Accept: "application/x-ndjson" },
+          body: requestBody,
+        });
+        if (!theritorResponse.ok) {
+          send(socket, {
+            type: "error",
+            turnId: id,
+            code: "theritor_voice_http",
+            status: theritorResponse.status,
+            message: await theritorResponse.text(),
+          });
+          return;
+        }
+        const contentType = theritorResponse.headers.get("Content-Type") ?? "";
+        if (
+          contentType.includes("application/x-ndjson") && theritorResponse.body
+        ) {
+          const reader = theritorResponse.body.getReader();
+          const decoder = new TextDecoder();
+          let pending = "";
+          let doneSeen = false;
+
+          const handleEvent = async (line: string) => {
+            if (!line.trim()) return;
+            const event = JSON.parse(line);
+            if (event.type === "response") {
+              const transcript = String(event.transcript ?? liveTranscript)
+                .trim();
+              const reply = String(event.reply ?? "").trim();
+              if (transcript) {
+                send(socket, {
+                  type: "conversation.item.input_audio_transcription.completed",
+                  turnId: id,
+                  transcript,
+                });
+              }
+              if (reply) {
+                send(socket, {
+                  type: "response.text.delta",
+                  turnId: id,
+                  delta: reply,
+                });
+              }
+            } else if (event.type === "audio" && event.audioBase64) {
+              await sendAudioDelta(
+                socket,
+                id,
+                event.audioBase64,
+                "mp3",
+                Number(event.segmentIndex ?? 0),
+                Number(event.segmentCount ?? 1),
+              );
+            } else if (event.type === "done") {
+              send(socket, {
+                type: "response.done",
+                turnId: id,
+                sessionId: event.sessionId,
+                expression: event.expression,
+              });
+              doneSeen = true;
+            } else if (event.type === "error") {
+              throw new Error(String(event.error ?? "Theritor stream failed"));
+            }
+          };
+
+          while (true) {
+            const { value, done } = await reader.read();
+            pending += decoder.decode(value, { stream: !done });
+            const lines = pending.split("\n");
+            pending = lines.pop() ?? "";
+            for (const line of lines) await handleEvent(line);
+            if (done) break;
+          }
+          await handleEvent(pending);
+          if (!doneSeen) {
+            throw new Error("Theritor stream ended before response.done");
+          }
+        } else {
+          const theritorResult = await theritorResponse.json() as
+            & VoicePipelineResponse
+            & { sessionId?: string; expression?: string };
+          const transcript = (theritorResult.transcript ?? liveTranscript)
+            .trim();
+          const reply = (theritorResult.reply ?? "").trim();
+          if (transcript) {
+            send(socket, {
+              type: "conversation.item.input_audio_transcription.completed",
+              turnId: id,
+              transcript,
+            });
+          }
+          if (reply) {
+            send(socket, {
+              type: "response.text.delta",
+              turnId: id,
+              delta: reply,
+            });
+          }
+          const audioSegments = Array.isArray(theritorResult.audioChunksBase64)
+            ? theritorResult.audioChunksBase64.filter((chunk) =>
+              typeof chunk === "string" && chunk.length > 0
+            )
+            : [];
+          if (audioSegments.length > 0) {
+            for (let index = 0; index < audioSegments.length; index++) {
+              await sendAudioDelta(
+                socket,
+                id,
+                audioSegments[index],
+                "mp3",
+                index,
+                audioSegments.length,
+              );
+            }
+          } else if (theritorResult.audioBase64) {
+            await sendAudioDelta(socket, id, theritorResult.audioBase64, "mp3");
+          }
+          send(socket, {
+            type: "response.done",
+            turnId: id,
+            sessionId: theritorResult.sessionId,
+            expression: theritorResult.expression,
+          });
+        }
+        liveFailed = false;
+        liveTurnId = `live-${++turnCounter}`;
+        return;
+      }
 
       const stagedConversation = final &&
         session.interactionMode === "conversation";
@@ -340,11 +620,14 @@ Deno.serve(async (req) => {
         });
         const sttRequestBody = new ArrayBuffer(sttBody.byteLength);
         new Uint8Array(sttRequestBody).set(sttBody);
-        const sttResult = await jsonFetch<VoicePipelineResponse>(voicePipelineUrl, {
-          method: "POST",
-          headers,
-          body: sttRequestBody,
-        });
+        const sttResult = await jsonFetch<VoicePipelineResponse>(
+          voicePipelineUrl,
+          {
+            method: "POST",
+            headers,
+            body: sttRequestBody,
+          },
+        );
         if (!sttResult.ok) {
           send(socket, {
             type: "error",
@@ -357,12 +640,16 @@ Deno.serve(async (req) => {
         }
 
         const transcript = (sttResult.json.transcript ?? "").trim();
-        if (typeof sttResult.json.facultySlug === "string" &&
-          sttResult.json.facultySlug.trim()) {
+        if (
+          typeof sttResult.json.facultySlug === "string" &&
+          sttResult.json.facultySlug.trim()
+        ) {
           session.facultySlug = sttResult.json.facultySlug.trim();
         }
-        if (typeof sttResult.json.facultyName === "string" &&
-          sttResult.json.facultyName.trim()) {
+        if (
+          typeof sttResult.json.facultyName === "string" &&
+          sttResult.json.facultyName.trim()
+        ) {
           session.facultyName = sttResult.json.facultyName.trim();
         }
         if (transcript) {
@@ -432,12 +719,16 @@ Deno.serve(async (req) => {
         }
 
         const reply = (textStage.json.reply ?? "").trim();
-        if (typeof textStage.json.facultySlug === "string" &&
-          textStage.json.facultySlug.trim()) {
+        if (
+          typeof textStage.json.facultySlug === "string" &&
+          textStage.json.facultySlug.trim()
+        ) {
           session.facultySlug = textStage.json.facultySlug.trim();
         }
-        if (typeof textStage.json.facultyName === "string" &&
-          textStage.json.facultyName.trim()) {
+        if (
+          typeof textStage.json.facultyName === "string" &&
+          textStage.json.facultyName.trim()
+        ) {
           session.facultyName = textStage.json.facultyName.trim();
         }
         if (reply) {
@@ -681,6 +972,30 @@ Deno.serve(async (req) => {
         : typeof next.log_to_commonplace === "boolean"
         ? next.log_to_commonplace
         : session.logToCommonplace;
+      if (next.respondent === "daniel" || next.respondent === "camille") {
+        session.respondent = next.respondent;
+      }
+      if (next.mode === "therapy" || next.mode === "editor") {
+        session.mode = next.mode;
+      }
+      session.topic = typeof next.topic === "string"
+        ? next.topic
+        : session.topic;
+      session.workSlug = typeof next.workSlug === "string"
+        ? next.workSlug
+        : typeof next.work_slug === "string"
+        ? next.work_slug
+        : session.workSlug;
+      session.sessionId = typeof next.sessionId === "string"
+        ? next.sessionId
+        : typeof next.session_id === "string"
+        ? next.session_id
+        : session.sessionId;
+      session.syntheticValidation = typeof next.syntheticValidation === "boolean"
+        ? next.syntheticValidation
+        : typeof next.synthetic_validation === "boolean"
+        ? next.synthetic_validation
+        : session.syntheticValidation;
       send(socket, { type: "session.updated", session });
       return;
     }
@@ -735,6 +1050,7 @@ Deno.serve(async (req) => {
     clearBuffer();
     clearPendingTurn();
     frameCounter = 0;
+    liveTranscriber?.close();
   };
 
   return response;

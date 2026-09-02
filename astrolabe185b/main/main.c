@@ -36,6 +36,7 @@
 #include "faculty175_face_wifilab.h"
 #include "faculty175_face_tarot.h"
 #include "faculty175_face_tarot_assets.h"
+#include "faculty175_face_theritor.h"
 #include "faculty175_faculty.h"
 #include "faculty175_faculty_roster.h"
 #include "faculty175_faces.h"
@@ -111,6 +112,11 @@ static char s_voice_face[32] = ASTROLABE_FACULTY_FACE_NAME;
 static char s_voice_interaction_mode[16] = "conversation";
 static char s_voice_commonplace_mode[16] = "conversation";
 static char s_voice_response_format[8] = "mp3";
+static char s_theritor_respondent[16] = "daniel";
+static char s_theritor_mode[16] = "editor";
+static char s_theritor_topic[96] = "La Recherche";
+static char s_theritor_work_slug[48];
+static char s_theritor_session_id[64];
 static char s_voice_system_instruction[2048] = ASTROLABE_FACULTY_SYSTEM_INSTRUCTION;
 static bool s_voice_skip_llm = false;
 static bool s_voice_log_to_commonplace = true;
@@ -137,6 +143,58 @@ static volatile bool s_faculty_ready;
 static volatile bool s_face_tts_busy;
 static volatile bool s_qa_stt_busy;
 static char s_wifi_ssid[FACULTY175_WIFI_SSID_MAX + 1];
+
+static void sync_voice_context(void *user);
+static void ui_set(faculty175_ui_state_t state, const char *detail);
+static void ui_redraw(void);
+
+static void save_theritor_to_nvs(void)
+{
+    nvs_handle_t nvs;
+    if (nvs_open("theritor", NVS_READWRITE, &nvs) != ESP_OK) return;
+    nvs_set_str(nvs, "respondent", s_theritor_respondent);
+    nvs_set_str(nvs, "mode", s_theritor_mode);
+    nvs_commit(nvs);
+    nvs_close(nvs);
+}
+
+static void load_theritor_from_nvs(void)
+{
+    nvs_handle_t nvs;
+    if (nvs_open("theritor", NVS_READONLY, &nvs) == ESP_OK) {
+        size_t len = sizeof(s_theritor_respondent);
+        (void)nvs_get_str(nvs, "respondent", s_theritor_respondent, &len);
+        len = sizeof(s_theritor_mode);
+        (void)nvs_get_str(nvs, "mode", s_theritor_mode, &len);
+        nvs_close(nvs);
+    }
+    if (strcmp(s_theritor_respondent, "daniel") != 0 && strcmp(s_theritor_respondent, "camille") != 0) {
+        faculty175_strlcpy(s_theritor_respondent, "daniel", sizeof(s_theritor_respondent));
+    }
+    if (strcmp(s_theritor_mode, "editor") != 0 && strcmp(s_theritor_mode, "therapy") != 0) {
+        faculty175_strlcpy(s_theritor_mode, "editor", sizeof(s_theritor_mode));
+    }
+}
+
+static void theritor_change_context(bool toggle_mode)
+{
+    if (toggle_mode) {
+        faculty175_strlcpy(s_theritor_mode,
+                           strcmp(s_theritor_mode, "editor") == 0 ? "therapy" : "editor",
+                           sizeof(s_theritor_mode));
+    } else {
+        faculty175_strlcpy(s_theritor_respondent,
+                           strcmp(s_theritor_respondent, "daniel") == 0 ? "camille" : "daniel",
+                           sizeof(s_theritor_respondent));
+    }
+    /* A respondent or mode change always starts a distinct durable session. */
+    s_theritor_session_id[0] = '\0';
+    save_theritor_to_nvs();
+    faculty175_face_theritor_set_context(s_theritor_respondent, s_theritor_mode);
+    sync_voice_context(NULL);
+    ui_set(FACULTY175_UI_LISTEN, toggle_mode ? "mode changed" : "respondent changed");
+    ui_redraw();
+}
 
 typedef struct {
     char ssid[FACULTY175_WIFI_SSID_MAX + 1];
@@ -185,9 +243,10 @@ static bool draw_face_or_status(const faculty175_face_desc_t *face,
                                 bool force_face)
 {
     const bool babel_overlay = face != NULL && face->id == FACULTY175_FACE_BABEL && faculty175_face_babel_active();
+    const bool theritor_overlay = face != NULL && face->id == FACULTY175_FACE_THERITOR;
     const bool selected_face = face != NULL && face->id != FACULTY175_FACE_FACULTY;
     const bool draw_face = face != NULL &&
-                           (force_face || babel_overlay || (!ui_state_modal(state) && selected_face) ||
+                           (force_face || babel_overlay || theritor_overlay || (!ui_state_modal(state) && selected_face) ||
                             state == FACULTY175_UI_LISTEN);
 
     if (draw_face && faculty175_lvgl_face_supported(face->id) &&
@@ -1128,6 +1187,10 @@ static void pipeline_result(const char *transcript,
     (void)user;
     bool faculty_changed = false;
     const faculty175_face_desc_t *face = faculty175_faces_current();
+    if (face != NULL && face->id == FACULTY175_FACE_THERITOR) {
+        faculty175_face_theritor_set_reply(reply);
+        ui_redraw();
+    }
     if (face != NULL && (face->id == FACULTY175_FACE_ALETHIOMETER || face->id == FACULTY175_FACE_CRYSTAL_BALL) &&
         faculty175_face_alethiometer_apply_reply(transcript, reply)) {
         FACULTY175_LOG_STAGE(TAG, face->id == FACULTY175_FACE_CRYSTAL_BALL ? "crystal-ball" : "alethiometer",
@@ -1159,9 +1222,43 @@ static void pipeline_result(const char *transcript,
     }
 }
 
+static void pipeline_session(const char *session_id, const char *expression, void *user)
+{
+    (void)user;
+    if (session_id != NULL && session_id[0] != '\0') {
+        faculty175_strlcpy(s_theritor_session_id, session_id, sizeof(s_theritor_session_id));
+        FACULTY175_LOG_STAGE(TAG, "theritor", "session %.20s", s_theritor_session_id);
+    }
+    if (expression != NULL && expression[0] != '\0') {
+        faculty175_face_theritor_set_reply(expression);
+    }
+}
+
+static esp_err_t pipeline_request_headers(esp_http_client_handle_t client, void *user)
+{
+    (void)user;
+    return faculty175_device_auth_headers(client);
+}
+
 static void pipeline_event(astrolabe_audio_pipeline_event_t event, const char *detail, void *user)
 {
     (void)user;
+    const faculty175_face_desc_t *active_face = faculty175_faces_current();
+    if (active_face != NULL && active_face->id == FACULTY175_FACE_THERITOR) {
+        faculty175_ui_state_t theritor_state = s_ui;
+        switch (event) {
+            case ASTROLABE_AUDIO_PIPELINE_EVENT_LISTENING:
+            case ASTROLABE_AUDIO_PIPELINE_EVENT_TURN_DONE: theritor_state = FACULTY175_UI_LISTEN; break;
+            case ASTROLABE_AUDIO_PIPELINE_EVENT_CAPTURE_START:
+            case ASTROLABE_AUDIO_PIPELINE_EVENT_CAPTURE_QUEUED: theritor_state = FACULTY175_UI_CAPTURE; break;
+            case ASTROLABE_AUDIO_PIPELINE_EVENT_THINKING:
+            case ASTROLABE_AUDIO_PIPELINE_EVENT_TRANSCRIPT:
+            case ASTROLABE_AUDIO_PIPELINE_EVENT_REPLY: theritor_state = FACULTY175_UI_THINK; break;
+            case ASTROLABE_AUDIO_PIPELINE_EVENT_SPEAKING: theritor_state = FACULTY175_UI_SPEAK; break;
+            case ASTROLABE_AUDIO_PIPELINE_EVENT_ERROR: theritor_state = FACULTY175_UI_ERROR; break;
+        }
+        faculty175_face_theritor_set_state(theritor_state);
+    }
     switch (event) {
         case ASTROLABE_AUDIO_PIPELINE_EVENT_LISTENING:
             ui_set(FACULTY175_UI_LISTEN, NULL);
@@ -1991,22 +2088,27 @@ static void sync_voice_context(void *user)
     const bool notes_mode = face != NULL && face->id == FACULTY175_FACE_NOTES;
     const bool alethiometer_mode = face != NULL && face->id == FACULTY175_FACE_ALETHIOMETER;
     const bool crystal_ball_mode = face != NULL && face->id == FACULTY175_FACE_CRYSTAL_BALL;
+    const bool theritor_mode = face != NULL && face->id == FACULTY175_FACE_THERITOR;
     faculty175_strlcpy(s_voice_face,
-                       notes_mode ? "notes" : (alethiometer_mode ? "alethiometer" : (crystal_ball_mode ? "crystal-ball" : ASTROLABE_FACULTY_FACE_NAME)),
+                       notes_mode ? "notes" : (alethiometer_mode ? "alethiometer" :
+                           (crystal_ball_mode ? "crystal-ball" : (theritor_mode ? "theritor" : ASTROLABE_FACULTY_FACE_NAME))),
                        sizeof(s_voice_face));
     faculty175_strlcpy(s_voice_interaction_mode, notes_mode ? "journal" : "conversation",
                        sizeof(s_voice_interaction_mode));
     faculty175_strlcpy(s_voice_commonplace_mode, notes_mode ? "journal" : "conversation",
                        sizeof(s_voice_commonplace_mode));
-    faculty175_strlcpy(s_voice_response_format, (notes_mode || alethiometer_mode || crystal_ball_mode) ? "json" : "mp3",
+    faculty175_strlcpy(s_voice_response_format, (notes_mode || alethiometer_mode || crystal_ball_mode || theritor_mode) ? "json" : "mp3",
                        sizeof(s_voice_response_format));
     faculty175_strlcpy(s_voice_system_instruction,
-                       crystal_ball_mode ? CRYSTAL_BALL_SYSTEM_INSTRUCTION
+                       theritor_mode ? "" : (crystal_ball_mode ? CRYSTAL_BALL_SYSTEM_INSTRUCTION
                                          : (alethiometer_mode ? ALETHIOMETER_SYSTEM_INSTRUCTION
-                                                             : ASTROLABE_FACULTY_SYSTEM_INSTRUCTION),
+                                                             : ASTROLABE_FACULTY_SYSTEM_INSTRUCTION)),
                        sizeof(s_voice_system_instruction));
     s_voice_skip_llm = notes_mode;
     s_voice_log_to_commonplace = true;
+    if (theritor_mode) {
+        faculty175_face_theritor_set_context(s_theritor_respondent, s_theritor_mode);
+    }
 }
 
 static const faculty175_face_desc_t *nav_relative_delta(int delta)
@@ -2509,7 +2611,11 @@ static void input_task(void *arg)
             const bool woke_from_low_power = s_low_power_asleep || s_low_power_dimmed;
             low_power_note_activity(now_ms, "gesture");
             const faculty175_face_desc_t *active_face = faculty175_faces_current();
-            if (gesture.kind == FACULTY175_GESTURE_LONG_TAP) {
+            if (gesture.kind == FACULTY175_GESTURE_LONG_TAP && active_face != NULL &&
+                active_face->id == FACULTY175_FACE_THERITOR) {
+                theritor_change_context(true);
+                faculty175_gesture_flush();
+            } else if (gesture.kind == FACULTY175_GESTURE_LONG_TAP) {
                 FACULTY175_LOG_STAGE(TAG,
                                      "faces",
                                      "ignored touch long press x=%d y=%d",
@@ -2741,7 +2847,10 @@ static void input_task(void *arg)
                 }
             } else if (!s_nav_mode && gesture.kind == FACULTY175_GESTURE_TAP) {
                 const faculty175_face_desc_t *face = faculty175_faces_current();
-                if (face != NULL && face->id == FACULTY175_FACE_POCKETWATCH) {
+                if (face != NULL && face->id == FACULTY175_FACE_THERITOR) {
+                    theritor_change_context(false);
+                    faculty175_gesture_flush();
+                } else if (face != NULL && face->id == FACULTY175_FACE_POCKETWATCH) {
                     char profile_slug[24];
                     if (faculty175_pocketwatch_profile_tap(gesture.x, gesture.y, now_ms, profile_slug,
                                                            sizeof(profile_slug))) {
@@ -2868,6 +2977,7 @@ void app_main(void)
     faculty175_ota_maybe_boot_product();
     ESP_ERROR_CHECK(faculty175_faces_init());
     load_faculty_from_nvs();
+    load_theritor_from_nvs();
     FACULTY175_LOG_STAGE(TAG, "boot", "faculty %s (%s)", s_faculty_name, s_faculty_slug);
 
     const esp_err_t faculty_init_err = faculty175_faculty_init();
@@ -2922,7 +3032,9 @@ void app_main(void)
         },
         .on_event = pipeline_event,
         .on_result = pipeline_result,
+        .on_session = pipeline_session,
         .prepare_context = sync_voice_context,
+        .request_headers = pipeline_request_headers,
         .endpoint_url = s_voice_pipeline_url,
         .stream_url = s_voice_stream_url,
         .transport = ASTROLABE_AUDIO_PIPELINE_TRANSPORT_FLASH_POST,
@@ -2935,6 +3047,11 @@ void app_main(void)
         .interaction_mode = s_voice_interaction_mode,
         .commonplace_mode = s_voice_commonplace_mode,
         .response_format = s_voice_response_format,
+        .respondent = s_theritor_respondent,
+        .mode = s_theritor_mode,
+        .topic = s_theritor_topic,
+        .work_slug = s_theritor_work_slug,
+        .session_id = s_theritor_session_id,
         .skip_llm = s_voice_skip_llm,
         .log_to_commonplace = s_voice_log_to_commonplace,
         .capture_mount_path = "/voice",

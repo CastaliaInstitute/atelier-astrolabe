@@ -35,8 +35,11 @@ static const char *TAG = "ast_audio_pipe";
 #define DEFAULT_MAX_SECONDS 15u
 #define DEFAULT_SEGMENT_MS 3000u
 #define DEFAULT_RING_SLOTS 8u
-#define MAX_RING_SLOTS 8u
-#define MIN_TURN_MIRROR_MAX_BYTES (32 * 1024u)
+#define MAX_RING_SLOTS 16u
+/* Retain up to 32 seconds for the HTTP recovery path without limiting the
+ * primary rolling stream. Longer turns continue streaming; they simply lose
+ * whole-turn replay once this diagnostic mirror is full. */
+#define MIN_TURN_MIRROR_MAX_BYTES (1024 * 1024u)
 #define DEFAULT_MIN_MS 400u
 #define DEFAULT_CAPTURE_COOLDOWN_MS 2500u
 #define DEFAULT_LISTEN_STACK 4096u
@@ -47,13 +50,17 @@ static const char *TAG = "ast_audio_pipe";
 #define VOICE_RESP_MAX_BYTES (768 * 1024)
 #define POST_PCM_CHUNK_BYTES 2048
 #define VOICE_STREAM_CT "application/vnd.astrolabe.voice-stream"
-#define STREAM_PCM_CHUNK_BYTES 2048
+/* 250 ms of mono PCM16 at 16 kHz. WebSocket messages are transport frames,
+ * not logical turn chunks: audio is appended continuously and committed only
+ * once, after VAD marks the end of the speaker's turn. */
+#define STREAM_PCM_CHUNK_BYTES 8192
 #define STREAM_CONNECT_TIMEOUT_MS 5000
 #define STREAM_SEND_TIMEOUT_MS 5000
 #define STREAM_FRAME_PACE_MS 0
+#define STREAM_AUDIO_SEGMENT_QUEUE_LEN 4
 #define STREAM_RESPONSE_TIMEOUT_MS 120000
 #define STREAM_EARLY_RESPONSE_TIMEOUT_MS 8000
-#define STREAM_WEBSOCKET_TASK_STACK 4096u
+#define STREAM_WEBSOCKET_TASK_STACK 6144u
 #define STREAM_WEBSOCKET_BUFFER_SIZE 16384u
 #define STREAM_OPEN_RETRIES 2u
 #define MANUAL_CAPTURE_MIN_MS 1500u
@@ -64,10 +71,15 @@ static const char *TAG = "ast_audio_pipe";
 #define VAD_WARMUP_FRAMES 25u
 #define VAD_NOISE_ATTACK_SHIFT 6
 #define VAD_NOISE_RELEASE_SHIFT 4
-#define VAD_MIN_DELTA_RMS 500u
+#define VAD_START_MIN_DELTA_RMS 250u
+#define VAD_END_MIN_DELTA_RMS 180u
 #define VAD_REARM_QUIET_FRAMES 75u
 #define VAD_REARM_FORCE_MS 6000u
 #define VAD_SILENCE_LEAK_FRAMES 4u
+/* Start confirmation is only 60 ms. Four hundred milliseconds protects the
+ * leading consonant while avoiding a 38.4 kB burst that can put live upload
+ * several seconds behind the microphone at the start of every turn. */
+#define VAD_PREROLL_MS 400u
 
 typedef struct {
     char path[128];
@@ -80,6 +92,11 @@ typedef struct {
 
 typedef struct voice_result voice_result_t;
 typedef struct stream_response_ctx stream_response_ctx_t;
+
+typedef struct {
+    uint8_t *mp3;
+    size_t mp3_len;
+} stream_audio_segment_t;
 
 struct astrolabe_audio_pipeline {
     astrolabe_audio_pipeline_config_t cfg;
@@ -118,6 +135,10 @@ struct astrolabe_audio_pipeline {
     uint8_t *turn_pcm;
     size_t turn_pcm_len;
     size_t turn_pcm_cap;
+    uint8_t *vad_preroll;
+    size_t vad_preroll_cap;
+    size_t vad_preroll_len;
+    size_t vad_preroll_write;
     bool turn_transport_failed;
     bool turn_pcm_truncated;
     uint32_t silence_frames;
@@ -150,6 +171,8 @@ struct voice_result {
     char reply[768];
     char faculty_slug[64];
     char faculty_name[96];
+    char session_id[64];
+    char expression[16];
     uint8_t *mp3;
     size_t mp3_len;
 };
@@ -164,6 +187,10 @@ struct stream_response_ctx {
     esp_err_t err;
     bool response_done;
     bool transport_failed;
+    QueueHandle_t audio_segments;
+    uint8_t *pending_segment_mp3;
+    size_t pending_segment_mp3_len;
+    bool segmented_audio_played;
 };
 
 static uint32_t ticks_ms(void)
@@ -181,6 +208,7 @@ static const char *cfg_interaction_mode(const astrolabe_audio_pipeline_t *p);
 static void listen_task(void *arg);
 static void voice_task(void *arg);
 static void voice_result_free(voice_result_t *r);
+static esp_err_t play_mp3(astrolabe_audio_pipeline_t *p, const uint8_t *mp3, size_t mp3_len);
 static esp_err_t websocket_send_text_all(esp_websocket_client_handle_t client, const char *text);
 static void stream_response_event(void *handler_arg, esp_event_base_t base, int32_t event_id, void *event_data);
 static esp_err_t rolling_stream_session_open(astrolabe_audio_pipeline_t *p);
@@ -192,6 +220,14 @@ static uint32_t cfg_stt_sample_rate_hz(const astrolabe_audio_pipeline_t *p)
         return p->cfg.stt_sample_rate_hz;
     }
     return p != NULL && p->cfg.sample_rate_hz > 0 ? p->cfg.sample_rate_hz : DEFAULT_SAMPLE_RATE_HZ;
+}
+
+static bool cfg_synthetic_validation(const astrolabe_audio_pipeline_t *p)
+{
+    if (p == NULL) return false;
+    return p->cfg.synthetic_validation_ref != NULL
+               ? *p->cfg.synthetic_validation_ref
+               : p->cfg.synthetic_validation;
 }
 
 static void start_capture_cooldown(astrolabe_audio_pipeline_t *p)
@@ -216,18 +252,25 @@ static bool rolling_websocket_enabled(const astrolabe_audio_pipeline_t *p)
 {
     return p != NULL && p->cfg.transport == ASTROLABE_AUDIO_PIPELINE_TRANSPORT_ROLLING_WEBSOCKET &&
            strcmp(cfg_interaction_mode(p), "conversation") == 0 &&
+           p->cfg.face != NULL && strcmp(p->cfg.face, "theritor") == 0 &&
            p->cfg.stream_url != NULL && p->cfg.stream_url[0] != '\0';
 }
 
 static bool capture_uses_ram(const astrolabe_audio_pipeline_t *p)
 {
-    (void)p;
-    return false;
+    /* Rolling Theritor must never perform SPIFFS close/read/open cycles on the
+     * real-time listener. Those flash operations drop more audio than each
+     * 500 ms segment contains. Batch faces retain their durable flash spool. */
+    return rolling_websocket_enabled(p);
 }
 
 static bool should_idle_listen_between_turns(const astrolabe_audio_pipeline_t *p)
 {
-    return p != NULL && !rolling_websocket_enabled(p);
+    /* Rolling voice keeps capture active while the model is thinking, but
+     * rolling_stream_wait_response() stops it before the first TTS segment to
+     * avoid recognizing the device's own speaker. It therefore needs the same
+     * post-turn listener restart as buffered transports. */
+    return p != NULL;
 }
 
 static void prepare_context(astrolabe_audio_pipeline_t *p)
@@ -497,13 +540,27 @@ static const char *json_find_string(const char *body, const char *key, char *out
         return NULL;
     }
     char pattern[64];
-    snprintf(pattern, sizeof(pattern), "\"%s\":\"", key);
+    snprintf(pattern, sizeof(pattern), "\"%s\"", key);
     const char *start = strstr(body, pattern);
     if (start == NULL) {
         out[0] = '\0';
         return NULL;
     }
     start += strlen(pattern);
+    while (*start == ' ' || *start == '\t' || *start == '\r' || *start == '\n') {
+        ++start;
+    }
+    if (*start++ != ':') {
+        out[0] = '\0';
+        return NULL;
+    }
+    while (*start == ' ' || *start == '\t' || *start == '\r' || *start == '\n') {
+        ++start;
+    }
+    if (*start++ != '"') {
+        out[0] = '\0';
+        return NULL;
+    }
     size_t w = 0;
     while (*start != '\0' && *start != '"' && w + 1 < cap) {
         if (*start == '\\' && start[1] != '\0') {
@@ -701,6 +758,32 @@ static void capture_voice_response_headers(esp_http_client_handle_t client, voic
         strlcpy(result->reply, header, sizeof(result->reply));
         url_decode_in_place(result->reply);
     }
+    header = NULL;
+    raw_header = NULL;
+    if (esp_http_client_get_header(client, "X-Theritor-Session", &raw_header) == ESP_OK && raw_header != NULL &&
+        raw_header[0] != '\0') {
+        header = raw_header;
+    } else if (esp_http_client_get_header(client, "x-theritor-session", &raw_header) == ESP_OK && raw_header != NULL &&
+               raw_header[0] != '\0') {
+        header = raw_header;
+    }
+    if (header != NULL) {
+        strlcpy(result->session_id, header, sizeof(result->session_id));
+        url_decode_in_place(result->session_id);
+    }
+    header = NULL;
+    raw_header = NULL;
+    if (esp_http_client_get_header(client, "X-Theritor-Expression", &raw_header) == ESP_OK && raw_header != NULL &&
+        raw_header[0] != '\0') {
+        header = raw_header;
+    } else if (esp_http_client_get_header(client, "x-theritor-expression", &raw_header) == ESP_OK && raw_header != NULL &&
+               raw_header[0] != '\0') {
+        header = raw_header;
+    }
+    if (header != NULL) {
+        strlcpy(result->expression, header, sizeof(result->expression));
+        url_decode_in_place(result->expression);
+    }
 }
 
 static void append_text(char *dst, size_t cap, const char *src)
@@ -883,6 +966,11 @@ static esp_err_t fetch_tts_for_reply(astrolabe_audio_pipeline_t *p, voice_result
         snprintf(auth, sizeof(auth), "Bearer %s", p->cfg.api_key);
         esp_http_client_set_header(client, "Authorization", auth);
     }
+    if (p->cfg.request_headers != NULL && p->cfg.request_headers(client, p->cfg.event_user) != ESP_OK) {
+        esp_http_client_cleanup(client);
+        free(body);
+        return ESP_ERR_INVALID_STATE;
+    }
 
     esp_err_t err = esp_http_client_open(client, (int)body_len);
     if (err == ESP_OK) {
@@ -950,8 +1038,14 @@ static esp_err_t post_pcm_buffer(astrolabe_audio_pipeline_t *p, const uint8_t *p
     char *interaction = json_escape_alloc(cfg_interaction_mode(p));
     char *commonplace = json_escape_alloc(cfg_commonplace_mode(p));
     char *response_format = json_escape_alloc(cfg_response_format(p));
+    char *respondent = json_escape_alloc(p->cfg.respondent);
+    char *mode = json_escape_alloc(p->cfg.mode);
+    char *topic = json_escape_alloc(p->cfg.topic);
+    char *work_slug = json_escape_alloc(p->cfg.work_slug);
+    char *session_id = json_escape_alloc(p->cfg.session_id);
     if (face == NULL || slug == NULL || name == NULL || system == NULL || history == NULL ||
-        interaction == NULL || commonplace == NULL || response_format == NULL) {
+        interaction == NULL || commonplace == NULL || response_format == NULL || respondent == NULL ||
+        mode == NULL || topic == NULL || work_slug == NULL || session_id == NULL) {
         free(face);
         free(slug);
         free(name);
@@ -960,11 +1054,14 @@ static esp_err_t post_pcm_buffer(astrolabe_audio_pipeline_t *p, const uint8_t *p
         free(interaction);
         free(commonplace);
         free(response_format);
+        free(respondent); free(mode); free(topic); free(work_slug); free(session_id);
         return ESP_ERR_NO_MEM;
     }
 
     const size_t meta_cap = strlen(face) + strlen(slug) + strlen(name) + strlen(history) + strlen(system) +
-                            strlen(interaction) + strlen(commonplace) + strlen(response_format) + 512;
+                            strlen(interaction) + strlen(commonplace) + strlen(response_format) +
+                            strlen(respondent) + strlen(mode) + strlen(topic) + strlen(work_slug) +
+                            strlen(session_id) + 640;
     char *meta = heap_caps_malloc(meta_cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (meta == NULL) {
         meta = malloc(meta_cap);
@@ -978,6 +1075,7 @@ static esp_err_t post_pcm_buffer(astrolabe_audio_pipeline_t *p, const uint8_t *p
         free(interaction);
         free(commonplace);
         free(response_format);
+        free(respondent); free(mode); free(topic); free(work_slug); free(session_id);
         return ESP_ERR_NO_MEM;
     }
     int meta_len = snprintf(meta, meta_cap,
@@ -985,11 +1083,14 @@ static esp_err_t post_pcm_buffer(astrolabe_audio_pipeline_t *p, const uint8_t *p
              "\"face\":\"%s\",\"facultySlug\":\"%s\",\"facultyName\":\"%s\","
              "\"conversationHistory\":\"%s\",\"systemInstruction\":\"%s\","
              "\"interactionMode\":\"%s\",\"commonplaceMode\":\"%s\","
-             "\"responseFormat\":\"%s\",\"skipLlm\":%s,\"logToCommonplace\":%s}",
+             "\"responseFormat\":\"%s\",\"respondent\":\"%s\",\"mode\":\"%s\","
+             "\"topic\":\"%s\",\"workSlug\":\"%s\",\"sessionId\":\"%s\","
+             "\"skipLlm\":%s,\"logToCommonplace\":%s,\"syntheticValidation\":%s}",
              (unsigned)cfg_stt_sample_rate_hz(p), face, slug, name, history, system,
-             interaction, commonplace, response_format,
+             interaction, commonplace, response_format, respondent, mode, topic, work_slug, session_id,
              cfg_skip_llm(p) ? "true" : "false",
-             cfg_log_to_commonplace(p) ? "true" : "false");
+             cfg_log_to_commonplace(p) ? "true" : "false",
+             cfg_synthetic_validation(p) ? "true" : "false");
     free(face);
     free(slug);
     free(name);
@@ -998,6 +1099,7 @@ static esp_err_t post_pcm_buffer(astrolabe_audio_pipeline_t *p, const uint8_t *p
     free(interaction);
     free(commonplace);
     free(response_format);
+    free(respondent); free(mode); free(topic); free(work_slug); free(session_id);
     if (meta_len <= 0 || (size_t)meta_len >= meta_cap) {
         free(meta);
         return ESP_ERR_NO_MEM;
@@ -1029,6 +1131,11 @@ static esp_err_t post_pcm_buffer(astrolabe_audio_pipeline_t *p, const uint8_t *p
         char auth[512];
         snprintf(auth, sizeof(auth), "Bearer %s", p->cfg.api_key);
         esp_http_client_set_header(client, "Authorization", auth);
+    }
+    if (p->cfg.request_headers != NULL && p->cfg.request_headers(client, p->cfg.event_user) != ESP_OK) {
+        esp_http_client_cleanup(client);
+        free(meta);
+        return ESP_ERR_INVALID_STATE;
     }
 
     esp_err_t err = esp_http_client_open(client, body_len);
@@ -1100,6 +1207,8 @@ static esp_err_t post_pcm_buffer(astrolabe_audio_pipeline_t *p, const uint8_t *p
     json_find_string(body, "reply", result->reply, sizeof(result->reply));
     json_find_string(body, "facultySlug", result->faculty_slug, sizeof(result->faculty_slug));
     json_find_string(body, "facultyName", result->faculty_name, sizeof(result->faculty_name));
+    json_find_string(body, "sessionId", result->session_id, sizeof(result->session_id));
+    json_find_string(body, "expression", result->expression, sizeof(result->expression));
     (void)extract_audio_base64(body, &result->mp3, &result->mp3_len);
     free(body);
     return ESP_OK;
@@ -1115,8 +1224,14 @@ static esp_err_t post_pcm_file(astrolabe_audio_pipeline_t *p, const char *path, 
     char *interaction = json_escape_alloc(cfg_interaction_mode(p));
     char *commonplace = json_escape_alloc(cfg_commonplace_mode(p));
     char *response_format = json_escape_alloc(cfg_response_format(p));
+    char *respondent = json_escape_alloc(p->cfg.respondent);
+    char *mode = json_escape_alloc(p->cfg.mode);
+    char *topic = json_escape_alloc(p->cfg.topic);
+    char *work_slug = json_escape_alloc(p->cfg.work_slug);
+    char *session_id = json_escape_alloc(p->cfg.session_id);
     if (face == NULL || slug == NULL || name == NULL || system == NULL || history == NULL ||
-        interaction == NULL || commonplace == NULL || response_format == NULL) {
+        interaction == NULL || commonplace == NULL || response_format == NULL || respondent == NULL ||
+        mode == NULL || topic == NULL || work_slug == NULL || session_id == NULL) {
         free(face);
         free(slug);
         free(name);
@@ -1125,11 +1240,14 @@ static esp_err_t post_pcm_file(astrolabe_audio_pipeline_t *p, const char *path, 
         free(interaction);
         free(commonplace);
         free(response_format);
+        free(respondent); free(mode); free(topic); free(work_slug); free(session_id);
         return ESP_ERR_NO_MEM;
     }
 
     const size_t meta_cap = strlen(face) + strlen(slug) + strlen(name) + strlen(history) + strlen(system) +
-                            strlen(interaction) + strlen(commonplace) + strlen(response_format) + 512;
+                            strlen(interaction) + strlen(commonplace) + strlen(response_format) +
+                            strlen(respondent) + strlen(mode) + strlen(topic) + strlen(work_slug) +
+                            strlen(session_id) + 640;
     char *meta = heap_caps_malloc(meta_cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (meta == NULL) {
         meta = malloc(meta_cap);
@@ -1143,6 +1261,7 @@ static esp_err_t post_pcm_file(astrolabe_audio_pipeline_t *p, const char *path, 
         free(interaction);
         free(commonplace);
         free(response_format);
+        free(respondent); free(mode); free(topic); free(work_slug); free(session_id);
         return ESP_ERR_NO_MEM;
     }
     int meta_len = snprintf(meta, meta_cap,
@@ -1150,11 +1269,14 @@ static esp_err_t post_pcm_file(astrolabe_audio_pipeline_t *p, const char *path, 
              "\"face\":\"%s\",\"facultySlug\":\"%s\",\"facultyName\":\"%s\","
              "\"conversationHistory\":\"%s\",\"systemInstruction\":\"%s\","
              "\"interactionMode\":\"%s\",\"commonplaceMode\":\"%s\","
-             "\"responseFormat\":\"%s\",\"skipLlm\":%s,\"logToCommonplace\":%s}",
+             "\"responseFormat\":\"%s\",\"respondent\":\"%s\",\"mode\":\"%s\","
+             "\"topic\":\"%s\",\"workSlug\":\"%s\",\"sessionId\":\"%s\","
+             "\"skipLlm\":%s,\"logToCommonplace\":%s,\"syntheticValidation\":%s}",
              (unsigned)cfg_stt_sample_rate_hz(p), face, slug, name, history, system,
-             interaction, commonplace, response_format,
+             interaction, commonplace, response_format, respondent, mode, topic, work_slug, session_id,
              cfg_skip_llm(p) ? "true" : "false",
-             cfg_log_to_commonplace(p) ? "true" : "false");
+             cfg_log_to_commonplace(p) ? "true" : "false",
+             cfg_synthetic_validation(p) ? "true" : "false");
     free(face);
     free(slug);
     free(name);
@@ -1163,6 +1285,7 @@ static esp_err_t post_pcm_file(astrolabe_audio_pipeline_t *p, const char *path, 
     free(interaction);
     free(commonplace);
     free(response_format);
+    free(respondent); free(mode); free(topic); free(work_slug); free(session_id);
     if (meta_len <= 0 || (size_t)meta_len >= meta_cap) {
         free(meta);
         return ESP_ERR_NO_MEM;
@@ -1205,6 +1328,12 @@ static esp_err_t post_pcm_file(astrolabe_audio_pipeline_t *p, const char *path, 
         char auth[512];
         snprintf(auth, sizeof(auth), "Bearer %s", p->cfg.api_key);
         esp_http_client_set_header(client, "Authorization", auth);
+    }
+    if (p->cfg.request_headers != NULL && p->cfg.request_headers(client, p->cfg.event_user) != ESP_OK) {
+        esp_http_client_cleanup(client);
+        fclose(file);
+        free(meta);
+        return ESP_ERR_INVALID_STATE;
     }
 
     esp_err_t err = esp_http_client_open(client, body_len);
@@ -1282,6 +1411,8 @@ static esp_err_t post_pcm_file(astrolabe_audio_pipeline_t *p, const char *path, 
     json_find_string(body, "reply", result->reply, sizeof(result->reply));
     json_find_string(body, "facultySlug", result->faculty_slug, sizeof(result->faculty_slug));
     json_find_string(body, "facultyName", result->faculty_name, sizeof(result->faculty_name));
+    json_find_string(body, "sessionId", result->session_id, sizeof(result->session_id));
+    json_find_string(body, "expression", result->expression, sizeof(result->expression));
     (void)extract_audio_base64(body, &result->mp3, &result->mp3_len);
     free(body);
     return ESP_OK;
@@ -1319,7 +1450,13 @@ static void stream_response_handle_json(stream_response_ctx_t *ctx, char *json)
     ESP_LOGI(TAG, "voice-stream rx type=%s bytes=%u",
              type[0] != '\0' ? type : "?",
              (unsigned)strlen(json));
-    if (strstr(json, "\"type\":\"conversation.item.input_audio_transcription.completed\"") != NULL) {
+    if (strstr(json, "\"type\":\"conversation.item.input_audio_transcription.delta\"") != NULL) {
+        char interim[320] = "";
+        if (json_find_string(json, "delta", interim, sizeof(interim)) != NULL) {
+            strlcpy(ctx->result->transcript, interim, sizeof(ctx->result->transcript));
+            ESP_LOGI(TAG, "voice-stream interim: %.120s", interim);
+        }
+    } else if (strstr(json, "\"type\":\"conversation.item.input_audio_transcription.completed\"") != NULL) {
         json_find_string(json, "transcript", ctx->result->transcript, sizeof(ctx->result->transcript));
     } else if (strstr(json, "\"type\":\"response.text.delta\"") != NULL) {
         char delta[256];
@@ -1333,9 +1470,27 @@ static void stream_response_handle_json(stream_response_ctx_t *ctx, char *json)
             uint8_t *mp3 = NULL;
             size_t mp3_len = 0;
             if (decode_base64_alloc(audio_b64, audio_b64_len, &mp3, &mp3_len)) {
-                if (!append_bytes(&ctx->result->mp3, &ctx->result->mp3_len, mp3, mp3_len)) {
+                const bool segmented = strstr(json, "\"segmentIndex\":") != NULL;
+                uint8_t **target = segmented ? &ctx->pending_segment_mp3 : &ctx->result->mp3;
+                size_t *target_len = segmented ? &ctx->pending_segment_mp3_len : &ctx->result->mp3_len;
+                if (!append_bytes(target, target_len, mp3, mp3_len)) {
                     ctx->err = ESP_ERR_NO_MEM;
                     ctx->event_count++;
+                } else if (segmented && strstr(json, "\"segmentEnd\":true") != NULL) {
+                    stream_audio_segment_t segment = {
+                        .mp3 = ctx->pending_segment_mp3,
+                        .mp3_len = ctx->pending_segment_mp3_len,
+                    };
+                    ctx->pending_segment_mp3 = NULL;
+                    ctx->pending_segment_mp3_len = 0;
+                    if (ctx->audio_segments == NULL || xQueueSend(ctx->audio_segments, &segment, 0) != pdTRUE) {
+                        free(segment.mp3);
+                        ctx->err = ESP_ERR_NO_MEM;
+                        ctx->event_count++;
+                    } else {
+                        ESP_LOGI(TAG, "voice-stream queued playable audio segment bytes=%u",
+                                 (unsigned)segment.mp3_len);
+                    }
                 }
                 free(mp3);
             }
@@ -1344,6 +1499,8 @@ static void stream_response_handle_json(stream_response_ctx_t *ctx, char *json)
     } else if (strstr(json, "\"type\":\"response.done\"") != NULL) {
         json_find_string(json, "facultySlug", ctx->result->faculty_slug, sizeof(ctx->result->faculty_slug));
         json_find_string(json, "facultyName", ctx->result->faculty_name, sizeof(ctx->result->faculty_name));
+        json_find_string(json, "sessionId", ctx->result->session_id, sizeof(ctx->result->session_id));
+        json_find_string(json, "expression", ctx->result->expression, sizeof(ctx->result->expression));
         ctx->response_done = true;
         ctx->event_count++;
     } else if (strstr(json, "\"type\":\"error\"") != NULL) {
@@ -1373,12 +1530,20 @@ static void stream_response_event(void *handler_arg, esp_event_base_t base, int3
     }
     if (event_id == WEBSOCKET_EVENT_DISCONNECTED) {
         ESP_LOGW(TAG, "voice-stream websocket disconnected");
-        ctx->transport_failed = true;
+        /* The relay may close an idle socket while the final queued speech
+         * segments are still playing. Once response.done has arrived, the
+         * turn is complete and a late close must not trigger a duplicate
+         * whole-turn HTTP fallback. */
+        if (!ctx->response_done) {
+            ctx->transport_failed = true;
+        }
         return;
     }
     if (event_id == WEBSOCKET_EVENT_CLOSED) {
         ESP_LOGW(TAG, "voice-stream websocket closed");
-        ctx->transport_failed = true;
+        if (!ctx->response_done) {
+            ctx->transport_failed = true;
+        }
         return;
     }
     if (event_id == WEBSOCKET_EVENT_ERROR) {
@@ -1386,9 +1551,11 @@ static void stream_response_event(void *handler_arg, esp_event_base_t base, int3
             ctx->websocket_status_code = data->error_handle.esp_ws_handshake_status_code;
         }
         ESP_LOGW(TAG, "voice-stream websocket error");
-        ctx->err = ESP_FAIL;
-        ctx->transport_failed = true;
-        ctx->event_count++;
+        if (!ctx->response_done) {
+            ctx->err = ESP_FAIL;
+            ctx->transport_failed = true;
+            ctx->event_count++;
+        }
         return;
     }
     if (data == NULL) {
@@ -1458,15 +1625,53 @@ static void rolling_stream_reset_response(stream_response_ctx_t *ctx)
     ctx->response_done = false;
     ctx->transport_failed = false;
     ctx->message_len = 0;
+    free(ctx->pending_segment_mp3);
+    ctx->pending_segment_mp3 = NULL;
+    ctx->pending_segment_mp3_len = 0;
+    ctx->segmented_audio_played = false;
+    if (ctx->audio_segments != NULL) {
+        stream_audio_segment_t segment = {};
+        while (xQueueReceive(ctx->audio_segments, &segment, 0) == pdTRUE) {
+            free(segment.mp3);
+        }
+    }
 }
 
-static bool rolling_stream_wait_event(const stream_response_ctx_t *ctx, uint32_t seen_count, uint32_t timeout_ms)
+static bool rolling_stream_wait_response(astrolabe_audio_pipeline_t *p, uint32_t seen_count, uint32_t timeout_ms)
 {
     const uint32_t start_ms = ticks_ms();
-    while (ctx != NULL && ctx->event_count == seen_count && ticks_ms() - start_ms < timeout_ms) {
+    stream_response_ctx_t *ctx = p != NULL ? p->rolling_response : NULL;
+    bool speaking = false;
+    while (ctx != NULL && ticks_ms() - start_ms < timeout_ms) {
+        stream_audio_segment_t segment = {};
+        if (ctx->audio_segments != NULL && xQueueReceive(ctx->audio_segments, &segment, 0) == pdTRUE) {
+            if (!speaking) {
+                stop_listen_task_if_running(p, 1000);
+                emit(p, ASTROLABE_AUDIO_PIPELINE_EVENT_SPEAKING, p->cfg.faculty_name);
+                speaking = true;
+            }
+            ESP_LOGI(TAG, "voice-stream playing audio segment bytes=%u after %ums",
+                     (unsigned)segment.mp3_len, (unsigned)(ticks_ms() - start_ms));
+            esp_err_t play_err = p->cfg.play_mp3 != NULL
+                                     ? p->cfg.play_mp3(segment.mp3, segment.mp3_len, p->cfg.event_user)
+                                     : play_mp3(p, segment.mp3, segment.mp3_len);
+            free(segment.mp3);
+            if (play_err != ESP_OK) {
+                ctx->err = play_err;
+                ctx->event_count++;
+                return false;
+            }
+            ctx->segmented_audio_played = true;
+            continue;
+        }
+        if (ctx->event_count != seen_count) {
+            if (!ctx->response_done || ctx->pending_segment_mp3_len == 0) {
+                return true;
+            }
+        }
         vTaskDelay(pdMS_TO_TICKS(20));
     }
-    return ctx != NULL && ctx->event_count != seen_count;
+    return false;
 }
 
 static void rolling_stream_session_close(astrolabe_audio_pipeline_t *p)
@@ -1494,6 +1699,12 @@ static void rolling_stream_state_free(astrolabe_audio_pipeline_t *p)
         return;
     }
     if (p->rolling_response != NULL) {
+        if (p->rolling_response->audio_segments != NULL) {
+            vQueueDelete(p->rolling_response->audio_segments);
+            p->rolling_response->audio_segments = NULL;
+        }
+        free(p->rolling_response->pending_segment_mp3);
+        p->rolling_response->pending_segment_mp3 = NULL;
         free(p->rolling_response->message);
         p->rolling_response->message = NULL;
         free(p->rolling_response);
@@ -1531,8 +1742,14 @@ static esp_err_t rolling_stream_session_open(astrolabe_audio_pipeline_t *p)
     char *interaction = json_escape_alloc(cfg_interaction_mode(p));
     char *commonplace = json_escape_alloc(cfg_commonplace_mode(p));
     char *response_format = json_escape_alloc(cfg_response_format(p));
+    char *respondent = json_escape_alloc(p->cfg.respondent);
+    char *mode = json_escape_alloc(p->cfg.mode);
+    char *topic = json_escape_alloc(p->cfg.topic);
+    char *work_slug = json_escape_alloc(p->cfg.work_slug);
+    char *session_id = json_escape_alloc(p->cfg.session_id);
     if (face == NULL || slug == NULL || name == NULL || system == NULL || history == NULL ||
-        interaction == NULL || commonplace == NULL || response_format == NULL) {
+        interaction == NULL || commonplace == NULL || response_format == NULL || respondent == NULL ||
+        mode == NULL || topic == NULL || work_slug == NULL || session_id == NULL) {
         free(face);
         free(slug);
         free(name);
@@ -1541,16 +1758,46 @@ static esp_err_t rolling_stream_session_open(astrolabe_audio_pipeline_t *p)
         free(interaction);
         free(commonplace);
         free(response_format);
+        free(respondent);
+        free(mode);
+        free(topic);
+        free(work_slug);
+        free(session_id);
         return ESP_ERR_NO_MEM;
     }
 
     const size_t session_cap = strlen(face) + strlen(slug) + strlen(name) + strlen(system) + strlen(history) +
-                               strlen(interaction) + strlen(commonplace) + strlen(response_format) + 640;
-    char auth_header[560];
+                               strlen(interaction) + strlen(commonplace) + strlen(response_format) +
+                               strlen(respondent) + strlen(mode) + strlen(topic) + strlen(work_slug) +
+                               strlen(session_id) + 768;
+    char auth_header[960];
     auth_header[0] = '\0';
     if (p->cfg.api_key != NULL && p->cfg.api_key[0] != '\0') {
         snprintf(auth_header, sizeof(auth_header), "apikey: %s\r\nAuthorization: Bearer %s\r\n",
                  p->cfg.api_key, p->cfg.api_key);
+    }
+    if (p->cfg.request_header_text != NULL) {
+        char device_headers[384] = "";
+        const esp_err_t header_err = p->cfg.request_header_text(
+            device_headers,
+            sizeof(device_headers),
+            p->cfg.event_user);
+        if (header_err != ESP_OK || strlcat(auth_header, device_headers, sizeof(auth_header)) >= sizeof(auth_header)) {
+            free(face);
+            free(slug);
+            free(name);
+            free(system);
+            free(history);
+            free(interaction);
+            free(commonplace);
+            free(response_format);
+            free(respondent);
+            free(mode);
+            free(topic);
+            free(work_slug);
+            free(session_id);
+            return header_err != ESP_OK ? header_err : ESP_ERR_INVALID_SIZE;
+        }
     }
 
     esp_err_t err = ESP_FAIL;
@@ -1586,6 +1833,14 @@ static esp_err_t rolling_stream_session_open(astrolabe_audio_pipeline_t *p)
             break;
         }
         p->rolling_response->result = p->rolling_result;
+        if (p->rolling_response->audio_segments == NULL) {
+            p->rolling_response->audio_segments = xQueueCreate(
+                STREAM_AUDIO_SEGMENT_QUEUE_LEN, sizeof(stream_audio_segment_t));
+        }
+        if (p->rolling_response->audio_segments == NULL) {
+            err = ESP_ERR_NO_MEM;
+            break;
+        }
         rolling_stream_reset_response(p->rolling_response);
         rolling_stream_reset_result(p->rolling_result);
         ESP_LOGI(TAG,
@@ -1617,17 +1872,25 @@ static esp_err_t rolling_stream_session_open(astrolabe_audio_pipeline_t *p)
             err = ESP_ERR_NO_MEM;
         }
         if (err == ESP_OK) {
+            ESP_LOGI(TAG,
+                     "voice-stream metadata synthetic_validation=%s",
+                     cfg_synthetic_validation(p) ? "true" : "false");
             int session_len = snprintf(session, session_cap,
                                        "{\"type\":\"session.update\",\"session\":{\"sampleRateHertz\":%u,"
                                        "\"sample_width_bits\":16,\"channels\":1,\"encoding\":\"pcm16\","
                                        "\"face\":\"%s\",\"facultySlug\":\"%s\",\"facultyName\":\"%s\","
                                        "\"conversationHistory\":\"%s\",\"systemInstruction\":\"%s\","
                                        "\"interactionMode\":\"%s\",\"commonplaceMode\":\"%s\","
-                                       "\"responseFormat\":\"%s\",\"skipLlm\":%s,\"logToCommonplace\":%s}}",
+                                       "\"responseFormat\":\"%s\",\"respondent\":\"%s\","
+                                       "\"mode\":\"%s\",\"topic\":\"%s\",\"workSlug\":\"%s\","
+                                       "\"sessionId\":\"%s\",\"skipLlm\":%s,\"logToCommonplace\":%s,"
+                                       "\"syntheticValidation\":%s}}",
                                        (unsigned)cfg_stt_sample_rate_hz(p), face, slug, name, history, system,
-                                       interaction, commonplace, response_format,
+                                       interaction, commonplace, response_format, respondent, mode, topic, work_slug,
+                                       session_id,
                                        cfg_skip_llm(p) ? "true" : "false",
-                                       cfg_log_to_commonplace(p) ? "true" : "false");
+                                       cfg_log_to_commonplace(p) ? "true" : "false",
+                                       cfg_synthetic_validation(p) ? "true" : "false");
             if (session_len <= 0 || (size_t)session_len >= session_cap) {
                 err = ESP_ERR_NO_MEM;
             } else {
@@ -1658,6 +1921,11 @@ static esp_err_t rolling_stream_session_open(astrolabe_audio_pipeline_t *p)
     free(interaction);
     free(commonplace);
     free(response_format);
+    free(respondent);
+    free(mode);
+    free(topic);
+    free(work_slug);
+    free(session_id);
 
     if (err != ESP_OK) {
         rolling_stream_session_close(p);
@@ -1674,6 +1942,8 @@ static void rolling_stream_copy_snapshot(const voice_result_t *src, voice_result
     strlcpy(dst->reply, src->reply, sizeof(dst->reply));
     strlcpy(dst->faculty_slug, src->faculty_slug, sizeof(dst->faculty_slug));
     strlcpy(dst->faculty_name, src->faculty_name, sizeof(dst->faculty_name));
+    strlcpy(dst->session_id, src->session_id, sizeof(dst->session_id));
+    strlcpy(dst->expression, src->expression, sizeof(dst->expression));
     if (include_audio && src->mp3 != NULL && src->mp3_len > 0) {
         dst->mp3 = src->mp3;
         dst->mp3_len = src->mp3_len;
@@ -1800,36 +2070,29 @@ static esp_err_t stream_pcm_file(astrolabe_audio_pipeline_t *p, const utterance_
     if (pcm_data != utt->pcm_data) {
         free(pcm_data);
     }
-    if (err == ESP_OK && p->rolling_response != NULL) {
+    if (err == ESP_OK && utt->final_segment && p->rolling_response != NULL) {
         rolling_stream_reset_response(p->rolling_response);
     }
     const uint32_t response_seen_count = p->rolling_response != NULL ? p->rolling_response->event_count : 0;
-    if (err == ESP_OK) {
+    if (err == ESP_OK && utt->final_segment) {
         char commit[160];
         snprintf(commit, sizeof(commit),
-                 "{\"type\":\"input_audio_buffer.commit\",\"turnId\":\"segment-%u\",\"final\":%s,\"bytes\":%u}",
-                 (unsigned)utt->sequence, utt->final_segment ? "true" : "false", (unsigned)utt->byte_count);
+                 "{\"type\":\"input_audio_buffer.commit\",\"turnId\":\"turn-%u\",\"final\":true,\"bytes\":%u}",
+                 (unsigned)utt->sequence, (unsigned)utt->byte_count);
         err = websocket_send_text_all(p->rolling_client, commit);
     }
-    if (err == ESP_OK && p->rolling_response != NULL) {
-        if (utt->final_segment) {
-            if (!rolling_stream_wait_event(p->rolling_response, response_seen_count, STREAM_RESPONSE_TIMEOUT_MS)) {
-                err = ESP_ERR_TIMEOUT;
-            } else if (p->rolling_response->err != ESP_OK) {
-                err = p->rolling_response->err;
-            } else if (!p->rolling_response->response_done) {
-                err = ESP_FAIL;
-            } else if (p->rolling_result != NULL && p->rolling_result->transcript[0] == '\0' &&
-                       p->rolling_result->reply[0] == '\0' && p->rolling_result->mp3_len == 0) {
-                err = ESP_FAIL;
-            }
-        } else {
-            // Rolling non-final segments should remain fire-and-forget. Waiting
-            // for a server-side ack here throttles capture below real time and
-            // lets the queue back up behind the final commit.
-            if (p->rolling_response->event_count != response_seen_count && p->rolling_response->err != ESP_OK) {
-                err = p->rolling_response->err;
-            }
+    if (err == ESP_OK && utt->final_segment && p->rolling_response != NULL) {
+        if (!rolling_stream_wait_response(p, response_seen_count, STREAM_RESPONSE_TIMEOUT_MS)) {
+            err = p->rolling_response->err != ESP_OK
+                      ? p->rolling_response->err
+                      : ESP_ERR_TIMEOUT;
+        } else if (p->rolling_response->err != ESP_OK) {
+            err = p->rolling_response->err;
+        } else if (!p->rolling_response->response_done) {
+            err = ESP_FAIL;
+        } else if (p->rolling_result != NULL && p->rolling_result->transcript[0] == '\0' &&
+                   p->rolling_result->reply[0] == '\0' && p->rolling_result->mp3_len == 0) {
+            err = ESP_FAIL;
         }
     }
 
@@ -2135,7 +2398,7 @@ static uint32_t dynamic_start_threshold(const astrolabe_audio_pipeline_t *p)
 {
     uint32_t threshold = p->cfg.rms_start;
     if (p->noise_rms > 0) {
-        const uint32_t adaptive = p->noise_rms + (p->noise_rms >> 4) + VAD_MIN_DELTA_RMS;
+        const uint32_t adaptive = p->noise_rms + (p->noise_rms >> 4) + VAD_START_MIN_DELTA_RMS;
         if (adaptive > threshold) {
             threshold = adaptive;
         }
@@ -2147,7 +2410,7 @@ static uint32_t dynamic_end_threshold(const astrolabe_audio_pipeline_t *p)
 {
     uint32_t threshold = p->cfg.rms_end;
     if (p->noise_rms > 0) {
-        const uint32_t adaptive = p->noise_rms + (p->noise_rms >> 1) + VAD_MIN_DELTA_RMS;
+        const uint32_t adaptive = p->noise_rms + (p->noise_rms >> 1) + VAD_END_MIN_DELTA_RMS;
         if (adaptive > threshold) {
             threshold = adaptive;
         }
@@ -2155,22 +2418,86 @@ static uint32_t dynamic_end_threshold(const astrolabe_audio_pipeline_t *p)
     return threshold;
 }
 
+static void vad_preroll_push(astrolabe_audio_pipeline_t *p, const int16_t *frame, size_t frame_samples)
+{
+    if (p == NULL || p->vad_preroll == NULL || p->vad_preroll_cap == 0 || frame == NULL || frame_samples == 0) {
+        return;
+    }
+    const uint8_t *src = (const uint8_t *)frame;
+    size_t len = frame_samples * sizeof(int16_t);
+    if (len >= p->vad_preroll_cap) {
+        src += len - p->vad_preroll_cap;
+        len = p->vad_preroll_cap;
+        memcpy(p->vad_preroll, src, len);
+        p->vad_preroll_len = len;
+        p->vad_preroll_write = 0;
+        return;
+    }
+    const size_t first = len < p->vad_preroll_cap - p->vad_preroll_write
+                             ? len
+                             : p->vad_preroll_cap - p->vad_preroll_write;
+    memcpy(p->vad_preroll + p->vad_preroll_write, src, first);
+    if (first < len) {
+        memcpy(p->vad_preroll, src + first, len - first);
+    }
+    p->vad_preroll_write = (p->vad_preroll_write + len) % p->vad_preroll_cap;
+    p->vad_preroll_len += len;
+    if (p->vad_preroll_len > p->vad_preroll_cap) {
+        p->vad_preroll_len = p->vad_preroll_cap;
+    }
+}
+
+static bool vad_preroll_seed_capture(astrolabe_audio_pipeline_t *p)
+{
+    if (p == NULL || p->vad_preroll == NULL || p->vad_preroll_len == 0) {
+        return true;
+    }
+    size_t oldest = (p->vad_preroll_write + p->vad_preroll_cap - p->vad_preroll_len) % p->vad_preroll_cap;
+    size_t remaining = p->vad_preroll_len;
+    while (remaining > 0) {
+        const size_t chunk = remaining < p->vad_preroll_cap - oldest
+                                 ? remaining
+                                 : p->vad_preroll_cap - oldest;
+        if (capture_uses_ram(p)) {
+            if (p->capture_ram == NULL || p->capture_len_bytes + chunk > p->capture_ram_cap) {
+                return false;
+            }
+            memcpy(p->capture_ram + p->capture_len_bytes, p->vad_preroll + oldest, chunk);
+        } else {
+            const ssize_t wrote = p->capture_fd >= 0 ? write(p->capture_fd, p->vad_preroll + oldest, chunk) : -1;
+            if (wrote < 0 || (size_t)wrote != chunk) {
+                return false;
+            }
+        }
+        p->capture_len_bytes += chunk;
+        remaining -= chunk;
+        oldest = 0;
+    }
+    ESP_LOGI(TAG, "VAD pre-roll seeded bytes=%u", (unsigned)p->vad_preroll_len);
+    p->vad_preroll_len = 0;
+    p->vad_preroll_write = 0;
+    return true;
+}
+
 static bool begin_capture_file(astrolabe_audio_pipeline_t *p)
 {
     if (capture_uses_ram(p)) {
-        if (p->capture_ram == NULL || p->capture_ram_cap < p->segment_cap_bytes) {
+        const size_t ram_cap = p->vad_preroll_cap > p->segment_cap_bytes
+                                   ? p->vad_preroll_cap
+                                   : p->segment_cap_bytes;
+        if (p->capture_ram == NULL || p->capture_ram_cap < ram_cap) {
             free(p->capture_ram);
-            p->capture_ram = heap_caps_malloc(p->segment_cap_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+            p->capture_ram = heap_caps_malloc(ram_cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
             if (p->capture_ram == NULL) {
-                p->capture_ram = heap_caps_malloc(p->segment_cap_bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+                p->capture_ram = heap_caps_malloc(ram_cap, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
             }
             if (p->capture_ram == NULL) {
-                p->capture_ram = malloc(p->segment_cap_bytes);
+                p->capture_ram = malloc(ram_cap);
             }
             if (p->capture_ram == NULL) {
                 return false;
             }
-            p->capture_ram_cap = p->segment_cap_bytes;
+            p->capture_ram_cap = ram_cap;
         }
         p->capture_len_bytes = 0;
         p->capture_started_ms = ticks_ms();
@@ -2296,7 +2623,9 @@ static bool queue_utterance(astrolabe_audio_pipeline_t *p, bool final_segment)
         // final segment is being processed.
         start_capture_cooldown(p);
     }
-    emit(p, ASTROLABE_AUDIO_PIPELINE_EVENT_CAPTURE_QUEUED, NULL);
+    emit(p,
+         ASTROLABE_AUDIO_PIPELINE_EVENT_CAPTURE_QUEUED,
+         final_segment ? "final" : "segment");
     reset_capture(p);
     return true;
 }
@@ -2325,6 +2654,9 @@ static bool push_frame(astrolabe_audio_pipeline_t *p, const int16_t *frame, size
     p->last_rms = frame_rms(frame, frame_samples);
     p->vad_frames_seen++;
     waveform_push(p, pipeline_wave_level(p, p->last_rms), p->speech_active);
+    if (!p->speech_active) {
+        vad_preroll_push(p, frame, frame_samples);
+    }
     if (p->manual_capture && !p->speech_active) {
         const uint32_t quiet_threshold = dynamic_end_threshold(p);
         const bool quiet_frame = p->last_rms < quiet_threshold;
@@ -2409,6 +2741,11 @@ static bool push_frame(astrolabe_audio_pipeline_t *p, const int16_t *frame, size
         if (voiced && ++p->speech_frames >= p->cfg.start_frames) {
             if (!begin_capture_file(p)) {
                 emit(p, ASTROLABE_AUDIO_PIPELINE_EVENT_ERROR, "capture file");
+                reset_capture(p);
+                return false;
+            }
+            if (!vad_preroll_seed_capture(p)) {
+                emit(p, ASTROLABE_AUDIO_PIPELINE_EVENT_ERROR, "capture pre-roll");
                 reset_capture(p);
                 return false;
             }
@@ -2579,7 +2916,6 @@ static void voice_task(void *arg)
     astrolabe_audio_pipeline_t *p = (astrolabe_audio_pipeline_t *)arg;
     ESP_LOGI(TAG, "voice task ready");
     while (p->running) {
-        bool idle_shutdown = false;
         utterance_t utt = {};
         if (xQueueReceive(p->utterance_queue, &utt, pdMS_TO_TICKS(250)) != pdTRUE) {
             continue;
@@ -2599,11 +2935,11 @@ static void voice_task(void *arg)
         if (utt.final_segment) {
             emit(p, ASTROLABE_AUDIO_PIPELINE_EVENT_THINKING, NULL);
         }
-        /* Context preparation may read cached face data from flash and use a
-         * substantially deeper stack than the real-time listener. Refresh it
-         * once per queued segment here, immediately before transport, rather
-         * than on every 10 ms microphone frame. */
-        prepare_context(p);
+        /* Context is needed by the single end-of-turn request, not by each
+         * fire-and-forget PCM transport frame. */
+        if (utt.final_segment) {
+            prepare_context(p);
+        }
         ESP_LOGI(TAG, "posting capture segment #%u final=%s bytes=%u path=%s",
                  (unsigned)utt.sequence, utt.final_segment ? "yes" : "no",
                  (unsigned)utt.byte_count, utt.path);
@@ -2626,10 +2962,6 @@ static void voice_task(void *arg)
                 emit(p, ASTROLABE_AUDIO_PIPELINE_EVENT_LISTENING, NULL);
             } else if (should_idle_listen_between_turns(p)) {
                 emit(p, ASTROLABE_AUDIO_PIPELINE_EVENT_ERROR, "listen restart");
-            }
-            idle_shutdown = rolling_websocket_enabled(p) && p->rolling_client == NULL;
-            if (idle_shutdown) {
-                break;
             }
             continue;
         }
@@ -2694,6 +3026,13 @@ static void voice_task(void *arg)
             turn_pcm_reset(p);
             emit(p, ASTROLABE_AUDIO_PIPELINE_EVENT_ERROR, "voice-pipeline");
             start_capture_cooldown(p);
+            if (rolling_websocket_enabled(p)) {
+                const esp_err_t prewarm_err = rolling_stream_session_open(p);
+                if (prewarm_err != ESP_OK) {
+                    ESP_LOGW(TAG, "voice-stream error recovery prewarm failed: %s",
+                             esp_err_to_name(prewarm_err));
+                }
+            }
             if (should_idle_listen_between_turns(p) && start_listen_task_if_needed(p) == ESP_OK) {
                 emit(p, ASTROLABE_AUDIO_PIPELINE_EVENT_LISTENING, NULL);
             } else if (should_idle_listen_between_turns(p)) {
@@ -2722,6 +3061,9 @@ static void voice_task(void *arg)
         if (p->cfg.on_result != NULL) {
             p->cfg.on_result(result->transcript, result->reply, result->faculty_slug, result->faculty_name, p->cfg.event_user);
         }
+        if (p->cfg.on_session != NULL && (result->session_id[0] != '\0' || result->expression[0] != '\0')) {
+            p->cfg.on_session(result->session_id, result->expression, p->cfg.event_user);
+        }
         // Once a final streamed turn has produced its full semantic result, the
         // websocket session is no longer needed for local playback. Keeping it
         // alive through TTS allows ping/close traffic to race with the speaker
@@ -2740,6 +3082,16 @@ static void voice_task(void *arg)
         free(result);
         turn_pcm_reset(p);
         (capture_uses_ram(p) ? drain_queued_segments : drain_queued_segments_keep_files)(p, "final success");
+        /* The response socket is closed before playback to keep WebSocket
+         * callbacks away from I2S. Re-open it now, before the next person can
+         * begin speaking, so their pre-roll is never spent on TLS startup. */
+        if (rolling_websocket_enabled(p)) {
+            const esp_err_t prewarm_err = rolling_stream_session_open(p);
+            if (prewarm_err != ESP_OK) {
+                ESP_LOGW(TAG, "voice-stream next-turn prewarm failed: %s",
+                         esp_err_to_name(prewarm_err));
+            }
+        }
         emit(p, ASTROLABE_AUDIO_PIPELINE_EVENT_TURN_DONE, NULL);
         start_capture_cooldown(p);
         if (should_idle_listen_between_turns(p) && start_listen_task_if_needed(p) == ESP_OK) {
@@ -2747,10 +3099,10 @@ static void voice_task(void *arg)
         } else if (should_idle_listen_between_turns(p)) {
             emit(p, ASTROLABE_AUDIO_PIPELINE_EVENT_ERROR, "listen restart");
         }
-        idle_shutdown = rolling_websocket_enabled(p) && p->rolling_client == NULL;
-        if (idle_shutdown) {
-            break;
-        }
+        /* Keep the worker resident between rolling turns. Its static stack is
+         * reserved for the pipeline lifetime, so deleting the task saves no
+         * memory and leaves hands-free VAD captures queued without a consumer.
+         * The blocking queue receive keeps the idle worker inexpensive. */
     }
     p->voice_task = NULL;
     vTaskDelete(NULL);
@@ -2786,7 +3138,9 @@ esp_err_t astrolabe_audio_pipeline_create(const astrolabe_audio_pipeline_config_
     if (p->cfg.silence_frames == 0) {
         p->cfg.silence_frames = DEFAULT_SILENCE_FRAMES;
     }
-    if (p->cfg.max_seconds == 0) {
+    const bool unbounded_rolling_capture =
+        p->cfg.max_seconds == 0 && rolling_websocket_enabled(p);
+    if (p->cfg.max_seconds == 0 && !unbounded_rolling_capture) {
         p->cfg.max_seconds = DEFAULT_MAX_SECONDS;
     }
     if (p->cfg.min_ms == 0) {
@@ -2846,14 +3200,31 @@ esp_err_t astrolabe_audio_pipeline_create(const astrolabe_audio_pipeline_config_
     if (p->capture_ring_slots > MAX_RING_SLOTS) {
         p->capture_ring_slots = MAX_RING_SLOTS;
     }
-    p->capture_cap_bytes = (size_t)p->cfg.max_seconds * cfg_stt_sample_rate_hz(p) * sizeof(int16_t);
+    /* A rolling Theritor turn is an actual stream: segment rotation bounds
+     * memory while VAD silence, rather than elapsed time, ends the utterance.
+     * Batch transports retain their configured duration bound. */
+    p->capture_cap_bytes = unbounded_rolling_capture
+                               ? SIZE_MAX
+                               : (size_t)p->cfg.max_seconds * cfg_stt_sample_rate_hz(p) * sizeof(int16_t);
+    p->vad_preroll_cap = ((size_t)p->cfg.sample_rate_hz * VAD_PREROLL_MS / 1000u) * sizeof(int16_t);
+    if (p->vad_preroll_cap > 0) {
+        p->vad_preroll = heap_caps_malloc(p->vad_preroll_cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (p->vad_preroll == NULL) {
+            p->vad_preroll = malloc(p->vad_preroll_cap);
+        }
+        if (p->vad_preroll == NULL) {
+            ESP_LOGW(TAG, "VAD pre-roll unavailable bytes=%u", (unsigned)p->vad_preroll_cap);
+            p->vad_preroll_cap = 0;
+        }
+    }
     if (rolling_websocket_enabled(p)) {
         const uint32_t segment_ms = p->cfg.capture_segment_ms != 0 ? p->cfg.capture_segment_ms : DEFAULT_SEGMENT_MS;
         p->segment_cap_bytes = (((size_t)segment_ms * cfg_stt_sample_rate_hz(p)) / 1000) * sizeof(int16_t);
     } else {
         p->segment_cap_bytes = p->capture_cap_bytes;
     }
-    if (p->segment_cap_bytes == 0 || p->segment_cap_bytes > p->capture_cap_bytes) {
+    if (p->segment_cap_bytes == 0 ||
+        (!unbounded_rolling_capture && p->segment_cap_bytes > p->capture_cap_bytes)) {
         p->segment_cap_bytes = p->capture_cap_bytes;
     }
     if (!capture_uses_ram(p) && !p->cfg.capture_skip_spiffs_mount) {
@@ -2919,6 +3290,14 @@ esp_err_t astrolabe_audio_pipeline_create(const astrolabe_audio_pipeline_config_
     reset_capture(p);
     *out_pipeline = p;
     return ESP_OK;
+}
+
+void astrolabe_audio_pipeline_set_synthetic_validation(astrolabe_audio_pipeline_t *p,
+                                                       bool enabled)
+{
+    if (p != NULL) {
+        p->cfg.synthetic_validation = enabled;
+    }
 }
 
 esp_err_t astrolabe_audio_pipeline_start(astrolabe_audio_pipeline_t *p)
@@ -3002,6 +3381,7 @@ void astrolabe_audio_pipeline_destroy(astrolabe_audio_pipeline_t *p)
     // though the mounted spool itself is healthy.
     free(p->capture_ram);
     free(p->turn_pcm);
+    free(p->vad_preroll);
     if (p->owns_listen_task_storage) {
         free(p->listen_task_stack_storage);
         free(p->listen_task_tcb_storage);

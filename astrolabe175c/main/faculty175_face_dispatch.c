@@ -10,6 +10,7 @@
 #include "faculty175_face_notes.h"
 #include "faculty175_face_psych_state.h"
 #include "faculty175_face_runes.h"
+#include "faculty175_face_theritor.h"
 #include "faculty175_usb_screen.h"
 
 void faculty175_face_classic_draw(uint32_t anim_ms);
@@ -59,11 +60,17 @@ void faculty175_face_cycle_draw(uint32_t anim_ms);
 
 bool faculty175_face_dispatch_draw(faculty175_face_id_t id, uint32_t anim_ms)
 {
+    static faculty175_face_id_t last_id = FACULTY175_FACE_COUNT;
+    if (id != last_id) {
+        if (id == FACULTY175_FACE_THERITOR) faculty175_face_theritor_invalidate();
+        last_id = id;
+    }
     if (faculty175_lvgl_draw_face(id, anim_ms)) {
         return true;
     }
 
     switch (id) {
+        case FACULTY175_FACE_THERITOR: faculty175_face_theritor_draw(anim_ms); return true;
         case FACULTY175_FACE_NOTES: faculty175_face_notes_draw(anim_ms); return true;
         case FACULTY175_FACE_RUNES: faculty175_face_runes_draw(anim_ms); return true;
         case FACULTY175_FACE_ALETHIOMETER: faculty175_face_alethiometer_draw(anim_ms); return true;
@@ -191,6 +198,7 @@ bool faculty175_face_dispatch_action(faculty175_face_id_t id, uint32_t seed_ms)
         case FACULTY175_FACE_BATTERY:
         case FACULTY175_FACE_JOURNAL:
         case FACULTY175_FACE_CONVERSATION:
+        case FACULTY175_FACE_THERITOR:
         case FACULTY175_FACE_COUNT:
             return false;
         default:

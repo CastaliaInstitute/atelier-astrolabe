@@ -2043,19 +2043,22 @@ esp_err_t faculty175_voice_play_mp3(const uint8_t *mp3, size_t mp3_len)
         }
         ++frame_index;
         const uint32_t write_start_ms = faculty175_log_ms();
+        const bool log_frame = frame_index == 1 || frame_index % 100 == 0 || offset >= mp3_len;
         if (info.channels == 1) {
             int16_t *stereo = pcm;
             for (int i = samples - 1; i >= 0; --i) {
                 stereo[i * 2] = pcm[i];
                 stereo[i * 2 + 1] = pcm[i];
             }
-            FACULTY175_LOG_STAGE(TAG,
-                                 "tts",
-                                 "play frame=%u off=%u/%u samples=%d ch=1",
-                                 (unsigned)frame_index,
-                                 (unsigned)offset,
-                                 (unsigned)mp3_len,
-                                 samples);
+            if (log_frame) {
+                FACULTY175_LOG_STAGE(TAG,
+                                     "tts",
+                                     "play frame=%u off=%u/%u samples=%d ch=1",
+                                     (unsigned)frame_index,
+                                     (unsigned)offset,
+                                     (unsigned)mp3_len,
+                                     samples);
+            }
             const esp_err_t write_err = faculty175_audio_write_pcm(stereo, (size_t)samples * 2, 1000);
             if (write_err != ESP_OK) {
                 FACULTY175_LOG_STAGE_W(TAG,
@@ -2067,14 +2070,16 @@ esp_err_t faculty175_voice_play_mp3(const uint8_t *mp3, size_t mp3_len)
                 break;
             }
         } else {
-            FACULTY175_LOG_STAGE(TAG,
-                                 "tts",
-                                 "play frame=%u off=%u/%u samples=%d ch=%d",
-                                 (unsigned)frame_index,
-                                 (unsigned)offset,
-                                 (unsigned)mp3_len,
-                                 samples,
-                                 info.channels);
+            if (log_frame) {
+                FACULTY175_LOG_STAGE(TAG,
+                                     "tts",
+                                     "play frame=%u off=%u/%u samples=%d ch=%d",
+                                     (unsigned)frame_index,
+                                     (unsigned)offset,
+                                     (unsigned)mp3_len,
+                                     samples,
+                                     info.channels);
+            }
             const esp_err_t write_err = faculty175_audio_write_pcm(pcm, (size_t)samples * 2, 1000);
             if (write_err != ESP_OK) {
                 FACULTY175_LOG_STAGE_W(TAG,
@@ -2086,11 +2091,13 @@ esp_err_t faculty175_voice_play_mp3(const uint8_t *mp3, size_t mp3_len)
                 break;
             }
         }
-        FACULTY175_LOG_STAGE(TAG,
-                             "tts",
-                             "play frame=%u write_ms=%u",
-                             (unsigned)frame_index,
-                             (unsigned)(faculty175_log_ms() - write_start_ms));
+        if (log_frame) {
+            FACULTY175_LOG_STAGE(TAG,
+                                 "tts",
+                                 "play frame=%u write_ms=%u",
+                                 (unsigned)frame_index,
+                                 (unsigned)(faculty175_log_ms() - write_start_ms));
+        }
         vTaskDelay(1);
     }
 
