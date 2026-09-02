@@ -98,7 +98,7 @@ typedef struct {
     /** QA-only sessions must never be classified as testimony or evidence. */
     bool synthetic_validation;
     /** Optional live state; preferred when validation can change at runtime. */
-    const bool *synthetic_validation_ref;
+    const volatile bool *synthetic_validation_ref;
     bool skip_llm;
     bool log_to_commonplace;
     bool duplex;

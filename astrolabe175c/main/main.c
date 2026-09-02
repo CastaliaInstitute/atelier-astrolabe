@@ -195,7 +195,7 @@ static char s_theritor_mode[16] = "editor";
 static char s_theritor_topic[96] = "La Recherche";
 static char s_theritor_work_slug[48] = "la-recherche";
 static char s_theritor_session_id[64];
-static bool s_theritor_synthetic_validation;
+static volatile bool s_theritor_synthetic_validation;
 /* Face-grounded follow-ups can carry a bounded cached reading plus its exact
  * server-validated evidence. Keep these longer-lived voice buffers in PSRAM
  * rather than spending scarce internal DRAM on text. */
