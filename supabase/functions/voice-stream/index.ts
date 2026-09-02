@@ -23,6 +23,7 @@ type SessionState = {
   topic?: string;
   workSlug?: string;
   sessionId?: string;
+  syntheticValidation?: boolean;
 };
 
 const MAX_BUFFER_BYTES = 1024 * 1024;
@@ -137,6 +138,9 @@ function encodeVoicePipelineStreamBody(
   if (session.topic) metadata.topic = session.topic;
   if (session.workSlug) metadata.workSlug = session.workSlug;
   if (session.sessionId) metadata.sessionId = session.sessionId;
+  if (typeof session.syntheticValidation === "boolean") {
+    metadata.syntheticValidation = session.syntheticValidation;
+  }
   if (overrides) {
     for (const [key, value] of Object.entries(overrides)) {
       if (value === undefined) continue;
@@ -987,6 +991,11 @@ Deno.serve(async (req) => {
         : typeof next.session_id === "string"
         ? next.session_id
         : session.sessionId;
+      session.syntheticValidation = typeof next.syntheticValidation === "boolean"
+        ? next.syntheticValidation
+        : typeof next.synthetic_validation === "boolean"
+        ? next.synthetic_validation
+        : session.syntheticValidation;
       send(socket, { type: "session.updated", session });
       return;
     }

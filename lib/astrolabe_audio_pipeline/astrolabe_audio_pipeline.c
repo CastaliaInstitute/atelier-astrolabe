@@ -1073,11 +1073,12 @@ static esp_err_t post_pcm_buffer(astrolabe_audio_pipeline_t *p, const uint8_t *p
              "\"interactionMode\":\"%s\",\"commonplaceMode\":\"%s\","
              "\"responseFormat\":\"%s\",\"respondent\":\"%s\",\"mode\":\"%s\","
              "\"topic\":\"%s\",\"workSlug\":\"%s\",\"sessionId\":\"%s\","
-             "\"skipLlm\":%s,\"logToCommonplace\":%s}",
+             "\"skipLlm\":%s,\"logToCommonplace\":%s,\"syntheticValidation\":%s}",
              (unsigned)cfg_stt_sample_rate_hz(p), face, slug, name, history, system,
              interaction, commonplace, response_format, respondent, mode, topic, work_slug, session_id,
              cfg_skip_llm(p) ? "true" : "false",
-             cfg_log_to_commonplace(p) ? "true" : "false");
+             cfg_log_to_commonplace(p) ? "true" : "false",
+             p->cfg.synthetic_validation ? "true" : "false");
     free(face);
     free(slug);
     free(name);
@@ -1258,11 +1259,12 @@ static esp_err_t post_pcm_file(astrolabe_audio_pipeline_t *p, const char *path, 
              "\"interactionMode\":\"%s\",\"commonplaceMode\":\"%s\","
              "\"responseFormat\":\"%s\",\"respondent\":\"%s\",\"mode\":\"%s\","
              "\"topic\":\"%s\",\"workSlug\":\"%s\",\"sessionId\":\"%s\","
-             "\"skipLlm\":%s,\"logToCommonplace\":%s}",
+             "\"skipLlm\":%s,\"logToCommonplace\":%s,\"syntheticValidation\":%s}",
              (unsigned)cfg_stt_sample_rate_hz(p), face, slug, name, history, system,
              interaction, commonplace, response_format, respondent, mode, topic, work_slug, session_id,
              cfg_skip_llm(p) ? "true" : "false",
-             cfg_log_to_commonplace(p) ? "true" : "false");
+             cfg_log_to_commonplace(p) ? "true" : "false",
+             p->cfg.synthetic_validation ? "true" : "false");
     free(face);
     free(slug);
     free(name);
@@ -1856,12 +1858,14 @@ static esp_err_t rolling_stream_session_open(astrolabe_audio_pipeline_t *p)
                                        "\"interactionMode\":\"%s\",\"commonplaceMode\":\"%s\","
                                        "\"responseFormat\":\"%s\",\"respondent\":\"%s\","
                                        "\"mode\":\"%s\",\"topic\":\"%s\",\"workSlug\":\"%s\","
-                                       "\"sessionId\":\"%s\",\"skipLlm\":%s,\"logToCommonplace\":%s}}",
+                                       "\"sessionId\":\"%s\",\"skipLlm\":%s,\"logToCommonplace\":%s,"
+                                       "\"syntheticValidation\":%s}}",
                                        (unsigned)cfg_stt_sample_rate_hz(p), face, slug, name, history, system,
                                        interaction, commonplace, response_format, respondent, mode, topic, work_slug,
                                        session_id,
                                        cfg_skip_llm(p) ? "true" : "false",
-                                       cfg_log_to_commonplace(p) ? "true" : "false");
+                                       cfg_log_to_commonplace(p) ? "true" : "false",
+                                       p->cfg.synthetic_validation ? "true" : "false");
             if (session_len <= 0 || (size_t)session_len >= session_cap) {
                 err = ESP_ERR_NO_MEM;
             } else {

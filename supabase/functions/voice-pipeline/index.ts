@@ -159,6 +159,8 @@ type ReqBody = {
   topic?: string;
   workSlug?: string;
   sessionId?: string;
+  /** Marks device-driven QA so it can never be recorded as testimony. */
+  syntheticValidation?: boolean;
 };
 
 type AskFacultyResponse = {
@@ -317,6 +319,7 @@ async function routeTheritorVoice(
       work_slug: body.workSlug,
       session_id: body.sessionId,
       transcript: body.transcript,
+      synthetic_validation: body.syntheticValidation === true,
     }),
   });
   const responseBody = await upstream.arrayBuffer();

@@ -195,6 +195,7 @@ static char s_theritor_mode[16] = "editor";
 static char s_theritor_topic[96] = "La Recherche";
 static char s_theritor_work_slug[48] = "la-recherche";
 static char s_theritor_session_id[64];
+static bool s_theritor_synthetic_validation;
 /* Face-grounded follow-ups can carry a bounded cached reading plus its exact
  * server-validated evidence. Keep these longer-lived voice buffers in PSRAM
  * rather than spending scarce internal DRAM on text. */
@@ -4080,6 +4081,42 @@ esp_err_t faculty175_request_streaming_pipeline_restart(void)
     return pipeline_ensure_ready();
 }
 
+static esp_err_t theritor_apply_serial_context(void)
+{
+    s_theritor_session_id[0] = '\0';
+    save_theritor_to_nvs();
+    faculty175_face_theritor_set_context(s_theritor_respondent, s_theritor_mode);
+    sync_voice_context(NULL);
+    s_pipeline_cfg.synthetic_validation = s_theritor_synthetic_validation;
+    ui_set(FACULTY175_UI_LISTEN, "theritor context changed");
+    ui_redraw();
+    return faculty175_request_streaming_pipeline_restart();
+}
+
+esp_err_t faculty175_set_theritor_respondent(const char *respondent)
+{
+    if (respondent == NULL || (strcmp(respondent, "daniel") != 0 && strcmp(respondent, "camille") != 0)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    faculty175_strlcpy(s_theritor_respondent, respondent, sizeof(s_theritor_respondent));
+    return theritor_apply_serial_context();
+}
+
+esp_err_t faculty175_set_theritor_mode(const char *mode)
+{
+    if (mode == NULL || (strcmp(mode, "editor") != 0 && strcmp(mode, "therapy") != 0)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    faculty175_strlcpy(s_theritor_mode, mode, sizeof(s_theritor_mode));
+    return theritor_apply_serial_context();
+}
+
+esp_err_t faculty175_set_theritor_synthetic_validation(bool enabled)
+{
+    s_theritor_synthetic_validation = enabled;
+    return theritor_apply_serial_context();
+}
+
 void faculty175_streaming_pipeline_status(bool *out_configured,
                                           bool *out_created,
                                           bool *out_started,
@@ -6610,6 +6647,7 @@ void app_main(void)
         .topic = s_theritor_topic,
         .work_slug = s_theritor_work_slug,
         .session_id = s_theritor_session_id,
+        .synthetic_validation = s_theritor_synthetic_validation,
         .skip_llm = s_voice_skip_llm,
         .log_to_commonplace = s_voice_log_to_commonplace,
         .duplex = FACULTY175_AUDIO_PIPELINE_DUPLEX,

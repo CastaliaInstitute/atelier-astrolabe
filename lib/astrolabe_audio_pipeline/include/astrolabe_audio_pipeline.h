@@ -95,6 +95,8 @@ typedef struct {
     const char *topic;
     const char *work_slug;
     const char *session_id;
+    /** QA-only sessions must never be classified as testimony or evidence. */
+    bool synthetic_validation;
     bool skip_llm;
     bool log_to_commonplace;
     bool duplex;

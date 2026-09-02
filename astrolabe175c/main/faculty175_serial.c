@@ -1659,6 +1659,36 @@ static bool handle_pipeline_command(const char *line)
     return true;
 }
 
+static bool handle_theritor_command(const char *line)
+{
+    if (line == NULL || (strcasecmp(line, "theritor") != 0 && strncasecmp(line, "theritor ", 9) != 0)) {
+        return false;
+    }
+    const char *sub = strchr(line, ' ');
+    sub = sub != NULL ? sub + 1 : "";
+    while (*sub == ' ') ++sub;
+    esp_err_t err = ESP_ERR_INVALID_ARG;
+    if (strncasecmp(sub, "respondent ", 11) == 0) {
+        err = faculty175_set_theritor_respondent(sub + 11);
+    } else if (strncasecmp(sub, "mode ", 5) == 0) {
+        err = faculty175_set_theritor_mode(sub + 5);
+    } else if (strcasecmp(sub, "validation on") == 0) {
+        err = faculty175_set_theritor_synthetic_validation(true);
+    } else if (strcasecmp(sub, "validation off") == 0) {
+        err = faculty175_set_theritor_synthetic_validation(false);
+    } else {
+        printf("theritor commands:\n");
+        printf("  theritor respondent daniel|camille\n");
+        printf("  theritor mode editor|therapy\n");
+        printf("  theritor validation on|off\n");
+        fflush(stdout);
+        return true;
+    }
+    printf("theritor: %s %s\n", sub, esp_err_to_name(err));
+    fflush(stdout);
+    return true;
+}
+
 static bool handle_stt_command(const char *line)
 {
     if (line == NULL || (strcasecmp(line, "stt") != 0 && strncasecmp(line, "stt ", 4) != 0)) {
@@ -1879,6 +1909,10 @@ static void handle_line(char *line)
         return;
     }
 
+    if (handle_theritor_command(line)) {
+        return;
+    }
+
     if (handle_pipeline_command(line)) {
         return;
     }
@@ -1952,7 +1986,7 @@ static void handle_line(char *line)
     }
 
     if (strcasecmp(line, "help") == 0 || strcasecmp(line, "?") == 0) {
-        printf("serial: screen | face screen | km help | breath status|reset|stream [hz|off] | gesture help | button press | tts face | stt [ms] | voice stt [ms] | family status | pipeline capture|status|stop|restart | wifi status|scan|set | time | watch status | power | audio status|ns | i2c scan | ble status | qa help | device help | ota help | faces help | charts help | almanac help | quotes help | rocket help | touch status\n");
+        printf("serial: screen | face screen | km help | breath status|reset|stream [hz|off] | gesture help | button press | tts face | stt [ms] | voice stt [ms] | family status | theritor respondent|mode|validation | pipeline capture|status|stop|restart | wifi status|scan|set | time | watch status | power | audio status|ns | i2c scan | ble status | qa help | device help | ota help | faces help | charts help | almanac help | quotes help | rocket help | touch status\n");
         (void)faculty175_qa_handle("qa help");
         return;
     }
