@@ -222,6 +222,14 @@ static uint32_t cfg_stt_sample_rate_hz(const astrolabe_audio_pipeline_t *p)
     return p != NULL && p->cfg.sample_rate_hz > 0 ? p->cfg.sample_rate_hz : DEFAULT_SAMPLE_RATE_HZ;
 }
 
+static bool cfg_synthetic_validation(const astrolabe_audio_pipeline_t *p)
+{
+    if (p == NULL) return false;
+    return p->cfg.synthetic_validation_ref != NULL
+               ? *p->cfg.synthetic_validation_ref
+               : p->cfg.synthetic_validation;
+}
+
 static void start_capture_cooldown(astrolabe_audio_pipeline_t *p)
 {
     if (p == NULL || p->cfg.capture_cooldown_ms == 0) {
@@ -1078,7 +1086,7 @@ static esp_err_t post_pcm_buffer(astrolabe_audio_pipeline_t *p, const uint8_t *p
              interaction, commonplace, response_format, respondent, mode, topic, work_slug, session_id,
              cfg_skip_llm(p) ? "true" : "false",
              cfg_log_to_commonplace(p) ? "true" : "false",
-             p->cfg.synthetic_validation ? "true" : "false");
+             cfg_synthetic_validation(p) ? "true" : "false");
     free(face);
     free(slug);
     free(name);
@@ -1264,7 +1272,7 @@ static esp_err_t post_pcm_file(astrolabe_audio_pipeline_t *p, const char *path, 
              interaction, commonplace, response_format, respondent, mode, topic, work_slug, session_id,
              cfg_skip_llm(p) ? "true" : "false",
              cfg_log_to_commonplace(p) ? "true" : "false",
-             p->cfg.synthetic_validation ? "true" : "false");
+             cfg_synthetic_validation(p) ? "true" : "false");
     free(face);
     free(slug);
     free(name);
@@ -1852,7 +1860,7 @@ static esp_err_t rolling_stream_session_open(astrolabe_audio_pipeline_t *p)
         if (err == ESP_OK) {
             ESP_LOGI(TAG,
                      "voice-stream metadata synthetic_validation=%s",
-                     p->cfg.synthetic_validation ? "true" : "false");
+                     cfg_synthetic_validation(p) ? "true" : "false");
             int session_len = snprintf(session, session_cap,
                                        "{\"type\":\"session.update\",\"session\":{\"sampleRateHertz\":%u,"
                                        "\"sample_width_bits\":16,\"channels\":1,\"encoding\":\"pcm16\","
@@ -1868,7 +1876,7 @@ static esp_err_t rolling_stream_session_open(astrolabe_audio_pipeline_t *p)
                                        session_id,
                                        cfg_skip_llm(p) ? "true" : "false",
                                        cfg_log_to_commonplace(p) ? "true" : "false",
-                                       p->cfg.synthetic_validation ? "true" : "false");
+                                       cfg_synthetic_validation(p) ? "true" : "false");
             if (session_len <= 0 || (size_t)session_len >= session_cap) {
                 err = ESP_ERR_NO_MEM;
             } else {

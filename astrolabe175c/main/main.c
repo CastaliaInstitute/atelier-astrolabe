@@ -6658,6 +6658,7 @@ void app_main(void)
         .work_slug = s_theritor_work_slug,
         .session_id = s_theritor_session_id,
         .synthetic_validation = s_theritor_synthetic_validation,
+        .synthetic_validation_ref = &s_theritor_synthetic_validation,
         .skip_llm = s_voice_skip_llm,
         .log_to_commonplace = s_voice_log_to_commonplace,
         .duplex = FACULTY175_AUDIO_PIPELINE_DUPLEX,
