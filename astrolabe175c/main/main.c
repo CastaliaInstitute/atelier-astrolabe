@@ -4119,6 +4119,9 @@ esp_err_t faculty175_set_theritor_mode(const char *mode)
 esp_err_t faculty175_set_theritor_synthetic_validation(bool enabled)
 {
     s_theritor_synthetic_validation = enabled;
+    faculty175_strlcpy(s_theritor_topic,
+                       enabled ? "Synthetic validation: La Recherche" : "La Recherche",
+                       sizeof(s_theritor_topic));
     return theritor_apply_serial_context();
 }
 

@@ -319,7 +319,8 @@ async function routeTheritorVoice(
       work_slug: body.workSlug,
       session_id: body.sessionId,
       transcript: body.transcript,
-      synthetic_validation: body.syntheticValidation === true,
+      synthetic_validation: body.syntheticValidation === true ||
+        body.topic?.startsWith("Synthetic validation:") === true,
     }),
   });
   const responseBody = await upstream.arrayBuffer();
