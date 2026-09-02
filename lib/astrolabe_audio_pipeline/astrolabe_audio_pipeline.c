@@ -1526,12 +1526,20 @@ static void stream_response_event(void *handler_arg, esp_event_base_t base, int3
     }
     if (event_id == WEBSOCKET_EVENT_DISCONNECTED) {
         ESP_LOGW(TAG, "voice-stream websocket disconnected");
-        ctx->transport_failed = true;
+        /* The relay may close an idle socket while the final queued speech
+         * segments are still playing. Once response.done has arrived, the
+         * turn is complete and a late close must not trigger a duplicate
+         * whole-turn HTTP fallback. */
+        if (!ctx->response_done) {
+            ctx->transport_failed = true;
+        }
         return;
     }
     if (event_id == WEBSOCKET_EVENT_CLOSED) {
         ESP_LOGW(TAG, "voice-stream websocket closed");
-        ctx->transport_failed = true;
+        if (!ctx->response_done) {
+            ctx->transport_failed = true;
+        }
         return;
     }
     if (event_id == WEBSOCKET_EVENT_ERROR) {
@@ -1539,9 +1547,11 @@ static void stream_response_event(void *handler_arg, esp_event_base_t base, int3
             ctx->websocket_status_code = data->error_handle.esp_ws_handshake_status_code;
         }
         ESP_LOGW(TAG, "voice-stream websocket error");
-        ctx->err = ESP_FAIL;
-        ctx->transport_failed = true;
-        ctx->event_count++;
+        if (!ctx->response_done) {
+            ctx->err = ESP_FAIL;
+            ctx->transport_failed = true;
+            ctx->event_count++;
+        }
         return;
     }
     if (data == NULL) {
