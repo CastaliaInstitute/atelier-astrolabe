@@ -461,75 +461,132 @@ Deno.serve(async (req) => {
         );
         const requestBody = new ArrayBuffer(theritorBody.byteLength);
         new Uint8Array(requestBody).set(theritorBody);
-        const theritorResult = await jsonFetch<
-          VoicePipelineResponse & {
-            sessionId?: string;
-            expression?: string;
-          }
-        >(voicePipelineUrl, {
+        const theritorResponse = await fetch(voicePipelineUrl, {
           method: "POST",
-          headers,
+          headers: { ...headers, Accept: "application/x-ndjson" },
           body: requestBody,
         });
-        if (!theritorResult.ok) {
+        if (!theritorResponse.ok) {
           send(socket, {
             type: "error",
             turnId: id,
             code: "theritor_voice_http",
-            status: theritorResult.status,
-            message: theritorResult.message,
+            status: theritorResponse.status,
+            message: await theritorResponse.text(),
           });
           return;
         }
-        const transcript = (theritorResult.json.transcript ?? liveTranscript)
-          .trim();
-        const reply = (theritorResult.json.reply ?? "").trim();
-        if (transcript) {
-          send(socket, {
-            type: "conversation.item.input_audio_transcription.completed",
-            turnId: id,
-            transcript,
-          });
-        }
-        if (reply) {
-          send(socket, {
-            type: "response.text.delta",
-            turnId: id,
-            delta: reply,
-          });
-        }
-        const audioSegments = Array.isArray(
-            theritorResult.json.audioChunksBase64,
-          )
-          ? theritorResult.json.audioChunksBase64.filter((chunk) =>
-            typeof chunk === "string" && chunk.length > 0
-          )
-          : [];
-        if (audioSegments.length > 0) {
-          for (let index = 0; index < audioSegments.length; index++) {
-            await sendAudioDelta(
-              socket,
-              id,
-              audioSegments[index],
-              "mp3",
-              index,
-              audioSegments.length,
-            );
+        const contentType = theritorResponse.headers.get("Content-Type") ?? "";
+        if (
+          contentType.includes("application/x-ndjson") && theritorResponse.body
+        ) {
+          const reader = theritorResponse.body.getReader();
+          const decoder = new TextDecoder();
+          let pending = "";
+          let doneSeen = false;
+
+          const handleEvent = async (line: string) => {
+            if (!line.trim()) return;
+            const event = JSON.parse(line);
+            if (event.type === "response") {
+              const transcript = String(event.transcript ?? liveTranscript)
+                .trim();
+              const reply = String(event.reply ?? "").trim();
+              if (transcript) {
+                send(socket, {
+                  type: "conversation.item.input_audio_transcription.completed",
+                  turnId: id,
+                  transcript,
+                });
+              }
+              if (reply) {
+                send(socket, {
+                  type: "response.text.delta",
+                  turnId: id,
+                  delta: reply,
+                });
+              }
+            } else if (event.type === "audio" && event.audioBase64) {
+              await sendAudioDelta(
+                socket,
+                id,
+                event.audioBase64,
+                "mp3",
+                Number(event.segmentIndex ?? 0),
+                Number(event.segmentCount ?? 1),
+              );
+            } else if (event.type === "done") {
+              send(socket, {
+                type: "response.done",
+                turnId: id,
+                sessionId: event.sessionId,
+                expression: event.expression,
+              });
+              doneSeen = true;
+            } else if (event.type === "error") {
+              throw new Error(String(event.error ?? "Theritor stream failed"));
+            }
+          };
+
+          while (true) {
+            const { value, done } = await reader.read();
+            pending += decoder.decode(value, { stream: !done });
+            const lines = pending.split("\n");
+            pending = lines.pop() ?? "";
+            for (const line of lines) await handleEvent(line);
+            if (done) break;
           }
-        } else if (theritorResult.json.audioBase64) {
-          await sendAudioDelta(
-            socket,
-            id,
-            theritorResult.json.audioBase64,
-            "mp3",
-          );
+          await handleEvent(pending);
+          if (!doneSeen) {
+            throw new Error("Theritor stream ended before response.done");
+          }
+        } else {
+          const theritorResult = await theritorResponse.json() as
+            & VoicePipelineResponse
+            & { sessionId?: string; expression?: string };
+          const transcript = (theritorResult.transcript ?? liveTranscript)
+            .trim();
+          const reply = (theritorResult.reply ?? "").trim();
+          if (transcript) {
+            send(socket, {
+              type: "conversation.item.input_audio_transcription.completed",
+              turnId: id,
+              transcript,
+            });
+          }
+          if (reply) {
+            send(socket, {
+              type: "response.text.delta",
+              turnId: id,
+              delta: reply,
+            });
+          }
+          const audioSegments = Array.isArray(theritorResult.audioChunksBase64)
+            ? theritorResult.audioChunksBase64.filter((chunk) =>
+              typeof chunk === "string" && chunk.length > 0
+            )
+            : [];
+          if (audioSegments.length > 0) {
+            for (let index = 0; index < audioSegments.length; index++) {
+              await sendAudioDelta(
+                socket,
+                id,
+                audioSegments[index],
+                "mp3",
+                index,
+                audioSegments.length,
+              );
+            }
+          } else if (theritorResult.audioBase64) {
+            await sendAudioDelta(socket, id, theritorResult.audioBase64, "mp3");
+          }
+          send(socket, {
+            type: "response.done",
+            turnId: id,
+            sessionId: theritorResult.sessionId,
+            expression: theritorResult.expression,
+          });
         }
-        send(socket, {
-          type: "response.done",
-          turnId: id,
-          sessionId: theritorResult.json.sessionId,
-          expression: theritorResult.json.expression,
-        });
         liveFailed = false;
         liveTurnId = `live-${++turnCounter}`;
         return;
