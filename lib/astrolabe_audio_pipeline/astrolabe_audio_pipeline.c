@@ -1850,6 +1850,9 @@ static esp_err_t rolling_stream_session_open(astrolabe_audio_pipeline_t *p)
             err = ESP_ERR_NO_MEM;
         }
         if (err == ESP_OK) {
+            ESP_LOGI(TAG,
+                     "voice-stream metadata synthetic_validation=%s",
+                     p->cfg.synthetic_validation ? "true" : "false");
             int session_len = snprintf(session, session_cap,
                                        "{\"type\":\"session.update\",\"session\":{\"sampleRateHertz\":%u,"
                                        "\"sample_width_bits\":16,\"channels\":1,\"encoding\":\"pcm16\","

@@ -58,6 +58,7 @@ esp_err_t faculty175_request_streaming_pipeline_restart(void);
 esp_err_t faculty175_set_theritor_respondent(const char *respondent);
 esp_err_t faculty175_set_theritor_mode(const char *mode);
 esp_err_t faculty175_set_theritor_synthetic_validation(bool enabled);
+bool faculty175_theritor_synthetic_validation(void);
 void faculty175_streaming_pipeline_status(bool *out_configured,
                                           bool *out_created,
                                           bool *out_started,

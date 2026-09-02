@@ -1668,7 +1668,12 @@ static bool handle_theritor_command(const char *line)
     sub = sub != NULL ? sub + 1 : "";
     while (*sub == ' ') ++sub;
     esp_err_t err = ESP_ERR_INVALID_ARG;
-    if (strncasecmp(sub, "respondent ", 11) == 0) {
+    if (strcasecmp(sub, "status") == 0) {
+        printf("theritor: synthetic_validation=%s\n",
+               faculty175_theritor_synthetic_validation() ? "on" : "off");
+        fflush(stdout);
+        return true;
+    } else if (strncasecmp(sub, "respondent ", 11) == 0) {
         err = faculty175_set_theritor_respondent(sub + 11);
     } else if (strncasecmp(sub, "mode ", 5) == 0) {
         err = faculty175_set_theritor_mode(sub + 5);
@@ -1678,6 +1683,7 @@ static bool handle_theritor_command(const char *line)
         err = faculty175_set_theritor_synthetic_validation(false);
     } else {
         printf("theritor commands:\n");
+        printf("  theritor status\n");
         printf("  theritor respondent daniel|camille\n");
         printf("  theritor mode editor|therapy\n");
         printf("  theritor validation on|off\n");

@@ -4117,6 +4117,11 @@ esp_err_t faculty175_set_theritor_synthetic_validation(bool enabled)
     return theritor_apply_serial_context();
 }
 
+bool faculty175_theritor_synthetic_validation(void)
+{
+    return s_theritor_synthetic_validation;
+}
+
 void faculty175_streaming_pipeline_status(bool *out_configured,
                                           bool *out_created,
                                           bool *out_started,
