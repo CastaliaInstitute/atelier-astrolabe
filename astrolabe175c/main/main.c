@@ -4088,9 +4088,14 @@ static esp_err_t theritor_apply_serial_context(void)
     faculty175_face_theritor_set_context(s_theritor_respondent, s_theritor_mode);
     sync_voice_context(NULL);
     s_pipeline_cfg.synthetic_validation = s_theritor_synthetic_validation;
+    astrolabe_audio_pipeline_set_synthetic_validation(s_pipeline,
+                                                       s_theritor_synthetic_validation);
     ui_set(FACULTY175_UI_LISTEN, "theritor context changed");
     ui_redraw();
-    return faculty175_request_streaming_pipeline_restart();
+    const esp_err_t err = faculty175_request_streaming_pipeline_restart();
+    astrolabe_audio_pipeline_set_synthetic_validation(s_pipeline,
+                                                       s_theritor_synthetic_validation);
+    return err;
 }
 
 esp_err_t faculty175_set_theritor_respondent(const char *respondent)

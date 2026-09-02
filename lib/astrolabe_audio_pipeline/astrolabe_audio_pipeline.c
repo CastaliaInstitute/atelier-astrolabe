@@ -3270,6 +3270,14 @@ esp_err_t astrolabe_audio_pipeline_create(const astrolabe_audio_pipeline_config_
     return ESP_OK;
 }
 
+void astrolabe_audio_pipeline_set_synthetic_validation(astrolabe_audio_pipeline_t *p,
+                                                       bool enabled)
+{
+    if (p != NULL) {
+        p->cfg.synthetic_validation = enabled;
+    }
+}
+
 esp_err_t astrolabe_audio_pipeline_start(astrolabe_audio_pipeline_t *p)
 {
     if (p == NULL || p->running) {

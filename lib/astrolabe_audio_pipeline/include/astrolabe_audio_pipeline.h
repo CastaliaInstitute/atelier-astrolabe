@@ -141,6 +141,8 @@ void astrolabe_audio_pipeline_destroy(astrolabe_audio_pipeline_t *pipeline);
 esp_err_t astrolabe_audio_pipeline_trigger_capture(astrolabe_audio_pipeline_t *pipeline);
 esp_err_t astrolabe_audio_pipeline_trigger_capture_for_ms(astrolabe_audio_pipeline_t *pipeline, uint32_t hold_ms);
 bool astrolabe_audio_pipeline_unhealthy(const astrolabe_audio_pipeline_t *pipeline);
+void astrolabe_audio_pipeline_set_synthetic_validation(astrolabe_audio_pipeline_t *pipeline,
+                                                       bool enabled);
 
 bool astrolabe_audio_pipeline_speech_active(const astrolabe_audio_pipeline_t *pipeline);
 bool astrolabe_audio_pipeline_manual_capture_pending(const astrolabe_audio_pipeline_t *pipeline);
