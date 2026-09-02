@@ -392,6 +392,7 @@ static void save_theritor_to_nvs(void)
     if (nvs_open("theritor", NVS_READWRITE, &nvs) != ESP_OK) return;
     nvs_set_str(nvs, "respondent", s_theritor_respondent);
     nvs_set_str(nvs, "mode", s_theritor_mode);
+    nvs_set_u8(nvs, "validation", s_theritor_synthetic_validation ? 1u : 0u);
     nvs_commit(nvs);
     nvs_close(nvs);
 }
@@ -404,6 +405,10 @@ static void load_theritor_from_nvs(void)
         (void)nvs_get_str(nvs, "respondent", s_theritor_respondent, &len);
         len = sizeof(s_theritor_mode);
         (void)nvs_get_str(nvs, "mode", s_theritor_mode, &len);
+        uint8_t validation = 0;
+        if (nvs_get_u8(nvs, "validation", &validation) == ESP_OK) {
+            s_theritor_synthetic_validation = validation != 0;
+        }
         nvs_close(nvs);
     }
     if (strcmp(s_theritor_respondent, "daniel") != 0 && strcmp(s_theritor_respondent, "camille") != 0) {
@@ -412,6 +417,11 @@ static void load_theritor_from_nvs(void)
     if (strcmp(s_theritor_mode, "editor") != 0 && strcmp(s_theritor_mode, "therapy") != 0) {
         faculty175_strlcpy(s_theritor_mode, "editor", sizeof(s_theritor_mode));
     }
+    faculty175_strlcpy(s_theritor_topic,
+                       s_theritor_synthetic_validation
+                           ? "Synthetic validation: La Recherche"
+                           : "La Recherche",
+                       sizeof(s_theritor_topic));
 }
 
 static void theritor_change_context(bool toggle_mode)
