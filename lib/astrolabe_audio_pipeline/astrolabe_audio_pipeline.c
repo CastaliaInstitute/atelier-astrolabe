@@ -36,7 +36,10 @@ static const char *TAG = "ast_audio_pipe";
 #define DEFAULT_SEGMENT_MS 3000u
 #define DEFAULT_RING_SLOTS 8u
 #define MAX_RING_SLOTS 16u
-#define MIN_TURN_MIRROR_MAX_BYTES (32 * 1024u)
+/* Retain up to 32 seconds for the HTTP recovery path without limiting the
+ * primary rolling stream. Longer turns continue streaming; they simply lose
+ * whole-turn replay once this diagnostic mirror is full. */
+#define MIN_TURN_MIRROR_MAX_BYTES (1024 * 1024u)
 #define DEFAULT_MIN_MS 400u
 #define DEFAULT_CAPTURE_COOLDOWN_MS 2500u
 #define DEFAULT_LISTEN_STACK 4096u
@@ -47,7 +50,10 @@ static const char *TAG = "ast_audio_pipe";
 #define VOICE_RESP_MAX_BYTES (768 * 1024)
 #define POST_PCM_CHUNK_BYTES 2048
 #define VOICE_STREAM_CT "application/vnd.astrolabe.voice-stream"
-#define STREAM_PCM_CHUNK_BYTES 2048
+/* 250 ms of mono PCM16 at 16 kHz. WebSocket messages are transport frames,
+ * not logical turn chunks: audio is appended continuously and committed only
+ * once, after VAD marks the end of the speaker's turn. */
+#define STREAM_PCM_CHUNK_BYTES 8192
 #define STREAM_CONNECT_TIMEOUT_MS 5000
 #define STREAM_SEND_TIMEOUT_MS 5000
 #define STREAM_FRAME_PACE_MS 0
@@ -69,7 +75,10 @@ static const char *TAG = "ast_audio_pipe";
 #define VAD_REARM_QUIET_FRAMES 75u
 #define VAD_REARM_FORCE_MS 6000u
 #define VAD_SILENCE_LEAK_FRAMES 4u
-#define VAD_PREROLL_MS 1200u
+/* Start confirmation is only 60 ms. Four hundred milliseconds protects the
+ * leading consonant while avoiding a 38.4 kB burst that can put live upload
+ * several seconds behind the microphone at the start of every turn. */
+#define VAD_PREROLL_MS 400u
 
 typedef struct {
     char path[128];
@@ -1951,36 +1960,27 @@ static esp_err_t stream_pcm_file(astrolabe_audio_pipeline_t *p, const utterance_
     if (pcm_data != utt->pcm_data) {
         free(pcm_data);
     }
-    if (err == ESP_OK && p->rolling_response != NULL) {
+    if (err == ESP_OK && utt->final_segment && p->rolling_response != NULL) {
         rolling_stream_reset_response(p->rolling_response);
     }
     const uint32_t response_seen_count = p->rolling_response != NULL ? p->rolling_response->event_count : 0;
-    if (err == ESP_OK) {
+    if (err == ESP_OK && utt->final_segment) {
         char commit[160];
         snprintf(commit, sizeof(commit),
-                 "{\"type\":\"input_audio_buffer.commit\",\"turnId\":\"segment-%u\",\"final\":%s,\"bytes\":%u}",
-                 (unsigned)utt->sequence, utt->final_segment ? "true" : "false", (unsigned)utt->byte_count);
+                 "{\"type\":\"input_audio_buffer.commit\",\"turnId\":\"turn-%u\",\"final\":true,\"bytes\":%u}",
+                 (unsigned)utt->sequence, (unsigned)utt->byte_count);
         err = websocket_send_text_all(p->rolling_client, commit);
     }
-    if (err == ESP_OK && p->rolling_response != NULL) {
-        if (utt->final_segment) {
-            if (!rolling_stream_wait_event(p->rolling_response, response_seen_count, STREAM_RESPONSE_TIMEOUT_MS)) {
-                err = ESP_ERR_TIMEOUT;
-            } else if (p->rolling_response->err != ESP_OK) {
-                err = p->rolling_response->err;
-            } else if (!p->rolling_response->response_done) {
-                err = ESP_FAIL;
-            } else if (p->rolling_result != NULL && p->rolling_result->transcript[0] == '\0' &&
-                       p->rolling_result->reply[0] == '\0' && p->rolling_result->mp3_len == 0) {
-                err = ESP_FAIL;
-            }
-        } else {
-            // Rolling non-final segments should remain fire-and-forget. Waiting
-            // for a server-side ack here throttles capture below real time and
-            // lets the queue back up behind the final commit.
-            if (p->rolling_response->event_count != response_seen_count && p->rolling_response->err != ESP_OK) {
-                err = p->rolling_response->err;
-            }
+    if (err == ESP_OK && utt->final_segment && p->rolling_response != NULL) {
+        if (!rolling_stream_wait_event(p->rolling_response, response_seen_count, STREAM_RESPONSE_TIMEOUT_MS)) {
+            err = ESP_ERR_TIMEOUT;
+        } else if (p->rolling_response->err != ESP_OK) {
+            err = p->rolling_response->err;
+        } else if (!p->rolling_response->response_done) {
+            err = ESP_FAIL;
+        } else if (p->rolling_result != NULL && p->rolling_result->transcript[0] == '\0' &&
+                   p->rolling_result->reply[0] == '\0' && p->rolling_result->mp3_len == 0) {
+            err = ESP_FAIL;
         }
     }
 
@@ -2823,11 +2823,11 @@ static void voice_task(void *arg)
         if (utt.final_segment) {
             emit(p, ASTROLABE_AUDIO_PIPELINE_EVENT_THINKING, NULL);
         }
-        /* Context preparation may read cached face data from flash and use a
-         * substantially deeper stack than the real-time listener. Refresh it
-         * once per queued segment here, immediately before transport, rather
-         * than on every 10 ms microphone frame. */
-        prepare_context(p);
+        /* Context is needed by the single end-of-turn request, not by each
+         * fire-and-forget PCM transport frame. */
+        if (utt.final_segment) {
+            prepare_context(p);
+        }
         ESP_LOGI(TAG, "posting capture segment #%u final=%s bytes=%u path=%s",
                  (unsigned)utt.sequence, utt.final_segment ? "yes" : "no",
                  (unsigned)utt.byte_count, utt.path);
@@ -2914,6 +2914,13 @@ static void voice_task(void *arg)
             turn_pcm_reset(p);
             emit(p, ASTROLABE_AUDIO_PIPELINE_EVENT_ERROR, "voice-pipeline");
             start_capture_cooldown(p);
+            if (rolling_websocket_enabled(p)) {
+                const esp_err_t prewarm_err = rolling_stream_session_open(p);
+                if (prewarm_err != ESP_OK) {
+                    ESP_LOGW(TAG, "voice-stream error recovery prewarm failed: %s",
+                             esp_err_to_name(prewarm_err));
+                }
+            }
             if (should_idle_listen_between_turns(p) && start_listen_task_if_needed(p) == ESP_OK) {
                 emit(p, ASTROLABE_AUDIO_PIPELINE_EVENT_LISTENING, NULL);
             } else if (should_idle_listen_between_turns(p)) {
@@ -2963,6 +2970,16 @@ static void voice_task(void *arg)
         free(result);
         turn_pcm_reset(p);
         (capture_uses_ram(p) ? drain_queued_segments : drain_queued_segments_keep_files)(p, "final success");
+        /* The response socket is closed before playback to keep WebSocket
+         * callbacks away from I2S. Re-open it now, before the next person can
+         * begin speaking, so their pre-roll is never spent on TLS startup. */
+        if (rolling_websocket_enabled(p)) {
+            const esp_err_t prewarm_err = rolling_stream_session_open(p);
+            if (prewarm_err != ESP_OK) {
+                ESP_LOGW(TAG, "voice-stream next-turn prewarm failed: %s",
+                         esp_err_to_name(prewarm_err));
+            }
+        }
         emit(p, ASTROLABE_AUDIO_PIPELINE_EVENT_TURN_DONE, NULL);
         start_capture_cooldown(p);
         if (should_idle_listen_between_turns(p) && start_listen_task_if_needed(p) == ESP_OK) {

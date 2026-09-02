@@ -6619,26 +6619,29 @@ void app_main(void)
         .sample_rate_hz = FACULTY175_AUDIO_RATE,
         .stt_sample_rate_hz = FACULTY175_AUDIO_RATE,
         .frame_samples = 160,
-        /* Theritor keeps 1.2 seconds of pre-roll.  The 1.75C microphone measured
-         * quiet-room noise below 100 RMS, while ordinary speech from the
-         * intended tabletop distance peaks around 900 RMS.  Keep ample
-         * noise margin without requiring the speaker to raise their voice. */
+        /* Theritor keeps 400 ms of pre-roll. Quiet-room noise measures
+         * below 100 RMS and tabletop speech peaks around 900 RMS. A 350 RMS
+         * floor with 60 ms confirmation catches softer conversational speech;
+         * adaptive noise tracking and minimum utterance duration reject brief
+         * room transients before they can become cloud turns. */
         .rms_start = 350,
         .rms_end = 280,
-        .start_frames = 4,
+        .start_frames = 6,
         /* 10 ms frames: allow a 900 ms conversational pause before ending
          * the turn. Higher-quality TTS and natural speakers both pause long
          * enough to trip the previous 500 ms cutoff mid-question. */
         .silence_frames = 90,
-        /* Rolling Theritor capture is unbounded. One-second segments keep
+        /* Rolling Theritor capture is unbounded. Small transport frames keep
          * memory bounded; sustained conversational silence ends the turn. */
         .max_seconds = 0,
-        .min_ms = 400,
-        .capture_cooldown_ms = 2500,
-        /* Sixteen one-second PSRAM chunks absorb scale-to-zero startup and
-         * transient network backpressure while the live stream continues. */
+        .min_ms = 500,
+        .capture_cooldown_ms = 1000,
+        /* Sixteen PSRAM frames absorb four seconds of transient network
+         * backpressure while the live stream continues. */
         .capture_ring_slots = 16,
-        .capture_segment_ms = 1000,
+        /* Feed the rolling WebSocket every 250 ms. These are transport frames;
+         * only VAD end emits input_audio_buffer.commit. */
+        .capture_segment_ms = 250,
         .listen_priority = 5,
         .voice_priority = 4,
         .listen_stack = FACULTY175_PIPELINE_LISTEN_STACK,

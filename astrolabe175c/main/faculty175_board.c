@@ -93,7 +93,9 @@ static const int32_t FACULTY175_MIC_MONO_GAIN = 3;
 #define FACULTY175_ES8311_DAC_REG37 0x37
 #define FACULTY175_AUDIO_MIN_PROBE_PEAK 1
 #define FACULTY175_AUDIO_WARN_PROBE_PEAK 32
-#define FACULTY175_SPEAKER_VOLUME 100
+/* Leave headroom for full-scale synthesized speech. Driving the ES8311 at
+ * 100/100 makes the small 1.75C speaker/amp sound grainy on TTS peaks. */
+#define FACULTY175_SPEAKER_VOLUME 75
 #define FACULTY175_AUDIO_MAX_READ_SAMPLES 1024
 #define FACULTY175_ES7210_CHANNELS 4
 #define FACULTY175_ES7210_CAPTURE_CHANNELS 1
