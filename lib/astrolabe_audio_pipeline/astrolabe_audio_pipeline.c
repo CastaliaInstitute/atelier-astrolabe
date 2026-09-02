@@ -266,7 +266,11 @@ static bool capture_uses_ram(const astrolabe_audio_pipeline_t *p)
 
 static bool should_idle_listen_between_turns(const astrolabe_audio_pipeline_t *p)
 {
-    return p != NULL && !rolling_websocket_enabled(p);
+    /* Rolling voice keeps capture active while the model is thinking, but
+     * rolling_stream_wait_response() stops it before the first TTS segment to
+     * avoid recognizing the device's own speaker. It therefore needs the same
+     * post-turn listener restart as buffered transports. */
+    return p != NULL;
 }
 
 static void prepare_context(astrolabe_audio_pipeline_t *p)
