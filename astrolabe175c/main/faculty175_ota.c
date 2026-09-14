@@ -1551,6 +1551,13 @@ static void ota_auto_task(void *arg)
     }
 }
 
+esp_err_t faculty175_ota_fetch_verified(const char *url, const char *sha256)
+{
+    if (!is_http_url(url) || !is_sha256_hex(sha256)) return ESP_ERR_INVALID_ARG;
+    if (strlen(url) >= OTA_URL_MAX) return ESP_ERR_INVALID_SIZE;
+    return start_install_task(url, sha256, 0, false);
+}
+
 static esp_err_t start_manifest_task(const char *manifest_url)
 {
     ota_job_t job = {

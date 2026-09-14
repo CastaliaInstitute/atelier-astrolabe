@@ -8,6 +8,11 @@
 #include "driver/sdmmc_host.h"
 #include "esp_check.h"
 #include "esp_log.h"
+#include "esp_system.h"
+#include "soc/soc.h"
+#include "soc/rtc_cntl_reg.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "esp_vfs_fat.h"
 #include "faculty175_storage.h"
 #if ASTROLABE185B_CYBER_FEATURES
@@ -16,6 +21,7 @@
 #include "sdmmc_cmd.h"
 #if CONFIG_TINYUSB_CDC_ENABLED || CONFIG_TINYUSB_MSC_ENABLED
 #include "tinyusb.h"
+#include "tusb.h"
 #if CONFIG_TINYUSB_CDC_ENABLED
 #include "tusb_cdc_acm.h"
 #include "tusb_console.h"
@@ -36,6 +42,7 @@ static const char *TAG = "faculty175_usb";
 
 static sdmmc_card_t *s_sd_card;
 static bool s_usb_ready;
+static bool s_usb_face_active = true; /* Require a transition into Linux after boot. */
 static bool s_storage_ready;
 static bool s_storage_mounted;
 static bool s_sd_mounted;
@@ -170,7 +177,7 @@ static esp_err_t storage_init_sdmmc(void)
 #endif
 }
 
-esp_err_t faculty175_usb_init(void)
+static esp_err_t start_usb_role(void)
 {
     if (s_usb_ready) {
         return ESP_OK;
@@ -241,9 +248,9 @@ esp_err_t faculty175_usb_init(void)
     };
     ESP_LOGI(TAG, "install tinyusb driver");
     ESP_RETURN_ON_ERROR(tinyusb_driver_install(&tusb_cfg), TAG, "tinyusb install");
-
 #if ASTROLABE185B_CYBER_FEATURES
-    ESP_RETURN_ON_ERROR(faculty175_usb_ncm_init(), TAG, "ncm init");
+    /* Explicit Linux-face activation hands the PHY over to TinyUSB. */
+    tud_connect();
 #endif
 
  #if CONFIG_TINYUSB_CDC_ENABLED
@@ -262,6 +269,11 @@ esp_err_t faculty175_usb_init(void)
     ESP_RETURN_ON_ERROR(esp_tusb_init_console(TINYUSB_CDC_ACM_0), TAG, "cdc console");
  #endif
 
+#if ASTROLABE185B_CYBER_FEATURES
+    const esp_err_t net_err = faculty175_usb_ncm_init();
+    if (net_err != ESP_OK) ESP_LOGW(TAG, "NCM unavailable: %s; CDC remains active", esp_err_to_name(net_err));
+#endif
+
     s_storage_ready = true;
     s_usb_ready = true;
     ESP_LOGI(TAG,
@@ -270,6 +282,16 @@ esp_err_t faculty175_usb_init(void)
              tinyusb_msc_storage_in_use_by_usb_host() ? "yes" : "no",
              s_sd_mounted ? "mounted" : "missing");
     return ESP_OK;
+#endif
+}
+
+esp_err_t faculty175_usb_init(void)
+{
+#if ASTROLABE185B_CYBER_FEATURES
+    ESP_LOGI(TAG, "boot keeps USB Serial/JTAG; TinyUSB requires explicit Linux-face activation");
+    return ESP_OK;
+#else
+    return start_usb_role();
 #endif
 }
 
@@ -311,4 +333,34 @@ bool faculty175_usb_resolve_asset_path(const char *sd_relative, const char *fall
         return n > 0 && (size_t)n < cap;
     }
     return false;
+}
+
+bool faculty175_usb_sd_present(void) { return s_sd_card != NULL; }
+static void bootloader_task(void *arg)
+{
+    (void)arg;
+    vTaskDelay(pdMS_TO_TICKS(750));
+    REG_WRITE(RTC_CNTL_OPTION1_REG, RTC_CNTL_FORCE_DOWNLOAD_BOOT);
+    esp_restart();
+}
+esp_err_t faculty175_usb_enter_bootloader(void)
+{
+    return xTaskCreate(bootloader_task, "usb_boot", 2048, NULL, 5, NULL) == pdPASS ? ESP_OK : ESP_ERR_NO_MEM;
+}
+void faculty175_usb_set_face_active(bool active)
+{
+#if ASTROLABE185B_CYBER_FEATURES && (CONFIG_TINYUSB_CDC_ENABLED || CONFIG_TINYUSB_MSC_ENABLED)
+    if (active == s_usb_face_active) return;
+    s_usb_face_active = active;
+    if (active && !s_usb_ready) {
+        const esp_err_t err = start_usb_role();
+        if (err != ESP_OK) ESP_LOGE(TAG, "USB role activation failed: %s", esp_err_to_name(err));
+    }
+    /* After opt-in, keep CDC available on every face. Reset returns to JTAG. */
+#else
+    (void)active;
+#endif
+}
+uint64_t faculty175_usb_sd_capacity(void) {
+ return s_sd_card != NULL ? (uint64_t)s_sd_card->csd.capacity * s_sd_card->csd.sector_size : 0;
 }

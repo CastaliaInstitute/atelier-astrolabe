@@ -153,6 +153,7 @@ static const faculty175_face_id_t k_cyber_faces[] = {
     FACULTY175_FACE_INCIDENTS,
     FACULTY175_FACE_HID,
     FACULTY175_FACE_USB_SCREEN,
+    FACULTY175_FACE_OTA,
 };
 
 static const faculty175_face_id_t k_ocarina_faces[] = {

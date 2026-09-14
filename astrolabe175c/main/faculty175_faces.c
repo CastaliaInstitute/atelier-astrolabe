@@ -100,6 +100,7 @@ static const faculty175_face_desc_t k_faces[] = {
     { FACULTY175_FACE_JOURNAL, "journal", "Journal", FACULTY175_FACE_CAT_COMMONPLACE, true, false, 227 },
     { FACULTY175_FACE_CONVERSATION, "conversation", "Conversation", FACULTY175_FACE_CAT_COMMONPLACE, true, false, 228 },
     { FACULTY175_FACE_CYCLE, "cycle", "Cycle", FACULTY175_FACE_CAT_HOME, true, false, 225 },
+    { FACULTY175_FACE_OTA, "ota", "Firmware Update", FACULTY175_FACE_CAT_SYSTEM, ASTROLABE_CYBER_FEATURES, ASTROLABE_CYBER_FEATURES, 249 },
 };
 
 static faculty175_face_id_t s_current = FACULTY175_FACE_IRONMAN;

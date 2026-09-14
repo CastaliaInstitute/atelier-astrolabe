@@ -453,7 +453,9 @@ static void low_power_wifi_resume(void)
 
 static bool low_power_wifi_allowed(void)
 {
-    return !s_power_on_battery || s_battery_network_active;
+    const faculty175_face_desc_t *face = faculty175_faces_current();
+    return !s_power_on_battery || s_battery_network_active ||
+           (face != NULL && face->id == FACULTY175_FACE_OTA);
 }
 
 static void low_power_wifi_resume_for_voice(uint32_t wait_ms)
@@ -2476,6 +2478,7 @@ static void input_task(void *arg)
     uint32_t last_time_retry_ms = 0;
     bool button_was_down = false;
     bool face_save_pending = false;
+    bool ota_face_was_active = false;
     s_nav_mode = false;
     s_low_power_last_activity_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
     faculty175_display_nav_mode_set(false);
@@ -2484,6 +2487,16 @@ static void input_task(void *arg)
 
     while (true) {
         const uint32_t now_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+        const faculty175_face_desc_t *current = faculty175_faces_current();
+        faculty175_usb_set_face_active(current != NULL && current->id == FACULTY175_FACE_LINUX);
+        const bool ota_face_active = current != NULL && current->id == FACULTY175_FACE_OTA;
+        if (ota_face_active) {
+            low_power_note_activity(now_ms, "ota-face");
+            low_power_wifi_resume();
+            if (!ota_face_was_active) ensure_settings_wifi_access();
+            faculty175_ota_set_network_ready(wifi_is_connected() || faculty175_wifi_settings_ap_active());
+        }
+        ota_face_was_active = ota_face_active;
         low_power_tick(now_ms);
 
         const bool button_down = faculty175_button_pressed();
@@ -2831,7 +2844,7 @@ static void input_task(void *arg)
 
 void app_main(void)
 {
-    FACULTY175_LOG_STAGE(TAG, "boot", "Astrolabe Faculty — Waveshare ESP32-S3 Touch AMOLED 1.75C");
+    FACULTY175_LOG_STAGE(TAG, "boot", "Astrolabe Faculty — Waveshare ESP32-S3 Touch LCD 1.85B");
 
     esp_err_t nvs_err = nvs_flash_init();
     if (nvs_err == ESP_ERR_NVS_NO_FREE_PAGES || nvs_err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
@@ -2858,8 +2871,16 @@ void app_main(void)
     faculty175_usb_ota_demo_boot();
     return;
 #endif
+    faculty175_serial_init(); /* Hardware console is available before peripheral startup. */
     ESP_ERROR_CHECK(faculty175_storage_init());
-    ESP_ERROR_CHECK(faculty175_usb_init());
+#if ASTROLABE185B_CYBER_FEATURES
+    /* Bring up the control link before peripheral/UI initialization. */
+    ESP_ERROR_CHECK(faculty175_ble_init());
+#endif
+    const esp_err_t usb_err = faculty175_usb_init();
+    if (usb_err != ESP_OK) {
+        FACULTY175_LOG_STAGE_W(TAG, "usb", "USB unavailable: %s; continuing BLE/OTA startup", esp_err_to_name(usb_err));
+    }
     ESP_ERROR_CHECK(faculty175_device_auth_init());
     faculty175_ota_init();
     ESP_ERROR_CHECK(faculty175_apocalypso_init());
@@ -2867,6 +2888,10 @@ void app_main(void)
     ESP_ERROR_CHECK(faculty175_rocket_init());
     faculty175_ota_maybe_boot_product();
     ESP_ERROR_CHECK(faculty175_faces_init());
+#if ASTROLABE185B_CYBER_FEATURES
+    /* Never auto-select the TinyUSB role at boot, including a saved Linux face. */
+    (void)faculty175_faces_set_runtime(FACULTY175_FACE_POCKETWATCH);
+#endif
     load_faculty_from_nvs();
     FACULTY175_LOG_STAGE(TAG, "boot", "faculty %s (%s)", s_faculty_name, s_faculty_slug);
 
@@ -2906,7 +2931,11 @@ void app_main(void)
         faculty175_faculty_request_bust(s_faculty_slug);
     }
 
-    FACULTY175_LOG_STAGE_W(TAG, "ble", "startup disabled to preserve internal RAM");
+    ESP_ERROR_CHECK(faculty175_ble_init());
+#if ASTROLABE185B_CYBER_FEATURES
+    FACULTY175_LOG_STAGE(TAG, "cyber", "BLE control ready; voice pipeline disabled");
+    return;
+#endif
 
     ESP_ERROR_CHECK(faculty175_listen_init(&s_listen));
     snprintf(s_voice_pipeline_url, sizeof(s_voice_pipeline_url), "%s/functions/v1/voice-pipeline", MYNAH_SUPABASE_URL);

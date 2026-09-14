@@ -1,4 +1,5 @@
 #include "faculty175_wifi_lab.h"
+#include "esp_attr.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -64,7 +65,7 @@ static bool s_promiscuous;
 static bool s_saved_ps;
 static wifi_ps_type_t s_saved_ps_type = WIFI_PS_MIN_MODEM;
 static bool s_evil_twin_ap;
-static lab_pcap_frame_t s_pcap_frames[PCAP_FRAME_MAX];
+static EXT_RAM_BSS_ATTR lab_pcap_frame_t s_pcap_frames[PCAP_FRAME_MAX];
 static uint16_t s_pcap_count;
 static uint16_t s_pcap_next;
 
