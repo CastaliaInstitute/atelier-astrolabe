@@ -88,7 +88,14 @@ static const struct ble_gatt_svc_def k_ble_svcs[] = {
                 .flags = BLE_GATT_CHR_F_READ | (ASTROLABE185B_CYBER_FEATURES ? 0 : BLE_GATT_CHR_F_WRITE),
             },
             { .uuid = &BLE_CONTROL_JSON_CHAR_UUID.u, .access_cb = ble_control_json_access,
-              .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_ENC },
+              /*
+               * Android on F101 reports GATT 133 when resuming link encryption
+               * for this characteristic, even after it has completed LE bonding.
+               * The Cyber control payload is independently authenticated with
+               * MYNAH_REMOTE_CONTROL_KEY, so keep the transport available while
+               * rejecting every command that does not carry that key.
+               */
+              .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE },
             {0},
         },
     },
