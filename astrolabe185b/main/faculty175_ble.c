@@ -468,17 +468,6 @@ static int ble_gap_event(struct ble_gap_event *event, void *arg)
             s_advertising = false;
             if (event->connect.status != 0) {
                 (void)ble_advertise();
-            } else {
-                /*
-                 * The control characteristic requires encryption.  Start SMP as
-                 * soon as Android connects rather than relying on its first
-                 * protected write to initiate pairing; Android otherwise reports
-                 * GATT 133 for that initial write.
-                 */
-                const int rc = ble_gap_security_initiate(event->connect.conn_handle);
-                if (rc != 0) {
-                    ESP_LOGW(TAG, "security initiate failed rc=%d", rc);
-                }
             }
             break;
         case BLE_GAP_EVENT_DISCONNECT:
