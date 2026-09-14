@@ -18,6 +18,7 @@
 #include "lwip/pbuf.h"
 #include "lwip/tcpip.h"
 #include "lwip/udp.h"
+#include "lwip/lwip_napt.h"
 #include "sdkconfig.h"
 
 #if CONFIG_TINYUSB_NET_MODE_NCM
@@ -293,10 +294,14 @@ esp_err_t faculty175_usb_ncm_init(void)
                         "netif add");
     netif_set_up(&s_netif);
     netif_set_link_up(&s_netif);
+#if CONFIG_LWIP_IPV4_NAPT
+    ip_napt_enable(s_server_ip.addr, 1);
+#endif
 
     s_dhcp_pcb = udp_new_ip_type(IPADDR_TYPE_V4);
     ESP_RETURN_ON_FALSE(s_dhcp_pcb != NULL, ESP_ERR_NO_MEM, TAG, "dhcp pcb");
-    ESP_RETURN_ON_FALSE(udp_bind(s_dhcp_pcb, IP_ANY_TYPE, DHCP_SERVER_PORT) == ERR_OK,
+    udp_bind_netif(s_dhcp_pcb, &s_netif);
+    ESP_RETURN_ON_FALSE(udp_bind(s_dhcp_pcb, netif_ip_addr4(&s_netif), DHCP_SERVER_PORT) == ERR_OK,
                         ESP_FAIL,
                         TAG,
                         "dhcp bind");
@@ -343,7 +348,12 @@ esp_err_t faculty175_usb_ncm_wait_for_host(TickType_t timeout)
 
 bool faculty175_usb_ncm_ready(void)
 {
+#if CONFIG_TINYUSB_NET_MODE_NCM
+    return s_ready || (s_host_events != NULL &&
+           (xEventGroupGetBits(s_host_events) & USB_NCM_HOST_READY_BIT) != 0);
+#else
     return s_ready;
+#endif
 }
 
 const esp_ip4_addr_t *faculty175_usb_ncm_ip(void)

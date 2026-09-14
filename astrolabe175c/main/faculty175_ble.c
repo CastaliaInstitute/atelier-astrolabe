@@ -12,10 +12,12 @@
 #include "astrolabe_time.h"
 #include "esp_attr.h"
 #include "esp_app_desc.h"
+#include "esp_ota_ops.h"
 #include "esp_log.h"
 #include "esp_random.h"
 #include "esp_timer.h"
 #include "esp_system.h"
+#include "esp_wifi.h"
 #include "nvs.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/portmacro.h"
@@ -45,6 +47,11 @@
 #include "faculty175_spotify.h"
 #include "faculty175_voice.h"
 #include "faculty175_wifi_settings.h"
+#if __has_include("secrets.local.h")
+#include "secrets.local.h"
+#else
+#include "secrets.example.h"
+#endif
 
 void ble_store_config_init(void);
 
@@ -136,6 +143,8 @@ static const ble_uuid128_t BLE_STATE_JSON_CHAR_UUID =
     BLE_UUID128_INIT(0x41, 0x73, 0x74, 0x72, 0x6f, 0x6c, 0x61, 0x62, 0x65, 0x00, 0x17, 0x50, 0x00, 0x00, 0x00, 0x04);
 static const ble_uuid128_t BLE_HEALTH_JSON_CHAR_UUID =
     BLE_UUID128_INIT(0x41, 0x73, 0x74, 0x72, 0x6f, 0x6c, 0x61, 0x62, 0x65, 0x00, 0x17, 0x50, 0x00, 0x00, 0x00, 0x05);
+static const ble_uuid128_t BLE_CONTROL_JSON_CHAR_UUID =
+    BLE_UUID128_INIT(0x41, 0x73, 0x74, 0x72, 0x6f, 0x6c, 0x61, 0x62, 0x65, 0x00, 0x17, 0x50, 0x00, 0x00, 0x00, 0x06);
 static const ble_uuid128_t COLMI_UART_SERVICE_UUID =
     BLE_UUID128_INIT(0x9e, 0xca, 0xdc, 0x24, 0x0e, 0xe5, 0xa9, 0xe0, 0x93, 0xf3, 0xa3, 0xb5, 0xf0, 0xff, 0x40, 0x6e);
 static const ble_uuid128_t COLMI_UART_RX_UUID =
@@ -210,6 +219,8 @@ static uint32_t s_colmi_imu_stream_started_ms;
 static int ble_gap_event(struct ble_gap_event *event, void *arg);
 static esp_err_t ble_advertise(void);
 static void ble_ring_telem_store(const faculty175_ble_peer_t *peer);
+static int ble_control_json_access(uint16_t conn_handle, uint16_t attr_handle,
+                                  struct ble_gatt_access_ctxt *ctxt, void *arg);
 
 static int16_t colmi_i12(uint8_t high, uint8_t low_nibble)
 {
@@ -280,6 +291,13 @@ static const struct ble_gatt_svc_def k_ble_svcs[] = {
                 .access_cb = ble_health_json_access,
                 .flags = BLE_GATT_CHR_F_READ,
             },
+#if ASTROLABE_CYBER_FEATURES
+            {
+                .uuid = &BLE_CONTROL_JSON_CHAR_UUID.u,
+                .access_cb = ble_control_json_access,
+                .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_ENC,
+            },
+#endif
             {0},
         },
     },
@@ -1568,6 +1586,71 @@ static void ble_load_device_name(void)
     s_device_name[sizeof(s_device_name) - 1] = '\0';
 }
 
+static esp_err_t ble_apply_control_json(const cJSON *control)
+{
+    const cJSON *key = cJSON_GetObjectItemCaseSensitive(control, "key");
+    const char *expected = MYNAH_REMOTE_CONTROL_KEY;
+    if (expected[0] == '\0' || !cJSON_IsString(key) || key->valuestring == NULL ||
+        strlen(key->valuestring) != strlen(expected)) return ESP_ERR_INVALID_STATE;
+    unsigned difference = 0;
+    for (size_t i = 0; i < strlen(expected); ++i) difference |= (unsigned char)expected[i] ^ (unsigned char)key->valuestring[i];
+    if (difference != 0) return ESP_ERR_INVALID_STATE;
+    const cJSON *face = cJSON_GetObjectItemCaseSensitive(control, "face");
+    const cJSON *ota = cJSON_GetObjectItemCaseSensitive(control, "ota");
+    const cJSON *wifi = cJSON_GetObjectItemCaseSensitive(control, "wifi");
+    if ((cJSON_IsString(face) ? 1 : 0) + (cJSON_IsObject(ota) ? 1 : 0) + (cJSON_IsObject(wifi) ? 1 : 0) != 1) return ESP_ERR_INVALID_ARG;
+    if (cJSON_IsObject(wifi)) {
+        const cJSON *ssid = cJSON_GetObjectItemCaseSensitive(wifi, "ssid");
+        const cJSON *pass = cJSON_GetObjectItemCaseSensitive(wifi, "password");
+        if (!cJSON_IsString(ssid) || strlen(ssid->valuestring) == 0 || strlen(ssid->valuestring) > 32) return ESP_ERR_INVALID_ARG;
+        char password[64] = {};
+        if (cJSON_IsString(pass)) {
+            if (strlen(pass->valuestring) > 63) return ESP_ERR_INVALID_ARG;
+            strlcpy(password, pass->valuestring, sizeof(password));
+        } else if (pass == NULL) {
+            faculty175_wifi_known_t known[FACULTY175_WIFI_KNOWN_MAX];
+            const size_t count = faculty175_wifi_settings_load_known(known, FACULTY175_WIFI_KNOWN_MAX);
+            bool found = false;
+            for (size_t i = 0; i < count; ++i) {
+                if (strcmp(known[i].ssid, ssid->valuestring) == 0) {
+                    strlcpy(password, known[i].pass, sizeof(password));
+                    found = true;
+                    break;
+                }
+            }
+            memset(known, 0, sizeof(known));
+            if (!found) return ESP_ERR_NOT_FOUND;
+        } else return ESP_ERR_INVALID_ARG;
+        esp_err_t result = faculty175_wifi_settings_save(ssid->valuestring, password);
+        if (result != ESP_OK) return result;
+        wifi_mode_t mode;
+        result = esp_wifi_get_mode(&mode);
+        if (result != ESP_OK) return result;
+        (void)esp_wifi_disconnect();
+        result = esp_wifi_set_mode(mode == WIFI_MODE_AP || mode == WIFI_MODE_APSTA ? WIFI_MODE_APSTA : WIFI_MODE_STA);
+        wifi_config_t config = {};
+        memcpy(config.sta.ssid, ssid->valuestring, strlen(ssid->valuestring));
+        memcpy(config.sta.password, password, strlen(password));
+        memset(password, 0, sizeof(password));
+        if (result == ESP_OK) result = esp_wifi_set_config(WIFI_IF_STA, &config);
+        if (result == ESP_OK) result = esp_wifi_connect();
+        return result;
+    }
+    if (cJSON_IsString(face)) {
+        const faculty175_face_desc_t *target = faculty175_faces_find(face->valuestring);
+        return target != NULL ? faculty175_faces_set(target->id) : ESP_ERR_INVALID_ARG;
+    }
+    if (cJSON_IsObject(ota)) {
+        const faculty175_face_desc_t *current = faculty175_faces_current();
+        if (current == NULL || current->id != FACULTY175_FACE_OTA) return ESP_ERR_INVALID_STATE;
+        const cJSON *url = cJSON_GetObjectItemCaseSensitive(ota, "url");
+        const cJSON *sha = cJSON_GetObjectItemCaseSensitive(ota, "sha256");
+        if (!cJSON_IsString(url) || !cJSON_IsString(sha)) return ESP_ERR_INVALID_ARG;
+        return faculty175_ota_fetch_verified(url->valuestring, sha->valuestring);
+    }
+    return ESP_ERR_INVALID_ARG;
+}
+
 static esp_err_t ble_apply_settings_json(const char *body)
 {
     cJSON *root = cJSON_Parse(body);
@@ -1746,6 +1829,61 @@ static esp_err_t ble_apply_settings_json(const char *body)
     }
     cJSON_Delete(root);
     return err;
+}
+
+static int ble_control_json_access(uint16_t conn_handle, uint16_t attr_handle,
+                                  struct ble_gatt_access_ctxt *ctxt, void *arg)
+{
+    (void)conn_handle; (void)attr_handle; (void)arg;
+    static char buffer[1024];
+    static size_t length;
+    static bool receiving;
+    if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) {
+        faculty175_ota_status_t ota = {};
+        faculty175_ota_get_status(&ota);
+        const faculty175_face_desc_t *face = faculty175_faces_current();
+        const esp_app_desc_t *app = esp_app_get_description();
+        cJSON *status = cJSON_CreateObject();
+        if (status == NULL) return BLE_ATT_ERR_INSUFFICIENT_RES;
+        cJSON_AddNumberToObject(status, "controlVersion", 1);
+        cJSON_AddStringToObject(status, "face", face != NULL ? face->slug : "");
+        cJSON_AddStringToObject(status, "version", app->version);
+        char elf_hash[65];
+        for (size_t i = 0; i < 32; ++i) snprintf(elf_hash + i * 2, 3, "%02x", app->app_elf_sha256[i]);
+        cJSON_AddStringToObject(status, "elfSha256", elf_hash);
+        const esp_partition_t *running = esp_ota_get_running_partition();
+        cJSON_AddStringToObject(status, "partition", running != NULL ? running->label : "");
+        cJSON_AddStringToObject(status, "wifiUrl", faculty175_wifi_settings_url());
+        cJSON_AddBoolToObject(status, "otaReady", ota.network_ready && !ota.active);
+        cJSON_AddBoolToObject(status, "otaActive", ota.active);
+        cJSON_AddStringToObject(status, "otaLast", ota.last);
+        char *json = cJSON_PrintUnformatted(status);
+        cJSON_Delete(status);
+        if (json == NULL) return BLE_ATT_ERR_INSUFFICIENT_RES;
+        const int rc = os_mbuf_append(ctxt->om, json, strlen(json));
+        cJSON_free(json);
+        return rc == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+    }
+    if (ctxt->op != BLE_GATT_ACCESS_OP_WRITE_CHR) return BLE_ATT_ERR_UNLIKELY;
+    char chunk[96];
+    uint16_t count = 0;
+    if (ble_hs_mbuf_to_flat(ctxt->om, chunk, sizeof(chunk) - 1, &count) != 0) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+    chunk[count] = '\0';
+    if (strcmp(chunk, "BEGIN") == 0) { length = 0; receiving = true; buffer[0] = '\0'; return 0; }
+    if (!receiving) return BLE_ATT_ERR_UNLIKELY;
+    if (strcmp(chunk, "END") == 0) {
+        receiving = false;
+        cJSON *control = cJSON_Parse(buffer);
+        const esp_err_t result = cJSON_IsObject(control) ? ble_apply_control_json(control) : ESP_ERR_INVALID_ARG;
+        cJSON_Delete(control);
+        memset(buffer, 0, sizeof(buffer));
+        return result == ESP_OK ? 0 : BLE_ATT_ERR_UNLIKELY;
+    }
+    if (length + count >= sizeof(buffer)) { receiving = false; return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN; }
+    memcpy(buffer + length, chunk, count);
+    length += count;
+    buffer[length] = '\0';
+    return 0;
 }
 
 static int ble_settings_json_access(uint16_t conn_handle,
@@ -2137,6 +2275,9 @@ static esp_err_t ble_advertise(void)
 
     struct ble_gap_adv_params params = {};
     params.conn_mode = BLE_GAP_CONN_MODE_NON;
+#if ASTROLABE_CYBER_FEATURES
+    params.conn_mode = BLE_GAP_CONN_MODE_UND;
+#endif
     params.disc_mode = BLE_GAP_DISC_MODE_GEN;
     params.itvl_min = BLE_GAP_ADV_ITVL_MS(1000);
     params.itvl_max = BLE_GAP_ADV_ITVL_MS(1200);
@@ -2397,6 +2538,11 @@ esp_err_t faculty175_ble_init(void)
     ble_hs_cfg.reset_cb = ble_on_reset;
     ble_hs_cfg.sync_cb = ble_on_sync;
     ble_hs_cfg.store_status_cb = ble_store_util_status_rr;
+#if ASTROLABE_CYBER_FEATURES
+    ble_hs_cfg.sm_bonding = 1;
+    ble_hs_cfg.sm_sc = 1;
+    ble_hs_cfg.sm_io_cap = BLE_HS_IO_NO_INPUT_OUTPUT;
+#endif
     ble_store_config_init();
 
     s_started = true;

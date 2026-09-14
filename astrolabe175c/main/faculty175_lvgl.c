@@ -8485,6 +8485,8 @@ static void lunasay_release_inactive_screens(faculty175_face_id_t keep_id)
 
 bool faculty175_lvgl_draw_face(faculty175_face_id_t id, uint32_t anim_ms)
 {
+    /* Dedicated OTA status renderer lives in faculty175_face_ota.c. */
+    if (id == FACULTY175_FACE_OTA) return false;
     if (id != FACULTY175_FACE_SOLAR) {
         s_solar_sunrise_horizon = false;
     }

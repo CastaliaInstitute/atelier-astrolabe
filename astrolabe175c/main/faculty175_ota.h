@@ -2,6 +2,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include "esp_err.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -28,6 +29,7 @@ void faculty175_ota_set_auto_paused(bool paused);
 void faculty175_ota_set_network_ready(bool ready);
 bool faculty175_ota_active(void);
 void faculty175_ota_get_status(faculty175_ota_status_t *out);
+esp_err_t faculty175_ota_fetch_verified(const char *url, const char *sha256);
 
 #ifdef __cplusplus
 }

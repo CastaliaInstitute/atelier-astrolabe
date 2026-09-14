@@ -150,7 +150,8 @@ def main() -> None:
         fail("watch face does not log second-hand tick metrics")
     if "nav-anim-metrics kind=%s axis=%s delta=%d expected_ms=%u actual_ms=%u frames=%u avg_gap_ms=%u max_gap_ms=%u overrun_ms=%d" not in lvgl:
         fail("LVGL navigation animations do not log frame cadence metrics")
-    for kind in ("nav-preview", "snapshot-slide", "screen-slide"):
+    # Full-screen navigation now uses the snapshot-slide implementation.
+    for kind in ("nav-preview", "snapshot-slide", "direction-cue"):
         if f'"{kind}"' not in lvgl:
             fail(f"LVGL navigation metrics missing {kind}")
     if "draw_magnetosphere" not in lvgl or "/bust_cache/space/magnetosphere_466.rgb565" not in lvgl:
@@ -178,10 +179,12 @@ def main() -> None:
         fail("horizontal nav-mode swipes are not using pinned native nav duration")
     if "animate_nav_preview_native(true, delta, NAV_TRANSITION_MS)" not in main_c:
         fail("vertical nav-mode swipes are not using pinned native nav duration")
-    if transition_face and "duration_ms > 0 ? duration_ms : 72" not in transition_face.group(0):
+    transition_cue = function_body(lvgl, "animate_face_transition_cue")
+    if transition_face and "duration_ms > 0 ? duration_ms : 72" not in transition_cue:
         fail("LVGL direct face transition fallback duration is not 72ms")
-    if transition_face and "elapsed += 8" not in transition_face.group(0):
-        fail("LVGL direct face transition is not serviced in 8ms steps")
+    if transition_face and ("const uint32_t frames = 4" not in transition_cue
+                            or "vTaskDelay(pdMS_TO_TICKS(frame_delay))" not in transition_cue):
+        fail("LVGL direct face cue is not serviced in four bounded frames")
     animate_frames = re.search(r"bool faculty175_lvgl_animate_frames[\s\S]*?\n}", lvgl)
     animate_frames_text = animate_frames.group(0) if animate_frames else ""
     if "duration_ms > 0 ? duration_ms : 72" not in animate_frames_text:

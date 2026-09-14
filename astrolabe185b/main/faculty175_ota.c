@@ -1147,6 +1147,13 @@ static void ota_auto_task(void *arg)
     }
 }
 
+esp_err_t faculty175_ota_fetch_verified(const char *url, const char *sha256)
+{
+    if (!is_http_url(url) || !is_sha256_hex(sha256)) return ESP_ERR_INVALID_ARG;
+    if (strlen(url) >= OTA_URL_MAX) return ESP_ERR_INVALID_SIZE;
+    return start_install_task(url, sha256, 0, false);
+}
+
 static esp_err_t start_manifest_task(const char *manifest_url)
 {
     ota_job_t job = {
@@ -1446,4 +1453,13 @@ bool faculty175_ota_handle(const char *line)
     printf("ota: unknown subcommand \"%s\" (try: ota help)\n", sub);
     fflush(stdout);
     return true;
+}
+
+static bool s_control_network_ready;
+void faculty175_ota_set_network_ready(bool ready) { s_control_network_ready = ready; }
+void faculty175_ota_get_status(faculty175_ota_status_t *out) {
+ if (out == NULL) return;
+ out->active = faculty175_ota_active();
+ out->network_ready = s_control_network_ready;
+ strlcpy(out->last, s_ota_last, sizeof(out->last));
 }

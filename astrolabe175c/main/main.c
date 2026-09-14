@@ -5563,6 +5563,7 @@ static void input_task(void *arg)
     uint32_t suppress_wake_gesture_until_ms = 0;
     bool button_was_down = false;
     bool face_save_pending = false;
+    bool ota_face_was_active = false;
     s_nav_mode = false;
     s_low_power_last_activity_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
     faculty175_display_nav_mode_set(false);
@@ -5571,6 +5572,15 @@ static void input_task(void *arg)
     while (true) {
         const uint32_t now_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
         const faculty175_face_desc_t *usb_face = faculty175_faces_current();
+        const bool ota_face_active = usb_face != NULL && usb_face->id == FACULTY175_FACE_OTA;
+        if (ota_face_active && !ota_face_was_active) {
+            ensure_settings_wifi_access();
+        }
+        if (ota_face_active) {
+            low_power_note_activity(now_ms, "ota-face");
+            faculty175_ota_set_network_ready(faculty175_wifi_settings_sta_connected() || faculty175_wifi_settings_ap_active());
+        }
+        ota_face_was_active = ota_face_active;
         const bool usb_screen_active = usb_face != NULL && usb_face->id == FACULTY175_FACE_USB_SCREEN;
         if (usb_screen_active != faculty175_usb_screen_profile_active()) {
             const esp_err_t usb_profile_err = faculty175_usb_set_screen_face_active(usb_screen_active);

@@ -504,9 +504,8 @@ static esp_err_t faculty175_i2c_init(void)
         const char *label;
     } faculty175_i2c_candidate_t;
     static const faculty175_i2c_candidate_t candidates[] = {
-        {GPIO_NUM_15, GPIO_NUM_14, "175-default"},
-        {GPIO_NUM_11, GPIO_NUM_10, "hybrid-11/10"},
-        {GPIO_NUM_42, GPIO_NUM_41, "alt-42/41"},
+        /* 1.85B: 14/15 belong to SDMMC and 41/42 to the display. */
+        {GPIO_NUM_11, GPIO_NUM_10, "185b-11/10"},
     };
 
     int best_score = -1;

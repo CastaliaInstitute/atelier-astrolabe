@@ -7583,6 +7583,7 @@ static bool draw_face_descriptor(faculty175_face_id_t id, uint32_t anim_ms)
 
 bool faculty175_lvgl_draw_face(faculty175_face_id_t id, uint32_t anim_ms)
 {
+    if (id == FACULTY175_FACE_OTA) return false;
     if (id == FACULTY175_FACE_DEATHSTAR || id == FACULTY175_FACE_TRON || id == FACULTY175_FACE_MAZE ||
         id == FACULTY175_FACE_CRYSTAL_BALL) {
         return false;
