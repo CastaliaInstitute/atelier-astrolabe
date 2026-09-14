@@ -14,8 +14,11 @@ The repository's Linux/HID status faces alone do not implement a working KVM.
 | Tool | Purpose |
 |---|---|
 | `astrolabe_ble_scan` | Discover Astrolabe through Android Bluetooth |
+| `astrolabe_ble_pair` | Pair and name an additional Astrolabe without replacing existing peers |
+| `astrolabe_ble_peers` | List the locally remembered Astrolabe peers |
 | `astrolabe_ble_status` | Read face, Wi-Fi, firmware hash, and SD capacity |
 | `astrolabe_ble_select_face` | Select an enabled face over authenticated BLE |
+| `astrolabe_ble_select_face_all` | Select an enabled face on every paired Astrolabe |
 | `astrolabe_ble_wifi` | Configure Wi-Fi or select saved credentials |
 | `astrolabe_sd_status` | Probe the attached SD disk and partitions without writes |
 | `astrolabe_inventory` | Find supported USB devices and build location |
@@ -75,6 +78,11 @@ BLE writes require encryption and the key in ignored `.state/control-key`,
 compiled through ignored `include/secrets.local.h` (both mode 0600). Setup does
 not overwrite existing firmware secrets. Wi-Fi credentials go through stdin,
 not process arguments. Cyber's legacy settings characteristics are read-only.
+
+F101 can retain more than one Android LE bond. Use `astrolabe_ble_pair` once for
+each scanned address; the local registry is `.state/paired-astrolabes.json`.
+Pairing a new Astrolabe never removes existing peers. `astrolabe_ble_select_face_all`
+fans a face choice out to all registered peers and returns a per-device result.
 
 ## USB-only partition layout
 

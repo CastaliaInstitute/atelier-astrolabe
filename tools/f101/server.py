@@ -26,6 +26,7 @@ mcp = FastMCP('astrolabe-f101', instructions=(
 
 CONTROL = '06000000-5017-0065-6261-6c6f72747341'
 SETTINGS = '03000000-5017-0065-6261-6c6f72747341'
+PAIRED_DEVICES = STATE / 'paired-astrolabes.json'
 
 
 def ble_address(address):
@@ -40,12 +41,79 @@ def ble_control(address, payload):
                      'characteristic': CONTROL, 'payload': payload, 'confirmPairing': True})
 
 
+def paired_devices():
+    """Return the locally managed Android BLE peers, rejecting corrupt state."""
+    if not PAIRED_DEVICES.exists():
+        return []
+    saved = json.loads(PAIRED_DEVICES.read_text())
+    if not isinstance(saved, list):
+        raise RuntimeError('Paired-device registry is invalid')
+    peers = []
+    for item in saved:
+        if not isinstance(item, dict) or not isinstance(item.get('address'), str):
+            raise RuntimeError('Paired-device registry is invalid')
+        peer = {'address': ble_address(item['address'])}
+        if isinstance(item.get('name'), str) and item['name']:
+            peer['name'] = item['name']
+        peers.append(peer)
+    return peers
+
+
+def save_paired_devices(peers):
+    temporary = PAIRED_DEVICES.with_suffix('.tmp')
+    temporary.write_text(json.dumps(peers, indent=2) + '\n')
+    temporary.replace(PAIRED_DEVICES)
+
+
 @mcp.tool()
 def astrolabe_ble_scan(seconds: int = 6) -> dict:
     """Discover Astrolabe BLE advertisements using Android Bluetooth, including with the screen off."""
     if not 1 <= seconds <= 10:
         raise ValueError('seconds must be 1–10')
     return ble_call({'op': 'scan', 'seconds': seconds})
+
+
+@mcp.tool()
+def astrolabe_ble_pair(address: str, name: str | None = None) -> dict:
+    """Pair one additional Astrolabe with F101 Android and remember it locally.
+    Android supports multiple simultaneous saved LE bonds; pairing a new device does
+    not replace existing peers. A supplied name is a local label only.
+    """
+    address = ble_address(address)
+    if name is not None and (not name.strip() or len(name) > 48):
+        raise ValueError('Name must contain 1–48 characters')
+    result = ble_call({'op': 'bond', 'address': address})
+    peers = paired_devices()
+    record = {'address': address}
+    if name is not None:
+        record['name'] = name.strip()
+    peers = [peer for peer in peers if peer['address'] != address]
+    peers.append(record)
+    save_paired_devices(peers)
+    return dict(result, peer=record, peers=peers)
+
+
+@mcp.tool()
+def astrolabe_ble_peers() -> dict:
+    """List Astrolabe devices paired and named on this F101."""
+    return {'peers': paired_devices()}
+
+
+@mcp.tool()
+def astrolabe_ble_select_face_all(face: str) -> dict:
+    """Select one face on every locally paired Astrolabe, reporting each confirmation."""
+    if not re.fullmatch(r'[a-z][a-z0-9-]{0,39}', face):
+        raise ValueError('Invalid face slug')
+    peers = paired_devices()
+    if not peers:
+        raise RuntimeError('No paired Astrolabes; scan and pair a device first')
+    results = []
+    for peer in peers:
+        try:
+            results.append(dict(peer=peer, status=astrolabe_ble_select_face(peer['address'], face)))
+        except Exception as error:
+            results.append(dict(peer=peer, error=str(error)))
+    return {'face': face, 'results': results}
 
 
 @mcp.tool()
