@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0b1014" />
+    <title>Auspex — Onboard vehicle intelligence</title>
+    <meta name="description" content="Auspex is a local-first vehicle intelligence system for observing, interpreting, and preserving the health of your vehicle." />
+    <link rel="canonical" href="https://auspex.castalia.institute/" />
+    <link rel="stylesheet" href="../styles.css" />
+    <style>
+      :root { --auspex-ink: #e9efe9; --auspex-muted: #a9b6b0; --auspex-bg: #0b1014; --auspex-panel: #121a1d; --auspex-line: rgba(185, 221, 202, .18); --auspex-accent: #9bd6b2; --auspex-warm: #f0c890; }
+      body { background: var(--auspex-bg); color: var(--auspex-ink); }
+      .auspex-shell { max-width: 1180px; margin: 0 auto; padding: 0 28px; }
+      .auspex-nav { display: flex; justify-content: space-between; align-items: center; padding: 28px 0; }
+      .auspex-nav a { color: var(--auspex-ink); text-decoration: none; }
+      .auspex-mark { letter-spacing: .18em; text-transform: uppercase; font-size: .78rem; }
+      .auspex-back { color: var(--auspex-muted) !important; font-size: .9rem; }
+      .auspex-hero { padding: 86px 0 110px; border-top: 1px solid var(--auspex-line); }
+      .auspex-kicker { color: var(--auspex-accent); letter-spacing: .18em; text-transform: uppercase; font-size: .75rem; }
+      .auspex-hero h1 { max-width: 820px; margin: 18px 0; font-size: clamp(3.7rem, 10vw, 8.5rem); line-height: .88; letter-spacing: -.06em; }
+      .auspex-lede { max-width: 640px; color: var(--auspex-muted); font-size: clamp(1.15rem, 2vw, 1.45rem); line-height: 1.55; }
+      .auspex-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 34px; }
+      .auspex-button { display: inline-block; padding: 13px 18px; border: 1px solid var(--auspex-accent); color: var(--auspex-bg) !important; background: var(--auspex-accent); text-decoration: none; font-weight: 600; }
+      .auspex-button--quiet { color: var(--auspex-ink) !important; background: transparent; border-color: var(--auspex-line); }
+      .auspex-signal { margin: 0 0 100px; padding: 34px; border: 1px solid var(--auspex-line); background: linear-gradient(135deg, rgba(155,214,178,.12), rgba(240,200,144,.06)); }
+      .auspex-signal strong { display: block; color: var(--auspex-warm); font-size: 1.2rem; margin-bottom: 10px; }
+      .auspex-signal p { max-width: 760px; margin: 0; color: var(--auspex-muted); line-height: 1.6; }
+      .auspex-section { padding: 0 0 100px; }
+      .auspex-section h2 { max-width: 620px; font-size: clamp(2rem, 4vw, 3.8rem); letter-spacing: -.04em; line-height: 1; margin: 0 0 34px; }
+      .auspex-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+      .auspex-card { min-height: 190px; padding: 24px; border: 1px solid var(--auspex-line); background: var(--auspex-panel); }
+      .auspex-card span { color: var(--auspex-accent); font-size: .78rem; letter-spacing: .12em; }
+      .auspex-card h3 { margin: 30px 0 10px; font-size: 1.25rem; }
+      .auspex-card p { color: var(--auspex-muted); line-height: 1.5; margin: 0; }
+      .auspex-footer { padding: 28px 0 44px; border-top: 1px solid var(--auspex-line); color: var(--auspex-muted); font-size: .9rem; }
+      @media (max-width: 720px) { .auspex-shell { padding: 0 18px; } .auspex-hero { padding: 60px 0 78px; } .auspex-grid { grid-template-columns: 1fr; } .auspex-signal, .auspex-card { padding: 20px; } }
+    </style>
+  </head>
+  <body>
+    <div class="auspex-shell">
+      <nav class="auspex-nav" aria-label="Primary">
+        <a class="auspex-mark" href="/auspex/">Auspex</a>
+        <a class="auspex-back" href="/">← Astrolabe</a>
+      </nav>
+
+      <main>
+        <section class="auspex-hero">
+          <p class="auspex-kicker">Onboard vehicle intelligence</p>
+          <h1>Understand the machine beneath you.</h1>
+          <p class="auspex-lede">Auspex observes your vehicle over time, preserves the evidence around a fault, and turns raw diagnostic signals into cautious, useful next steps.</p>
+          <div class="auspex-actions">
+            <a class="auspex-button" href="#principles">See the system</a>
+            <a class="auspex-button auspex-button--quiet" href="mailto:hello@castalia.institute?subject=Auspex">Talk about Auspex</a>
+          </div>
+        </section>
+
+        <section class="auspex-signal" aria-label="Auspex principle">
+          <strong>Observe broadly. Reason locally. Transmit selectively.</strong>
+          <p>Auspex begins as a read-only companion for the vehicle: direct OBDLink MX+ diagnostics, a local display, and a tiny on-device model that interprets the signals without inventing certainty.</p>
+        </section>
+
+        <section id="principles" class="auspex-section">
+          <p class="auspex-kicker">The first instrument</p>
+          <h2>A persistent mechanical history, not another scan-tool snapshot.</h2>
+          <div class="auspex-grid">
+            <article class="auspex-card"><span>01 / CONTEXT</span><h3>Remember what came before</h3><p>Preserve the telemetry surrounding a warning, including voltage, temperature, load, speed, and the conditions that made the fault appear.</p></article>
+            <article class="auspex-card"><span>02 / EVIDENCE</span><h3>Separate facts from guesses</h3><p>Every interpretation distinguishes observed values, known diagnostic criteria, probable causes, and unverified hypotheses.</p></article>
+            <article class="auspex-card"><span>03 / AGENCY</span><h3>Recommend the next useful test</h3><p>Auspex helps the driver and mechanic decide what to inspect before replacing a part—or continuing to drive into a larger problem.</p></article>
+          </div>
+        </section>
+
+        <section class="auspex-section">
+          <p class="auspex-kicker">Prototype / S31</p>
+          <h2>Local-first by design.</h2>
+          <p class="auspex-lede">The first Auspex prototype runs on an ESP32-S31 with its display and Bluetooth Classic connection to the OBDLink MX+. A tiny decision-tree model translates live values into readable states such as normal, high load, low voltage, overheating, or check-engine attention.</p>
+        </section>
+      </main>
+
+      <footer class="auspex-footer">Auspex is a Castalia Institute instrument. Read-only by default; safety-critical vehicle control is out of scope.</footer>
+    </div>
+  </body>
+</html>

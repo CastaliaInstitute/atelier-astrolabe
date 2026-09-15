@@ -90,6 +90,8 @@ static const faculty175_face_id_t k_fortune_faces[] = {
 
 static const faculty175_face_id_t k_lunasay_faces[] = {
     FACULTY175_FACE_MOON,
+    FACULTY175_FACE_CYCLE,
+    FACULTY175_FACE_BIOMETRICS,
     FACULTY175_FACE_ASTROLOGY,
     FACULTY175_FACE_TRANSITS,
     FACULTY175_FACE_SYNASTRY,
@@ -151,6 +153,7 @@ static const faculty175_face_id_t k_cyber_faces[] = {
     FACULTY175_FACE_INCIDENTS,
     FACULTY175_FACE_HID,
     FACULTY175_FACE_USB_SCREEN,
+    FACULTY175_FACE_OTA,
 };
 
 static const faculty175_face_id_t k_ocarina_faces[] = {

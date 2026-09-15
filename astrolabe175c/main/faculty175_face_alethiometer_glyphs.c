@@ -886,6 +886,14 @@ void faculty175_face_alethiometer_draw_glyph(int cx, int cy, int symbol_idx, uin
     }
 }
 
+const uint8_t *faculty175_face_alethiometer_glyph_alpha(int symbol_idx)
+{
+    if (symbol_idx < 0) {
+        symbol_idx = 0;
+    }
+    return k_alethiometer_alpha[symbol_idx % FACULTY175_ALETHIOMETER_GLYPH_COUNT];
+}
+
 const char *faculty175_face_alethiometer_glyph_codepoint(int symbol_idx)
 {
     if (symbol_idx < 0) {

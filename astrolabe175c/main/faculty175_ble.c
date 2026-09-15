@@ -2,6 +2,7 @@
 
 #include <math.h>
 #include <stddef.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,10 +11,13 @@
 #include "cJSON.h"
 #include "astrolabe_time.h"
 #include "esp_attr.h"
+#include "esp_app_desc.h"
+#include "esp_ota_ops.h"
 #include "esp_log.h"
 #include "esp_random.h"
 #include "esp_timer.h"
 #include "esp_system.h"
+#include "esp_wifi.h"
 #include "nvs.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/portmacro.h"
@@ -29,12 +33,25 @@
 #include "nimble/nimble_port_freertos.h"
 
 #include "faculty175_log.h"
+#include "faculty175_charts.h"
 #include "faculty175_device_settings.h"
+#include "faculty175_cycle_health.h"
+#include "faculty175_face_psych_state.h"
 #include "faculty175_faces.h"
 #include "faculty175_motion.h"
+#include "faculty175_ota.h"
+#include "faculty175_pmu.h"
+#include "faculty175_research.h"
+#include "faculty175_relationship_weather.h"
 #include "faculty175_ring.h"
 #include "faculty175_spotify.h"
+#include "faculty175_voice.h"
 #include "faculty175_wifi_settings.h"
+#if __has_include("secrets.local.h")
+#include "secrets.local.h"
+#else
+#include "secrets.example.h"
+#endif
 
 void ble_store_config_init(void);
 
@@ -42,6 +59,7 @@ static const char *TAG = "faculty175_ble";
 static const char *BLE_NVS_NS = "ble";
 static const char *BLE_NVS_ENABLED = "enabled";
 static const char *BLE_NVS_RING_ID = "ring_id";
+static const char *BLE_NVS_NEAR_RSSI = "near_rssi";
 static const char *BLE_NVS_IDENTITY_NS = "identity";
 static const char *BLE_NVS_DEVICE_NAME = "device_name";
 static const char *BLE_NVS_NAME = "name";
@@ -59,6 +77,7 @@ enum {
 enum {
     COLMI_PACKET_LEN = 16,
     COLMI_CMD_BATTERY = 0x03,
+    COLMI_CMD_RAW_DATA = 0xa1,
     COLMI_CMD_REALTIME_START = 0x69,
     COLMI_CMD_REALTIME_STOP = 0x6a,
     COLMI_REALTIME_HEART_RATE = 0x01,
@@ -79,6 +98,7 @@ typedef enum {
     COLMI_CLIENT_READING_HR,
     COLMI_CLIENT_READING_SPO2,
     COLMI_CLIENT_READING_HRV,
+    COLMI_CLIENT_STREAMING_IMU,
     COLMI_CLIENT_DONE,
     COLMI_CLIENT_ERROR,
 } colmi_client_state_t;
@@ -89,6 +109,7 @@ typedef enum {
     COLMI_ACTION_START_HR,
     COLMI_ACTION_START_SPO2,
     COLMI_ACTION_START_HRV,
+    COLMI_ACTION_START_RAW_IMU,
 } colmi_client_action_t;
 
 typedef struct __attribute__((packed)) {
@@ -118,6 +139,15 @@ static const ble_uuid128_t BLE_ENABLED_CHAR_UUID =
     BLE_UUID128_INIT(0x41, 0x73, 0x74, 0x72, 0x6f, 0x6c, 0x61, 0x62, 0x65, 0x00, 0x17, 0x50, 0x00, 0x00, 0x00, 0x02);
 static const ble_uuid128_t BLE_SETTINGS_JSON_CHAR_UUID =
     BLE_UUID128_INIT(0x41, 0x73, 0x74, 0x72, 0x6f, 0x6c, 0x61, 0x62, 0x65, 0x00, 0x17, 0x50, 0x00, 0x00, 0x00, 0x03);
+static const ble_uuid128_t BLE_STATE_JSON_CHAR_UUID =
+    BLE_UUID128_INIT(0x41, 0x73, 0x74, 0x72, 0x6f, 0x6c, 0x61, 0x62, 0x65, 0x00, 0x17, 0x50, 0x00, 0x00, 0x00, 0x04);
+static const ble_uuid128_t BLE_HEALTH_JSON_CHAR_UUID =
+    BLE_UUID128_INIT(0x41, 0x73, 0x74, 0x72, 0x6f, 0x6c, 0x61, 0x62, 0x65, 0x00, 0x17, 0x50, 0x00, 0x00, 0x00, 0x05);
+#if ASTROLABE_CYBER_FEATURES
+/* Only the Cyber GATT table registers the control characteristic. */
+static const ble_uuid128_t BLE_CONTROL_JSON_CHAR_UUID =
+    BLE_UUID128_INIT(0x41, 0x73, 0x74, 0x72, 0x6f, 0x6c, 0x61, 0x62, 0x65, 0x00, 0x17, 0x50, 0x00, 0x00, 0x00, 0x06);
+#endif
 static const ble_uuid128_t COLMI_UART_SERVICE_UUID =
     BLE_UUID128_INIT(0x9e, 0xca, 0xdc, 0x24, 0x0e, 0xe5, 0xa9, 0xe0, 0x93, 0xf3, 0xa3, 0xb5, 0xf0, 0xff, 0x40, 0x6e);
 static const ble_uuid128_t COLMI_UART_RX_UUID =
@@ -135,9 +165,15 @@ static bool s_advertising;
 static bool s_scanning;
 static uint8_t s_own_addr_type;
 EXT_RAM_BSS_ATTR static char s_json_rx[768];
+EXT_RAM_BSS_ATTR static char s_state_json[2048];
+EXT_RAM_BSS_ATTR static char s_health_json[512];
 static size_t s_json_rx_len;
 static bool s_json_rx_active;
 static char s_device_name[FACULTY175_BLE_PEER_NAME_MAX] = "Astrolabe Faculty";
+
+static bool ble_json_escape(char *out,
+                            size_t cap,
+                            const char *value);
 EXT_RAM_BSS_ATTR static faculty175_ble_peer_t s_peers[FACULTY175_BLE_PEER_MAX];
 static portMUX_TYPE s_peer_lock = portMUX_INITIALIZER_UNLOCKED;
 EXT_RAM_BSS_ATTR static faculty175_ble_ring_telem_t s_ring_telem[FACULTY175_BLE_RING_TELEM_MAX];
@@ -171,10 +207,47 @@ static bool s_colmi_want_scan;
 static bool s_colmi_connect_started;
 static bool s_colmi_have_packet;
 static uint8_t s_colmi_last_packet[COLMI_PACKET_LEN];
+static bool s_lunasay_ring_control_active;
+static bool s_lunasay_ring_near;
+static uint32_t s_lunasay_ring_near_ms;
+static uint32_t s_lunasay_ring_retry_ms;
+static faculty175_ble_ring_event_t s_lunasay_ring_event;
+static portMUX_TYPE s_lunasay_ring_event_lock = portMUX_INITIALIZER_UNLOCKED;
+static bool s_colmi_imu_have_sample;
+static float s_colmi_imu_x_g;
+static float s_colmi_imu_y_g;
+static uint32_t s_colmi_imu_last_swipe_ms;
+static uint32_t s_colmi_imu_stream_started_ms;
 
 static int ble_gap_event(struct ble_gap_event *event, void *arg);
 static esp_err_t ble_advertise(void);
 static void ble_ring_telem_store(const faculty175_ble_peer_t *peer);
+static int ble_control_json_access(uint16_t conn_handle, uint16_t attr_handle,
+                                  struct ble_gatt_access_ctxt *ctxt, void *arg);
+
+static int16_t colmi_i12(uint8_t high, uint8_t low_nibble)
+{
+    int16_t value = (int16_t)(((uint16_t)high << 4) | (low_nibble & 0x0f));
+    if ((value & 0x0800) != 0) {
+        value -= 0x1000;
+    }
+    return value;
+}
+
+static void lunasay_ring_event_post(faculty175_ble_ring_event_t event)
+{
+    if (event == FACULTY175_BLE_RING_EVENT_NONE) {
+        return;
+    }
+    portENTER_CRITICAL(&s_lunasay_ring_event_lock);
+    /* Keep an unconsumed swipe: losing a real gesture is worse than a later
+     * proximity notification, and a single-slot queue bounds internal RAM. */
+    if (s_lunasay_ring_event == FACULTY175_BLE_RING_EVENT_NONE ||
+        event != FACULTY175_BLE_RING_EVENT_NEAR) {
+        s_lunasay_ring_event = event;
+    }
+    portEXIT_CRITICAL(&s_lunasay_ring_event_lock);
+}
 static esp_err_t colmi_client_start(void);
 static void colmi_client_finish(void);
 static void colmi_client_on_ring_found(const ble_addr_t *addr, uint8_t event_type, int8_t rssi);
@@ -186,6 +259,14 @@ static int ble_settings_json_access(uint16_t conn_handle,
                                     uint16_t attr_handle,
                                     struct ble_gatt_access_ctxt *ctxt,
                                     void *arg);
+static int ble_state_json_access(uint16_t conn_handle,
+                                 uint16_t attr_handle,
+                                 struct ble_gatt_access_ctxt *ctxt,
+                                 void *arg);
+static int ble_health_json_access(uint16_t conn_handle,
+                                  uint16_t attr_handle,
+                                  struct ble_gatt_access_ctxt *ctxt,
+                                  void *arg);
 static void ble_ring_telem_store(const faculty175_ble_peer_t *peer);
 
 static const struct ble_gatt_svc_def k_ble_svcs[] = {
@@ -203,6 +284,23 @@ static const struct ble_gatt_svc_def k_ble_svcs[] = {
                 .access_cb = ble_settings_json_access,
                 .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE,
             },
+            {
+                .uuid = &BLE_STATE_JSON_CHAR_UUID.u,
+                .access_cb = ble_state_json_access,
+                .flags = BLE_GATT_CHR_F_READ,
+            },
+            {
+                .uuid = &BLE_HEALTH_JSON_CHAR_UUID.u,
+                .access_cb = ble_health_json_access,
+                .flags = BLE_GATT_CHR_F_READ,
+            },
+#if ASTROLABE_CYBER_FEATURES
+            {
+                .uuid = &BLE_CONTROL_JSON_CHAR_UUID.u,
+                .access_cb = ble_control_json_access,
+                .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_ENC,
+            },
+#endif
             {0},
         },
     },
@@ -280,6 +378,39 @@ static esp_err_t ble_nvs_set_ring_id(uint16_t id, bool set)
     if (err == ESP_OK) {
         err = nvs_commit(nvs);
     }
+    nvs_close(nvs);
+    return err;
+}
+
+static int8_t ble_near_rssi_clamp(int8_t threshold)
+{
+    if (threshold < -90) return -90;
+    if (threshold > -45) return -45;
+    return threshold;
+}
+
+int8_t faculty175_ble_near_rssi_threshold(void)
+{
+    int8_t value = -65;
+    nvs_handle_t nvs;
+    if (nvs_open(BLE_NVS_NS, NVS_READONLY, &nvs) == ESP_OK) {
+        int8_t stored = 0;
+        if (nvs_get_i8(nvs, BLE_NVS_NEAR_RSSI, &stored) == ESP_OK) {
+            value = ble_near_rssi_clamp(stored);
+        }
+        nvs_close(nvs);
+    }
+    return value;
+}
+
+esp_err_t faculty175_ble_set_near_rssi_threshold(int8_t threshold)
+{
+    const int8_t value = ble_near_rssi_clamp(threshold);
+    nvs_handle_t nvs;
+    esp_err_t err = nvs_open(BLE_NVS_NS, NVS_READWRITE, &nvs);
+    if (err != ESP_OK) return err;
+    err = nvs_set_i8(nvs, BLE_NVS_NEAR_RSSI, value);
+    if (err == ESP_OK) err = nvs_commit(nvs);
     nvs_close(nvs);
     return err;
 }
@@ -578,6 +709,8 @@ static const char *colmi_state_name(colmi_client_state_t state)
             return "spo2";
         case COLMI_CLIENT_READING_HRV:
             return "hrv";
+        case COLMI_CLIENT_STREAMING_IMU:
+            return "raw-imu";
         case COLMI_CLIENT_DONE:
             return "done";
         case COLMI_CLIENT_ERROR:
@@ -656,6 +789,63 @@ static esp_err_t colmi_stop_realtime(uint8_t kind)
     uint8_t packet[COLMI_PACKET_LEN];
     colmi_make_packet(COLMI_CMD_REALTIME_STOP, sub, sizeof(sub), packet);
     return colmi_send_packet(packet);
+}
+
+static esp_err_t colmi_start_raw_imu(void)
+{
+    const uint8_t sub[] = {0x04};
+    uint8_t packet[COLMI_PACKET_LEN];
+    colmi_make_packet(COLMI_CMD_RAW_DATA, sub, sizeof(sub), packet);
+    return colmi_send_packet(packet);
+}
+
+static void colmi_handle_raw_imu(const uint8_t data[COLMI_PACKET_LEN])
+{
+    if (data[1] != 0x03) {
+        if (data[1] == 0xff) {
+            ESP_LOGW(TAG, "colmi raw IMU stream rejected by ring firmware");
+        }
+        return;
+    }
+
+    /* The R02 packets order axes Y, Z, X and use signed 12-bit values at
+     * 512 LSB/g.  Classify the strongest planar impulse as a four-way swipe;
+     * gravity, normal hand orientation, and the return stroke are absorbed by
+     * the delta threshold and cooldown. */
+    const float y_g = (float)colmi_i12(data[2], data[3]) / 512.0f;
+    const float x_g = (float)colmi_i12(data[6], data[7]) / 512.0f;
+    const uint32_t now_ms = ble_now_ms();
+    if (!s_lunasay_ring_near) {
+        s_lunasay_ring_near = true;
+        lunasay_ring_event_post(FACULTY175_BLE_RING_EVENT_NEAR);
+        ESP_LOGI(TAG, "lunasay ring nearby");
+    }
+    s_lunasay_ring_near_ms = now_ms;
+
+    if (s_colmi_imu_have_sample && now_ms - s_colmi_imu_stream_started_ms >= 250u) {
+        const float x_impulse_g = x_g - s_colmi_imu_x_g;
+        const float y_impulse_g = y_g - s_colmi_imu_y_g;
+        const bool cooled_down = now_ms - s_colmi_imu_last_swipe_ms >= 850u;
+        const bool horizontal = fabsf(x_impulse_g) >= fabsf(y_impulse_g);
+        const float impulse_g = horizontal ? x_impulse_g : y_impulse_g;
+        if (cooled_down && fabsf(impulse_g) >= 0.55f) {
+            const faculty175_ble_ring_event_t event = horizontal
+                ? (impulse_g > 0.0f ? FACULTY175_BLE_RING_EVENT_SWIPE_NEXT
+                                    : FACULTY175_BLE_RING_EVENT_SWIPE_PREVIOUS)
+                : (impulse_g > 0.0f ? FACULTY175_BLE_RING_EVENT_SWIPE_UP
+                                    : FACULTY175_BLE_RING_EVENT_SWIPE_DOWN);
+            s_colmi_imu_last_swipe_ms = now_ms;
+            lunasay_ring_event_post(event);
+            const char *direction = event == FACULTY175_BLE_RING_EVENT_SWIPE_NEXT ? "right"
+                                  : event == FACULTY175_BLE_RING_EVENT_SWIPE_PREVIOUS ? "left"
+                                  : event == FACULTY175_BLE_RING_EVENT_SWIPE_UP ? "up" : "down";
+            ESP_LOGI(TAG, "lunasay ring swipe %s impulse=%.2fg x=%.2f y=%.2f",
+                     direction, (double)impulse_g, (double)x_impulse_g, (double)y_impulse_g);
+        }
+    }
+    s_colmi_imu_x_g = x_g;
+    s_colmi_imu_y_g = y_g;
+    s_colmi_imu_have_sample = true;
 }
 
 static void colmi_stop_current_realtime(void)
@@ -772,6 +962,13 @@ static void colmi_run_scheduled_action(uint32_t now_ms)
             err = colmi_start_realtime(COLMI_REALTIME_HRV);
             ESP_LOGI(TAG, "colmi realtime start hrv %s", esp_err_to_name(err));
             break;
+        case COLMI_ACTION_START_RAW_IMU:
+            s_colmi_state = COLMI_CLIENT_STREAMING_IMU;
+            s_colmi_imu_have_sample = false;
+            s_colmi_imu_stream_started_ms = now_ms;
+            err = colmi_start_raw_imu();
+            ESP_LOGI(TAG, "colmi raw IMU stream start %s", esp_err_to_name(err));
+            break;
         case COLMI_ACTION_NONE:
         default:
             return;
@@ -817,6 +1014,10 @@ static void colmi_handle_packet(const uint8_t *data, size_t len)
     }
     if (data[0] == COLMI_CMD_BATTERY) {
         colmi_client_advance_after_packet(data[0], 0, data[1]);
+    } else if (data[0] == COLMI_CMD_RAW_DATA) {
+        if (s_colmi_state == COLMI_CLIENT_STREAMING_IMU) {
+            colmi_handle_raw_imu(data);
+        }
     } else if (data[0] == COLMI_CMD_REALTIME_START) {
         if (data[2] != 0) {
             ESP_LOGW(TAG, "colmi realtime kind=%u error=%u", data[1], data[2]);
@@ -841,7 +1042,11 @@ static int colmi_subscribe_cb(uint16_t conn_handle,
         return 0;
     }
     s_colmi_state = COLMI_CLIENT_READY;
-    colmi_schedule_action(COLMI_ACTION_BATTERY, 500u);
+    if (s_lunasay_ring_control_active) {
+        colmi_schedule_action(COLMI_ACTION_START_RAW_IMU, 120u);
+    } else {
+        colmi_schedule_action(COLMI_ACTION_BATTERY, 500u);
+    }
     return 0;
 }
 
@@ -1384,6 +1589,71 @@ static void ble_load_device_name(void)
     s_device_name[sizeof(s_device_name) - 1] = '\0';
 }
 
+static esp_err_t ble_apply_control_json(const cJSON *control)
+{
+    const cJSON *key = cJSON_GetObjectItemCaseSensitive(control, "key");
+    const char *expected = MYNAH_REMOTE_CONTROL_KEY;
+    if (expected[0] == '\0' || !cJSON_IsString(key) || key->valuestring == NULL ||
+        strlen(key->valuestring) != strlen(expected)) return ESP_ERR_INVALID_STATE;
+    unsigned difference = 0;
+    for (size_t i = 0; i < strlen(expected); ++i) difference |= (unsigned char)expected[i] ^ (unsigned char)key->valuestring[i];
+    if (difference != 0) return ESP_ERR_INVALID_STATE;
+    const cJSON *face = cJSON_GetObjectItemCaseSensitive(control, "face");
+    const cJSON *ota = cJSON_GetObjectItemCaseSensitive(control, "ota");
+    const cJSON *wifi = cJSON_GetObjectItemCaseSensitive(control, "wifi");
+    if ((cJSON_IsString(face) ? 1 : 0) + (cJSON_IsObject(ota) ? 1 : 0) + (cJSON_IsObject(wifi) ? 1 : 0) != 1) return ESP_ERR_INVALID_ARG;
+    if (cJSON_IsObject(wifi)) {
+        const cJSON *ssid = cJSON_GetObjectItemCaseSensitive(wifi, "ssid");
+        const cJSON *pass = cJSON_GetObjectItemCaseSensitive(wifi, "password");
+        if (!cJSON_IsString(ssid) || strlen(ssid->valuestring) == 0 || strlen(ssid->valuestring) > 32) return ESP_ERR_INVALID_ARG;
+        char password[64] = {};
+        if (cJSON_IsString(pass)) {
+            if (strlen(pass->valuestring) > 63) return ESP_ERR_INVALID_ARG;
+            strlcpy(password, pass->valuestring, sizeof(password));
+        } else if (pass == NULL) {
+            faculty175_wifi_known_t known[FACULTY175_WIFI_KNOWN_MAX];
+            const size_t count = faculty175_wifi_settings_load_known(known, FACULTY175_WIFI_KNOWN_MAX);
+            bool found = false;
+            for (size_t i = 0; i < count; ++i) {
+                if (strcmp(known[i].ssid, ssid->valuestring) == 0) {
+                    strlcpy(password, known[i].pass, sizeof(password));
+                    found = true;
+                    break;
+                }
+            }
+            memset(known, 0, sizeof(known));
+            if (!found) return ESP_ERR_NOT_FOUND;
+        } else return ESP_ERR_INVALID_ARG;
+        esp_err_t result = faculty175_wifi_settings_save(ssid->valuestring, password);
+        if (result != ESP_OK) return result;
+        wifi_mode_t mode;
+        result = esp_wifi_get_mode(&mode);
+        if (result != ESP_OK) return result;
+        (void)esp_wifi_disconnect();
+        result = esp_wifi_set_mode(mode == WIFI_MODE_AP || mode == WIFI_MODE_APSTA ? WIFI_MODE_APSTA : WIFI_MODE_STA);
+        wifi_config_t config = {};
+        memcpy(config.sta.ssid, ssid->valuestring, strlen(ssid->valuestring));
+        memcpy(config.sta.password, password, strlen(password));
+        memset(password, 0, sizeof(password));
+        if (result == ESP_OK) result = esp_wifi_set_config(WIFI_IF_STA, &config);
+        if (result == ESP_OK) result = esp_wifi_connect();
+        return result;
+    }
+    if (cJSON_IsString(face)) {
+        const faculty175_face_desc_t *target = faculty175_faces_find(face->valuestring);
+        return target != NULL ? faculty175_faces_set(target->id) : ESP_ERR_INVALID_ARG;
+    }
+    if (cJSON_IsObject(ota)) {
+        const faculty175_face_desc_t *current = faculty175_faces_current();
+        if (current == NULL || current->id != FACULTY175_FACE_OTA) return ESP_ERR_INVALID_STATE;
+        const cJSON *url = cJSON_GetObjectItemCaseSensitive(ota, "url");
+        const cJSON *sha = cJSON_GetObjectItemCaseSensitive(ota, "sha256");
+        if (!cJSON_IsString(url) || !cJSON_IsString(sha)) return ESP_ERR_INVALID_ARG;
+        return faculty175_ota_fetch_verified(url->valuestring, sha->valuestring);
+    }
+    return ESP_ERR_INVALID_ARG;
+}
+
 static esp_err_t ble_apply_settings_json(const char *body)
 {
     cJSON *root = cJSON_Parse(body);
@@ -1434,6 +1704,115 @@ static esp_err_t ble_apply_settings_json(const char *body)
             }
         }
     }
+    const cJSON *relationship =
+        cJSON_GetObjectItemCaseSensitive(root, "relationship");
+    if (err == ESP_OK && cJSON_IsObject(relationship)) {
+        const cJSON *target_slot =
+            cJSON_GetObjectItemCaseSensitive(relationship, "targetSlot");
+        const cJSON *date =
+            cJSON_GetObjectItemCaseSensitive(relationship, "date");
+        if (cJSON_IsNumber(target_slot) &&
+            !faculty175_charts_set_active_slot(target_slot->valueint)) {
+            err = ESP_ERR_INVALID_ARG;
+        }
+        if (err == ESP_OK && cJSON_IsString(date) &&
+            date->valuestring != NULL) {
+            err = faculty175_relationship_weather_select_date(
+                date->valuestring);
+        }
+    }
+    const cJSON *cycle = cJSON_GetObjectItemCaseSensitive(root, "cycle");
+    if (err == ESP_OK && cJSON_IsObject(cycle)) {
+        const cJSON *start = cJSON_GetObjectItemCaseSensitive(cycle, "startDate");
+        const cJSON *cycle_length = cJSON_GetObjectItemCaseSensitive(cycle, "length");
+        const cJSON *period_length = cJSON_GetObjectItemCaseSensitive(cycle, "periodLength");
+        const cJSON *bleeding_start = cJSON_GetObjectItemCaseSensitive(cycle, "bleedingStarted");
+        const cJSON *bleeding_stop = cJSON_GetObjectItemCaseSensitive(cycle, "bleedingStopped");
+        if (cJSON_IsString(start) && start->valuestring != NULL) {
+            err = faculty175_cycle_health_set_start(start->valuestring);
+        }
+        if (err == ESP_OK && cJSON_IsNumber(cycle_length) && cJSON_IsNumber(period_length)) {
+            err = faculty175_cycle_health_set_lengths((uint8_t)cycle_length->valueint,
+                                                      (uint8_t)period_length->valueint);
+        }
+        if (err == ESP_OK && cJSON_IsTrue(bleeding_start)) {
+            err = faculty175_cycle_health_mark_bleeding_started_today();
+        }
+        if (err == ESP_OK && cJSON_IsTrue(bleeding_stop)) {
+            err = faculty175_cycle_health_mark_bleeding_stopped_today();
+        }
+    }
+    const cJSON *personal = cJSON_GetObjectItemCaseSensitive(root, "personal");
+    if (err == ESP_OK && cJSON_IsObject(personal)) {
+        faculty175_personal_settings_t settings = {};
+        const cJSON *name = cJSON_GetObjectItemCaseSensitive(personal, "name");
+        const cJSON *pronouns = cJSON_GetObjectItemCaseSensitive(personal, "pronouns");
+        const cJSON *birth_date = cJSON_GetObjectItemCaseSensitive(personal, "birthDate");
+        const cJSON *birth_time = cJSON_GetObjectItemCaseSensitive(personal, "birthTime");
+        const cJSON *birthplace = cJSON_GetObjectItemCaseSensitive(personal, "birthplace");
+        if (cJSON_IsString(name) && name->valuestring != NULL) faculty175_strlcpy(settings.display_name, name->valuestring, sizeof(settings.display_name));
+        if (cJSON_IsString(pronouns) && pronouns->valuestring != NULL) faculty175_strlcpy(settings.pronouns, pronouns->valuestring, sizeof(settings.pronouns));
+        if (cJSON_IsString(birth_date) && birth_date->valuestring != NULL) faculty175_strlcpy(settings.birth_date, birth_date->valuestring, sizeof(settings.birth_date));
+        if (cJSON_IsString(birth_time) && birth_time->valuestring != NULL) faculty175_strlcpy(settings.birth_time, birth_time->valuestring, sizeof(settings.birth_time));
+        if (cJSON_IsString(birthplace) && birthplace->valuestring != NULL) faculty175_strlcpy(settings.birthplace, birthplace->valuestring, sizeof(settings.birthplace));
+        err = faculty175_personal_settings_save(&settings);
+    }
+    const cJSON *privacy = cJSON_GetObjectItemCaseSensitive(root, "privacy");
+    if (err == ESP_OK && cJSON_IsObject(privacy)) {
+        const cJSON *clear_history =
+            cJSON_GetObjectItemCaseSensitive(privacy, "clearReadingHistory");
+        if (cJSON_IsTrue(clear_history)) {
+            err = faculty175_voice_clear_lunasay_reading_history();
+            if (err == ESP_OK) {
+                err = faculty175_research_clear_local_feedback();
+            }
+        }
+    }
+    const cJSON *research = cJSON_GetObjectItemCaseSensitive(root, "research");
+    if (err == ESP_OK && cJSON_IsObject(research)) {
+        const cJSON *consent = cJSON_GetObjectItemCaseSensitive(research, "consent");
+        const cJSON *version = cJSON_GetObjectItemCaseSensitive(research, "consentVersion");
+        if (!cJSON_IsBool(consent)) {
+            err = ESP_ERR_INVALID_ARG;
+        } else {
+            err = faculty175_research_set_consent(
+                cJSON_IsTrue(consent),
+                cJSON_IsString(version) && version->valuestring != NULL
+                    ? version->valuestring
+                    : "research-v2");
+        }
+    }
+    const cJSON *mood = cJSON_GetObjectItemCaseSensitive(root, "mood");
+    if (err == ESP_OK && cJSON_IsObject(mood)) {
+        const cJSON *label = cJSON_GetObjectItemCaseSensitive(mood, "label");
+        const cJSON *check_in = cJSON_GetObjectItemCaseSensitive(mood, "checkIn");
+        if (!cJSON_IsString(label) || label->valuestring == NULL ||
+            !faculty175_face_psych_state_set_mood(
+                label->valuestring, cJSON_IsTrue(check_in))) {
+            err = ESP_ERR_INVALID_ARG;
+        }
+    }
+    const cJSON *reflection =
+        cJSON_GetObjectItemCaseSensitive(root, "reflection");
+    if (err == ESP_OK && cJSON_IsObject(reflection)) {
+        const cJSON *face =
+            cJSON_GetObjectItemCaseSensitive(reflection, "face");
+        const cJSON *rating =
+            cJSON_GetObjectItemCaseSensitive(reflection, "rating");
+        const cJSON *reading_date =
+            cJSON_GetObjectItemCaseSensitive(reflection, "readingDate");
+        if (!cJSON_IsString(face) || face->valuestring == NULL ||
+            !cJSON_IsString(rating) || rating->valuestring == NULL ||
+            !cJSON_IsString(reading_date) ||
+            reading_date->valuestring == NULL) {
+            err = ESP_ERR_INVALID_ARG;
+        } else {
+            err = faculty175_research_record_feedback(
+                face->valuestring,
+                rating->valuestring,
+                reading_date->valuestring);
+        }
+    }
     const cJSON *spotify = cJSON_GetObjectItemCaseSensitive(root, "spotify");
     if (err == ESP_OK && cJSON_IsObject(spotify)) {
         const cJSON *client_id = cJSON_GetObjectItemCaseSensitive(spotify, "clientId");
@@ -1455,6 +1834,61 @@ static esp_err_t ble_apply_settings_json(const char *body)
     return err;
 }
 
+static int ble_control_json_access(uint16_t conn_handle, uint16_t attr_handle,
+                                  struct ble_gatt_access_ctxt *ctxt, void *arg)
+{
+    (void)conn_handle; (void)attr_handle; (void)arg;
+    static char buffer[1024];
+    static size_t length;
+    static bool receiving;
+    if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) {
+        faculty175_ota_status_t ota = {};
+        faculty175_ota_get_status(&ota);
+        const faculty175_face_desc_t *face = faculty175_faces_current();
+        const esp_app_desc_t *app = esp_app_get_description();
+        cJSON *status = cJSON_CreateObject();
+        if (status == NULL) return BLE_ATT_ERR_INSUFFICIENT_RES;
+        cJSON_AddNumberToObject(status, "controlVersion", 1);
+        cJSON_AddStringToObject(status, "face", face != NULL ? face->slug : "");
+        cJSON_AddStringToObject(status, "version", app->version);
+        char elf_hash[65];
+        for (size_t i = 0; i < 32; ++i) snprintf(elf_hash + i * 2, 3, "%02x", app->app_elf_sha256[i]);
+        cJSON_AddStringToObject(status, "elfSha256", elf_hash);
+        const esp_partition_t *running = esp_ota_get_running_partition();
+        cJSON_AddStringToObject(status, "partition", running != NULL ? running->label : "");
+        cJSON_AddStringToObject(status, "wifiUrl", faculty175_wifi_settings_url());
+        cJSON_AddBoolToObject(status, "otaReady", ota.network_ready && !ota.active);
+        cJSON_AddBoolToObject(status, "otaActive", ota.active);
+        cJSON_AddStringToObject(status, "otaLast", ota.last);
+        char *json = cJSON_PrintUnformatted(status);
+        cJSON_Delete(status);
+        if (json == NULL) return BLE_ATT_ERR_INSUFFICIENT_RES;
+        const int rc = os_mbuf_append(ctxt->om, json, strlen(json));
+        cJSON_free(json);
+        return rc == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+    }
+    if (ctxt->op != BLE_GATT_ACCESS_OP_WRITE_CHR) return BLE_ATT_ERR_UNLIKELY;
+    char chunk[96];
+    uint16_t count = 0;
+    if (ble_hs_mbuf_to_flat(ctxt->om, chunk, sizeof(chunk) - 1, &count) != 0) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+    chunk[count] = '\0';
+    if (strcmp(chunk, "BEGIN") == 0) { length = 0; receiving = true; buffer[0] = '\0'; return 0; }
+    if (!receiving) return BLE_ATT_ERR_UNLIKELY;
+    if (strcmp(chunk, "END") == 0) {
+        receiving = false;
+        cJSON *control = cJSON_Parse(buffer);
+        const esp_err_t result = cJSON_IsObject(control) ? ble_apply_control_json(control) : ESP_ERR_INVALID_ARG;
+        cJSON_Delete(control);
+        memset(buffer, 0, sizeof(buffer));
+        return result == ESP_OK ? 0 : BLE_ATT_ERR_UNLIKELY;
+    }
+    if (length + count >= sizeof(buffer)) { receiving = false; return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN; }
+    memcpy(buffer + length, chunk, count);
+    length += count;
+    buffer[length] = '\0';
+    return 0;
+}
+
 static int ble_settings_json_access(uint16_t conn_handle,
                                     uint16_t attr_handle,
                                     struct ble_gatt_access_ctxt *ctxt,
@@ -1471,16 +1905,32 @@ static int ble_settings_json_access(uint16_t conn_handle,
         astrolabe_time_status(&t);
         faculty175_location_settings_t loc = {};
         const bool loc_ok = faculty175_location_settings_load(&loc) == ESP_OK;
-        char body[320];
+        faculty175_cycle_health_status_t cycle = {};
+        (void)faculty175_cycle_health_status(&cycle);
+        faculty175_ring_vitals_t ring_vitals = {};
+        const bool have_ring_vitals = faculty175_ring_latest_vitals(&ring_vitals);
+        char body[512];
         snprintf(body,
                  sizeof(body),
                  "{\"ok\":true,\"tz\":\"%s\",\"epoch\":%lld,\"location\":{\"valid\":%s,\"lat\":%.5f,\"lon\":%.5f},"
+                 "\"cycle\":{\"configured\":%s,\"day\":%u,\"length\":%u,\"periodLength\":%u,\"phase\":\"%s\",\"startDate\":\"%s\"},"
+                 "\"ring\":{\"available\":%s,\"heartRate\":%u,\"hrv\":%u,\"spo2\":%u},"
                  "\"wifi\":{\"ap\":%s,\"travelRouter\":%s,\"ssid\":\"%s\",\"url\":\"%s\"}}",
                  t.tz,
                  (long long)t.epoch,
                  loc_ok ? "true" : "false",
                  loc_ok ? loc.lat_deg : 0.0,
                  loc_ok ? loc.lon_deg : 0.0,
+                 cycle.configured ? "true" : "false",
+                 cycle.day,
+                 cycle.cycle_length,
+                 cycle.period_length,
+                 faculty175_cycle_health_phase_label(cycle.phase),
+                 cycle.start_date,
+                 have_ring_vitals ? "true" : "false",
+                 ring_vitals.heart_rate_valid ? ring_vitals.heart_rate_bpm : 0,
+                 ring_vitals.hrv_valid ? ring_vitals.hrv_ms : 0,
+                 ring_vitals.spo2_valid ? ring_vitals.spo2_percent : 0,
                  faculty175_wifi_settings_ap_active() ? "true" : "false",
                  faculty175_wifi_settings_travel_router_enabled() ? "true" : "false",
                  faculty175_wifi_settings_ssid(),
@@ -1527,6 +1977,236 @@ static int ble_settings_json_access(uint16_t conn_handle,
     s_json_rx_len += len;
     s_json_rx[s_json_rx_len] = '\0';
     return 0;
+}
+
+static bool ble_json_escape(char *out,
+                            size_t cap,
+                            const char *value)
+{
+    if (out == NULL || cap == 0 || value == NULL) {
+        return false;
+    }
+    size_t used = 0;
+    for (const unsigned char *p = (const unsigned char *)value;
+         *p != '\0';
+         ++p) {
+        const char *escape = NULL;
+        if (*p == '"' || *p == '\\') {
+            escape = *p == '"' ? "\\\"" : "\\\\";
+        }
+        if (escape != NULL) {
+            if (used + 2 >= cap) return false;
+            out[used++] = escape[0];
+            out[used++] = escape[1];
+        } else {
+            if (used + 1 >= cap) return false;
+            out[used++] = *p < 0x20 ? ' ' : (char)*p;
+        }
+    }
+    out[used] = '\0';
+    return true;
+}
+
+static int ble_health_json_access(uint16_t conn_handle,
+                                  uint16_t attr_handle,
+                                  struct ble_gatt_access_ctxt *ctxt,
+                                  void *arg)
+{
+    (void)conn_handle;
+    (void)attr_handle;
+    (void)arg;
+    if (ctxt == NULL || ctxt->op != BLE_GATT_ACCESS_OP_READ_CHR) {
+        return BLE_ATT_ERR_UNLIKELY;
+    }
+
+    faculty175_pmu_status_t power = {};
+    const bool have_power = faculty175_pmu_status(&power);
+    faculty175_ota_status_t ota = {};
+    faculty175_ota_get_status(&ota);
+    const esp_app_desc_t *app = esp_app_get_description();
+
+    char firmware[72] = {};
+    /* Keep the complete attribute under the 512-byte BLE value boundary even
+     * when every byte in the diagnostic needs JSON escaping. */
+    char ota_last_raw[25] = {};
+    char ota_last[50] = {};
+    snprintf(ota_last_raw, sizeof(ota_last_raw), "%.24s", ota.last);
+    if (!ble_json_escape(firmware,
+                         sizeof(firmware),
+                         app != NULL ? app->version : "") ||
+        !ble_json_escape(ota_last, sizeof(ota_last), ota_last_raw)) {
+        return BLE_ATT_ERR_INSUFFICIENT_RES;
+    }
+
+    const int len = snprintf(
+        s_health_json,
+        sizeof(s_health_json),
+        "{\"device\":{\"firmware\":\"%s\",\"uptimeMs\":%llu,"
+        "\"battery\":{\"available\":%s,\"present\":%s,\"percent\":%d,"
+        "\"millivolts\":%u,\"charging\":%s,\"usbPower\":%s},"
+        "\"ble\":{\"enabled\":%s,\"advertising\":%s},"
+        "\"ota\":{\"active\":%s,\"autoStarted\":%s,\"paused\":%s,"
+        "\"networkReady\":%s,\"heapReady\":%s,\"intervalSeconds\":%u,"
+        "\"lastPollUptimeMs\":%u,\"last\":\"%s\"},"
+        "\"capabilities\":{\"clearReadingHistory\":true}}}",
+        firmware,
+        (unsigned long long)(esp_timer_get_time() / 1000),
+        have_power ? "true" : "false",
+        have_power && power.battery_present ? "true" : "false",
+        have_power ? power.battery_percent : -1,
+        have_power ? power.battery_mv : 0,
+        have_power && power.charging ? "true" : "false",
+        have_power && power.vbus_in ? "true" : "false",
+        s_enabled ? "true" : "false",
+        s_advertising ? "true" : "false",
+        ota.active ? "true" : "false",
+        ota.auto_started ? "true" : "false",
+        ota.auto_paused ? "true" : "false",
+        ota.network_ready ? "true" : "false",
+        ota.heap_ready ? "true" : "false",
+        ota.auto_interval_s,
+        ota.last_poll_uptime_ms,
+        ota_last);
+    if (len <= 0 || (size_t)len >= sizeof(s_health_json)) {
+        return BLE_ATT_ERR_INSUFFICIENT_RES;
+    }
+    return os_mbuf_append(ctxt->om, s_health_json, (size_t)len) == 0
+        ? 0
+        : BLE_ATT_ERR_INSUFFICIENT_RES;
+}
+
+static bool ble_json_append(char *out,
+                            size_t cap,
+                            size_t *used,
+                            const char *format,
+                            ...)
+{
+    if (out == NULL || used == NULL || format == NULL || *used >= cap) {
+        return false;
+    }
+    va_list args;
+    va_start(args, format);
+    const int wrote = vsnprintf(out + *used, cap - *used, format, args);
+    va_end(args);
+    if (wrote < 0 || (size_t)wrote >= cap - *used) {
+        return false;
+    }
+    *used += (size_t)wrote;
+    return true;
+}
+
+static int ble_state_json_access(uint16_t conn_handle,
+                                 uint16_t attr_handle,
+                                 struct ble_gatt_access_ctxt *ctxt,
+                                 void *arg)
+{
+    (void)conn_handle;
+    (void)attr_handle;
+    (void)arg;
+    if (ctxt == NULL || ctxt->op != BLE_GATT_ACCESS_OP_READ_CHR) {
+        return BLE_ATT_ERR_UNLIKELY;
+    }
+    faculty175_research_status_t research = {};
+    faculty175_research_status(&research);
+    uint8_t arousal = 0;
+    uint8_t valence = 0;
+    faculty175_face_psych_state_mood_values(&arousal, &valence);
+    faculty175_relationship_weather_snapshot_t relationship = {};
+    const bool relationship_available =
+        faculty175_relationship_weather_snapshot(&relationship);
+    char primary_name[65] = {};
+    char target_name[65] = {};
+    if (relationship_available) {
+        (void)ble_json_escape(primary_name,
+                              sizeof(primary_name),
+                              relationship.primary_name);
+        (void)ble_json_escape(target_name,
+                              sizeof(target_name),
+                              relationship.target_name);
+    }
+    char arc[FACULTY175_RELATIONSHIP_ARC_DAYS + 1] = {};
+    if (relationship_available) {
+        for (int day = 0;
+             day < FACULTY175_RELATIONSHIP_ARC_DAYS;
+             ++day) {
+            arc[day] = (char)('0' + relationship.arc[day]);
+        }
+    }
+    char resonance[320] = "{}";
+    (void)faculty175_research_resonance_json(resonance, sizeof(resonance));
+    size_t len = 0;
+    bool ok = ble_json_append(
+        s_state_json,
+        sizeof(s_state_json),
+        &len,
+        "{\"mood\":{\"label\":\"%s\",\"arousal\":%u,\"valence\":%u},"
+        "\"research\":{\"consent\":%s,\"consentVersion\":\"%s\","
+        "\"pending\":%s,\"status\":\"%s\","
+        "\"localFeedbackCount\":%u,"
+        "\"lastFeedback\":{\"face\":\"%s\",\"rating\":\"%s\"}},"
+        "\"resonance\":%s,"
+        "\"relationship\":{\"available\":%s,\"selectedDate\":\"%s\","
+        "\"offsetDays\":%d,\"activeSlot\":%d,\"primaryName\":\"%s\","
+        "\"targetName\":\"%s\",\"condition\":%d,\"arc\":\"%s\","
+        "\"profiles\":[",
+        faculty175_face_psych_state_mood_label(),
+        arousal,
+        valence,
+        research.consent_enabled ? "true" : "false",
+        research.consent_version,
+        research.pending ? "true" : "false",
+        faculty175_research_state_label(research.state),
+        research.local_feedback_count,
+        research.last_feedback_face,
+        research.last_feedback_rating,
+        resonance,
+        relationship_available ? "true" : "false",
+        relationship_available ? relationship.selected_date : "",
+        relationship_available ? relationship.offset_days : 0,
+        faculty175_charts_active_slot(),
+        primary_name,
+        target_name,
+        relationship_available ? relationship.arc[0] :
+            FACULTY175_RELATIONSHIP_CHANGEABLE,
+        arc);
+    faculty175_charts_ensure_family_seed();
+    bool first = true;
+    for (int slot = 0; ok && slot < FACULTY175_CHART_PROFILE_SLOTS; ++slot) {
+        faculty175_birth_chart_t profile = {};
+        if (!faculty175_charts_profile_get(slot, &profile) || !profile.valid) {
+            continue;
+        }
+        char name[65] = {};
+        char role[32] = {};
+        if (!ble_json_escape(name, sizeof(name), profile.name) ||
+            !ble_json_escape(role,
+                             sizeof(role),
+                             faculty175_charts_role_label(profile.role))) {
+            ok = false;
+            break;
+        }
+        ok = ble_json_append(
+            s_state_json,
+            sizeof(s_state_json),
+            &len,
+            "%s{\"slot\":%d,\"name\":\"%s\",\"role\":\"%s\"}",
+            first ? "" : ",",
+            slot,
+            name,
+            role);
+        first = false;
+    }
+    ok = ok && ble_json_append(
+        s_state_json,
+        sizeof(s_state_json),
+        &len,
+        "]}}");
+    if (!ok) {
+        return BLE_ATT_ERR_INSUFFICIENT_RES;
+    }
+    return os_mbuf_append(ctxt->om, s_state_json, len) == 0
+        ? 0
+        : BLE_ATT_ERR_INSUFFICIENT_RES;
 }
 
 static esp_err_t ble_nvs_set_enabled(bool enabled)
@@ -1598,6 +2278,9 @@ static esp_err_t ble_advertise(void)
 
     struct ble_gap_adv_params params = {};
     params.conn_mode = BLE_GAP_CONN_MODE_NON;
+#if ASTROLABE_CYBER_FEATURES
+    params.conn_mode = BLE_GAP_CONN_MODE_UND;
+#endif
     params.disc_mode = BLE_GAP_DISC_MODE_GEN;
     params.itvl_min = BLE_GAP_ADV_ITVL_MS(1000);
     params.itvl_max = BLE_GAP_ADV_ITVL_MS(1200);
@@ -1676,6 +2359,10 @@ static int ble_gap_event(struct ble_gap_event *event, void *arg)
             if (s_colmi_have_conn && event->disconnect.conn.conn_handle == s_colmi_conn_handle) {
                 s_colmi_have_conn = false;
                 s_colmi_conn_handle = 0;
+                if (s_lunasay_ring_control_active) {
+                    s_colmi_state = COLMI_CLIENT_IDLE;
+                    s_lunasay_ring_retry_ms = ble_now_ms() + 1200u;
+                }
             }
             s_advertising = false;
             if (!s_scanning) {
@@ -1854,6 +2541,11 @@ esp_err_t faculty175_ble_init(void)
     ble_hs_cfg.reset_cb = ble_on_reset;
     ble_hs_cfg.sync_cb = ble_on_sync;
     ble_hs_cfg.store_status_cb = ble_store_util_status_rr;
+#if ASTROLABE_CYBER_FEATURES
+    ble_hs_cfg.sm_bonding = 1;
+    ble_hs_cfg.sm_sc = 1;
+    ble_hs_cfg.sm_io_cap = BLE_HS_IO_NO_INPUT_OUTPUT;
+#endif
     ble_store_config_init();
 
     s_started = true;
@@ -1974,6 +2666,12 @@ void faculty175_ble_radar_tick(uint32_t now_ms)
         now_ms = ble_now_ms();
     }
     colmi_client_tick(now_ms);
+    /* LunaSay's paired ring owns the central link while it is used as an
+     * input device.  Do not interrupt its raw-IMU stream with background
+     * radar scans. */
+    if (s_lunasay_ring_control_active) {
+        return;
+    }
     if (!s_enabled || !s_started || !s_synced || s_scanning) {
         return;
     }
@@ -1990,6 +2688,51 @@ void faculty175_ble_radar_tick(uint32_t now_ms)
     if (now_ms >= s_next_scan_ms) {
         (void)faculty175_ble_scan_start(1800u);
     }
+}
+
+void faculty175_ble_lunasay_ring_tick(uint32_t now_ms)
+{
+    if (now_ms == 0) {
+        now_ms = ble_now_ms();
+    }
+    s_lunasay_ring_control_active = s_enabled && s_started && s_synced && s_paired_ring_id_set;
+    if (!s_lunasay_ring_control_active) {
+        s_lunasay_ring_near = false;
+        return;
+    }
+
+    if (s_lunasay_ring_near && now_ms - s_lunasay_ring_near_ms > 4000u) {
+        s_lunasay_ring_near = false;
+        ESP_LOGI(TAG, "lunasay ring no longer nearby");
+    }
+
+    if (!s_colmi_have_conn &&
+        (s_colmi_state == COLMI_CLIENT_IDLE || s_colmi_state == COLMI_CLIENT_DONE || s_colmi_state == COLMI_CLIENT_ERROR) &&
+        (s_lunasay_ring_retry_ms == 0 || (int32_t)(now_ms - s_lunasay_ring_retry_ms) >= 0)) {
+        const esp_err_t err = colmi_client_start();
+        s_lunasay_ring_retry_ms = now_ms + (err == ESP_OK ? 6000u : 3000u);
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "lunasay ring connect start %s", esp_err_to_name(err));
+        }
+    }
+}
+
+bool faculty175_ble_lunasay_ring_event_consume(faculty175_ble_ring_event_t *out)
+{
+    if (out == NULL) {
+        return false;
+    }
+    portENTER_CRITICAL(&s_lunasay_ring_event_lock);
+    const faculty175_ble_ring_event_t event = s_lunasay_ring_event;
+    s_lunasay_ring_event = FACULTY175_BLE_RING_EVENT_NONE;
+    portEXIT_CRITICAL(&s_lunasay_ring_event_lock);
+    *out = event;
+    return event != FACULTY175_BLE_RING_EVENT_NONE;
+}
+
+bool faculty175_ble_lunasay_ring_near(void)
+{
+    return s_lunasay_ring_near;
 }
 
 size_t faculty175_ble_peers_snapshot(faculty175_ble_peer_t *out, size_t cap)
@@ -2050,6 +2793,83 @@ size_t faculty175_ble_ring_telemetry_snapshot(faculty175_ble_ring_telem_t *out, 
         ++count;
     }
     return count;
+}
+
+esp_err_t faculty175_ble_ring_pair(uint16_t ring_id)
+{
+    if (ring_id == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    const esp_err_t err = ble_nvs_set_ring_id(ring_id, true);
+    if (err == ESP_OK) {
+        s_paired_ring_id = ring_id;
+        s_paired_ring_id_set = true;
+        s_have_last_ring_rssi = false;
+        s_lunasay_ring_retry_ms = 0;
+    }
+    return err;
+}
+
+esp_err_t faculty175_ble_ring_unpair(void)
+{
+    const esp_err_t err = ble_nvs_set_ring_id(0, false);
+    if (err != ESP_OK) {
+        return err;
+    }
+    s_paired_ring_id = 0;
+    s_paired_ring_id_set = false;
+    s_have_last_ring_rssi = false;
+    s_lunasay_ring_control_active = false;
+    s_lunasay_ring_near = false;
+    s_colmi_want_scan = false;
+    if (s_scanning) {
+        (void)ble_gap_disc_cancel();
+        s_scanning = false;
+    }
+    if (s_colmi_have_conn) {
+        (void)ble_gap_terminate(s_colmi_conn_handle, BLE_ERR_REM_USER_CONN_TERM);
+    }
+    s_colmi_state = COLMI_CLIENT_IDLE;
+    return ESP_OK;
+}
+
+bool faculty175_ble_ring_paired(uint16_t *ring_id)
+{
+    if (ring_id != NULL) {
+        *ring_id = s_paired_ring_id;
+    }
+    return s_paired_ring_id_set;
+}
+
+bool faculty175_ble_nearby_unpaired_ring(uint16_t *ring_id, int8_t *rssi)
+{
+    if (ring_id != NULL) {
+        *ring_id = 0;
+    }
+    if (rssi != NULL) {
+        *rssi = -127;
+    }
+    uint16_t paired_id = 0;
+    if (faculty175_ble_ring_paired(&paired_id)) {
+        return false;
+    }
+
+    faculty175_ble_peer_t peers[FACULTY175_BLE_PEER_MAX] = {};
+    const size_t count = faculty175_ble_peers_snapshot(peers, FACULTY175_BLE_PEER_MAX);
+    for (size_t i = 0; i < count; ++i) {
+        if (!peers[i].valid || !peers[i].ring || peers[i].addr_hash == 0 ||
+            peers[i].rssi < faculty175_ble_near_rssi_threshold()) {
+            continue;
+        }
+        if (ring_id != NULL) {
+            *ring_id = peers[i].addr_hash;
+        }
+        if (rssi != NULL) {
+            *rssi = peers[i].rssi;
+        }
+        return true;
+    }
+    return false;
 }
 
 esp_err_t faculty175_ble_set_enabled(bool enabled)
@@ -2363,21 +3183,11 @@ bool faculty175_ble_handle(const char *line)
         if (!parsed) {
             printf("ble: ring pair ESP_ERR_INVALID_ARG\n");
         } else {
-            const esp_err_t err = ble_nvs_set_ring_id(id, true);
-            if (err == ESP_OK) {
-                s_paired_ring_id = id;
-                s_paired_ring_id_set = true;
-                s_have_last_ring_rssi = false;
-            }
+            const esp_err_t err = faculty175_ble_ring_pair(id);
             printf("ble: ring pair %s id=%04x\n", esp_err_to_name(err), (unsigned)id);
         }
     } else if (strcasecmp(sub, "ring clear") == 0 || strcasecmp(sub, "ring unpair") == 0) {
-        const esp_err_t err = ble_nvs_set_ring_id(0, false);
-        if (err == ESP_OK) {
-            s_paired_ring_id = 0;
-            s_paired_ring_id_set = false;
-            s_have_last_ring_rssi = false;
-        }
+        const esp_err_t err = faculty175_ble_ring_unpair();
         printf("ble: ring clear %s\n", esp_err_to_name(err));
     } else if (strcasecmp(sub, "ring scan") == 0) {
         const esp_err_t err = faculty175_ble_scan_start(3000u);

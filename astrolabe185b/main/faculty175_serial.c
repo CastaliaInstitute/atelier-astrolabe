@@ -22,6 +22,7 @@
 #include "astrolabe_time.h"
 #include "faculty175_board.h"
 #include "faculty175_ble.h"
+#include "faculty175_usb.h"
 #include "faculty175_charts.h"
 #include "faculty175_device_auth.h"
 #include "faculty175_face_dispatch.h"
@@ -931,6 +932,11 @@ static bool handle_time_command(const char *line)
 static void handle_line(char *line)
 {
     trim_inplace(line);
+    if (strcmp(line, "bootloader") == 0) {
+        printf("bootloader: %s\n", esp_err_to_name(faculty175_usb_enter_bootloader()));
+        fflush(stdout);
+        return;
+    }
     if (line[0] == '\0') {
         return;
     }
@@ -1070,6 +1076,11 @@ static void serial_task(void *arg)
 
 void faculty175_serial_init(void)
 {
+    static bool started;
+    if (started) return;
+#if CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG_ENABLED && CONFIG_TINYUSB_CDC_ENABLED
+    usb_serial_jtag_vfs_use_nonblocking();
+#endif
 #if CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG_ENABLED && !CONFIG_TINYUSB_CDC_ENABLED
     usb_serial_jtag_driver_config_t usb_cfg = USB_SERIAL_JTAG_DRIVER_CONFIG_DEFAULT();
     const esp_err_t usb_err = usb_serial_jtag_driver_install(&usb_cfg);
@@ -1088,5 +1099,5 @@ void faculty175_serial_init(void)
     if (flags >= 0) {
         (void)fcntl(STDIN_FILENO, F_SETFL, flags | O_NONBLOCK);
     }
-    xTaskCreate(serial_task, "serial", 8192, NULL, 3, NULL);
+    started = xTaskCreate(serial_task, "serial", 8192, NULL, 3, NULL) == pdPASS;
 }

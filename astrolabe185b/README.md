@@ -26,6 +26,26 @@ The current intent is:
 
 Until that board bring-up is finished, treat this as a scaffold rather than a production build target.
 
+## Cyber USB boot variant
+
+The cyber variant targets the 16 MB 1.85B flash layout, exposes the removable SD card as USB Mass Storage, and enables
+the existing USB NCM Wi-Fi bridge. The connected x86 host can boot Alpine (or
+another x86 image) from the SD-backed USB disk and then reach the host over the
+NCM link for SSH. The ESP32-S3 remains the USB device; it does not execute the
+x86 operating system.
+
+Build from this directory with ESP-IDF 5.5 or later:
+
+```bash
+idf.py -D ASTROLABE185B_BUILD_VARIANT=cyber \
+  -D SDKCONFIG_DEFAULTS=sdkconfig.defaults set-target esp32s3
+idf.py -D ASTROLABE185B_BUILD_VARIANT=cyber build
+```
+
+The SD card must be prepared with an x86 bootable image before connecting the
+host. Do not let the Astrolabe application mount the card while the host owns
+the MSC device.
+
 ## USB MSC OTA demo
 
 The local OTA console already accepts:

@@ -25,7 +25,16 @@ def _open_serial(port: str, baud: int):
         raise SystemExit(
             "pyserial missing — run: mcp/astrolabe-esp/setup.sh"
         ) from exc
-    return serial.Serial(port, baud, timeout=0.25)
+    ser = serial.Serial()
+    ser.port = port
+    ser.baudrate = baud
+    ser.timeout = 0.25
+    # Opening USB Serial/JTAG with DTR asserted resets the S3 and loses the
+    # screenshot command before the firmware's serial task is ready.
+    ser.dtr = False
+    ser.rts = False
+    ser.open()
+    return ser
 
 
 def capture_screenshot(
@@ -35,11 +44,11 @@ def capture_screenshot(
     baud: int = 115200,
     timeout_s: float = 15.0,
     command: str = "screen",
+    settle_s: float = 0.15,
 ) -> Path:
     ser = _open_serial(port, baud)
     try:
-        ser.dtr = True
-        time.sleep(0.15)
+        time.sleep(settle_s)
         ser.reset_input_buffer()
         ser.write((command.strip() + "\n").encode("utf-8"))
         ser.flush()
@@ -114,6 +123,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--timeout", type=float, default=15.0)
     parser.add_argument(
+        "--settle",
+        type=float,
+        default=0.15,
+        help="seconds to wait after opening serial (use ~20 when the host resets USB Serial/JTAG)",
+    )
+    parser.add_argument(
         "--command",
         default="screen",
         help="serial command to send (default: screen)",
@@ -147,6 +162,7 @@ def main(argv: list[str] | None = None) -> int:
         baud=args.baud,
         timeout_s=args.timeout,
         command=args.command,
+        settle_s=args.settle,
     )
     print(path)
     return 0

@@ -17,6 +17,7 @@
 #include "src/libs/qrcode/lv_qrcode.h"
 
 #include "faculty175_board.h"
+#include "faculty175_ble.h"
 #include "faculty175_apocalypso.h"
 #include "faculty175_charts.h"
 #include "faculty175_device_settings.h"
@@ -34,6 +35,7 @@
 #include "faculty175_lenormand_glyphs.h"
 #include "faculty175_pocketwatch.h"
 #include "faculty175_quotes.h"
+#include "faculty175_relationship_weather.h"
 #include "faculty175_rocket.h"
 #include "faculty175_spotify.h"
 #include "faculty175_touch.h"
@@ -41,6 +43,8 @@
 #include "faculty175_wifi_lab.h"
 #include "faculty175_wifi_monitor.h"
 #include "faculty175_face_incidents.h"
+#include "faculty175_ring.h"
+#include "faculty175_face_psych_state.h"
 #include "astrolabe_time.h"
 
 #define FACULTY175_ENABLE_ALMANAC_FACES 0
@@ -51,7 +55,19 @@
 #define SYNASTRY_ORRERY_MAX_PEOPLE (1 + FACULTY175_CHART_PROFILE_SLOTS)
 #define SYNASTRY_ORRERY_MAX_BONDS ((SYNASTRY_ORRERY_MAX_PEOPLE * (SYNASTRY_ORRERY_MAX_PEOPLE - 1)) / 2)
 
-#define LVGL_DRAW_BUF_ROWS FACULTY175_LCD_H
+/* The CO5300 driver copies LVGL's dirty regions into its own framebuffer.
+ * That is a PARTIAL-render display contract, not LVGL DIRECT mode: alternating
+ * full-screen DIRECT buffers can contain different untouched regions and
+ * produce a half/stale panel after a screen change.  A 64-row render buffer
+ * keeps each flush self-contained and also returns roughly 750 KiB of PSRAM
+ * to the voice pipeline. */
+/*
+ * Keep software-rendering bursts below the task-watchdog window.  A 64-row
+ * RGB565 blend can monopolize CPU0 long enough to starve IDLE0 when PSRAM/cache
+ * traffic is high during LunaSay boot or a voice tour.  Each completed buffer
+ * flush yields, so 16 rows provides four scheduling points for the same area.
+ */
+#define LVGL_DRAW_BUF_ROWS 16
 
 static const char *TAG = "faculty175_lvgl";
 
@@ -61,6 +77,7 @@ static uint8_t *s_draw_buf;
 static uint8_t *s_draw_buf_2;
 static bool s_ready;
 static bool s_direct_display_buffers;
+static bool s_face_transition_preparing;
 static bool s_watch_created;
 static uint32_t s_last_anim_ms;
 static uint32_t s_last_service_ms;
@@ -97,11 +114,17 @@ static lv_obj_t *s_moon_phase_marker;
 static lv_obj_t *s_moon_day_ticks[28];
 static lv_point_precise_t s_moon_day_tick_points[28][2];
 static uint16_t *s_moon_pixels;
-static uint16_t *s_moon_render_pixels;
 static bool s_moon_texture_loaded;
 static bool s_moon_storage_checked;
 static bool s_moon_storage_ready;
-static int s_moon_render_key = INT_MIN;
+static lv_obj_t *s_journal_screen;
+static lv_obj_t *s_journal_bars[16];
+static lv_obj_t *s_mood_screen;
+static char s_mood_last_label[16];
+static bool s_mood_last_checked;
+static lv_obj_t *s_conversation_screen;
+static lv_obj_t *s_conversation_rings[3];
+static lv_obj_t *s_conversation_orb;
 static lv_obj_t *s_tarot_screen;
 static lv_obj_t *s_tarot_image;
 static lv_obj_t *s_tarot_title;
@@ -202,6 +225,8 @@ static lv_point_precise_t s_solar_cme_points[3][2];
 static lv_obj_t *s_solar_title;
 static lv_obj_t *s_solar_status;
 static lv_obj_t *s_solar_source;
+static lv_obj_t *s_solar_horizon;
+static bool s_solar_sunrise_horizon;
 static lv_obj_t *s_magnet_screen;
 static lv_obj_t *s_magnet_map_image;
 static uint16_t *s_magnet_map_pixels;
@@ -238,6 +263,12 @@ static lv_obj_t *s_astrology_natal[7];
 static lv_obj_t *s_astrology_title;
 static lv_obj_t *s_astrology_line;
 static lv_obj_t *s_astrology_source;
+static lv_obj_t *s_astrology_weather_days[10];
+static lv_obj_t *s_astrology_weather_symbols[10];
+static lv_obj_t *s_astrology_weather_day_labels[10];
+static lv_obj_t *s_astrology_weather_main;
+static lv_obj_t *s_astrology_weather_main_symbol;
+static lv_obj_t *s_astrology_weather_guidance;
 static lv_obj_t *s_synastry_screen;
 static lv_obj_t *s_synastry_rings[5];
 static lv_obj_t *s_synastry_spokes[12];
@@ -322,6 +353,13 @@ static lv_obj_t *s_rocket_image;
 static uint16_t *s_rocket_image_pixels;
 static lv_image_dsc_t s_rocket_image_texture;
 static bool s_rocket_image_checked;
+static lv_obj_t *s_ring_background_image;
+static lv_obj_t *s_ring_foreground_image;
+EXT_RAM_BSS_ATTR static uint16_t *s_ring_background_pixels;
+EXT_RAM_BSS_ATTR static uint8_t *s_ring_foreground_pixels;
+static lv_image_dsc_t s_ring_background_texture;
+static lv_image_dsc_t s_ring_foreground_texture;
+static bool s_ring_assets_checked;
 static lv_obj_t *s_faculty_face_image;
 static lv_obj_t *s_deathstar_image;
 static uint16_t *s_deathstar_pixels;
@@ -461,6 +499,14 @@ static void display_flush(lv_display_t *display, const lv_area_t *area, uint8_t 
     faculty175_display_flush_rect(area->x1, area->y1, w, h);
     faculty175_display_unlock();
     lv_display_flush_ready(display);
+    /*
+     * A full 466x466 image is rendered as several LVGL draw-buffer areas.
+     * Without a blocking point between areas the UI task can keep CPU0 busy
+     * through the entire frame and starve IDLE0 long enough to trip the task
+     * watchdog. One RTOS tick here is outside the display mutex and keeps
+     * large Moon/face draws cooperative without exposing a partial DMA buffer.
+     */
+    vTaskDelay(1);
 }
 
 static void touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data)
@@ -954,62 +1000,17 @@ static float moon_phase_fraction(uint32_t anim_ms)
     return (float)(rev360(moon_lon - sun_lon) / 360.0);
 }
 
-static uint16_t rgb565_dim(uint16_t px, uint8_t dim)
-{
-    const uint16_t r = (uint16_t)((px >> 11) & 0x1f);
-    const uint16_t g = (uint16_t)((px >> 5) & 0x3f);
-    const uint16_t b = (uint16_t)(px & 0x1f);
-    return (uint16_t)((((r * dim) / 255u) << 11) | (((g * dim) / 255u) << 5) | ((b * dim) / 255u));
-}
-
 static void moon_render_shadow(float phase)
 {
-    if (s_moon_pixels == NULL || s_moon_render_pixels == NULL) {
-        return;
-    }
-    const int render_key = (int)lrintf(phase * 720.0f);
-    if (render_key == s_moon_render_key) {
-        return;
-    }
-    s_moon_render_key = render_key;
-
-    const float cx = ((float)FACULTY175_LCD_W - 1.0f) * 0.5f;
-    const float cy = ((float)FACULTY175_LCD_H - 1.0f) * 0.5f;
-    const float radius = 226.0f;
-    const float inv_r = 1.0f / radius;
-    const float terminator = cosf(phase * 6.28318530718f);
-    const bool waxing = phase < 0.5f;
-    for (int y = 0; y < FACULTY175_LCD_H; ++y) {
-        const float ny = ((float)y - cy) * inv_r;
-        const float yy = ny * ny;
-        for (int x = 0; x < FACULTY175_LCD_W; ++x) {
-            const size_t idx = (size_t)y * FACULTY175_LCD_W + (size_t)x;
-            const float nx = ((float)x - cx) * inv_r;
-            const float rr = nx * nx + yy;
-            if (rr > 1.03f) {
-                s_moon_render_pixels[idx] = s_moon_pixels[idx];
-                continue;
-            }
-            const float limb = sqrtf(fmaxf(0.0f, 1.0f - yy));
-            const float edge = terminator * limb;
-            const float lit_side = waxing ? (nx - edge) : (-nx - edge);
-            float shadow = 1.0f - (lit_side + 0.035f) / 0.12f;
-            if (shadow < 0.0f) {
-                shadow = 0.0f;
-            } else if (shadow > 1.0f) {
-                shadow = 1.0f;
-            }
-            const float radial = fminf(1.0f, sqrtf(fmaxf(0.0f, rr)));
-            const float limb_shadow = radial > 0.86f ? (radial - 0.86f) / 0.14f : 0.0f;
-            const uint8_t dim = (uint8_t)lrintf(255.0f - 168.0f * shadow - 34.0f * limb_shadow);
-            s_moon_render_pixels[idx] = rgb565_dim(s_moon_pixels[idx], dim < 36 ? 36 : dim);
-        }
-    }
-    s_moon_texture.data = (const uint8_t *)s_moon_render_pixels;
-    if (s_moon_image != NULL) {
-        lv_image_set_src(s_moon_image, &s_moon_texture);
-        lv_obj_invalidate(s_moon_image);
-    }
+    /*
+     * The terrain is a full-panel RGB565 image.  Rebuilding a second
+     * full-panel image when the Moon screen is entered makes LVGL redraw the
+     * entire 466x466 surface at the same time the panel is being switched.
+     * On the 1.75C this can leave a partially transferred first frame.  Keep
+     * the terrain immutable; the perimeter phase marker is the live phase
+     * indication and updates without repainting the terrain.
+     */
+    (void)phase;
 }
 
 static bool moon_storage_ready(void)
@@ -1064,26 +1065,14 @@ static bool moon_texture_load(void)
         fclose(f);
         return false;
     }
-    s_moon_render_pixels = heap_caps_malloc((size_t)FACULTY175_LCD_W * FACULTY175_LCD_H * sizeof(uint16_t),
-                                            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (s_moon_render_pixels == NULL) {
-        ESP_LOGW(TAG, "moon render pixel alloc failed");
-        heap_caps_free(s_moon_pixels);
-        s_moon_pixels = NULL;
-        fclose(f);
-        return false;
-    }
     const size_t got = fread(s_moon_pixels, 1, expected, f);
     fclose(f);
     if (got != expected) {
         heap_caps_free(s_moon_pixels);
         s_moon_pixels = NULL;
-        heap_caps_free(s_moon_render_pixels);
-        s_moon_render_pixels = NULL;
         ESP_LOGW(TAG, "moon texture short read %u/%u", (unsigned)got, (unsigned)expected);
         return false;
     }
-    memcpy(s_moon_render_pixels, s_moon_pixels, expected);
 
     s_moon_texture = (lv_image_dsc_t) {
         .header = {
@@ -1096,7 +1085,7 @@ static bool moon_texture_load(void)
             .reserved_2 = 0,
         },
         .data_size = FACULTY175_LCD_W * FACULTY175_LCD_H * sizeof(uint16_t),
-        .data = (const uint8_t *)s_moon_render_pixels,
+        .data = (const uint8_t *)s_moon_pixels,
         .reserved = NULL,
         .reserved_2 = NULL,
     };
@@ -1167,9 +1156,8 @@ static void create_moon_screen(void)
     } else {
         s_moon_fallback_disk = make_circle(s_moon_screen, 286, 0xb8b4a8, LV_OPA_COVER);
         lv_obj_center(s_moon_fallback_disk);
-        lv_obj_set_style_border_width(s_moon_fallback_disk, 3, 0);
-        lv_obj_set_style_border_color(s_moon_fallback_disk, lv_color_hex(0xded8c8), 0);
-        lv_obj_set_style_border_opa(s_moon_fallback_disk, 190, 0);
+        /* Keep the lunar disc unframed: the day ticks are its only perimeter
+         * cue, leaving the terrain visually open rather than watch-like. */
         static const int crater_pos[9][3] = {
             {-70, -48, 14}, {-28, 42, 19}, {48, -36, 17}, {72, 34, 10}, {-42, -82, 9},
             {12, -12, 10}, {30, 82, 10}, {-92, 20, 13}, {4, 54, 8},
@@ -2146,6 +2134,16 @@ static void create_solar_screen(void)
     lv_obj_add_flag(s_solar_status, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(s_solar_source, LV_OBJ_FLAG_HIDDEN);
 
+    /* A very large circle gives the Solar face a real curved Earth horizon,
+     * not a flat mask. It is normally hidden and appears only after a ring
+     * wake from display-off sleep. */
+    s_solar_horizon = make_circle(s_solar_screen, 1040, 0x07101c, LV_OPA_COVER);
+    lv_obj_align(s_solar_horizon, LV_ALIGN_TOP_LEFT, -(1040 - FACULTY175_LCD_W) / 2, 278);
+    lv_obj_set_style_border_width(s_solar_horizon, 3, 0);
+    lv_obj_set_style_border_color(s_solar_horizon, lv_color_hex(0xe39454), 0);
+    lv_obj_set_style_border_opa(s_solar_horizon, 220, 0);
+    lv_obj_add_flag(s_solar_horizon, LV_OBJ_FLAG_HIDDEN);
+
     lv_obj_move_foreground(s_solar_cycle_arc);
     lv_obj_move_foreground(s_solar_year_arc);
     for (int i = 0; i < 11; ++i) {
@@ -2189,6 +2187,28 @@ static bool draw_solar(uint32_t anim_ms)
     }
     set_hidden(s_solar_image, !have_live_image);
     solar_set_procedural_visible(!have_live_image);
+    set_hidden(s_solar_horizon, !s_solar_sunrise_horizon);
+    if (s_solar_sunrise_horizon) {
+        /* A slow rise keeps the sun visually emerging from the same Earth
+         * horizon over the first minute after waking. */
+        const int rise = (int)((anim_ms / 3000u) % 18u);
+        lv_obj_align(s_solar_horizon,
+                     LV_ALIGN_TOP_LEFT,
+                     -(1040 - FACULTY175_LCD_W) / 2,
+                     278 + rise);
+        lv_obj_move_foreground(s_solar_horizon);
+        /* Keep the astronomical scales legible above the Earth mask. */
+        lv_obj_move_foreground(s_solar_cycle_arc);
+        lv_obj_move_foreground(s_solar_year_arc);
+        for (int i = 0; i < 11; ++i) {
+            lv_obj_move_foreground(s_solar_cycle_ticks[i]);
+        }
+        for (int i = 0; i < 12; ++i) {
+            lv_obj_move_foreground(s_solar_year_ticks[i]);
+        }
+        lv_obj_move_foreground(s_solar_cycle_marker);
+        lv_obj_move_foreground(s_solar_year_marker);
+    }
     update_solar_cycle_dials(anim_ms);
 
     if (have_live_image) {
@@ -3157,7 +3177,7 @@ static const char *utility_title(faculty175_face_id_t id)
         case FACULTY175_FACE_QUOTES: return "QUOTES";
         case FACULTY175_FACE_QDAY: return "QUESTION";
         case FACULTY175_FACE_FOCUS: return "FOCUS";
-        case FACULTY175_FACE_BIOMETRICS: return "BIOMETRICS";
+        case FACULTY175_FACE_BIOMETRICS: return "RING";
         case FACULTY175_FACE_IRONMAN: return "";
         case FACULTY175_FACE_BATTERY: return "";
         case FACULTY175_FACE_WATCHER: return "WATCHER";
@@ -3233,6 +3253,12 @@ static void utility_set_label(int idx, const char *text, int32_t x, int32_t y, i
 
 static void utility_clear_objects(void)
 {
+    if (s_ring_background_image != NULL) {
+        native_obj_hidden(s_ring_background_image, true);
+    }
+    if (s_ring_foreground_image != NULL) {
+        native_obj_hidden(s_ring_foreground_image, true);
+    }
     if (s_rocket_image != NULL) {
         native_obj_hidden(s_rocket_image, true);
     }
@@ -3636,6 +3662,10 @@ static void create_utility_screen(void)
     }
     s_rocket_image = lv_image_create(s_utility_screen);
     native_obj_hidden(s_rocket_image, true);
+    s_ring_background_image = lv_image_create(s_utility_screen);
+    native_obj_hidden(s_ring_background_image, true);
+    s_ring_foreground_image = lv_image_create(s_utility_screen);
+    native_obj_hidden(s_ring_foreground_image, true);
     s_utility_qr = lv_qrcode_create(s_utility_screen);
     lv_qrcode_set_size(s_utility_qr, 210);
     lv_qrcode_set_dark_color(s_utility_qr, lv_color_hex(0x111722));
@@ -4263,30 +4293,152 @@ static void draw_utility_biometrics(uint32_t anim_ms)
     native_obj_hidden(s_utility_title, true);
     native_obj_hidden(s_utility_status, true);
 
-    utility_set_orb(0, 233, 238, 466, 0x12070c, LV_OPA_COVER);
-    utility_set_orb(1, 233, 238, 304, 0x2a0f18, 220);
-    utility_set_orb(2, 233, 238, 182, 0xff6a86, 74);
-
-    for (int i = 0; i < 16; ++i) {
-        const int32_t x0 = 62 + i * 27;
-        const float beat = sinf((float)anim_ms * 0.0065f + (float)i * 0.72f);
-        const int32_t y0 = 238 + (int32_t)lrintf(beat * 36.0f);
-        const int32_t y1 = 238 + (int32_t)lrintf(sinf((float)anim_ms * 0.0065f + (float)(i + 1) * 0.72f) * 36.0f);
-        utility_set_line(i, x0, y0, x0 + 28, y1, i % 3 == 0 ? 0xffcf66 : 0xff6a86, i % 4 == 0 ? 5 : 3, (lv_opa_t)(144 + (i % 5) * 18));
+    /* The R10 product render and its violet studio field are separate layers:
+     * the field stays still while the ring, gauges, and gesture affordances
+     * remain live. */
+    if (s_ring_background_image != NULL && !s_ring_assets_checked) {
+        /* Assets are loaded lazily on first visit to avoid spending ~1.3 MB of
+         * PSRAM during boot on users who never open the Ring face. */
+        if (moon_storage_ready()) {
+            const size_t bg_bytes = (size_t)FACULTY175_LCD_W * FACULTY175_LCD_H * sizeof(uint16_t);
+            FILE *bg = fopen("/bust_cache/ring/r10_render.rgb565", "rb");
+            ESP_LOGI(TAG, "R10 asset probe composite=%s", bg != NULL ? "ok" : "missing");
+            if (bg != NULL) {
+                s_ring_background_pixels = heap_caps_malloc(bg_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+                if (s_ring_background_pixels != NULL && fread(s_ring_background_pixels, 1, bg_bytes, bg) == bg_bytes) {
+                    s_ring_background_texture = (lv_image_dsc_t) {
+                        .header = {.magic = LV_IMAGE_HEADER_MAGIC,
+                                   .cf = LV_COLOR_FORMAT_RGB565,
+                                   .flags = 0,
+                                   .w = FACULTY175_LCD_W,
+                                   .h = FACULTY175_LCD_H,
+                                   .stride = FACULTY175_LCD_W * sizeof(uint16_t),
+                                   .reserved_2 = 0},
+                        .data_size = bg_bytes,
+                        .data = (const uint8_t *)s_ring_background_pixels,
+                        .reserved = NULL,
+                        .reserved_2 = NULL,
+                    };
+                    lv_image_set_src(s_ring_background_image, &s_ring_background_texture);
+                    ESP_LOGI(TAG, "R10 ring layers loaded (%u + %u bytes)",
+                             (unsigned)bg_bytes, 0u);
+                } else {
+                    ESP_LOGW(TAG, "R10 ring layer read/alloc failed");
+                }
+            }
+            if (bg != NULL) fclose(bg);
+            s_ring_assets_checked = true;
+        }
+    }
+    if (s_ring_background_pixels != NULL) {
+        lv_obj_align(s_ring_background_image, LV_ALIGN_TOP_LEFT, 0, 0);
+        native_obj_hidden(s_ring_background_image, false);
+        lv_obj_move_to_index(s_ring_background_image, 0);
     }
 
-    for (int i = 0; i < 6; ++i) {
-        const float a = (float)i * 1.0472f + (float)anim_ms * 0.00032f;
-        utility_set_orb(3 + i,
-                        233 + (int32_t)lrintf(cosf(a) * 116.0f),
-                        238 + (int32_t)lrintf(sinf(a) * 116.0f),
-                        14 + (i % 2) * 6,
-                        i % 2 == 0 ? 0xff6a86 : 0xffcf66,
-                        190);
+    faculty175_ring_vitals_t vitals = {};
+    const bool have_vitals = faculty175_ring_latest_vitals(&vitals);
+    char metric[24];
+    const uint32_t pulse = (anim_ms / 30u) % 100u;
+    const uint32_t cyan = 0x93e7ff;
+    const uint32_t lilac = 0xd7b6ff;
+    const uint32_t green = 0x91f5c6;
+
+    snprintf(metric, sizeof(metric), "HR  %s", have_vitals && vitals.heart_rate_valid ? "72" : "--");
+    utility_set_label(0, metric, 26, 32, 90, cyan);
+    snprintf(metric, sizeof(metric), "HRV %s", have_vitals && vitals.hrv_valid ? "48" : "--");
+    utility_set_label(1, metric, 350, 32, 90, lilac);
+    snprintf(metric, sizeof(metric), "O2  %s", have_vitals && vitals.spo2_valid ? "98%" : "--");
+    utility_set_label(2, metric, 26, 408, 90, green);
+    snprintf(metric, sizeof(metric), "BAT %s", have_vitals && vitals.battery_valid ? "84%" : "--");
+    utility_set_label(3, metric, 350, 408, 90, 0xffd88b);
+    /* Replace the demo numbers above with actual values when available. */
+    if (have_vitals && vitals.heart_rate_valid) snprintf(metric, sizeof(metric), "HR  %u", vitals.heart_rate_bpm), utility_set_label(0, metric, 26, 32, 90, cyan);
+    if (have_vitals && vitals.hrv_valid) snprintf(metric, sizeof(metric), "HRV %u", vitals.hrv_ms), utility_set_label(1, metric, 350, 32, 90, lilac);
+    if (have_vitals && vitals.spo2_valid) snprintf(metric, sizeof(metric), "O2  %u%%", vitals.spo2_percent), utility_set_label(2, metric, 26, 408, 90, green);
+    if (have_vitals && vitals.battery_valid) snprintf(metric, sizeof(metric), "BAT %u%%", vitals.battery_percent), utility_set_label(3, metric, 350, 408, 90, 0xffd88b);
+
+    /* Four directional affordances mirror the actual ring gesture contract.
+     * The moving chevrons make the direction obvious without adding text to
+     * the product render itself. */
+    const int offset = (int)(pulse / 14u);
+    utility_set_line(0, 233, 82 + offset, 233, 56 + offset, cyan, 3, 220);
+    utility_set_line(1, 233, 56 + offset, 225, 66 + offset, cyan, 3, 220);
+    utility_set_line(2, 233, 56 + offset, 241, 66 + offset, cyan, 3, 220);
+    utility_set_line(3, 233, 394 - offset, 233, 420 - offset, lilac, 3, 220);
+    utility_set_line(4, 233, 420 - offset, 225, 410 - offset, lilac, 3, 220);
+    utility_set_line(5, 233, 420 - offset, 241, 410 - offset, lilac, 3, 220);
+    utility_set_line(6, 82 + offset, 238, 56 + offset, 238, cyan, 3, 220);
+    utility_set_line(7, 56 + offset, 238, 66 + offset, 230, cyan, 3, 220);
+    utility_set_line(8, 56 + offset, 238, 66 + offset, 246, cyan, 3, 220);
+    utility_set_line(9, 384 - offset, 238, 410 - offset, 238, lilac, 3, 220);
+    utility_set_line(10, 410 - offset, 238, 400 - offset, 230, lilac, 3, 220);
+    utility_set_line(11, 410 - offset, 238, 400 - offset, 246, lilac, 3, 220);
+
+    uint16_t nearby_id = 0;
+    int8_t nearby_rssi = -127;
+    const bool pair_candidate = faculty175_ble_nearby_unpaired_ring(&nearby_id, &nearby_rssi);
+    if (pair_candidate) {
+        utility_set_orb(12, 233, 108, 108, 0x372957, 230);
+        utility_set_label(4, "PAIR?", 190, 98, 86, 0xffffff);
+        utility_set_label(5, "TAP", 198, 120, 70, 0xdbc8ff);
     }
 
-    utility_set_orb(10, 233, 238, 44 + (int32_t)lrintf(fabsf(sinf((float)anim_ms * 0.003f)) * 18.0f), 0xff6a86, 178);
-    utility_set_orb(11, 233, 238, 18, 0x12070c, LV_OPA_COVER);
+    /* A compact, numbered RSSI dial makes the proximity policy legible and
+     * adjustable in the demo.  Values are dBm: more positive means closer.
+     * The same threshold drives the Pair? bubble in the BLE layer. */
+    int8_t observed_rssi = -127;
+    uint16_t paired_id = 0;
+    if (pair_candidate) {
+        observed_rssi = nearby_rssi;
+    } else if (faculty175_ble_ring_paired(&paired_id)) {
+        faculty175_ble_peer_t peers[ FACULTY175_BLE_PEER_MAX ] = {};
+        const size_t peer_count = faculty175_ble_peers_snapshot(peers, FACULTY175_BLE_PEER_MAX);
+        for (size_t i = 0; i < peer_count; ++i) {
+            if (peers[i].valid && peers[i].ring && peers[i].addr_hash == paired_id) {
+                observed_rssi = peers[i].rssi;
+                break;
+            }
+        }
+    }
+    const int8_t near_threshold = faculty175_ble_near_rssi_threshold();
+    const float dial_min = -90.0f;
+    const float dial_max = -45.0f;
+    const float dial_span = 2.45f;
+    const int32_t dial_cx = 233;
+    const int32_t dial_cy = 366;
+    for (int i = 0; i < 7; ++i) {
+        const float value = dial_min + (float)i * 7.5f;
+        const float a = 1.57f + dial_span * 0.5f - ((value - dial_min) / (dial_max - dial_min)) * dial_span;
+        const int32_t x0 = dial_cx + (int32_t)lrintf(cosf(a) * 34.0f);
+        const int32_t y0 = dial_cy - (int32_t)lrintf(sinf(a) * 34.0f);
+        const int32_t x1 = dial_cx + (int32_t)lrintf(cosf(a) * 43.0f);
+        const int32_t y1 = dial_cy - (int32_t)lrintf(sinf(a) * 43.0f);
+        utility_set_line(12 + i, x0, y0, x1, y1, 0xb8a9ff, 2, 205);
+    }
+    const float threshold_a = 1.57f + dial_span * 0.5f -
+                              (((float)near_threshold - dial_min) / (dial_max - dial_min)) * dial_span;
+    utility_set_line(19, dial_cx, dial_cy,
+                     dial_cx + (int32_t)lrintf(cosf(threshold_a) * 30.0f),
+                     dial_cy - (int32_t)lrintf(sinf(threshold_a) * 30.0f),
+                     0xffd88b, 3, 255);
+    if (observed_rssi > -127) {
+        const float clamped = fminf(dial_max, fmaxf(dial_min, (float)observed_rssi));
+        const float observed_a = 1.57f + dial_span * 0.5f -
+                                 ((clamped - dial_min) / (dial_max - dial_min)) * dial_span;
+        utility_set_line(20, dial_cx, dial_cy,
+                         dial_cx + (int32_t)lrintf(cosf(observed_a) * 26.0f),
+                         dial_cy - (int32_t)lrintf(sinf(observed_a) * 26.0f),
+                         0x93e7ff, 2, 255);
+    }
+    char rssi_text[32];
+    snprintf(rssi_text, sizeof(rssi_text), "NEAR %d", (int)near_threshold);
+    utility_set_label(7, rssi_text, 196, 335, 78, 0xffd88b);
+    snprintf(rssi_text, sizeof(rssi_text), "RSSI %s", observed_rssi > -127 ? "LIVE" : "--");
+    utility_set_label(8, rssi_text, 188, 395, 92, 0xb8a9ff);
+    utility_set_label(9, "-90     -75     -60     -45", 120, 410, 230, 0xd5c8f2);
+    utility_set_label(10, "TAP RSSI", 192, 427, 82, 0xb9c5d8);
+    utility_set_label(6, "UP / DOWN  •  LEFT / RIGHT", 98, 444, 270, 0xb9c5d8);
 }
 
 static void draw_utility_hid(uint32_t anim_ms)
@@ -4809,166 +4961,6 @@ static void configure_aleth_line(lv_obj_t *line, uint32_t color, int32_t width, 
 
 #define ALETHIOMETER_EMOJI_SIZE 28
 
-static bool aleth_custom_glyph_needed(int idx)
-{
-    switch (idx) {
-        case 9:   /* Scythe */
-        case 10:  /* Whip */
-        case 16:  /* Stork */
-        case 18:  /* Tower */
-        case 19:  /* Garden */
-        case 21:  /* Crossroads */
-        case 29:  /* Lily */
-        case 35:  /* Cross */
-            return true;
-        default:
-            return false;
-    }
-}
-
-static void aleth_glyph_put(uint8_t *dst, int x, int y, uint32_t color, uint8_t alpha)
-{
-    if (dst == NULL || x < 0 || x >= ALETHIOMETER_EMOJI_SIZE || y < 0 || y >= ALETHIOMETER_EMOJI_SIZE) {
-        return;
-    }
-    const size_t off = ((size_t)y * ALETHIOMETER_EMOJI_SIZE + (size_t)x) * 4u;
-    dst[off + 0u] = (uint8_t)(color & 0xffu);
-    dst[off + 1u] = (uint8_t)((color >> 8) & 0xffu);
-    dst[off + 2u] = (uint8_t)((color >> 16) & 0xffu);
-    dst[off + 3u] = alpha;
-}
-
-static void aleth_glyph_line(uint8_t *dst, int x0, int y0, int x1, int y1, uint32_t color, int width)
-{
-    const int dx = abs(x1 - x0);
-    const int sx = x0 < x1 ? 1 : -1;
-    const int dy = -abs(y1 - y0);
-    const int sy = y0 < y1 ? 1 : -1;
-    int err = dx + dy;
-    for (;;) {
-        const int half = width / 2;
-        for (int oy = -half; oy <= half; ++oy) {
-            for (int ox = -half; ox <= half; ++ox) {
-                if (ox * ox + oy * oy <= half * half + 1) {
-                    aleth_glyph_put(dst, x0 + ox, y0 + oy, color, 255);
-                }
-            }
-        }
-        if (x0 == x1 && y0 == y1) {
-            break;
-        }
-        const int e2 = 2 * err;
-        if (e2 >= dy) {
-            err += dy;
-            x0 += sx;
-        }
-        if (e2 <= dx) {
-            err += dx;
-            y0 += sy;
-        }
-    }
-}
-
-static void aleth_glyph_circle(uint8_t *dst, int cx, int cy, int r, uint32_t color, int width)
-{
-    for (int a = 0; a < 72; ++a) {
-        const float t0 = (float)a * 6.28318530718f / 72.0f;
-        const float t1 = (float)(a + 1) * 6.28318530718f / 72.0f;
-        aleth_glyph_line(dst,
-                         cx + (int)lrintf(cosf(t0) * (float)r),
-                         cy + (int)lrintf(sinf(t0) * (float)r),
-                         cx + (int)lrintf(cosf(t1) * (float)r),
-                         cy + (int)lrintf(sinf(t1) * (float)r),
-                         color,
-                         width);
-    }
-}
-
-static void aleth_glyph_arc(uint8_t *dst, int cx, int cy, int r, float a0, float a1, uint32_t color, int width)
-{
-    for (int i = 0; i < 24; ++i) {
-        const float t0 = a0 + (a1 - a0) * (float)i / 24.0f;
-        const float t1 = a0 + (a1 - a0) * (float)(i + 1) / 24.0f;
-        aleth_glyph_line(dst,
-                         cx + (int)lrintf(cosf(t0) * (float)r),
-                         cy + (int)lrintf(sinf(t0) * (float)r),
-                         cx + (int)lrintf(cosf(t1) * (float)r),
-                         cy + (int)lrintf(sinf(t1) * (float)r),
-                         color,
-                         width);
-    }
-}
-
-static bool aleth_render_custom_glyph(int idx, uint8_t *dst, uint32_t color)
-{
-    if (!aleth_custom_glyph_needed(idx) || dst == NULL) {
-        return false;
-    }
-    memset(dst, 0, ALETHIOMETER_EMOJI_SIZE * ALETHIOMETER_EMOJI_SIZE * 4u);
-    const uint32_t ink = color;
-    const uint32_t dim = 0x8a7356;
-    switch (idx) {
-        case 9:  /* Scythe */
-            aleth_glyph_arc(dst, 17, 11, 11, -2.7f, -0.15f, ink, 2);
-            aleth_glyph_line(dst, 9, 20, 21, 6, ink, 2);
-            aleth_glyph_line(dst, 7, 23, 12, 18, dim, 2);
-            break;
-        case 10:  /* Whip */
-            aleth_glyph_arc(dst, 14, 15, 10, -2.8f, 1.2f, ink, 2);
-            aleth_glyph_arc(dst, 15, 16, 6, -2.5f, 0.8f, dim, 2);
-            aleth_glyph_line(dst, 18, 7, 23, 4, ink, 2);
-            break;
-        case 16:  /* Stork */
-            aleth_glyph_line(dst, 7, 11, 15, 6, ink, 2);
-            aleth_glyph_line(dst, 15, 6, 23, 10, ink, 2);
-            aleth_glyph_line(dst, 13, 8, 11, 18, ink, 2);
-            aleth_glyph_line(dst, 11, 18, 8, 24, ink, 2);
-            aleth_glyph_line(dst, 13, 18, 18, 24, ink, 2);
-            aleth_glyph_line(dst, 17, 8, 23, 5, dim, 1);
-            break;
-        case 18:  /* Tower */
-            aleth_glyph_line(dst, 9, 24, 9, 7, ink, 2);
-            aleth_glyph_line(dst, 19, 24, 19, 7, ink, 2);
-            aleth_glyph_line(dst, 8, 7, 20, 7, ink, 2);
-            aleth_glyph_line(dst, 7, 24, 21, 24, ink, 2);
-            aleth_glyph_line(dst, 11, 4, 11, 8, dim, 2);
-            aleth_glyph_line(dst, 14, 4, 14, 8, dim, 2);
-            aleth_glyph_line(dst, 17, 4, 17, 8, dim, 2);
-            aleth_glyph_line(dst, 12, 13, 16, 13, dim, 2);
-            break;
-        case 19:  /* Garden */
-            aleth_glyph_circle(dst, 14, 14, 10, ink, 2);
-            aleth_glyph_line(dst, 6, 18, 22, 18, dim, 2);
-            aleth_glyph_line(dst, 9, 10, 9, 18, dim, 1);
-            aleth_glyph_line(dst, 14, 8, 14, 18, dim, 1);
-            aleth_glyph_line(dst, 19, 10, 19, 18, dim, 1);
-            break;
-        case 21:  /* Crossroads */
-            aleth_glyph_line(dst, 14, 24, 14, 14, ink, 2);
-            aleth_glyph_line(dst, 14, 14, 6, 6, ink, 2);
-            aleth_glyph_line(dst, 14, 14, 22, 6, ink, 2);
-            aleth_glyph_line(dst, 6, 6, 8, 11, ink, 2);
-            aleth_glyph_line(dst, 6, 6, 11, 8, ink, 2);
-            aleth_glyph_line(dst, 22, 6, 17, 8, ink, 2);
-            aleth_glyph_line(dst, 22, 6, 20, 11, ink, 2);
-            break;
-        case 29:  /* Lily */
-            aleth_glyph_line(dst, 14, 24, 14, 9, ink, 2);
-            aleth_glyph_arc(dst, 10, 10, 6, -0.2f, 2.3f, ink, 2);
-            aleth_glyph_arc(dst, 18, 10, 6, 0.8f, 3.2f, ink, 2);
-            aleth_glyph_line(dst, 14, 9, 14, 4, dim, 2);
-            aleth_glyph_line(dst, 8, 18, 20, 18, dim, 2);
-            break;
-        case 35:  /* Cross */
-            aleth_glyph_line(dst, 14, 5, 14, 24, ink, 3);
-            aleth_glyph_line(dst, 7, 12, 21, 12, ink, 3);
-            break;
-        default:
-            return false;
-    }
-    return true;
-}
-
 static bool update_aleth_emoji_glyph(int idx, uint32_t color)
 {
     if (idx < 0 || idx >= FACULTY175_ALETHIOMETER_GLYPH_COUNT) {
@@ -5007,24 +4999,20 @@ static bool update_aleth_emoji_glyph(int idx, uint32_t color)
         return true;
     }
     uint8_t *dst = &s_aleth_glyph_pixels[idx * ALETHIOMETER_EMOJI_SIZE * ALETHIOMETER_EMOJI_SIZE * 4];
-    if (aleth_render_custom_glyph(idx, dst, color)) {
-        s_aleth_glyph_colors[idx] = color;
-        return true;
-    }
-    if (!lenormand_glyph_pack_load(idx)) {
+    const uint8_t *alpha = faculty175_face_alethiometer_glyph_alpha(idx);
+    if (alpha == NULL) {
         return false;
     }
-
     for (int y = 0; y < ALETHIOMETER_EMOJI_SIZE; ++y) {
-        const int sy = y * FACULTY175_LENORMAND_GLYPH_H / ALETHIOMETER_EMOJI_SIZE;
+        const int sy = y * FACULTY175_ALETHIOMETER_GLYPH_SIZE / ALETHIOMETER_EMOJI_SIZE;
         for (int x = 0; x < ALETHIOMETER_EMOJI_SIZE; ++x) {
-            const int sx = x * FACULTY175_LENORMAND_GLYPH_W / ALETHIOMETER_EMOJI_SIZE;
-            const size_t src = ((size_t)sy * FACULTY175_LENORMAND_GLYPH_ROW_BYTES) + (size_t)sx * 4u;
+            const int sx = x * FACULTY175_ALETHIOMETER_GLYPH_SIZE / ALETHIOMETER_EMOJI_SIZE;
+            const uint8_t a = alpha[sy * FACULTY175_ALETHIOMETER_GLYPH_SIZE + sx];
             const size_t out = ((size_t)y * ALETHIOMETER_EMOJI_SIZE + (size_t)x) * 4u;
-            dst[out + 0u] = s_lenormand_glyph_current_bits[src + 0u];
-            dst[out + 1u] = s_lenormand_glyph_current_bits[src + 1u];
-            dst[out + 2u] = s_lenormand_glyph_current_bits[src + 2u];
-            dst[out + 3u] = s_lenormand_glyph_current_bits[src + 3u] < 18 ? 0 : s_lenormand_glyph_current_bits[src + 3u];
+            dst[out + 0u] = (uint8_t)(color & 0xffu);
+            dst[out + 1u] = (uint8_t)((color >> 8) & 0xffu);
+            dst[out + 2u] = (uint8_t)((color >> 16) & 0xffu);
+            dst[out + 3u] = a < 18 ? 0 : a;
         }
     }
     s_aleth_glyph_colors[idx] = color;
@@ -5858,6 +5846,14 @@ static uint32_t astrology_days_since_j2000(uint32_t anim_ms)
 
 static void astrology_local_ephemeris(uint32_t anim_ms, float lon[7])
 {
+    const time_t epoch = astrolabe_time_valid() ? astrolabe_time_now() : time(NULL);
+    faculty175_chart_positions_t positions = {0};
+    if (epoch > 0 && faculty175_charts_positions_at(epoch, &positions)) {
+        for (size_t i = 0; i < 7; ++i) {
+            lon[i] = (float)positions.lon[i];
+        }
+        return;
+    }
     const float days = (float)astrology_days_since_j2000(anim_ms) + (float)(anim_ms % 86400000u) / 86400000.0f;
     for (size_t i = 0; i < 7; ++i) {
         lon[i] = astrology_wrap360(k_lvgl_astro_bodies[i].base_lon + days * k_lvgl_astro_bodies[i].deg_per_day);
@@ -6011,6 +6007,119 @@ static void astrology_draw_zodiac_glyph(int sign, int cx, int cy, bool highlight
     }
 }
 
+typedef enum {
+    ASTROLOGY_WEATHER_CLEAR = 0,
+    ASTROLOGY_WEATHER_WARM,
+    ASTROLOGY_WEATHER_SHIFTING,
+    ASTROLOGY_WEATHER_INWARD,
+    ASTROLOGY_WEATHER_INTENSE,
+} astrology_weather_t;
+
+static double astrology_weather_sep(double a, double b)
+{
+    double d = fabs((double)astrology_wrap360((float)a) - (double)astrology_wrap360((float)b));
+    return d > 180.0 ? 360.0 - d : d;
+}
+
+static astrology_weather_t astrology_weather_for_day(const faculty175_chart_positions_t *natal, int day)
+{
+    if (natal == NULL || !natal->ok) {
+        return ASTROLOGY_WEATHER_SHIFTING;
+    }
+    faculty175_chart_positions_t transit = {};
+    time_t epoch = astrolabe_time_valid() ? astrolabe_time_now() : (time_t)1784246400;
+    if (!faculty175_charts_positions_at(epoch + (time_t)day * 86400, &transit)) {
+        return ASTROLOGY_WEATHER_SHIFTING;
+    }
+
+    static const int aspects[] = {0, 60, 90, 120, 180};
+    static const float tone[] = {0.30f, 0.66f, -0.82f, 1.0f, -0.64f};
+    float score = 0.0f;
+    for (int body = 0; body < FACULTY175_CHART_BODY_COUNT; ++body) {
+        for (int natal_body = 0; natal_body < FACULTY175_CHART_BODY_COUNT; ++natal_body) {
+            const double sep = astrology_weather_sep(transit.lon[body], natal->lon[natal_body]);
+            for (size_t ai = 0; ai < sizeof(aspects) / sizeof(aspects[0]); ++ai) {
+                const double orb = fabs(sep - (double)aspects[ai]);
+                if (orb <= 5.5) {
+                    const float exact = 1.0f - (float)(orb / 5.5);
+                    const float personal = (body < 2 || natal_body < 2) ? 1.3f : 0.72f;
+                    score += tone[ai] * exact * personal;
+                    break;
+                }
+            }
+        }
+    }
+    if (score >= 2.5f) return ASTROLOGY_WEATHER_CLEAR;
+    if (score >= 0.7f) return ASTROLOGY_WEATHER_WARM;
+    if (score > -0.9f) return ASTROLOGY_WEATHER_SHIFTING;
+    if (score > -2.8f) return ASTROLOGY_WEATHER_INWARD;
+    return ASTROLOGY_WEATHER_INTENSE;
+}
+
+static uint32_t astrology_weather_color(astrology_weather_t weather)
+{
+    static const uint32_t colors[] = {0xffcf62, 0xf2b7d2, 0xa5b5d6, 0x7399c6, 0xa07bd4};
+    return colors[(int)weather];
+}
+
+static const char *astrology_weather_symbol(astrology_weather_t weather)
+{
+    static const char *const symbols[] = {"*", "o", "~", ":", "!"};
+    return symbols[(int)weather];
+}
+
+static const char *astrology_weather_name(astrology_weather_t weather)
+{
+    static const char *const names[] = {"CLEAR", "WARM", "SHIFTING", "INWARD", "INTENSE"};
+    return names[(int)weather];
+}
+
+static const char *astrology_weather_guidance(astrology_weather_t weather)
+{
+    static const char *const guidance[] = {
+        "Use the opening",
+        "Follow what feels alive",
+        "Stay flexible; notice what changes",
+        "Make room for quiet",
+        "Move slowly; choose what matters",
+    };
+    return guidance[(int)weather];
+}
+
+static void astrology_update_weather(const faculty175_chart_positions_t *natal)
+{
+    const int cx = FACULTY175_LCD_W / 2;
+    const int cy = FACULTY175_LCD_H / 2 + 2;
+    for (int day = 0; day < 10; ++day) {
+        const astrology_weather_t weather = astrology_weather_for_day(natal, day);
+        const float angle = -1.5707963f + (float)day * 6.2831853f / 10.0f;
+        const int x = cx + (int)lrintf(cosf(angle) * 184.0f);
+        const int y = cy + (int)lrintf(sinf(angle) * 184.0f);
+        lv_obj_set_style_bg_color(s_astrology_weather_days[day],
+                                  lv_color_hex(astrology_weather_color(weather)), 0);
+        lv_obj_set_style_border_color(s_astrology_weather_days[day],
+                                      lv_color_hex(day == 0 ? 0xffffff : 0x33405a), 0);
+        lv_obj_set_style_border_width(s_astrology_weather_days[day], day == 0 ? 3 : 1, 0);
+        lv_obj_align(s_astrology_weather_days[day], LV_ALIGN_TOP_LEFT, x - 17, y - 17);
+        lv_label_set_text(s_astrology_weather_symbols[day], astrology_weather_symbol(weather));
+        lv_obj_center(s_astrology_weather_symbols[day]);
+        char label[4];
+        snprintf(label, sizeof(label), "%s%d", day == 0 ? "" : "+", day);
+        lv_label_set_text(s_astrology_weather_day_labels[day], label);
+        lv_obj_align(s_astrology_weather_day_labels[day], LV_ALIGN_TOP_LEFT, x - 10, y + 18);
+    }
+
+    const astrology_weather_t today = astrology_weather_for_day(natal, 0);
+    lv_obj_set_style_bg_color(s_astrology_weather_main,
+                              lv_color_hex(astrology_weather_color(today)), 0);
+    lv_label_set_text(s_astrology_weather_main_symbol, astrology_weather_symbol(today));
+    lv_obj_center(s_astrology_weather_main_symbol);
+    char guidance[96];
+    snprintf(guidance, sizeof(guidance), "%s  -  %s",
+             astrology_weather_name(today), astrology_weather_guidance(today));
+    almanac_set_trimmed(s_astrology_weather_guidance, guidance, 48);
+}
+
 static void create_astrology_screen(void)
 {
     s_astrology_screen = lv_obj_create(NULL);
@@ -6071,6 +6180,24 @@ static void create_astrology_screen(void)
     lv_obj_set_style_text_align(s_astrology_line, LV_TEXT_ALIGN_CENTER, 0);
     s_astrology_source = make_tarot_label(s_astrology_screen, 394, 300, 0xbeaa70);
     native_obj_hidden(s_astrology_source, true);
+
+    for (int day = 0; day < 10; ++day) {
+        s_astrology_weather_days[day] = make_circle(s_astrology_screen, 34, 0xa5b5d6, LV_OPA_COVER);
+        s_astrology_weather_symbols[day] =
+            make_tarot_label(s_astrology_weather_days[day], 0, 28, 0x111522);
+        lv_obj_set_style_text_align(s_astrology_weather_symbols[day], LV_TEXT_ALIGN_CENTER, 0);
+        s_astrology_weather_day_labels[day] = make_tarot_label(s_astrology_screen, 0, 22, 0x9aa6bf);
+        lv_obj_set_style_text_align(s_astrology_weather_day_labels[day], LV_TEXT_ALIGN_CENTER, 0);
+    }
+    s_astrology_weather_main = make_circle(s_astrology_screen, 112, 0xffcf62, LV_OPA_COVER);
+    lv_obj_center(s_astrology_weather_main);
+    lv_obj_set_style_border_width(s_astrology_weather_main, 3, 0);
+    lv_obj_set_style_border_color(s_astrology_weather_main, lv_color_hex(0xfff0c4), 0);
+    s_astrology_weather_main_symbol =
+        make_tarot_label(s_astrology_weather_main, 0, 64, 0x131522);
+    lv_obj_set_style_text_align(s_astrology_weather_main_symbol, LV_TEXT_ALIGN_CENTER, 0);
+    s_astrology_weather_guidance = make_tarot_label(s_astrology_screen, 300, 410, 0xe8dfef);
+    lv_obj_set_style_text_align(s_astrology_weather_guidance, LV_TEXT_ALIGN_CENTER, 0);
     add_lunasay_settings_gear(s_astrology_screen);
 }
 
@@ -6086,57 +6213,40 @@ static bool draw_astrology(uint32_t anim_ms)
         lv_screen_load(s_astrology_screen);
     }
 
-    float transit_lon[7];
-    astrology_local_ephemeris(anim_ms, transit_lon);
     faculty175_charts_ensure_family_seed();
     faculty175_birth_chart_t natal = {};
     faculty175_chart_positions_t natal_pos = {};
     const bool has_natal = faculty175_charts_primary(&natal) &&
                            faculty175_charts_birth_positions(&natal, &natal_pos);
-    const int sun_sign = ((int)(transit_lon[0] / 30.0f)) % 12;
-
-    const int cx = FACULTY175_LCD_W / 2;
-    const int cy = FACULTY175_LCD_H / 2 + 2;
-    for (int i = 0; i < 12; ++i) {
-        const float a = -1.5707963f + ((float)i + 0.5f) * 6.2831853f / 12.0f;
-        const int gx = cx + (int)lrintf(cosf(a) * 174.0f);
-        const int gy = cy + (int)lrintf(sinf(a) * 174.0f);
-        astrology_draw_zodiac_glyph(i, gx, gy, i == sun_sign);
-    }
 
     for (int i = 0; i < 7; ++i) {
-        const int r_planet = 132 - (i % 2) * 18;
-        int x = 0;
-        int y = 0;
-        astrology_xy_for_lon(transit_lon[i], r_planet, &x, &y);
-        const int sz = i == 0 ? 24 : 20;
-        lv_obj_align(s_astrology_bodies[i], LV_ALIGN_TOP_LEFT, x - sz / 2, y - sz / 2);
-        lv_obj_align(s_astrology_body_labels[i], LV_ALIGN_TOP_LEFT, x - 14, y - 7);
-        lv_obj_set_style_text_color(s_astrology_body_labels[i], lv_color_hex(i == 0 ? 0x291d06 : 0x10131c), 0);
-
-        if (has_natal && i < FACULTY175_CHART_BODY_COUNT) {
-            astrology_xy_for_lon(natal_pos.lon[i], 94, &x, &y);
-            const int nsz = i == 0 ? 10 : 7;
-            lv_obj_align(s_astrology_natal[i], LV_ALIGN_TOP_LEFT, x - nsz / 2, y - nsz / 2);
-            native_obj_hidden(s_astrology_natal[i], false);
-        } else {
-            native_obj_hidden(s_astrology_natal[i], true);
-        }
+        native_obj_hidden(s_astrology_bodies[i], true);
+        native_obj_hidden(s_astrology_body_labels[i], true);
+        native_obj_hidden(s_astrology_natal[i], true);
+    }
+    for (int i = 0; i < 4; ++i) {
+        native_obj_hidden(s_astrology_rings[i], i != 0);
+    }
+    for (int i = 0; i < 12; ++i) {
+        native_obj_hidden(s_astrology_spokes[i], true);
+        native_obj_hidden(s_astrology_signs[i], true);
+        astrology_glyph_clear(i);
     }
 
-    native_obj_hidden(s_astrology_title, true);
-    native_obj_hidden(s_astrology_source, true);
-    char line[96];
     if (has_natal) {
-        snprintf(line, sizeof(line), "%s  n.Su %s  t.Su %s", natal.name,
-                 faculty175_charts_zodiac_abbr(natal_pos.lon[0]),
-                 k_lvgl_astro_signs[sun_sign]);
+        lv_label_set_text(s_astrology_title, "INNER WEATHER");
+        almanac_set_trimmed(s_astrology_line, natal.name, 28);
+        lv_label_set_text(s_astrology_source, "10 DAY SYMBOLIC OUTLOOK");
+        native_obj_hidden(s_astrology_title, false);
+        native_obj_hidden(s_astrology_source, false);
+        astrology_update_weather(&natal_pos);
     } else {
-        snprintf(line, sizeof(line), "Su %s  Mo %s",
-                 k_lvgl_astro_signs[(int)(transit_lon[0] / 30.0f) % 12],
-                 k_lvgl_astro_signs[(int)(transit_lon[1] / 30.0f) % 12]);
+        lv_label_set_text(s_astrology_title, "INNER WEATHER");
+        lv_label_set_text(s_astrology_line, "ADD BIRTH DETAILS");
+        lv_label_set_text(s_astrology_source, "Settings opens your personal forecast");
+        native_obj_hidden(s_astrology_title, false);
+        native_obj_hidden(s_astrology_source, false);
     }
-    lv_label_set_text(s_astrology_line, line);
 
     lv_obj_invalidate(s_astrology_screen);
     lvgl_tick(16);
@@ -6671,115 +6781,53 @@ static void synastry_update_wellness_labels(void)
     lv_obj_set_style_text_color(s_synastry_wellness[2], lv_color_hex(0xaab4cc), 0);
 }
 
-typedef enum {
-    SYNASTRY_WEATHER_SUN = 0,
-    SYNASTRY_WEATHER_FAIR,
-    SYNASTRY_WEATHER_MIXED,
-    SYNASTRY_WEATHER_RAIN,
-    SYNASTRY_WEATHER_STORM,
-} synastry_weather_t;
-
-static double synastry_weather_sep(double a, double b)
+static void synastry_update_weather(
+    const faculty175_relationship_weather_snapshot_t *snapshot)
 {
-    double d = fabs(synastry_norm360(a) - synastry_norm360(b));
-    return d > 180.0 ? 360.0 - d : d;
-}
-
-static synastry_weather_t synastry_weather_for_day(const faculty175_chart_positions_t *a,
-                                                   const faculty175_chart_positions_t *b,
-                                                   int day)
-{
-    faculty175_chart_positions_t transit = {};
-    time_t epoch = astrolabe_time_valid() ? astrolabe_time_now() : (time_t)1784246400;
-    if (!faculty175_charts_positions_at(epoch + (time_t)day * 86400, &transit)) {
-        return SYNASTRY_WEATHER_MIXED;
+    if (snapshot == NULL || !snapshot->available) {
+        return;
     }
-    float score = 0.0f;
-    static const int aspects[] = {0, 60, 90, 120, 180};
-    static const float tone[] = {0.35f, 0.65f, -0.82f, 1.0f, -0.62f};
-    for (int body = 0; body < FACULTY175_CHART_BODY_COUNT; ++body) {
-        for (int person = 0; person < 2; ++person) {
-            const faculty175_chart_positions_t *natal = person == 0 ? a : b;
-            for (int natal_body = 0; natal_body < FACULTY175_CHART_BODY_COUNT; ++natal_body) {
-                const double sep = synastry_weather_sep(transit.lon[body], natal->lon[natal_body]);
-                for (size_t ai = 0; ai < sizeof(aspects) / sizeof(aspects[0]); ++ai) {
-                    const double orb = fabs(sep - aspects[ai]);
-                    if (orb <= 5.5) {
-                        const float exact = 1.0f - (float)(orb / 5.5);
-                        const float personal = (body < 2 || natal_body < 2) ? 1.3f : 0.72f;
-                        score += tone[ai] * exact * personal;
-                        break;
-                    }
-                }
-            }
-        }
-    }
-    if (score >= 3.0f) return SYNASTRY_WEATHER_SUN;
-    if (score >= 0.8f) return SYNASTRY_WEATHER_FAIR;
-    if (score > -1.1f) return SYNASTRY_WEATHER_MIXED;
-    if (score > -3.2f) return SYNASTRY_WEATHER_RAIN;
-    return SYNASTRY_WEATHER_STORM;
-}
-
-static uint32_t synastry_weather_color(synastry_weather_t weather)
-{
-    static const uint32_t colors[] = {0xffcc58, 0xa9d9ff, 0x9da9bc, 0x5d91c9, 0x9a72d6};
-    return colors[(int)weather];
-}
-
-static const char *synastry_weather_symbol(synastry_weather_t weather)
-{
-    static const char *const symbols[] = {"*", "+", "~", "|", "!"};
-    return symbols[(int)weather];
-}
-
-static const char *synastry_weather_name(synastry_weather_t weather)
-{
-    static const char *const names[] = {"OPEN SKIES", "FAIR", "CHANGEABLE", "TENDER RAIN", "STORM WATCH"};
-    return names[(int)weather];
-}
-
-static const char *synastry_weather_guidance(synastry_weather_t weather)
-{
-    static const char *const guidance[] = {
-        "Make the plan together",
-        "Easy warmth; say the kind thing",
-        "Stay curious and check assumptions",
-        "Slow down; make room for feelings",
-        "Protect the bond; pause before reacting",
-    };
-    return guidance[(int)weather];
-}
-
-static void synastry_update_weather(const faculty175_chart_positions_t *user,
-                                    const faculty175_chart_positions_t *target)
-{
     const int cx = FACULTY175_LCD_W / 2;
     const int cy = FACULTY175_LCD_H / 2 + 2;
     for (int day = 0; day < 10; ++day) {
-        const synastry_weather_t weather = synastry_weather_for_day(user, target, day);
+        const faculty175_relationship_condition_t weather =
+            snapshot->arc[day];
         const float angle = -1.5707963f + (float)day * 6.2831853f / 10.0f;
         const int x = cx + (int)lrintf(cosf(angle) * 184.0f);
         const int y = cy + (int)lrintf(sinf(angle) * 184.0f);
-        lv_obj_set_style_bg_color(s_synastry_weather_days[day], lv_color_hex(synastry_weather_color(weather)), 0);
+        lv_obj_set_style_bg_color(
+            s_synastry_weather_days[day],
+            lv_color_hex(faculty175_relationship_weather_color(weather)),
+            0);
         lv_obj_set_style_border_color(s_synastry_weather_days[day],
                                       lv_color_hex(day == 0 ? 0xffffff : 0x33405a), 0);
         lv_obj_set_style_border_width(s_synastry_weather_days[day], day == 0 ? 3 : 1, 0);
         lv_obj_align(s_synastry_weather_days[day], LV_ALIGN_TOP_LEFT, x - 17, y - 17);
-        lv_label_set_text(s_synastry_weather_symbols[day], synastry_weather_symbol(weather));
+        lv_label_set_text(
+            s_synastry_weather_symbols[day],
+            faculty175_relationship_weather_symbol(weather));
         lv_obj_center(s_synastry_weather_symbols[day]);
         char label[4];
         snprintf(label, sizeof(label), "%s%d", day == 0 ? "" : "+", day);
         lv_label_set_text(s_synastry_weather_day_labels[day], label);
         lv_obj_align(s_synastry_weather_day_labels[day], LV_ALIGN_TOP_LEFT, x - 10, y + 18);
     }
-    const synastry_weather_t today = synastry_weather_for_day(user, target, 0);
-    lv_obj_set_style_bg_color(s_synastry_weather_main, lv_color_hex(synastry_weather_color(today)), 0);
-    lv_label_set_text(s_synastry_weather_main_symbol, synastry_weather_symbol(today));
+    const faculty175_relationship_condition_t selected = snapshot->arc[0];
+    lv_obj_set_style_bg_color(
+        s_synastry_weather_main,
+        lv_color_hex(faculty175_relationship_weather_color(selected)),
+        0);
+    lv_label_set_text(
+        s_synastry_weather_main_symbol,
+        faculty175_relationship_weather_symbol(selected));
     lv_obj_center(s_synastry_weather_main_symbol);
     char guidance[96];
-    snprintf(guidance, sizeof(guidance), "%s  -  %s", synastry_weather_name(today),
-             synastry_weather_guidance(today));
+    snprintf(
+        guidance,
+        sizeof(guidance),
+        "%s  -  %s",
+        faculty175_relationship_weather_name(selected),
+        faculty175_relationship_weather_guidance(selected));
     almanac_set_trimmed(s_synastry_weather_guidance, guidance, 48);
 }
 
@@ -6877,10 +6925,13 @@ static bool draw_synastry(uint32_t anim_ms)
     faculty175_birth_chart_t target = {};
     faculty175_chart_positions_t user_pos = {};
     faculty175_chart_positions_t target_pos = {};
-    const bool ready = faculty175_charts_primary(&user) && faculty175_charts_active(&target) &&
-                       faculty175_charts_birth_positions(&user, &user_pos) &&
-                       faculty175_charts_birth_positions(&target, &target_pos);
-    if (!ready) {
+    const bool ready =
+        faculty175_charts_primary(&user) &&
+        faculty175_charts_active(&target) &&
+        faculty175_charts_birth_positions(&user, &user_pos) &&
+        faculty175_charts_birth_positions(&target, &target_pos);
+    faculty175_relationship_weather_snapshot_t weather = {};
+    if (!ready || !faculty175_relationship_weather_snapshot(&weather)) {
         lv_label_set_text(s_synastry_title, "SYNASTRY");
         lv_label_set_text(s_synastry_names, "CHART DATA NEEDED");
         lv_label_set_text(s_synastry_line, "serial: charts seed");
@@ -6892,15 +6943,30 @@ static bool draw_synastry(uint32_t anim_ms)
     }
 
     synastry_hide_orrery_objects();
+    for (int i = 0; i < 5; ++i) {
+        native_obj_hidden(s_synastry_rings[i], i != 0);
+    }
+    for (int i = 0; i < 12; ++i) {
+        native_obj_hidden(s_synastry_spokes[i], true);
+    }
     for (int i = 0; i < 3; ++i) {
         native_obj_hidden(s_synastry_wellness[i], true);
     }
     lv_label_set_text(s_synastry_title, "RELATIONSHIP WEATHER");
     char weather_names[80];
-    snprintf(weather_names, sizeof(weather_names), "%s + %s", user.name, target.name);
+    snprintf(weather_names,
+             sizeof(weather_names),
+             "%s + %s",
+             weather.primary_name,
+             weather.target_name);
     almanac_set_trimmed(s_synastry_names, weather_names, 42);
-    lv_label_set_text(s_synastry_line, "10 DAY SYMBOLIC FORECAST");
-    synastry_update_weather(&user_pos, &target_pos);
+    char selected_date[40];
+    snprintf(selected_date,
+             sizeof(selected_date),
+             "%s  10 DAY OUTLOOK",
+             weather.selected_date);
+    lv_label_set_text(s_synastry_line, selected_date);
+    synastry_update_weather(&weather);
     lv_obj_invalidate(s_synastry_screen);
     lvgl_tick(16);
     lv_timer_handler();
@@ -7537,6 +7603,8 @@ bool faculty175_lvgl_face_supported(faculty175_face_id_t id)
         case FACULTY175_FACE_QUOTES:
         case FACULTY175_FACE_SETTINGS:
         case FACULTY175_FACE_POCKETWATCH:
+        case FACULTY175_FACE_JOURNAL:
+        case FACULTY175_FACE_CONVERSATION:
             return true;
         default:
             return false;
@@ -8031,7 +8099,7 @@ static const char *descriptor_subtitle_for_face(const faculty175_face_desc_t *de
         case FACULTY175_FACE_ORIENT: return "Compass";
         case FACULTY175_FACE_QDAY: return "Daily question";
         case FACULTY175_FACE_FOCUS: return "Timer";
-        case FACULTY175_FACE_BIOMETRICS: return "Body state";
+        case FACULTY175_FACE_BIOMETRICS: return "Ring signals";
         case FACULTY175_FACE_IRONMAN: return "Respiration HUD";
         case FACULTY175_FACE_WATCHER: return "Device watch";
         case FACULTY175_FACE_LENORMAND: return "Oracle tableau";
@@ -8089,6 +8157,279 @@ static bool draw_face_descriptor(faculty175_face_id_t id, uint32_t anim_ms)
     return faculty175_lvgl_draw_native_face(&generated, anim_ms);
 }
 
+static lv_obj_t *make_session_rect(lv_obj_t *parent,
+                                   int32_t w,
+                                   int32_t h,
+                                   uint32_t color,
+                                   lv_opa_t opa)
+{
+    lv_obj_t *obj = lv_obj_create(parent);
+    if (obj == NULL) {
+        return NULL;
+    }
+    lv_obj_remove_style_all(obj);
+    lv_obj_set_size(obj, w, h);
+    lv_obj_set_style_bg_color(obj, lv_color_hex(color), 0);
+    lv_obj_set_style_bg_opa(obj, opa, 0);
+    lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    return obj;
+}
+
+static int mood_index_for_label(const char *label)
+{
+    static const char *const labels[] = {
+        "CALM", "BRIGHT", "TENDER", "LOW", "TENSE", "ENERGIZED",
+    };
+    if (label == NULL) {
+        return 0;
+    }
+    for (int i = 0; i < (int)(sizeof(labels) / sizeof(labels[0])); ++i) {
+        if (strcasecmp(label, labels[i]) == 0) {
+            return i;
+        }
+    }
+    return 0;
+}
+
+static const char *mood_expression_for_index(int index, bool large)
+{
+    static const char *const small[] = {
+        "-_-", "^_^", "o_o", "-.-", ">_<", "*_*",
+    };
+    static const char *const big[] = {
+        "-   -", "^   ^", "o   o", "-   -", ">   <", "*   *",
+    };
+    if (index < 0 || index >= 6) {
+        index = 0;
+    }
+    return large ? big[index] : small[index];
+}
+
+static const char *mood_mouth_for_index(int index)
+{
+    static const char *const mouths[] = {
+        "____", "\\___/", "____", "/---\\", "/---\\", "\\___/",
+    };
+    if (index < 0 || index >= 6) {
+        index = 0;
+    }
+    return mouths[index];
+}
+
+static void create_mood_screen(const char *label)
+{
+    const int selected = mood_index_for_label(label);
+    s_mood_screen = lv_obj_create(NULL);
+    if (s_mood_screen == NULL) {
+        return;
+    }
+    lv_obj_remove_style_all(s_mood_screen);
+    lv_obj_set_size(s_mood_screen, FACULTY175_LCD_W, FACULTY175_LCD_H);
+    lv_obj_set_style_bg_color(s_mood_screen, lv_color_hex(0x090b12), 0);
+    lv_obj_set_style_bg_opa(s_mood_screen, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(s_mood_screen, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *title = make_native_label(s_mood_screen, 44, 300, 0xe8deee,
+                                        LV_TEXT_ALIGN_CENTER);
+    lv_label_set_text(title, "CHOOSE YOUR MOOD");
+
+    lv_obj_t *halo = make_circle(s_mood_screen, 228, 0x5b3150, 155);
+    lv_obj_align(halo, LV_ALIGN_CENTER, 0, -34);
+    lv_obj_t *face = make_circle(s_mood_screen, 208, 0xedbf94, LV_OPA_COVER);
+    lv_obj_align(face, LV_ALIGN_CENTER, 0, -34);
+    lv_obj_set_style_border_width(face, 2, 0);
+    lv_obj_set_style_border_color(face, lv_color_hex(0x624735), 0);
+
+    lv_obj_t *eyes = make_native_label(s_mood_screen, 160, 230, 0x171719,
+                                       LV_TEXT_ALIGN_CENTER);
+    lv_label_set_text(eyes, mood_expression_for_index(selected, true));
+    lv_obj_t *mouth = make_native_label(s_mood_screen, 238, 230, 0x332329,
+                                        LV_TEXT_ALIGN_CENTER);
+    lv_label_set_text(mouth, mood_mouth_for_index(selected));
+
+    for (int i = 0; i < 6; ++i) {
+        const int32_t x = 65 + i * 67;
+        if (i == selected) {
+            lv_obj_t *selection = make_circle(s_mood_screen, 44, 0x733d64,
+                                              LV_OPA_COVER);
+            lv_obj_align(selection, LV_ALIGN_TOP_LEFT, x - 22, 334);
+        }
+        lv_obj_t *choice = make_circle(s_mood_screen, 36,
+                                       i == selected ? 0x442743 : 0x1b1f28,
+                                       LV_OPA_COVER);
+        lv_obj_align(choice, LV_ALIGN_TOP_LEFT, x - 18, 338);
+        lv_obj_set_style_border_width(choice, 1, 0);
+        lv_obj_set_style_border_color(
+            choice,
+            lv_color_hex(i == selected ? 0xef91b1 : 0x526074),
+            0);
+        lv_obj_t *glyph = make_native_label(s_mood_screen, 346, 52,
+                                            i == selected ? 0xfff3fa : 0xb8c2d3,
+                                            LV_TEXT_ALIGN_CENTER);
+        lv_obj_align(glyph, LV_ALIGN_TOP_LEFT, x - 26, 346);
+        lv_label_set_text(glyph, mood_expression_for_index(i, false));
+    }
+
+    lv_obj_t *choice_label = make_native_label(s_mood_screen, 391, 260,
+                                                0xf4e7f0,
+                                                LV_TEXT_ALIGN_CENTER);
+    lv_label_set_text(choice_label, label);
+    lv_obj_t *hint = make_native_label(s_mood_screen, 426, 300, 0x7e94ad,
+                                       LV_TEXT_ALIGN_CENTER);
+    lv_label_set_text(
+        hint,
+        faculty175_face_psych_state_mood_checked_in()
+            ? "SAVED LOCALLY"
+            : "TAP LARGE FACE TO SAVE");
+    add_lunasay_settings_gear(s_mood_screen);
+    strlcpy(s_mood_last_label, label, sizeof(s_mood_last_label));
+    s_mood_last_checked = faculty175_face_psych_state_mood_checked_in();
+}
+
+static bool draw_mood_lvgl(uint32_t anim_ms)
+{
+    (void)anim_ms;
+    const char *label = faculty175_face_psych_state_mood_label();
+    if (s_mood_screen != NULL &&
+        (strcasecmp(s_mood_last_label, label) != 0 ||
+         s_mood_last_checked !=
+             faculty175_face_psych_state_mood_checked_in())) {
+        if (lv_screen_active() == s_mood_screen) {
+            lv_screen_load(idle_screen());
+            lvgl_tick(1);
+            lv_timer_handler();
+        }
+        lv_obj_delete(s_mood_screen);
+        s_mood_screen = NULL;
+    }
+    if (s_mood_screen == NULL) {
+        create_mood_screen(label);
+    }
+    if (s_mood_screen == NULL) {
+        return false;
+    }
+    if (lv_screen_active() != s_mood_screen) {
+        lv_screen_load(s_mood_screen);
+    }
+    lvgl_tick(16);
+    lv_timer_handler();
+    return true;
+}
+
+static void create_journal_screen(void)
+{
+    s_journal_screen = lv_obj_create(NULL);
+    lv_obj_remove_style_all(s_journal_screen);
+    lv_obj_set_size(s_journal_screen, FACULTY175_LCD_W, FACULTY175_LCD_H);
+    lv_obj_set_style_bg_color(s_journal_screen, lv_color_hex(0x080912), 0);
+    lv_obj_set_style_bg_opa(s_journal_screen, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(s_journal_screen, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *paper = make_session_rect(s_journal_screen, 342, 344, 0x0f101e, LV_OPA_COVER);
+    lv_obj_align(paper, LV_ALIGN_CENTER, 0, 3);
+    lv_obj_set_style_radius(paper, 8, 0);
+    lv_obj_set_style_border_width(paper, 1, 0);
+    lv_obj_set_style_border_color(paper, lv_color_hex(0x29263c), 0);
+
+    lv_obj_t *margin = make_session_rect(s_journal_screen, 2, 300, 0x4b3149, 170);
+    lv_obj_align(margin, LV_ALIGN_CENTER, -132, 3);
+    for (int i = 0; i < 8; ++i) {
+        lv_obj_t *rule = make_session_rect(s_journal_screen, 288, 1, 0x29263c, 150);
+        lv_obj_align(rule, LV_ALIGN_TOP_MID, 10, 96 + i * 34);
+    }
+
+    lv_obj_t *title = make_native_label(s_journal_screen, 24, 260, 0x706985, LV_TEXT_ALIGN_CENTER);
+    lv_label_set_text(title, "JOURNAL");
+    lv_obj_t *status = make_native_label(s_journal_screen, 364, 300, 0xcbb4e7, LV_TEXT_ALIGN_CENTER);
+    lv_label_set_text(status, "ready to remember");
+    lv_obj_t *safe = make_native_label(s_journal_screen, 410, 300, 0x706985, LV_TEXT_ALIGN_CENTER);
+    lv_label_set_text(safe, "recording safely");
+
+    for (int i = 0; i < 16; ++i) {
+        s_journal_bars[i] = make_session_rect(s_journal_screen, 4, 14, 0xcbb4e7, LV_OPA_COVER);
+        lv_obj_align(s_journal_bars[i], LV_ALIGN_CENTER, -75 + i * 10, -14);
+        lv_obj_set_style_radius(s_journal_bars[i], 2, 0);
+    }
+    add_lunasay_settings_gear(s_journal_screen);
+}
+
+static bool draw_journal_lvgl(uint32_t anim_ms)
+{
+    if (s_journal_screen == NULL) {
+        create_journal_screen();
+    }
+    if (s_journal_screen == NULL) {
+        return false;
+    }
+    for (int i = 0; i < 16; ++i) {
+        const float wave = sinf((float)anim_ms * 0.006f + (float)i * 0.72f);
+        const int32_t h = 8 + (int32_t)lrintf((wave + 1.0f) * 13.0f);
+        lv_obj_set_height(s_journal_bars[i], h);
+    }
+    if (lv_screen_active() != s_journal_screen) {
+        lv_screen_load(s_journal_screen);
+    }
+    lvgl_tick(16);
+    lv_timer_handler();
+    return true;
+}
+
+static void create_conversation_screen(void)
+{
+    s_conversation_screen = lv_obj_create(NULL);
+    lv_obj_remove_style_all(s_conversation_screen);
+    lv_obj_set_size(s_conversation_screen, FACULTY175_LCD_W, FACULTY175_LCD_H);
+    lv_obj_set_style_bg_color(s_conversation_screen, lv_color_hex(0x040a0f), 0);
+    lv_obj_set_style_bg_opa(s_conversation_screen, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(s_conversation_screen, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *title = make_native_label(s_conversation_screen, 30, 300, 0x2a4c53, LV_TEXT_ALIGN_CENTER);
+    lv_label_set_text(title, "CONVERSATION");
+    for (int i = 0; i < 3; ++i) {
+        s_conversation_rings[i] = make_circle(s_conversation_screen, 150 + i * 54, 0x000000, LV_OPA_TRANSP);
+        lv_obj_center(s_conversation_rings[i]);
+        lv_obj_set_style_border_width(s_conversation_rings[i], i == 0 ? 2 : 1, 0);
+        lv_obj_set_style_border_color(s_conversation_rings[i], lv_color_hex(i == 0 ? 0x6fe2cd : 0x2a4c53), 0);
+        lv_obj_set_style_border_opa(s_conversation_rings[i], i == 0 ? 210 : 130, 0);
+    }
+    s_conversation_orb = make_circle(s_conversation_screen, 82, 0x3b9d91, LV_OPA_COVER);
+    lv_obj_center(s_conversation_orb);
+    lv_obj_set_style_shadow_width(s_conversation_orb, 36, 0);
+    lv_obj_set_style_shadow_color(s_conversation_orb, lv_color_hex(0x6fe2cd), 0);
+    lv_obj_set_style_shadow_opa(s_conversation_orb, 80, 0);
+
+    lv_obj_t *status = make_native_label(s_conversation_screen, 360, 300, 0xe0ebe8, LV_TEXT_ALIGN_CENTER);
+    lv_label_set_text(status, "ready · listening");
+    lv_obj_t *hint = make_native_label(s_conversation_screen, 392, 300, 0x2a4c53, LV_TEXT_ALIGN_CENTER);
+    lv_label_set_text(hint, "tap to interrupt");
+    add_lunasay_settings_gear(s_conversation_screen);
+}
+
+static bool draw_conversation_lvgl(uint32_t anim_ms)
+{
+    if (s_conversation_screen == NULL) {
+        create_conversation_screen();
+    }
+    if (s_conversation_screen == NULL) {
+        return false;
+    }
+    for (int i = 0; i < 3; ++i) {
+        const float wave = sinf((float)anim_ms * 0.004f + (float)i * 1.1f);
+        const int32_t size = 150 + i * 54 + (int32_t)lrintf((wave + 1.0f) * 5.0f);
+        lv_obj_set_size(s_conversation_rings[i], size, size);
+        lv_obj_center(s_conversation_rings[i]);
+    }
+    const int32_t orb_size = 82 + (int32_t)lrintf((sinf((float)anim_ms * 0.005f) + 1.0f) * 4.0f);
+    lv_obj_set_size(s_conversation_orb, orb_size, orb_size);
+    lv_obj_center(s_conversation_orb);
+    if (lv_screen_active() != s_conversation_screen) {
+        lv_screen_load(s_conversation_screen);
+    }
+    lvgl_tick(16);
+    lv_timer_handler();
+    return true;
+}
+
 static void lunasay_release_inactive_screens(faculty175_face_id_t keep_id)
 {
 #if defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
@@ -8101,6 +8442,9 @@ static void lunasay_release_inactive_screens(faculty175_face_id_t keep_id)
         {FACULTY175_FACE_TRANSITS, &s_transits_screen},
         {FACULTY175_FACE_SYNASTRY, &s_synastry_screen},
         {FACULTY175_FACE_SKY, &s_sky_screen},
+        {FACULTY175_FACE_PSYCH_STATE, &s_mood_screen},
+        {FACULTY175_FACE_JOURNAL, &s_journal_screen},
+        {FACULTY175_FACE_CONVERSATION, &s_conversation_screen},
     };
 
     for (size_t i = 0; i < sizeof(faces) / sizeof(faces[0]); ++i) {
@@ -8108,6 +8452,19 @@ static void lunasay_release_inactive_screens(faculty175_face_id_t keep_id)
             continue;
         }
         lv_obj_t *screen = *faces[i].screen;
+        /*
+         * LVGL retains the outgoing screen in prev_scr until its screen-load
+         * animation completion callback runs.  Deleting it while referenced
+         * leaves invalidation walking a poisoned object tree on the next
+         * frame.  A later draw will release it after LVGL clears the
+         * transition references.
+         */
+        lv_display_t *display = lv_obj_get_display(screen);
+        if (display != NULL &&
+            (lv_display_get_screen_prev(display) == screen ||
+             lv_display_get_screen_loading(display) == screen)) {
+            continue;
+        }
         if (lv_screen_active() == screen) {
             lv_obj_t *idle = idle_screen();
             if (idle == NULL) {
@@ -8128,10 +8485,16 @@ static void lunasay_release_inactive_screens(faculty175_face_id_t keep_id)
 
 bool faculty175_lvgl_draw_face(faculty175_face_id_t id, uint32_t anim_ms)
 {
+    /* Dedicated OTA status renderer lives in faculty175_face_ota.c. */
+    if (id == FACULTY175_FACE_OTA) return false;
+    if (id != FACULTY175_FACE_SOLAR) {
+        s_solar_sunrise_horizon = false;
+    }
     if (id == FACULTY175_FACE_DEATHSTAR || id == FACULTY175_FACE_TRON || id == FACULTY175_FACE_MAZE ||
         id == FACULTY175_FACE_HUMAN_DESIGN || id == FACULTY175_FACE_CRYSTAL_BALL ||
         id == FACULTY175_FACE_PARTNER_WELLNESS ||
-        id == FACULTY175_FACE_IRONMAN || id == FACULTY175_FACE_BATTERY) {
+        id == FACULTY175_FACE_IRONMAN || id == FACULTY175_FACE_BATTERY ||
+        id == FACULTY175_FACE_CYCLE) {
         return false;
     }
 
@@ -8143,7 +8506,9 @@ bool faculty175_lvgl_draw_face(faculty175_face_id_t id, uint32_t anim_ms)
      * every object-heavy LunaSay screen alive eventually makes LVGL object
      * allocation fail while entering Synastry. Retain only the active face;
      * its screen is rebuilt on the next visit. */
-    lunasay_release_inactive_screens(id);
+    if (!s_face_transition_preparing) {
+        lunasay_release_inactive_screens(id);
+    }
 
     if (instrument_face_id(id)) {
         return draw_instrument(id, anim_ms);
@@ -8194,8 +8559,22 @@ bool faculty175_lvgl_draw_face(faculty175_face_id_t id, uint32_t anim_ms)
             return draw_solar(anim_ms);
         case FACULTY175_FACE_MAGNETOSPHERE:
             return draw_magnetosphere(anim_ms);
+        case FACULTY175_FACE_JOURNAL:
+            return draw_journal_lvgl(anim_ms);
+        case FACULTY175_FACE_CONVERSATION:
+            return draw_conversation_lvgl(anim_ms);
+        case FACULTY175_FACE_PSYCH_STATE:
+            return draw_mood_lvgl(anim_ms);
         default:
             return draw_face_descriptor(id, anim_ms);
+    }
+}
+
+void faculty175_lvgl_set_sunrise_horizon(bool enabled)
+{
+    s_solar_sunrise_horizon = enabled;
+    if (s_solar_horizon != NULL) {
+        set_hidden(s_solar_horizon, !enabled);
     }
 }
 
@@ -8217,6 +8596,12 @@ static lv_obj_t *face_screen_for_id(faculty175_face_id_t id)
             return s_watch_screen;
         case FACULTY175_FACE_MOON:
             return s_moon_screen;
+        case FACULTY175_FACE_JOURNAL:
+            return s_journal_screen;
+        case FACULTY175_FACE_CONVERSATION:
+            return s_conversation_screen;
+        case FACULTY175_FACE_PSYCH_STATE:
+            return s_mood_screen;
         case FACULTY175_FACE_TAROT:
             return s_tarot_screen;
         case FACULTY175_FACE_RUNES:
@@ -8263,6 +8648,9 @@ static int face_screen_slot_for_id(faculty175_face_id_t id)
         case FACULTY175_FACE_POCKETWATCH:
             return 1003;
         case FACULTY175_FACE_MOON:
+        case FACULTY175_FACE_PSYCH_STATE:
+        case FACULTY175_FACE_JOURNAL:
+        case FACULTY175_FACE_CONVERSATION:
         case FACULTY175_FACE_TAROT:
         case FACULTY175_FACE_RUNES:
         case FACULTY175_FACE_ALETHIOMETER:
@@ -8286,6 +8674,72 @@ bool faculty175_lvgl_faces_share_transition_screen(faculty175_face_id_t a, facul
     return a != b && face_screen_slot_for_id(a) == face_screen_slot_for_id(b);
 }
 
+/*
+ * A full-screen LVGL MOVE animation is prohibitively expensive on the round
+ * 466x466 panel: every animation tick redraws and flushes nearly the entire
+ * display.  In practice a requested 64 ms transition took 1.4-1.9 seconds and
+ * held the input/display path long enough for following gestures to go stale.
+ *
+ * Keep a clear sense of direction with a small luminous "comet" written
+ * directly into the panel framebuffer, then render the destination face once.
+ * This avoids both intermediate full-screen invalidation and LVGL's
+ * prev_scr/loading references across a long blocking animation.
+ */
+static bool animate_face_transition_cue(lv_obj_t *screen,
+                                        bool vertical,
+                                        int delta,
+                                        uint32_t duration_ms)
+{
+    if (screen == NULL || lv_screen_active() != screen) {
+        return false;
+    }
+
+    const int32_t long_side = 58;
+    const int32_t short_side = 4;
+    const int32_t cue_w = vertical ? short_side : long_side;
+    const int32_t cue_h = vertical ? long_side : short_side;
+    uint16_t cue_pixels[long_side * short_side];
+    for (size_t i = 0; i < sizeof(cue_pixels) / sizeof(cue_pixels[0]); ++i) {
+        cue_pixels[i] = 0xbffe; /* pale cyan, RGB565 */
+    }
+
+    const uint32_t requested = duration_ms > 0 ? duration_ms : 72;
+    const uint32_t frames = 4;
+    const uint32_t frame_delay = requested / frames > 0 ? requested / frames : 1;
+    const int32_t travel = vertical
+                               ? (FACULTY175_LCD_H - cue_h) / 2 - 8
+                               : (FACULTY175_LCD_W - cue_w) / 2 - 8;
+    const int32_t direction = delta >= 0 ? 1 : -1;
+    int64_t metric_start_us = 0;
+    int64_t metric_last_us = 0;
+    uint32_t metric_frames = 0;
+    uint32_t metric_max_gap_ms = 0;
+    nav_anim_metric_start(&metric_last_us,
+                          &metric_start_us,
+                          &metric_frames,
+                          &metric_max_gap_ms);
+
+    for (uint32_t frame = 0; frame < frames; ++frame) {
+        const int32_t offset =
+            direction * (-travel + (int32_t)((2 * travel * (int32_t)frame) / (int32_t)(frames - 1)));
+        const int32_t x = (FACULTY175_LCD_W - cue_w) / 2 + (vertical ? 0 : offset);
+        const int32_t y = (FACULTY175_LCD_H - cue_h) / 2 + (vertical ? offset : 0);
+        faculty175_display_draw_rgb565(cue_pixels, x, y, cue_w, cue_h);
+        faculty175_display_flush_rect(x, y, cue_w, cue_h);
+        nav_anim_metric_frame(&metric_last_us, &metric_frames, &metric_max_gap_ms);
+        vTaskDelay(pdMS_TO_TICKS(frame_delay));
+    }
+
+    nav_anim_metric_log("direction-cue",
+                        vertical ? "vertical" : "horizontal",
+                        delta,
+                        requested,
+                        metric_start_us,
+                        metric_frames,
+                        metric_max_gap_ms);
+    return true;
+}
+
 bool faculty175_lvgl_transition_face(faculty175_face_id_t from_id,
                                      faculty175_face_id_t to_id,
                                      uint32_t anim_ms,
@@ -8304,59 +8758,36 @@ bool faculty175_lvgl_transition_face(faculty175_face_id_t from_id,
     lv_obj_t *from_screen = face_screen_for_id(from_id);
     const bool from_active = from_screen != NULL && lv_screen_active() == from_screen;
     const bool cross_screen = face_screen_slot_for_id(from_id) != face_screen_slot_for_id(to_id);
-    const bool suspend_preload_flush = from_active && cross_screen;
-    if (suspend_preload_flush) {
-        faculty175_display_flush_suspended_set(true);
-    }
-    if (!faculty175_lvgl_draw_face(to_id, anim_ms)) {
-        if (suspend_preload_flush) {
-            faculty175_display_flush_suspended_set(false);
-        }
+    const bool animated = from_active && cross_screen &&
+                          animate_face_transition_cue(from_screen,
+                                                      vertical,
+                                                      delta,
+                                                      duration_ms);
+
+    /*
+     * Build the destination in the board framebuffer without sending LVGL's
+     * many small draw-buffer regions to the panel.  One final panel flush is
+     * both faster and atomic, so rich faces cannot appear half-rendered.
+     */
+    faculty175_display_flush_suspended_set(true);
+    s_face_transition_preparing = true;
+    const bool destination_ready = faculty175_lvgl_draw_face(to_id, anim_ms);
+    s_face_transition_preparing = false;
+    faculty175_display_flush_suspended_set(false);
+    if (!destination_ready) {
         return false;
     }
-    if (suspend_preload_flush) {
-        faculty175_display_flush_suspended_set(false);
-    }
+    faculty175_display_flush();
 
     lv_obj_t *to_screen = face_screen_for_id(to_id);
-    if (!suspend_preload_flush || from_screen == NULL || to_screen == NULL || from_screen == to_screen) {
-        return true;
-    }
-
-    lv_screen_load(from_screen);
-    lvgl_tick(1);
-    lv_timer_handler();
-
-    const lv_screen_load_anim_t anim = vertical
-                                           ? (delta >= 0 ? LV_SCREEN_LOAD_ANIM_MOVE_BOTTOM
-                                                         : LV_SCREEN_LOAD_ANIM_MOVE_TOP)
-                                           : (delta >= 0 ? LV_SCREEN_LOAD_ANIM_MOVE_RIGHT
-                                                         : LV_SCREEN_LOAD_ANIM_MOVE_LEFT);
-    const uint32_t duration = duration_ms > 0 ? duration_ms : 72;
-    lv_screen_load_anim(to_screen, anim, duration, 0, false);
-    int64_t metric_start_us = 0;
-    int64_t metric_last_us = 0;
-    uint32_t metric_frames = 0;
-    uint32_t metric_max_gap_ms = 0;
-    nav_anim_metric_start(&metric_last_us, &metric_start_us, &metric_frames, &metric_max_gap_ms);
-    for (uint32_t elapsed = 0; elapsed <= duration; elapsed += 8) {
-        lvgl_tick(8);
+    if (to_screen != NULL && lv_screen_active() != to_screen) {
+        lv_screen_load(to_screen);
+        lvgl_tick(1);
         lv_timer_handler();
-        nav_anim_metric_frame(&metric_last_us, &metric_frames, &metric_max_gap_ms);
-        vTaskDelay(pdMS_TO_TICKS(8));
     }
-    lv_screen_load(to_screen);
-    lvgl_tick(1);
-    lv_timer_handler();
     if (animated_out != NULL) {
-        *animated_out = true;
+        *animated_out = animated;
     }
-    nav_anim_metric_log("screen-slide",
-                        vertical ? "vertical" : "horizontal",
-                        delta,
-                        duration,
-                        metric_start_us,
-                        metric_frames,
-                        metric_max_gap_ms);
+    lunasay_release_inactive_screens(to_id);
     return true;
 }

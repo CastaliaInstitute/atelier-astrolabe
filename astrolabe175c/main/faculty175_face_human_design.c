@@ -10,6 +10,7 @@
 #include "faculty175_board.h"
 #include "faculty175_charts.h"
 #include "faculty175_ephemeris.h"
+#include "faculty175_human_design_math.h"
 
 enum {
     HD_CX = FACULTY175_LCD_W / 2,
@@ -222,17 +223,6 @@ static uint16_t blend565(uint16_t bg, uint16_t fg, float alpha)
              (uint8_t)(bb * ia + fb * alpha));
 }
 
-static float wrap360f(float v)
-{
-    while (v < 0.0f) {
-        v += 360.0f;
-    }
-    while (v >= 360.0f) {
-        v -= 360.0f;
-    }
-    return v;
-}
-
 static float hd_days_since_j2000(uint32_t anim_ms)
 {
     time_t now = astrolabe_time_valid() ? astrolabe_time_now() : time(NULL);
@@ -244,26 +234,7 @@ static float hd_days_since_j2000(uint32_t anim_ms)
 
 static void hd_gate_line_from_lon(float lon_deg, uint8_t *gate, uint8_t *line)
 {
-    const float step = 360.0f / 64.0f;
-    const float adjusted = wrap360f(wrap360f(lon_deg) - HD_RAVE_START_DEGREE);
-    int slot = (int)floorf(adjusted / step);
-    if (slot < 0) {
-        slot = 0;
-    } else if (slot > 63) {
-        slot = 63;
-    }
-    int line_idx = (int)floorf((adjusted - (float)slot * step) / (step / 6.0f));
-    if (line_idx < 0) {
-        line_idx = 0;
-    } else if (line_idx > 5) {
-        line_idx = 5;
-    }
-    if (gate != NULL) {
-        *gate = k_mandala_gate_order[slot];
-    }
-    if (line != NULL) {
-        *line = (uint8_t)(line_idx + 1);
-    }
+    (void)faculty175_human_design_gate_line((double)lon_deg, gate, line);
 }
 
 static size_t build_ephemeris_gates(time_t epoch, hd_gate_t *out, size_t cap)
@@ -310,7 +281,10 @@ static bool build_natal_gates(hd_gate_t *personality,
         return false;
     }
     const size_t p_count = build_ephemeris_gates(birth_epoch, personality, personality_cap);
-    const time_t design_epoch = birth_epoch - (time_t)(88 * 86400);
+    time_t design_epoch = 0;
+    if (!faculty175_human_design_design_epoch(birth_epoch, &design_epoch)) {
+        return false;
+    }
     const size_t d_count = build_ephemeris_gates(design_epoch, design, design_cap);
     if (personality_count != NULL) {
         *personality_count = p_count;
@@ -337,8 +311,9 @@ static bool build_chart_gates(const faculty175_birth_chart_t *birth,
         return false;
     }
     size_t count = build_ephemeris_gates(birth_epoch, out, cap);
-    if (count < cap) {
-        count += build_ephemeris_gates(birth_epoch - (time_t)(88 * 86400), out + count, cap - count);
+    time_t design_epoch = 0;
+    if (count < cap && faculty175_human_design_design_epoch(birth_epoch, &design_epoch)) {
+        count += build_ephemeris_gates(design_epoch, out + count, cap - count);
     }
     if (out_count != NULL) {
         *out_count = count;

@@ -48,6 +48,90 @@ synastry faces; the generic voice request does not serialize the birth record
 itself. The spoken question, face slug, system instruction, and conversation
 history still enter the cloud path.
 
+### Daily reading continuity
+
+LunaSay keeps two rotating full daily packet slots plus a separate seven-day
+summary in the existing voice-cache partition. When a new day is generated,
+firmware may send the recent local dates and, for Moon, Astrology, Transits,
+Synastry, Tarot, and Sky only, each server-generated `headline`, `action`, and
+a SHA-256 fingerprint of `evidence`. Prior evidence text is not retransmitted.
+The summary is rebuilt from the validated packet fields before every write and
+read; it never includes journal or conversation text, mood, biometrics,
+birth/family records, location, settings, or user-authored notes.
+
+The service accepts only summaries from the preceding 14 days, discards
+unknown faces and malformed or oversized fields, de-duplicates dates, retains
+at most seven valid days, and supplies each face's history only to that face's
+independent Gemini 2.5 call. The server compares the newest fingerprint with
+today's server-selected evidence and tells Gemini only whether it changed;
+Gemini does not receive prior evidence text. Continuity is never support for
+today's claim. The prompt permits a developing thread only when the supplied
+sequence supports it, forbids invented lived events, and rejects a practice
+that exactly repeats any retained day. The application does not persist this
+continuity envelope server-side; provider-retention caveats below still apply.
+
+The companion Privacy page exposes a capability-gated **Clear reading
+history** action. Updated firmware removes the seven-day summary, both full
+daily packet slots, their temporary files, and all twelve per-face daily audio
+caches. Older firmware cannot enable the control, so the PWA never reports a
+successful deletion for a device that does not implement it.
+
+### Ask This Face follow-ups
+
+When a person deliberately asks a spoken question from a reflective face, the
+device supplies bounded face-local context with the audio request. For the six
+daily generated faces, this may include the current local day's cached spoken
+reading, its exact server-validated supporting evidence, optional
+weather/timing evidence, and the validated practice. The context is read from
+the device's rotating daily packet; it does not cause another daily generation
+call. A cached Family Synastry weather-evidence line is omitted when it contains
+live family measurements. Cycle and Partner Wellness follow-ups disclose only
+that relevant device-local signals are available; their raw measurements and
+partner identity remain off the cloud follow-up request.
+
+The request labels cached text as reference data rather than instructions and
+requires the service to answer the person's exact question, state when the
+supplied evidence cannot support a claim, and avoid certainty, diagnosis,
+compatibility scoring, and event prediction. It does not add raw birth
+records, coordinates, credentials, journal text, conversation history,
+current audio from another turn, or hidden settings. Conversation, Journal,
+Alethiometer, and Crystal Ball do not inherit a daily face's cached context.
+The spoken question and the bounded context still enter the cloud voice path
+and remain subject to the provider-retention caveats below.
+
+### Relationship Weather Time Travel
+
+The companion PWA reads only the names and roles of family profiles already
+stored on the connected LunaSay, the selected profile slot, and a compact
+ten-condition symbolic weather arc. Birth dates, birth times, coordinates,
+chart positions, aspects, biometrics, and family-repository credentials are
+not exposed to the PWA. Choosing another family member or date is a local BLE
+settings operation and is not persisted across a reboot.
+
+The device calculates the selected date and following ten days locally. The
+physical Synastry face shows the same selection. If the user deliberately
+requests a spoken reading from that face, the existing voice request contains
+the selected civil date and bounded chart-derived facts. Present-day
+biometrics are explicitly excluded from past or future readings because they
+are not evidence about another date. The feature is framed as symbolic
+reflection, never compatibility scoring or event prediction.
+
+### Device health and OTA telemetry
+
+The Web Bluetooth settings read and a separate, bounded, read-only health
+characteristic expose an operational snapshot to the connected browser:
+firmware version, uptime, battery presence, percentage, voltage and
+charging/USB state, BLE enabled/advertising state, the configured Wi-Fi SSID,
+and automatic OTA activity, readiness, interval, last-poll uptime, and a
+bounded last-result summary. These are read directly from LunaSay and rendered
+on the Device tab. The PWA does not upload or persist the snapshot.
+
+The snapshot does not contain Wi-Fi passwords, device-auth secrets, signed
+manifest credentials, birth/family records, journal or conversation text, raw
+audio, or OTA signing material. Location and ring measurements remain in the
+existing settings response because their explicit companion features need
+them; they are not included in the new `device` telemetry object.
+
 ### Alethiometer
 
 The transcribed question reaches Gemini twice: first to select three distinct
@@ -109,12 +193,73 @@ Commonplace entry. Explicit Notes/journal behavior in other profiles may store
 transcript content by design. This request policy does not mean third-party
 processors retain nothing.
 
+When `LUNASAY_GITHUB_REPO` and a write token are configured, the voice service
+can also append journal and conversation text to daily Markdown files in that
+repository. That path contains raw user text and is separate from the
+pseudonymous research-event stream below. It must target a private,
+user-authorized repository and remain disabled unless the user has deliberately
+enabled journaling or conversation logging.
+
 ### Usage metering
 
 Supabase `voice_usage_events` stores user ID when resolvable, service, route,
 source, face, faculty slug, model, voice, language, audio seconds/bytes,
 estimated token counts, character counts, estimated cost, and creation time.
 The usage-event insert has no raw-audio, transcript, or reply field.
+
+### Mood check-ins, reading feedback, and optional research export
+
+The Mood Check-in face stores the current friendly label plus its valence and
+arousal coordinates in device NVS. Mood is self-reported present-moment
+context; prompts must not treat it as proof that an astrological reading is
+correct or infer another family member's mood from it.
+
+The hosted PWA exposes a separate Research sharing switch. Enabling it requires
+an explicit confirmation and stores consent version `research-v2` on the
+device. The Mood Check-in face presents six small facial choices that can be
+tapped directly; the large face previews the selected expression, and tapping
+that large face deliberately records the check-in. The device
+retains at most one unsent structured contribution and retries after
+connectivity returns. Turning sharing off stops new exports and erases that
+unsent contribution. Consent recorded under an earlier policy version is
+disabled and must be granted again.
+
+The PWA can also submit one structured rating for a daily Moon, Astrology,
+Transits, Synastry, Tarot, or Sky reading. The rating is one of `helpful`,
+`mixed`, or `missed`. No note or reading text is accepted. Rating works whether
+or not research sharing is enabled.
+
+LunaSay keeps a bounded, decaying count of the three ratings for each face in
+device NVS. At daily generation time, those counts accompany the existing
+signed voice-pipeline request. The server validates the small numeric envelope
+and supplies only the matching face's counts to that face's Gemini call as
+writing calibration. A rating may make a future reading more concrete, modest,
+or explicit about uncertainty; it is never chart evidence or evidence about
+the user's life. LunaSay application code does not persist this preference
+envelope server-side; provider-retention caveats below still apply.
+
+When research sharing is enabled, the device may separately forward only the
+face, rating, local reading date, source, and event time to `lunasay-event`.
+With research sharing disabled, no rating event is exported.
+
+The `lunasay-event` endpoint accepts a mood or reading-feedback event only with
+an affirmative consent flag, the exact current consent-policy version, an
+allowlisted source, bounded fields, and a valid signed credential from a
+provisioned Astrolabe. It derives the subject from the provisioned owner ID
+when one exists, otherwise from the verified device MAC; it does not trust a
+client-supplied subject. Research export is off
+unless the operator deliberately sets `LUNASAY_ML_LOGGING_ENABLED=true`, a
+private GitHub repository, and a server-only subject salt. Exported JSONL uses
+a salted SHA-256 subject identifier and event-specific allowlisted fields. It
+does not include names, reading text or evidence, free-text notes, journal
+text, conversations, birth data, family data, location, or raw biometrics.
+
+This remains an incomplete consent product. Participation and prospective
+revocation are now exposed, but **launch blockers** remain: obtain review of
+the consent text, publish retention and repository-access policy, add
+retrospective deletion/data-export requests, and verify that the production
+repository is private. Do not enable the environment flag before those items
+are complete.
 
 ### Runtime logs
 
@@ -172,6 +317,7 @@ by the authorization blocker.
 | Conversation history | Cleared and not appended by LunaSay | NVS/network verification required |
 | Erase profiles, Wi-Fi, legacy history, and audio scratch | Partial mechanisms | Complete reset evidence missing |
 | Persistent microphone lockout | Not proven by this audit | Do not claim |
+| Research participation and stop-new-sharing control | Hosted PWA + device NVS | Implemented; consent copy/legal review required |
 | Data export | Not proven by this audit | Do not claim |
 
 ## Campaign-safe wording today

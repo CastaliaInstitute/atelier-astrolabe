@@ -13,6 +13,7 @@
 
 #include "astrolabe_round_bezel.h"
 #include "faculty175_board.h"
+#include "faculty175_ble.h"
 #include "faculty175_cycle_arcs.h"
 #include "faculty175_km.h"
 #include "faculty175_lvgl.h"
@@ -899,12 +900,25 @@ static void draw_status(const faculty175_native_face_t *face, uint32_t anim_ms, 
     }
     if (face->id == FACULTY175_FACE_SETTINGS) {
         static const char *items[] = {"BATTERY", "WIFI", "BLUETOOTH", "FAMILY / OTA"};
-        for (int i = 0; i < 4; ++i) {
-            const int y = 156 + i * 48;
+        faculty175_ble_ring_telem_t rings[1] = {};
+        const size_t ring_count = faculty175_ble_ring_telemetry_snapshot(rings, 1);
+        uint16_t paired_id = 0;
+        const bool paired = faculty175_ble_ring_paired(&paired_id);
+        char ring_item[40];
+        if (paired) {
+            snprintf(ring_item, sizeof(ring_item), "RING %04X  PAIRED", paired_id);
+        } else if (ring_count > 0) {
+            snprintf(ring_item, sizeof(ring_item), "PAIR RING %04X", rings[0].ring_id);
+        } else {
+            snprintf(ring_item, sizeof(ring_item), "RING  TAP TO SCAN");
+        }
+        for (int i = 0; i < 5; ++i) {
+            const int y = 116 + i * 39;
             rect_outline(cx - 122, y - 12, 244, 28, rgb(42, 46, 58));
             faculty175_display_fill_rect(cx - 118, y - 8, 88 + i * 28, 20, tone(face->hue + i, 18));
-            centered_at(items[i], cx - 66, y - 5, rgb(236, 238, 242));
+            centered_at(i < 4 ? items[i] : ring_item, cx, y - 5, rgb(236, 238, 242));
         }
+        centered_at(paired ? "HOLD RING TO UNPAIR" : "TAP RING: SCAN / PAIR", cx, 338, dim);
         centered_at("SWIPE UP TO RETURN", cx, 370, dim);
         return;
     }

@@ -48,7 +48,8 @@ jobs:
             "cyber|Cyber|astrolabe-cyber-175" \
             "lunasay|LunaSay|astrolabe-lunasay-175"; do
             IFS='|' read -r variant label channel <<< "$spec"
-            rm -rf astrolabe175c/build
+            # Docker writes the prior variant's build as root on the runner.
+            sudo rm -rf astrolabe175c/build
             docker run --rm \
               -e ASTROLABE175C_SKIP_LVGL_AUDIT=1 \
               -e "ASTROLABE175C_VARIANT=${variant}" \

@@ -12,8 +12,8 @@ source "${IDF_PATH}/export.sh"
 ASTROLABE175C_FORCE_RECONFIGURE=0
 ASTROLABE175C_VARIANT="${ASTROLABE175C_VARIANT:-faculty}"
 case "${ASTROLABE175C_VARIANT}" in
-  faculty|cyber|lunasay) ;;
-  *) echo "error: ASTROLABE175C_VARIANT must be faculty, cyber, or lunasay" >&2; exit 2 ;;
+  faculty|cyber|lunasay|claw) ;;
+  *) echo "error: ASTROLABE175C_VARIANT must be faculty, cyber, lunasay, or claw" >&2; exit 2 ;;
 esac
 ASTROLABE175C_CMAKE_ARGS=(
   -D ASTROLABE_USB_OTA_DEMO_BOOT=0

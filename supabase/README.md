@@ -289,8 +289,9 @@ Query params:
 | Param | Aliases | Purpose |
 |-------|---------|---------|
 | `faculty` | `handle`, `slug` | Faculty id (`a.einstein`, `a-einstein`, `einstein`) |
-| `w` | `width` | Output width in px (48–320, default 192) |
-| `h` | `height` | Output height in px (48–360, default 240) |
+| `w` | `width` | Output width in px (48–512, default 192) |
+| `h` | `height` | Output height in px (48–512, default 240) |
+| `size` | — | Optional square shortcut (`380x380` or `380`) |
 | `q` | `quality` | JPEG quality when `format=jpeg` (35–90, default 72) |
 | `format` | — | `png` (default, transparent) or `jpeg` (black letterbox) |
 | `resize` | — | `contain` (default), `cover`, or `fill` |

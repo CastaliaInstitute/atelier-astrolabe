@@ -9,10 +9,12 @@ endif()
 string(TOLOWER "${ASTROLABE175C_BUILD_VARIANT}" ASTROLABE175C_BUILD_VARIANT)
 if(NOT ASTROLABE175C_BUILD_VARIANT STREQUAL "faculty" AND
    NOT ASTROLABE175C_BUILD_VARIANT STREQUAL "cyber" AND
-   NOT ASTROLABE175C_BUILD_VARIANT STREQUAL "lunasay")
-    message(FATAL_ERROR "ASTROLABE175C_BUILD_VARIANT must be faculty, cyber, or lunasay")
+   NOT ASTROLABE175C_BUILD_VARIANT STREQUAL "lunasay" AND
+   NOT ASTROLABE175C_BUILD_VARIANT STREQUAL "claw")
+    message(FATAL_ERROR "ASTROLABE175C_BUILD_VARIANT must be faculty, cyber, lunasay, or claw")
 endif()
 set(ASTROLABE175C_CYBER_FEATURES 0)
+set(ASTROLABE175C_FACTORY_RECOVERY 0)
 set(ASTROLABE175C_FIRMWARE_VARIANT "Faculty")
 set(ASTROLABE175C_OTA_CHANNEL "astrolabe-faculty-amoled175")
 set(FACULTY175_EMBED_TXTFILES)
@@ -26,6 +28,10 @@ if(ASTROLABE175C_BUILD_VARIANT STREQUAL "cyber")
 elseif(ASTROLABE175C_BUILD_VARIANT STREQUAL "lunasay")
     set(ASTROLABE175C_FIRMWARE_VARIANT "LunaSay")
     set(ASTROLABE175C_OTA_CHANNEL "astrolabe-lunasay-175")
+elseif(ASTROLABE175C_BUILD_VARIANT STREQUAL "claw")
+    set(ASTROLABE175C_FACTORY_RECOVERY 1)
+    set(ASTROLABE175C_FIRMWARE_VARIANT "Claw")
+    set(ASTROLABE175C_OTA_CHANNEL "astrolabe-claw-175")
 endif()
 
 file(GLOB PNGDEC_SRCS "${ASTROLABE_PNGDEC}/*.cpp" "${ASTROLABE_PNGDEC}/*.c")
@@ -83,15 +89,21 @@ idf_component_register(
         "faculty175_face_pocketwatch.c"
         "faculty175_face_incidents.c"
         "faculty175_pocketwatch.c"
+        "faculty175_astro_math.c"
+        "faculty175_human_design_math.c"
         "faculty175_charts.c"
         "faculty175_ephemeris.c"
         "faculty175_cycle_arcs.c"
+        "faculty175_cycle_health.c"
+        "faculty175_lunasay_followup.c"
+        "faculty175_relationship_weather.c"
         "faculty175_family.c"
         "faculty175_ble.c"
         "faculty175_ring.c"
         "faculty175_apocalypso.c"
         "faculty175_device_auth.c"
         "faculty175_device_settings.c"
+        "faculty175_research.c"
         "faculty175_spotify.c"
         ${FACULTY175_FACE_SRCS}
         "faculty175_face_human_design.c"
@@ -167,7 +179,11 @@ target_compile_definitions(${COMPONENT_LIB} PRIVATE __LINUX__ PNG_MAX_BUFFERED_P
 if(NOT DEFINED ASTROLABE_USB_OTA_DEMO_BOOT)
     set(ASTROLABE_USB_OTA_DEMO_BOOT 0)
 endif()
-set(ASTROLABE_USB_RUNTIME_ENABLED ${ASTROLABE175C_CYBER_FEATURES})
+if(ASTROLABE175C_CYBER_FEATURES OR ASTROLABE175C_FACTORY_RECOVERY)
+    set(ASTROLABE_USB_RUNTIME_ENABLED 1)
+else()
+    set(ASTROLABE_USB_RUNTIME_ENABLED 0)
+endif()
 set(ASTROLABE_KM_ENABLED ${ASTROLABE175C_CYBER_FEATURES})
 if(NOT DEFINED ASTROLABE_OTA_AUTO_INTERVAL_S)
     set(ASTROLABE_OTA_AUTO_INTERVAL_S 60)
@@ -179,12 +195,15 @@ target_compile_definitions(${COMPONENT_LIB} PRIVATE ASTROLABE_USB_OTA_DEMO_BOOT=
 target_compile_definitions(${COMPONENT_LIB} PRIVATE ASTROLABE_USB_RUNTIME_ENABLED=${ASTROLABE_USB_RUNTIME_ENABLED})
 target_compile_definitions(${COMPONENT_LIB} PRIVATE ASTROLABE_KM_ENABLED=${ASTROLABE_KM_ENABLED})
 target_compile_definitions(${COMPONENT_LIB} PRIVATE ASTROLABE_CYBER_FEATURES=${ASTROLABE175C_CYBER_FEATURES})
+target_compile_definitions(${COMPONENT_LIB} PRIVATE ASTROLABE_FACTORY_RECOVERY=${ASTROLABE175C_FACTORY_RECOVERY})
 target_compile_definitions(${COMPONENT_LIB} PRIVATE ASTROLABE_FIRMWARE_VARIANT="${ASTROLABE175C_FIRMWARE_VARIANT}")
 target_compile_definitions(${COMPONENT_LIB} PRIVATE ASTROLABE_FACULTY175_OTA_CHANNEL="${ASTROLABE175C_OTA_CHANNEL}")
 if(ASTROLABE175C_CYBER_FEATURES)
     target_compile_definitions(${COMPONENT_LIB} PRIVATE ASTROLABE_FORCE_VARIANT_CYBER=1)
 elseif(ASTROLABE175C_BUILD_VARIANT STREQUAL "lunasay")
     target_compile_definitions(${COMPONENT_LIB} PRIVATE ASTROLABE_FORCE_VARIANT_LUNASAY=1)
+elseif(ASTROLABE175C_BUILD_VARIANT STREQUAL "claw")
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE ASTROLABE_FORCE_VARIANT_CLAW=1 ASTROLABE_CLAW_VARIANT=1)
 endif()
 target_compile_definitions(${COMPONENT_LIB} PRIVATE ASTROLABE_OTA_AUTO_INTERVAL_S=${ASTROLABE_OTA_AUTO_INTERVAL_S})
 if(DEFINED ASTROLABE_VOICE_HTTP_URL AND NOT "${ASTROLABE_VOICE_HTTP_URL}" STREQUAL "")

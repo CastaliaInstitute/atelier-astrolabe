@@ -14,6 +14,8 @@ extern "C" {
 /** Start USB serial command reader (`screen`, `qa status`, …). */
 void faculty175_serial_init(void);
 TaskHandle_t faculty175_serial_task_handle(void);
+/** Queue one authenticated Wi-Fi-console command for normal serial dispatch. */
+esp_err_t faculty175_serial_submit_remote(const char *line);
 
 typedef struct {
     uint32_t sequence;
@@ -28,8 +30,25 @@ typedef struct {
 
 void faculty175_qa_voice_status(faculty175_qa_voice_status_t *out);
 
+typedef struct {
+    uint32_t sequence;
+    bool busy;
+    uint32_t started_ms;
+    uint32_t completed_ms;
+    esp_err_t err;
+    char slug[32];
+} faculty175_face_tts_status_t;
+
+/** Snapshot the last/current per-face TTS request for remote tour verification. */
+void faculty175_face_tts_status(faculty175_face_tts_status_t *out);
+
 /** Request a TTS reading of the current face. */
 bool faculty175_request_current_face_tts(void);
+/** Run the concise LunaSay showcase faces in sequence, reading each one aloud. */
+bool faculty175_request_face_tour(void);
+/** A tour stops after its current spoken face; it never interrupts audio mid-sentence. */
+void faculty175_request_face_tour_stop(void);
+bool faculty175_face_tour_active(void);
 esp_err_t faculty175_request_qa_stt(uint32_t capture_ms);
 /** Queue STT so app_main can release the HTTP server's internal-RAM stack first. */
 esp_err_t faculty175_request_qa_stt_deferred(uint32_t capture_ms);

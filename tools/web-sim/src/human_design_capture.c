@@ -22,11 +22,11 @@ time_t astrolabe_time_now(void) { return 1783519200; }
 bool faculty175_ephemeris_fetch_human_design_epoch(time_t utc_epoch, faculty175_hd_positions_t *out)
 {
     static const double base[FACULTY175_HD_BODY_COUNT] = {
-        280.5, 100.5, 218.3, 296.1, 334.2, 54.7, 72.0, 312.0, 41.0, 350.0, 298.0, 23.0,
+        280.5, 100.5, 218.3, 296.1, 334.2, 54.7, 72.0, 312.0, 41.0, 350.0, 298.0, 23.0, 203.0,
     };
     static const double rate[FACULTY175_HD_BODY_COUNT] = {
         0.985647, 0.985647, 13.176358, 4.092334, 1.602130, 0.524021,
-        0.083085, 0.033444, 0.011728, 0.005981, 0.003964, -0.052953,
+        0.083085, 0.033444, 0.011728, 0.005981, 0.003964, -0.052953, -0.052953,
     };
     if (out == NULL) {
         return false;
@@ -41,6 +41,8 @@ bool faculty175_ephemeris_fetch_human_design_epoch(time_t utc_epoch, faculty175_
         }
         out->lon[i] = lon;
     }
+    out->lon[FACULTY175_HD_BODY_SOUTH_NODE] =
+        fmod(out->lon[FACULTY175_HD_BODY_TRUE_NODE] + 180.0, 360.0);
     out->lon[FACULTY175_HD_BODY_EARTH] = fmod(out->lon[FACULTY175_HD_BODY_SUN] + 180.0, 360.0);
     out->ok = true;
     out->from_network = false;
@@ -50,7 +52,7 @@ bool faculty175_ephemeris_fetch_human_design_epoch(time_t utc_epoch, faculty175_
 const char *faculty175_ephemeris_hd_body_label(faculty175_hd_body_t body)
 {
     static const char *const labels[FACULTY175_HD_BODY_COUNT] = {
-        "SUN", "EAR", "MOO", "MER", "VEN", "MAR", "JUP", "SAT", "URA", "NEP", "PLU", "NOD",
+        "SUN", "EAR", "MOO", "MER", "VEN", "MAR", "JUP", "SAT", "URA", "NEP", "PLU", "NNO", "SNO",
     };
     return body >= 0 && body < FACULTY175_HD_BODY_COUNT ? labels[body] : "?";
 }

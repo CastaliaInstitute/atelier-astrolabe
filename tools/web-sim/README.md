@@ -47,6 +47,23 @@ tested without flashing hardware:
   simulate TTS completion in headless environments where native speech output is
   unavailable or not mockable.
 
+## Astrology Validation
+
+The validation panel runs `faculty175_astro_math.c` in WebAssembly—the same
+low-memory geocentric longitude implementation compiled into ESP-IDF firmware.
+Enter any UTC time to inspect the Sun, Moon, Mercury, Venus, Mars, Jupiter, and
+Saturn positions.
+
+The default `2026-08-01 12:00:00 UTC` case is compared with NASA/JPL Horizons
+observer quantity 31 (geocentric true ecliptic-of-date longitude). The panel
+passes when every body is within the firmware's one-degree accuracy target.
+It also validates the resulting astrology Sun/Moon statement and Human Design
+Personality/Design Sun and Moon gate-lines. The Design epoch is solved from the
+exact 88-degree solar arc rather than approximated as 88 elapsed days.
+
+This validates deterministic chart mechanics only. Human Design interpretations
+are an esoteric framework, not scientifically established claims.
+
 ## Architecture
 
 - `tools/web-sim/CMakeLists.txt` globs and compiles

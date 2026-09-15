@@ -1,0 +1,8 @@
+# Atelier repository identity
+atelier: true
+organization: CastaliaInstitute
+project: astrolabe
+product: device
+maturity: sapling
+hardware_availability: beta-hardware-available-now
+pages_url: https://astrolabe.castalia.institute/

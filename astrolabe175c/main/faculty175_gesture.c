@@ -14,8 +14,8 @@
 
 static const char *TAG = "faculty_gesture";
 
-#define GESTURE_SWIPE_MIN_PX 14
-#define GESTURE_SWIPE_MAX_MS 1800
+#define GESTURE_SWIPE_MIN_PX 32
+#define GESTURE_SWIPE_MAX_MS 900
 #define GESTURE_TAP_MAX_PX 12
 #define GESTURE_TAP_MAX_MS 650
 #define GESTURE_LONG_TAP_MS 480
@@ -76,12 +76,14 @@ static int16_t centroid1(const int16_t *v, uint8_t n)
 
 static bool horizontal_swipe(int16_t madx, int16_t mady)
 {
-    return madx >= GESTURE_SWIPE_MIN_PX && ((int32_t)madx * 10) >= ((int32_t)mady * 7);
+    /* A deliberate swipe must have a clear dominant axis. This keeps a
+     * diagonal finger lift or a touch-indicator wobble from changing faces. */
+    return madx >= GESTURE_SWIPE_MIN_PX && ((int32_t)madx * 5) >= ((int32_t)mady * 8);
 }
 
 static bool vertical_swipe(int16_t madx, int16_t mady)
 {
-    return mady >= GESTURE_SWIPE_MIN_PX && ((int32_t)mady * 10) >= ((int32_t)madx * 7);
+    return mady >= GESTURE_SWIPE_MIN_PX && ((int32_t)mady * 5) >= ((int32_t)madx * 8);
 }
 
 static const char *gesture_name(faculty175_gesture_kind_t kind)

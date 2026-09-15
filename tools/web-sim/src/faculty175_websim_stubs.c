@@ -9,6 +9,7 @@
 #include <emscripten.h>
 
 #include "astrolabe_time.h"
+#include "faculty175_astro_math.h"
 #include "esp_err.h"
 #include "esp_heap_caps.h"
 #include "esp_netif_ip_addr.h"
@@ -19,8 +20,10 @@
 #include "faculty175_almanac.h"
 #include "faculty175_apocalypso.h"
 #include "faculty175_board.h"
+#include "faculty175_breath.h"
 #include "faculty175_ble.h"
 #include "faculty175_charts.h"
+#include "faculty175_cycle_health.h"
 #include "faculty175_device_settings.h"
 #include "faculty175_face_native.h"
 #include "faculty175_face_tarot_image.h"
@@ -29,13 +32,19 @@
 #include "faculty175_faculty.h"
 #include "faculty175_family.h"
 #include "faculty175_lvgl.h"
+#include "faculty175_pocketwatch.h"
+#include "faculty175_power_history.h"
+#include "faculty175_power_metrics.h"
 #include "faculty175_quotes.h"
+#include "faculty175_research.h"
 #include "faculty175_ring.h"
 #include "faculty175_rocket.h"
+#include "faculty175_spotify.h"
 #include "faculty175_touch.h"
 #include "faculty175_wifi_settings.h"
 #include "faculty175_wifi_lab.h"
 #include "faculty175_wifi_monitor.h"
+
 #if __has_include("faculty175_usb_screen.h")
 #include "faculty175_usb_screen.h"
 #endif
@@ -63,6 +72,56 @@ typedef struct {
 static uint16_t s_fb[FACULTY175_LCD_W * FACULTY175_LCD_H];
 static bool s_flush_suspended;
 static uint32_t s_tick_ms;
+
+void faculty175_research_init(void) {}
+esp_err_t faculty175_research_set_consent(bool enabled, const char *version)
+{
+    (void)enabled;
+    (void)version;
+    return ESP_FAIL;
+}
+bool faculty175_research_consent_enabled(void) { return false; }
+esp_err_t faculty175_research_record_mood(const char *mood,
+                                          uint8_t arousal,
+                                          uint8_t valence)
+{
+    (void)mood;
+    (void)arousal;
+    (void)valence;
+    return ESP_FAIL;
+}
+esp_err_t faculty175_research_record_feedback(const char *face,
+                                              const char *rating,
+                                              const char *reading_date)
+{
+    (void)face;
+    (void)rating;
+    (void)reading_date;
+    return ESP_FAIL;
+}
+esp_err_t faculty175_research_resonance_json(char *out, size_t cap)
+{
+    if (out == NULL || cap < 3) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    snprintf(out, cap, "{}");
+    return ESP_OK;
+}
+void faculty175_research_poll(void) {}
+void faculty175_research_status(faculty175_research_status_t *out)
+{
+    if (out != NULL) {
+        memset(out, 0, sizeof(*out));
+        out->state = FACULTY175_RESEARCH_OFF;
+        snprintf(out->consent_version, sizeof(out->consent_version),
+                 "%s", "research-v2");
+    }
+}
+const char *faculty175_research_state_label(faculty175_research_state_t state)
+{
+    (void)state;
+    return "local only";
+}
 
 const uint8_t _binary_pocketwatch_default_rgb565_start[FACULTY175_LCD_W * FACULTY175_LCD_H * sizeof(uint16_t)] = {0};
 const uint8_t _binary_maze_466_png_start[1] = {0};
@@ -515,6 +574,103 @@ const esp_partition_t *esp_partition_find_first(esp_partition_type_t type,
     return NULL;
 }
 void vTaskDelay(TickType_t ticks) { (void)ticks; }
+void vTaskDelete(TaskHandle_t task) { (void)task; }
+int xTaskCreate(void (*task)(void *),
+                const char *name,
+                uint32_t stack_depth,
+                void *argument,
+                unsigned priority,
+                TaskHandle_t *handle)
+{
+    (void)task;
+    (void)name;
+    (void)stack_depth;
+    (void)argument;
+    (void)priority;
+    if (handle != NULL) {
+        *handle = NULL;
+    }
+    return pdFAIL;
+}
+
+void faculty175_power_metrics_status(faculty175_power_metrics_t *out)
+{
+    if (out != NULL) {
+        memset(out, 0, sizeof(*out));
+        out->remaining_hours = 18.0f;
+        out->estimate_valid = true;
+    }
+}
+bool faculty175_power_history_estimate(const faculty175_pmu_status_t *pmu,
+                                       faculty175_power_history_estimate_t *out)
+{
+    (void)pmu;
+    if (out != NULL) {
+        memset(out, 0, sizeof(*out));
+    }
+    return false;
+}
+esp_err_t faculty175_cycle_health_status(faculty175_cycle_health_status_t *out)
+{
+    if (out == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    *out = (faculty175_cycle_health_status_t){
+        .configured = true,
+        .time_valid = true,
+        .day = 12,
+        .cycle_length = 28,
+        .period_length = 5,
+        .phase = FACULTY175_CYCLE_PHASE_FOLLICULAR,
+    };
+    snprintf(out->start_date, sizeof(out->start_date), "2026-07-12");
+    return ESP_OK;
+}
+const char *faculty175_cycle_health_phase_label(faculty175_cycle_phase_t phase)
+{
+    static const char *labels[] = {"unknown", "menstruation", "follicular", "ovulation", "luteal"};
+    return labels[(phase >= FACULTY175_CYCLE_PHASE_UNKNOWN && phase <= FACULTY175_CYCLE_PHASE_LUTEAL)
+                      ? phase
+                      : FACULTY175_CYCLE_PHASE_UNKNOWN];
+}
+void faculty175_breath_update(uint32_t now_ms, bool sample_valid, float pitch_deg, float roll_deg)
+{
+    (void)now_ms;
+    (void)sample_valid;
+    (void)pitch_deg;
+    (void)roll_deg;
+}
+void faculty175_breath_status(faculty175_breath_status_t *out)
+{
+    if (out != NULL) {
+        memset(out, 0, sizeof(*out));
+        out->state = FACULTY175_BREATH_TRACKING;
+        out->rate_bpm = 6.0f;
+        out->confidence = 0.9f;
+    }
+}
+void faculty175_breath_guide_update(faculty175_breath_guide_phase_t phase,
+                                    uint32_t phase_ms,
+                                    uint32_t cycle,
+                                    float target)
+{
+    (void)phase;
+    (void)phase_ms;
+    (void)cycle;
+    (void)target;
+}
+void faculty175_breath_stream_maybe_emit(uint32_t now_ms) { (void)now_ms; }
+void faculty175_spotify_poll(void) {}
+void faculty175_spotify_status(faculty175_spotify_status_t *out)
+{
+    if (out != NULL) {
+        memset(out, 0, sizeof(*out));
+        out->ok = true;
+        snprintf(out->track, sizeof(out->track), "WebSim");
+        snprintf(out->artist, sizeof(out->artist), "LunaSay");
+    }
+}
+bool faculty175_pocketwatch_background_enabled(void) { return false; }
 TickType_t xTaskGetTickCount(void) { return (TickType_t)s_tick_ms; }
 
 esp_err_t nvs_open(const char *name, int open_mode, nvs_handle_t *out_handle) { (void)name; (void)open_mode; if (out_handle) *out_handle = 1; return ESP_OK; }
@@ -1222,27 +1378,47 @@ bool faculty175_charts_active(faculty175_birth_chart_t *out)
 }
 bool faculty175_charts_birth_positions(const faculty175_birth_chart_t *birth, faculty175_chart_positions_t *out)
 {
-    if (!out) {
+    time_t epoch = 0;
+    if (!faculty175_charts_birth_to_utc(birth, &epoch)) {
         return false;
     }
-    uint32_t hash = 2166136261u;
-    if (birth != NULL) {
-        for (const char *p = birth->name; *p != '\0'; ++p) {
-            hash ^= (uint8_t)*p;
-            hash *= 16777619u;
-        }
-        hash ^= birth->year;
-        hash *= 16777619u;
-        hash ^= ((uint32_t)birth->month << 8) | birth->day;
-        hash *= 16777619u;
+    return faculty175_astro_positions_at_epoch(epoch, out);
+}
+static bool websim_leap_year(int year)
+{
+    return (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
+}
+static int64_t websim_days_from_civil(int year, unsigned month, unsigned day)
+{
+    year -= month <= 2;
+    const int era = (year >= 0 ? year : year - 399) / 400;
+    const unsigned year_of_era = (unsigned)(year - era * 400);
+    const unsigned day_of_year = (153 * (month + (month > 2 ? -3 : 9)) + 2) / 5 + day - 1;
+    const unsigned day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+    return (int64_t)era * 146097 + (int64_t)day_of_era - 719468;
+}
+bool faculty175_charts_birth_to_utc(const faculty175_birth_chart_t *birth, time_t *utc_out)
+{
+    static const uint8_t days_in_month[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    if (birth == NULL || utc_out == NULL || !birth->valid || birth->year < 1900 ||
+        birth->month < 1 || birth->month > 12 || birth->day < 1 ||
+        birth->hour > 23 || birth->minute > 59) {
+        return false;
     }
-    for (int i = 0; i < FACULTY175_CHART_BODY_COUNT; ++i) {
-        out->lon[i] = fmod((double)((hash >> (i % 4)) + i * 47u + s_tick_ms / 160u), 360.0);
+    const uint8_t max_day =
+        birth->month == 2 && websim_leap_year(birth->year) ? 29 : days_in_month[birth->month - 1];
+    if (birth->day > max_day) {
+        return false;
     }
-    out->ok = true;
+    const int64_t local = websim_days_from_civil(birth->year, birth->month, birth->day) * 86400 +
+                          (int64_t)birth->hour * 3600 + (int64_t)birth->minute * 60;
+    *utc_out = (time_t)(local - (int64_t)birth->tz_offset_sec);
     return true;
 }
-bool faculty175_charts_birth_to_utc(const faculty175_birth_chart_t *birth, time_t *utc_out) { (void)birth; if (utc_out) *utc_out = time(NULL); return true; }
+bool faculty175_charts_positions_at(time_t epoch, faculty175_chart_positions_t *out)
+{
+    return faculty175_astro_positions_at_epoch(epoch, out);
+}
 const char *faculty175_charts_body_label(int body) { static const char *labels[] = {"Su", "Mo", "Me", "Ve", "Ma", "Ju", "Sa"}; return labels[(body >= 0 && body < 7) ? body : 0]; }
 const char *faculty175_charts_zodiac_abbr(double lon) { static const char *z[] = {"AR", "TA", "GE", "CN", "LE", "VI", "LI", "SC", "SG", "CP", "AQ", "PI"}; int i = (int)(lon / 30.0); return z[(i >= 0 && i < 12) ? i : 0]; }
 
@@ -1251,11 +1427,11 @@ const char *faculty175_charts_zodiac_abbr(double lon) { static const char *z[] =
 bool faculty175_ephemeris_fetch_human_design_epoch(time_t utc_epoch, faculty175_hd_positions_t *out)
 {
     static const double base[FACULTY175_HD_BODY_COUNT] = {
-        280.5, 100.5, 218.3, 296.1, 334.2, 54.7, 72.0, 312.0, 41.0, 350.0, 298.0, 23.0,
+        280.5, 100.5, 218.3, 296.1, 334.2, 54.7, 72.0, 312.0, 41.0, 350.0, 298.0, 23.0, 203.0,
     };
     static const double rate[FACULTY175_HD_BODY_COUNT] = {
         0.985647, 0.985647, 13.176358, 4.092334, 1.602130, 0.524021,
-        0.083085, 0.033444, 0.011728, 0.005981, 0.003964, -0.052953,
+        0.083085, 0.033444, 0.011728, 0.005981, 0.003964, -0.052953, -0.052953,
     };
     if (out == NULL) {
         return false;
@@ -1269,7 +1445,29 @@ bool faculty175_ephemeris_fetch_human_design_epoch(time_t utc_epoch, faculty175_
         }
         out->lon[i] = lon;
     }
-    out->lon[FACULTY175_HD_BODY_EARTH] = fmod(out->lon[FACULTY175_HD_BODY_SUN] + 180.0, 360.0);
+    out->lon[FACULTY175_HD_BODY_SOUTH_NODE] =
+        fmod(out->lon[FACULTY175_HD_BODY_TRUE_NODE] + 180.0, 360.0);
+    faculty175_chart_positions_t inner = {0};
+    if (faculty175_astro_positions_at_epoch(utc_epoch, &inner)) {
+        out->lon[FACULTY175_HD_BODY_SUN] = inner.lon[0];
+        out->lon[FACULTY175_HD_BODY_EARTH] = fmod(inner.lon[0] + 180.0, 360.0);
+        out->lon[FACULTY175_HD_BODY_MOON] = inner.lon[1];
+        out->lon[FACULTY175_HD_BODY_MERCURY] = inner.lon[2];
+        out->lon[FACULTY175_HD_BODY_VENUS] = inner.lon[3];
+        out->lon[FACULTY175_HD_BODY_MARS] = inner.lon[4];
+        out->lon[FACULTY175_HD_BODY_JUPITER] = inner.lon[5];
+        out->lon[FACULTY175_HD_BODY_SATURN] = inner.lon[6];
+    } else {
+        out->lon[FACULTY175_HD_BODY_EARTH] = fmod(out->lon[FACULTY175_HD_BODY_SUN] + 180.0, 360.0);
+    }
+    (void)faculty175_astro_slow_positions_at_epoch(
+        utc_epoch,
+        &out->lon[FACULTY175_HD_BODY_URANUS],
+        &out->lon[FACULTY175_HD_BODY_NEPTUNE],
+        &out->lon[FACULTY175_HD_BODY_PLUTO],
+        &out->lon[FACULTY175_HD_BODY_TRUE_NODE]);
+    out->lon[FACULTY175_HD_BODY_SOUTH_NODE] =
+        fmod(out->lon[FACULTY175_HD_BODY_TRUE_NODE] + 180.0, 360.0);
     out->ok = true;
     out->from_network = false;
     return true;
@@ -1278,7 +1476,7 @@ bool faculty175_ephemeris_fetch_human_design_epoch(time_t utc_epoch, faculty175_
 const char *faculty175_ephemeris_hd_body_label(faculty175_hd_body_t body)
 {
     static const char *const labels[FACULTY175_HD_BODY_COUNT] = {
-        "SUN", "EAR", "MOO", "MER", "VEN", "MAR", "JUP", "SAT", "URA", "NEP", "PLU", "NOD",
+        "SUN", "EAR", "MOO", "MER", "VEN", "MAR", "JUP", "SAT", "URA", "NEP", "PLU", "NNO", "SNO",
     };
     return body >= 0 && body < FACULTY175_HD_BODY_COUNT ? labels[body] : "?";
 }

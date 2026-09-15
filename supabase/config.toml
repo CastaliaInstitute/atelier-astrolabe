@@ -20,3 +20,6 @@ verify_jwt = true
 
 [functions.mynah-family-repo]
 verify_jwt = true
+
+[functions.lunasay-event]
+verify_jwt = true

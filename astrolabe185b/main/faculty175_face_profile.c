@@ -16,7 +16,8 @@ static faculty175_face_profile_t s_profile = FACULTY175_FACE_PROFILE_DEFAULT;
 
 static bool face_is_anchor(faculty175_face_id_t id)
 {
-    return id == FACULTY175_FACE_POCKETWATCH || id == FACULTY175_FACE_SETTINGS;
+    return id == FACULTY175_FACE_POCKETWATCH || id == FACULTY175_FACE_SETTINGS ||
+           id == FACULTY175_FACE_OTA || (ASTROLABE185B_CYBER_FEATURES && id == FACULTY175_FACE_LINUX);
 }
 
 static bool face_is_nav_anchor(faculty175_face_id_t id)
@@ -94,6 +95,7 @@ static const faculty175_face_id_t k_castalia_faces[] = {
     FACULTY175_FACE_TRON,
     FACULTY175_FACE_SCALE,
     FACULTY175_FACE_HID,
+    FACULTY175_FACE_LINUX,
     FACULTY175_FACE_SPOTIFY,
 };
 

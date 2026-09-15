@@ -136,6 +136,9 @@ int faculty175_display_write_bmp(FILE *out);
 typedef esp_err_t (*faculty175_display_write_cb_t)(void *ctx, const uint8_t *data, size_t len);
 size_t faculty175_display_bmp565_size(void);
 esp_err_t faculty175_display_write_bmp565(faculty175_display_write_cb_t write_cb, void *ctx);
+esp_err_t faculty175_display_write_bmp565_frame(const uint16_t *frame,
+                                                faculty175_display_write_cb_t write_cb,
+                                                void *ctx);
 
 bool faculty175_button_pressed(void);
 bool faculty175_button_just_pressed(void);

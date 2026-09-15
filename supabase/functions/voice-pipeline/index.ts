@@ -7,6 +7,35 @@ import {
   SYSTEM_VOICE_FACE_DAILY_BRIEFING,
 } from "../_shared/dailyBriefing.ts";
 import {
+  buildLunaSayDailyFaceInstruction,
+  buildLunaSayDailyPacketInstruction,
+  LUNASAY_DAILY_PACKET_FACE,
+  LUNASAY_GENERATED_DAILY_FACE_IDS,
+  type LunaSayDailyFaceId,
+  lunaSayDailyFaceJsonSchema,
+  lunaSayDailyPacketFallback,
+  lunaSayDailyPacketJsonSchema,
+  lunaSayDateForEpoch,
+  lunaSayFocusedFacts,
+  lunaSayRequiredEvidence,
+  lunaSayRequiredTemporalEvidence,
+  lunaSayRequiredWeatherEvidence,
+  normalizeLunaSayTimezone,
+  parseLunaSayDailyFace,
+  parseLunaSayDailyPacket,
+} from "../_shared/lunasayDailyPacket.ts";
+import {
+  lunaSayContinuityInstruction,
+  lunaSayContinuityIssue,
+  lunaSayPriorFaces,
+  parseLunaSayReadingMemory,
+} from "../_shared/lunasayContinuity.ts";
+import { scoreLunaSayReadingQuality } from "../_shared/lunasayReadingQuality.ts";
+import {
+  lunaSayResonanceInstruction,
+  parseLunaSayResonanceProfile,
+} from "../_shared/lunasayResonance.ts";
+import {
   capTextForWatchTts,
   corsHeaders,
   envKeys,
@@ -50,6 +79,7 @@ import { verifyAstrolabeDevice } from "../_shared/deviceAuth.ts";
 import { scheduleLunaSayGithubLog } from "../_shared/lunasayGithubLog.ts";
 import {
   checkVoiceUsageGate,
+  estimateGeminiFlashTtsUsd,
   estimateGeminiUsd,
   estimateSttUsd,
   estimateTokensFromChars,
@@ -81,6 +111,14 @@ type ReqBody = {
   briefingFacts?: string;
   /** Device local civil hour, 0-23, used to soften evening/night TTS. */
   localHour?: number;
+  /** IANA timezone used to make a cache packet unambiguous across midnight. */
+  timezone?: string;
+  /** Product profile, so delivery can remain LunaSay-specific despite a shared voice service. */
+  deviceProfile?: string;
+  /** Bounded, device-local per-face rating counts used only for writing calibration. */
+  resonanceProfile?: unknown;
+  /** Prior server-generated face summaries from the device's rotating daily cache. */
+  readingMemory?: unknown;
   /** Faculty id/slug whose Google TTS voice should be used for faculty-flavored replies. */
   facultySlug?: string;
   /** Optional display name for the faculty metadata headers / logging fallback. */
@@ -121,6 +159,34 @@ type AskFacultyResponse = {
   facultyName?: string;
   facultyBustUrl?: string | null;
 };
+
+const LUNASAY_TTS_PROMPT =
+  "Speak close, soft, and lucid, like a calm companion sharing a small piece of night-sky wisdom. Use an easy, natural conversational pace and clear diction for a small speaker. Let the mystery come from the words. Never sound slow, low, ominous, breathy, theatrical, or like a meditation recording.";
+
+const LUNASAY_DAILY_TTS_FACES = new Set([
+  "moon",
+  "astrology",
+  "transits",
+  "synastry",
+  "tarot",
+  "sky",
+]);
+
+function isLunaSayProfile(value: unknown): boolean {
+  return typeof value === "string" && value.trim().toLowerCase() === "lunasay";
+}
+
+function lunaSayDailyGeminiTtsVoice(face: string, profile: unknown) {
+  if (!isLunaSayProfile(profile) || !LUNASAY_DAILY_TTS_FACES.has(face)) {
+    return undefined;
+  }
+  return {
+    languageCode: Deno.env.get("LUNASAY_TTS_LANGUAGE_CODE")?.trim() || "en-US",
+    name: Deno.env.get("LUNASAY_GEMINI_TTS_VOICE")?.trim() || "Kore",
+    modelName: Deno.env.get("LUNASAY_GEMINI_TTS_MODEL")?.trim() ||
+      "gemini-2.5-flash-tts",
+  };
+}
 
 type AlethiometerReply = {
   questionSymbols: number[];
@@ -730,11 +796,19 @@ async function voicePipelineOk(
   const facultyTts = ttsOverride
     ? undefined
     : await resolveFacultyTtsConfig(payload.facultySlug);
-  const ttsVoice = ttsOverride ??
+  const ttsVoice = ttsOverride ?? lunaSayDailyGeminiTtsVoice(
+    payload.face ?? "",
+    body.deviceProfile,
+  ) ??
     (facultyTts
       ? { languageCode: facultyTts.languageCode, name: facultyTts.name }
       : undefined);
-  const ttsPrompt = facultyTts?.prompt;
+  /* LunaSay has one product voice across all its faces.  It must not inherit
+   * an incidental historical-faculty delivery prompt from a shared device
+   * configuration. */
+  const ttsPrompt = isLunaSayProfile(body.deviceProfile)
+    ? LUNASAY_TTS_PROMPT
+    : facultyTts?.prompt;
   const generateTts = shouldGenerateTts(req, body);
 
   const usageUserId = await resolveVoiceUsageUserId(req);
@@ -802,7 +876,9 @@ async function voicePipelineOk(
     const voice = watchTtsVoiceSelection({ voice: ttsVoice });
     const ttsGate = await ensureVoiceBudget(
       req,
-      estimateTtsUsd(spoken.length + (ttsPrompt?.length ?? 0), voice.name),
+      voice.modelName
+        ? estimateGeminiFlashTtsUsd(spoken.length, ttsPrompt?.length ?? 0)
+        : estimateTtsUsd(spoken.length + (ttsPrompt?.length ?? 0), voice.name),
     );
     if (ttsGate) return ttsGate;
     const mp3 = await ttsMp3Bytes(tts, spoken, ttsOptions(localHour));
@@ -988,6 +1064,10 @@ async function meteredGeminiGenerate(
     route: string;
     face?: string;
     facultySlug?: string;
+    responseMimeType?: "application/json";
+    responseJsonSchema?: Record<string, unknown>;
+    maxOutputTokens?: number;
+    thinkingLevel?: "minimal" | "low" | "medium" | "high";
   },
 ): Promise<string> {
   const reply = await geminiGenerate({
@@ -995,6 +1075,10 @@ async function meteredGeminiGenerate(
     model: params.model,
     systemInstruction: params.systemInstruction,
     userText: params.userText,
+    responseMimeType: params.responseMimeType,
+    responseJsonSchema: params.responseJsonSchema,
+    maxOutputTokens: params.maxOutputTokens,
+    thinkingLevel: params.thinkingLevel,
   });
   const inputTokens = estimateTokensFromChars(
     params.systemInstruction.length + params.userText.length,
@@ -1161,6 +1245,13 @@ Deno.serve(async (req: Request) => {
   const ttsText = (body.ttsText ?? "").trim();
 
   try {
+    if (
+      face === LUNASAY_DAILY_PACKET_FACE ||
+      (ttsText && isLunaSayProfile(body.deviceProfile))
+    ) {
+      const authError = await verifyAstrolabeDevice(req, true);
+      if (authError) return authError;
+    }
     if (ttsText) {
       return await voicePipelineOk(req, body, {
         transcript: (message || ttsText).trim(),
@@ -1294,6 +1385,365 @@ Deno.serve(async (req: Request) => {
       });
     }
 
+    if (face === LUNASAY_DAILY_PACKET_FACE) {
+      if (!gemini) {
+        return jsonResponse(500, {
+          error:
+            "Server missing GOOGLE_GEMINI_API_KEY, GOOGLE_AI_API_KEY, or GOOGLE_CLOUD_API_KEY",
+        });
+      }
+      const epochSeconds = typeof body.epochSeconds === "number" &&
+          Number.isFinite(body.epochSeconds)
+        ? Math.floor(body.epochSeconds)
+        : Math.floor(Date.now() / 1000);
+      const timezone = normalizeLunaSayTimezone(body.timezone);
+      const dailyPacketModel = (body.geminiModel ??
+        Deno.env.get("GEMINI_LUNASAY_DAILY_MODEL") ?? "gemini-2.5-flash")
+        .trim();
+      const date = lunaSayDateForEpoch(epochSeconds, timezone);
+      const facts = await buildDailyBriefingTranscript({
+        epochSeconds,
+        deviceFacts: (body.briefingFacts ?? "").trim(),
+      });
+      const generationMode =
+        Deno.env.get("LUNASAY_DAILY_GENERATION_MODE")?.trim().toLowerCase() ===
+            "packet"
+          ? "packet"
+          : "per_face";
+      if (generationMode === "per_face") {
+        const resonanceProfile = parseLunaSayResonanceProfile(
+          body.resonanceProfile,
+        );
+        const readingMemory = parseLunaSayReadingMemory(
+          body.readingMemory,
+          date,
+        );
+        const perFaceModel =
+          Deno.env.get("GEMINI_LUNASAY_FACE_MODEL")?.trim() ||
+          "gemini-2.5-flash";
+        const generatedFaceIds = LUNASAY_GENERATED_DAILY_FACE_IDS;
+        const prompts = await Promise.all(generatedFaceIds.map(async (id) => {
+          let systemInstruction = buildLunaSayDailyFaceInstruction({
+            id,
+            date,
+            timezone,
+          });
+          const resonanceInstruction = lunaSayResonanceInstruction(
+            id,
+            resonanceProfile,
+          );
+          if (resonanceInstruction) {
+            systemInstruction += ` ${resonanceInstruction}`;
+          }
+          const requiredEvidence = lunaSayRequiredEvidence(id, facts);
+          const requiredWeatherEvidence = lunaSayRequiredWeatherEvidence(
+            id,
+            facts,
+          );
+          const requiredTemporalEvidence = lunaSayRequiredTemporalEvidence(
+            id,
+            facts,
+          );
+          const priorFaces = lunaSayPriorFaces(readingMemory, id);
+          const continuityInstruction = await lunaSayContinuityInstruction(
+            id,
+            readingMemory,
+            requiredEvidence,
+          );
+          if (continuityInstruction) {
+            systemInstruction += ` ${continuityInstruction}`;
+          }
+          if (requiredEvidence) {
+            systemInstruction += ` For this request, set evidence exactly to ${
+              JSON.stringify(requiredEvidence)
+            }.`;
+          }
+          if (requiredWeatherEvidence) {
+            systemInstruction += ` Set weatherEvidence exactly to ${
+              JSON.stringify(requiredWeatherEvidence)
+            }.`;
+          }
+          if (requiredTemporalEvidence) {
+            systemInstruction += ` Set temporalEvidence exactly to ${
+              JSON.stringify(requiredTemporalEvidence)
+            }. The server derives next from that exact evidence; do not add a calendar date or event to now.`;
+          }
+          const focusedFacts = lunaSayFocusedFacts(id, facts);
+          const userText =
+            `DATE CONTEXT:\n${date} (${timezone})\n\nDAILY FACTS:\n${
+              focusedFacts || facts
+            }`;
+          return {
+            id,
+            systemInstruction,
+            userText,
+            requiredEvidence,
+            requiredWeatherEvidence,
+            requiredTemporalEvidence,
+            resonanceApplied: resonanceInstruction.length > 0,
+            priorFaces,
+            continuityApplied: continuityInstruction.length > 0,
+          };
+        }));
+        const inputTokens = prompts.reduce(
+          (total, prompt) =>
+            total +
+            estimateTokensFromChars(
+              prompt.systemInstruction.length + prompt.userText.length,
+            ),
+          0,
+        );
+        const geminiGate = await ensureVoiceBudget(
+          req,
+          estimateGeminiUsd(
+            inputTokens * 2,
+            generatedFaceIds.length * 2 * 1024,
+          ),
+        );
+        if (geminiGate) return geminiGate;
+
+        const fallbackPacket = lunaSayDailyPacketFallback({
+          date,
+          timezone,
+          facts,
+        });
+        const faces = { ...fallbackPacket.faces };
+        const faceFallbacks: LunaSayDailyFaceId[] = [];
+        const faceFallbackReasons: Partial<
+          Record<LunaSayDailyFaceId, string>
+        > = {};
+        let llmCalls = 0;
+        const results = await Promise.all(prompts.map(async (prompt) => {
+          let lastReason = "unknown validation failure";
+          const retryReasons: string[] = [];
+          for (let attempt = 0; attempt < 2; attempt++) {
+            try {
+              llmCalls++;
+              const raw = await meteredGeminiGenerate(req, {
+                apiKey: gemini,
+                model: perFaceModel,
+                systemInstruction: attempt === 0
+                  ? prompt.systemInstruction
+                  : `${prompt.systemInstruction} RETRY: The prior response failed server validation: ${lastReason}. Correct that exact defect; do not relax or reinterpret the evidence contract.`,
+                userText: prompt.userText,
+                route: LUNASAY_DAILY_PACKET_FACE,
+                face: prompt.id,
+                responseMimeType: "application/json",
+                responseJsonSchema: lunaSayDailyFaceJsonSchema(prompt.id),
+                /* Gemini 2.5 may consume substantial generation headroom even
+                 * with thinking disabled. The JSON schema—not this ceiling—
+                 * keeps the billable visible response short. */
+                maxOutputTokens: 4096,
+                ...(perFaceModel.startsWith("gemini-2.5")
+                  ? { thinkingBudget: 0 }
+                  : {}),
+                ...(perFaceModel.startsWith("gemini-3")
+                  ? { thinkingLevel: "minimal" as const }
+                  : {}),
+              });
+              const parsedFace = parseLunaSayDailyFace(
+                raw,
+                prompt.id,
+                date,
+                facts,
+              );
+              if (
+                prompt.requiredEvidence &&
+                parsedFace.evidence !== prompt.requiredEvidence
+              ) {
+                throw new Error("wrong-required-evidence");
+              }
+              if (
+                prompt.requiredWeatherEvidence &&
+                parsedFace.weatherEvidence !== prompt.requiredWeatherEvidence
+              ) {
+                throw new Error("wrong-required-weather-evidence");
+              }
+              if (
+                prompt.requiredTemporalEvidence &&
+                parsedFace.temporalEvidence !==
+                  prompt.requiredTemporalEvidence
+              ) {
+                throw new Error("wrong-required-temporal-evidence");
+              }
+              const continuityIssue = lunaSayContinuityIssue(
+                parsedFace,
+                prompt.priorFaces,
+              );
+              if (continuityIssue) {
+                throw new Error(`reading-continuity:${continuityIssue}`);
+              }
+              const candidatePacket = {
+                ...fallbackPacket,
+                faces: {
+                  ...fallbackPacket.faces,
+                  [prompt.id]: parsedFace,
+                },
+              };
+              const candidateQuality = scoreLunaSayReadingQuality(
+                candidatePacket,
+                facts,
+              );
+              const candidateHardIssues = candidateQuality.hardIssues
+                .filter((issue) => issue.startsWith(`${prompt.id}:`));
+              if (candidateHardIssues.length) {
+                throw new Error(
+                  `reading-quality:${candidateHardIssues.join("|")}`,
+                );
+              }
+              return { id: prompt.id, face: parsedFace, retryReasons };
+            } catch (error) {
+              lastReason =
+                (error instanceof Error ? error.message : String(error))
+                  .replace(/\s+/g, " ")
+                  .slice(0, 180);
+              retryReasons.push(lastReason);
+            }
+          }
+          console.error(
+            `voice-pipeline: invalid LunaSay daily face ${prompt.id}`,
+            lastReason,
+          );
+          return { id: prompt.id, error: lastReason, retryReasons };
+        }));
+        const faceRetries: Partial<Record<LunaSayDailyFaceId, number>> = {};
+        const faceRetryReasons: Partial<
+          Record<LunaSayDailyFaceId, string[]>
+        > = {};
+        for (const result of results) {
+          if (result.retryReasons.length) {
+            faceRetries[result.id] = result.retryReasons.length;
+            faceRetryReasons[result.id] = result.retryReasons;
+          }
+          if ("face" in result && result.face) {
+            faces[result.id] = result.face;
+          } else {
+            faceFallbacks.push(result.id);
+            faceFallbackReasons[result.id] = result.error;
+          }
+        }
+        const packet = {
+          ...fallbackPacket,
+          generatedAt: new Date().toISOString(),
+          faces,
+        };
+        const qualityReport = scoreLunaSayReadingQuality(packet, facts);
+        return jsonResponse(200, {
+          packet,
+          route: LUNASAY_DAILY_PACKET_FACE,
+          cacheKey: `lunasay:${date}:${timezone}:v3`,
+          tts: "on_demand",
+          generationMode,
+          model: perFaceModel,
+          llmCalls,
+          ...(Object.keys(faceRetries).length
+            ? { faceRetries, faceRetryReasons }
+            : {}),
+          resonanceAppliedFaces: prompts
+            .filter((prompt) => prompt.resonanceApplied)
+            .map((prompt) => prompt.id),
+          continuityAppliedFaces: prompts
+            .filter((prompt) => prompt.continuityApplied)
+            .map((prompt) => prompt.id),
+          continuityDepthByFace: Object.fromEntries(
+            prompts
+              .filter((prompt) => prompt.priorFaces.length > 0)
+              .map((prompt) => [prompt.id, prompt.priorFaces.length]),
+          ),
+          quality: {
+            benchmarkVersion: qualityReport.benchmarkVersion,
+            hardGatePassed: qualityReport.hardGatePassed,
+            releaseGatePassed: qualityReport.releaseGatePassed,
+            averageScore: qualityReport.averageScore,
+            minimumFaceScore: qualityReport.minimumFaceScore,
+            maximumSimilarity: qualityReport.maximumSimilarity,
+            weakFaces: qualityReport.faces
+              .filter((entry) => entry.issues.length > 0)
+              .map((entry) => ({
+                face: entry.face,
+                score: entry.score,
+                issues: entry.issues,
+                spokenBytes: entry.spokenBytes,
+                spokenSentences: entry.spokenSentences,
+              })),
+          },
+          ...(faceFallbacks.length
+            ? { fallback: true, faceFallbacks, faceFallbackReasons }
+            : {}),
+        }, {
+          "x-mynah-route": LUNASAY_DAILY_PACKET_FACE,
+          "x-mynah-face": LUNASAY_DAILY_PACKET_FACE,
+          "x-lunasay-date": date,
+          "x-lunasay-timezone": timezone,
+          "x-lunasay-llm-calls": String(llmCalls),
+          "x-lunasay-generation-mode": generationMode,
+        });
+      }
+      const sys = buildLunaSayDailyPacketInstruction({ date, timezone });
+      const input =
+        `DATE CONTEXT:\n${date} (${timezone})\n\nDAILY FACTS:\n${facts}`;
+      const inputTokens = estimateTokensFromChars(sys.length + input.length);
+      const geminiGate = await ensureVoiceBudget(
+        req,
+        estimateGeminiUsd(inputTokens, 8192),
+      );
+      if (geminiGate) return geminiGate;
+      try {
+        const raw = await meteredGeminiGenerate(req, {
+          apiKey: gemini,
+          model: dailyPacketModel,
+          systemInstruction: sys,
+          userText: input,
+          route: LUNASAY_DAILY_PACKET_FACE,
+          face,
+          responseMimeType: "application/json",
+          responseJsonSchema: lunaSayDailyPacketJsonSchema(),
+          maxOutputTokens: 8192,
+          ...(dailyPacketModel.startsWith("gemini-3")
+            ? { thinkingLevel: "minimal" as const }
+            : {}),
+        });
+        const packet = parseLunaSayDailyPacket(raw, {
+          date,
+          timezone,
+          facts,
+        });
+        return jsonResponse(200, {
+          packet,
+          route: LUNASAY_DAILY_PACKET_FACE,
+          cacheKey: `lunasay:${date}:${timezone}:v1`,
+          tts: "on_demand",
+        }, {
+          "x-mynah-route": LUNASAY_DAILY_PACKET_FACE,
+          "x-mynah-face": LUNASAY_DAILY_PACKET_FACE,
+          "x-lunasay-date": date,
+          "x-lunasay-timezone": timezone,
+          "x-lunasay-llm-calls": "1",
+        });
+      } catch (e) {
+        const fallbackReason = (e instanceof Error ? e.message : String(e))
+          .replace(/\s+/g, " ")
+          .slice(0, 180);
+        console.error(
+          "voice-pipeline: invalid LunaSay daily packet",
+          fallbackReason,
+        );
+        const packet = lunaSayDailyPacketFallback({
+          date,
+          timezone,
+          facts,
+        });
+        return jsonResponse(200, {
+          packet,
+          route: LUNASAY_DAILY_PACKET_FACE,
+          cacheKey: `lunasay:${date}:${timezone}:v1`,
+          tts: "on_demand",
+          fallback: true,
+          fallbackReason,
+        });
+      }
+    }
+
     let transcript = "";
     const interactionMode = normalizedInteractionMode(body);
 
@@ -1339,7 +1789,7 @@ Deno.serve(async (req: Request) => {
     } else {
       return jsonResponse(400, {
         error:
-          "Provide audioBase64, message, or face (e.g. clock_agenda, daily_briefing with optional epochSeconds)",
+          "Provide audioBase64, message, or face (e.g. clock_agenda, daily_briefing, or lunasay_daily_packet with optional epochSeconds)",
       });
     }
 
@@ -1457,7 +1907,9 @@ Deno.serve(async (req: Request) => {
       }
       const alethPrompt = clientSystem || systemInstruction;
       if (face === VOICE_FACE_ALETHIOMETER) {
-        const symbolTable = ALETHIOMETER_SYMBOLS.map((name, idx) => `${idx} ${name}`).join(", ");
+        const symbolTable = ALETHIOMETER_SYMBOLS.map((name, idx) =>
+          `${idx} ${name}`
+        ).join(", ");
         const questionPrompt =
           "You are the first stage of an alethiometer reading. Interpret the user's exact question and choose exactly three distinct symbols that encode the question, not its answer. " +
           `Valid symbols are: ${symbolTable}. ` +
@@ -1533,7 +1985,10 @@ Deno.serve(async (req: Request) => {
           reading = {
             questionSymbols,
             answerSymbol: answer,
-            spoken: `With ${fixedSymbols.toLowerCase()} set around your question, ${ALETHIOMETER_SYMBOLS[answer].toLowerCase()} answers: move carefully, but move.`,
+            spoken:
+              `With ${fixedSymbols.toLowerCase()} set around your question, ${
+                ALETHIOMETER_SYMBOLS[answer].toLowerCase()
+              } answers: move carefully, but move.`,
           };
         }
         const reply = JSON.stringify(reading);
@@ -1546,7 +2001,9 @@ Deno.serve(async (req: Request) => {
           extraJson: {
             alethiometer: {
               questionSymbols: reading.questionSymbols,
-              questionSymbolNames: reading.questionSymbols.map((idx) => ALETHIOMETER_SYMBOLS[idx]),
+              questionSymbolNames: reading.questionSymbols.map((idx) =>
+                ALETHIOMETER_SYMBOLS[idx]
+              ),
               answerSymbol: reading.answerSymbol,
               answerSymbolName: ALETHIOMETER_SYMBOLS[reading.answerSymbol],
               spoken: reading.spoken,
@@ -1555,7 +2012,9 @@ Deno.serve(async (req: Request) => {
           },
           extraHeaders: {
             "x-mynah-route": VOICE_FACE_ALETHIOMETER,
-            "x-alethiometer-question-symbols": reading.questionSymbols.join(","),
+            "x-alethiometer-question-symbols": reading.questionSymbols.join(
+              ",",
+            ),
             "x-alethiometer-answer-symbol": String(reading.answerSymbol),
             "x-alethiometer-llm-calls": "2",
           },

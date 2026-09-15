@@ -2,6 +2,7 @@
 
 #include <stdio.h>
 #include <stdatomic.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
@@ -10,6 +11,7 @@
 #include "esp_check.h"
 #include "esp_app_desc.h"
 #include "esp_http_server.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_system.h"
 #include "esp_timer.h"
@@ -23,18 +25,24 @@
 #include "lwip/tcpip.h"
 
 #include "astrolabe_time.h"
+#include "astrolabe_faculty175_face.h"
 #include "faculty175_ble.h"
 #include "faculty175_board.h"
 #include "faculty175_breath.h"
 #include "faculty175_charts.h"
 #include "faculty175_device_settings.h"
+#include "faculty175_device_auth.h"
 #include "faculty175_deep_sleep.h"
 #include "faculty175_face_profile.h"
 #include "faculty175_faces.h"
 #include "faculty175_power_metrics.h"
 #include "faculty175_power_history.h"
 #include "faculty175_km_http.h"
+#include "faculty175_ota.h"
+#include "faculty175_research.h"
 #include "faculty175_serial.h"
+#include "faculty175_touch.h"
+#include "faculty175_voice.h"
 #include "faculty175_wifi_lab.h"
 #include "faculty175_wifi_monitor.h"
 #include "faculty175_wifi_settings.h"
@@ -50,8 +58,15 @@ static atomic_bool s_wake_requested;
 // The 1.75C QA path relies on the lightweight screen/settings HTTP server.
 #define FACULTY175_SCREEN_HTTP_RUNTIME_ENABLED 1
 #if defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
-#define FACULTY175_SCREEN_HTTP_STACK_SIZE 3584
-#define FACULTY175_SCREEN_HTTP_FALLBACK_STACK_SIZE 3072
+/*
+ * Authenticated console requests perform HMAC verification, JSON parsing,
+ * and may synchronously inject a gesture.  The former 3584-byte task stack
+ * overflowed on the first post-TTS swipe.  Keep enough internal headroom for
+ * the complete handler call chain; the fallback remains no smaller than the
+ * long-standing non-LunaSay primary size.
+ */
+#define FACULTY175_SCREEN_HTTP_STACK_SIZE 8192
+#define FACULTY175_SCREEN_HTTP_FALLBACK_STACK_SIZE 6144
 #else
 #define FACULTY175_SCREEN_HTTP_STACK_SIZE 6144
 #define FACULTY175_SCREEN_HTTP_FALLBACK_STACK_SIZE 4096
@@ -1360,8 +1375,23 @@ static esp_err_t settings_page_get(httpd_req_t *req)
         "<a class=card href='/family'><b>Family</b><span>Birth charts for Synastry</span></a>"
         "<a class=card href='/'><b>Faces</b><span>Screen preview and face control</span></a>"
         "<a class=card href='/api/settings'><b>Bluetooth</b><span id=ble>Checking status...</span></a>"
+        "<div class=card><b>Ring proximity</b><span>Set the RSSI level that counts as near.</span>"
+        "<label for=nearRssi><output id=nearValue>-65</output> dBm</label>"
+        "<input id=nearRssi type=range min=-90 max=-45 step=1 value=-65 style='width:100%'>"
+        "<button id=saveNear type=button>Save threshold</button>"
+        "<button id=pairRing type=button hidden>Pair detected ring</button><span id=nearStatus></span></div>"
+        "<div class=card><b>Privacy</b><span>Remove local daily summaries, cached packets, face audio, and resonance signal.</span>"
+        "<button id=clearHistory type=button>Clear reading history</button><span id=privacyStatus></span></div>"
         "<a class=card href='/api/faces'><b>Diagnostics</b><span>Firmware face inventory</span></a></div>"
-        "<script>fetch('/api/settings').then(r=>r.json()).then(s=>{status.textContent='LunaSay - '+(s.wifi?.status||'local device');ble.textContent=s.ble?.enabled?(s.ble.advertising?'Enabled and advertising':'Enabled'):'Disabled'}).catch(()=>status.textContent='LunaSay is offline')</script>";
+        "<script>const slider=document.getElementById('nearRssi'),value=document.getElementById('nearValue');"
+        "slider.oninput=()=>value.textContent=slider.value;"
+        "fetch('/api/settings').then(r=>r.json()).then(s=>{status.textContent='LunaSay - '+(s.wifi?.status||'local device');"
+        "ble.textContent=s.ble?.enabled?(s.ble.advertising?'Enabled and advertising':'Enabled'):'Disabled';"
+        "if(s.ring?.nearRssi!==undefined){slider.value=s.ring.nearRssi;value.textContent=slider.value}"
+        "if(s.ring?.candidate){pairRing.hidden=false;pairRing.dataset.id=s.ring.candidateId;nearStatus.textContent=' Ring found at '+s.ring.candidateRssi+' dBm'}}).catch(()=>status.textContent='LunaSay is offline');"
+        "saveNear.onclick=async()=>{nearStatus.textContent=' Saving...';let r=await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ring:{nearRssi:Number(slider.value)}})});nearStatus.textContent=r.ok?' Saved':' Failed'};"
+        "pairRing.onclick=async()=>{nearStatus.textContent=' Pairing...';let r=await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ring:{pairId:Number(pairRing.dataset.id)}})});nearStatus.textContent=r.ok?' Paired':' Pair failed';pairRing.hidden=true};"
+        "clearHistory.onclick=async()=>{if(!confirm('Clear cached readings, face audio, and private resonance signal?'))return;privacyStatus.textContent=' Clearing...';let r=await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({privacy:{clearReadingHistory:true}})});privacyStatus.textContent=r.ok?' Cleared':' Failed'};</script>";
     httpd_resp_set_type(req, "text/html; charset=utf-8");
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
     return httpd_resp_send(req, page, HTTPD_RESP_USE_STRLEN);
@@ -1392,6 +1422,10 @@ static esp_err_t api_settings_send(httpd_req_t *req, esp_err_t apply_err)
         add_json_string(wifi, "url", faculty175_wifi_settings_url());
         add_json_string(wifi, "qr", faculty175_wifi_settings_qr_payload());
         add_json_string(wifi, "status", faculty175_wifi_settings_status());
+        char hostname[FACULTY175_WIFI_HOSTNAME_MAX + 1] = {};
+        if (faculty175_wifi_settings_load_hostname(hostname, sizeof(hostname)) == ESP_OK) {
+            add_json_string(wifi, "hostname", hostname);
+        }
         cJSON *known_array = cJSON_AddArrayToObject(wifi, "known");
 #if defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
         (void)known_array;
@@ -1417,6 +1451,64 @@ static esp_err_t api_settings_send(httpd_req_t *req, esp_err_t apply_err)
     if (ble != NULL) {
         cJSON_AddBoolToObject(ble, "enabled", faculty175_ble_enabled());
         cJSON_AddBoolToObject(ble, "advertising", faculty175_ble_advertising());
+    }
+
+    cJSON *ring = cJSON_AddObjectToObject(root, "ring");
+    if (ring != NULL) {
+        uint16_t paired_id = 0;
+        uint16_t nearby_id = 0;
+        int8_t nearby_rssi = -127;
+        const bool paired = faculty175_ble_ring_paired(&paired_id);
+        const bool candidate = faculty175_ble_nearby_unpaired_ring(&nearby_id, &nearby_rssi);
+        cJSON_AddBoolToObject(ring, "paired", paired);
+        cJSON_AddNumberToObject(ring, "pairedId", paired ? paired_id : 0);
+        cJSON_AddNumberToObject(ring, "nearRssi", faculty175_ble_near_rssi_threshold());
+        cJSON_AddBoolToObject(ring, "candidate", candidate);
+        cJSON_AddNumberToObject(ring, "candidateId", candidate ? nearby_id : 0);
+        cJSON_AddNumberToObject(ring, "candidateRssi", candidate ? nearby_rssi : -127);
+    }
+
+    faculty175_touch_diagnostics_t touch_status = {};
+    faculty175_touch_diagnostics_get(&touch_status);
+    cJSON *touch = cJSON_AddObjectToObject(root, "touch");
+    if (touch != NULL) {
+        cJSON_AddBoolToObject(touch, "ready", touch_status.ready);
+        cJSON_AddBoolToObject(touch, "interruptActive", touch_status.int_active);
+        cJSON_AddBoolToObject(touch, "active", touch_status.active);
+        cJSON_AddBoolToObject(touch, "down", touch_status.down);
+        cJSON_AddNumberToObject(touch, "initError", touch_status.init_err);
+        add_json_string(touch, "initErrorName", esp_err_to_name(touch_status.init_err));
+        cJSON_AddNumberToObject(touch, "irqCount", touch_status.irq_count);
+        cJSON_AddNumberToObject(touch, "readCount", touch_status.read_count);
+        cJSON_AddNumberToObject(touch, "readErrors", touch_status.read_errors);
+        cJSON_AddNumberToObject(touch, "invalidFrames", touch_status.invalid_frames);
+        cJSON_AddNumberToObject(touch, "rejectedEvents", touch_status.rejected_events);
+        cJSON_AddNumberToObject(touch, "validPoints", touch_status.valid_points);
+        cJSON_AddNumberToObject(touch, "lastFrameMs", touch_status.last_frame_ms);
+        cJSON_AddNumberToObject(touch, "updatedMs", touch_status.updated_ms);
+        cJSON_AddNumberToObject(touch, "lastPoints", touch_status.last_points);
+        cJSON_AddNumberToObject(touch, "lastEvent", touch_status.last_event);
+        cJSON_AddNumberToObject(touch, "lastData0", touch_status.last_data0);
+        cJSON_AddNumberToObject(touch, "lastData6", touch_status.last_data6);
+        cJSON_AddNumberToObject(touch, "rawX", touch_status.raw_x);
+        cJSON_AddNumberToObject(touch, "rawY", touch_status.raw_y);
+        cJSON_AddNumberToObject(touch, "x", touch_status.x);
+        cJSON_AddNumberToObject(touch, "y", touch_status.y);
+    }
+
+    faculty175_ota_status_t ota_status = {};
+    faculty175_ota_get_status(&ota_status);
+    cJSON *ota = cJSON_AddObjectToObject(root, "ota");
+    if (ota != NULL) {
+        cJSON_AddBoolToObject(ota, "active", ota_status.active);
+        cJSON_AddBoolToObject(ota, "autoStarted", ota_status.auto_started);
+        cJSON_AddBoolToObject(ota, "autoPaused", ota_status.auto_paused);
+        cJSON_AddBoolToObject(ota, "testLocked", ota_status.test_locked);
+        cJSON_AddBoolToObject(ota, "networkReady", ota_status.network_ready);
+        cJSON_AddBoolToObject(ota, "heapReady", ota_status.heap_ready);
+        cJSON_AddNumberToObject(ota, "intervalSeconds", ota_status.auto_interval_s);
+        cJSON_AddNumberToObject(ota, "lastPollUptimeMs", ota_status.last_poll_uptime_ms);
+        add_json_string(ota, "last", ota_status.last);
     }
 
     cJSON *time = cJSON_AddObjectToObject(root, "time");
@@ -1452,6 +1544,46 @@ static esp_err_t api_settings_send(httpd_req_t *req, esp_err_t apply_err)
 static esp_err_t api_settings_get(httpd_req_t *req)
 {
     return api_settings_send(req, ESP_OK);
+}
+
+static esp_err_t api_console_challenge_get(httpd_req_t *req)
+{
+    char nonce[33] = {};
+    char mac[18] = {};
+    if (faculty175_device_auth_console_challenge(nonce, sizeof(nonce)) != ESP_OK ||
+        faculty175_device_auth_mac(mac, sizeof(mac)) != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "console auth unavailable");
+        return ESP_FAIL;
+    }
+    char body[128];
+    snprintf(body, sizeof(body), "{\"nonce\":\"%s\",\"mac\":\"%s\",\"channel\":\"%s\"}",
+             nonce, mac, ASTROLABE_FACULTY_OTA_CHANNEL);
+    set_api_headers(req);
+    return httpd_resp_sendstr(req, body);
+}
+
+static esp_err_t api_console_post(httpd_req_t *req)
+{
+    char nonce[40] = {};
+    char signature[72] = {};
+    if (httpd_req_get_hdr_value_str(req, "X-Astrolabe-Console-Nonce", nonce, sizeof(nonce)) != ESP_OK ||
+        httpd_req_get_hdr_value_str(req, "X-Astrolabe-Console-Signature", signature, sizeof(signature)) != ESP_OK ||
+        !faculty175_device_auth_console_verify(nonce, signature)) {
+        httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "console challenge required");
+        return ESP_ERR_INVALID_STATE;
+    }
+    char body[384] = {};
+    if (read_request_body(req, body, sizeof(body)) != ESP_OK) {
+        return ESP_FAIL;
+    }
+    char command[320] = {};
+    json_value(body, "command", command, sizeof(command));
+    const esp_err_t err = faculty175_serial_submit_remote(command);
+    char reply[96];
+    snprintf(reply, sizeof(reply), "{\"ok\":%s,\"accepted\":%s,\"err\":\"%s\"}",
+             err == ESP_OK ? "true" : "false", err == ESP_OK ? "true" : "false", esp_err_to_name(err));
+    set_api_headers(req);
+    return httpd_resp_sendstr(req, reply);
 }
 
 static esp_err_t api_settings_post(httpd_req_t *req)
@@ -1500,8 +1632,44 @@ static esp_err_t api_settings_post(httpd_req_t *req)
         }
     }
 
+    const cJSON *ring = cJSON_GetObjectItemCaseSensitive(root, "ring");
+    if (err == ESP_OK && cJSON_IsObject(ring)) {
+        const cJSON *near_rssi = cJSON_GetObjectItemCaseSensitive(ring, "nearRssi");
+        if (cJSON_IsNumber(near_rssi)) {
+            err = faculty175_ble_set_near_rssi_threshold((int8_t)near_rssi->valueint);
+        }
+        const cJSON *pair_id = cJSON_GetObjectItemCaseSensitive(ring, "pairId");
+        if (err == ESP_OK && cJSON_IsNumber(pair_id) && pair_id->valueint > 0 && pair_id->valueint <= UINT16_MAX) {
+            uint16_t nearby_id = 0;
+            if (!faculty175_ble_nearby_unpaired_ring(&nearby_id, NULL) || nearby_id != (uint16_t)pair_id->valueint) {
+                err = ESP_ERR_NOT_FOUND;
+            } else {
+                err = faculty175_ble_ring_pair((uint16_t)pair_id->valueint);
+            }
+        }
+    }
+
+    const cJSON *privacy = cJSON_GetObjectItemCaseSensitive(root, "privacy");
+    if (err == ESP_OK && cJSON_IsObject(privacy) &&
+        cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(privacy, "clearReadingHistory"))) {
+        err = faculty175_voice_clear_lunasay_reading_history();
+        if (err == ESP_OK) {
+            err = faculty175_research_clear_local_feedback();
+        }
+    }
+
     const cJSON *wifi = cJSON_GetObjectItemCaseSensitive(root, "wifi");
     if (err == ESP_OK && cJSON_IsObject(wifi)) {
+        const cJSON *hostname = cJSON_GetObjectItemCaseSensitive(wifi, "hostname");
+        if (cJSON_IsString(hostname) && hostname->valuestring != NULL) {
+            err = faculty175_wifi_settings_save_hostname(hostname->valuestring);
+            if (err == ESP_OK) {
+                snprintf(s_mdns_hostname, sizeof(s_mdns_hostname), "%s", hostname->valuestring);
+                if (s_mdns_started) {
+                    err = mdns_hostname_set(s_mdns_hostname);
+                }
+            }
+        }
         const cJSON *travel_router = cJSON_GetObjectItemCaseSensitive(wifi, "travelRouter");
         if (cJSON_IsBool(travel_router)) {
             err = faculty175_wifi_settings_set_travel_router_enabled(cJSON_IsTrue(travel_router));
@@ -1845,7 +2013,9 @@ static esp_err_t api_voice_post(httpd_req_t *req)
 static esp_err_t api_voice_get(httpd_req_t *req)
 {
     faculty175_qa_voice_status_t status = {};
+    faculty175_face_tts_status_t face_tts = {};
     faculty175_qa_voice_status(&status);
+    faculty175_face_tts_status(&face_tts);
     cJSON *root = cJSON_CreateObject();
     if (root == NULL) {
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "json alloc");
@@ -1865,6 +2035,20 @@ static esp_err_t api_voice_get(httpd_req_t *req)
     add_json_string(root, "err", esp_err_to_name(status.err));
     add_json_string(root, "transcript", status.transcript);
     add_json_string(root, "reply", status.reply);
+    cJSON *face_tts_json = cJSON_AddObjectToObject(root, "face_tts");
+    if (face_tts_json != NULL) {
+        cJSON_AddNumberToObject(face_tts_json, "sequence", face_tts.sequence);
+        cJSON_AddBoolToObject(face_tts_json, "busy", face_tts.busy);
+        cJSON_AddNumberToObject(face_tts_json, "started_ms", face_tts.started_ms);
+        cJSON_AddNumberToObject(face_tts_json, "completed_ms", face_tts.completed_ms);
+        cJSON_AddNumberToObject(face_tts_json,
+                               "elapsed_ms",
+                               face_tts.completed_ms >= face_tts.started_ms
+                                   ? face_tts.completed_ms - face_tts.started_ms
+                                   : 0u);
+        add_json_string(face_tts_json, "slug", face_tts.slug);
+        add_json_string(face_tts_json, "err", esp_err_to_name(face_tts.err));
+    }
     char *reply = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
     if (reply == NULL) {
@@ -1882,9 +2066,23 @@ static esp_err_t screen_bmp_get(httpd_req_t *req)
     httpd_resp_set_type(req, "image/bmp");
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
 
+    const size_t pixels = faculty175_display_frame_pixel_count();
+    uint16_t *snapshot = heap_caps_malloc(pixels * sizeof(uint16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (snapshot == NULL) {
+        snapshot = heap_caps_malloc(pixels * sizeof(uint16_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    }
+    if (snapshot == NULL) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "screen snapshot alloc");
+        return ESP_ERR_NO_MEM;
+    }
+
     faculty175_display_lock();
-    esp_err_t err = faculty175_display_write_bmp565(send_chunk_cb, req);
+    const bool copied = faculty175_display_frame_copy(snapshot, pixels);
     faculty175_display_unlock();
+    esp_err_t err = copied
+                        ? faculty175_display_write_bmp565_frame(snapshot, send_chunk_cb, req)
+                        : ESP_ERR_INVALID_STATE;
+    free(snapshot);
     if (err == ESP_OK) {
         err = httpd_resp_send_chunk(req, NULL, 0);
     }
@@ -1916,7 +2114,6 @@ esp_err_t faculty175_screen_http_start(const esp_ip4_addr_t *ip)
         return ESP_OK;
     }
 
-#if !defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
     if (!s_mdns_started) {
         if (faculty175_wifi_settings_load_hostname(s_mdns_hostname, sizeof(s_mdns_hostname)) != ESP_OK) {
             uint8_t sta_mac[6] = {};
@@ -1933,7 +2130,11 @@ esp_err_t faculty175_screen_http_start(const esp_ip4_addr_t *ip)
             mdns_err = mdns_hostname_set(s_mdns_hostname);
         }
         if (mdns_err == ESP_OK) {
+#if defined(ASTROLABE_FORCE_VARIANT_LUNASAY)
+            mdns_err = mdns_instance_name_set("LunaSay");
+#else
             mdns_err = mdns_instance_name_set("Astrolabe Faculty 1.75C");
+#endif
         }
         if (mdns_err == ESP_OK) {
             mdns_err = mdns_service_add(NULL, "_http", "_tcp", 80, NULL, 0);
@@ -1946,8 +2147,6 @@ esp_err_t faculty175_screen_http_start(const esp_ip4_addr_t *ip)
             ESP_LOGI(TAG, "mDNS ready http://%s.local/", s_mdns_hostname);
         }
     }
-#endif
-
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = 80;
     config.stack_size = FACULTY175_SCREEN_HTTP_STACK_SIZE;
@@ -2106,6 +2305,18 @@ esp_err_t faculty175_screen_http_start(const esp_ip4_addr_t *ip)
         .handler = api_options,
         .user_ctx = NULL,
     };
+    const httpd_uri_t api_console_challenge_uri = {
+        .uri = "/api/console/challenge",
+        .method = HTTP_GET,
+        .handler = api_console_challenge_get,
+        .user_ctx = NULL,
+    };
+    const httpd_uri_t api_console_post_uri = {
+        .uri = "/api/console",
+        .method = HTTP_POST,
+        .handler = api_console_post,
+        .user_ctx = NULL,
+    };
     const httpd_uri_t family_page_uri = {
         .uri = "/family",
         .method = HTTP_GET,
@@ -2181,6 +2392,8 @@ esp_err_t faculty175_screen_http_start(const esp_ip4_addr_t *ip)
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &api_settings_get_uri), TAG, "register GET /api/settings");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &api_settings_post_uri), TAG, "register POST /api/settings");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &api_settings_options_uri), TAG, "register OPTIONS /api/settings");
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &api_console_challenge_uri), TAG, "register GET /api/console/challenge");
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &api_console_post_uri), TAG, "register POST /api/console");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &family_page_uri), TAG, "register GET /family");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &settings_page_uri), TAG, "register GET /settings");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_httpd, &api_family_get_uri), TAG, "register GET /api/family");

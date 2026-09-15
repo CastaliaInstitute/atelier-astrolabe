@@ -57,6 +57,13 @@
       accessory: "1.75 spoken translator for in-room language handoff.",
     },
     {
+      id: "cyber",
+      title: "Astrolabe Cyber",
+      subtitle: "Authorized lab SKU",
+      promise: "Observe · verify · connect",
+      accessory: "1.75C security lab surfaces, USB screen/HID, BLE control, and local evidence handling.",
+    },
+    {
       id: "core",
       title: "Core Firmware",
       subtitle: "All SKUs",
@@ -129,6 +136,14 @@
       hardware: ["AMOLED", "touch", "side buttons", "battery", "USB-C", "Wi-Fi", "BLE", "speaker", "microphone"],
       focus: "STT-LLM-TTS translation into the device native language and back again.",
       status: "Bench",
+    },
+    {
+      variant: "cyber",
+      platform: "1.75C",
+      release: "Astrolabe Cyber 1.75C",
+      hardware: ["AMOLED", "touch", "USB-C", "Wi-Fi", "BLE", "USB HID", "USB MSC", "speaker", "microphone"],
+      focus: "Authorized Wi-Fi lab observation, evidence review, BLE keyboard bridge, and a local USB control surface.",
+      status: "Integration",
     },
   ];
 
@@ -415,7 +430,7 @@
       title: "Human Design",
       kicker: "Bodygraph as a decision compass",
       summary:
-        "A compact bodygraph face for the reference chart, showing type, authority, profile, definition, defined centers, channels, and gate rails.",
+        "A compact bodygraph face for the reference chart, showing personality and design activations, defined centers, channels, and gate rails.",
       inquiry: "What does the chart suggest about decision timing and available energy?",
       questions: [
         "Am I responding from sacral authority or forcing a decision?",

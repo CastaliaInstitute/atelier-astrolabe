@@ -31,6 +31,10 @@
 #define ARC_GUIDE_TREND_THRESHOLD_PER_S 0.035f
 #define ARC_GUIDE_EXHALE_MIN_MS 3000u
 
+#ifndef ASTROLABE_CLAW_VARIANT
+#define ASTROLABE_CLAW_VARIANT 0
+#endif
+
 static bool s_guide_active;
 static volatile bool s_guide_session_running;
 static volatile uint32_t s_guide_started_ms;
@@ -287,6 +291,50 @@ static void draw_arc_reactor(int cx,
     faculty175_display_draw_circle(cx, cy, inner + 8, core);
 }
 
+static void draw_claw_power_gauge(int cx, int cy, float fraction, uint16_t active, uint16_t dim)
+{
+    const int segments = 24;
+    const float start = -2.55f;
+    const float span = 1.95f;
+    if (fraction < 0.0f) fraction = 0.0f;
+    if (fraction > 1.0f) fraction = 1.0f;
+    for (int i = 0; i < segments; ++i) {
+        const float a = start + span * ((float)i / (float)(segments - 1));
+        const int r0 = 178;
+        const int r1 = (i % 4) == 0 ? 194 : 188;
+        const int x0 = cx + (int)lrintf(cosf(a) * (float)r0);
+        const int y0 = cy + (int)lrintf(sinf(a) * (float)r0);
+        const int x1 = cx + (int)lrintf(cosf(a) * (float)r1);
+        const int y1 = cy + (int)lrintf(sinf(a) * (float)r1);
+        line(x0, y0, x1, y1, ((float)i / (float)segments) <= fraction ? active : dim);
+    }
+}
+
+static void draw_alpheus_shrimp(int cx, int cy, uint16_t outline, uint16_t glow)
+{
+    /* Compact vector mark: the shrimp travels right, with its oversized claw
+     * lifted above the body. It stays native so the web simulator and device
+     * share the same face geometry until the source logo is available. */
+    const int bx = cx - 40;
+    const int by = cy + 10;
+    faculty175_display_draw_circle(bx, by, 43, glow);
+    faculty175_display_draw_circle(bx + 35, by - 18, 26, outline);
+    line(bx - 48, by + 2, bx - 82, by - 18, outline);
+    line(bx - 46, by + 18, bx - 78, by + 38, outline);
+    line(bx - 24, by + 28, bx - 46, by + 58, outline);
+    line(bx - 4, by + 33, bx - 12, by + 64, outline);
+    line(bx + 18, by + 22, bx + 28, by + 54, outline);
+    line(bx + 28, by - 34, bx + 54, by - 72, outline);
+    line(bx + 54, by - 72, bx + 96, by - 86, outline);
+    line(bx + 96, by - 86, bx + 113, by - 72, outline);
+    line(bx + 96, by - 86, bx + 108, by - 103, outline);
+    line(bx + 48, by - 64, bx + 74, by - 48, outline);
+    line(bx + 74, by - 48, bx + 105, by - 52, outline);
+    line(bx + 49, by - 4, bx + 78, by + 12, outline);
+    line(bx + 78, by + 12, bx + 103, by + 7, outline);
+    faculty175_display_draw_circle(bx + 50, by - 25, 4, outline);
+}
+
 void faculty175_face_ironman_draw(uint32_t anim_ms)
 {
     const int cx = FACULTY175_LCD_W / 2;
@@ -334,6 +382,13 @@ void faculty175_face_ironman_draw(uint32_t anim_ms)
     faculty175_display_draw_circle(cx, cy, 226, rgb(42, 48, 56));
     faculty175_display_draw_circle(cx, cy, 214 + (int)(pulse * 6.0f), hud_dim);
     faculty175_display_draw_circle(cx, cy, 196, rgb(42, 32, 26));
+
+#if ASTROLABE_CLAW_VARIANT
+    faculty175_display_draw_centered_text("ALPHEUS // CORE DIAL", 22, eye);
+    draw_claw_power_gauge(cx, cy, battery_fraction, eye, hud_dim);
+    faculty175_display_draw_centered_text("POWER", 56, hud_dim);
+    draw_alpheus_shrimp(cx, cy, eye, rgb(18, 54, 70));
+#endif
 
     draw_arc_reactor(cx,
                      cy,

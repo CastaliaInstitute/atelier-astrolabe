@@ -8,6 +8,7 @@ on:
     paths:
       - "config/release_variants.csv"
       - "docs/**"
+      - "astrolabe185b/pythia_sd/**"
       - "platformio.ini"
       - "scripts/build.sh"
       - "scripts/astrolabe175c_build.sh"
@@ -33,13 +34,11 @@ permissions:
 
 concurrency:
   group: pages-deploy
-  cancel-in-progress: false
+  # A newer integration release supersedes an older unpublished manifest.
+  cancel-in-progress: true
 
 jobs:
   deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -60,8 +59,15 @@ jobs:
           PLATFORMIO_BUILD_DIR: /tmp/astrolabe-pio-build-${{ github.run_id }}
           ASTROLABE_RELEASE_ARTIFACT_DIR: /tmp/astrolabe-release-artifacts-${{ github.run_id }}
         run: |
-          ./scripts/release-size-report.py --build --build-dir "$PLATFORMIO_BUILD_DIR" --artifact-dir "$ASTROLABE_RELEASE_ARTIFACT_DIR"
-          python3 ./scripts/publish-integration-firmware.py --build-dir "$ASTROLABE_RELEASE_ARTIFACT_DIR"
+          # The ESP-IDF OTA job below is the active 175c firmware release
+          # path.  Keep legacy PlatformIO publishing optional while its size
+          # report helper is not present in this checkout.
+          if [[ -x ./scripts/release-size-report.py ]]; then
+            ./scripts/release-size-report.py --build --build-dir "$PLATFORMIO_BUILD_DIR" --artifact-dir "$ASTROLABE_RELEASE_ARTIFACT_DIR"
+            python3 ./scripts/publish-integration-firmware.py --build-dir "$ASTROLABE_RELEASE_ARTIFACT_DIR"
+          else
+            echo "Skipping legacy PlatformIO publish: release-size-report.py is not present"
+          fi
       - name: Publish astrolabe175c ESP-IDF OTA
         if: (github.ref == 'refs/heads/integration' || github.ref == 'refs/heads/main') && !contains(github.event.head_commit.message || '', '[pages-only]')
         env:
@@ -76,9 +82,12 @@ jobs:
           printf '%s\n' "$FACULTY175_OTA_DEVICES" | tr ', ' '\n\n' | sed '/^$/d' > "$devices"
           for spec in \
             "faculty|Faculty|astrolabe-faculty-amoled175" \
-            "cyber|Cyber|astrolabe-cyber-175"; do
+            "cyber|Cyber|astrolabe-cyber-175" \
+            "lunasay|LunaSay|astrolabe-lunasay-175"; do
             IFS='|' read -r variant label channel <<< "$spec"
-            rm -rf astrolabe175c/build
+            # ESP-IDF runs in Docker as root, so its prior variant's build
+            # directory must be removed with runner privileges.
+            sudo rm -rf astrolabe175c/build
             docker run --rm \
               -e ASTROLABE175C_SKIP_LVGL_AUDIT=1 \
               -e "ASTROLABE175C_VARIANT=${variant}" \
@@ -101,13 +110,42 @@ jobs:
           rm -f "$key" "$devices"
       - name: Build LVGL web simulator
         if: "!contains(github.event.head_commit.message || '', '[pages-only]')"
+        # The simulator is a preview artifact; it must not block signed OTA
+        # manifest publication when its Emscripten shim lags ESP-IDF headers.
+        continue-on-error: true
         run: |
           docker run --rm \
             -v "$GITHUB_WORKSPACE:/src" \
             -w /src \
             emscripten/emsdk:3.1.74 \
             ./tools/web-sim/export-pages.sh
+  pages:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
       - uses: actions/configure-pages@v5
+      - name: Stage Pythia page
+        # astrolabe185b/pythia_sd/index.html is the single source for both the
+        # SD-card copy served by the watch and the hosted copy at /pythia/.
+        # config.js hands the hosted copy the public Supabase client config
+        # for Castalia sign-in (GitHub/Google); the anon key is public by design.
+        env:
+          PYTHIA_SUPABASE_URL: ${{ vars.MYNAH_SUPABASE_URL || 'https://pilmscrodlitdrygabvo.supabase.co' }}
+          PYTHIA_SUPABASE_ANON_KEY: ${{ secrets.MYNAH_SUPABASE_ANON_KEY }}
+        run: |
+          mkdir -p docs/pythia
+          cp astrolabe185b/pythia_sd/index.html docs/pythia/index.html
+          python3 - <<'PY'
+          from pathlib import Path
+          import json, os
+          Path('docs/pythia/config.js').write_text('window.pythiaConfig = ' + json.dumps({
+              'supabaseUrl': os.environ.get('PYTHIA_SUPABASE_URL', ''),
+              'supabaseAnonKey': os.environ.get('PYTHIA_SUPABASE_ANON_KEY', ''),
+          }) + ';\n')
+          PY
       - uses: actions/upload-pages-artifact@v3
         with:
           path: docs

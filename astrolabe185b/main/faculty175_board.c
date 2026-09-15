@@ -504,9 +504,8 @@ static esp_err_t faculty175_i2c_init(void)
         const char *label;
     } faculty175_i2c_candidate_t;
     static const faculty175_i2c_candidate_t candidates[] = {
-        {GPIO_NUM_15, GPIO_NUM_14, "175-default"},
-        {GPIO_NUM_11, GPIO_NUM_10, "hybrid-11/10"},
-        {GPIO_NUM_42, GPIO_NUM_41, "alt-42/41"},
+        /* 1.85B: 14/15 belong to SDMMC and 41/42 to the display. */
+        {GPIO_NUM_11, GPIO_NUM_10, "185b-11/10"},
     };
 
     int best_score = -1;
@@ -3287,6 +3286,9 @@ void faculty175_display_draw_status(faculty175_ui_state_t state,
         case FACULTY175_UI_LISTEN:
             ring = rgb565(40, 245, 168);
             break;
+        case FACULTY175_UI_HISTORY:
+            ring = rgb565(128, 176, 255);
+            break;
         case FACULTY175_UI_CAPTURE:
             ring = rgb565(255, 120, 80);
             break;
@@ -3316,6 +3318,11 @@ void faculty175_display_draw_status(faculty175_ui_state_t state,
         draw_bezel_waveform(waveform, waveform_stream, waveform_len, wave_idle, wave_stream);
     }
     draw_faculty_bottom_label(faculty_slug);
+    if (state == FACULTY175_UI_HISTORY) {
+        faculty175_display_draw_centered_text("HISTORY", 62, rgb565(128, 176, 255));
+        faculty175_display_draw_text(detail != NULL ? detail : "", 28, 132, rgb565(222, 232, 248));
+        faculty175_display_draw_centered_text("SWIPE UP / DOWN", 294, rgb565(128, 176, 255));
+    }
 
     draw_touch_visual();
     if (s_panel != NULL && s_fb != NULL) {

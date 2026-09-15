@@ -25,6 +25,7 @@
 #include "faculty175_breath.h"
 #include "faculty175_ble.h"
 #include "faculty175_charts.h"
+#include "faculty175_cycle_health.h"
 #include "faculty175_device_auth.h"
 #include "faculty175_deep_sleep.h"
 #include "faculty175_family.h"
@@ -48,6 +49,7 @@
 static const char *TAG = "faculty175_serial";
 #define FACULTY175_SERIAL_TASK_STACK 8192
 static TaskHandle_t s_serial_task;
+static QueueHandle_t s_remote_command_queue;
 
 static void trim_inplace(char *line)
 {
@@ -716,7 +718,7 @@ static void emit_screen_bmp(void)
 
 static void emit_face_screen_bmp(void)
 {
-    emit_screen_bmp_snapshot(false);
+    emit_screen_bmp_snapshot(true);
 }
 
 static void write_b64_block(const uint8_t *data, size_t len)
@@ -1364,9 +1366,18 @@ static bool handle_button_command(const char *line)
     if (*sub == '\0' || strcasecmp(sub, "press") == 0 || strcasecmp(sub, "tap") == 0) {
         faculty175_button_inject_press();
         printf("button: inject ESP_OK\n");
+    } else if (strcasecmp(sub, "tts") == 0) {
+        /*
+         * The physical button is context-sensitive and normally begins an STT
+         * turn when the duplex pipeline is ready.  This explicit virtual TTS
+         * control models pressing the speaker control in the Wi-Fi/PWA tour.
+         */
+        printf("button: tts %s\n",
+               faculty175_request_current_face_tts() ? "ESP_OK" : "ESP_FAIL");
     } else {
         printf("button commands:\n");
         printf("  button press\n");
+        printf("  button tts\n");
     }
     fflush(stdout);
     return true;
@@ -1392,7 +1403,14 @@ static bool handle_tts_command(const char *line)
             sub = "face";
         }
     }
-    if (strcasecmp(sub, "status") == 0) {
+    if (strcasecmp(sub, "tour") == 0 || strcasecmp(sub, "tour start") == 0) {
+        printf("tour: start %s\n", faculty175_request_face_tour() ? "ESP_OK" : "ESP_FAIL");
+    } else if (strcasecmp(sub, "tour stop") == 0) {
+        faculty175_request_face_tour_stop();
+        printf("tour: stop requested\n");
+    } else if (strcasecmp(sub, "tour status") == 0) {
+        printf("tour: active=%s\n", faculty175_face_tour_active() ? "yes" : "no");
+    } else if (strcasecmp(sub, "status") == 0) {
         char reason[128];
         const bool ready = faculty175_voice_config_ready(reason, sizeof(reason));
         printf("tts: status ready=%s playback=%s reason=%s\n",
@@ -1424,9 +1442,33 @@ static bool handle_tts_command(const char *line)
         printf("voice commands:\n");
         printf("  tts status\n");
         printf("  tts face\n");
+        printf("  tts tour [start|stop|status]\n");
         printf("  voice tts\n");
         printf("  voice stt [ms]\n");
         printf("  voice pcm  (USB-only Base64 export of the last STT capture)\n");
+    }
+    fflush(stdout);
+    return true;
+}
+
+static bool handle_tour_command(const char *line)
+{
+    if (line == NULL || (strcasecmp(line, "tour") != 0 && strncasecmp(line, "tour ", 5) != 0)) {
+        return false;
+    }
+    const char *sub = line + 4;
+    while (*sub == ' ') {
+        ++sub;
+    }
+    if (*sub == '\0' || strcasecmp(sub, "start") == 0) {
+        printf("tour: start %s\n", faculty175_request_face_tour() ? "ESP_OK" : "ESP_FAIL");
+    } else if (strcasecmp(sub, "stop") == 0) {
+        faculty175_request_face_tour_stop();
+        printf("tour: stop requested\n");
+    } else if (strcasecmp(sub, "status") == 0) {
+        printf("tour: active=%s\n", faculty175_face_tour_active() ? "yes" : "no");
+    } else {
+        printf("tour commands: start | stop | status\n");
     }
     fflush(stdout);
     return true;
@@ -1829,6 +1871,10 @@ static void handle_line(char *line)
         return;
     }
 
+    if (handle_tour_command(line)) {
+        return;
+    }
+
     if (handle_family_command(line)) {
         return;
     }
@@ -1862,6 +1908,10 @@ static void handle_line(char *line)
     }
 
     if (faculty175_faces_handle(line)) {
+        return;
+    }
+
+    if (faculty175_cycle_health_handle(line)) {
         return;
     }
 
@@ -1964,6 +2014,10 @@ static void serial_task(void *arg)
     ESP_LOGI(TAG, "command reader ready (type: help)");
 
     for (;;) {
+        if (s_remote_command_queue != NULL && xQueueReceive(s_remote_command_queue, line, 0) == pdTRUE) {
+            handle_line(line);
+            continue;
+        }
         uint8_t byte = 0;
         const ssize_t n = serial_read_byte(&byte, pdMS_TO_TICKS(20));
         if (n <= 0) {
@@ -2002,6 +2056,7 @@ void faculty175_serial_init(void)
     }
     setvbuf(stdout, NULL, _IONBF, 0);
     setvbuf(stdin, NULL, _IONBF, 0);
+    s_remote_command_queue = xQueueCreate(8, 320);
 #if CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG_ENABLED
     usb_serial_jtag_driver_config_t usb_serial_config = {
         .tx_buffer_size = 1024,
@@ -2027,4 +2082,38 @@ void faculty175_serial_init(void)
 TaskHandle_t faculty175_serial_task_handle(void)
 {
     return s_serial_task;
+}
+
+esp_err_t faculty175_serial_submit_remote(const char *line)
+{
+    if (line == NULL || line[0] == '\0' || strlen(line) >= 320 || strchr(line, '\n') != NULL || strchr(line, '\r') != NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    /*
+     * Gesture controls already terminate in a thread-safe queue. Execute them
+     * from the authenticated HTTP task instead of
+     * routing through serial_task: serial_task also drains CDC and can block
+     * behind USB log backpressure even though the Wi-Fi request was accepted.
+     */
+    if (strncasecmp(line, "gesture ", 8) == 0 || strncasecmp(line, "gestures ", 9) == 0) {
+        const char *sub = strchr(line, ' ');
+        faculty175_gesture_kind_t kind = FACULTY175_GESTURE_NONE;
+        int16_t value = 0;
+        if (sub == NULL || !parse_gesture_kind(sub + 1, &kind, &value)) {
+            return ESP_ERR_INVALID_ARG;
+        }
+        return faculty175_gesture_inject(kind,
+                                         FACULTY175_LCD_W / 2,
+                                         FACULTY175_LCD_H / 2,
+                                         value)
+                   ? ESP_OK
+                   : ESP_ERR_INVALID_STATE;
+    }
+    if (s_remote_command_queue == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    char copy[320] = {};
+    strlcpy(copy, line, sizeof(copy));
+    return xQueueSend(s_remote_command_queue, copy, 0) == pdTRUE ? ESP_OK : ESP_ERR_TIMEOUT;
 }
