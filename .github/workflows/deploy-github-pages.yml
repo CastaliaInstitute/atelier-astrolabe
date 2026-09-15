@@ -8,6 +8,7 @@ on:
     paths:
       - "config/release_variants.csv"
       - "docs/**"
+      - "astrolabe185b/pythia_sd/**"
       - "platformio.ini"
       - "scripts/build.sh"
       - "scripts/astrolabe175c_build.sh"
@@ -126,6 +127,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/configure-pages@v5
+      - name: Stage Pythia page
+        # astrolabe185b/pythia_sd/index.html is the single source for both the
+        # SD-card copy served by the watch and the hosted copy at /pythia/.
+        # config.js hands the hosted copy the public Supabase client config
+        # for Castalia sign-in (GitHub/Google); the anon key is public by design.
+        env:
+          PYTHIA_SUPABASE_URL: ${{ vars.MYNAH_SUPABASE_URL || 'https://pilmscrodlitdrygabvo.supabase.co' }}
+          PYTHIA_SUPABASE_ANON_KEY: ${{ secrets.MYNAH_SUPABASE_ANON_KEY }}
+        run: |
+          mkdir -p docs/pythia
+          cp astrolabe185b/pythia_sd/index.html docs/pythia/index.html
+          python3 - <<'PY'
+          from pathlib import Path
+          import json, os
+          Path('docs/pythia/config.js').write_text('window.pythiaConfig = ' + json.dumps({
+              'supabaseUrl': os.environ.get('PYTHIA_SUPABASE_URL', ''),
+              'supabaseAnonKey': os.environ.get('PYTHIA_SUPABASE_ANON_KEY', ''),
+          }) + ';\n')
+          PY
       - uses: actions/upload-pages-artifact@v3
         with:
           path: docs

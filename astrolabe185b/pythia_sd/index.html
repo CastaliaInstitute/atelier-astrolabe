@@ -1,0 +1,743 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>Astrolabe Pythia</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%230b0d12' stroke='%23d6a654' stroke-width='2'/%3E%3Ccircle cx='16' cy='16' r='4' fill='%23d6a654'/%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #0b0d12; --panel: #141821; --panel-2: #1b2130; --line: #273042;
+    --ink: #ece9df; --dim: #8a94a6; --accent: #d6a654; --good: #70ce96; --warn: #e27060; --user: #2a3a5c;
+    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  a { color: var(--accent); }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  button { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button:disabled { opacity: .45; cursor: default; }
+  button.primary { background: var(--accent); color: #1a1408; border-color: transparent; font-weight: 600; }
+  button.small { padding: 2px 8px; font-size: 12px; }
+  input, select, textarea { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; width: 100%; }
+  textarea { resize: vertical; min-height: 44px; }
+  header { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--line); background: var(--panel); position: sticky; top: 0; z-index: 2; }
+  header h1 { font-size: 17px; margin: 0; letter-spacing: .04em; color: var(--accent); }
+  header h1 small { color: var(--dim); font-weight: 400; letter-spacing: 0; margin-left: 8px; }
+  .pills { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+  .pill { font-size: 12px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line); color: var(--dim); font-family: var(--mono); }
+  .pill.on { color: var(--good); border-color: var(--good); }
+  .pill.warn { color: var(--warn); border-color: var(--warn); }
+  main { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 0; min-height: calc(100% - 58px); }
+  @media (max-width: 880px) { main { grid-template-columns: 1fr; } aside { border-left: 0; border-top: 1px solid var(--line); } }
+  section.chat { display: flex; flex-direction: column; min-height: 60vh; }
+  .loader { padding: 12px 16px; border-bottom: 1px solid var(--line); background: var(--panel); display: grid; gap: 8px; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .row > * { flex: 1 1 auto; }
+  .row > button { flex: 0 0 auto; }
+  progress { width: 100%; height: 8px; accent-color: var(--accent); }
+  .status { font-family: var(--mono); font-size: 12px; color: var(--dim); }
+  .messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+  .msg { max-width: 78ch; padding: 10px 14px; border-radius: 12px; white-space: pre-wrap; word-wrap: break-word; }
+  .msg.user { align-self: flex-end; background: var(--user); }
+  .msg.assistant { align-self: flex-start; background: var(--panel); border: 1px solid var(--line); }
+  .msg.system { align-self: center; color: var(--dim); font-size: 13px; background: transparent; border: 1px dashed var(--line); }
+  .msg .meta { display: block; margin-top: 6px; font-size: 11px; color: var(--dim); font-family: var(--mono); }
+  .composer { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--line); background: var(--panel); }
+  aside { border-left: 1px solid var(--line); background: var(--panel); padding: 12px 16px; display: grid; gap: 14px; align-content: start; }
+  details { border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; background: var(--bg); }
+  details > summary { cursor: pointer; font-weight: 600; color: var(--accent); }
+  details .body { display: grid; gap: 8px; margin-top: 8px; }
+  label { font-size: 12px; color: var(--dim); display: grid; gap: 3px; }
+  .cards { display: grid; gap: 6px; }
+  .card { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 13px; background: var(--panel-2); }
+  .card h4 { margin: 0 0 4px; font-size: 12px; color: var(--accent); font-family: var(--mono); display: flex; justify-content: space-between; gap: 8px; }
+  .card pre { margin: 0; white-space: pre-wrap; font: 12px/1.4 var(--mono); max-height: 160px; overflow: auto; }
+  .hint { font-size: 12px; color: var(--dim); }
+  .who { font-size: 13px; }
+  .who b { color: var(--good); }
+  code { font-family: var(--mono); font-size: 12px; background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
+  ul.files { list-style: none; margin: 0; padding: 0; max-height: 220px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; font-family: var(--mono); font-size: 12px; }
+  ul.files li { padding: 4px 8px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; gap: 6px; cursor: pointer; }
+  ul.files li:hover { background: var(--panel-2); }
+  ul.files li.dir::before { content: "▸ "; color: var(--dim); }
+</style>
+</head>
+<body>
+<header>
+  <h1>ASTROLABE PYTHIA <small id="modelName">no model loaded</small></h1>
+  <div class="pills">
+    <span class="pill" id="pillLink">link: …</span>
+    <span class="pill" id="pillThreads">threads: …</span>
+    <span class="pill" id="pillSpeed">0 tok/s</span>
+  </div>
+</header>
+
+<main>
+  <section class="chat">
+    <div class="loader">
+      <div class="row">
+        <select id="modelSelect"></select>
+        <button id="btnLoad" class="primary">Load model</button>
+      </div>
+      <progress id="loadProgress" max="100" value="0" hidden></progress>
+      <div class="status" id="loadStatus">Reading config…</div>
+    </div>
+
+    <div class="messages" id="messages">
+      <div class="msg system">Qwen runs here, in your browser, served by an Astrolabe watch at <code>http://astrolabe.local/pythia/</code> (or this hosted copy). Load the model once; it is cached. Prompts never leave this machine.<br>Commands: <code>/quote</code> <code>/ticker</code> <code>/almanac</code> <code>/faculty &lt;slug&gt; &lt;question&gt;</code> <code>/save</code> <code>/journal</code> <code>/clear</code></div>
+    </div>
+
+    <form class="composer" id="composer">
+      <textarea id="input" rows="2" placeholder="Ask Pythia… (Enter to send, Shift+Enter for newline)"></textarea>
+      <button type="submit" id="btnSend" class="primary" disabled>Send</button>
+      <button type="button" id="btnStop" disabled>Stop</button>
+    </form>
+  </section>
+
+  <aside>
+    <details open>
+      <summary>Castalia</summary>
+      <div class="body">
+        <div class="who" id="whoami">Not signed in.</div>
+        <div class="row" id="signinRow">
+          <button id="btnSignInGitHub" class="primary">Sign in with GitHub</button>
+          <button id="btnSignInGoogle">Sign in with Google</button>
+        </div>
+        <div class="row" id="signoutRow" hidden>
+          <button id="btnSignOut">Sign out</button>
+        </div>
+        <div class="hint">Signing in creates a Castalia session (Supabase Auth). GitHub sign-in also grants this page read/write access to your repositories. Tokens stay in this browser.</div>
+        <div class="row">
+          <button id="btnQuote">Quote of the day</button>
+          <button id="btnTicker">Apocalypso ticker</button>
+          <button id="btnAlmanac">Almanac</button>
+        </div>
+        <div class="row">
+          <input id="facultySlug" placeholder="faculty slug (e.g. socrates)">
+          <button id="btnFaculty">Ask faculty</button>
+        </div>
+        <div class="cards" id="contextCards"></div>
+        <div class="hint" id="castaliaStatus"></div>
+      </div>
+    </details>
+
+    <details open>
+      <summary>GitHub</summary>
+      <div class="body">
+        <div class="hint" id="ghHint">Sign in with GitHub above, or paste a fine-grained token (Contents: read/write).</div>
+        <label id="ghTokenLabel">Personal access token (fallback)
+          <input id="ghToken" type="password" autocomplete="off" placeholder="github_pat_…">
+        </label>
+        <div class="row">
+          <select id="ghRepoSelect"><option value="">— pick a repository —</option></select>
+          <button id="btnRepos" class="small">Refresh</button>
+        </div>
+        <div class="row">
+          <label>Branch <input id="ghBranch" placeholder="main"></label>
+          <label>Folder <input id="ghDir" placeholder="pythia"></label>
+        </div>
+        <div class="row">
+          <button id="btnBrowse">Browse folder</button>
+          <button id="btnSave" class="primary">Save transcript</button>
+          <button id="btnJournal">Append to journal.md</button>
+        </div>
+        <ul class="files" id="ghFiles" hidden></ul>
+        <div class="hint" id="ghStatus"></div>
+      </div>
+    </details>
+
+    <details>
+      <summary>Watch &amp; model</summary>
+      <div class="body">
+        <div class="status" id="watchInfo">…</div>
+        <label>System prompt
+          <textarea id="systemPrompt" rows="3"></textarea>
+        </label>
+        <label>Context tokens
+          <select id="ctxSelect">
+            <option value="2048">2048 (fast)</option>
+            <option value="4096" selected>4096</option>
+            <option value="8192">8192 (more memory)</option>
+          </select>
+        </label>
+        <label><input type="checkbox" id="pushNotes" checked> Show each exchange on the watch face</label>
+      </div>
+    </details>
+  </aside>
+</main>
+
+<script type="module">
+const $ = (id) => document.getElementById(id);
+const els = Object.fromEntries([...document.querySelectorAll('[id]')].map(el => [el.id, el]));
+
+const WLLAMA_VERSION = '3.6.1';
+const WLLAMA_CDN = `https://cdn.jsdelivr.net/npm/@wllama/wllama@${WLLAMA_VERSION}/esm/`;
+const DEFAULT_SYSTEM = 'You are Pythia, the Astrolabe oracle: a small local model served from a Castalia Institute watch and running entirely in the visitor\'s browser. Be concise, honest about uncertainty, and use any Castalia or GitHub context provided.';
+const HF_FALLBACK = {
+  name: 'qwen2.5-1.5b-instruct-q4_k_m.gguf (Hugging Face)',
+  url: 'https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf',
+};
+const DEFAULT_CASTALIA = {
+  origin: 'https://castalia.institute',
+  quotesUrl: 'https://quotes.castalia.institute/quote-of-the-day.json',
+  apocalypsoUrl: 'https://apocalypso.castalia.institute/api/ticker.json',
+  almanacUrl: 'https://almanac.castalia.institute/manifest.json',
+};
+
+const state = {
+  onWatch: false, config: null, castalia: { ...DEFAULT_CASTALIA }, wllama: null, Wllama: null, wasmPath: '',
+  modelUrl: null, modelLabel: '', messages: [], busy: false, abort: null, context: [],
+  client: navigator.userAgent.includes('Mobile') ? 'phone' : 'browser',
+  session: null, user: null, ghRepos: [], ghPath: '',
+};
+
+// ---- persistence (browser only; nothing here is ever posted to the watch) ----
+const store = {
+  get(k, d = '') { try { return localStorage.getItem('pythia.' + k) ?? d; } catch { return d; } },
+  set(k, v) { try { localStorage.setItem('pythia.' + k, v); } catch {} },
+  del(k) { try { localStorage.removeItem('pythia.' + k); } catch {} },
+  json(k, d = null) { try { return JSON.parse(localStorage.getItem('pythia.' + k)) ?? d; } catch { return d; } },
+};
+els.systemPrompt.value = store.get('system', DEFAULT_SYSTEM);
+els.ctxSelect.value = store.get('ctx', '4096');
+els.ghToken.value = store.get('ghToken');
+els.ghBranch.value = store.get('ghBranch', '');
+els.ghDir.value = store.get('ghDir', 'pythia');
+for (const [el, key] of [[els.systemPrompt, 'system'], [els.ctxSelect, 'ctx'], [els.ghToken, 'ghToken'], [els.ghBranch, 'ghBranch'], [els.ghDir, 'ghDir']]) {
+  el.addEventListener('change', () => store.set(key, el.value.trim()));
+}
+
+// ---- UI helpers ----
+function addMessage(role, text, meta) {
+  const div = document.createElement('div');
+  div.className = 'msg ' + role;
+  div.textContent = text;
+  if (meta) { const m = document.createElement('span'); m.className = 'meta'; m.textContent = meta; div.appendChild(m); }
+  els.messages.appendChild(div);
+  els.messages.scrollTop = els.messages.scrollHeight;
+  return div;
+}
+function setMeta(div, meta) {
+  let m = div.querySelector('.meta');
+  if (!m) { m = document.createElement('span'); m.className = 'meta'; div.appendChild(m); }
+  m.textContent = meta;
+}
+const fmtBytes = (n) => n >= 1e9 ? (n / 1e9).toFixed(2) + ' GB' : (n / 1e6).toFixed(0) + ' MB';
+function setBusy(b) {
+  state.busy = b;
+  els.btnSend.disabled = b || !state.wllama?.isModelLoaded();
+  els.btnStop.disabled = !b;
+  els.btnLoad.disabled = b;
+}
+function loadScript(src) {
+  return new Promise((resolve) => {
+    const s = document.createElement('script');
+    s.src = src; s.onload = () => resolve(true); s.onerror = () => resolve(false);
+    document.head.appendChild(s);
+  });
+}
+
+// ---- config: the watch, else the hosted config.js, else defaults ----
+async function loadConfig() {
+  try {
+    const res = await fetch('./../api/pythia/config', { cache: 'no-store' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    state.config = await res.json();
+    state.onWatch = true;
+  } catch {
+    state.config = { hostname: 'astrolabe', links: {}, sd: { models: [] }, castalia: {} };
+  }
+  Object.assign(state.castalia, Object.fromEntries(Object.entries(state.config.castalia || {}).filter(([, v]) => v)));
+  if (!state.castalia.supabaseUrl || !state.castalia.supabaseAnonKey) {
+    // Hosted copy (GitHub Pages) writes ./config.js at deploy time; the watch
+    // copy can borrow it from the public site when online.
+    if (!(await loadScript('./config.js'))) await loadScript('https://astrolabe.castalia.institute/pythia/config.js');
+    const c = window.pythiaConfig || window.astrolabeAuthConfig;
+    if (c?.supabaseUrl && c?.supabaseAnonKey) Object.assign(state.castalia, { supabaseUrl: c.supabaseUrl, supabaseAnonKey: c.supabaseAnonKey });
+  }
+
+  const c = state.config;
+  const linkParts = [];
+  if (c.links?.usb) linkParts.push('usb ' + c.links.usb);
+  if (c.links?.wifi) linkParts.push('wifi ' + c.links.wifi);
+  els.pillLink.textContent = state.onWatch ? 'watch: ' + (linkParts.join(' · ') || 'no link') : 'hosted copy · no watch';
+  els.pillLink.classList.toggle('on', state.onWatch && linkParts.length > 0);
+  els.watchInfo.textContent = state.onWatch
+    ? [c.hostname + '.local', c.variant ? 'variant ' + c.variant : '', c.firmware ? 'fw ' + c.firmware : '', c.mac ? 'mac ' + c.mac : ''].filter(Boolean).join(' · ')
+    : 'Not served by a watch. Open http://astrolabe.local/pythia/ with the Pythia face selected to use the SD-card model.';
+
+  els.modelSelect.innerHTML = '';
+  for (const m of c.sd?.models ?? []) {
+    const opt = document.createElement('option');
+    opt.value = m.url; opt.textContent = `${m.name} · ${fmtBytes(m.size)} · from watch SD`;
+    els.modelSelect.appendChild(opt);
+  }
+  const hf = document.createElement('option');
+  hf.value = HF_FALLBACK.url; hf.textContent = HF_FALLBACK.name;
+  els.modelSelect.appendChild(hf);
+  const remembered = store.get('modelUrl');
+  if (remembered && [...els.modelSelect.options].some(o => o.value === remembered)) els.modelSelect.value = remembered;
+  els.loadStatus.textContent = (c.sd?.models?.length ? `${c.sd.models.length} model(s) on the SD card. ` : 'Weights come from Hugging Face (internet) — ~1.1 GB, cached after the first load. ')
+    + (crossOriginIsolated ? 'Multi-thread WASM available.' : 'Single-thread WASM (origin not cross-origin isolated).');
+  els.pillThreads.textContent = 'threads: ' + (crossOriginIsolated ? Math.min(navigator.hardwareConcurrency || 4, 8) : 1);
+  els.pillThreads.classList.toggle('warn', !crossOriginIsolated);
+  watchPost({ state: 'open' });
+}
+
+// ---- watch link ----
+async function watchPost(payload) {
+  if (!state.onWatch || !els.pushNotes.checked) return;
+  try {
+    await fetch('./../api/pythia/note', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ client: state.client, ...payload }) });
+  } catch {}
+}
+
+// ---- wllama: vendored on the SD card, CDN when hosted ----
+async function loadWllama() {
+  if (state.Wllama) return;
+  const local = await fetch('./vendor/wllama/VERSION', { method: 'HEAD', cache: 'no-store' }).then(r => r.ok).catch(() => false);
+  const base = local ? './vendor/wllama/' : WLLAMA_CDN;
+  const mod = await import(base + 'index.js');
+  state.Wllama = mod.Wllama;
+  state.wasmPath = base + 'wasm/wllama.wasm';
+}
+
+// ---- model ----
+async function loadModel() {
+  const url = els.modelSelect.value;
+  if (!url) return;
+  store.set('modelUrl', url);
+  setBusy(true);
+  els.loadProgress.hidden = false; els.loadProgress.value = 0;
+  const t0 = performance.now();
+  try {
+    els.loadStatus.textContent = 'Loading runtime…';
+    await loadWllama();
+    if (state.wllama) { try { await state.wllama.exit(); } catch {} }
+    state.wllama = new state.Wllama({ default: state.wasmPath }, { suppressNativeLog: true });
+    watchPost({ state: 'loading' });
+    let lastLoaded = 0;
+    await state.wllama.loadModelFromUrl(url, {
+      n_ctx: Number(els.ctxSelect.value) || 4096,
+      n_threads: crossOriginIsolated ? Math.min(navigator.hardwareConcurrency || 4, 8) : 1,
+      progressCallback: ({ loaded, total }) => {
+        lastLoaded = loaded;
+        const pct = total ? Math.round(loaded / total * 100) : 0;
+        els.loadProgress.value = pct;
+        const secs = (performance.now() - t0) / 1000;
+        els.loadStatus.textContent = `Fetching ${fmtBytes(loaded)} / ${fmtBytes(total)} (${pct}%) · ${(loaded / 1e6 / Math.max(secs, 0.1)).toFixed(2)} MB/s · first time only, cached afterwards`;
+      },
+    });
+    const meta = state.wllama.getModelMetadata();
+    state.modelUrl = url;
+    state.modelLabel = (meta?.meta?.['general.name'] || url.split('/').pop() || 'model').toString();
+    els.modelName.textContent = state.modelLabel + (state.wllama.isMultithread() ? ' · mt' : ' · st');
+    els.loadStatus.textContent = `Ready in ${((performance.now() - t0) / 1000).toFixed(0)}s · ctx ${els.ctxSelect.value} · ${lastLoaded ? fmtBytes(lastLoaded) : 'from cache'}`;
+    addMessage('system', `Model loaded: ${state.modelLabel}. Ask away.`);
+    watchPost({ state: 'ready', model: state.modelLabel });
+  } catch (e) {
+    console.error(e);
+    els.loadStatus.textContent = 'Load failed: ' + (e?.message || e);
+    addMessage('system', 'Model load failed: ' + (e?.message || e) + '. Check the SD card path or try the Hugging Face option.');
+  } finally {
+    els.loadProgress.hidden = true;
+    setBusy(false);
+  }
+}
+
+// ---- chat ----
+function buildMessages(userText) {
+  const sys = [els.systemPrompt.value.trim() || DEFAULT_SYSTEM];
+  const used = state.context.filter(c => c.attach);
+  if (used.length) sys.push('Context:\n' + used.map(c => `## ${c.title}\n${c.text}`).join('\n\n'));
+  const history = state.messages.slice(-12);
+  return [{ role: 'system', content: sys.join('\n\n') }, ...history, { role: 'user', content: userText }];
+}
+
+async function ask(userText) {
+  if (!state.wllama?.isModelLoaded() || state.busy) return;
+  addMessage('user', userText);
+  const reply = addMessage('assistant', '…');
+  setBusy(true);
+  state.abort = new AbortController();
+  let text = '';
+  let tokens = 0;
+  const t0 = performance.now();
+  try {
+    await state.wllama.createChatCompletion({
+      messages: buildMessages(userText),
+      stream: true,
+      max_tokens: 512,
+      temperature: 0.7,
+      abortSignal: state.abort.signal,
+      onData: (chunk) => {
+        const delta = chunk?.choices?.[0]?.delta?.content;
+        if (delta) {
+          text += delta; tokens += 1;
+          reply.firstChild.nodeValue = text;
+          els.pillSpeed.textContent = (tokens / Math.max((performance.now() - t0) / 1000, 0.05)).toFixed(1) + ' tok/s';
+          els.messages.scrollTop = els.messages.scrollHeight;
+        }
+      },
+    });
+  } catch (e) {
+    if (!state.abort.signal.aborted) text += '\n[error: ' + (e?.message || e) + ']';
+  }
+  const secs = (performance.now() - t0) / 1000;
+  reply.firstChild.nodeValue = text.trim() || '(no output)';
+  setMeta(reply, `${tokens} tok · ${secs.toFixed(1)}s · ${(tokens / Math.max(secs, 0.05)).toFixed(1)} tok/s · ${state.modelLabel}`);
+  state.messages.push({ role: 'user', content: userText }, { role: 'assistant', content: text.trim() });
+  state.context.forEach(c => c.attach = false); renderContext();
+  setBusy(false);
+  watchPost({ prompt: userText, reply: text.trim(), model: state.modelLabel });
+}
+
+els.composer.addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const text = els.input.value.trim();
+  if (!text) return;
+  els.input.value = '';
+  if (text.startsWith('/')) return runCommand(text);
+  await ask(text);
+});
+els.input.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); els.composer.requestSubmit(); }
+});
+els.btnStop.addEventListener('click', () => state.abort?.abort());
+els.btnLoad.addEventListener('click', loadModel);
+
+async function runCommand(line) {
+  const [cmd, ...rest] = line.slice(1).split(/\s+/);
+  switch (cmd) {
+    case 'quote': return fetchQuote();
+    case 'ticker': return fetchTicker();
+    case 'almanac': return fetchAlmanac();
+    case 'faculty': { const [slug, ...q] = rest; els.facultySlug.value = slug || ''; return askFaculty(q.join(' ')); }
+    case 'save': return saveTranscript();
+    case 'journal': return appendJournal();
+    case 'clear': state.messages = []; els.messages.innerHTML = ''; addMessage('system', 'Conversation cleared.'); return;
+    default: addMessage('system', 'Unknown command: /' + cmd);
+  }
+}
+
+// ---- Castalia identity: Supabase Auth, implicit flow, no SDK ----
+function sbUrl(path) { return state.castalia.supabaseUrl.replace(/\/$/, '') + path; }
+function sbHeaders(json = true) {
+  const h = { apikey: state.castalia.supabaseAnonKey };
+  if (json) h['Content-Type'] = 'application/json';
+  return h;
+}
+function sessionValid() { return state.session && state.session.expires_at > Date.now() / 1000 + 30; }
+function saveSession(s) { state.session = s; if (s) store.set('session', JSON.stringify(s)); else store.del('session'); }
+
+function parseAuthHash() {
+  if (!location.hash.includes('access_token=')) return false;
+  const p = new URLSearchParams(location.hash.slice(1));
+  const s = {
+    access_token: p.get('access_token'), refresh_token: p.get('refresh_token'), token_type: p.get('token_type'),
+    expires_at: Number(p.get('expires_at')) || Math.floor(Date.now() / 1000) + Number(p.get('expires_in') || 3600),
+    provider_token: p.get('provider_token') || '', provider: '',
+  };
+  saveSession(s);
+  history.replaceState(null, '', location.pathname + location.search);
+  return true;
+}
+
+async function refreshSession() {
+  if (!state.session?.refresh_token || !state.castalia.supabaseUrl) return false;
+  const res = await fetch(sbUrl('/auth/v1/token?grant_type=refresh_token'), { method: 'POST', headers: sbHeaders(), body: JSON.stringify({ refresh_token: state.session.refresh_token }) });
+  if (!res.ok) { saveSession(null); return false; }
+  const j = await res.json();
+  saveSession({ ...state.session, access_token: j.access_token, refresh_token: j.refresh_token, expires_at: Math.floor(Date.now() / 1000) + (j.expires_in || 3600) });
+  return true;
+}
+
+async function loadUser() {
+  state.user = null;
+  if (!state.session || !state.castalia.supabaseUrl) return renderAuth();
+  if (!sessionValid() && !(await refreshSession())) return renderAuth();
+  try {
+    const res = await fetch(sbUrl('/auth/v1/user'), { headers: { ...sbHeaders(false), Authorization: 'Bearer ' + state.session.access_token } });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    state.user = await res.json();
+    state.session.provider = state.user.app_metadata?.provider || '';
+    if (state.session.provider === 'github' && state.session.provider_token) store.set('ghProviderToken', state.session.provider_token);
+    saveSession(state.session);
+  } catch { saveSession(null); }
+  renderAuth();
+}
+
+function renderAuth() {
+  const ready = !!(state.castalia.supabaseUrl && state.castalia.supabaseAnonKey);
+  els.signinRow.hidden = !!state.user;
+  els.signoutRow.hidden = !state.user;
+  els.btnSignInGitHub.disabled = els.btnSignInGoogle.disabled = !ready;
+  if (state.user) {
+    const gh = state.user.user_metadata?.user_name;
+    els.whoami.innerHTML = '';
+    els.whoami.append('Signed in as ');
+    const b = document.createElement('b'); b.textContent = state.user.email || gh || state.user.id; els.whoami.appendChild(b);
+    els.whoami.append(` via ${state.session.provider || 'castalia'}${gh ? ' (github @' + gh + ')' : ''}`);
+  } else {
+    els.whoami.textContent = ready ? 'Not signed in.' : 'Castalia sign-in unavailable: no Supabase client config (the watch needs include/secrets.local.h, the hosted copy needs config.js).';
+  }
+  renderGitHubAuth();
+}
+
+function signIn(provider) {
+  const redirect = location.origin + location.pathname;
+  const params = new URLSearchParams({ provider, redirect_to: redirect });
+  if (provider === 'github') params.set('scopes', 'repo read:user');
+  location.href = sbUrl('/auth/v1/authorize?' + params.toString());
+}
+async function signOut() {
+  try { if (state.session) await fetch(sbUrl('/auth/v1/logout'), { method: 'POST', headers: { ...sbHeaders(false), Authorization: 'Bearer ' + state.session.access_token } }); } catch {}
+  saveSession(null); state.user = null; store.del('ghProviderToken');
+  renderAuth();
+}
+els.btnSignInGitHub.addEventListener('click', () => signIn('github'));
+els.btnSignInGoogle.addEventListener('click', () => signIn('google'));
+els.btnSignOut.addEventListener('click', signOut);
+
+// ---- Castalia services ----
+function castaliaHeaders(json = true) {
+  const h = {};
+  if (json) h['Content-Type'] = 'application/json';
+  if (state.castalia.supabaseAnonKey) h['apikey'] = state.castalia.supabaseAnonKey;
+  const token = sessionValid() ? state.session.access_token : state.castalia.supabaseAnonKey;
+  if (token) h['Authorization'] = 'Bearer ' + token;
+  return h;
+}
+function addContext(title, text, source) {
+  state.context.unshift({ title, text: String(text).slice(0, 6000), source, attach: true });
+  state.context = state.context.slice(0, 8);
+  renderContext();
+  addMessage('system', `${title} attached as context for the next question.`);
+}
+function renderContext() {
+  els.contextCards.innerHTML = '';
+  for (const [i, c] of state.context.entries()) {
+    const card = document.createElement('div');
+    card.className = 'card';
+    const h = document.createElement('h4');
+    h.innerHTML = `<span></span><span><label style="display:inline"><input type="checkbox" ${c.attach ? 'checked' : ''}> attach</label> <button class="small">×</button></span>`;
+    h.firstChild.textContent = c.title;
+    h.querySelector('input').addEventListener('change', (e) => { c.attach = e.target.checked; });
+    h.querySelector('button').addEventListener('click', () => { state.context.splice(i, 1); renderContext(); });
+    const pre = document.createElement('pre'); pre.textContent = c.text;
+    card.append(h, pre);
+    els.contextCards.appendChild(card);
+  }
+}
+async function castaliaFetch(url, init) {
+  els.castaliaStatus.textContent = 'Fetching ' + new URL(url).host + '…';
+  const res = await fetch(url, init);
+  if (!res.ok) throw new Error(`${new URL(url).host} HTTP ${res.status}`);
+  els.castaliaStatus.textContent = '';
+  return res;
+}
+function summarizeJson(obj) {
+  try { return JSON.stringify(obj, null, 1).replace(/\n\s+/g, ' ').slice(0, 1500); } catch { return String(obj); }
+}
+async function fetchQuote() {
+  try {
+    const j = await (await castaliaFetch(state.castalia.quotesUrl)).json();
+    const q = j.quote && typeof j.quote === 'object' ? j.quote : j;
+    const body = q.quote_text || q.quote || q.text;
+    const who = q.faculty_name || q.book_author || q.author || 'unknown';
+    const where = [q.book_title, q.passage_label].filter(Boolean).join(', ');
+    const text = body ? `"${body}" — ${who}${where ? ` (${where})` : ''}` : summarizeJson(j);
+    addContext('Quote of the day' + (j.date ? ' · ' + j.date : ''), text, 'quotes.castalia.institute');
+  } catch (e) { els.castaliaStatus.textContent = 'Quote failed: ' + e.message; }
+}
+async function fetchTicker() {
+  try {
+    const j = await (await castaliaFetch(state.castalia.apocalypsoUrl)).json();
+    const items = Array.isArray(j.symbols) ? j.symbols : Array.isArray(j.items) ? j.items : Array.isArray(j) ? j : null;
+    const fmt = (i) => i.name && 'value' in i
+      ? `• ${i.name}: ${i.value ?? 'n/a'}${i.changePercent != null ? ` (${i.changePercent > 0 ? '+' : ''}${i.changePercent}%)` : ''}${i.dataQuality && i.dataQuality !== 'ok' ? ` [${i.dataQuality}]` : ''}`
+      : '• ' + (i.title || i.text || i.headline || summarizeJson(i));
+    const text = items ? items.slice(0, 16).map(fmt).join('\n') : summarizeJson(j);
+    addContext('Apocalypso ticker' + (j.updated_at ? ' · ' + j.updated_at.slice(0, 10) : ''), text, 'apocalypso.castalia.institute');
+  } catch (e) { els.castaliaStatus.textContent = 'Ticker failed: ' + e.message; }
+}
+async function fetchAlmanac() {
+  try {
+    const j = await (await castaliaFetch(state.castalia.almanacUrl)).json();
+    addContext('Almanac manifest', summarizeJson(j), 'almanac.castalia.institute');
+  } catch (e) { els.castaliaStatus.textContent = 'Almanac failed: ' + e.message; }
+}
+async function askFaculty(question) {
+  const slug = els.facultySlug.value.trim();
+  const q = question || els.input.value.trim() || state.messages.filter(m => m.role === 'user').pop()?.content;
+  if (!state.castalia.supabaseUrl) { els.castaliaStatus.textContent = 'No Supabase client config available.'; return; }
+  if (!slug || !q) { els.castaliaStatus.textContent = 'Give a faculty slug and a question (e.g. /faculty socrates what is virtue?).'; return; }
+  try {
+    const res = await castaliaFetch(sbUrl('/functions/v1/ask-faculty-voice'), {
+      method: 'POST', headers: castaliaHeaders(),
+      body: JSON.stringify({ message: q, facultySlug: slug, responseFormat: 'text', generateTts: false, skipTts: true, commonplaceMode: 'off' }),
+    });
+    const name = res.headers.get('x-faculty-name') || slug;
+    addContext(`${name} on: ${q.slice(0, 60)}`, await res.text(), 'ask-faculty-voice');
+  } catch (e) { els.castaliaStatus.textContent = 'Faculty failed: ' + e.message; }
+}
+els.btnQuote.addEventListener('click', fetchQuote);
+els.btnTicker.addEventListener('click', fetchTicker);
+els.btnAlmanac.addEventListener('click', fetchAlmanac);
+els.btnFaculty.addEventListener('click', () => askFaculty());
+
+// ---- GitHub: read and write the user's repositories ----
+function ghToken() { return store.get('ghProviderToken') || els.ghToken.value.trim(); }
+function ghHeaders(json = false) {
+  const h = { Authorization: 'Bearer ' + ghToken(), Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' };
+  if (json) h['Content-Type'] = 'application/json';
+  return h;
+}
+async function gh(path, init = {}) {
+  if (!ghToken()) throw new Error('not connected to GitHub (sign in with GitHub or paste a token)');
+  const res = await fetch('https://api.github.com' + path, { ...init, headers: { ...ghHeaders(!!init.body), ...(init.headers || {}) } });
+  if (res.status === 204) return null;
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(j.message || 'GitHub HTTP ' + res.status);
+  return j;
+}
+function renderGitHubAuth() {
+  const viaSession = !!store.get('ghProviderToken');
+  els.ghTokenLabel.hidden = viaSession;
+  els.ghHint.textContent = viaSession
+    ? 'Connected through your Castalia GitHub sign-in (scope: repo).'
+    : 'Sign in with GitHub above, or paste a fine-grained token (Contents: read/write) — kept in this browser only.';
+  if (ghToken() && !state.ghRepos.length) listRepos().catch(() => {});
+}
+function currentRepo() { return els.ghRepoSelect.value || store.get('ghRepo'); }
+function currentBranch() {
+  const r = state.ghRepos.find(x => x.full_name === currentRepo());
+  return els.ghBranch.value.trim() || r?.default_branch || 'main';
+}
+async function listRepos() {
+  els.ghStatus.textContent = 'Listing repositories…';
+  const repos = await gh('/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator');
+  state.ghRepos = repos;
+  const remembered = store.get('ghRepo');
+  els.ghRepoSelect.innerHTML = '<option value="">— pick a repository —</option>';
+  for (const r of repos) {
+    const opt = document.createElement('option');
+    opt.value = r.full_name; opt.textContent = r.full_name + (r.private ? ' 🔒' : '');
+    if (r.full_name === remembered) opt.selected = true;
+    els.ghRepoSelect.appendChild(opt);
+  }
+  els.ghStatus.textContent = `${repos.length} repositories.`;
+}
+els.ghRepoSelect.addEventListener('change', () => { store.set('ghRepo', els.ghRepoSelect.value); els.ghFiles.hidden = true; });
+els.btnRepos.addEventListener('click', () => listRepos().catch(e => els.ghStatus.textContent = e.message));
+
+async function browse(path) {
+  const repo = currentRepo();
+  if (!repo) { els.ghStatus.textContent = 'Pick a repository first.'; return; }
+  state.ghPath = (path ?? els.ghDir.value.trim()).replace(/^\/|\/$/g, '');
+  els.ghStatus.textContent = `Reading ${repo}/${state.ghPath || '/'}…`;
+  let items;
+  try {
+    items = await gh(`/repos/${repo}/contents/${state.ghPath}?ref=${encodeURIComponent(currentBranch())}`);
+  } catch (e) {
+    if (/not found/i.test(e.message)) { items = []; els.ghStatus.textContent = `${state.ghPath || '/'} does not exist yet; saving will create it.`; }
+    else { els.ghStatus.textContent = e.message; return; }
+  }
+  if (!Array.isArray(items)) items = [items];
+  els.ghFiles.innerHTML = '';
+  if (state.ghPath) {
+    const up = document.createElement('li'); up.className = 'dir'; up.textContent = '..';
+    up.addEventListener('click', () => browse(state.ghPath.split('/').slice(0, -1).join('/')));
+    els.ghFiles.appendChild(up);
+  }
+  for (const it of items.sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type === 'dir' ? -1 : 1))) {
+    const li = document.createElement('li');
+    li.className = it.type;
+    li.innerHTML = '<span></span><span class="hint"></span>';
+    li.firstChild.textContent = it.name;
+    li.lastChild.textContent = it.type === 'file' ? fmtBytes(it.size).replace('0 MB', it.size + ' B') : '';
+    li.addEventListener('click', () => it.type === 'dir' ? browse(it.path) : openFile(it));
+    els.ghFiles.appendChild(li);
+  }
+  els.ghFiles.hidden = false;
+  if (items.length) els.ghStatus.textContent = `${repo}/${state.ghPath || ''} · ${items.length} entries · click a file to attach it as context.`;
+}
+async function openFile(it) {
+  try {
+    const res = await fetch(it.download_url ? it.download_url : `https://api.github.com/repos/${currentRepo()}/contents/${it.path}`, { headers: it.download_url ? {} : { ...ghHeaders(), Accept: 'application/vnd.github.raw' } });
+    if (!res.ok) throw new Error('GitHub HTTP ' + res.status);
+    const text = await res.text();
+    addContext(`${currentRepo()}/${it.path}`, text, 'github');
+    els.ghStatus.textContent = `Attached ${it.path} (${text.length} chars).`;
+  } catch (e) { els.ghStatus.textContent = 'Read failed: ' + e.message; }
+}
+els.btnBrowse.addEventListener('click', () => browse());
+
+const utf8b64 = (s) => btoa(String.fromCharCode(...new TextEncoder().encode(s)));
+const b64utf8 = (b) => new TextDecoder().decode(Uint8Array.from(atob(b.replace(/\n/g, '')), c => c.charCodeAt(0)));
+function transcriptMarkdown(headingLevel = 1) {
+  const now = new Date();
+  const h = '#'.repeat(headingLevel);
+  const lines = [`${h} Astrolabe Pythia — ${now.toISOString()}`, '', `- model: ${state.modelLabel || 'none'}`, `- source: ${state.onWatch ? state.config.hostname + '.local (' + [state.config.variant, state.config.firmware].filter(Boolean).join(' ') + ')' : location.host}`, `- client: ${state.client}`, ''];
+  for (const c of state.context) lines.push(`> **${c.title}** (${c.source})`, '>', ...c.text.split('\n').slice(0, 40).map(l => '> ' + l), '');
+  for (const m of state.messages) lines.push(m.role === 'user' ? `**You:** ${m.content}` : `**Pythia:** ${m.content}`, '');
+  return lines.join('\n');
+}
+async function putFile(path, content, message, sha) {
+  const repo = currentRepo();
+  const j = await gh(`/repos/${repo}/contents/${path}`, { method: 'PUT', body: JSON.stringify({ message, content: utf8b64(content), branch: currentBranch(), ...(sha ? { sha } : {}) }) });
+  return j.content?.html_url;
+}
+async function saveTranscript() {
+  if (!currentRepo()) { els.ghStatus.textContent = 'Pick a repository first.'; return; }
+  if (!state.messages.length) { els.ghStatus.textContent = 'Nothing to save yet.'; return; }
+  const dir = els.ghDir.value.trim().replace(/^\/|\/$/g, '') || 'pythia';
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const path = `${dir}/${stamp}.md`;
+  els.ghStatus.textContent = 'Saving…';
+  try {
+    const url = await putFile(path, transcriptMarkdown(), `pythia: transcript ${stamp}`);
+    els.ghStatus.innerHTML = '';
+    const a = document.createElement('a'); a.href = url; a.target = '_blank'; a.textContent = 'Saved ' + path; els.ghStatus.appendChild(a);
+    addMessage('system', `Transcript saved to ${currentRepo()}/${path}`);
+  } catch (e) { els.ghStatus.textContent = 'GitHub failed: ' + e.message; }
+}
+async function appendJournal() {
+  if (!currentRepo()) { els.ghStatus.textContent = 'Pick a repository first.'; return; }
+  if (!state.messages.length) { els.ghStatus.textContent = 'Nothing to journal yet.'; return; }
+  const dir = els.ghDir.value.trim().replace(/^\/|\/$/g, '') || 'pythia';
+  const path = `${dir}/journal.md`;
+  els.ghStatus.textContent = 'Reading journal…';
+  try {
+    let existing = '', sha;
+    try {
+      const j = await gh(`/repos/${currentRepo()}/contents/${path}?ref=${encodeURIComponent(currentBranch())}`);
+      existing = b64utf8(j.content); sha = j.sha;
+    } catch (e) { if (!/not found/i.test(e.message)) throw e; }
+    const body = (existing ? existing.replace(/\s+$/, '') + '\n\n' : '# Pythia journal\n\n') + transcriptMarkdown(2) + '\n';
+    const url = await putFile(path, body, `pythia: journal ${new Date().toISOString().slice(0, 16)}`, sha);
+    els.ghStatus.innerHTML = '';
+    const a = document.createElement('a'); a.href = url; a.target = '_blank'; a.textContent = (sha ? 'Appended to ' : 'Created ') + path; els.ghStatus.appendChild(a);
+    addMessage('system', `Journal updated: ${currentRepo()}/${path}`);
+  } catch (e) { els.ghStatus.textContent = 'GitHub failed: ' + e.message; }
+}
+els.btnSave.addEventListener('click', saveTranscript);
+els.btnJournal.addEventListener('click', appendJournal);
+els.ghToken.addEventListener('change', renderGitHubAuth);
+
+// ---- boot ----
+(async () => {
+  const fromRedirect = parseAuthHash();
+  state.session = state.session || store.json('session');
+  await loadConfig();
+  await loadUser();
+  if (fromRedirect && state.user) addMessage('system', `Signed in to Castalia as ${state.user.email || state.user.user_metadata?.user_name || 'you'}.`);
+})();
+setInterval(() => watchPost({ state: state.busy ? 'thinking' : state.wllama?.isModelLoaded() ? 'ready' : 'open' }), 30000);
+</script>
+</body>
+</html>
