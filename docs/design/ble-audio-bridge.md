@@ -86,6 +86,11 @@ negotiate MTU 512 → row 0; iOS caps notification payload (~185) → row 10 (µ
 the app converts to PCM16 before STT. The codec char reflects the active row; a run may change
 rows mid-stream (each chunk carries its own codec byte).
 
+Socket note: these row ids are the cross-transport codec ids. The Castalia
+`voice-stream` socket accepts rows 0 and 10 (`0xA1` PCM16 / `0xA3` µ-law frames, see
+`streaming-audio-socket.md`); row 10 halves WiFi radio TX and doubles flash spool capacity vs
+PCM16. Row 20 (Opus) stays BLE-reserved.
+
 ## 6. TTS flow control
 
 - Playout ring: 16 kB (≈500 ms of PCM16k; ≈250 ms of PCM16 8k).
