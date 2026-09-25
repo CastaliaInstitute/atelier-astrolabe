@@ -35,6 +35,7 @@ enum { BLEA_MIN_MTU_ROW0 = 332, BLEA_MIN_MTU_ROW10 = 172, BLEA_MIN_MTU_ROW11 = 9
 enum { BLEA_PCM16_SAMPLES_PER_CHUNK = 160 };
 enum { BLEA_TTS_RING_BYTES = 16384 };
 enum { BLEA_MIC_TASK_STACK = 3072, BLEA_MIC_TASK_PRIO = 5 };
+enum { BLEA_TTS_TASK_STACK = 3072, BLEA_TTS_TASK_PRIO = 5 };
 
 typedef struct {
     volatile uint16_t conn;    /* audio-capable connection handle, 0 = none */
@@ -48,6 +49,24 @@ typedef struct {
     volatile uint32_t dropped_notify;
     volatile uint32_t seq_wraps;
 } blea_state_t;
+
+/* TTS playout (contract §6): length-prefixed chunk records in a copy ring */
+static uint8_t s_tts_ring[BLEA_TTS_RING_BYTES];
+static volatile size_t s_tts_head;   /* write pos */
+static volatile size_t s_tts_tail;   /* read pos */
+static volatile size_t s_tts_used;   /* occupied bytes (records) */
+static volatile bool s_tts_primed;
+static volatile uint16_t s_tts_last_seq;
+static volatile bool s_credit_notify_enabled;
+static volatile uint32_t s_credit_last_level;
+static volatile uint32_t s_credit_last_tick;
+static volatile uint32_t s_tts_written;
+static volatile uint32_t s_tts_dropped;
+static volatile uint32_t s_tts_underflow;
+static volatile uint32_t s_tts_badchunks;
+static volatile uint32_t s_tts_badcodec;
+static portMUX_TYPE s_tts_lock = portMUX_INITIALIZER_UNLOCKED;
+static TaskHandle_t s_tts_task;
 
 static blea_state_t s_state;
 static faculty175_ble_audio_hooks_t s_hooks;
@@ -131,13 +150,144 @@ static int blea_chr_mic_access(uint16_t conn_handle, uint16_t attr_handle,
     return BLE_ATT_ERR_READ_NOT_PERMITTED;
 }
 
+/* --- TTS playout ingest (contract §6) ---------------------------------- */
+
+static inline uint32_t blea_tts_free_bytes(void)
+{
+    return (uint32_t)(BLEA_TTS_RING_BYTES - s_tts_used);
+}
+
+static void blea_tts_drop_oldest(void)
+{
+    const uint8_t old_len = s_tts_ring[s_tts_tail];
+    if (old_len == 0 || 2u + old_len > s_tts_used) {
+        s_tts_tail = s_tts_head;
+        s_tts_used = 0;
+        return;
+    }
+    s_tts_used -= 2u + old_len;
+    s_tts_tail = (s_tts_tail + 2u + old_len) % BLEA_TTS_RING_BYTES;
+    s_tts_dropped++;
+}
+
+static void blea_tts_write(const uint8_t *payload, size_t payload_len, uint8_t codec)
+{
+    const size_t rec = payload_len + 2;
+    portENTER_CRITICAL(&s_tts_lock);
+    if (rec > BLEA_TTS_RING_BYTES) {
+        portEXIT_CRITICAL(&s_tts_lock);
+        s_tts_badchunks++;
+        return;
+    }
+    while (s_tts_used + rec > BLEA_TTS_RING_BYTES) {
+        blea_tts_drop_oldest();
+    }
+    s_tts_ring[s_tts_head] = (uint8_t)payload_len;
+    s_tts_ring[(s_tts_head + 1u) % BLEA_TTS_RING_BYTES] = codec;
+    for (size_t i = 0; i < payload_len; ++i) {
+        s_tts_ring[(s_tts_head + 2u + i) % BLEA_TTS_RING_BYTES] = payload[i];
+    }
+    s_tts_head = (s_tts_head + rec) % BLEA_TTS_RING_BYTES;
+    s_tts_used += rec;
+    s_tts_written++;
+    portEXIT_CRITICAL(&s_tts_lock);
+}
+
+static size_t blea_tts_pop(uint8_t *dst, size_t cap, uint8_t *out_codec)
+{
+    portENTER_CRITICAL(&s_tts_lock);
+    if (s_tts_used < 2u || s_tts_ring[s_tts_tail] == 0 || cap < 1u) {
+        portEXIT_CRITICAL(&s_tts_lock);
+        return 0;
+    }
+    const size_t len = s_tts_ring[s_tts_tail] > cap ? cap : (size_t)s_tts_ring[s_tts_tail];
+    *out_codec = s_tts_ring[(s_tts_tail + 1u) % BLEA_TTS_RING_BYTES];
+    for (size_t i = 0; i < len; ++i) {
+        dst[i] = s_tts_ring[(s_tts_tail + 2u + i) % BLEA_TTS_RING_BYTES];
+    }
+    s_tts_tail = (s_tts_tail + 2u + (size_t)s_tts_ring[s_tts_tail]) % BLEA_TTS_RING_BYTES;
+    s_tts_used -= len + 2u;
+    portEXIT_CRITICAL(&s_tts_lock);
+    return len;
+}
+
+static void blea_tts_reset(void)
+{
+    portENTER_CRITICAL(&s_tts_lock);
+    s_tts_head = 0;
+    s_tts_tail = 0;
+    s_tts_used = 0;
+    s_tts_primed = false;
+    portEXIT_CRITICAL(&s_tts_lock);
+}
+
+/* G.711 µ-law inverse companding (compute, no LUT). */
+static int16_t blea_ulaw_decode(uint8_t u)
+{
+    int32_t t = ((int32_t)(u & 0x0F) << 3) + 0x84;
+    t <<= (int32_t)((u & 0x70) >> 4);
+    t -= 0x84;
+    return (int16_t)((u & 0x80) ? -t : t);
+}
+
+/* Decode one TTS chunk payload into 16k mono PCM16 */
+static size_t blea_decode_chunk(const uint8_t *payload, size_t len, uint8_t codec,
+                                int16_t *out, size_t cap)
+{
+    switch (codec) {
+        case BLEA_CODEC_PCM16_16K: {
+            const size_t samples = (len / 2) > (cap / sizeof(int16_t)) ? cap : len / 2;
+            memcpy(out, payload, samples * sizeof(int16_t));
+            return samples;
+        }
+        case BLEA_CODEC_ULAW_16K: {
+            const size_t n = len > cap ? cap : len;
+            for (size_t i = 0; i < n; ++i) {
+                out[i] = blea_ulaw_decode(payload[i]);
+            }
+            return n;
+        }
+        case BLEA_CODEC_ULAW_8K: { /* 8k -> 16k nearest-duplicate upsample */
+            const size_t n = len > cap / 2 ? cap / 2 : len;
+            for (size_t i = 0; i < n; ++i) {
+                const int16_t v = blea_ulaw_decode(payload[i]);
+                out[i * 2] = v;
+                out[i * 2 + 1] = v;
+            }
+            return n * 2;
+        }
+        default:
+            return 0;
+    }
+}
+
 static int blea_chr_tts_access(uint16_t conn_handle, uint16_t attr_handle,
                                struct ble_gatt_access_ctxt *ctxt, void *arg)
 {
     (void)conn_handle;
     (void)attr_handle;
     (void)arg;
-    /* Spec 3 wires playout; until then consume and count. */
+    if (ctxt->op != BLE_GATT_ACCESS_OP_WRITE_CHR) {
+        return BLE_ATT_ERR_READ_NOT_PERMITTED;
+    }
+    uint8_t buf[4 + 244];
+    uint16_t len = OS_MBUF_PKTLEN(ctxt->om);
+    if (len < 4 || len > sizeof(buf) || ble_hs_mbuf_to_flat(ctxt->om, buf, sizeof(buf), &len) != 0) {
+        s_tts_badchunks++;
+        return 0; /* consume; contract: never stall */
+    }
+    const uint8_t codec = buf[2];
+    if (codec != BLEA_CODEC_PCM16_16K && codec != BLEA_CODEC_ULAW_16K && codec != BLEA_CODEC_ULAW_8K) {
+        s_tts_badcodec++;
+        return 0;
+    }
+    s_tts_last_seq = (uint16_t)(buf[0] | (buf[1] << 8)); /* QA gap tracking only */
+    const size_t payload = len - 4;
+    if (payload == 0) {
+        s_tts_badchunks++;
+        return 0;
+    }
+    blea_tts_write(buf + 4, payload, codec);
     return 0;
 }
 
@@ -214,7 +364,7 @@ static int blea_chr_credit_access(uint16_t conn_handle, uint16_t attr_handle,
     if (ctxt->op != BLE_GATT_ACCESS_OP_READ_CHR) {
         return BLE_ATT_ERR_READ_NOT_PERMITTED;
     }
-    const uint32_t credit = BLEA_TTS_RING_BYTES; /* full ring until spec 3 */
+    const uint32_t credit = blea_tts_free_bytes();
     const uint8_t le[4] = {(uint8_t)(credit & 0xFF),
                            (uint8_t)((credit >> 8) & 0xFF),
                            (uint8_t)((credit >> 16) & 0xFF),
@@ -254,7 +404,82 @@ const struct ble_gatt_chr_def faculty175_ble_audio_chr_defs[] = {
     {0},
 };
 
-/* ------------------------------------------------------------------ capture */
+/* ------------------------------------------------------------------ playout */
+
+#define BLEA_CREDIT_MS() ((uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS))
+
+static void blea_credit_tick(void)
+{
+    if (s_state.conn == 0 || s_chr_credit_handle == 0 || !s_credit_notify_enabled) {
+        return;
+    }
+    const uint32_t now_ms = BLEA_CREDIT_MS();
+    const uint32_t free_bytes = blea_tts_free_bytes();
+    const uint32_t level = free_bytes / (BLEA_TTS_RING_BYTES / 8);
+    const bool crossed = level != s_credit_last_level;
+    const bool ticked = (now_ms - s_credit_last_tick) >= 500;
+    if (!crossed && !ticked) {
+        return;
+    }
+    s_credit_last_level = level;
+    s_credit_last_tick = now_ms;
+    const uint8_t le[4] = {(uint8_t)(free_bytes & 0xFF),
+                           (uint8_t)((free_bytes >> 8) & 0xFF),
+                           (uint8_t)((free_bytes >> 16) & 0xFF),
+                           (uint8_t)((free_bytes >> 24) & 0xFF)};
+    struct os_mbuf *om = ble_hs_mbuf_from_flat(le, sizeof(le));
+    if (om == NULL) {
+        return;
+    }
+    if (ble_gatts_notify_custom(s_state.conn, s_chr_credit_handle, om) != 0) {
+        os_mbuf_free_chain(om);
+    }
+}
+
+static void blea_tts_task(void *arg)
+{
+    (void)arg;
+    static uint8_t chunk[244];
+    static int16_t pcm[640];
+    s_credit_last_tick = BLEA_CREDIT_MS();
+    for (;;) {
+        if (!faculty175_board_audio_ready()) {
+            vTaskDelay(pdMS_TO_TICKS(250));
+            continue;
+        }
+        uint8_t codec = 0;
+        const size_t len = blea_tts_pop(chunk, sizeof(chunk), &codec);
+        if (len == 0) {
+            s_tts_primed = false;
+            blea_credit_tick();
+            vTaskDelay(pdMS_TO_TICKS(20));
+            continue;
+        }
+        if (!s_tts_primed) {
+            /* prime ≈10 ms of PCM16k before starting I2S */
+            size_t used_now;
+            portENTER_CRITICAL(&s_tts_lock);
+            used_now = s_tts_used;
+            portEXIT_CRITICAL(&s_tts_lock);
+            if (used_now < 320) {
+                blea_credit_tick();
+                vTaskDelay(pdMS_TO_TICKS(20));
+                continue;
+            }
+            s_tts_primed = true;
+        }
+        const size_t samples = blea_decode_chunk(chunk, len, codec, pcm, 640);
+        if (samples == 0) {
+            blea_credit_tick();
+            continue;
+        }
+        if (faculty175_audio_write_pcm(pcm, samples, 100) != ESP_OK) {
+            s_tts_underflow++;
+            s_tts_primed = false;
+        }
+        blea_credit_tick();
+    }
+}
 
 static int blea_codec_row(void)
 {
@@ -408,6 +633,8 @@ void faculty175_ble_audio_gap(const struct ble_gap_event *event)
                 s_state.conn = 0;
                 s_state.mic_on = false;
                 s_state.mtu = 0;
+                s_credit_notify_enabled = false;
+                s_tts_primed = false;
             }
             break;
         }
@@ -429,6 +656,9 @@ void faculty175_ble_audio_gap(const struct ble_gap_event *event)
                     s_state.conn = 0;
                     ESP_LOGI(TAG, "mic unsubscribed");
                 }
+            } else if (s_state.conn == event->subscribe.conn_handle &&
+                       event->subscribe.attr_handle == s_chr_credit_handle) {
+                s_credit_notify_enabled = event->subscribe.cur_notify != 0;
             }
             break;
         }
@@ -449,6 +679,14 @@ void faculty175_ble_audio_qa(void)
            (unsigned long)s_state.chunks_sent,
            (unsigned long)s_state.dropped_notify,
            (unsigned long)s_state.seq_wraps);
+    printf("blemic: tts_written=%lu tts_dropped=%lu tts_underflow=%lu tts_badchunks=%lu tts_badcodec=%lu used=%u credit=%u\n",
+           (unsigned long)s_tts_written,
+           (unsigned long)s_tts_dropped,
+           (unsigned long)s_tts_underflow,
+           (unsigned long)s_tts_badchunks,
+           (unsigned long)s_tts_badcodec,
+           (unsigned)(int)s_tts_used,
+           (unsigned)blea_tts_free_bytes());
 }
 
 bool faculty175_ble_audio_start(void)
@@ -457,11 +695,17 @@ bool faculty175_ble_audio_start(void)
         return true;
     }
     s_task_started = true;
-    const BaseType_t rc = xTaskCreate(blea_mic_task, "blea_mic", BLEA_MIC_TASK_STACK, NULL,
-                                      BLEA_MIC_TASK_PRIO, &s_mic_task);
+    BaseType_t rc = xTaskCreate(blea_mic_task, "blea_mic", BLEA_MIC_TASK_STACK, NULL,
+                                BLEA_MIC_TASK_PRIO, &s_mic_task);
     if (rc != pdPASS) {
         s_task_started = false;
         ESP_LOGE(TAG, "mic task spawn failed rc=%d", (int)rc);
+        return false;
+    }
+    rc = xTaskCreate(blea_tts_task, "blea_tts", BLEA_TTS_TASK_STACK, NULL, BLEA_TTS_TASK_PRIO,
+                     &s_tts_task);
+    if (rc != pdPASS) {
+        ESP_LOGE(TAG, "tts task spawn failed rc=%d", (int)rc);
         return false;
     }
     return true;
