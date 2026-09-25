@@ -1,4 +1,5 @@
 #include "faculty175_qa.h"
+#include "faculty175_ble_audio.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -1044,6 +1045,11 @@ bool faculty175_qa_handle(const char *line)
         }
         faculty175_audio_set_speaker_volume((uint8_t)level);
         printf("qa: spkvol=%u\n", level);
+        fflush(stdout);
+        return true;
+    }
+    if (strncasecmp(sub, "blemic", 6) == 0) {
+        faculty175_ble_audio_qa();
         fflush(stdout);
         return true;
     }

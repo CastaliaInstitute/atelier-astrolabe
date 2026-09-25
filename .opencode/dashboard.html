@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta http-equiv="refresh" content="15">
+<title>spec-kit dashboard</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 24px; background: #0d1117; color: #e6edf3;
+         font: 14px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif; }
+  h1 { font-size: 20px; margin: 0; }
+  h2 { font-size: 15px; margin: 0; }
+  header { display: flex; align-items: baseline; gap: 16px; margin-bottom: 4px; }
+  .stamp { color: #7d8590; font-size: 12px; }
+  .stats { display: flex; gap: 12px; margin: 14px 0 20px; }
+  .stat { flex: 1; background: #161b22; border: 1px solid #21262d; border-radius: 8px; padding: 10px 14px; }
+  .stat .num { font-size: 22px; font-weight: 600; }
+  .stat .lbl { color: #7d8590; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+  .card { background: #161b22; border: 1px solid #21262d; border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; }
+  .cardhead { display: flex; justify-content: space-between; align-items: baseline; }
+  .count { color: #7d8590; font-size: 12px; }
+  .outcome { color: #9198a1; margin: 6px 0 10px; }
+  .row { padding: 8px 0; border-top: 1px solid #21262d; }
+  .rowhead { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .name { font-weight: 600; }
+  .chip { font-size: 10px; text-transform: uppercase; letter-spacing: .06em;
+          border: 1px solid; border-radius: 999px; padding: 1px 8px; }
+  .blocked { font-size: 11px; color: #f85149; }
+  .goals { font-size: 11px; color: #7d8590; }
+  .next { font-size: 12px; color: #9198a1; margin-top: 4px; }
+  .done-flag { color: #3fb950; font-size: 11px; letter-spacing: .08em; vertical-align: middle; }
+  .warn { margin-top: 8px; color: #d29922; font-size: 12px; }
+  .bar { position: relative; height: 6px; background: #21262d; border-radius: 4px; margin-top: 6px; }
+  .fill { height: 100%; border-radius: 4px; transition: width .3s; }
+  .bar span { position: absolute; right: 0; top: -18px; font-size: 10px; color: #7d8590; }
+</style></head><body>
+<header><h1>Spec-Kit Dashboard</h1><span class="stamp">generated 2026-09-25T10:13:25.279Z — auto-refreshes every 15s</span></header>
+<div class="stats">
+  <div class="stat"><div class="num">1</div><div class="lbl">goals</div></div>
+  <div class="stat"><div class="num">1</div><div class="lbl">specs active</div></div>
+  <div class="stat"><div class="num">1/2</div><div class="lbl">specs complete</div></div>
+  <div class="stat"><div class="num">92%</div><div class="lbl">11/12 tasks</div></div>
+</div>
+<div class="card">
+      <div class="cardhead">
+        <h2>ble-audio-bridge</h2>
+        <span class="count">1/4 specs</span>
+      </div>
+      <div class="outcome">Astrolabe streams mic audio to and TTS audio from the Mynah Android app over BLE as the primary connectivity, with the app relaying to Castalia voice-stream; WiFi reserved for OTA only</div>
+      <div class="row">
+    <div class="rowhead"><span class="name">ble-audio-protocol</span><span class="chip" style="border-color:#1f6feb;color:#1f6feb">complete</span></div>
+    <div class="bar"><div class="fill" style="width:100%;background:#1f6feb"></div><span>100%</span></div>
+    
+  </div>
+<div class="row">
+    <div class="rowhead"><span class="name">ble-audio-mic-stream</span><span class="chip" style="border-color:#3fb950;color:#3fb950">implement</span></div>
+    <div class="bar"><div class="fill" style="width:88%;background:#3fb950"></div><span>88%</span></div>
+    <div class="next">next: 2.8. Verify: shasum byte-identical copies; build both variants; record results; operator device QA plan (verification)</div>
+  </div>
+<div class="row">
+    <div class="rowhead"><span class="name">ble-audio-tts-playback</span><span class="chip" style="border-color:#8b949e;color:#8b949e">requirements</span><span class="blocked">blocked by ble-audio-mic-stream</span><span class="blocked">spec not created yet</span></div>
+    <div class="bar"><div class="fill" style="width:0%;background:#8b949e"></div><span>0%</span></div>
+    
+  </div>
+<div class="row">
+    <div class="rowhead"><span class="name">ble-audio-mynah-app</span><span class="chip" style="border-color:#8b949e;color:#8b949e">requirements</span><span class="blocked">spec not created yet</span></div>
+    <div class="bar"><div class="fill" style="width:0%;background:#8b949e"></div><span>0%</span></div>
+    
+  </div>
+      
+    </div>
+
+
+</body></html>

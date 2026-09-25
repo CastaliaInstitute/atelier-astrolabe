@@ -46,6 +46,7 @@
 #include "faculty175_ring.h"
 #include "faculty175_spotify.h"
 #include "faculty175_voice.h"
+#include "faculty175_ble_audio.h"
 #include "faculty175_wifi_settings.h"
 #if __has_include("secrets.local.h")
 #include "secrets.local.h"
@@ -269,6 +270,11 @@ static int ble_health_json_access(uint16_t conn_handle,
                                   void *arg);
 static void ble_ring_telem_store(const faculty175_ble_peer_t *peer);
 
+static void faculty175_ble_audio_time_set(uint32_t epoch_s)
+{
+    (void)astrolabe_time_set_epoch((time_t)epoch_s);
+}
+
 static const struct ble_gatt_svc_def k_ble_svcs[] = {
     {
         .type = BLE_GATT_SVC_TYPE_PRIMARY,
@@ -303,6 +309,11 @@ static const struct ble_gatt_svc_def k_ble_svcs[] = {
 #endif
             {0},
         },
+    },
+    {
+        .type = BLE_GATT_SVC_TYPE_PRIMARY,
+        .uuid = &faculty175_ble_audio_svc_uuid.u,
+        .characteristics = faculty175_ble_audio_chr_defs,
     },
     {0},
 };
@@ -879,6 +890,7 @@ static void colmi_client_finish(void)
 {
     s_colmi_working_vitals.updated_ms = ble_now_ms();
     faculty175_ring_update_vitals(&s_colmi_working_vitals);
+    faculty175_ble_audio_set_ring(false);
     s_colmi_action = COLMI_ACTION_NONE;
     s_colmi_action_due_ms = 0;
     s_colmi_state = COLMI_CLIENT_DONE;
@@ -1261,6 +1273,7 @@ static esp_err_t colmi_client_start(void)
     s_colmi_connect_started = false;
     s_colmi_want_scan = true;
     s_colmi_state = COLMI_CLIENT_SCAN;
+    faculty175_ble_audio_set_ring(true);
     if (s_advertising) {
         (void)ble_gap_adv_stop();
         s_advertising = false;
@@ -2277,10 +2290,9 @@ static esp_err_t ble_advertise(void)
     }
 
     struct ble_gap_adv_params params = {};
-    params.conn_mode = BLE_GAP_CONN_MODE_NON;
-#if ASTROLABE_CYBER_FEATURES
+    /* Mynah audio bridge attaches from the phone as central: keep the
+     * advertisement connectable (was NON in beacon-only non-CYBER builds). */
     params.conn_mode = BLE_GAP_CONN_MODE_UND;
-#endif
     params.disc_mode = BLE_GAP_DISC_MODE_GEN;
     params.itvl_min = BLE_GAP_ADV_ITVL_MS(1000);
     params.itvl_max = BLE_GAP_ADV_ITVL_MS(1200);
@@ -2330,6 +2342,7 @@ static int ble_gap_event(struct ble_gap_event *event, void *arg)
     if (event == NULL) {
         return 0;
     }
+    faculty175_ble_audio_gap(event);
     switch (event->type) {
         case BLE_GAP_EVENT_CONNECT:
             s_advertising = false;
@@ -2526,6 +2539,14 @@ esp_err_t faculty175_ble_init(void)
     if (rc != 0) {
         ESP_LOGE(TAG, "gatt add failed rc=%d", rc);
         return ESP_FAIL;
+    }
+    {
+        const faculty175_ble_audio_hooks_t audio_hooks = {
+            .time_set = faculty175_ble_audio_time_set,
+            .spool_pcm = NULL,
+        };
+        faculty175_ble_audio_hooks(&audio_hooks);
+        (void)faculty175_ble_audio_start();
     }
     rc = ble_svc_gap_device_name_set(s_device_name);
     if (rc != 0) {

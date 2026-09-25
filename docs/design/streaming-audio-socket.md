@@ -172,3 +172,15 @@ available unsent ring segments in order.
   tool.
 - A socket does not remove the need for flash. Flash is the resilience layer when
   Wi-Fi stalls or the edge worker restarts.
+
+## Supersession: BLE audio bridge (2026-09-25)
+
+When the device is paired over BLE to the Mynah app (`docs/design/ble-audio-bridge.md`), the
+audio transport path is device → BLE → Mynah app → this `voice-stream` socket. The device never
+opens this socket itself on the BLE path: the Mynah app becomes the socket client (Castalia JWT
+on the phone, same auth model as `VoicePipelineClient.kt` in `../mynah`) and the GATT client of
+the device's Audio Service. The socket design below remains the Castalia-side endpoint and
+event protocol (session events, binary PCM frames, commit/turn ids). Flash spooling stays in
+the device for link-loss resilience; the spool-pull BLE sync protocol is a follow-up spec.
+This document's device-direct WSS leg, `voice-pipeline` HTTP fallback, and OTA via
+`faculty175_ota` remain as maintenance/QA transports only.
