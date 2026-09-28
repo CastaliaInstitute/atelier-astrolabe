@@ -2949,10 +2949,10 @@ void app_main(void)
     /* Bring up the control link before peripheral/UI initialization. */
     ESP_ERROR_CHECK(faculty175_ble_init());
 #endif
-    const esp_err_t usb_err = faculty175_usb_init();
-    if (usb_err != ESP_OK) {
-        FACULTY175_LOG_STAGE_W(TAG, "usb", "USB unavailable: %s; continuing BLE/OTA startup", esp_err_to_name(usb_err));
-    }
+    /* Never bring up TinyUSB MSC/NCM on boot (operator directive): the UART is the
+     * native ESP32-S3 USB-Serial/JTAG peripheral via CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG,
+     * and the tinyusb device role (faculty175_usb_init) stays on-demand — raised by the
+     * `ota usb` serial command, or by the explicit factory-recovery / usb-demo profiles. */
     ESP_ERROR_CHECK(faculty175_device_auth_init());
     faculty175_ota_init();
     ESP_ERROR_CHECK(faculty175_apocalypso_init());
