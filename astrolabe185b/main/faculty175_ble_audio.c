@@ -16,6 +16,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/portmacro.h"
@@ -50,8 +51,10 @@ typedef struct {
     volatile uint32_t seq_wraps;
 } blea_state_t;
 
-/* TTS playout (contract §6): length-prefixed chunk records in a copy ring */
-static uint8_t s_tts_ring[BLEA_TTS_RING_BYTES];
+/* TTS playout (contract §6): heap-allocated copy ring (SPIRAM preferred,
+ * internal fallback; if neither fits, TTS tasks are skipped and mic streaming
+ * continues — never a boot-time static, the 185b radio bring-up is DRAM-tight). */
+static uint8_t *s_tts_ring;
 static volatile size_t s_tts_head;   /* write pos */
 static volatile size_t s_tts_tail;   /* read pos */
 static volatile size_t s_tts_used;   /* occupied bytes (records) */
@@ -154,6 +157,9 @@ static int blea_chr_mic_access(uint16_t conn_handle, uint16_t attr_handle,
 
 static inline uint32_t blea_tts_free_bytes(void)
 {
+    if (s_tts_ring == NULL) {
+        return 0;
+    }
     return (uint32_t)(BLEA_TTS_RING_BYTES - s_tts_used);
 }
 
@@ -173,6 +179,10 @@ static void blea_tts_drop_oldest(void)
 static void blea_tts_write(const uint8_t *payload, size_t payload_len, uint8_t codec)
 {
     const size_t rec = payload_len + 2;
+    if (s_tts_ring == NULL) {
+        s_tts_badchunks++;
+        return;
+    }
     portENTER_CRITICAL(&s_tts_lock);
     if (rec > BLEA_TTS_RING_BYTES) {
         portEXIT_CRITICAL(&s_tts_lock);
@@ -702,9 +712,21 @@ bool faculty175_ble_audio_start(void)
         ESP_LOGE(TAG, "mic task spawn failed rc=%d", (int)rc);
         return false;
     }
+    /* Playout ring: SPIRAM first, internal fallback; TTS leg stays optional so a
+     * DRAM-starved board keeps mic streaming without radio bring-up pressure. */
+    s_tts_ring = heap_caps_malloc(BLEA_TTS_RING_BYTES, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (s_tts_ring == NULL) {
+        s_tts_ring = heap_caps_malloc(BLEA_TTS_RING_BYTES, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    }
+    if (s_tts_ring == NULL) {
+        ESP_LOGW(TAG, "tts ring alloc failed (%u bytes); TTS leg disabled", (unsigned)BLEA_TTS_RING_BYTES);
+        return true;
+    }
     rc = xTaskCreate(blea_tts_task, "blea_tts", BLEA_TTS_TASK_STACK, NULL, BLEA_TTS_TASK_PRIO,
                      &s_tts_task);
     if (rc != pdPASS) {
+        heap_caps_free(s_tts_ring);
+        s_tts_ring = NULL;
         ESP_LOGE(TAG, "tts task spawn failed rc=%d", (int)rc);
         return false;
     }
