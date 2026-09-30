@@ -100,3 +100,10 @@ CONFIG_TINYUSB_NET_MODE_NONE=y
 CONFIG_TINYUSB_HID_COUNT=1
 CONFIG_HTTPD_WS_SUPPORT=y
 CONFIG_ESP_TASK_WDT_TIMEOUT_S=15
+
+# Audio bridge notify bursts (~100 chunks/s) exhaust the default 24-block
+# MSYS_2 pool; +8 blocks (~2.6 kB internal) gives the mic task drain headroom.
+CONFIG_BT_NIMBLE_MSYS_2_BLOCK_COUNT=32
+# Database Hash (0x2B29) lets Android centrals detect GATT DB changes after a
+# reflash and re-discover instead of using stale cached attribute handles.
+CONFIG_BT_NIMBLE_GATT_CACHING=y

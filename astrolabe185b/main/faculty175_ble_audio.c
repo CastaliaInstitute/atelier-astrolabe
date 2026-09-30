@@ -35,8 +35,8 @@ enum { BLEA_CODEC_PCM16_16K = 0, BLEA_CODEC_ULAW_16K = 10, BLEA_CODEC_ULAW_8K = 
 enum { BLEA_MIN_MTU_ROW0 = 332, BLEA_MIN_MTU_ROW10 = 172, BLEA_MIN_MTU_ROW11 = 92 };
 enum { BLEA_PCM16_SAMPLES_PER_CHUNK = 160 };
 enum { BLEA_TTS_RING_BYTES = 16384 };
-enum { BLEA_MIC_TASK_STACK = 3072, BLEA_MIC_TASK_PRIO = 5 };
-enum { BLEA_TTS_TASK_STACK = 3072, BLEA_TTS_TASK_PRIO = 5 };
+enum { BLEA_MIC_TASK_STACK = 8192, BLEA_MIC_TASK_PRIO = 5 };
+enum { BLEA_TTS_TASK_STACK = 8192, BLEA_TTS_TASK_PRIO = 5 };
 
 typedef struct {
     volatile uint16_t conn;    /* audio-capable connection handle, 0 = none */
@@ -68,6 +68,8 @@ static volatile uint32_t s_tts_dropped;
 static volatile uint32_t s_tts_underflow;
 static volatile uint32_t s_tts_badchunks;
 static volatile uint32_t s_tts_badcodec;
+static volatile uint32_t s_credit_sent;
+static volatile uint32_t s_credit_fail;
 static portMUX_TYPE s_tts_lock = portMUX_INITIALIZER_UNLOCKED;
 static TaskHandle_t s_tts_task;
 
@@ -284,6 +286,7 @@ static int blea_chr_tts_access(uint16_t conn_handle, uint16_t attr_handle,
     uint16_t len = OS_MBUF_PKTLEN(ctxt->om);
     if (len < 4 || len > sizeof(buf) || ble_hs_mbuf_to_flat(ctxt->om, buf, sizeof(buf), &len) != 0) {
         s_tts_badchunks++;
+        ESP_LOGW(TAG, "tts bad chunk len=%u", (unsigned)len);
         return 0; /* consume; contract: never stall */
     }
     const uint8_t codec = buf[2];
@@ -295,6 +298,7 @@ static int blea_chr_tts_access(uint16_t conn_handle, uint16_t attr_handle,
     const size_t payload = len - 4;
     if (payload == 0) {
         s_tts_badchunks++;
+        ESP_LOGW(TAG, "tts empty payload len=%u codec=%u", (unsigned)len, (unsigned)codec);
         return 0;
     }
     blea_tts_write(buf + 4, payload, codec);
@@ -439,11 +443,15 @@ static void blea_credit_tick(void)
                            (uint8_t)((free_bytes >> 24) & 0xFF)};
     struct os_mbuf *om = ble_hs_mbuf_from_flat(le, sizeof(le));
     if (om == NULL) {
+        s_credit_fail++;
         return;
     }
     if (ble_gatts_notify_custom(s_state.conn, s_chr_credit_handle, om) != 0) {
         os_mbuf_free_chain(om);
+        s_credit_fail++;
+        return;
     }
+    s_credit_sent++;
 }
 
 static void blea_tts_task(void *arg)
@@ -483,7 +491,12 @@ static void blea_tts_task(void *arg)
             blea_credit_tick();
             continue;
         }
-        if (faculty175_audio_write_pcm(pcm, samples, 100) != ESP_OK) {
+        /* Block for I2S space rather than aborting: when the phone feeds
+         * faster than real-time the ring fills and write_pcm's timeout is
+         * backpressure, not underflow — aborting here resets priming and
+         * audibly glitches. The credit protocol (§6) gates the phone, so a
+         * long block is exactly the intended drain-rate coupling. */
+        if (faculty175_audio_write_pcm(pcm, samples, 2000) != ESP_OK) {
             s_tts_underflow++;
             s_tts_primed = false;
         }
@@ -643,9 +656,9 @@ void faculty175_ble_audio_gap(const struct ble_gap_event *event)
                 s_state.conn = 0;
                 s_state.mic_on = false;
                 s_state.mtu = 0;
-                s_credit_notify_enabled = false;
-                s_tts_primed = false;
             }
+            s_credit_notify_enabled = false;
+            s_tts_primed = false;
             break;
         }
         case BLE_GAP_EVENT_MTU: {
@@ -656,19 +669,48 @@ void faculty175_ble_audio_gap(const struct ble_gap_event *event)
             break;
         }
         case BLE_GAP_EVENT_SUBSCRIBE: {
+            ESP_LOGI(TAG, "subscribe conn=%u attr=%u prev_notify=%u cur_notify=%u reason=%d",
+                     (unsigned)event->subscribe.conn_handle,
+                     (unsigned)event->subscribe.attr_handle,
+                     (unsigned)event->subscribe.prev_notify,
+                     (unsigned)event->subscribe.cur_notify,
+                     (int)event->subscribe.reason);
             if (event->subscribe.attr_handle == s_chr_mic_handle) {
                 if (event->subscribe.cur_notify) {
                     s_state.conn = event->subscribe.conn_handle;
                     s_state.mtu = ble_att_mtu(event->subscribe.conn_handle);
                     blea_negotiate();
+                    /* Per-session QA view: prior-session drops (e.g. notifies
+                     * fired at a half-dead link between runs) must not smear
+                     * into this session's counters. */
+                    s_state.chunks_sent = 0;
+                    s_state.dropped_notify = 0;
+                    s_tts_written = 0;
+                    s_tts_dropped = 0;
+                    s_tts_underflow = 0;
+                    s_tts_badchunks = 0;
+                    s_tts_badcodec = 0;
+                    s_credit_sent = 0;
+                    s_credit_fail = 0;
                     ESP_LOGI(TAG, "mic subscribed conn=%u", (unsigned)s_state.conn);
                 } else if (s_state.conn == event->subscribe.conn_handle) {
                     s_state.conn = 0;
+                    s_state.mic_on = false;
                     ESP_LOGI(TAG, "mic unsubscribed");
                 }
-            } else if (s_state.conn == event->subscribe.conn_handle &&
-                       event->subscribe.attr_handle == s_chr_credit_handle) {
+            } else if (event->subscribe.attr_handle == s_chr_credit_handle) {
+                /* Credit subscription is independent of the mic session: a
+                 * TTS-only connection never subscribes mic, so gating on
+                 * s_state.conn left the phone waiting for credit notifies
+                 * that were never enabled. Track credit per-connection
+                 * directly. */
                 s_credit_notify_enabled = event->subscribe.cur_notify != 0;
+                if (!s_credit_notify_enabled) {
+                    s_credit_last_level = 0;
+                }
+                ESP_LOGI(TAG, "credit %s conn=%u",
+                         s_credit_notify_enabled ? "subscribed" : "unsubscribed",
+                         (unsigned)event->subscribe.conn_handle);
             }
             break;
         }
@@ -679,24 +721,29 @@ void faculty175_ble_audio_gap(const struct ble_gap_event *event)
 
 void faculty175_ble_audio_qa(void)
 {
-    printf("blemic: conn=%u mtu=%u codec=%u mic=%u ring=%u\n",
+    printf("blemic: conn=%u mtu=%u codec=%u mic=%u ring=%u credit_notify=%u handles=%u/%u\n",
            (unsigned)s_state.conn,
            (unsigned)s_state.mtu,
            (unsigned)s_state.codec,
            (int)s_state.mic_on,
-           (int)s_state.ring);
+           (int)s_state.ring,
+           (int)s_credit_notify_enabled,
+           (unsigned)s_chr_mic_handle,
+           (unsigned)s_chr_credit_handle);
     printf("blemic: chunks_sent=%lu dropped_notify=%lu seq_wraps=%lu\n",
            (unsigned long)s_state.chunks_sent,
            (unsigned long)s_state.dropped_notify,
            (unsigned long)s_state.seq_wraps);
-    printf("blemic: tts_written=%lu tts_dropped=%lu tts_underflow=%lu tts_badchunks=%lu tts_badcodec=%lu used=%u credit=%u\n",
+    printf("blemic: tts_written=%lu tts_dropped=%lu tts_underflow=%lu tts_badchunks=%lu tts_badcodec=%lu used=%u credit=%u credit_sent=%lu credit_fail=%lu\n",
            (unsigned long)s_tts_written,
            (unsigned long)s_tts_dropped,
            (unsigned long)s_tts_underflow,
            (unsigned long)s_tts_badchunks,
            (unsigned long)s_tts_badcodec,
            (unsigned)(int)s_tts_used,
-           (unsigned)blea_tts_free_bytes());
+           (unsigned)blea_tts_free_bytes(),
+           (unsigned long)s_credit_sent,
+           (unsigned long)s_credit_fail);
 }
 
 bool faculty175_ble_audio_start(void)
@@ -705,8 +752,17 @@ bool faculty175_ble_audio_start(void)
         return true;
     }
     s_task_started = true;
-    BaseType_t rc = xTaskCreate(blea_mic_task, "blea_mic", BLEA_MIC_TASK_STACK, NULL,
-                                BLEA_MIC_TASK_PRIO, &s_mic_task);
+    /* Task stacks live in SPIRAM with internal-RAM fallback: the 8 KB stacks
+     * the audio read/notify paths need would otherwise starve the boot-time
+     * voice pipeline (rolling session open crashes under RAM pressure). */
+    BaseType_t rc = xTaskCreateWithCaps(blea_mic_task, "blea_mic", BLEA_MIC_TASK_STACK, NULL,
+                                        BLEA_MIC_TASK_PRIO, &s_mic_task,
+                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (rc != pdPASS) {
+        rc = xTaskCreateWithCaps(blea_mic_task, "blea_mic", BLEA_MIC_TASK_STACK, NULL,
+                                 BLEA_MIC_TASK_PRIO, &s_mic_task,
+                                 MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    }
     if (rc != pdPASS) {
         s_task_started = false;
         ESP_LOGE(TAG, "mic task spawn failed rc=%d", (int)rc);
@@ -722,8 +778,12 @@ bool faculty175_ble_audio_start(void)
         ESP_LOGW(TAG, "tts ring alloc failed (%u bytes); TTS leg disabled", (unsigned)BLEA_TTS_RING_BYTES);
         return true;
     }
-    rc = xTaskCreate(blea_tts_task, "blea_tts", BLEA_TTS_TASK_STACK, NULL, BLEA_TTS_TASK_PRIO,
-                     &s_tts_task);
+    rc = xTaskCreateWithCaps(blea_tts_task, "blea_tts", BLEA_TTS_TASK_STACK, NULL, BLEA_TTS_TASK_PRIO,
+                             &s_tts_task, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (rc != pdPASS) {
+        rc = xTaskCreateWithCaps(blea_tts_task, "blea_tts", BLEA_TTS_TASK_STACK, NULL, BLEA_TTS_TASK_PRIO,
+                                 &s_tts_task, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    }
     if (rc != pdPASS) {
         heap_caps_free(s_tts_ring);
         s_tts_ring = NULL;
