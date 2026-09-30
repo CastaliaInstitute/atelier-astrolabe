@@ -7,4 +7,4 @@
 - [x] 2.5 Wire init/MTU-negotiation/Colmi toggle hooks and advertisement UUID into both variants' `faculty175_ble.c` (codec negotiation; compatibility; arbitration integration)
 - [x] 2.6 Spool-on-loss route hook (capture-only) (spool on loss)
 - [x] 2.7 Serial QA hook `qa blemic` counters in both variants (verification)
-- [ ] 2.8 Verify: shasum byte-identical copies; build both variants; record results; operator device QA plan (verification)
+- [x] 2.8 Verify: shasum byte-identical copies; build both variants; record results; operator device QA plan (verification)

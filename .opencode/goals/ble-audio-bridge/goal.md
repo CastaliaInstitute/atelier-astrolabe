@@ -24,3 +24,4 @@ Astrolabe streams mic audio to and TTS audio from the Mynah Android app over BLE
 - ble-audio-mic-stream (depends: ble-audio-protocol)
 - ble-audio-tts-playback (depends: ble-audio-protocol, ble-audio-mic-stream)
 - ble-audio-mynah-app (depends: ble-audio-protocol)
+- voice-stream-codec
