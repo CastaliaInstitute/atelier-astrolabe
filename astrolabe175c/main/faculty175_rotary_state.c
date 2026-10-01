@@ -422,6 +422,31 @@ bool faculty175_rotary_state_get(faculty175_rotary_state_t *out)
     return found;
 }
 
+static void rotary_state_deferred_init(void *arg)
+{
+    (void)arg;
+    bool started = false;
+    for (int i = 0; i < 60; ++i) {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        wifi_mode_t mode;
+        if (esp_wifi_get_mode(&mode) == ESP_OK) {
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            started = true;
+            break;
+        }
+    }
+    if (!started) {
+        FACULTY175_LOG_STAGE_W(TAG, "rotary", "ESP-NOW init abandoned: WiFi driver never started");
+        vTaskDelete(NULL);
+        return;
+    }
+    const esp_err_t err = faculty175_rotary_state_init();
+    if (err != ESP_OK) {
+        FACULTY175_LOG_STAGE_W(TAG, "rotary", "deferred ESP-NOW init failed: %s", esp_err_to_name(err));
+    }
+    vTaskDelete(NULL);
+}
+
 esp_err_t faculty175_rotary_state_init(void)
 {
     if (s_rotary_state_ready) {
@@ -429,6 +454,15 @@ esp_err_t faculty175_rotary_state_init(void)
     }
     memset(s_peer_states, 0, sizeof(s_peer_states));
     s_paired_peer_idx = -1;
+    wifi_mode_t mode;
+    if (esp_wifi_get_mode(&mode) != ESP_OK) {
+        /* esp_now_init panics before the WiFi driver is started (non-early
+         * faculty boot defers WiFi), so retry once the driver is up. */
+        if (xTaskCreate(rotary_state_deferred_init, "rotary_init", 3072, NULL, 3, NULL) != pdPASS) {
+            return ESP_ERR_NO_MEM;
+        }
+        return ESP_OK;
+    }
     const esp_err_t err = esp_now_init();
     if (err != ESP_OK && err != ESP_ERR_ESPNOW_EXIST) {
         return err;
