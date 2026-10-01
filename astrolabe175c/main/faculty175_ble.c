@@ -29,8 +29,15 @@
 #include "host/ble_hs_adv.h"
 #include "host/ble_uuid.h"
 #include "host/util/util.h"
+#include "esp_mac.h"
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
+
+#if MYNEWT_VAL(BLE_GATT_CACHING)
+/* Defined in ble_gatts.c under BLE_GATT_CACHING; computes the Bluetooth 5.2
+ * Database Hash over the ATT attribute list. */
+int ble_gatts_calculate_hash(uint8_t *out_hash_key);
+#endif
 
 #include "faculty175_log.h"
 #include "faculty175_charts.h"
@@ -46,6 +53,7 @@
 #include "faculty175_ring.h"
 #include "faculty175_spotify.h"
 #include "faculty175_voice.h"
+#include "faculty175_ble_audio.h"
 #include "faculty175_wifi_settings.h"
 #if __has_include("secrets.local.h")
 #include "secrets.local.h"
@@ -162,6 +170,7 @@ static bool s_power_test_previous_enabled;
 static bool s_power_scenario_suspended;
 static bool s_synced;
 static bool s_advertising;
+static uint8_t s_conn_count;
 static bool s_scanning;
 static uint8_t s_own_addr_type;
 EXT_RAM_BSS_ATTR static char s_json_rx[768];
@@ -183,6 +192,7 @@ static bool s_paired_ring_id_set;
 static int8_t s_last_ring_rssi;
 static bool s_have_last_ring_rssi;
 static uint32_t s_next_scan_ms;
+static uint32_t s_readvertise_after_ms;
 static uint32_t s_serial_quiet_until_ms;
 static uint8_t s_imu_adv_seq;
 static bool s_raw_scan_log;
@@ -269,7 +279,54 @@ static int ble_health_json_access(uint16_t conn_handle,
                                   void *arg);
 static void ble_ring_telem_store(const faculty175_ble_peer_t *peer);
 
+static void faculty175_ble_audio_time_set(uint32_t epoch_s)
+{
+    (void)astrolabe_time_set_epoch((time_t)epoch_s);
+}
+
+static const ble_uuid16_t GATT_SERVICE_UUID = BLE_UUID16_INIT(BLE_GATT_SVC_UUID16);
+static const ble_uuid16_t DATABASE_HASH_CHAR_UUID = BLE_UUID16_INIT(0x2B29);
+
+static uint8_t s_database_hash[16];
+static bool s_database_hash_valid;
+
+static int ble_database_hash_access(uint16_t conn_handle, uint16_t attr_handle,
+                                    struct ble_gatt_access_ctxt *ctxt, void *arg)
+{
+    (void)conn_handle;
+    (void)attr_handle;
+    (void)arg;
+    if (ctxt->op != BLE_GATT_ACCESS_OP_READ_CHR) {
+        return BLE_ATT_ERR_READ_NOT_PERMITTED;
+    }
+    if (!s_database_hash_valid) {
+        if (ble_gatts_calculate_hash(s_database_hash) != 0) {
+            return BLE_ATT_ERR_INSUFFICIENT_RES;
+        }
+        s_database_hash_valid = true;
+    }
+    return os_mbuf_append(ctxt->om, s_database_hash, sizeof(s_database_hash)) == 0
+               ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+}
+
 static const struct ble_gatt_svc_def k_ble_svcs[] = {
+    {
+        .type = BLE_GATT_SVC_TYPE_PRIMARY,
+        .uuid = &GATT_SERVICE_UUID.u,
+        .characteristics = (struct ble_gatt_chr_def[]){
+            {
+                /* Database Hash (Bluetooth 5.2, Vol 3 Part G 2.5.2.1):
+                 * Android caches the whole ATT DB per device; without this
+                 * characteristic a reflash shifts attribute handles and the
+                 * central keeps writing stale handles forever. Serving the
+                 * hash lets the central detect the change and re-discover. */
+                .uuid = &DATABASE_HASH_CHAR_UUID.u,
+                .access_cb = ble_database_hash_access,
+                .flags = BLE_GATT_CHR_F_READ,
+            },
+            {0},
+        },
+    },
     {
         .type = BLE_GATT_SVC_TYPE_PRIMARY,
         .uuid = &BLE_SETTINGS_SERVICE_UUID.u,
@@ -303,6 +360,11 @@ static const struct ble_gatt_svc_def k_ble_svcs[] = {
 #endif
             {0},
         },
+    },
+    {
+        .type = BLE_GATT_SVC_TYPE_PRIMARY,
+        .uuid = &faculty175_ble_audio_svc_uuid.u,
+        .characteristics = faculty175_ble_audio_chr_defs,
     },
     {0},
 };
@@ -879,6 +941,7 @@ static void colmi_client_finish(void)
 {
     s_colmi_working_vitals.updated_ms = ble_now_ms();
     faculty175_ring_update_vitals(&s_colmi_working_vitals);
+    faculty175_ble_audio_set_ring(false);
     s_colmi_action = COLMI_ACTION_NONE;
     s_colmi_action_due_ms = 0;
     s_colmi_state = COLMI_CLIENT_DONE;
@@ -1261,6 +1324,7 @@ static esp_err_t colmi_client_start(void)
     s_colmi_connect_started = false;
     s_colmi_want_scan = true;
     s_colmi_state = COLMI_CLIENT_SCAN;
+    faculty175_ble_audio_set_ring(true);
     if (s_advertising) {
         (void)ble_gap_adv_stop();
         s_advertising = false;
@@ -2224,6 +2288,33 @@ static esp_err_t ble_nvs_set_enabled(bool enabled)
     return err;
 }
 
+static bool ble_nvs_get_fresh_addr(void)
+{
+    uint8_t value = 0;
+    nvs_handle_t nvs;
+    if (nvs_open(BLE_NVS_NS, NVS_READONLY, &nvs) != ESP_OK) {
+        return false;
+    }
+    esp_err_t err = nvs_get_u8(nvs, "freshaddr", &value);
+    nvs_close(nvs);
+    return err == ESP_OK && value != 0;
+}
+
+static esp_err_t ble_nvs_set_fresh_addr(bool enabled)
+{
+    nvs_handle_t nvs;
+    esp_err_t err = nvs_open(BLE_NVS_NS, NVS_READWRITE, &nvs);
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = nvs_set_u8(nvs, "freshaddr", enabled ? 1 : 0);
+    if (err == ESP_OK) {
+        err = nvs_commit(nvs);
+    }
+    nvs_close(nvs);
+    return err;
+}
+
 static esp_err_t ble_advertise(void)
 {
     if (!s_started || !s_synced || !s_enabled || s_power_scenario_suspended) {
@@ -2251,25 +2342,29 @@ static esp_err_t ble_advertise(void)
 
     struct ble_hs_adv_fields rsp = {};
     const char *name = ble_svc_gap_device_name();
+    /* Contract §2: the audio service UUID list rides the scan response — the
+     * 31-byte legacy adv payload cannot hold the mfg presence payload plus a
+     * 16-byte UUID. Android ScanFilter(SERVICE_UUID) matches across the merged
+     * adv+rsp, so Mynah can filter without service discovery. */
+    rsp.uuids128 = &faculty175_ble_audio_svc_uuid;
+    rsp.num_uuids128 = 1;
+    rsp.uuids128_is_complete = 1;
     rsp.name = (uint8_t *)name;
     rsp.name_len = strlen(name);
     rsp.name_is_complete = 1;
     rsp.tx_pwr_lvl = BLE_HS_ADV_TX_PWR_LVL_AUTO;
     rsp.tx_pwr_lvl_is_present = 1;
     rc = ble_gap_adv_rsp_set_fields(&rsp);
+    if (rc != 0 && rsp.tx_pwr_lvl_is_present) {
+        /* Drop tx power before mangling the name: the name keeps
+         * name.contains("Astrolabe") matching on phone-side filters. */
+        rsp.tx_pwr_lvl_is_present = 0;
+        rc = ble_gap_adv_rsp_set_fields(&rsp);
+    }
     while (rc != 0 && rsp.name_len > 0) {
         rsp.name_len = rsp.name_len > 4 ? rsp.name_len - 4 : 0;
         rsp.name_is_complete = 0;
         rc = ble_gap_adv_rsp_set_fields(&rsp);
-    }
-    if (rc != 0 && rsp.tx_pwr_lvl_is_present) {
-        rsp.tx_pwr_lvl_is_present = 0;
-        rc = ble_gap_adv_rsp_set_fields(&rsp);
-        while (rc != 0 && rsp.name_len > 0) {
-            rsp.name_len = rsp.name_len > 4 ? rsp.name_len - 4 : 0;
-            rsp.name_is_complete = 0;
-            rc = ble_gap_adv_rsp_set_fields(&rsp);
-        }
     }
     if (rc != 0) {
         ESP_LOGW(TAG, "scan response disabled rc=%d", rc);
@@ -2277,10 +2372,9 @@ static esp_err_t ble_advertise(void)
     }
 
     struct ble_gap_adv_params params = {};
-    params.conn_mode = BLE_GAP_CONN_MODE_NON;
-#if ASTROLABE_CYBER_FEATURES
+    /* Mynah audio bridge attaches from the phone as central: keep the
+     * advertisement connectable (was NON in beacon-only non-CYBER builds). */
     params.conn_mode = BLE_GAP_CONN_MODE_UND;
-#endif
     params.disc_mode = BLE_GAP_DISC_MODE_GEN;
     params.itvl_min = BLE_GAP_ADV_ITVL_MS(1000);
     params.itvl_max = BLE_GAP_ADV_ITVL_MS(1200);
@@ -2303,15 +2397,48 @@ static void ble_on_reset(int reason)
 
 static void ble_on_sync(void)
 {
-    int rc = ble_hs_util_ensure_addr(0);
+    /* QA: `ble fresh-addr on` rotates the BLE address every boot (random
+     * static, derived from the efuse MAC + NVS boot counter). Android caches
+     * the GATT attribute DB per address across reboots and BT toggles with no
+     * user-visible way to clear it for unbonded devices — after a reflash
+     * shifts handles, the central writes stale handles forever. A fresh
+     * address means an empty cache. */
+    if (ble_nvs_get_fresh_addr()) {
+        ble_addr_t rnd = {};
+        rnd.type = BLE_ADDR_RANDOM;
+        uint8_t counter = 0;
+        nvs_handle_t nvs;
+        if (nvs_open(BLE_NVS_NS, NVS_READWRITE, &nvs) == ESP_OK) {
+            (void)nvs_get_u8(nvs, "freshboot", &counter);
+            counter++;
+            (void)nvs_set_u8(nvs, "freshboot", counter);
+            (void)nvs_commit(nvs);
+            nvs_close(nvs);
+        }
+        uint8_t *v = rnd.val;
+        esp_read_mac(v, ESP_MAC_WIFI_STA);
+        v[5] = (v[5] & 0x3f) | 0xc0;   /* static random: two MSBs = 1 */
+        v[0] ^= counter;               /* rotate per boot */
+        if (ble_hs_id_set_rnd(v) == 0) {
+            s_own_addr_type = BLE_OWN_ADDR_RANDOM;
+            char addr[18];
+            ble_format_addr(v, addr, sizeof(addr));
+            ESP_LOGI(TAG, "fresh addr %s (boot %u)", addr, counter);
+        } else {
+            ESP_LOGW(TAG, "fresh addr set failed; using identity");
+        }
+    }
+    int rc = ble_hs_util_ensure_addr(s_own_addr_type == BLE_OWN_ADDR_RANDOM ? 1 : 0);
     if (rc != 0) {
         ESP_LOGE(TAG, "ensure addr failed rc=%d", rc);
         return;
     }
-    rc = ble_hs_id_infer_auto(0, &s_own_addr_type);
-    if (rc != 0) {
-        ESP_LOGE(TAG, "infer addr failed rc=%d", rc);
-        return;
+    if (s_own_addr_type != BLE_OWN_ADDR_RANDOM) {
+        rc = ble_hs_id_infer_auto(0, &s_own_addr_type);
+        if (rc != 0) {
+            ESP_LOGE(TAG, "infer addr failed rc=%d", rc);
+            return;
+        }
     }
     s_synced = true;
     (void)ble_advertise();
@@ -2330,9 +2457,13 @@ static int ble_gap_event(struct ble_gap_event *event, void *arg)
     if (event == NULL) {
         return 0;
     }
+    faculty175_ble_audio_gap(event);
     switch (event->type) {
         case BLE_GAP_EVENT_CONNECT:
             s_advertising = false;
+            if (event->connect.status == 0) {
+                s_conn_count++;
+            }
             if (s_colmi_state == COLMI_CLIENT_CONNECTING) {
                 if (event->connect.status == 0) {
                     s_colmi_have_conn = true;
@@ -2356,6 +2487,9 @@ static int ble_gap_event(struct ble_gap_event *event, void *arg)
             }
             break;
         case BLE_GAP_EVENT_DISCONNECT:
+            if (s_conn_count != 0) {
+                s_conn_count--;
+            }
             if (s_colmi_have_conn && event->disconnect.conn.conn_handle == s_colmi_conn_handle) {
                 s_colmi_have_conn = false;
                 s_colmi_conn_handle = 0;
@@ -2526,6 +2660,14 @@ esp_err_t faculty175_ble_init(void)
     if (rc != 0) {
         ESP_LOGE(TAG, "gatt add failed rc=%d", rc);
         return ESP_FAIL;
+    }
+    {
+        const faculty175_ble_audio_hooks_t audio_hooks = {
+            .time_set = faculty175_ble_audio_time_set,
+            .spool_pcm = NULL,
+        };
+        faculty175_ble_audio_hooks(&audio_hooks);
+        (void)faculty175_ble_audio_start();
     }
     rc = ble_svc_gap_device_name_set(s_device_name);
     if (rc != 0) {
@@ -3044,6 +3186,13 @@ bool faculty175_ble_handle(const char *line)
                s_power_test_active ? "yes" : "no",
                s_advertising ? "yes" : "no",
                s_scanning ? "yes" : "no");
+    } else if (strcasecmp(sub, "fresh-addr on") == 0 || strcasecmp(sub, "fresh-addr off") == 0) {
+        const bool on = strcasecmp(sub, "fresh-addr on") == 0;
+        const esp_err_t err = ble_nvs_set_fresh_addr(on);
+        printf("ble: fresh-addr %s err=%s (takes effect on next boot)\n",
+               on ? "on" : "off", esp_err_to_name(err));
+    } else if (strcasecmp(sub, "fresh-addr status") == 0) {
+        printf("ble: fresh-addr=%s\n", ble_nvs_get_fresh_addr() ? "on" : "off");
     } else if (strcasecmp(sub, "on") == 0 || strcasecmp(sub, "enable") == 0) {
         const esp_err_t err = faculty175_ble_set_enabled(true);
         printf("ble: enable %s\n", esp_err_to_name(err));

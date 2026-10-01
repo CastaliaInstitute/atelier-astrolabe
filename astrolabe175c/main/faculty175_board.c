@@ -2485,7 +2485,10 @@ esp_err_t faculty175_audio_write_pcm(const int16_t *samples, size_t sample_count
     esp_err_t err = ESP_OK;
     bool opened_speaker = false;
     faculty175_audio_set_speaker_pa_level(true);
-    const bool suspended_capture = faculty175_audio_suspend_capture_locked();
+    /* ES7210 (RX) and ES8311 (TX) sit on separate I2S channels and separate
+     * codec chips: playout must NOT close capture. Closing it here whipsawed
+     * duplex audio (contract §8 mic+TTS concurrent) — every TX chunk killed
+     * the reader, and every read reopened the codec. */
     if (!s_spk_open) {
         err = faculty175_codec_open(true, s_spk_rate_hz);
         if (err != ESP_OK) {
@@ -2505,7 +2508,7 @@ esp_err_t faculty175_audio_write_pcm(const int16_t *samples, size_t sample_count
         s_spk_open = true;
         opened_speaker = true;
     }
-    if (opened_speaker || suspended_capture) {
+    if (opened_speaker) {
         err = faculty175_audio_restart_tx_locked();
         if (err != ESP_OK) {
             ESP_LOGE(TAG, "spk tx restart: %s", esp_err_to_name(err));
@@ -2514,11 +2517,17 @@ esp_err_t faculty175_audio_write_pcm(const int16_t *samples, size_t sample_count
     }
 
     faculty175_aec_push_reference(samples, sample_count);
-    err = faculty175_audio_write_mono_from_stereo(samples, sample_count, timeout_ms);
-
 out:
+    /* Release the reconfiguration mutex BEFORE the blocking I2S write: the
+     * always-on USB-VAD capture loop reacquires s_audio_read_mux every ~10 ms,
+     * and holding it across a blocking TX write livelocks playout against the
+     * reader (BLE TTS ring froze mid-stream). The lock guards open/restart;
+     * steady-state streaming needs no lock. */
     if (s_audio_read_mux != NULL) {
         xSemaphoreGive(s_audio_read_mux);
+    }
+    if (err == ESP_OK) {
+        err = faculty175_audio_write_mono_from_stereo(samples, sample_count, timeout_ms);
     }
     return err;
 }

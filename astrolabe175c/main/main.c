@@ -69,6 +69,7 @@
 #include "faculty175_ota.h"
 #include "faculty175_pmu.h"
 #include "faculty175_pocketwatch.h"
+#include "faculty175_preferences.h"
 #include "faculty175_quotes.h"
 #include "faculty175_research.h"
 #include "faculty175_relationship_weather.h"
@@ -4917,6 +4918,8 @@ static void face_save_task(void *arg)
         const esp_err_t err = faculty175_faces_save_current();
         if (err != ESP_OK) {
             FACULTY175_LOG_STAGE(TAG, "faces", "save current failed %s", esp_err_to_name(err));
+        } else {
+            faculty175_preferences_notify_local_change();
         }
     }
 }
@@ -6198,13 +6201,6 @@ void app_main(void)
     if (storage_err != ESP_OK) {
         FACULTY175_LOG_STAGE_W(TAG, "storage", "init failed: %s", esp_err_to_name(storage_err));
     }
-#if FACULTY175_USB_RUNTIME_ENABLED
-    boot_probe_stage(0xa4);
-    esp_rom_printf("A4 usb_init\n");
-    const esp_err_t usb_init_err = faculty175_usb_init();
-    boot_probe_err(usb_init_err);
-    ESP_ERROR_CHECK(usb_init_err);
-#endif
     boot_probe_stage(0xa5);
     esp_rom_printf("A5 device_auth\n");
     const esp_err_t device_auth_err = faculty175_device_auth_init();
@@ -6265,19 +6261,32 @@ void app_main(void)
     const esp_err_t faces_err = faculty175_faces_init();
     boot_probe_err(faces_err);
     ESP_ERROR_CHECK(faces_err);
+    const esp_err_t prefs_init_err = faculty175_preferences_init();
+    if (prefs_init_err != ESP_OK) {
+        FACULTY175_LOG_STAGE_E(TAG, "prefs", "init failed: %s", esp_err_to_name(prefs_init_err));
+    }
 #if FACULTY175_USB_RUNTIME_ENABLED
     /* TinyUSB needs a larger contiguous internal allocation than remains once
      * the display/audio pipeline is fully initialized. If the forced Cyber
      * profile starts on USB Screen, claim the USB peripheral while that memory
-     * is still available. Later face changes remain handled by input_task. */
+     * is still available. Usb init is on-demand only (operator directive:
+     * always boot with the JTAG console) — faculty175_usb_init is idempotent,
+     * so gating on the boot face keeps the switch to `faculty175_usb_init`
+     * scoped to the USB Screen face. Later face changes remain handled by input_task. */
     const faculty175_face_desc_t *boot_face = faculty175_faces_current();
     if (boot_face != NULL && boot_face->id == FACULTY175_FACE_USB_SCREEN) {
-        const esp_err_t usb_profile_err = faculty175_usb_set_screen_face_active(true);
-        if (usb_profile_err != ESP_OK) {
-            FACULTY175_LOG_STAGE_W(TAG,
-                                   "usb",
-                                   "early screen profile failed: %s",
-                                   esp_err_to_name(usb_profile_err));
+        const esp_err_t usb_early_err = faculty175_usb_init();
+        if (usb_early_err == ESP_OK) {
+            const esp_err_t usb_profile_err = faculty175_usb_set_screen_face_active(true);
+            if (usb_profile_err != ESP_OK) {
+                FACULTY175_LOG_STAGE_W(
+                    TAG,
+                    "usb",
+                    "early screen profile failed: %s",
+                    esp_err_to_name(usb_profile_err));
+            }
+        } else {
+            FACULTY175_LOG_STAGE_W(TAG, "usb", "early init failed: %s", esp_err_to_name(usb_early_err));
         }
     }
 #endif
@@ -6482,6 +6491,7 @@ void app_main(void)
     });
     FACULTY175_LOG_STAGE(TAG, "pipeline", "boot prewarm %s",
                          pipeline_prewarm_err == ESP_OK ? "ready" : "deferred");
+    faculty175_preferences_start();
     ui_set(FACULTY175_UI_LISTEN, NULL);
     while (true) {
 #if defined(ASTROLABE_FORCE_VARIANT_LUNASAY)

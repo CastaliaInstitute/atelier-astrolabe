@@ -88,6 +88,23 @@ and debugging:
 {"type":"input_audio_buffer.append","audio":"<base64 pcm16>"}
 ```
 
+### µ-law frame type (0xA3)
+
+Clients MAY send µ-law 16 kHz mono payloads as `0xA3` frames with the same header:
+
+```text
+0xA3 <uint32 little-endian sequence> <uint32 little-endian capture_ms> <u-law bytes>
+```
+
+Rules:
+
+- The endpoint normalizes every frame to PCM16 16 kHz mono before buffering/commit
+  (µ-law decode is an exact 256-entry inverse table; no STT behavior differences).
+- An odd µ-law byte count is tolerated: the endpoint drops the trailing byte and counts it.
+- `0xA1` remains the default. `session.update` opts into µ-law, echoing the BLE bridge row ids
+  (`docs/design/ble-audio-bridge.md` §5): `{"audio":{"input":{"format":"ulaw16"}}}`.
+- The `voice-pipeline` HTTP fallback stays PCM16-only.
+
 ## Server Events
 
 Server messages are JSON text frames unless the type explicitly carries binary
@@ -149,6 +166,15 @@ Recommended ring:
 - If the network is down and the ring fills, drop oldest uncommitted audio and
   emit a local QA/error counter.
 
+### Spool codec (µ-law default)
+
+New spool segments SHALL store µ-law 16 kHz mono records (half the byte rate of PCM16,
+doubling effective spool capacity) and carry a `codec` metadata flag: `"ulaw16"` for new
+segments, `"pcm16"` for legacy segments (rollout keeps both readable). Replay sends `0xA3`
+frames; `capture_ms` stays truthful because one µ-law byte is one sample versus one PCM16
+byte being half a sample — the per-frame elapsed time doubles for the same byte count
+(16 kB segment = ~34 s of µ-law vs ~17 s of PCM16).
+
 The WebSocket task drains queued PCM frames or segments. If the socket is open,
 it sends live binary frames. If the socket is closed, it reconnects and replays
 available unsent ring segments in order.
@@ -172,3 +198,20 @@ available unsent ring segments in order.
   tool.
 - A socket does not remove the need for flash. Flash is the resilience layer when
   Wi-Fi stalls or the edge worker restarts.
+- Endpoint rollout order for µ-law support: (1) accept both `0xA1`/`0xA3` frame
+  types, (2) `session.update` format opt-in, (3) spool replay. Edge Function
+  implementation lives in the mynah repo (`../mynah`, `supabase/functions`);
+  codec row ids mirror `docs/design/ble-audio-bridge.md` §5 (0 = PCM16, 10 =
+  µ-law 16 kHz, 20 = Opus, BLE-reserved).
+
+## Supersession: BLE audio bridge (2026-09-25)
+
+When the device is paired over BLE to the Mynah app (`docs/design/ble-audio-bridge.md`), the
+audio transport path is device → BLE → Mynah app → this `voice-stream` socket. The device never
+opens this socket itself on the BLE path: the Mynah app becomes the socket client (Castalia JWT
+on the phone, same auth model as `VoicePipelineClient.kt` in `../mynah`) and the GATT client of
+the device's Audio Service. The socket design below remains the Castalia-side endpoint and
+event protocol (session events, binary PCM frames, commit/turn ids). Flash spooling stays in
+the device for link-loss resilience; the spool-pull BLE sync protocol is a follow-up spec.
+This document's device-direct WSS leg, `voice-pipeline` HTTP fallback, and OTA via
+`faculty175_ota` remain as maintenance/QA transports only.

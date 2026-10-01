@@ -35,6 +35,7 @@ uac/idf_bootstrap/sdkconfig.old
 sdkconfig
 sdkconfig.*
 !/astrolabe185b/sdkconfig.f101.defaults
+!/astrolabe185b/sdkconfig.usb_msc.defaults
 !sdkconfig.uac.defaults
 !idf/sdkconfig.defaults
 !sensecap/sdkconfig.defaults

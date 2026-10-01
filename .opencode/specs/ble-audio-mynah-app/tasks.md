@@ -1,0 +1,10 @@
+# Tasks: BLE Audio — Mynah App Bridge (implementation in `../mynah`)
+
+- [ ] 5.1 Scaffold `AstrolabeAudioService.kt` foreground service (`connectedDevice`) + permission/bond flows reusing `BlePermissionKit`/scanner seams (foreground service)
+- [ ] 5.2 Implement `AstrolabeAudioClient.kt` (GATT client: discovery, codec+credit reads, 0x11+0x15 subscribe; MTU request ≥ 247) (GATT audio client role)
+- [ ] 5.3 Implement `AstrolabeAudioReassembler.kt` (seq wrap-aware, per-chunk codec dispatch to relay) + unit tests (GATT audio client role)
+- [ ] 5.4 Implement `AstrolabeVoiceStreamRelay.kt` (Castalia JWT via `bearerForEdgeFunctions()`, binary 0xA1 frames, JSON control events, commit/turn ids) (Castalia credentials)
+- [ ] 5.5 Watchdog: 4 s post-reconnect timer, single forced re-subscribe, failure-enum surfacing (CCCD liveness watchdog; resume semantics)
+- [ ] 5.6 Implement `AstrolabeTtsTranscoder.kt` (MP3/PCM → active codec; local-credit state machine honoring 0x15; write-without-response batches) (TTS relay)
+- [ ] 5.7 Failure-enum session states wired to UI (`BT_OFF…LINK_LOST`) (GATT audio client role)
+- [ ] 5.8 Device verification vs spec-2/3 firmware: relay round trip ≤1.7 s; credit envelope under sustained TTS; commit/turn parity vs `voice-pipeline` QA path (verification)

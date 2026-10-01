@@ -14,6 +14,7 @@
 #include "faculty175_faces.h"
 #include "faculty175_ota.h"
 #include "faculty175_usb.h"
+#include "faculty175_ble_audio.h"
 #if __has_include("secrets.local.h")
 #include "secrets.local.h"
 #else
@@ -72,6 +73,11 @@ static int ble_settings_json_access(uint16_t conn_handle,
 
 static int ble_control_json_access(uint16_t conn_handle, uint16_t attr_handle, struct ble_gatt_access_ctxt *ctxt, void *arg);
 
+static void faculty175_ble_audio_time_set(uint32_t epoch_s)
+{
+    (void)astrolabe_time_set_epoch((time_t)epoch_s);
+}
+
 static const struct ble_gatt_svc_def k_ble_svcs[] = {
     {
         .type = BLE_GATT_SVC_TYPE_PRIMARY,
@@ -98,6 +104,11 @@ static const struct ble_gatt_svc_def k_ble_svcs[] = {
               .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE },
             {0},
         },
+    },
+    {
+        .type = BLE_GATT_SVC_TYPE_PRIMARY,
+        .uuid = &faculty175_ble_audio_svc_uuid.u,
+        .characteristics = faculty175_ble_audio_chr_defs,
     },
     {0},
 };
@@ -470,6 +481,7 @@ static int ble_gap_event(struct ble_gap_event *event, void *arg)
     if (event == NULL) {
         return 0;
     }
+    faculty175_ble_audio_gap(event);
     switch (event->type) {
         case BLE_GAP_EVENT_CONNECT:
             s_advertising = false;
@@ -553,6 +565,14 @@ esp_err_t faculty175_ble_init(void)
     if (rc != 0) {
         ESP_LOGE(TAG, "gatt add failed rc=%d", rc);
         return ESP_FAIL;
+    }
+    {
+        const faculty175_ble_audio_hooks_t audio_hooks = {
+            .time_set = faculty175_ble_audio_time_set,
+            .spool_pcm = NULL,
+        };
+        faculty175_ble_audio_hooks(&audio_hooks);
+        (void)faculty175_ble_audio_start();
     }
     rc = ble_svc_gap_device_name_set(BLE_DEVICE_NAME);
     if (rc != 0) {

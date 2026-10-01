@@ -300,6 +300,14 @@ static bool handle_wifi_command(const char *line)
         return true;
     }
 
+    if (strcasecmp(sub, "radio off") == 0 || strcasecmp(sub, "radio on") == 0) {
+        const bool off = strcasecmp(sub, "radio off") == 0;
+        esp_err_t err = off ? esp_wifi_stop() : esp_wifi_start();
+        printf("wifi: radio %s err=%s\n", off ? "off" : "on", esp_err_to_name(err));
+        fflush(stdout);
+        return true;
+    }
+
     if (strcasecmp(sub, "scan") == 0) {
         wifi_mode_t mode = WIFI_MODE_NULL;
         (void)esp_wifi_get_mode(&mode);
@@ -1952,7 +1960,7 @@ static void handle_line(char *line)
     }
 
     if (strcasecmp(line, "help") == 0 || strcasecmp(line, "?") == 0) {
-        printf("serial: screen | face screen | km help | breath status|reset|stream [hz|off] | gesture help | button press | tts face | stt [ms] | voice stt [ms] | family status | pipeline capture|status|stop|restart | wifi status|scan|set | time | watch status | power | audio status|ns | i2c scan | ble status | qa help | device help | ota help | faces help | charts help | almanac help | quotes help | rocket help | touch status\n");
+        printf("serial: screen | face screen | km help | breath status|reset|stream [hz|off] | gesture help | button press | tts face | stt [ms] | voice stt [ms] | family status | pipeline capture|status|stop|restart | wifi status|scan|set|radio off|on | time | watch status | power | audio status|ns | i2c scan | ble status | qa help | device help | ota help | faces help | charts help | almanac help | quotes help | rocket help | touch status\n");
         (void)faculty175_qa_handle("qa help");
         return;
     }
