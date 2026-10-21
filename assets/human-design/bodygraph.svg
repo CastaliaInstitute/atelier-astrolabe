@@ -1,0 +1,1714 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 360" width="360" height="360" role="img" aria-labelledby="title desc">
+<title id="title">Human Design BodyGraph Template</title><desc id="desc">Generic BodyGraph geometry. No personal birth data or activations are included.</desc>
+<defs><filter id="highlight-glow" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="1.2" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter><filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="1.5" stdDeviation="2" flood-color="#5f543d" flood-opacity=".18"/></filter><marker id="channel-arrow" viewBox="0 0 6 6" refX="5" refY="3" markerWidth="3.2" markerHeight="3.2" orient="auto" markerUnits="userSpaceOnUse"><path d="M0 0 L6 3 L0 6 Z" fill="context-stroke"/></marker><marker id="channel-arrow-highlight" viewBox="0 0 6 6" refX="5" refY="3" markerWidth="3.6" markerHeight="3.6" orient="auto" markerUnits="userSpaceOnUse"><path d="M0 0 L6 3 L0 6 Z" fill="#ffc64d"/></marker></defs>
+<style>
+.canvas{fill:#efefe2}.halo{fill:#e6e3cf;opacity:.52}.center-shape{stroke:#fff7e6;stroke-width:2.5;stroke-linejoin:round;filter:url(#shadow);vector-effect:non-scaling-stroke}.channel{fill:none;stroke-width:1.15;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke;opacity:.82}.channel-highlight{fill:none;stroke:#ffc64d;stroke-width:.65;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke;opacity:0;pointer-events:none}.channel-group.is-active .channel-highlight,.channel-group:hover .channel-highlight,.channel-group:focus-visible .channel-highlight{opacity:1}.channel-group{cursor:pointer;outline:none}.channel-group:focus,.gate:focus,.flow-control:focus{outline:none}.channel-hit{fill:none;stroke:transparent;stroke-width:8;pointer-events:stroke}.gate{cursor:pointer}.gate-hit{fill:transparent;stroke:transparent;pointer-events:all}.gate-marker{fill:#f8f4e7;stroke:none!important;pointer-events:none}.gate-number{display:none;fill:#28251f;font:3.2px sans-serif;text-anchor:middle;dominant-baseline:central;pointer-events:none}.gate-number.is-zoomed{display:block}.gate[data-state="open"] .gate-marker{fill:#f8f4e7}.gate[data-state="closed"] .gate-marker{fill:#f5a742}.gate:hover .gate-marker,.gate:focus-visible .gate-marker,.gate.is-active .gate-marker,.gate.is-related .gate-marker{stroke:#302719;stroke-width:1.5}.center{cursor:help}.center[data-defined="false"] .center-shape{stroke:#f5a742;stroke-width:3.2}.center.is-active .center-shape{stroke:#ffd05c;stroke-width:4}
+.channel-group[data-circuit="integration"] .channel,.channel-group[data-circuit="integration"] .channel{stroke:#91bca3}.channel-group[data-circuit="individual"] .channel,.channel-group[data-circuit="individual"] .channel{stroke:#858873}.channel-group[data-circuit="tribal"] .channel,.channel-group[data-circuit="tribal"] .channel{stroke:#c99d74}.channel-group[data-circuit="logic"] .channel,.channel-group[data-circuit="logic"] .channel{stroke:#405d70}.channel-group[data-circuit="abstract"] .channel,.channel-group[data-circuit="abstract"] .channel{stroke:#a45d64}
+.svg-tooltip{display:none;pointer-events:none}.svg-tooltip.is-visible{display:block}.svg-tooltip rect{fill:#272923;fill-opacity:.96;stroke:#f5a742;stroke-width:.8;rx:3}.svg-tooltip text{fill:#fff9ed;font:6px sans-serif}.gate-legend{font:5px sans-serif;fill:#39342b}.gate-legend-dot{stroke:#514a40;stroke-width:.7}.gate-legend-open{fill:#f8f4e7}.gate-legend-closed{fill:#f5a742;stroke:#613b13}.flow-direction-legend{font:5px sans-serif;fill:#39342b;pointer-events:none}.flow-control{cursor:pointer}.flow-control rect{fill:#fffaf0;stroke:#817660;stroke-width:.8}.flow-control text{fill:#39342b;font:5px sans-serif;text-anchor:middle;dominant-baseline:central;pointer-events:none}.flow-control:hover rect,.flow-control:focus-visible rect,.flow-control[aria-pressed="true"] rect{fill:#ffd05c;stroke:#473510;stroke-width:1.2}
+.channel-flow{display:none;fill:none;vector-effect:non-scaling-stroke;stroke-width:1.3;stroke:#ffc247}.flow-dot{display:none;pointer-events:none}.flow-dot.flow-forward{fill:#ffc247}.channel-group.is-flowing .flow-dot{display:block}.channel-flow.flow-forward{stroke:#ffc247}.channel-group.is-flowing .channel-flow{opacity:1}.channel-group[data-defined="false"] .channel{opacity:.16}.channel-group[data-defined="false"] .channel{opacity:1}.channel-group.is-flowing .channel{opacity:1;stroke:#fff0b0}
+
+</style><style>.gate[data-transit-planets] .gate-marker{fill:#7c3aed;stroke:#4c1d95;stroke-width:1.1}.transit-status{font:4px sans-serif;fill:#625d52}</style><rect class="canvas" width="360" height="360"/><g id="gate-state-legend" transform="translate(12 14)" aria-label="Gate state legend"><circle class="gate-legend-dot gate-legend-open" cx="2.5" cy="2.5" r="2"/><text class="gate-legend" x="7" y="4">Open · inactive</text><circle class="gate-legend-dot gate-legend-closed" cx="2.5" cy="12" r="2"/><text class="gate-legend" x="7" y="13.5">Closed · activated</text></g><g id="flow-control" class="flow-control" role="button" tabindex="0" aria-pressed="false" aria-label="Animate flow on all channels" transform="translate(266 12)"><title>Toggle flow animation</title><rect width="82" height="18" rx="4"/><text x="41" y="9">▶  Flow</text></g><g id="flow-direction-legend" class="flow-direction-legend" transform="translate(267 35)" aria-label="Flow direction"><circle cx="2.5" cy="2.5" r="2" fill="#ffc247"/><text x="7" y="4">Source → destination</text></g><g id="transit-control" class="flow-control" role="button" tabindex="0" aria-pressed="true" aria-label="Toggle current Human Design transits" transform="translate(266 58)"><title>Toggle the live transit overlay</title><rect width="82" height="18" rx="4"/><text x="41" y="9">☼  Transits</text></g><text id="transit-status" class="transit-status" x="266" y="83">Loading transits…</text><g id="bodygraph-art" transform="translate(-72 0) scale(1.4 1)"><g id="channels" aria-label="36 channels">
+<g id="channel-64-47" class="channel-group" data-channel="64-47" data-from="64" data-to="47" data-circuit="logic" tabindex="0" role="button" aria-label="Open channel. Neither confusion nor realization is activated in this chart; this is open to outside influence." data-defined="false"><path class="channel" marker-end="url(#channel-arrow)" d="M171.996,31.584 C169.487,43.375 166.967,55.167 164.457,66.948" /><path class="channel-highlight" marker-end="url(#channel-arrow-highlight)" d="M171.996,31.584 C169.487,43.375 166.967,55.167 164.457,66.948" /><path class="channel-flow" d="M171.996,31.584 C169.487,43.375 166.967,55.167 164.457,66.948" /><path class="channel-hit" d="M171.996,31.584 C169.487,43.375 166.967,55.167 164.457,66.948" /></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="channel-61-24" class="channel-group" data-channel="61-24" data-from="61" data-to="24" data-circuit="individual" tabindex="0" role="button" aria-label="Open channel. Neither inner truth nor returning to an idea is activated in this chart; this is open to outside influence." data-defined="false"><path class="channel" marker-end="url(#channel-arrow)" d="M180.000,51.463 C179.687,56.194 179.374,60.926 179.061,65.647" /><path class="channel-highlight" marker-end="url(#channel-arrow-highlight)" d="M180.000,51.463 C179.687,56.194 179.374,60.926 179.061,65.647" /><path class="channel-flow" d="M180.000,51.463 C179.687,56.194 179.374,60.926 179.061,65.647" /><path class="channel-hit" d="M180.000,51.463 C179.687,56.194 179.374,60.926 179.061,65.647" /></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="channel-63-4" class="channel-group" data-channel="63-4" data-from="63" data-to="4" data-circuit="logic" tabindex="0" role="button" aria-label="Open channel. Neither doubt nor formulization is activated in this chart; this is open to outside influence." data-defined="false"><path class="channel" marker-end="url(#channel-arrow)" d="M188.004,31.584 C190.420,42.942 192.846,54.299 195.262,65.647" /><path class="channel-highlight" marker-end="url(#channel-arrow-highlight)" d="M188.004,31.584 C190.420,42.942 192.846,54.299 195.262,65.647" /><path class="channel-flow" d="M188.004,31.584 C190.420,42.942 192.846,54.299 195.262,65.647" /><path class="channel-hit" d="M188.004,31.584 C190.420,42.942 192.846,54.299 195.262,65.647" /></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="channel-43-23" class="channel-group" data-channel="43-23" data-from="43" data-to="23" data-circuit="individual" tabindex="0" role="button" aria-label="Incomplete channel. Insight is activated, while assimilation is not; this is a hanging-gate potential." data-defined="false"><path class="channel" marker-end="url(#channel-arrow)" d="M180.464,104.104 C179.400,110.089 178.335,116.075 177.271,122.060" /><path class="channel-highlight" marker-end="url(#channel-arrow-highlight)" d="M180.464,104.104 C179.400,110.089 178.335,116.075 177.271,122.060" /><path class="channel-flow" d="M180.464,104.104 C179.400,110.089 178.335,116.075 177.271,122.060" /><path class="channel-hit" d="M180.464,104.104 C179.400,110.089 178.335,116.075 177.271,122.060" /></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="channel-17-62" class="channel-group" data-channel="17-62" data-from="17" data-to="62" data-circuit="logic" tabindex="0" role="button" aria-label="Open channel. Neither opinions nor details is activated in this chart; this is open to outside influence." data-defined="false"><path class="channel" marker-end="url(#channel-arrow)" d="M172.460,86.669 C170.164,98.470 167.878,110.260 165.581,122.060" /><path class="channel-highlight" marker-end="url(#channel-arrow-highlight)" d="M172.460,86.669 C170.164,98.470 167.878,110.260 165.581,122.060" /><path class="channel-flow" d="M172.460,86.669 C170.164,98.470 167.878,110.260 165.581,122.060" /><path class="channel-hit" d="M172.460,86.669 C170.164,98.470 167.878,110.260 165.581,122.060" /></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="channel-11-56" class="channel-group" data-channel="11-56" data-from="11" data-to="56" data-circuit="abstract" tabindex="0" role="button" aria-label="Incomplete channel. Stimulation is activated, while ideas is not; this is a hanging-gate potential." data-defined="false"><path class="channel" marker-end="url(#channel-arrow)" d="M188.468,84.383 C188.635,96.945 188.793,109.498 188.961,122.060" /><path class="channel-highlight" marker-end="url(#channel-arrow-highlight)" d="M188.468,84.383 C188.635,96.945 188.793,109.498 188.961,122.060" /><path class="channel-flow" d="M188.468,84.383 C188.635,96.945 188.793,109.498 188.961,122.060" /><path class="channel-hit" d="M188.468,84.383 C188.635,96.945 188.793,109.498 188.961,122.060" /></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="channel-1-8" class="channel-group" data-channel="1-8" data-from="1" data-to="8" data-circuit="individual" tabindex="0" role="button" aria-label="Channel of Inspiration, defined. Creative expression meets contribution: individuality becomes an example for others, while contribution brings recognition back to the creative source." data-defined="false" data-reading="Inspiration: Creative expression meets contribution: individuality becomes an example for others, while contribution brings recognition back to the creative source."><path class="channel" marker-end="url(#channel-arrow)" d="M176.885,167.060 C179.723,171.203 180.762,175.347 180.000,179.490" /><path class="channel-highlight" marker-end="url(#channel-arrow-highlight)" d="M176.885,167.060 C179.723,171.203 180.762,175.347 180.000,179.490" /><path class="channel-flow" d="M176.885,167.060 C179.723,171.203 180.762,175.347 180.000,179.490" /><path class="channel-hit" d="M176.885,167.060 C179.723,171.203 180.762,175.347 180.000,179.490" /></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="channel-7-31" class="channel-group" data-channel="7-31" data-from="7" data-to="31" data-circuit="logic" tabindex="0" role="button" aria-label="Channel of Alpha, defined. Collective direction finds a voice through influence; recognition from the group gives that leadership its context." data-defined="false" data-reading="Alpha: Collective direction finds a voice through influence; recognition from the group gives that leadership its context."><path class="channel" marker-end="url(#channel-arrow)" d="M165.195,167.060 C167.576,176.206 168.167,185.302 166.950,194.340" /><path class="channel-highlight" marker-end="url(#channel-arrow-highlight)" d="M165.195,167.060 C167.576,176.206 168.167,185.302 166.950,194.340" /><path class="channel-flow" d="M165.195,167.060 C167.576,176.206 168.167,185.302 166.950,194.340" /><path class="channel-hit" d="M165.195,167.060 C167.576,176.206 168.167,185.302 166.950,194.340" /></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="channel-13-33" class="channel-group" data-channel="13-33" data-from="13" data-to="33" data-circuit="abstract" tabindex="0" role="button" aria-label="Incomplete channel. Listening is activated, while retreat and reflection is not; this is a hanging-gate potential." data-defined="false"><path class="channel" marker-end="url(#channel-arrow)" d="M188.575,167.060 C190.070,176.147 191.555,185.243 193.050,194.340" /><path class="channel-highlight" marker-end="url(#channel-arrow-highlight)" d="M188.575,167.060 C190.070,176.147 191.555,185.243 193.050,194.340" /><path class="channel-flow" d="M188.575,167.060 C190.070,176.147 191.555,185.243 193.050,194.340" /><path class="channel-hit" d="M188.575,167.060 C190.070,176.147 191.555,185.243 193.050,194.340" /></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="channel-10-20" class="channel-group" data-network="integration-10-20-57" data-channel="10-20" data-from="10" data-to="20" data-circuit="integration" tabindex="0" role="button" aria-label="Incomplete channel. Behavior of the self is activated, while presence is not; this is a hanging-gate potential." data-defined="false"><path class="channel" marker-end="url(#channel-arrow)" d="M163.929,152.472 C160.586,171.378 157.243,190.284 153.900,209.190" /><path class="channel-highlight" marker-end="url(#channel-arrow-highlight)" d="M163.929,152.472 C160.586,171.378 157.243,190.284 153.900,209.190" /><path class="channel-flow" d="M163.929,152.472 C160.586,171.378 157.243,190.284 153.900,209.190" /><path class="channel-hit" d="M163.929,152.472 C160.586,171.378 157.243,190.284 153.900,209.190" /></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="channel-21-45" class="channel-group" data-channel="21-45" data-from="21" data-to="45" data-circuit="tribal" tabindex="0" role="button" aria-label="Open channel. Neither managing resources nor gathering resources is activated in this chart; this is open to outside influence." data-defined="false"><path class="channel" marker-end="url(#channel-arrow)" d="M196.076,161.191 C214.925,165.118 229.113,174.265 238.642,188.632" /><path class="channel-highlight" marker-end="url(#channel-arrow-highlight)" d="M196.076,161.191 C214.925,165.118 229.113,174.265 238.642,188.632" /><path class="channel-flow" d="M196.076,161.191 C214.925,165.118 229.113,174.265 238.642,188.632" /><path class="channel-hit" d="M196.076,161.191 C214.925,165.118 229.113,174.265 238.642,188.632" /></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="channel-12-22" class="channel-group" data-channel="12-22" data-from="12" data-to="22" data-circuit="abstract" tabindex="0" role="button" aria-label="Incomplete channel. Caution in expression is activated, while openness is not; this is a hanging-gate potential." data-defined="false"><path class="channel" marker-end="url(#channel-arrow)" d="M196.071,144.830 C209.869,177.372 218.937,211.554 223.284,247.355" /><path class="channel-highlight" marker-end="url(#channel-arrow-highlight)" d="M196.071,144.830 C209.869,177.372 218.937,211.554 223.284,247.355" /><path class="channel-flow" d="M196.071,144.830 C209.869,177.372 218.937,211.554 223.284,247.355" /><path class="channel-hit" d="M196.071,144.830 C209.869,177.372 218.937,211.554 223.284,247.355" /></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="channel-35-36" class="channel-group" data-channel="35-36" data-from="35" data-to="36" data-circuit="abstract" tabindex="0" role="button" aria-label="Incomplete channel. Crisis and experience is activated, while change is not; this is a hanging-gate potential." data-defined="false"><path class="channel" marker-end="url(#channel-arrow)" d="M196.071,128.467 C217.943,162.524 231.315,199.502 236.167,239.420" /><path class="channel-highlight" marker-end="url(#channel-arrow-highlight)" d="M196.071,128.467 C217.943,162.524 231.315,199.502 236.167,239.420" /><path class="channel-flow" d="M196.071,128.467 C217.943,162.524 231.315,199.502 236.167,239.420" /><path class="channel-hit" d="M196.071,128.467 C217.943,162.524 231.315,199.502 236.167,239.420" /></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="channel-16-48" class="channel-group" data-channel="16-48" data-from="16" data-to="48" data-circuit="logic" tabindex="0" role="button" aria-label="Channel of Wavelength, defined. Depth is developed through practice and skill; practiced expression gives depth a form others can recognize." data-defined="false" data-reading="Wavelength: Depth is developed through practice and skill; practiced expression gives depth a form others can recognize."><path class="channel" marker-end="url(#channel-arrow)" d="M163.929,136.108 C143.733,171.491 130.361,209.139 123.833,249.072" /><path class="channel-highlight" marker-end="url(#channel-arrow-highlight)" d="M163.929,136.108 C143.733,171.491 130.361,209.139 123.833,249.072" /><path class="channel-flow" d="M163.929,136.108 C143.733,171.491 130.361,209.139 123.833,249.072" /><path class="channel-hit" d="M163.929,136.108 C143.733,171.491 130.361,209.139 123.833,249.072" /></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="channel-20-57" class="channel-group" data-network="integration-10-20-57" data-channel="20-57" data-from="20" data-to="57" data-circuit="integration" tabindex="0" role="button" aria-label="Incomplete channel. Intuitive clarity is activated, while presence is not; this is a hanging-gate potential." data-defined="false"><path class="channel" marker-end="url(#channel-arrow)" d="M163.929,152.472 C148.031,181.177 136.853,211.512 130.405,243.468" /><path class="channel-highlight" marker-end="url(#channel-arrow-highlight)" d="M163.929,152.472 C148.031,181.177 136.853,211.512 130.405,243.468" /><path class="channel-flow" d="M163.929,152.472 C148.031,181.177 136.853,211.512 130.405,243.468" /><path class="channel-hit" d="M163.929,152.472 C148.031,181.177 136.853,211.512 130.405,243.468" /></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="channel-20-34" class="channel-group" data-channel="20-34" data-from="20" data-to="34" data-circuit="integration" tabindex="0" role="button" aria-label="Incomplete channel. Power is activated, while presence is not; this is a hanging-gate potential." data-defined="false"><path class="channel" marker-end="url(#channel-arrow)" d="M163.929,152.472 C164.146,189.455 164.353,226.449 164.570,263.442" /><path class="channel-highlight" marker-end="url(#channel-arrow-highlight)" d="M163.929,152.472 C164.146,189.455 164.353,226.449 164.570,263.442" /><path class="channel-flow" d="M163.929,152.472 C164.146,189.455 164.353,226.449 164.570,263.442" /><path class="channel-hit" d="M163.929,152.472 C164.146,189.455 164.353,226.449 164.570,263.442" /></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="channel-10-34" class="channel-group" data-channel="10-34" data-from="10" data-to="34" data-circuit="integration" tabindex="0" role="button" aria-label="Channel of Exploration, defined. Self-directed behavior guides personal power; action then tests and embodies those convictions." data-defined="false" data-reading="Exploration: Self-directed behavior guides personal power; action then tests and embodies those convictions."><path class="channel" marker-end="url(#channel-arrow)" d="M153.900,209.190 C159.240,226.999 162.790,245.086 164.570,263.442" /><path class="channel-highlight" marker-end="url(#channel-arrow-highlight)" d="M153.900,209.190 C159.240,226.999 162.790,245.086 164.570,263.442" /><path class="channel-flow" d="M153.900,209.190 C159.240,226.999 162.790,245.086 164.570,263.442" /><path class="channel-hit" d="M153.900,209.190 C159.240,226.999 162.790,245.086 164.570,263.442" /></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="channel-2-14" class="channel-group" data-channel="2-14" data-from="2" data-to="14" data-circuit="individual" tabindex="0" role="button" aria-label="Incomplete channel. Receptive direction is activated, while resources and skills is not; this is a hanging-gate potential." data-defined="false"><path class="channel" marker-end="url(#channel-arrow)" d="M180.000,238.890 C181.328,243.333 182.656,247.777 183.984,252.220" /><path class="channel-highlight" marker-end="url(#channel-arrow-highlight)" d="M180.000,238.890 C181.328,243.333 182.656,247.777 183.984,252.220" /><path class="channel-flow" d="M180.000,238.890 C181.328,243.333 182.656,247.777 183.984,252.220" /><path class="channel-hit" d="M180.000,238.890 C181.328,243.333 182.656,247.777 183.984,252.220" /></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="channel-5-15" class="channel-group" data-channel="5-15" data-from="5" data-to="15" data-circuit="logic" tabindex="0" role="button" aria-label="Open channel. Neither fixed rhythms nor extremes is activated in this chart; this is open to outside influence." data-defined="false"><path class="channel" marker-end="url(#channel-arrow)" d="M166.950,224.040 C168.060,233.430 169.161,242.820 170.271,252.220" /><path class="channel-highlight" marker-end="url(#channel-arrow-highlight)" d="M166.950,224.040 C168.060,233.430 169.161,242.820 170.271,252.220" /><path class="channel-flow" d="M166.950,224.040 C168.060,233.430 169.161,242.820 170.271,252.220" /><path class="channel-hit" d="M166.950,224.040 C168.060,233.430 169.161,242.820 170.271,252.220" /></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="channel-29-46" class="channel-group" data-channel="29-46" data-from="29" data-to="46" data-circuit="abstract" tabindex="0" role="button" aria-label="Incomplete channel. Embodied determination is activated, while commitment is not; this is a hanging-gate potential." data-defined="false"><path class="channel" marker-end="url(#channel-arrow)" d="M193.050,224.040 C193.839,234.489 194.638,244.938 195.427,255.397" /><path class="channel-highlight" marker-end="url(#channel-arrow-highlight)" d="M193.050,224.040 C193.839,234.489 194.638,244.938 195.427,255.397" /><path class="channel-flow" d="M193.050,224.040 C193.839,234.489 194.638,244.938 195.427,255.397" /><path class="channel-hit" d="M193.050,224.040 C193.839,234.489 194.638,244.938 195.427,255.397" /></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="channel-57-10" class="channel-group" data-network="integration-10-20-57" data-channel="57-10" data-from="57" data-to="10" data-circuit="integration" tabindex="0" role="button" aria-label="Channel of Perfected Form, defined. Intuitive clarity informs behavior; lived behavior feeds back into how the self recognizes what feels correct." data-defined="false" data-reading="Perfected Form: Intuitive clarity informs behavior; lived behavior feeds back into how the self recognizes what feels correct."><path class="channel" marker-end="url(#channel-arrow)" d="M153.900,209.190 C142.061,217.295 134.226,228.725 130.405,243.468" /><path class="channel-highlight" marker-end="url(#channel-arrow-highlight)" d="M153.900,209.190 C142.061,217.295 134.226,228.725 130.405,243.468" /><path class="channel-flow" d="M153.900,209.190 C142.061,217.295 134.226,228.725 130.405,243.468" /><path class="channel-hit" d="M153.900,209.190 C142.061,217.295 134.226,228.725 130.405,243.468" /></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="channel-25-51" class="channel-group" data-channel="25-51" data-from="25" data-to="51" data-circuit="tribal" tabindex="0" role="button" aria-label="Incomplete channel. Initiation is activated, while innocence is not; this is a hanging-gate potential." data-defined="false"><path class="channel" marker-end="url(#channel-arrow)" d="M206.100,209.190 C213.768,211.964 220.506,207.808 226.333,196.703" /><path class="channel-highlight" marker-end="url(#channel-arrow-highlight)" d="M206.100,209.190 C213.768,211.964 220.506,207.808 226.333,196.703" /><path class="channel-flow" d="M206.100,209.190 C213.768,211.964 220.506,207.808 226.333,196.703" /><path class="channel-hit" d="M206.100,209.190 C213.768,211.964 220.506,207.808 226.333,196.703" /></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="channel-37-40" class="channel-group" data-channel="37-40" data-from="37" data-to="40" data-circuit="tribal" tabindex="0" role="button" aria-label="Open channel. Neither community nor aloneness and release is activated in this chart; this is open to outside influence." data-defined="false"><path class="channel" marker-end="url(#channel-arrow)" d="M255.766,202.519 C247.141,222.720 232.017,240.320 210.402,255.291" /><path class="channel-highlight" marker-end="url(#channel-arrow-highlight)" d="M255.766,202.519 C247.141,222.720 232.017,240.320 210.402,255.291" /><path class="channel-flow" d="M255.766,202.519 C247.141,222.720 232.017,240.320 210.402,255.291" /><path class="channel-hit" d="M255.766,202.519 C247.141,222.720 232.017,240.320 210.402,255.291" /></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="channel-26-44" class="channel-group" data-channel="26-44" data-from="26" data-to="44" data-circuit="tribal" tabindex="0" role="button" aria-label="Open channel. Neither persuasive transmission nor alertness to patterns is activated in this chart; this is open to outside influence." data-defined="false"><path class="channel" marker-end="url(#channel-arrow)" d="M233.222,216.406 C199.784,221.992 169.805,233.658 143.287,251.403" /><path class="channel-highlight" marker-end="url(#channel-arrow-highlight)" d="M233.222,216.406 C199.784,221.992 169.805,233.658 143.287,251.403" /><path class="channel-flow" d="M233.222,216.406 C199.784,221.992 169.805,233.658 143.287,251.403" /><path class="channel-hit" d="M233.222,216.406 C199.784,221.992 169.805,233.658 143.287,251.403" /></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="channel-3-60" class="channel-group" data-channel="3-60" data-from="3" data-to="60" data-circuit="individual" tabindex="0" role="button" aria-label="Channel of Mutation, defined. Limits shape how new beginnings find order; new ordering can reveal how the limits themselves are changing." data-defined="false" data-reading="Mutation: Limits shape how new beginnings find order; new ordering can reveal how the limits themselves are changing."><path class="channel" marker-end="url(#channel-arrow)" d="M182.869,295.420 C183.718,300.093 182.759,304.707 180.000,309.270" /><path class="channel-highlight" marker-end="url(#channel-arrow-highlight)" d="M182.869,295.420 C183.718,300.093 182.759,304.707 180.000,309.270" /><path class="channel-flow" d="M182.869,295.420 C183.718,300.093 182.759,304.707 180.000,309.270" /><path class="channel-hit" d="M182.869,295.420 C183.718,300.093 182.759,304.707 180.000,309.270" /></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="channel-9-52" class="channel-group" data-channel="9-52" data-from="9" data-to="52" data-circuit="logic" tabindex="0" role="button" aria-label="Open channel. Neither focused detail nor stillness is activated in this chart; this is open to outside influence." data-defined="false"><path class="channel" marker-end="url(#channel-arrow)" d="M195.427,293.798 C194.475,298.948 193.523,304.109 192.570,309.270" /><path class="channel-highlight" marker-end="url(#channel-arrow-highlight)" d="M195.427,293.798 C194.475,298.948 193.523,304.109 192.570,309.270" /><path class="channel-flow" d="M195.427,293.798 C194.475,298.948 193.523,304.109 192.570,309.270" /><path class="channel-hit" d="M195.427,293.798 C194.475,298.948 193.523,304.109 192.570,309.270" /></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="channel-42-53" class="channel-group" data-channel="42-53" data-from="42" data-to="53" data-circuit="abstract" tabindex="0" role="button" aria-label="Open channel. Neither growth nor beginnings is activated in this chart; this is open to outside influence." data-defined="false"><path class="channel" marker-end="url(#channel-arrow)" d="M169.156,295.420 C168.579,300.030 168.003,304.650 167.426,309.270" /><path class="channel-highlight" marker-end="url(#channel-arrow-highlight)" d="M169.156,295.420 C168.579,300.030 168.003,304.650 167.426,309.270" /><path class="channel-flow" d="M169.156,295.420 C168.579,300.030 168.003,304.650 167.426,309.270" /><path class="channel-hit" d="M169.156,295.420 C168.579,300.030 168.003,304.650 167.426,309.270" /></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="channel-34-57" class="channel-group" data-channel="34-57" data-from="34" data-to="57" data-circuit="integration" tabindex="0" role="button" aria-label="Channel of Power, defined. Intuitive awareness guides power in action; action, in turn, expresses and tests that awareness." data-defined="false" data-reading="Power: Intuitive awareness guides power in action; action, in turn, expresses and tests that awareness."><path class="channel" marker-end="url(#channel-arrow)" d="M130.405,243.468 C140.913,253.231 152.298,259.889 164.570,263.442" /><path class="channel-highlight" marker-end="url(#channel-arrow-highlight)" d="M130.405,243.468 C140.913,253.231 152.298,259.889 164.570,263.442" /><path class="channel-flow" d="M130.405,243.468 C140.913,253.231 152.298,259.889 164.570,263.442" /><path class="channel-hit" d="M130.405,243.468 C140.913,253.231 152.298,259.889 164.570,263.442" /></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="channel-27-50" class="channel-group" data-channel="27-50" data-from="27" data-to="50" data-circuit="tribal" tabindex="0" role="button" aria-label="Open channel. Neither caring nor values is activated in this chart; this is open to outside influence." data-defined="false"><path class="channel" marker-end="url(#channel-arrow)" d="M155.783,259.339 C155.595,275.547 158.528,283.315 164.570,282.643" /><path class="channel-highlight" marker-end="url(#channel-arrow-highlight)" d="M155.783,259.339 C155.595,275.547 158.528,283.315 164.570,282.643" /><path class="channel-flow" d="M155.783,259.339 C155.595,275.547 158.528,283.315 164.570,282.643" /><path class="channel-hit" d="M155.783,259.339 C155.595,275.547 158.528,283.315 164.570,282.643" /></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="channel-59-6" class="channel-group" data-channel="59-6" data-from="59" data-to="6" data-circuit="tribal" tabindex="0" role="button" aria-label="Open channel. Neither intimacy nor friction is activated in this chart; this is open to outside influence." data-defined="false"><path class="channel" marker-end="url(#channel-arrow)" d="M210.528,263.226 C207.921,273.583 202.884,277.370 195.427,274.598" /><path class="channel-highlight" marker-end="url(#channel-arrow-highlight)" d="M210.528,263.226 C207.921,273.583 202.884,277.370 195.427,274.598" /><path class="channel-flow" d="M210.528,263.226 C207.921,273.583 202.884,277.370 195.427,274.598" /><path class="channel-hit" d="M210.528,263.226 C207.921,273.583 202.884,277.370 195.427,274.598" /></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="channel-58-18" class="channel-group" data-channel="58-18" data-from="58" data-to="18" data-circuit="logic" tabindex="0" role="button" aria-label="Incomplete channel. Vitality is activated, while correction is not; this is a hanging-gate potential." data-defined="false"><path class="channel" marker-end="url(#channel-arrow)" d="M123.833,268.776 C130.890,300.887 147.517,327.589 173.713,348.870" /><path class="channel-highlight" marker-end="url(#channel-arrow-highlight)" d="M123.833,268.776 C130.890,300.887 147.517,327.589 173.713,348.870" /><path class="channel-flow" d="M123.833,268.776 C130.890,300.887 147.517,327.589 173.713,348.870" /><path class="channel-hit" d="M123.833,268.776 C130.890,300.887 147.517,327.589 173.713,348.870" /></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="channel-38-28" class="channel-group" data-channel="38-28" data-from="38" data-to="28" data-circuit="individual" tabindex="0" role="button" aria-label="Open channel. Neither struggle nor meaningful struggle is activated in this chart; this is open to outside influence." data-defined="false"><path class="channel" marker-end="url(#channel-arrow)" d="M130.018,275.210 C135.871,301.010 147.813,323.360 165.856,342.270" /><path class="channel-highlight" marker-end="url(#channel-arrow-highlight)" d="M130.018,275.210 C135.871,301.010 147.813,323.360 165.856,342.270" /><path class="channel-flow" d="M130.018,275.210 C135.871,301.010 147.813,323.360 165.856,342.270" /><path class="channel-hit" d="M130.018,275.210 C135.871,301.010 147.813,323.360 165.856,342.270" /></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="channel-54-32" class="channel-group" data-channel="54-32" data-from="54" data-to="32" data-circuit="tribal" tabindex="0" role="button" aria-label="Open channel. Neither ambition nor continuity is activated in this chart; this is open to outside influence." data-defined="false"><path class="channel" marker-end="url(#channel-arrow)" d="M142.901,267.274 C147.939,287.890 155.598,307.015 165.856,324.670" /><path class="channel-highlight" marker-end="url(#channel-arrow-highlight)" d="M142.901,267.274 C147.939,287.890 155.598,307.015 165.856,324.670" /><path class="channel-flow" d="M142.901,267.274 C147.939,287.890 155.598,307.015 165.856,324.670" /><path class="channel-hit" d="M142.901,267.274 C147.939,287.890 155.598,307.015 165.856,324.670" /></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="channel-41-30" class="channel-group" data-channel="41-30" data-from="41" data-to="30" data-circuit="abstract" tabindex="0" role="button" aria-label="Incomplete channel. Contraction is activated, while desire is not; this is a hanging-gate potential." data-defined="false"><path class="channel" marker-end="url(#channel-arrow)" d="M236.167,259.123 C229.114,294.456 212.492,324.368 186.289,348.870" /><path class="channel-highlight" marker-end="url(#channel-arrow-highlight)" d="M236.167,259.123 C229.114,294.456 212.492,324.368 186.289,348.870" /><path class="channel-flow" d="M236.167,259.123 C229.114,294.456 212.492,324.368 186.289,348.870" /><path class="channel-hit" d="M236.167,259.123 C229.114,294.456 212.492,324.368 186.289,348.870" /></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="channel-39-55" class="channel-group" data-channel="39-55" data-from="39" data-to="55" data-circuit="individual" tabindex="0" role="button" aria-label="Open channel. Neither provocation nor spirit is activated in this chart; this is open to outside influence." data-defined="false"><path class="channel" marker-end="url(#channel-arrow)" d="M236.167,278.827 C228.253,303.421 214.240,324.566 194.146,342.270" /><path class="channel-highlight" marker-end="url(#channel-arrow-highlight)" d="M236.167,278.827 C228.253,303.421 214.240,324.566 194.146,342.270" /><path class="channel-flow" d="M236.167,278.827 C228.253,303.421 214.240,324.566 194.146,342.270" /><path class="channel-hit" d="M236.167,278.827 C228.253,303.421 214.240,324.566 194.146,342.270" /></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="channel-19-49" class="channel-group" data-channel="19-49" data-from="19" data-to="49" data-circuit="tribal" tabindex="0" role="button" aria-label="Incomplete channel. Sensitivity to needs is activated, while principles and change is not; this is a hanging-gate potential." data-defined="false"><path class="channel" marker-end="url(#channel-arrow)" d="M223.410,271.162 C216.269,290.478 206.508,308.314 194.146,324.670" /><path class="channel-highlight" marker-end="url(#channel-arrow-highlight)" d="M223.410,271.162 C216.269,290.478 206.508,308.314 194.146,324.670" /><path class="channel-flow" d="M223.410,271.162 C216.269,290.478 206.508,308.314 194.146,324.670" /><path class="channel-hit" d="M223.410,271.162 C216.269,290.478 206.508,308.314 194.146,324.670" /></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+</g><g id="centers" aria-label="Nine centers">
+<g id="center-head" class="center" data-center="head" data-defined="false" data-gate-grid="standard" role="group" tabindex="0" aria-label="Head center — Open. Pressure to wonder and ask questions. This center can be shaped by people and places around you. With others: You may notice whose questions inspire you." transform="translate(180.0000 38.2660) scale(.9) translate(-180.0000 -38.2660)"><polygon class="center-shape" points="180.0,8.933 162.143,52.933 197.857,52.933" fill="#e27caf"/></g>
+<g id="center-ajna" class="center" data-center="ajna" data-defined="false" data-gate-grid="standard" role="group" tabindex="0" aria-label="Ajna center — Open. Making ideas and thoughts from questions. This center can be shaped by people and places around you. With others: You may notice how other people shape your way of thinking." transform="translate(180.0000 78.8487) scale(.9) translate(-180.0000 -78.8487)"><polygon class="center-shape" points="162.143,64.182 197.857,64.182 180.0,108.182" fill="#566cb3"/></g>
+<g id="center-throat" class="center" data-center="throat" data-defined="false" data-gate-grid="5x5" role="group" tabindex="0" aria-label="Throat center — Defined. Speaking, sharing, and taking action. This center has steady energy in your chart. With others: You may notice how others invite you to speak or act." transform="translate(180.0000 144.5576) scale(.9) translate(-180.0000 -144.5576)"><rect class="center-shape" x="162.143" y="119.55757575757576" width="35.714" height="50" rx="3" fill="#4e91c6"/></g>
+<g id="center-g" class="center" data-center="g" data-defined="false" data-gate-grid="standard" role="group" tabindex="0" aria-label="Identity (G) center — Defined. Your sense of self, love, and direction. This center has steady energy in your chart. With others: You may notice how people affect your sense of direction." transform="translate(180.0000 209.1879) scale(.9) translate(-180.0000 -209.1879)"><polygon class="center-shape" points="180.0,176.188 209.0,209.188 180.0,242.188 151.0,209.188" fill="#56a35c"/></g>
+<g id="center-ego" class="center" data-center="ego" data-defined="false" data-gate-grid="standard" role="group" tabindex="0" aria-label="Heart / Ego center — Open. Willpower, promises, and what you value. This center can be shaped by people and places around you. With others: You may notice whose goals or willpower affect you." transform="translate(237.0476 200.8485) scale(.9) translate(-237.0476 -200.8485)"><polygon class="center-shape" points="225.143,178.848 260.857,200.848 225.143,222.848" fill="#63aa66"/></g>
+<g id="center-spleen" class="center" data-center="spleen" data-defined="false" data-gate-grid="standard" role="group" tabindex="0" aria-label="Spleen center — Defined. Quick instincts about safety and what is healthy. This center has steady energy in your chart. With others: You may notice how others affect your sense of safety." transform="translate(134.5476 259.2240) scale(.9) translate(-134.5476 -259.2240)"><polygon class="center-shape" points="158.357,259.224 122.643,237.224 122.643,281.224" fill="#e2ca4b"/></g>
+<g id="center-solar" class="center" data-center="solar" data-defined="false" data-gate-grid="standard" role="group" tabindex="0" aria-label="Solar Plexus center — Open. Feelings, moods, and emotional waves. This center can be shaped by people and places around you. With others: You may notice and feel the emotions of people around you." transform="translate(225.4524 259.2240) scale(.9) translate(-225.4524 -259.2240)"><polygon class="center-shape" points="237.357,237.224 237.357,281.224 201.643,259.224" fill="#e2ca4b"/></g>
+<g id="center-sacral" class="center" data-center="sacral" data-defined="false" data-gate-grid="5x5" role="group" tabindex="0" aria-label="Sacral center — Defined. Life energy for work, play, and making things. This center has steady energy in your chart. With others: You may notice how other people affect your energy to respond." transform="translate(180.0000 273.8182) scale(.9) translate(-180.0000 -273.8182)"><rect class="center-shape" x="162.857" y="249.8181818181818" width="34.286" height="48" rx="3" fill="#ed703b"/></g>
+<g id="center-root" class="center" data-center="root" data-defined="false" data-gate-grid="5x5" role="group" tabindex="0" aria-label="Root center — Defined. Pressure to get moving and handle stress. This center has steady energy in your chart. With others: You may notice how other people affect your sense of urgency." transform="translate(180.0000 329.0667) scale(.9) translate(-180.0000 -329.0667)"><rect class="center-shape" x="164.286" y="307.06666666666666" width="31.429" height="44" rx="3" fill="#c72d3a"/></g>
+</g><g id="gates" aria-label="64 gates">
+<g id="gate-64" class="gate" data-state="open" data-gate="64" data-center="head" transform="translate(171.996 0) scale(0.7142857 1) translate(-171.996 0)" tabindex="0" role="button" aria-label="Confusion: confusion that can precede reflection and understanding. Unactivated in this chart; open to outside influence." data-reading="confusion that can precede reflection and understanding"><circle class="gate-hit" cx="171.996" cy="31.587" r="6" /><circle class="gate-marker" cx="171.996" cy="31.587" r="2.1" /><text class="gate-number" x="171.996" y="31.587">64</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-61" class="gate" data-state="open" data-gate="61" data-center="head" transform="translate(180.000 0) scale(0.7142857 1) translate(-180.000 0)" tabindex="0" role="button" aria-label="Inner truth: pressure to know inner truth and mystery. Unactivated in this chart; open to outside influence." data-reading="pressure to know inner truth and mystery"><circle class="gate-hit" cx="180.000" cy="51.466" r="6" /><circle class="gate-marker" cx="180.000" cy="51.466" r="2.1" /><text class="gate-number" x="180.000" y="51.466">61</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-63" class="gate" data-state="open" data-gate="63" data-center="head" transform="translate(188.004 0) scale(0.7142857 1) translate(-188.004 0)" tabindex="0" role="button" aria-label="Doubt: doubt that drives questions and verification. Unactivated in this chart; open to outside influence." data-reading="doubt that drives questions and verification"><circle class="gate-hit" cx="188.004" cy="31.587" r="6" /><circle class="gate-marker" cx="188.004" cy="31.587" r="2.1" /><text class="gate-number" x="188.004" y="31.587">63</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-47" class="gate" data-state="open" data-gate="47" data-center="ajna" transform="translate(164.457 0) scale(0.7142857 1) translate(-164.457 0)" tabindex="0" role="button" aria-label="Realization: making sense of past pressure and experience. Unactivated in this chart; open to outside influence." data-reading="making sense of past pressure and experience"><circle class="gate-hit" cx="164.457" cy="66.950" r="6" /><circle class="gate-marker" cx="164.457" cy="66.950" r="2.1" /><text class="gate-number" x="164.457" y="66.950">47</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-24" class="gate" data-state="open" data-gate="24" data-center="ajna" transform="translate(179.061 0) scale(0.7142857 1) translate(-179.061 0)" tabindex="0" role="button" aria-label="Returning to an idea: revisiting and mentally processing an insight. Unactivated in this chart; open to outside influence." data-reading="revisiting and mentally processing an insight"><circle class="gate-hit" cx="179.061" cy="65.649" r="6" /><circle class="gate-marker" cx="179.061" cy="65.649" r="2.1" /><text class="gate-number" x="179.061" y="65.649">24</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-4" class="gate" data-state="open" data-gate="4" data-center="ajna" transform="translate(195.262 0) scale(0.7142857 1) translate(-195.262 0)" tabindex="0" role="button" aria-label="Formulization: forming logical answers to questions. Unactivated in this chart; open to outside influence." data-reading="forming logical answers to questions"><circle class="gate-hit" cx="195.262" cy="65.649" r="6" /><circle class="gate-marker" cx="195.262" cy="65.649" r="2.1" /><text class="gate-number" x="195.262" y="65.649">4</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-17" class="gate" data-state="open" data-gate="17" data-center="ajna" transform="translate(172.460 0) scale(0.7142857 1) translate(-172.460 0)" tabindex="0" role="button" aria-label="Opinions: pattern-based opinions about what may happen. Unactivated in this chart; open to outside influence." data-reading="pattern-based opinions about what may happen"><circle class="gate-hit" cx="172.460" cy="86.671" r="6" /><circle class="gate-marker" cx="172.460" cy="86.671" r="2.1" /><text class="gate-number" x="172.460" y="86.671">17</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-43" class="gate" data-state="open" data-gate="43" data-center="ajna" transform="translate(180.464 0) scale(0.7142857 1) translate(-180.464 0)" tabindex="0" role="button" aria-label="Insight: individual insight that can break from established patterns. Activated in your natal chart through design Moon." data-activation="design Moon" data-reading="individual insight that can break from established patterns"><circle class="gate-hit" cx="180.464" cy="104.105" r="6" /><circle class="gate-marker" cx="180.464" cy="104.105" r="2.1" /><text class="gate-number" x="180.464" y="104.105">43</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-11" class="gate" data-state="open" data-gate="11" data-center="ajna" transform="translate(188.468 0) scale(0.7142857 1) translate(-188.468 0)" tabindex="0" role="button" aria-label="Ideas: ideas and images that may inspire possibilities. Unactivated in this chart; open to outside influence." data-reading="ideas and images that may inspire possibilities"><circle class="gate-hit" cx="188.468" cy="84.384" r="6" /><circle class="gate-marker" cx="188.468" cy="84.384" r="2.1" /><text class="gate-number" x="188.468" y="84.384">11</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-62" class="gate" data-state="open" data-gate="62" data-center="throat" transform="translate(165.583 0) scale(0.7142857 1) translate(-165.583 0)" tabindex="0" role="button" aria-label="Details: naming and organizing details. Unactivated in this chart; open to outside influence." data-reading="naming and organizing details"><circle class="gate-hit" cx="165.583" cy="122.058" r="6" /><circle class="gate-marker" cx="165.583" cy="122.058" r="2.1" /><text class="gate-number" x="165.583" y="122.058">62</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-23" class="gate" data-state="open" data-gate="23" data-center="throat" transform="translate(177.271 0) scale(0.7142857 1) translate(-177.271 0)" tabindex="0" role="button" aria-label="Assimilation: expressing insight in a simple, understandable form. Unactivated in this chart; open to outside influence." data-reading="expressing insight in a simple, understandable form"><circle class="gate-hit" cx="177.271" cy="122.058" r="6" /><circle class="gate-marker" cx="177.271" cy="122.058" r="2.1" /><text class="gate-number" x="177.271" y="122.058">23</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-56" class="gate" data-state="open" data-gate="56" data-center="throat" transform="translate(188.959 0) scale(0.7142857 1) translate(-188.959 0)" tabindex="0" role="button" aria-label="Stimulation: stimulation and storytelling drawn from experience. Activated in your natal chart through personality South Node." data-activation="personality South Node" data-reading="stimulation and storytelling drawn from experience"><circle class="gate-hit" cx="188.959" cy="122.058" r="6" /><circle class="gate-marker" cx="188.959" cy="122.058" r="2.1" /><text class="gate-number" x="188.959" y="122.058">56</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-35" class="gate" data-state="open" data-gate="35" data-center="throat" transform="translate(196.071 0) scale(0.7142857 1) translate(-196.071 0)" tabindex="0" role="button" aria-label="Change: movement through experience and change. Unactivated in this chart; open to outside influence." data-reading="movement through experience and change"><circle class="gate-hit" cx="196.071" cy="128.464" r="6" /><circle class="gate-marker" cx="196.071" cy="128.464" r="2.1" /><text class="gate-number" x="196.071" y="128.464">35</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-12" class="gate" data-state="open" data-gate="12" data-center="throat" transform="translate(196.071 0) scale(0.7142857 1) translate(-196.071 0)" tabindex="0" role="button" aria-label="Caution in expression: selective expression shaped by mood and timing. Activated in your natal chart through personality Venus andpersonality Mars." data-activation="personality Venus,personality Mars" data-reading="selective expression shaped by mood and timing"><circle class="gate-hit" cx="196.071" cy="144.828" r="6" /><circle class="gate-marker" cx="196.071" cy="144.828" r="2.1" /><text class="gate-number" x="196.071" y="144.828">12</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-45" class="gate" data-state="open" data-gate="45" data-center="throat" transform="translate(196.071 0) scale(0.7142857 1) translate(-196.071 0)" tabindex="0" role="button" aria-label="Gathering resources: bringing people and resources together. Unactivated in this chart; open to outside influence." data-reading="bringing people and resources together"><circle class="gate-hit" cx="196.071" cy="161.191" r="6" /><circle class="gate-marker" cx="196.071" cy="161.191" r="2.1" /><text class="gate-number" x="196.071" y="161.191">45</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-33" class="gate" data-state="open" data-gate="33" data-center="throat" transform="translate(188.573 0) scale(0.7142857 1) translate(-188.573 0)" tabindex="0" role="button" aria-label="Retreat and reflection: privacy and reflection before sharing experience. Unactivated in this chart; open to outside influence." data-reading="privacy and reflection before sharing experience"><circle class="gate-hit" cx="188.573" cy="167.058" r="6" /><circle class="gate-marker" cx="188.573" cy="167.058" r="2.1" /><text class="gate-number" x="188.573" y="167.058">33</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-8" class="gate" data-state="open" data-gate="8" data-center="throat" transform="translate(176.885 0) scale(0.7142857 1) translate(-176.885 0)" tabindex="0" role="button" aria-label="Contribution: sharing individuality as a contribution or example. Activated in your natal chart through design Saturn." data-activation="design Saturn" data-reading="sharing individuality as a contribution or example"><circle class="gate-hit" cx="176.885" cy="167.058" r="6" /><circle class="gate-marker" cx="176.885" cy="167.058" r="2.1" /><text class="gate-number" x="176.885" y="167.058">8</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-31" class="gate" data-state="open" data-gate="31" data-center="throat" transform="translate(165.197 0) scale(0.7142857 1) translate(-165.197 0)" tabindex="0" role="button" aria-label="Influence: leadership through voice when recognized. Activated in your natal chart through design South Node." data-activation="design South Node" data-reading="leadership through voice when recognized"><circle class="gate-hit" cx="165.197" cy="167.058" r="6" /><circle class="gate-marker" cx="165.197" cy="167.058" r="2.1" /><text class="gate-number" x="165.197" y="167.058">31</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-20" class="gate" data-state="open" data-gate="20" data-center="throat" transform="translate(163.929 0) scale(0.7142857 1) translate(-163.929 0)" tabindex="0" role="button" aria-label="Presence: awareness and expression in the now. Unactivated in this chart; open to outside influence." data-reading="awareness and expression in the now"><circle class="gate-hit" cx="163.929" cy="152.469" r="6" /><circle class="gate-marker" cx="163.929" cy="152.469" r="2.1" /><text class="gate-number" x="163.929" y="152.469">20</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-16" class="gate" data-state="open" data-gate="16" data-center="throat" transform="translate(163.929 0) scale(0.7142857 1) translate(-163.929 0)" tabindex="0" role="button" aria-label="Skills: enthusiasm for developing and practicing skills. Activated in your natal chart through personality Saturn." data-activation="personality Saturn" data-reading="enthusiasm for developing and practicing skills"><circle class="gate-hit" cx="163.929" cy="136.106" r="6" /><circle class="gate-marker" cx="163.929" cy="136.106" r="2.1" /><text class="gate-number" x="163.929" y="136.106">16</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-1" class="gate" data-state="open" data-gate="1" data-center="g" transform="translate(180.000 0) scale(0.7142857 1) translate(-180.000 0)" tabindex="0" role="button" aria-label="Creative expression: individual creativity and the impulse to express a unique vision. Activated in your natal chart through personality Earth." data-activation="personality Earth" data-reading="individual creativity and the impulse to express a unique vision"><circle class="gate-hit" cx="180.000" cy="179.488" r="6" /><circle class="gate-marker" cx="180.000" cy="179.488" r="2.1" /><text class="gate-number" x="180.000" y="179.488">1</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-13" class="gate" data-state="open" data-gate="13" data-center="g" transform="translate(193.050 0) scale(0.7142857 1) translate(-193.050 0)" tabindex="0" role="button" aria-label="Listening: listening to and holding stories from experience. Activated in your natal chart through design Sun andpersonality Moon." data-activation="design Sun,personality Moon" data-reading="listening to and holding stories from experience"><circle class="gate-hit" cx="193.050" cy="194.338" r="6" /><circle class="gate-marker" cx="193.050" cy="194.338" r="2.1" /><text class="gate-number" x="193.050" y="194.338">13</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-7" class="gate" data-state="open" data-gate="7" data-center="g" transform="translate(166.950 0) scale(0.7142857 1) translate(-166.950 0)" tabindex="0" role="button" aria-label="Collective direction: guidance and the role of the self in a group. Activated in your natal chart through design Earth." data-activation="design Earth" data-reading="guidance and the role of the self in a group"><circle class="gate-hit" cx="166.950" cy="194.338" r="6" /><circle class="gate-marker" cx="166.950" cy="194.338" r="2.1" /><text class="gate-number" x="166.950" y="194.338">7</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-10" class="gate" data-state="open" data-gate="10" data-center="g" transform="translate(153.900 0) scale(0.7142857 1) translate(-153.900 0)" tabindex="0" role="button" aria-label="Behavior of the self: behavior aligned with the nature of the self. Activated in your natal chart through design Jupiter." data-activation="design Jupiter" data-reading="behavior aligned with the nature of the self"><circle class="gate-hit" cx="153.900" cy="209.188" r="6" /><circle class="gate-marker" cx="153.900" cy="209.188" r="2.1" /><text class="gate-number" x="153.900" y="209.188">10</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-15" class="gate" data-state="open" data-gate="15" data-center="g" transform="translate(166.950 0) scale(0.7142857 1) translate(-166.950 0)" tabindex="0" role="button" aria-label="Extremes: the full range of human rhythms and differences. Unactivated in this chart; open to outside influence." data-reading="the full range of human rhythms and differences"><circle class="gate-hit" cx="166.950" cy="224.038" r="6" /><circle class="gate-marker" cx="166.950" cy="224.038" r="2.1" /><text class="gate-number" x="166.950" y="224.038">15</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-2" class="gate" data-state="open" data-gate="2" data-center="g" transform="translate(180.000 0) scale(0.7142857 1) translate(-180.000 0)" tabindex="0" role="button" aria-label="Receptive direction: inner receptivity to direction and orientation. Activated in your natal chart through personality Sun." data-activation="personality Sun" data-reading="inner receptivity to direction and orientation"><circle class="gate-hit" cx="180.000" cy="238.888" r="6" /><circle class="gate-marker" cx="180.000" cy="238.888" r="2.1" /><text class="gate-number" x="180.000" y="238.888">2</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-46" class="gate" data-state="open" data-gate="46" data-center="g" transform="translate(193.050 0) scale(0.7142857 1) translate(-193.050 0)" tabindex="0" role="button" aria-label="Embodied determination: determination to engage with life through the body. Activated in your natal chart through personality Pluto anddesign Pluto." data-activation="personality Pluto,design Pluto" data-reading="determination to engage with life through the body"><circle class="gate-hit" cx="193.050" cy="224.038" r="6" /><circle class="gate-marker" cx="193.050" cy="224.038" r="2.1" /><text class="gate-number" x="193.050" y="224.038">46</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-25" class="gate" data-state="open" data-gate="25" data-center="g" transform="translate(206.100 0) scale(0.7142857 1) translate(-206.100 0)" tabindex="0" role="button" aria-label="Innocence: openness to universal experience without fixed conditions. Unactivated in this chart; open to outside influence." data-reading="openness to universal experience without fixed conditions"><circle class="gate-hit" cx="206.100" cy="209.188" r="6" /><circle class="gate-marker" cx="206.100" cy="209.188" r="2.1" /><text class="gate-number" x="206.100" y="209.188">25</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-21" class="gate" data-state="open" data-gate="21" data-center="ego" transform="translate(238.642 0) scale(0.7142857 1) translate(-238.642 0)" tabindex="0" role="button" aria-label="Managing resources: willful management of resources and control. Unactivated in this chart; open to outside influence." data-reading="willful management of resources and control"><circle class="gate-hit" cx="238.642" cy="188.630" r="6" /><circle class="gate-marker" cx="238.642" cy="188.630" r="2.1" /><text class="gate-number" x="238.642" y="188.630">21</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-51" class="gate" data-state="open" data-gate="51" data-center="ego" transform="translate(226.333 0) scale(0.7142857 1) translate(-226.333 0)" tabindex="0" role="button" aria-label="Initiation: shock that can awaken or initiate. Activated in your natal chart through personality Mercury." data-activation="personality Mercury" data-reading="shock that can awaken or initiate"><circle class="gate-hit" cx="226.333" cy="196.703" r="6" /><circle class="gate-marker" cx="226.333" cy="196.703" r="2.1" /><text class="gate-number" x="226.333" y="196.703">51</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-26" class="gate" data-state="open" data-gate="26" data-center="ego" transform="translate(233.222 0) scale(0.7142857 1) translate(-233.222 0)" tabindex="0" role="button" aria-label="Persuasive transmission: shaping and transmitting information persuasively. Unactivated in this chart; open to outside influence." data-reading="shaping and transmitting information persuasively"><circle class="gate-hit" cx="233.222" cy="216.405" r="6" /><circle class="gate-marker" cx="233.222" cy="216.405" r="2.1" /><text class="gate-number" x="233.222" y="216.405">26</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-40" class="gate" data-state="open" data-gate="40" data-center="ego" transform="translate(255.766 0) scale(0.7142857 1) translate(-255.766 0)" tabindex="0" role="button" aria-label="Aloneness and release: work, contribution, and the need for release. Unactivated in this chart; open to outside influence." data-reading="work, contribution, and the need for release"><circle class="gate-hit" cx="255.766" cy="202.518" r="6" /><circle class="gate-marker" cx="255.766" cy="202.518" r="2.1" /><text class="gate-number" x="255.766" y="202.518">40</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-48" class="gate" data-state="open" data-gate="48" data-center="spleen" transform="translate(123.833 0) scale(0.7142857 1) translate(-123.833 0)" tabindex="0" role="button" aria-label="Depth: depth and practical resourcefulness. Activated in your natal chart through personality Uranus." data-activation="personality Uranus" data-reading="depth and practical resourcefulness"><circle class="gate-hit" cx="123.833" cy="249.077" r="6" /><circle class="gate-marker" cx="123.833" cy="249.077" r="2.1" /><text class="gate-number" x="123.833" y="249.077">48</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-57" class="gate" data-state="open" data-gate="57" data-center="spleen" transform="translate(130.405 0) scale(0.7142857 1) translate(-130.405 0)" tabindex="0" role="button" aria-label="Intuitive clarity: intuitive awareness of what is happening now. Activated in your natal chart through design Uranus." data-activation="design Uranus" data-reading="intuitive awareness of what is happening now"><circle class="gate-hit" cx="130.405" cy="243.472" r="6" /><circle class="gate-marker" cx="130.405" cy="243.472" r="2.1" /><text class="gate-number" x="130.405" y="243.472">57</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-44" class="gate" data-state="open" data-gate="44" data-center="spleen" transform="translate(143.287 0) scale(0.7142857 1) translate(-143.287 0)" tabindex="0" role="button" aria-label="Alertness to patterns: recognizing patterns from past experience. Unactivated in this chart; open to outside influence." data-reading="recognizing patterns from past experience"><circle class="gate-hit" cx="143.287" cy="251.408" r="6" /><circle class="gate-marker" cx="143.287" cy="251.408" r="2.1" /><text class="gate-number" x="143.287" y="251.408">44</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-50" class="gate" data-state="open" data-gate="50" data-center="spleen" transform="translate(155.783 0) scale(0.7142857 1) translate(-155.783 0)" tabindex="0" role="button" aria-label="Values: values and responsibility that support a community. Unactivated in this chart; open to outside influence." data-reading="values and responsibility that support a community"><circle class="gate-hit" cx="155.783" cy="259.343" r="6" /><circle class="gate-marker" cx="155.783" cy="259.343" r="2.1" /><text class="gate-number" x="155.783" y="259.343">50</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-32" class="gate" data-state="open" data-gate="32" data-center="spleen" transform="translate(142.901 0) scale(0.7142857 1) translate(-142.901 0)" tabindex="0" role="button" aria-label="Continuity: sensing what has potential to endure. Unactivated in this chart; open to outside influence." data-reading="sensing what has potential to endure"><circle class="gate-hit" cx="142.901" cy="267.279" r="6" /><circle class="gate-marker" cx="142.901" cy="267.279" r="2.1" /><text class="gate-number" x="142.901" y="267.279">32</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-28" class="gate" data-state="open" data-gate="28" data-center="spleen" transform="translate(130.018 0) scale(0.7142857 1) translate(-130.018 0)" tabindex="0" role="button" aria-label="Meaningful struggle: risking effort in search of meaning. Unactivated in this chart; open to outside influence." data-reading="risking effort in search of meaning"><circle class="gate-hit" cx="130.018" cy="275.214" r="6" /><circle class="gate-marker" cx="130.018" cy="275.214" r="2.1" /><text class="gate-number" x="130.018" y="275.214">28</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-18" class="gate" data-state="open" data-gate="18" data-center="spleen" transform="translate(123.833 0) scale(0.7142857 1) translate(-123.833 0)" tabindex="0" role="button" aria-label="Correction: noticing what could be improved. Unactivated in this chart; open to outside influence." data-reading="noticing what could be improved"><circle class="gate-hit" cx="123.833" cy="268.780" r="6" /><circle class="gate-marker" cx="123.833" cy="268.780" r="2.1" /><text class="gate-number" x="123.833" y="268.780">18</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-36" class="gate" data-state="open" data-gate="36" data-center="solar" transform="translate(236.167 0) scale(0.7142857 1) translate(-236.167 0)" tabindex="0" role="button" aria-label="Crisis and experience: emotional encounters with change and inexperience. Activated in your natal chart through design Venus." data-activation="design Venus" data-reading="emotional encounters with change and inexperience"><circle class="gate-hit" cx="236.167" cy="239.424" r="6" /><circle class="gate-marker" cx="236.167" cy="239.424" r="2.1" /><text class="gate-number" x="236.167" y="239.424">36</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-22" class="gate" data-state="open" data-gate="22" data-center="solar" transform="translate(223.284 0) scale(0.7142857 1) translate(-223.284 0)" tabindex="0" role="button" aria-label="Openness: grace and emotional openness in social encounters. Unactivated in this chart; open to outside influence." data-reading="grace and emotional openness in social encounters"><circle class="gate-hit" cx="223.284" cy="247.360" r="6" /><circle class="gate-marker" cx="223.284" cy="247.360" r="2.1" /><text class="gate-number" x="223.284" y="247.360">22</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-37" class="gate" data-state="open" data-gate="37" data-center="solar" transform="translate(210.402 0) scale(0.7142857 1) translate(-210.402 0)" tabindex="0" role="button" aria-label="Community: bonds, support, and agreements within community. Unactivated in this chart; open to outside influence." data-reading="bonds, support, and agreements within community"><circle class="gate-hit" cx="210.402" cy="255.295" r="6" /><circle class="gate-marker" cx="210.402" cy="255.295" r="2.1" /><text class="gate-number" x="210.402" y="255.295">37</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-6" class="gate" data-state="open" data-gate="6" data-center="solar" transform="translate(210.528 0) scale(0.7142857 1) translate(-210.528 0)" tabindex="0" role="button" aria-label="Friction: emotional boundaries and the conditions for intimacy. Unactivated in this chart; open to outside influence." data-reading="emotional boundaries and the conditions for intimacy"><circle class="gate-hit" cx="210.528" cy="263.231" r="6" /><circle class="gate-marker" cx="210.528" cy="263.231" r="2.1" /><text class="gate-number" x="210.528" y="263.231">6</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-49" class="gate" data-state="open" data-gate="49" data-center="solar" transform="translate(223.410 0) scale(0.7142857 1) translate(-223.410 0)" tabindex="0" role="button" aria-label="Principles and change: principles that can lead to emotional change. Unactivated in this chart; open to outside influence." data-reading="principles that can lead to emotional change"><circle class="gate-hit" cx="223.410" cy="271.166" r="6" /><circle class="gate-marker" cx="223.410" cy="271.166" r="2.1" /><text class="gate-number" x="223.410" y="271.166">49</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-55" class="gate" data-state="open" data-gate="55" data-center="solar" transform="translate(236.167 0) scale(0.7142857 1) translate(-236.167 0)" tabindex="0" role="button" aria-label="Spirit: emotional spirit and a sense of abundance or lack. Unactivated in this chart; open to outside influence." data-reading="emotional spirit and a sense of abundance or lack"><circle class="gate-hit" cx="236.167" cy="278.831" r="6" /><circle class="gate-marker" cx="236.167" cy="278.831" r="2.1" /><text class="gate-number" x="236.167" y="278.831">55</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-30" class="gate" data-state="open" data-gate="30" data-center="solar" transform="translate(236.167 0) scale(0.7142857 1) translate(-236.167 0)" tabindex="0" role="button" aria-label="Desire: emotional desire for experience. Unactivated in this chart; open to outside influence." data-reading="emotional desire for experience"><circle class="gate-hit" cx="236.167" cy="259.128" r="6" /><circle class="gate-marker" cx="236.167" cy="259.128" r="2.1" /><text class="gate-number" x="236.167" y="259.128">30</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-5" class="gate" data-state="open" data-gate="5" data-center="sacral" transform="translate(170.270 0) scale(0.7142857 1) translate(-170.270 0)" tabindex="0" role="button" aria-label="Fixed rhythms: reliable patterns and timing. Unactivated in this chart; open to outside influence." data-reading="reliable patterns and timing"><circle class="gate-hit" cx="170.270" cy="252.218" r="6" /><circle class="gate-marker" cx="170.270" cy="252.218" r="2.1" /><text class="gate-number" x="170.270" y="252.218">5</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-14" class="gate" data-state="open" data-gate="14" data-center="sacral" transform="translate(183.984 0) scale(0.7142857 1) translate(-183.984 0)" tabindex="0" role="button" aria-label="Resources and skills: power, skills, and resources directed toward a path. Unactivated in this chart; open to outside influence." data-reading="power, skills, and resources directed toward a path"><circle class="gate-hit" cx="183.984" cy="252.218" r="6" /><circle class="gate-marker" cx="183.984" cy="252.218" r="2.1" /><text class="gate-number" x="183.984" y="252.218">14</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-29" class="gate" data-state="open" data-gate="29" data-center="sacral" transform="translate(195.429 0) scale(0.7142857 1) translate(-195.429 0)" tabindex="0" role="button" aria-label="Commitment: commitment to experiences and discovering through them. Unactivated in this chart; open to outside influence." data-reading="commitment to experiences and discovering through them"><circle class="gate-hit" cx="195.429" cy="255.396" r="6" /><circle class="gate-marker" cx="195.429" cy="255.396" r="2.1" /><text class="gate-number" x="195.429" y="255.396">29</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-59" class="gate" data-state="open" data-gate="59" data-center="sacral" transform="translate(195.429 0) scale(0.7142857 1) translate(-195.429 0)" tabindex="0" role="button" aria-label="Intimacy: breaking barriers to intimacy and connection. Unactivated in this chart; open to outside influence." data-reading="breaking barriers to intimacy and connection"><circle class="gate-hit" cx="195.429" cy="274.596" r="6" /><circle class="gate-marker" cx="195.429" cy="274.596" r="2.1" /><text class="gate-number" x="195.429" y="274.596">59</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-9" class="gate" data-state="open" data-gate="9" data-center="sacral" transform="translate(195.429 0) scale(0.7142857 1) translate(-195.429 0)" tabindex="0" role="button" aria-label="Focused detail: concentration on small details. Unactivated in this chart; open to outside influence." data-reading="concentration on small details"><circle class="gate-hit" cx="195.429" cy="293.796" r="6" /><circle class="gate-marker" cx="195.429" cy="293.796" r="2.1" /><text class="gate-number" x="195.429" y="293.796">9</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-3" class="gate" data-state="open" data-gate="3" data-center="sacral" transform="translate(182.873 0) scale(0.7142857 1) translate(-182.873 0)" tabindex="0" role="button" aria-label="Ordering beginnings: bringing order and mutation to new beginnings. Activated in your natal chart through design Mars." data-activation="design Mars" data-reading="bringing order and mutation to new beginnings"><circle class="gate-hit" cx="182.873" cy="295.418" r="6" /><circle class="gate-marker" cx="182.873" cy="295.418" r="2.1" /><text class="gate-number" x="182.873" y="295.418">3</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-42" class="gate" data-state="open" data-gate="42" data-center="sacral" transform="translate(169.159 0) scale(0.7142857 1) translate(-169.159 0)" tabindex="0" role="button" aria-label="Growth: growth through completing a cycle. Unactivated in this chart; open to outside influence." data-reading="growth through completing a cycle"><circle class="gate-hit" cx="169.159" cy="295.418" r="6" /><circle class="gate-marker" cx="169.159" cy="295.418" r="2.1" /><text class="gate-number" x="169.159" y="295.418">42</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-27" class="gate" data-state="open" data-gate="27" data-center="sacral" transform="translate(164.571 0) scale(0.7142857 1) translate(-164.571 0)" tabindex="0" role="button" aria-label="Caring: nurturing and responsibility for well-being. Unactivated in this chart; open to outside influence." data-reading="nurturing and responsibility for well-being"><circle class="gate-hit" cx="164.571" cy="282.641" r="6" /><circle class="gate-marker" cx="164.571" cy="282.641" r="2.1" /><text class="gate-number" x="164.571" y="282.641">27</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-34" class="gate" data-state="open" data-gate="34" data-center="sacral" transform="translate(164.571 0) scale(0.7142857 1) translate(-164.571 0)" tabindex="0" role="button" aria-label="Power: sacral power for action. Activated in your natal chart through personality Neptune anddesign Neptune." data-activation="personality Neptune,design Neptune" data-reading="sacral power for action"><circle class="gate-hit" cx="164.571" cy="263.441" r="6" /><circle class="gate-marker" cx="164.571" cy="263.441" r="2.1" /><text class="gate-number" x="164.571" y="263.441">34</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-53" class="gate" data-state="open" data-gate="53" data-center="root" transform="translate(167.429 0) scale(0.7142857 1) translate(-167.429 0)" tabindex="0" role="button" aria-label="Beginnings: pressure to begin a developmental cycle. Unactivated in this chart; open to outside influence." data-reading="pressure to begin a developmental cycle"><circle class="gate-hit" cx="167.429" cy="309.267" r="6" /><circle class="gate-marker" cx="167.429" cy="309.267" r="2.1" /><text class="gate-number" x="167.429" y="309.267">53</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-60" class="gate" data-state="open" data-gate="60" data-center="root" transform="translate(180.000 0) scale(0.7142857 1) translate(-180.000 0)" tabindex="0" role="button" aria-label="Limitation: limits that shape the possibility of change. Activated in your natal chart through personality North Node." data-activation="personality North Node" data-reading="limits that shape the possibility of change"><circle class="gate-hit" cx="180.000" cy="309.267" r="6" /><circle class="gate-marker" cx="180.000" cy="309.267" r="2.1" /><text class="gate-number" x="180.000" y="309.267">60</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-52" class="gate" data-state="open" data-gate="52" data-center="root" transform="translate(192.572 0) scale(0.7142857 1) translate(-192.572 0)" tabindex="0" role="button" aria-label="Stillness: stillness and concentration. Unactivated in this chart; open to outside influence." data-reading="stillness and concentration"><circle class="gate-hit" cx="192.572" cy="309.267" r="6" /><circle class="gate-marker" cx="192.572" cy="309.267" r="2.1" /><text class="gate-number" x="192.572" y="309.267">52</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-19" class="gate" data-state="open" data-gate="19" data-center="root" transform="translate(194.144 0) scale(0.7142857 1) translate(-194.144 0)" tabindex="0" role="button" aria-label="Sensitivity to needs: sensitivity to needs, resources, and closeness. Activated in your natal chart through design Mercury." data-activation="design Mercury" data-reading="sensitivity to needs, resources, and closeness"><circle class="gate-hit" cx="194.144" cy="324.667" r="6" /><circle class="gate-marker" cx="194.144" cy="324.667" r="2.1" /><text class="gate-number" x="194.144" y="324.667">19</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-39" class="gate" data-state="open" data-gate="39" data-center="root" transform="translate(194.144 0) scale(0.7142857 1) translate(-194.144 0)" tabindex="0" role="button" aria-label="Provocation: provoking feeling or spirit into expression. Unactivated in this chart; open to outside influence." data-reading="provoking feeling or spirit into expression"><circle class="gate-hit" cx="194.144" cy="342.267" r="6" /><circle class="gate-marker" cx="194.144" cy="342.267" r="2.1" /><text class="gate-number" x="194.144" y="342.267">39</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-41" class="gate" data-state="open" data-gate="41" data-center="root" transform="translate(186.286 0) scale(0.7142857 1) translate(-186.286 0)" tabindex="0" role="button" aria-label="Contraction: contraction into a focused possibility or beginning. Activated in your natal chart through design North Node." data-activation="design North Node" data-reading="contraction into a focused possibility or beginning"><circle class="gate-hit" cx="186.286" cy="348.867" r="6" /><circle class="gate-marker" cx="186.286" cy="348.867" r="2.1" /><text class="gate-number" x="186.286" y="348.867">41</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-58" class="gate" data-state="open" data-gate="58" data-center="root" transform="translate(173.715 0) scale(0.7142857 1) translate(-173.715 0)" tabindex="0" role="button" aria-label="Vitality: joyful vitality and the drive to improve. Activated in your natal chart through personality Jupiter." data-activation="personality Jupiter" data-reading="joyful vitality and the drive to improve"><circle class="gate-hit" cx="173.715" cy="348.867" r="6" /><circle class="gate-marker" cx="173.715" cy="348.867" r="2.1" /><text class="gate-number" x="173.715" y="348.867">58</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-38" class="gate" data-state="open" data-gate="38" data-center="root" transform="translate(165.857 0) scale(0.7142857 1) translate(-165.857 0)" tabindex="0" role="button" aria-label="Struggle: resisting what feels meaningless. Unactivated in this chart; open to outside influence." data-reading="resisting what feels meaningless"><circle class="gate-hit" cx="165.857" cy="342.267" r="6" /><circle class="gate-marker" cx="165.857" cy="342.267" r="2.1" /><text class="gate-number" x="165.857" y="342.267">38</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g id="gate-54" class="gate" data-state="open" data-gate="54" data-center="root" transform="translate(165.857 0) scale(0.7142857 1) translate(-165.857 0)" tabindex="0" role="button" aria-label="Ambition: drive toward advancement and transformation. Unactivated in this chart; open to outside influence." data-reading="drive toward advancement and transformation"><circle class="gate-hit" cx="165.857" cy="324.667" r="6" /><circle class="gate-marker" cx="165.857" cy="324.667" r="2.1" /><text class="gate-number" x="165.857" y="324.667">54</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+</g></g><g id="svg-tooltip" class="svg-tooltip" aria-hidden="true"><rect/><text/></g><script href="transit-data.js?family-circle-108-20261019"></script><script><![CDATA[(function(){
+const svg=document.currentScript.ownerSVGElement;
+const interactive='.gate, .channel-group, .center';
+const flowControl=svg.getElementById('flow-control');
+const tooltip=svg.getElementById('svg-tooltip');
+const tooltipRect=tooltip.querySelector('rect');
+const tooltipText=tooltip.querySelector('text');
+function hideTooltip(){tooltip.classList.remove('is-visible');tooltip.setAttribute('aria-hidden','true');}
+function showTooltip(item,event){
+ let detail=item.getAttribute('data-tooltip')||item.getAttribute('aria-label')||'';if(!detail)return;
+ if(item.matches('.gate[data-transit-planets]'))detail+=` Current transit activation: ${item.dataset.transitPlanets}.`;
+ if(item.matches('.channel-group[data-transit-channel]'))detail+=' Both gates are activated by the current transits.';
+ const reference=item.matches('.gate')?`Gate ${item.dataset.gate}`:`Channel ${item.dataset.channel}`;
+ const words=(reference+' '+detail).split(/\s+/),lines=[];let line='';
+ words.forEach(word=>{const candidate=line?line+' '+word:word;if(candidate.length>42&&line){lines.push(line);line=word;}else line=candidate;});if(line)lines.push(line);
+ while(tooltipText.firstChild)tooltipText.removeChild(tooltipText.firstChild);
+ lines.forEach((value,index)=>{const span=document.createElementNS('http://www.w3.org/2000/svg','tspan');span.setAttribute('x','0');span.setAttribute('dy',index?'8':'0');span.textContent=value;tooltipText.appendChild(span);});
+ const width=190,height=12+lines.length*8;tooltipRect.setAttribute('width',width);tooltipRect.setAttribute('height',height);tooltipText.setAttribute('transform','translate(6 9)');
+ let screenX,screenY;if(event.type==='focusin'){const box=item.getBoundingClientRect();screenX=box.left+box.width/2;screenY=box.top+box.height/2;}else{screenX=event.clientX;screenY=event.clientY;}
+ const bounds=svg.getBoundingClientRect();let anchorX=(screenX-bounds.left)*360/(bounds.width||360),anchorY=(screenY-bounds.top)*360/(bounds.height||360);
+ if(!Number.isFinite(anchorX))anchorX=180;if(!Number.isFinite(anchorY))anchorY=180;
+ const margin=8,maxX=360-width-margin,maxY=360-height-margin;const x=maxX;let y=anchorY+12;
+ if(y>maxY)y=anchorY-height-12;y=Math.max(margin,Math.min(maxY,y));
+ tooltip.setAttribute('transform',`translate(${x} ${y})`);tooltip.classList.add('is-visible');tooltip.setAttribute('aria-hidden','false');
+}
+let showAllFlow=false;
+function reverseCubic(d){const m=d.match(/^M\s*(-?[\d.]+),(-?[\d.]+)\s*C\s*(-?[\d.]+),(-?[\d.]+)\s+(-?[\d.]+),(-?[\d.]+)\s+(-?[\d.]+),(-?[\d.]+)$/);if(!m)return d;const [x0,y0,x1,y1,x2,y2,x3,y3]=m.slice(1);return `M${x3},${y3} C${x2},${y2} ${x1},${y1} ${x0},${y0}`;}
+function orientChannelPaths(){
+ const matrixPoint=(marker,group)=>{const point=svg.createSVGPoint();point.x=Number(marker.getAttribute('cx'));point.y=Number(marker.getAttribute('cy'));return point.matrixTransform(group.getCTM().inverse().multiply(marker.getCTM()));};
+ svg.querySelectorAll('.channel-group').forEach(group=>{
+  const base=group.querySelector('.channel');if(!base)return;
+  const from=svg.getElementById('gate-'+group.dataset.from),to=svg.getElementById('gate-'+group.dataset.to);if(!from||!to)return;
+  const fm=from.querySelector('.gate-marker'),tm=to.querySelector('.gate-marker');if(!fm||!tm)return;
+  const fp=matrixPoint(fm,group),tp=matrixPoint(tm,group),length=base.getTotalLength();
+  const a=base.getPointAtLength(0),b=base.getPointAtLength(length);
+  const startIsFrom=Math.hypot(a.x-fp.x,a.y-fp.y)<=Math.hypot(b.x-fp.x,b.y-fp.y);
+  if(!startIsFrom)group.querySelectorAll('.channel,.channel-highlight,.channel-flow,.channel-hit').forEach(path=>path.setAttribute('d',reverseCubic(path.getAttribute('d'))));
+ });
+}
+orientChannelPaths();
+function addFlowDots(){
+ if(window.matchMedia('(prefers-reduced-motion: reduce)').matches)return;
+ const ns='http://www.w3.org/2000/svg';
+ svg.querySelectorAll('.channel-group').forEach(group=>{
+  const paths=[group.querySelector('.channel-flow')];
+  paths.forEach(path=>{if(!path)return;const dot=document.createElementNS(ns,'circle');dot.setAttribute('class','flow-dot flow-forward');dot.setAttribute('r','1.45');const motion=document.createElementNS(ns,'animateMotion');motion.setAttribute('dur','2.6s');motion.setAttribute('repeatCount','indefinite');motion.setAttribute('path',path.getAttribute('d'));dot.appendChild(motion);group.appendChild(dot);});
+ });
+}
+addFlowDots();
+function syncFlow(){svg.querySelectorAll('.channel-group').forEach(ch=>ch.classList.toggle('is-flowing',ch.dataset.defined==='true'&&(showAllFlow||ch.classList.contains('is-active'))));flowControl.setAttribute('aria-pressed',String(showAllFlow));flowControl.querySelector('text').textContent=showAllFlow?'Ⅱ  Pause flow':'▶  Flow';}
+function updateChartState(){
+ const activeCenters=new Set();
+ svg.querySelectorAll('.gate').forEach(gate=>{
+  const active=gate.dataset.state==='closed';gate.setAttribute('aria-pressed',String(active));
+  const activation=gate.dataset.activation?` Natal activation: ${gate.dataset.activation}.`:'';
+  gate.setAttribute('aria-label',`Gate ${gate.dataset.gate}: ${gate.dataset.reading||'gate activation'}. ${active?'Activated.':'Inactive.'}${activation} Click or press Enter to ${active?'deactivate':'activate'} this gate.`);
+ });
+ svg.querySelectorAll('.channel-group').forEach(channel=>{
+  const from=svg.getElementById('gate-'+channel.dataset.from),to=svg.getElementById('gate-'+channel.dataset.to);
+  const fromActive=from?.dataset.state==='closed',toActive=to?.dataset.state==='closed';
+  const defined=fromActive&&toActive,incomplete=fromActive||toActive;
+  channel.dataset.defined=String(defined);
+  channel.setAttribute('aria-label',`Channel ${channel.dataset.channel}: ${defined?'defined; both endpoint gates are activated.':incomplete?'incomplete; one endpoint gate is activated.':'open; neither endpoint gate is activated.'}`);
+  if(defined){activeCenters.add(from.dataset.center);activeCenters.add(to.dataset.center);}
+ });
+ svg.querySelectorAll('.center').forEach(center=>center.dataset.defined=String(activeCenters.has(center.dataset.center)));
+ syncFlow();
+}
+function toggleGate(gate){gate.dataset.state=gate.dataset.state==='closed'?'open':'closed';updateChartState();}
+function toggleFlow(){showAllFlow=!showAllFlow;syncFlow();}
+flowControl.addEventListener('click',toggleFlow);
+flowControl.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleFlow();}});
+function clear(){svg.querySelectorAll('.is-active,.is-related').forEach(el=>el.classList.remove('is-active','is-related'));syncFlow();}
+function activate(el){
+ clear();
+ if(!el)return;
+ let channels=el.matches('.channel-group')?[el]:Array.from(svg.querySelectorAll('.channel-group')).filter(ch=>ch.dataset.from===el.dataset.gate||ch.dataset.to===el.dataset.gate);
+ if(el.matches('.channel-group[data-network]'))channels=Array.from(svg.querySelectorAll('.channel-group')).filter(ch=>ch.dataset.network===el.dataset.network);
+ const gateIds=new Set();
+ channels.forEach(ch=>{ch.classList.add('is-active');gateIds.add(ch.dataset.from);gateIds.add(ch.dataset.to);});syncFlow();
+ gateIds.forEach(id=>{const gate=svg.getElementById('gate-'+id);if(gate)gate.classList.add(el.id==='gate-'+id?'is-active':'is-related');});
+ svg.querySelectorAll('.center').forEach(center=>{if(Array.from(gateIds).some(id=>svg.getElementById('gate-'+id)?.dataset.center===center.dataset.center))center.classList.add('is-active');});
+}
+function fromTarget(target){return target instanceof Element?target.closest(interactive):null;}
+function updateZoomLabels(){const zoom=svg.getScreenCTM()?.a||1;svg.querySelectorAll('.gate-number').forEach(label=>label.classList.toggle('is-zoomed',zoom>=3));}
+updateZoomLabels();window.addEventListener('resize',updateZoomLabels);window.CastaliaHumanDesignTransit?.installSvg(svg);updateChartState();
+svg.addEventListener('click',event=>{const gate=event.target instanceof Element?event.target.closest('.gate'):null;if(gate){event.stopPropagation();toggleGate(gate);showTooltip(gate,event);}});
+svg.addEventListener('keydown',event=>{const gate=event.target instanceof Element?event.target.closest('.gate'):null;if(gate&&(event.key==='Enter'||event.key===' ')){event.preventDefault();event.stopPropagation();toggleGate(gate);showTooltip(gate,{type:'focusin'});}});
+svg.addEventListener('pointerover',event=>{const item=fromTarget(event.target);if(item){activate(item);showTooltip(item,event);}});
+svg.addEventListener('pointerout',event=>{const item=fromTarget(event.target);if(item&&!item.contains(event.relatedTarget)){const next=fromTarget(event.relatedTarget);if(next){activate(next);showTooltip(next,event);}else{clear();hideTooltip();}}});
+svg.addEventListener('focusin',event=>{const item=fromTarget(event.target);if(item){activate(item);showTooltip(item,event);}});
+svg.addEventListener('focusout',event=>{if(!fromTarget(event.relatedTarget)){clear();hideTooltip();}else{const next=fromTarget(event.relatedTarget);activate(next);showTooltip(next,event);}});
+})();]]></script></svg>

@@ -8,6 +8,8 @@ on:
     paths:
       - "config/release_variants.csv"
       - "docs/**"
+      - "humandesign/**"
+      - "assets/human-design/bodygraph.svg"
       - "astrolabe185b/pythia_sd/**"
       - "platformio.ini"
       - "scripts/build.sh"
@@ -126,6 +128,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Publish Human Design BodyGraph page
+        run: |
+          mkdir -p docs/humandesign docs/assets/human-design
+          cp humandesign/index.html docs/humandesign/index.html
+          cp assets/human-design/bodygraph.svg docs/assets/human-design/bodygraph.svg
       - uses: actions/configure-pages@v5
       - name: Stage Pythia page
         # astrolabe185b/pythia_sd/index.html is the single source for both the
