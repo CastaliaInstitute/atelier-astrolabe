@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 360" width="360" height="360" role="img" aria-labelledby="title desc">
-<title id="title">Human Design BodyGraph Template</title><desc id="desc">Generic BodyGraph geometry. No personal birth data or activations are included.</desc>
+<title id="title">Human Design BodyGraph Template</title><desc id="desc">Generic BodyGraph geometry. Tap gates to activate them; pinch with two fingers to zoom and pan. No personal birth data or activations are included.</desc>
 <defs><filter id="highlight-glow" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="1.2" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter><filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="1.5" stdDeviation="2" flood-color="#5f543d" flood-opacity=".18"/></filter><marker id="channel-arrow" viewBox="0 0 6 6" refX="5" refY="3" markerWidth="3.2" markerHeight="3.2" orient="auto" markerUnits="userSpaceOnUse"><path d="M0 0 L6 3 L0 6 Z" fill="context-stroke"/></marker><marker id="channel-arrow-highlight" viewBox="0 0 6 6" refX="5" refY="3" markerWidth="3.6" markerHeight="3.6" orient="auto" markerUnits="userSpaceOnUse"><path d="M0 0 L6 3 L0 6 Z" fill="#ffc64d"/></marker></defs>
 <style>
 .canvas{fill:#efefe2}.halo{fill:#e6e3cf;opacity:.52}.center-shape{stroke:#fff7e6;stroke-width:2.5;stroke-linejoin:round;filter:url(#shadow);vector-effect:non-scaling-stroke}.channel{fill:none;stroke-width:1.15;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke;opacity:.82}.channel-highlight{fill:none;stroke:#ffc64d;stroke-width:.65;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke;opacity:0;pointer-events:none}.channel-group.is-active .channel-highlight,.channel-group:hover .channel-highlight,.channel-group:focus-visible .channel-highlight{opacity:1}.channel-group{cursor:pointer;outline:none}.channel-group:focus,.gate:focus,.flow-control:focus{outline:none}.channel-hit{fill:none;stroke:transparent;stroke-width:8;pointer-events:stroke}.gate{cursor:pointer}.gate-hit{fill:transparent;stroke:transparent;pointer-events:all}.gate-marker{fill:#f8f4e7;stroke:none!important;pointer-events:none}.gate-number{display:none;fill:#28251f;font:3.2px sans-serif;text-anchor:middle;dominant-baseline:central;pointer-events:none}.gate-number.is-zoomed{display:block}.gate[data-state="open"] .gate-marker{fill:#f8f4e7}.gate[data-state="closed"] .gate-marker{fill:#f5a742}.gate:hover .gate-marker,.gate:focus-visible .gate-marker,.gate.is-active .gate-marker,.gate.is-related .gate-marker{stroke:#302719;stroke-width:1.5}.center{cursor:help}.center[data-defined="false"] .center-shape{stroke:#f5a742;stroke-width:3.2}.center.is-active .center-shape{stroke:#ffd05c;stroke-width:4}
@@ -1621,6 +1621,7 @@
 
 </g></g><g id="svg-tooltip" class="svg-tooltip" aria-hidden="true"><rect/><text/></g><script href="transit-data.js?family-circle-108-20261019"></script><script><![CDATA[(function(){
 const svg=document.currentScript.ownerSVGElement;
+svg.style.touchAction='none';
 const interactive='.gate, .channel-group, .center';
 const flowControl=svg.getElementById('flow-control');
 const tooltip=svg.getElementById('svg-tooltip');
@@ -1703,9 +1704,52 @@ function activate(el){
  svg.querySelectorAll('.center').forEach(center=>{if(Array.from(gateIds).some(id=>svg.getElementById('gate-'+id)?.dataset.center===center.dataset.center))center.classList.add('is-active');});
 }
 function fromTarget(target){return target instanceof Element?target.closest(interactive):null;}
-function updateZoomLabels(){const zoom=svg.getScreenCTM()?.a||1;svg.querySelectorAll('.gate-number').forEach(label=>label.classList.toggle('is-zoomed',zoom>=3));}
+function updateZoomLabels(){const zoom=360/(svg.viewBox.baseVal.width||360);svg.querySelectorAll('.gate-number').forEach(label=>label.classList.toggle('is-zoomed',zoom>=3));}
 updateZoomLabels();window.addEventListener('resize',updateZoomLabels);window.CastaliaHumanDesignTransit?.installSvg(svg);updateChartState();
-svg.addEventListener('click',event=>{const gate=event.target instanceof Element?event.target.closest('.gate'):null;if(gate){event.stopPropagation();toggleGate(gate);showTooltip(gate,event);}});
+const touchPoints=new Map();let pinch=null,suppressClickUntil=0;
+function midpoint(a,b){return{x:(a.x+b.x)/2,y:(a.y+b.y)/2};}
+function distance(a,b){return Math.hypot(a.x-b.x,a.y-b.y);}
+function clamp(value,min,max){return Math.max(min,Math.min(max,value));}
+function beginPinch(){
+ const points=[...touchPoints.values()];if(points.length!==2)return;
+ const box=svg.viewBox.baseVal,rect=svg.getBoundingClientRect(),mid=midpoint(points[0],points[1]);
+ pinch={startDistance:distance(points[0],points[1]),startBox:{x:box.x,y:box.y,width:box.width,height:box.height},startMid:mid,rect:{left:rect.left,top:rect.top,width:rect.width,height:rect.height},didZoom:false};
+ hideTooltip();
+}
+function applyPinch(){
+ if(!pinch||touchPoints.size<2)return;
+ const points=[...touchPoints.values()],mid=midpoint(points[0],points[1]),currentDistance=distance(points[0],points[1]);
+ if(pinch.startDistance<1||currentDistance<1)return;
+ const factor=pinch.startDistance/currentDistance,base=pinch.startBox;
+ const width=clamp(base.width*factor,60,360),height=clamp(base.height*factor,60,360);
+ const fractionX=clamp((pinch.startMid.x-pinch.rect.left)/pinch.rect.width,0,1),fractionY=clamp((pinch.startMid.y-pinch.rect.top)/pinch.rect.height,0,1);
+ const deltaX=(mid.x-pinch.startMid.x)*base.width/pinch.rect.width,deltaY=(mid.y-pinch.startMid.y)*base.height/pinch.rect.height;
+ const anchorX=base.x+fractionX*base.width+deltaX,anchorY=base.y+fractionY*base.height+deltaY;
+ const x=clamp(anchorX-fractionX*width,0,360-width),y=clamp(anchorY-fractionY*height,0,360-height);
+ svg.setAttribute('viewBox',`${x} ${y} ${width} ${height}`);
+ if(Math.abs(width-base.width)>2)pinch.didZoom=true;
+ if(pinch.didZoom){suppressClickUntil=Date.now()+500;updateZoomLabels();}
+}
+svg.addEventListener('pointerdown',event=>{
+ if(event.pointerType!=='touch')return;
+ touchPoints.set(event.pointerId,{x:event.clientX,y:event.clientY});
+ try{svg.setPointerCapture(event.pointerId);}catch{}
+ if(touchPoints.size===2)beginPinch();
+ if(touchPoints.size>1){event.preventDefault();event.stopPropagation();}
+});
+svg.addEventListener('pointermove',event=>{
+ if(!touchPoints.has(event.pointerId))return;
+ touchPoints.set(event.pointerId,{x:event.clientX,y:event.clientY});
+ if(pinch){event.preventDefault();event.stopPropagation();applyPinch();}
+});
+function endTouchPointer(event){
+ if(!touchPoints.has(event.pointerId))return;
+ touchPoints.delete(event.pointerId);
+ if(pinch?.didZoom)suppressClickUntil=Date.now()+500;
+ pinch=null;
+}
+svg.addEventListener('pointerup',endTouchPointer);svg.addEventListener('pointercancel',endTouchPointer);
+svg.addEventListener('click',event=>{if(Date.now()<suppressClickUntil){event.preventDefault();event.stopImmediatePropagation();return;}const gate=event.target instanceof Element?event.target.closest('.gate'):null;if(gate){event.stopPropagation();toggleGate(gate);showTooltip(gate,event);}});
 svg.addEventListener('keydown',event=>{const gate=event.target instanceof Element?event.target.closest('.gate'):null;if(gate&&(event.key==='Enter'||event.key===' ')){event.preventDefault();event.stopPropagation();toggleGate(gate);showTooltip(gate,{type:'focusin'});}});
 svg.addEventListener('pointerover',event=>{const item=fromTarget(event.target);if(item){activate(item);showTooltip(item,event);}});
 svg.addEventListener('pointerout',event=>{const item=fromTarget(event.target);if(item&&!item.contains(event.relatedTarget)){const next=fromTarget(event.relatedTarget);if(next){activate(next);showTooltip(next,event);}else{clear();hideTooltip();}}});
